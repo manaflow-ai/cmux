@@ -1,0 +1,133 @@
+public import CoreGraphics
+import Foundation
+import IOSurface
+
+/// The real ``SimulatorHIDSending`` and the source of live simulator screens:
+/// SimulatorKit loaded from the active Xcode, in the app process. One input
+/// transport per booted simulator, opened on first use.
+///
+/// In-process on purpose (plans/cmux-next/simulators-DESIGN.md): every private
+/// call is checked with `respondsToSelector:` first, so a changed Xcode turns
+/// the live screen off (the tab falls back to `simctl` still frames) instead
+/// of crashing. Classic cmux's worker process, pipe protocol and supervision
+/// cost far more than they protected.
+@MainActor
+public final class SimulatorKitHID: SimulatorHIDSending {
+    private let runtime: SimulatorKitRuntime
+    private let clock: any Clock<Duration>
+    private var transports: [String: SimulatorHIDTransport] = [:]
+    private var screens: [String: SimulatorScreenSource] = [:]
+
+    /// - Parameters:
+    ///   - developerDirectory: the active Xcode's Developer folder (`xcode-select -p`).
+    ///   - clock: paces touch events; tests pass a virtual clock.
+    public init(developerDirectory: String, clock: any Clock<Duration> = ContinuousClock()) {
+        runtime = SimulatorKitRuntime(developerDirectory: developerDirectory)
+        self.clock = clock
+    }
+
+    /// The active Xcode's Developer folder: `DEVELOPER_DIR`, else `xcode-select -p`. Nil without Xcode.
+    public nonisolated static func activeDeveloperDirectory(runner: any PhoneCommandRunning = PhoneProcessRunner(launcher: nil)) async -> String? {
+        if let dir = ProcessInfo.processInfo.environment["DEVELOPER_DIR"], !dir.isEmpty { return dir }
+        guard let result = try? await runner.run(["/usr/bin/xcode-select", "-p"], stdin: nil, deadline: .seconds(10)),
+              result.status == 0 else { return nil }
+        let dir = String(decoding: result.stdout, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+        return dir.isEmpty ? nil : dir
+    }
+
+    /// Whether this Xcode's SimulatorKit loads (live screens and input work).
+    public func isAvailable() -> Bool {
+        (try? runtime.load()) != nil
+    }
+
+    // MARK: SimulatorHIDSending
+
+    public func screenSize(of udid: String) async throws -> CGSize {
+        let device = try runtime.device(udid)
+        let scale = privateObject(device, "deviceType").flatMap { privateNumber($0, "mainScreenScale") } ?? 0
+        // The live surface is in the displayed orientation; the device type's size is portrait only.
+        if let surface = screens[udid]?.surface, scale > 0 {
+            return CGSize(width: Double(IOSurfaceGetWidth(surface)) / scale, height: Double(IOSurfaceGetHeight(surface)) / scale)
+        }
+        guard scale > 0, let pixels = privateObject(device, "deviceType").flatMap({ privateSize($0, "mainScreenSize") }) else {
+            throw PhoneError.unreadable(what: "the simulator's screen size")
+        }
+        return CGSize(width: pixels.width / scale, height: pixels.height / scale)
+    }
+
+    public func send(touches: [PhoneTouch], to udid: String) async throws {
+        let transport = try transport(udid)
+        var previous = Duration.zero
+        for touch in touches {
+            if touch.offset > previous {
+                // concurrency-allow: a bounded, intended delay that paces a gesture's events at their planned offsets (injected clock).
+                // wakeup-allow: runs only during a gesture an agent or person asked for, never while idle.
+                try await clock.sleep(for: touch.offset - previous, tolerance: nil)
+                previous = touch.offset
+            }
+            try transport.touch(touch.phase, x: touch.x, y: touch.y)
+        }
+    }
+
+    public func send(keys: [PhoneKeyStroke], to udid: String) async throws {
+        let transport = try transport(udid)
+        for stroke in keys {
+            if stroke.command { try transport.key(0xE3, down: true) }
+            if stroke.shift { try transport.key(0xE1, down: true) }
+            try transport.key(stroke.usage, down: true)
+            try transport.key(stroke.usage, down: false)
+            if stroke.shift { try transport.key(0xE1, down: false) }
+            if stroke.command { try transport.key(0xE3, down: false) }
+            // concurrency-allow: a bounded, intended 8 ms gap so the guest's key repeat logic sees separate presses (injected clock).
+            // wakeup-allow: runs only while typing text that was asked for, never while idle.
+            try await clock.sleep(for: .milliseconds(8), tolerance: nil)
+        }
+    }
+
+    public func press(page: UInt32, usage: UInt32, on udid: String) async throws {
+        let transport = try transport(udid)
+        try transport.button(page: page, usage: usage, down: true)
+        // concurrency-allow: a bounded, intended hold; Siri needs a long press, other buttons a short one (injected clock).
+        // wakeup-allow: runs only during a button press that was asked for, never while idle.
+        try await clock.sleep(for: usage == 0xCF ? .milliseconds(300) : .milliseconds(60), tolerance: nil)
+        try transport.button(page: page, usage: usage, down: false)
+    }
+
+    // MARK: Live screens and view input
+
+    /// Starts frames for `udid` and hands each one to `onFrame`. Call ``stopScreen(_:)`` when the tab hides.
+    func startScreen(_ udid: String, onFrame: @escaping @MainActor (IOSurface) -> Void) throws {
+        let source = try screens[udid] ?? SimulatorScreenSource(device: runtime.device(udid))
+        source.onFrame = onFrame
+        try source.start()
+        screens[udid] = source
+    }
+
+    /// Stops frames for `udid`: no callbacks run until it starts again.
+    func stopScreen(_ udid: String) {
+        screens.removeValue(forKey: udid)?.stop()
+    }
+
+    /// Sends one touch at once (the tab's mouse events, already paced by the person).
+    func touchNow(_ phase: PhoneTouch.Phase, x: Double, y: Double, udid: String) throws {
+        try transport(udid).touch(phase, x: x, y: y)
+    }
+
+    /// Sends one key change at once (the tab's key events).
+    func keyNow(_ usage: UInt32, down: Bool, udid: String) throws {
+        try transport(udid).key(usage, down: down)
+    }
+
+    private func transport(_ udid: String) throws -> SimulatorHIDTransport {
+        if let known = transports[udid] { return known }
+        let made = try SimulatorHIDTransport(device: runtime.device(udid), runtime: runtime)
+        transports[udid] = made
+        return made
+    }
+
+    /// Drops the input transport (after a reboot the old XPC connection is dead).
+    func reset(_ udid: String) {
+        transports[udid] = nil
+        stopScreen(udid)
+    }
+}

@@ -4,13 +4,17 @@ public import Foundation
 /// devicectl`: both ship with Xcode, so cmux bundles nothing.
 ///
 /// Simulator: boot, screenshot, video (`.mov`), log stream, open URL,
-/// clipboard. Real device: screenshot and video (`.mp4`). Touch, keys and the
-/// live frame stream come in later phases.
+/// clipboard, appearance, location, locale, install and launch; with a
+/// ``SimulatorHIDSending`` also touches, typing and hardware buttons. Real
+/// device: screenshot and video (`.mp4`).
 public struct XcodePhoneBackend: PhoneBackend {
     private let runner: any PhoneCommandRunning
+    private let hid: (any SimulatorHIDSending)?
 
-    public init(runner: any PhoneCommandRunning = PhoneProcessRunner()) {
+    /// - Parameter hid: the simulator input path; nil leaves touch, keys and buttons off.
+    public init(runner: any PhoneCommandRunning = PhoneProcessRunner(), hid: (any SimulatorHIDSending)? = nil) {
         self.runner = runner
+        self.hid = hid
     }
 
     public func devices() async throws -> [PhoneDevice] {
@@ -26,9 +30,11 @@ public struct XcodePhoneBackend: PhoneBackend {
 
     public func capabilities(for device: PhoneDevice) -> PhoneCapabilities {
         switch device.mode {
-        case .simulator: [.boot, .screenshot, .recordVideo, .deviceLog, .openURL, .pasteboard]
+        case .simulator:
+            [.boot, .screenshot, .recordVideo, .deviceLog, .openURL, .pasteboard, .appearance, .location, .locale, .apps]
+                .union(hid == nil ? [] : [.touch, .keyboard, .buttons, .liveScreen])
         case .device: [.screenshot, .recordVideo]
-        case .virtualMachine: []
+        case .virtualMachine, .emulator, .androidDevice: []
         }
     }
 
@@ -56,7 +62,7 @@ public struct XcodePhoneBackend: PhoneBackend {
         case .device:
             _ = try await checked(["devicectl", "device", "capture", "screenshot", "--device", id.raw,
                                    "--destination", file.path, "--quiet"], name: "devicectl screenshot", deadline: .seconds(60))
-        case .virtualMachine:
+        case .virtualMachine, .emulator, .androidDevice:
             throw PhoneError.unsupported(mode: id.mode, what: "screenshot")
         }
     }
@@ -73,7 +79,7 @@ public struct XcodePhoneBackend: PhoneBackend {
         case .device:
             try await runner.start(["devicectl", "device", "capture", "screen-record", "--device", id.raw,
                                     "--destination", file.path, "--codec", "h264", "--quiet"], stdoutFile: nil)
-        case .virtualMachine:
+        case .virtualMachine, .emulator, .androidDevice:
             throw PhoneError.unsupported(mode: id.mode, what: "recording")
         }
     }
@@ -94,8 +100,71 @@ public struct XcodePhoneBackend: PhoneBackend {
             guard result.status == 0 else {
                 throw PhoneError.commandFailed(command: "simctl pbcopy", status: result.status, stderr: result.stderr)
             }
-        case .tap, .swipe, .text, .button:
-            throw PhoneError.unsupported(mode: id.mode, what: input.kind)
+        case .appearance(let appearance):
+            _ = try await checked(["simctl", "ui", id.raw, "appearance", appearance.rawValue], name: "simctl ui appearance")
+        case .location(let latitude, let longitude):
+            _ = try await checked(["simctl", "location", id.raw, "set", "\(latitude),\(longitude)"], name: "simctl location")
+        case .locale(let identifier):
+            // Apps read the global domain at launch, so a relaunched app shows the new language.
+            let language = identifier.split(whereSeparator: { $0 == "_" || $0 == "-" }).first.map(String.init) ?? identifier
+            _ = try await checked(["simctl", "spawn", id.raw, "defaults", "write", "-g", "AppleLanguages", "-array", language],
+                                  name: "simctl defaults")
+            _ = try await checked(["simctl", "spawn", id.raw, "defaults", "write", "-g", "AppleLocale", "-string", identifier],
+                                  name: "simctl defaults")
+        case .install(let app):
+            _ = try await checked(["simctl", "install", id.raw, app.path], name: "simctl install", deadline: .seconds(180))
+        case .launch(let bundleID):
+            _ = try await checked(["simctl", "launch", id.raw, bundleID], name: "simctl launch", deadline: .seconds(60))
+        case .tap(let point):
+            let hid = try requireHID(input)
+            try await hid.send(touches: try await gesture(id, hid).tap(point), to: id.raw)
+        case .swipe(let from, let to, let seconds):
+            let hid = try requireHID(input)
+            try await hid.send(touches: try await gesture(id, hid).swipe(from: from, to: to, seconds: seconds), to: id.raw)
+        case .text(let text):
+            let hid = try requireHID(input)
+            if let strokes = PhoneKeyboard().strokes(for: text) {
+                try await hid.send(keys: strokes, to: id.raw)
+            } else {
+                // No US key for some character: paste it, which types any script.
+                try await send(.pasteboard(text), to: id)
+                try await hid.send(keys: [PhoneKeyStroke(usage: 0x19, command: true)], to: id.raw)
+            }
+        case .button(let button):
+            let hid = try requireHID(input)
+            guard let usage = Self.consumerUsage(button) else {
+                throw PhoneError.unsupported(mode: id.mode, what: "the \(button.rawValue) button")
+            }
+            try await hid.press(page: 0x0C, usage: usage, on: id.raw)
+        }
+    }
+
+    public func screenPoints(_ id: PhoneDeviceID) async throws -> PhonePoint {
+        guard id.mode == .simulator, let hid else { throw PhoneError.unsupported(mode: id.mode, what: "touch") }
+        let size = try await hid.screenSize(of: id.raw)
+        return PhonePoint(x: size.width, y: size.height)
+    }
+
+    private func requireHID(_ input: PhoneInput) throws -> any SimulatorHIDSending {
+        guard let hid else { throw PhoneError.unsupported(mode: .simulator, what: input.kind) }
+        return hid
+    }
+
+    private func gesture(_ id: PhoneDeviceID, _ hid: any SimulatorHIDSending) async throws -> PhoneGesture {
+        let size = try await hid.screenSize(of: id.raw)
+        return PhoneGesture(screen: PhonePoint(x: size.width, y: size.height))
+    }
+
+    /// iOS hardware buttons as HID consumer-page usages (the Xcode 27 DTUHID
+    /// usages; the legacy Indigo path maps them back). Nil for Android-only buttons.
+    static func consumerUsage(_ button: PhoneButton) -> UInt32? {
+        switch button {
+        case .home: 0x40
+        case .lock: 0x30
+        case .siri: 0xCF
+        case .volumeUp: 0xE9
+        case .volumeDown: 0xEA
+        case .back, .appSwitch: nil
         }
     }
 

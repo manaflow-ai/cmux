@@ -2,8 +2,10 @@ public import AppKit
 import CmuxNextCompat
 
 /// The phone tab: a device picker and action bar over the phone's screen.
-/// The screen is a still frame refreshed after every change the service
-/// reports (an input, a boot, a recording); there is no timer.
+/// A booted iOS simulator shows live (its IOSurface, frames from SimulatorKit)
+/// and takes clicks, drags and typing. Other phones show a still frame
+/// refreshed after every change the service reports; there is no timer.
+/// Frames stop while the tab is hidden.
 @MainActor
 public final class PhoneTabView: NSView {
     let service: PhoneService
@@ -14,7 +16,11 @@ public final class PhoneTabView: NSView {
     let recordButton = NSButton()
     let sendButton = NSButton()
     let notesField = NSTextField()
-    let screen = NSImageView()
+    let screen = PhoneScreenView(frame: .zero)
+    /// The simulator streaming into ``screen`` now, if any.
+    private var liveUDID: String?
+    /// Where and when a touch on a still frame began (sent as one tap or swipe when it ends).
+    private var stillTouch: (point: CGPoint, time: ContinuousClock.Instant)?
     let status = NSTextField(labelWithString: "")
     private var observation: Task<Void, Never>?
     private var frameLoad: Task<Void, Never>?
@@ -44,6 +50,8 @@ public final class PhoneTabView: NSView {
     public func close() {
         observation?.cancel()
         frameLoad?.cancel()
+        stopLive()
+        screen.close()
     }
 
     /// The phone this tab shows, as the tab's restore route (`sim:<udid>`).
@@ -92,16 +100,18 @@ public final class PhoneTabView: NSView {
 
     func reloadFrame() {
         guard let device = selected, device.state.isReady else {
-            screen.image = nil
+            stopLive()
+            screen.show(image: nil)
             return
         }
+        if startLiveIfPossible(device) { return }
         frameLoad?.cancel()
         frameLoad = Task { [weak self, service] in
             do {
                 let url = try await service.frame(device.id)
                 let data = try await Self.read(url)
                 guard !Task.isCancelled, let image = NSImage(data: data) else { return }
-                self?.screen.image = image
+                self?.screen.show(image: image)
             } catch {
                 self?.show(error)
             }
@@ -117,8 +127,73 @@ public final class PhoneTabView: NSView {
     }
 
     public func select(_ id: PhoneDeviceID) {
+        if id != deviceID { stopLive() }
         deviceID = id
         syncControls()
         reloadFrame()
+    }
+}
+
+extension PhoneTabView {
+    /// Wires the screen's input and visibility to the service.
+    func connectScreen() {
+        screen.onVisibilityChange = { [weak self] visible in
+            guard let self else { return }
+            if visible { self.reloadFrame() } else { self.stopLive() }
+        }
+        screen.onTouch = { [weak self] phase, point in
+            guard let self else { return }
+            if let udid = self.liveUDID, let live = self.service.live {
+                do { try live.touchNow(phase, x: point.x, y: point.y, udid: udid) } catch { self.show(error) }
+                return
+            }
+            self.stillFrameTouch(phase, point)
+        }
+        screen.onKey = { [weak self] code, down in
+            guard let self, let udid = self.liveUDID, let live = self.service.live,
+                  let usage = PhoneKeyboard().usage(forMacKeyCode: code) else { return false }
+            do { try live.keyNow(usage, down: down, udid: udid) } catch { self.show(error) }
+            return true
+        }
+    }
+
+    /// Streams a booted simulator into the screen while the tab is visible. False when it cannot.
+    func startLiveIfPossible(_ device: PhoneDevice) -> Bool {
+        guard device.mode == .simulator, screen.isOnScreen, let live = service.live else { return false }
+        if liveUDID == device.id.raw { return true }
+        stopLive()
+        do {
+            try live.startScreen(device.id.raw) { [weak self] surface in self?.screen.show(surface: surface) }
+            liveUDID = device.id.raw
+            return true
+        } catch {
+            show(error)
+            return false
+        }
+    }
+
+    /// A still frame (Android, or iOS without SimulatorKit) takes the whole gesture at once when it ends.
+    private func stillFrameTouch(_ phase: PhoneTouch.Phase, _ point: CGPoint) {
+        guard let device = selected, service.capabilities(device).contains(.touch) else { return }
+        switch phase {
+        case .began: stillTouch = (point, .now)
+        case .moved: break
+        case .ended:
+            guard let start = stillTouch else { return }
+            stillTouch = nil
+            let elapsed = ContinuousClock.now - start.time
+            let seconds = Double(elapsed.components.seconds) + Double(elapsed.components.attoseconds) / 1e18
+            let id = device.id
+            Task { [weak self] in
+                guard let self else { return }
+                do { try await self.service.touch(from: start.point, to: point, seconds: seconds, on: id) } catch { self.show(error) }
+            }
+        }
+    }
+
+    func stopLive() {
+        guard let udid = liveUDID else { return }
+        service.live?.stopScreen(udid)
+        liveUDID = nil
     }
 }

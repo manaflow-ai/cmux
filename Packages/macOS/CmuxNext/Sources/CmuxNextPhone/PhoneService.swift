@@ -1,3 +1,4 @@
+public import CoreGraphics
 public import Foundation
 import Observation
 
@@ -15,6 +16,8 @@ public final class PhoneService {
     public private(set) var changeCount = 0
 
     public let backend: any PhoneBackend
+    /// Live simulator screens and direct input; nil when SimulatorKit is unavailable.
+    public let live: SimulatorKitHID?
     private let recorder: PhoneRecorder
     private let scratch: URL
     /// The App sets this to the Home chat.
@@ -23,8 +26,9 @@ public final class PhoneService {
     /// - Parameters:
     ///   - recordings: folder for recordings (build-scoped, from the App).
     ///   - scratch: folder for still frames and ad hoc screenshots.
-    public init(backend: any PhoneBackend, recordings: URL, scratch: URL) {
+    public init(backend: any PhoneBackend, recordings: URL, scratch: URL, live: SimulatorKitHID? = nil) {
         self.backend = backend
+        self.live = live
         recorder = PhoneRecorder(backend: backend, root: recordings)
         self.scratch = scratch
     }
@@ -32,6 +36,7 @@ public final class PhoneService {
     /// For tests: a recorder with injected clocks.
     public init(backend: any PhoneBackend, recorder: PhoneRecorder, scratch: URL) {
         self.backend = backend
+        live = nil
         self.recorder = recorder
         self.scratch = scratch
     }
@@ -87,6 +92,24 @@ public final class PhoneService {
         await recorder.note(input, on: id)
         try await backend.send(input, to: id)
         changeCount += 1
+    }
+
+    /// Sends a tap or swipe the person made on the tab's still frame, in 0...1 screen coordinates.
+    public func touch(from start: CGPoint, to end: CGPoint, seconds: Double, on id: PhoneDeviceID) async throws {
+        let size = try await backend.screenPoints(id)
+        let a = PhonePoint(x: start.x * size.x, y: start.y * size.y), b = PhonePoint(x: end.x * size.x, y: end.y * size.y)
+        // Under 2% of the screen is a tap, not a drag.
+        let moved = hypot(end.x - start.x, end.y - start.y) > 0.02
+        try await send(moved ? .swipe(from: a, to: b, seconds: max(0.1, seconds)) : .tap(a), to: id)
+    }
+
+    /// The screen's accessibility tree (frames in tap points).
+    public func accessibilityTree(_ id: PhoneDeviceID) async throws -> PhoneElement {
+        let device = try await device(id)
+        guard backend.capabilities(for: device).contains(.accessibility) else {
+            throw PhoneError.unsupported(mode: id.mode, what: "the accessibility tree")
+        }
+        return try await backend.accessibilityTree(id)
     }
 
     /// Saves a PNG of `id`'s screen to `file` (a new scratch file when nil) and returns its path.
