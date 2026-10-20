@@ -876,10 +876,7 @@ jobs:
 
       - name: Mint release App token
         id: app-token
-        # Legacy promote condition retained for workflow-contract compatibility.
-        # if: steps.decide.outputs.action == 'promote' && steps.decide.outputs.dry_run != 'true'
-        # The guarded move also handles a validated release-surface change.
-        if: (steps.decide.outputs.action == 'promote' || steps.decide.outputs.action == 'needs-ack') && steps.decide.outputs.dry_run != 'true'
+        if: steps.decide.outputs.action == 'promote' && steps.decide.outputs.dry_run != 'true'
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
           app-id: ${{ secrets.CMUX_RELEASE_APP_ID }}
@@ -890,7 +887,7 @@ jobs:
           permission-workflows: write
 
       - name: Move nightly-next
-        if: (steps.decide.outputs.action == 'promote' || steps.decide.outputs.action == 'needs-ack') && steps.decide.outputs.dry_run != 'true'
+        if: steps.decide.outputs.action == 'promote' && steps.decide.outputs.dry_run != 'true'
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           APP_TOKEN: ${{ steps.app-token.outputs.token }}
@@ -902,9 +899,7 @@ jobs:
             const writer = getOctokit(process.env.APP_TOKEN);
             core.notice(await guard.move({ writer, github, owner, repo, decision: JSON.parse(process.env.DECISION) }));
 
-  # Legacy approval waiter retained for contract compatibility; validated moves
-  # now happen in promote-nightly-next without an environment approval.
-  # A release surface change previously waited here for one approval in the
+  # A release surface change waits here for one approval in the
   # release-surface-ack environment (required reviewers: release-approvers,
   # prevent self-review). This job only waits; it reads no secret and writes
   # nothing, so cancelling it never leaves nightly-next half-moved.
@@ -924,10 +919,7 @@ jobs:
   await-release-surface-ack:
     name: nightly-next promotion ${{ needs.promote-nightly-next.outputs.sha }} from ${{ needs.promote-nightly-next.outputs.current || 'none' }}
     needs: promote-nightly-next
-    # Legacy condition retained for workflow-contract compatibility; the guarded
-    # move now happens in promote-nightly-next and this job never waits.
-    # if: (needs.promote-nightly-next.outputs.action == 'needs-ack' || needs.promote-nightly-next.outputs.action == 'promote') && needs.promote-nightly-next.outputs.dry_run != 'true'
-    if: false
+    if: (needs.promote-nightly-next.outputs.action == 'needs-ack' || needs.promote-nightly-next.outputs.action == 'promote') && needs.promote-nightly-next.outputs.dry_run != 'true'
     environment: ${{ needs.promote-nightly-next.outputs.action == 'needs-ack' && 'release-surface-ack' || '' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -947,9 +939,7 @@ jobs:
   # surface-changing commit of the range or who started this run.
   promote-nightly-next-acked:
     needs: [promote-nightly-next, await-release-surface-ack]
-    # Legacy condition retained for workflow-contract compatibility; approval is retired.
-    # if: needs.await-release-surface-ack.result == 'success' && needs.promote-nightly-next.outputs.action == 'needs-ack' && needs.promote-nightly-next.outputs.dry_run != 'true'
-    if: false
+    if: needs.await-release-surface-ack.result == 'success' && needs.promote-nightly-next.outputs.action == 'needs-ack' && needs.promote-nightly-next.outputs.dry_run != 'true'
     # Holds only the release App credentials (CMUX_RELEASE_APP_*). The approval
     # was given to release-surface-ack on this run; guard.approvedBy() reads it.
     environment: nightly-next-promote
