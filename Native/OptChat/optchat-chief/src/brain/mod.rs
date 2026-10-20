@@ -879,6 +879,16 @@ impl Brain {
             && self.steering.is_empty()
     }
 
+    /// The wakes the Chief asked for with `sleep`, soonest first.
+    pub fn pending_wakes(&self) -> Vec<crate::state::Wake> {
+        Vec::new()
+    }
+
+    /// Fires every wake due at `now_ms` (wall clock, ms since the epoch).
+    pub fn fire_wakes_at(&mut self, now_ms: u64) {
+        let _ = now_ms;
+    }
+
     /// When the outbox timer fires, if armed.
     pub fn next_timer(&self) -> Option<Instant> {
         match (self.outbox_timer, self.resume_at) {

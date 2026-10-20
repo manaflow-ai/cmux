@@ -106,6 +106,43 @@ pub trait Orchestrator: Send + Sync {
         let _ = (id, text);
         Err("this Chief host cannot reply in a thread".into())
     }
+    /// `send(text, attachments, reply_to)`: one message posted now.
+    fn send(&self, call: SendCall) -> Result<String, String> {
+        let _ = call;
+        Err("this Chief host cannot send".into())
+    }
+    /// `stop()`: ends the running turn now; its final text is not posted.
+    fn stop_turn(&self) -> Result<String, String> {
+        Err("this Chief host cannot stop a turn".into())
+    }
+    /// `sleep(seconds, note, until)`: ends the turn and wakes the Chief later.
+    fn sleep(&self, call: SleepCall) -> Result<String, String> {
+        let _ = call;
+        Err("this Chief host cannot sleep".into())
+    }
+}
+
+/// One `send` call (plans/cmux-next/chief-tools-DESIGN.md).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SendCall {
+    /// The message's Markdown text.
+    pub text: Option<String>,
+    /// Local paths (`/abs`, `~/rel`, `file://`) uploaded as attachments, or
+    /// `http(s)` URLs added as their own lines.
+    pub attachments: Vec<String>,
+    /// The view line id of the user message whose thread it goes into.
+    pub reply_to: Option<u64>,
+}
+
+/// One `sleep` call.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SleepCall {
+    /// How long until the wake; 0 clears every pending wake.
+    pub seconds: u64,
+    /// Why: shown in the wake note.
+    pub note: Option<String>,
+    /// `time` (default) or `event`.
+    pub until: Option<String>,
 }
 
 /// What `chief zoom|date|spawn|tell WORDS` asks: the tool call, its usage
