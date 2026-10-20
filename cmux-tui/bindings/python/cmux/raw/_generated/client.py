@@ -183,6 +183,9 @@ class GeneratedClientMixin:
     def cloud_participant_avatar_get(self, participant_id: str, *, conversation: Union[str, None, MissingType] = MISSING) -> JsonValue:
         return self._invoke_command('cloud-participant-avatar-get', CloudParticipantAvatarGetRequest(participant_id=participant_id, conversation=conversation))
 
+    def cloud_requests_list(self) -> JsonValue:
+        return self._invoke_command('cloud-requests-list', CloudRequestsListRequest())
+
     def cloud_session_clear(self) -> JsonValue:
         return self._invoke_command('cloud-session-clear', CloudSessionClearRequest())
 
@@ -372,8 +375,8 @@ class GeneratedClientMixin:
     def home_inbox(self, *, owners: Union[List[str], None, MissingType] = MISSING) -> HomeInboxResult:
         return self._invoke_command('home-inbox', HomeInboxRequest(owners=owners))
 
-    def identify(self, *, machine_metadata: Union[bool, MissingType] = MISSING) -> IdentifyResult:
-        return self._invoke_command('identify', IdentifyRequest(machine_metadata=machine_metadata))
+    def identify(self, *, machine_metadata: Union[bool, MissingType] = MISSING, revisions: Union[bool, MissingType] = MISSING) -> IdentifyResult:
+        return self._invoke_command('identify', IdentifyRequest(machine_metadata=machine_metadata, revisions=revisions))
 
     def ids(self, *, kind: Union[Literal['workspace', 'screen', 'pane', 'surface'], None, MissingType] = MISSING) -> IdsResult:
         return self._invoke_command('ids', IdsRequest(kind=kind))
@@ -663,8 +666,8 @@ class GeneratedClientMixin:
     def set_cell_pixels(self, width_px: int, height_px: int) -> SetCellPixelsResult:
         return self._invoke_command('set-cell-pixels', SetCellPixelsRequest(width_px=width_px, height_px=height_px))
 
-    def set_client_info(self, *, name: Union[str, None, MissingType] = MISSING, kind: Union[str, None, MissingType] = MISSING, capabilities: Union[List[str], None, MissingType] = MISSING, device_id: Union[str, None, MissingType] = MISSING, device_kind: Union[str, None, MissingType] = MISSING, device_name: Union[str, None, MissingType] = MISSING, display_name: Union[str, None, MissingType] = MISSING, user_id: Union[str, None, MissingType] = MISSING) -> EmptyResult:
-        return self._invoke_command('set-client-info', SetClientInfoRequest(name=name, kind=kind, capabilities=capabilities, device_id=device_id, device_kind=device_kind, device_name=device_name, display_name=display_name, user_id=user_id))
+    def set_client_info(self, *, name: Union[str, None, MissingType] = MISSING, kind: Union[str, None, MissingType] = MISSING, api_revision: Union[int, None, MissingType] = MISSING, capabilities: Union[List[str], None, MissingType] = MISSING, device_id: Union[str, None, MissingType] = MISSING, device_kind: Union[str, None, MissingType] = MISSING, device_name: Union[str, None, MissingType] = MISSING, display_name: Union[str, None, MissingType] = MISSING, install: Union[str, None, MissingType] = MISSING, user_id: Union[str, None, MissingType] = MISSING, version: Union[str, None, MissingType] = MISSING) -> EmptyResult:
+        return self._invoke_command('set-client-info', SetClientInfoRequest(name=name, kind=kind, api_revision=api_revision, capabilities=capabilities, device_id=device_id, device_kind=device_kind, device_name=device_name, display_name=display_name, install=install, user_id=user_id, version=version))
 
     def set_client_sizing(self, surface: Id, enabled: bool, *, client: Union[int, None, MissingType] = MISSING, exclusive: Union[bool, MissingType] = MISSING) -> EmptyResult:
         return self._invoke_command('set-client-sizing', SetClientSizingRequest(surface=surface, enabled=enabled, client=client, exclusive=exclusive))
@@ -901,6 +904,7 @@ GeneratedClientMixin.cloud_mux_ack.__cmux_command__ = COMMANDS['cloud-mux-ack']
 GeneratedClientMixin.cloud_mux_subscribe.__cmux_command__ = COMMANDS['cloud-mux-subscribe']
 GeneratedClientMixin.cloud_mux_unsubscribe.__cmux_command__ = COMMANDS['cloud-mux-unsubscribe']
 GeneratedClientMixin.cloud_participant_avatar_get.__cmux_command__ = COMMANDS['cloud-participant-avatar-get']
+GeneratedClientMixin.cloud_requests_list.__cmux_command__ = COMMANDS['cloud-requests-list']
 GeneratedClientMixin.cloud_session_clear.__cmux_command__ = COMMANDS['cloud-session-clear']
 GeneratedClientMixin.cloud_session_set.__cmux_command__ = COMMANDS['cloud-session-set']
 GeneratedClientMixin.cloud_session_status.__cmux_command__ = COMMANDS['cloud-session-status']

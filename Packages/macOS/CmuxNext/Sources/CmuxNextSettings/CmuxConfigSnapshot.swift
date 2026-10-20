@@ -87,6 +87,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var frameOrientation: FrameOrientation = ColumnLayoutSettings.frameOrientationFallback
     /// `layout.rows`: rows on (default) or off (plans/cmux-next/rows.md O1).
     public var layoutRows: Bool = ColumnLayoutSettings.rowsFallback
+    /// `layout.focusPaneOnScroll`: a scroll over an unfocused pane focuses it (default on).
+    public var focusPaneOnScroll: Bool = ColumnLayoutSettings.focusPaneOnScrollFallback
     public var minimumPaneContentSize = CGSize(width: ColumnLayoutSettings.minimumPaneWidthFallback,
                                                height: ColumnLayoutSettings.minimumPaneHeightFallback)
     /// `layout.newPanePlacement` and `layout.tileBrowsers` (`CmuxConfigSnapshot+PanePlacement`).

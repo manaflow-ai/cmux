@@ -629,24 +629,6 @@
               "key" : "settings.group.editorSaving",
               "text" : "Saving"
             }
-          },
-          {
-            "key" : "settings.group.markdownViewer",
-            "rows" : [
-              "markdown.layout.width",
-              "markdown.layout.fullWidth",
-              "markdown.font.size",
-              "markdown.font.preset",
-              "markdown.font.lineHeight",
-              "markdown.spacing.paragraph",
-              "markdown.code.scale",
-              "markdown.tables",
-              "markdown.theme"
-            ],
-            "title" : {
-              "key" : "settings.group.markdownViewer",
-              "text" : "Markdown Viewer"
-            }
           }
         ],
         "id" : "editor",
@@ -914,6 +896,16 @@
             }
           },
           {
+            "key" : "settings.group.agentInput",
+            "rows" : [
+              "browser.showAgentCursor"
+            ],
+            "title" : {
+              "key" : "settings.group.agentInput",
+              "text" : "Agent Input"
+            }
+          },
+          {
             "key" : "settings.group.extensions",
             "rows" : [
               "browser.builtInAdBlocker"
@@ -954,7 +946,8 @@
             "rows" : [
               "browser.passwords.offerToSave",
               "browser.passwords.generate",
-              "browser.passwords.allowExport"
+              "browser.passwords.allowExport",
+              "browser.verificationAutofill.enabled"
             ],
             "title" : {
               "key" : "settings.group.passwords",
@@ -26184,6 +26177,58 @@
       "title" : {
         "key" : "settings.browser.passwords.allowExport",
         "text" : "Allow Password Export"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.passwords",
+        "text" : "Passwords"
+      },
+      "help" : {
+        "key" : "settings.browser.verificationAutofill.enabled.help",
+        "text" : "When a site emails you a code or link, its tab offers it. Only on the sender's own site, never filled without your click, and never stored."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.verificationAutofill.enabled",
+      "keywords" : [
+        "email",
+        "verification",
+        "code",
+        "one-time",
+        "otp",
+        "2fa",
+        "autofill",
+        "magic link"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "browser",
+        "verificationAutofill",
+        "enabled"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "browser",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.browser.verificationAutofill.enabled",
+        "text" : "Fill Codes from Verification Emails"
       },
       "validation" : "portable"
     },

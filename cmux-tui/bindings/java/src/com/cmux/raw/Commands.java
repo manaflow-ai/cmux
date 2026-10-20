@@ -67,6 +67,7 @@ public final class Commands {
     public static final CommandMetadata CLOUD_MUX_SUBSCRIBE = new CommandMetadata("cloud-mux-subscribe", Authority.LOCAL_ADMIN, 12, "cloud-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CLOUD_MUX_UNSUBSCRIBE = new CommandMetadata("cloud-mux-unsubscribe", Authority.LOCAL_ADMIN, 12, "cloud-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CLOUD_PARTICIPANT_AVATAR_GET = new CommandMetadata("cloud-participant-avatar-get", Authority.LOCAL_ADMIN, 12, "participant-avatars-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata CLOUD_REQUESTS_LIST = new CommandMetadata("cloud-requests-list", Authority.LOCAL_ADMIN, 12, "cloud-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CLOUD_SESSION_CLEAR = new CommandMetadata("cloud-session-clear", Authority.LOCAL_ADMIN, 12, "cloud-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CLOUD_SESSION_SET = new CommandMetadata("cloud-session-set", Authority.LOCAL_ADMIN, 12, "cloud-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata CLOUD_SESSION_STATUS = new CommandMetadata("cloud-session-status", Authority.LOCAL_ADMIN, 12, "cloud-conversations-v1", StreamKind.NONE, Map.of(), Map.of());
@@ -130,7 +131,7 @@ public final class Commands {
     public static final CommandMetadata GET_SIZE_STATE = new CommandMetadata("get-size-state", Authority.CONTROL, 12, "shared-sizing-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata HISTORY_SEARCH = new CommandMetadata("history-search", Authority.LOCAL_ADMIN, 12, "history-search-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata HOME_INBOX = new CommandMetadata("home-inbox", Authority.LOCAL_ADMIN, 12, "home-inbox-v1", StreamKind.NONE, Map.of(), Map.of());
-    public static final CommandMetadata IDENTIFY = new CommandMetadata("identify", Authority.CONTROL, 5, null, StreamKind.NONE, Map.ofEntries(Map.entry("machine_metadata", 12L)), Map.ofEntries(Map.entry("machine_metadata", "machine-identity-v1")));
+    public static final CommandMetadata IDENTIFY = new CommandMetadata("identify", Authority.CONTROL, 5, null, StreamKind.NONE, Map.ofEntries(Map.entry("machine_metadata", 12L), Map.entry("revisions", 12L)), Map.ofEntries(Map.entry("machine_metadata", "machine-identity-v1")));
     public static final CommandMetadata IDS = new CommandMetadata("ids", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata IMPORT_BOOKMARKS = new CommandMetadata("import-bookmarks", Authority.CONTROL, 12, "bookmarks-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata IMPORT_SESSION_ORGANIZATION = new CommandMetadata("import-session-organization", Authority.CONTROL, 12, "profiles-v1", StreamKind.NONE, Map.of(), Map.of());
@@ -227,7 +228,7 @@ public final class Commands {
     public static final CommandMetadata SEND_KEY = new CommandMetadata("send-key", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata SERVER_STATS = new CommandMetadata("server-stats", Authority.LOCAL_ADMIN, 12, "server-stats-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata SET_CELL_PIXELS = new CommandMetadata("set-cell-pixels", Authority.FRONTEND, 6, null, StreamKind.NONE, Map.of(), Map.of());
-    public static final CommandMetadata SET_CLIENT_INFO = new CommandMetadata("set-client-info", Authority.CONTROL, 6, null, StreamKind.NONE, Map.ofEntries(Map.entry("device_id", 12L), Map.entry("device_kind", 12L), Map.entry("device_name", 12L), Map.entry("display_name", 12L), Map.entry("user_id", 12L)), Map.ofEntries(Map.entry("device_id", "shared-sizing-v1"), Map.entry("device_kind", "shared-sizing-v1"), Map.entry("device_name", "shared-sizing-v1"), Map.entry("display_name", "shared-sizing-v1"), Map.entry("user_id", "shared-sizing-v1")));
+    public static final CommandMetadata SET_CLIENT_INFO = new CommandMetadata("set-client-info", Authority.CONTROL, 6, null, StreamKind.NONE, Map.ofEntries(Map.entry("api_revision", 12L), Map.entry("device_id", 12L), Map.entry("device_kind", 12L), Map.entry("device_name", 12L), Map.entry("display_name", 12L), Map.entry("install", 12L), Map.entry("user_id", 12L), Map.entry("version", 12L)), Map.ofEntries(Map.entry("device_id", "shared-sizing-v1"), Map.entry("device_kind", "shared-sizing-v1"), Map.entry("device_name", "shared-sizing-v1"), Map.entry("display_name", "shared-sizing-v1"), Map.entry("user_id", "shared-sizing-v1")));
     public static final CommandMetadata SET_CLIENT_SIZING = new CommandMetadata("set-client-sizing", Authority.CONTROL, 10, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata SET_COLUMN_DOCK = new CommandMetadata("set-column-dock", Authority.CONTROL, 12, "dock-columns-v1", StreamKind.NONE, Map.ofEntries(Map.entry("pinned", 12L), Map.entry("role", 12L)), Map.ofEntries(Map.entry("pinned", "pinned-dock-v1"), Map.entry("role", "dock-column-role-v1")));
     public static final CommandMetadata SET_DEFAULT_COLORS = new CommandMetadata("set-default-colors", Authority.CONTROL, 5, null, StreamKind.NONE, Map.ofEntries(Map.entry("complete", 9L), Map.entry("cursor", 9L), Map.entry("cursor_blink", 9L), Map.entry("cursor_style", 9L), Map.entry("palette", 9L), Map.entry("selection_bg", 9L), Map.entry("selection_fg", 9L)), Map.of());
@@ -348,6 +349,7 @@ public final class Commands {
         values.put("cloud-mux-subscribe", CLOUD_MUX_SUBSCRIBE);
         values.put("cloud-mux-unsubscribe", CLOUD_MUX_UNSUBSCRIBE);
         values.put("cloud-participant-avatar-get", CLOUD_PARTICIPANT_AVATAR_GET);
+        values.put("cloud-requests-list", CLOUD_REQUESTS_LIST);
         values.put("cloud-session-clear", CLOUD_SESSION_CLEAR);
         values.put("cloud-session-set", CLOUD_SESSION_SET);
         values.put("cloud-session-status", CLOUD_SESSION_STATUS);

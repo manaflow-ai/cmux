@@ -49,7 +49,7 @@ settle go into that same call. A pending approval is denied by a newer
 human message, so the turn reaches its next tool boundary. Subagent reports
 follow the same rule. Only chief.stop stops a turn: the runner waits until
 no tool call runs, then sends `session/cancel` every second until the turn
-ends, and the end posts what the turn said and "(turn stopped)".
+ends, and the end posts nothing to the chat or any bridge.
 
 ## Several Chiefs and channels
 
