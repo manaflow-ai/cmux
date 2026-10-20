@@ -1,4 +1,5 @@
 public import CmuxNextDesign
+import CmuxNextPages
 
 nonisolated extension AgentPaneTunables {
     /// Where a running turn's status line draws (webviews conversation/turns.ts `liveTurn`). On
