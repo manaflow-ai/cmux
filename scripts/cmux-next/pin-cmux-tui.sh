@@ -410,7 +410,9 @@ for run in runs:
 ' <<<"$body")
 }
 
-# ensure_tree_publisher <key> <sha> [fallback]: with CMUX_TUI_TREE_DISPATCH=1, starts at
+# ensure_tree_publisher <key> <sha> [fallback]: looks (read-only, GH_TOKEN) for an
+# active artifacts run for <sha> or for a commit with tree <key>, and defers to
+# it. Only with CMUX_TUI_TREE_DISPATCH=1 does it then write: it starts at
 # most one cmux-tui artifacts run for <sha> when tree <key> is not published and
 # no active run will publish it. cmux-tui-artifacts.yml publishes every
 # feat-cmux-next push (cx-73f2), but a commit of another branch, or one whose
@@ -424,12 +426,22 @@ for run in runs:
 # Sets tree_publisher_sha to the commit whose runs will publish the key.
 ensure_tree_publisher() {
   local key="$1" sha="$2" fallback="${3:-}" token pin state ref_body current
+  local dispatch="${CMUX_TUI_TREE_DISPATCH:-}"
   tree_publisher_sha=""
   tree_publisher_action=none
-  [[ "${CMUX_TUI_TREE_DISPATCH:-}" == 1 ]] || return 0
-  [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || { echo "warning: no commit to publish tree $key; not dispatching" >&2; return 0; }
-  token="$(github_token)" || token=""
-  [[ -n "$token" ]] || { echo "warning: CMUX_TUI_TREE_DISPATCH=1 needs GH_TOKEN or an authenticated gh; not dispatching tree $key" >&2; return 0; }
+  [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || {
+    [[ "$dispatch" != 1 ]] || echo "warning: no commit to publish tree $key; not dispatching" >&2
+    return 0; }
+  # Without CMUX_TUI_TREE_DISPATCH=1 (a read-only token: path routing since
+  # e93faa5f1fb0) only GH_TOKEN is used, and only to look for a run that
+  # already publishes the key; nothing below the lookup runs.
+  if [[ "$dispatch" == 1 ]]; then
+    token="$(github_token)" || token=""
+    [[ -n "$token" ]] || { echo "warning: CMUX_TUI_TREE_DISPATCH=1 needs GH_TOKEN or an authenticated gh; not dispatching tree $key" >&2; return 0; }
+  else
+    token="${GH_TOKEN:-}"
+    [[ -n "$token" ]] || return 0
+  fi
   GH_TOKEN="$token"
   state="$(artifacts_runs_state "$sha")"
   if [[ "$state" == active ]]; then
@@ -441,6 +453,7 @@ ensure_tree_publisher() {
     echo "cmux-tui tree $key: active artifacts run for $current has the same tree; not dispatching" >&2
     tree_publisher_sha="$current"; tree_publisher_action=active; return 0
   fi
+  [[ "$dispatch" == 1 ]] || return 0
   if ! pin="$(pin_tree_ref "$sha")"; then
     if [[ "$fallback" =~ ^[0-9a-f]{40}$ && "$fallback" != "$sha" ]] \
         && git -C "$repo_root" cat-file -e "$fallback^{commit}" 2>/dev/null \
@@ -1025,7 +1038,10 @@ tree_published() {
 # cmux-tui-artifacts run on a cmux-tui-pin-<sha12> ref at the merge commit, or
 # at the PR head (CMUX_TUI_TREE_HEAD_SHA) when the API refuses the merge commit
 # and the head has the same tree, and defers to it (ensure_tree_publisher).
-# A later look finds that run active and dispatches nothing. A missing or
+# A later look finds that run active and dispatches nothing. Without
+# CMUX_TUI_TREE_DISPATCH=1 (path routing is read-only) a pull request or a
+# scheduled DEV run (workflow_dispatch with no publisher SHA) still defers to
+# an active run for its commit or its tree, and writes nothing. A missing or
 # unreadable run list is re-checked once
 # after CMUX_TUI_TREE_RECHECK_SECONDS (default 20): a push's runs can appear a
 # moment after the push. Exit 0 for every state.
@@ -1063,7 +1079,8 @@ probe_checkout_tree() {
     fi
   elif base_key="$(pull_request_base_key 2>/dev/null)" && [[ "$base_key" == "$key" ]]; then
     source="commit:$(git -C "$repo_root" rev-parse HEAD^1)"
-  elif [[ ("${GITHUB_EVENT_NAME:-}" == pull_request || "${CMUX_TUI_TREE_DISPATCH:-}" == 1) ]] \
+  elif [[ ("${GITHUB_EVENT_NAME:-}" == pull_request || "${GITHUB_EVENT_NAME:-}" == workflow_dispatch \
+      || "${CMUX_TUI_TREE_DISPATCH:-}" == 1) ]] \
       && ! tree_published "$key" "$legacy"; then
     tree_publisher_sha=""
     ensure_tree_publisher "$key" "$(git -C "$repo_root" rev-parse HEAD)" "${CMUX_TUI_TREE_HEAD_SHA:-}"
