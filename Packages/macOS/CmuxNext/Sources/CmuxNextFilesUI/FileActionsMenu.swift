@@ -64,21 +64,21 @@ public final class FileActionsMenu {
         var rows: [NSMenuItem] = []
         let open = actions.openInCmux, reveal = actions.revealInFiles
         if includeOpen {
-            rows.append(Row(FileActionStrings.openInRightPane, "rectangle.righthalf.inset.filled") { Self.run(resolve, open) })
+            rows.append(menuRow(FileActionStrings.openInRightPane, "rectangle.righthalf.inset.filled") { Self.run(resolve, open) })
         }
         rows.append(openWithItem(forFileNamed: name, isDirectory: isDirectory, resolve: resolve))
         rows.append(.separator())
-        rows.append(Row(FilesStrings.quickLook, "eye") { [weak self] in Self.run(resolve) { self?.showQuickLook($0) } })
-        rows.append(Row(FilesStrings.showInFinder, "macwindow") { Self.run(resolve) { NSWorkspace.shared.revealInBackground([$0]) } })
-        rows.append(Row(FileActionStrings.revealInFiles, "folder") { Self.run(resolve, reveal) })
-        rows.append(Row(FilesStrings.copyPath, "link") { Self.run(resolve) { FilePasteboard.writePaths([$0], to: .general) } })
+        rows.append(menuRow(FilesStrings.quickLook, "eye") { [weak self] in Self.run(resolve) { self?.showQuickLook($0) } })
+        rows.append(menuRow(FilesStrings.showInFinder, "macwindow") { Self.run(resolve) { NSWorkspace.shared.revealInBackground([$0]) } })
+        rows.append(menuRow(FileActionStrings.revealInFiles, "folder") { Self.run(resolve, reveal) })
+        rows.append(menuRow(FilesStrings.copyPath, "link") { Self.run(resolve) { FilePasteboard.writePaths([$0], to: .general) } })
         rows.append(shareItem(resolve: resolve))
         return rows
     }
 
     /// Share…: the system share picker for the file, at the pointer.
     public func shareItem(resolve: @escaping @MainActor () async -> URL?) -> NSMenuItem {
-        Row(FileActionStrings.share, "square.and.arrow.up") { Self.run(resolve) { Self.share($0) } }
+        menuRow(FileActionStrings.share, "square.and.arrow.up") { Self.run(resolve) { Self.share($0) } }
     }
 
     /// Open With ▸: every app the system reports for the type, the default first, then Other….
@@ -105,7 +105,7 @@ public final class FileActionsMenu {
             submenu.removeAllItems()
             for (index, app) in list.apps.enumerated() {
                 let title = app.isDefault ? FileActionStrings.defaultApp(app.name) : app.name
-                let item = Row(title, nil) { Self.run(resolve) { file in Task { _ = await apps.open([file], withApplicationAt: app.url) } } }
+                let item = menuRow(title, nil) { Self.run(resolve) { file in Task { _ = await apps.open([file], withApplicationAt: app.url) } } }
                 let icon = NSWorkspace.shared.icon(forFile: app.url.path)
                 icon.size = NSSize(width: 16, height: 16)
                 item.image = icon
@@ -113,7 +113,7 @@ public final class FileActionsMenu {
                 if index == 0, app.isDefault, list.apps.count > 1 { submenu.addItem(.separator()) }
             }
             if !list.apps.isEmpty { submenu.addItem(.separator()) }
-            submenu.addItem(Row(FileActionStrings.other, nil) { Self.run(resolve) { Self.chooseApp(for: $0, apps: apps) } })
+            submenu.addItem(menuRow(FileActionStrings.other, nil) { Self.run(resolve) { Self.chooseApp(for: $0, apps: apps) } })
         }
         return row
     }
@@ -157,19 +157,25 @@ public final class FileActionsMenu {
     }
 }
 
-/// A menu row that runs a closure.
-private final class Row: NSMenuItem {
+/// A menu row that runs a closure: the item's target, kept alive by the item (`representedObject`).
+@MainActor
+private final class RowTarget: NSObject {
     private let run: @MainActor () -> Void
 
-    init(_ title: String, _ symbol: String?, _ run: @escaping @MainActor () -> Void) {
+    init(_ run: @escaping @MainActor () -> Void) {
         self.run = run
-        super.init(title: title, action: #selector(fire), keyEquivalent: "")
-        target = self
-        if let symbol { image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil) }
     }
 
-    @available(*, unavailable)
-    required init(coder: NSCoder) { fatalError("init(coder:) is not used") }
+    @objc func fire(_ sender: Any?) { run() }
+}
 
-    @objc private func fire() { run() }
+/// A menu row titled `title` (with an SF Symbol) that runs `run`.
+@MainActor
+private func menuRow(_ title: String, _ symbol: String?, _ run: @escaping @MainActor () -> Void) -> NSMenuItem {
+    let target = RowTarget(run)
+    let item = NSMenuItem(title: title, action: #selector(RowTarget.fire(_:)), keyEquivalent: "")
+    item.target = target
+    item.representedObject = target
+    if let symbol { item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil) }
+    return item
 }
