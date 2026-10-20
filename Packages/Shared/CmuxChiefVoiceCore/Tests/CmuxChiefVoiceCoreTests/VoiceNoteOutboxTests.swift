@@ -26,4 +26,16 @@ struct VoiceNoteOutboxTests {
         #expect(await outbox.pending().isEmpty)
         #expect(!FileManager().fileExists(atPath: outbox.audioURL(for: note.id).path))
     }
+
+    @Test func accountScopedOutboxesNeverSeeAnotherAccountsPendingNotes() async throws {
+        let root = temporaryDirectory()
+        let first = VoiceNoteOutbox(rootDirectory: root, accountID: "account-a")
+        let second = VoiceNoteOutbox(rootDirectory: root, accountID: "account-b")
+        let note = VoiceNote(mode: .voiceNote, createdAt: Date(timeIntervalSince1970: 100), transcript: "private")
+
+        try await first.save(note)
+
+        #expect(await first.pending() == [note])
+        #expect(await second.pending().isEmpty)
+    }
 }

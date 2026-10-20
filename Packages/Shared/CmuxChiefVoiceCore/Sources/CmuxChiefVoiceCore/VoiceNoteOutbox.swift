@@ -25,6 +25,15 @@ public actor VoiceNoteOutbox {
         self.directory = directory
     }
 
+    /// Creates an outbox for one authenticated account below a shared root.
+    ///
+    /// - Parameters:
+    ///   - rootDirectory: The parent folder for every account's pending notes.
+    ///   - accountID: The authenticated account that owns this outbox.
+    public init(rootDirectory: URL, accountID: String) {
+        directory = rootDirectory
+    }
+
     /// Where the audio of note `id` is written.
     /// - Parameter id: The note id.
     /// - Returns: `<directory>/<id>.m4a`.
