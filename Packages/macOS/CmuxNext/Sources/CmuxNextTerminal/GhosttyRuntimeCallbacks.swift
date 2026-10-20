@@ -93,9 +93,13 @@ nonisolated func ghosttyConfirmReadClipboard(
     if let confirm = confirm?.pointee, let items = confirm.contents {
         for index in 0..<confirm.contents_len {
             let item = items[index]
-            guard item.mime.map({ String(cString: $0) }) == "text/plain" else { continue }
-            contents = TerminalClipboardRequests.string(item)
-            break
+            let mime = item.mime.map({ String(cString: $0) }) ?? "text/plain"
+            let text = TerminalClipboardRequests.string(item)
+            if contents.isEmpty { contents = text }
+            if mime.hasPrefix("text/plain") {
+                contents = text
+                break
+            }
         }
     }
     let kind: TerminalClipboardRequestKind = switch request {
@@ -121,7 +125,7 @@ nonisolated func ghosttyWriteClipboard(
     _ clipboard: ghostty_clipboard_e,
     _ contents: UnsafePointer<ghostty_clipboard_content_s>?,
     _ count: Int,
-    _ confirm: Bool
+    _: Bool
 ) {
     guard let contents, count > 0 else { return }
     var items: [TerminalClipboardItem] = []
@@ -135,7 +139,7 @@ nonisolated func ghosttyWriteClipboard(
     let location: TerminalPasteboardLocation = clipboard == GHOSTTY_CLIPBOARD_SELECTION ? .selection : .standard
     let bridge = SurfaceBridge.from(userdata)
     let run: @MainActor @Sendable () -> Void = {
-        bridge?.view?.clipboardRequests.write(items: items, location: location, requiresConfirmation: confirm)
+        bridge?.view?.clipboardRequests.write(items: items, location: location)
     }
     if Thread.isMainThread {
         // main-proof: guarded by Thread.isMainThread above
