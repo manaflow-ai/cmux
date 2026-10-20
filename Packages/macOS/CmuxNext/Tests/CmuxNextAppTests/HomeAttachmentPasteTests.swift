@@ -47,4 +47,22 @@ struct HomeAttachmentPasteTests {
         let word = Board(types: [.tiff: Self.png], text: "hello")
         #expect(HomeAttachmentIntake.inputs(from: word).isEmpty)
     }
+
+    /// A spreadsheet cell or text box holding one link: the app adds rich
+    /// text and a picture of the selection, and the link still pastes as text.
+    @Test func aLinkInRichTextStaysText() {
+        for richType in [NSPasteboard.PasteboardType.rtf, .rtfd, NSPasteboard.PasteboardType("com.apple.flat-rtfd")] {
+            let board = Board(types: [.png: Self.png, richType: Data()], text: "https://example.com/report")
+            #expect(!HomeAttachmentIntake.offers(board), "rich type: \(richType.rawValue)")
+            #expect(HomeAttachmentIntake.inputs(from: board).isEmpty, "rich type: \(richType.rawValue)")
+        }
+    }
+
+    /// A browser's Copy Image may add rich text too, but it marks the link
+    /// as a URL, so the picture still attaches.
+    @Test func aPictureWithItsMarkedLinkAndRichTextAttaches() {
+        let board = Board(types: [.png: Self.png, .rtfd: Data(), .URL: Data()], text: "https://example.com/cat.png")
+        #expect(HomeAttachmentIntake.offers(board))
+        #expect(pictureType(HomeAttachmentIntake.inputs(from: board)) != nil)
+    }
 }
