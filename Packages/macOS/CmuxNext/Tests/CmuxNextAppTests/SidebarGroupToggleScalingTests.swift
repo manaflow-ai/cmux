@@ -98,6 +98,26 @@ import Testing
         return Cost(median: samples[samples.count / 2], p90: samples[(samples.count * 9) / 10], reloadsPerToggle: Double(reloads) / Double(runs))
     }
 
+    /// Where one toggle's time goes (median of 16 each, ms): the model's write, the list's splice, the render, and
+    /// the mouse handling around them.
+    static func phases(_ h: Harness) -> String {
+        let clock = ContinuousClock()
+        func ms(_ d: Duration) -> Double { Double(d.components.attoseconds) / 1e15 + Double(d.components.seconds) * 1000 }
+        var model: [Double] = [], list: [Double] = [], render: [Double] = [], state: [Double] = []
+        let fold = h.model.onGroupFolded
+        for _ in 0..<16 {
+            h.model.onGroupFolded = nil
+            let collapsed = h.model.group(h.target)?.isCollapsed ?? false
+            model.append(ms(clock.measure { h.model.setGroupCollapsed(h.target, !collapsed) }))
+            h.model.onGroupFolded = fold
+            list.append(ms(clock.measure { h.list.foldGroup(h.target) }))
+            render.append(ms(clock.measure { h.sidebar.renderNow() }))
+            state.append(ms(clock.measure { _ = h.model.listOptions() }))
+        }
+        func median(_ a: [Double]) -> String { String(format: "%.3f", a.sorted()[a.count / 2]) }
+        return "model=\(median(model)) list=\(median(list)) render=\(median(render)) listOptions=\(median(state))"
+    }
+
     /// Timings at each size, printed for the design doc ("group-toggle n=..."); no budget here.
     @Test(arguments: [10, 100, 1_000, 10_000])
     func toggleTimings(_ count: Int) {
@@ -107,6 +127,7 @@ import Testing
         Self.toggle(h)
         #expect(h.model.group(h.target)?.isCollapsed != before, "a click on the header did not toggle the group")
         let cost = Self.measure(h)
+        print("group-toggle-phases n=\(count) \(Self.phases(h))")
         print("group-toggle n=\(count) rows=\(h.list.displayed.rows.count) realized=\(h.list.rowViews.count) \(cost)")
         #expect(h.model.group(h.target) != nil)
     }
