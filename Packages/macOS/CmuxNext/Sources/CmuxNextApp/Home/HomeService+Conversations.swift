@@ -94,7 +94,8 @@ extension HomeService {
             rows: { [weak self] in TopHomePageView.visible(store.rows, archivedChiefs: self?.directory.archivedChiefs ?? [], me: store.me?.id) },
             me: { store.me?.id }, contacts: { [weak self] in self?.contacts() ?? [] },
             chiefAvatar: { [weak self] in self?.directory.chiefAvatar },
-            chiefHarnesses: { [weak self] in self?.directory.chiefHarnesses ?? [:] })
+            chiefHarnesses: { [weak self] in self?.directory.chiefHarnesses ?? [:] },
+            chiefRoster: { [weak self] in self?.chiefRoster ?? HomeChiefRoster() })
         source.onSelect = { [weak self] id in self?.pendingSelection = id }
         source.onStart = { [weak self] contact in
             // task-owner: one dm.open; the page shows the DM once listed

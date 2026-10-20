@@ -7,6 +7,7 @@ import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextIcons
+import CmuxNextLayout
 import CmuxNextTabs
 import Observation
 import CmuxNextFocus
@@ -171,10 +172,13 @@ final class PaneController: SurfacePresenter, PresentablePane {
         let dock = ownWorkspace?.screens.lazy.flatMap(\.columns).first { $0.layout.paneIDs.contains(pane.handle) }?.dock
         let pinned = dock?.isPinned == true
         let tabs = pane.tabs.filter { !hidden.contains($0.id) }
+        // The Home Chief pane (a pinned dock that takes no other tab) shows no tab bar at all
+        // (plans/cmux-next/home-chief-pane.md).
+        let homeChief = dock.map { LayoutMapping.dock($0).hidesTabBar(shownTabs: tabs.count + local.count) } ?? false
         return Snapshot(tabs: tabs, items: local, groups: groups,
                          defaultIndex: pane.defaultTabIndex, generation: store.generation?.rawValue,
                          // An app workspace's one pane shows its app without a strip (`app-screens-v1`).
-                         hidesStrip: hidesTabBar || ownWorkspace?.app != nil,
+                         hidesStrip: hidesTabBar || ownWorkspace?.app != nil || homeChief,
                          fullWidthTab: services.paneFullWidthTabs.contains(paneKey),
                          keepsFirstTab: pinned && tabs.first?.id == pane.tabs.first?.id,
                          takesNewTabs: !pinned || dock?.allowsTabs == true)

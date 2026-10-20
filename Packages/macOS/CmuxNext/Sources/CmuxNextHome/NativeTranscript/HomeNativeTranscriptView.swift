@@ -214,6 +214,10 @@ public final class HomeNativeTranscriptView: NSView {
         window?.makeFirstResponder(primaryInput) ?? false
     }
 
+    /// The person opened this conversation: the message box takes the keyboard now, or once the
+    /// first page installs it if nothing else took the keyboard in between.
+    public func takeKeyboardOnOpen() { transcript.takeKeyboardOnOpen() }
+
     /// Whether Home getting focus should move the keyboard from `responder`
     /// to ``primaryInput``: yes, unless a text view or field has it, the
     /// transcript holds or makes a text selection, or the person moves

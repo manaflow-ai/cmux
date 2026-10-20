@@ -41,6 +41,12 @@ pub const APP_DAEMON_KEY: &str = "CMUX_APP_DAEMON_SOCKET";
 /// workspaces stay on its own daemon and cloud install.
 pub const REMOTE_APP_KEY: &str = "CMUX_CHIEF_APP_SOCKET";
 
+/// Set to `1` in a turn's env: its `cmux` app requests name the Home chat as
+/// their caller, so the app opens a tab with no target beside the Chief's chat
+/// (the app does not know a turn's agent session). Not in `PINNED_KEYS`: a
+/// subagent places beside its own chat.
+pub const HOME_CHAT_KEY: &str = "CMUX_CALLER_HOME_CHAT";
+
 /// The socket `cmux` calls must reach: `CMUX_APP_DAEMON_SOCKET`, else the
 /// host's `--daemon-socket`.
 pub fn app_daemon_socket(
