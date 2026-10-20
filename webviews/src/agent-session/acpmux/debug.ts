@@ -170,7 +170,7 @@ export function createAcpmuxDebug(
             scroller.scrollTop = from * (1 - progress);
             acpmuxPerf.markFrame(
               now,
-              isBlank(acpmuxPerf.mounted, scroller.scrollTop, scroller.clientHeight, scroller.scrollHeight),
+              isBlank(acpmuxPerf.mounted, scroller.scrollTop, scroller.clientHeight, acpmuxPerf.contentHeight),
             );
             if (progress < 1) requestAnimationFrame(tick);
             else resolve();

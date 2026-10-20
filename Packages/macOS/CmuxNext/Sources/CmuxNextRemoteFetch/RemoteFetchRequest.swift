@@ -7,12 +7,15 @@ public nonisolated struct RemoteFetchRequest: Equatable, Sendable {
     /// The path and query.
     public let target: String
     public let headers: [String: String]
+    /// Accept an identity-encoded body prefix at the byte cap (for HTML discovery only).
+    public let allowsTruncation: Bool
 
-    public init(address: RemoteAddress, host: String, port: Int, target: String, headers: [String: String]) {
+    public init(address: RemoteAddress, host: String, port: Int, target: String, headers: [String: String], allowsTruncation: Bool = false) {
         self.address = address
         self.host = host
         self.port = port
         self.target = target
         self.headers = headers
+        self.allowsTruncation = allowsTruncation
     }
 }

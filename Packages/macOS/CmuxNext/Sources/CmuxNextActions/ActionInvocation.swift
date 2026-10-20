@@ -80,6 +80,9 @@ public nonisolated struct ActionInvocation: Sendable, Hashable {
     /// A split that opens a terminal even where a person's split opens the New Tab page (the chat
     /// header's Terminal, cx-00n1). In-app only: the control socket never sets it.
     public var opensTerminal = false
+    /// A new terminal tab in the target's pane even when `newTerminal.opensWorkspace` is on (the chat
+    /// header's Terminal on a panel beside the chat, `agentChat.panelTabs`). In-app only.
+    public var opensTabInPane = false
     /// A close the sidebar sends for its rows (a row's close button, a middle-click, Delete on the
     /// selection): each row by itself, never widened to the selection. In-app only.
     public var closesRowOnly = false

@@ -9,7 +9,8 @@ public import Foundation
 /// header. HTTP/1.1 with a browser's headers; chunked replies and gzip, deflate or br bodies are
 /// decoded. At most ``maximumRedirects`` redirects, each checked the same way; any 2xx answer is
 /// the body; at most ``maximumBytes`` of body on the wire and decoded; the whole fetch, redirects
-/// included, within ``timeout``.
+/// included, within ``timeout``. ``allowsTruncation`` opts HTML discovery into an identity-encoded
+/// prefix at the same byte cap; the transport closes as soon as that prefix arrives.
 public nonisolated struct GuardedRemoteFetch: Sendable {
     public static let maximumRedirects = 3
     /// At most this many checked addresses of one host are tried when a connection fails before
@@ -20,6 +21,8 @@ public nonisolated struct GuardedRemoteFetch: Sendable {
     public static let userAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Safari/605.1.15"
     /// The `Accept` of a browser's image request.
     public static let imageAccept = "image/webp,image/avif,image/png,image/svg+xml,image/*;q=0.8,*/*;q=0.5"
+    /// The `Accept` for bounded HTML icon discovery.
+    public static let htmlAccept = "text/html,application/xhtml+xml;q=0.9,*/*;q=0.5"
     /// The `Accept` of a browser's video or audio request.
     public static let mediaAccept = "video/*,audio/*;q=0.9,*/*;q=0.5"
     /// A fixed `Accept-Language`, as browsers send one: the person's own languages would tell
@@ -30,6 +33,10 @@ public nonisolated struct GuardedRemoteFetch: Sendable {
     public var timeout: Duration
     /// The `Accept` header.
     public var accept: String
+    /// Return at most ``maximumBytes`` of identity-encoded HTML, stopping the connection at
+    /// that cap. Defaults to false, preserving strict whole-body limits for images/media.
+    /// Requests `Accept-Encoding: identity`; an encoded response is refused in this mode.
+    public var allowsTruncation = false
     public var resolver: any RemoteAddressResolving
     public var transport: any RemoteFetchTransport
     public var clock: any Clock<Duration>
@@ -68,9 +75,14 @@ public nonisolated struct GuardedRemoteFetch: Sendable {
 
     /// The body of a 2xx answer for `url`, following checked redirects.
     public func fetch(_ url: URL) async -> Result<RemoteFetchResponse, RemoteFetchFailure> {
-        let race = DeadlineRace()
+        // A local copy lets the compiler open the existential clock (a stored property is not opened).
         let clock = clock
-        let timeout = timeout
+        return await fetch(url, clock: clock)
+    }
+
+    private func fetch<C: Clock>(_ url: URL, clock: C) async -> Result<RemoteFetchResponse, RemoteFetchFailure> where C.Duration == Duration {
+        let race = DeadlineRace()
+        let expires = clock.now.advanced(by: timeout)
         return await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
                 race.arm(continuation)
@@ -78,7 +90,7 @@ public nonisolated struct GuardedRemoteFetch: Sendable {
                 let work = Task { race.finish(await follow(url)) }
                 // task-owner: the deadline; it cancels the fetch when it fires first
                 let deadline = Task {
-                    do { try await clock.sleep(for: timeout) } catch { return } // wakeup-allow: bounded remote fetch deadline
+                    do { try await clock.sleep(until: expires, tolerance: nil) } catch { return } // wakeup-allow: bounded remote fetch deadline
                     race.finish(.failure(.failed))
                 }
                 race.own(work, deadline)
@@ -115,8 +127,10 @@ public nonisolated struct GuardedRemoteFetch: Sendable {
                 continue
             }
             guard (200..<300).contains(response.status) else { return .failure(.failed) }
-            guard response.body.count <= maximumBytes else { return .failure(.tooLarge) }
-            return .success(response)
+            guard allowsTruncation || response.body.count <= maximumBytes else { return .failure(.tooLarge) }
+            return .success(RemoteFetchResponse(status: response.status, headers: response.headers,
+                                               body: allowsTruncation ? Data(response.body.prefix(maximumBytes)) : response.body,
+                                               finalURL: url))
         }
         return .failure(.refused)
     }
@@ -147,8 +161,8 @@ public nonisolated struct GuardedRemoteFetch: Sendable {
         let hostName = literalV6 ? "[\(host)]" : host
         let hostHeader = url.port.map { "\(hostName):\($0)" } ?? hostName
         return RemoteFetchRequest(address: address, host: host, port: url.port ?? 443, target: target, headers: [
-            "Host": hostHeader, "Accept": accept, "Accept-Encoding": RemoteFetchContentDecoding.accepted,
+            "Host": hostHeader, "Accept": accept, "Accept-Encoding": allowsTruncation ? "identity" : RemoteFetchContentDecoding.accepted,
             "Accept-Language": Self.acceptLanguage, "Connection": "close", "User-Agent": Self.userAgent,
-        ])
+        ], allowsTruncation: allowsTruncation)
     }
 }

@@ -43,7 +43,8 @@ public nonisolated struct PinnedTLSTransport: RemoteFetchTransport {
         let parameters = NWParameters(tls: tls, tcp: tcp)
         parameters.preferNoProxies = true
         let connection = NWConnection(host: host, port: port, using: parameters)
-        let exchange = Exchange(connection: connection, reader: RemoteFetchReplyReader(maximumBody: maximumBytes))
+        let exchange = Exchange(connection: connection, reader: RemoteFetchReplyReader(maximumBody: maximumBytes,
+                                                                                     allowsTruncation: request.allowsTruncation))
         let bytes = Self.encode(request)
         return try await withTaskCancellationHandler {
             try await exchange.run(bytes)

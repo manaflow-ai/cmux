@@ -10,7 +10,18 @@ enum AgentPaneTransportReply {
         case .git(let git):
             guard let onGit = model.onGit else { return AgentPaneModel.gitFailure(.notConnected) }
             do {
-                let data = try await onGit(git)
+                var request = git
+                if case .filesList = git {
+                    guard let session = model.sessionId,
+                          let folder = try await model.host.sessionFolder(sessionId: session), folder.isLocal else {
+                        return AgentPaneModel.gitFailure(.noSessionFolder)
+                    }
+                    let checked = await Task.detached { git.confiningFiles(to: folder.cwd) }.value
+                    guard model.sessionId == session else { return AgentPaneModel.gitFailure(.sessionChanged) }
+                    guard let checked else { return AgentPaneModel.gitFailure(.invalidRequest) }
+                    request = checked
+                }
+                let data = try await onGit(request)
                 // A git.diff with patches can be many megabytes: parse it off the main actor (cx-9c8m).
                 guard let value = await AgentPaneModel.parseGitReply(data)?.value else {
                     return AgentPaneModel.gitFailure(.failed)

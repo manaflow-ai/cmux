@@ -26871,6 +26871,1194 @@
         }
       }
     },
+    "agentPane.renderPreview.busy": {
+      "comment": "Error the agent.render_preview API returns to the agent that asked for a render preview",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تجري معاينة عرض بالفعل في هذه اللوحة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "pregled prikaza već radi u ovom panelu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "en gengivelsesforhåndsvisning kører allerede i dette panel"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In diesem Bereich läuft bereits eine Render-Vorschau"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "a render preview is already running in this pane"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ya hay una vista previa de renderizado en curso en este panel"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "un aperçu de rendu est déjà en cours dans ce panneau"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "un'anteprima di rendering è già in corso in questo riquadro"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このペインではすでにレンダープレビューを実行中です"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការមើលជាមុននៃការបង្ហាញកំពុងដំណើរការរួចហើយនៅក្នុងផ្ទាំងនេះ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 패널에서 이미 렌더 미리보기가 실행 중입니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "en forhåndsvisning av gjengivelsen kjører allerede i dette panelet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "podgląd renderowania już działa w tym panelu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "uma prévia de renderização já está em execução neste painel"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "в этой панели уже выполняется предпросмотр рендера"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "มีการแสดงตัวอย่างการเรนเดอร์ทำงานอยู่แล้วในบานหน้าต่างนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "bu bölmede zaten bir işleme önizlemesi çalışıyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "у цій панелі вже виконується попередній перегляд рендера"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "một bản xem trước kết xuất đang chạy trong ngăn này"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此窗格中已有渲染预览在运行"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此窗格中已有渲染預覽在執行"
+          }
+        }
+      }
+    },
+    "agentPane.renderPreview.disabled": {
+      "comment": "Error the agent.render_preview API returns to the agent that asked for a render preview",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "معاينة العرض أو العرض المباشر معطّل في هذه اللوحة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "pregled prikaza ili prikaz uživo isključen je u ovom panelu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "gengivelsesforhåndsvisning eller live-gengivelse er slået fra i dette panel"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Render-Vorschau oder Live-Rendering ist in diesem Bereich deaktiviert"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "render preview or live render is disabled in this pane"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "la vista previa de renderizado o el renderizado en vivo está desactivado en este panel"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "l'aperçu de rendu ou le rendu en direct est désactivé dans ce panneau"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "l'anteprima di rendering o il rendering dal vivo è disattivato in questo riquadro"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このペインではレンダープレビューまたはライブレンダーが無効です"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការមើលជាមុននៃការបង្ហាញ ឬការបង្ហាញផ្ទាល់ត្រូវបានបិទនៅក្នុងផ្ទាំងនេះ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 패널에서 렌더 미리보기 또는 실시간 렌더가 꺼져 있습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "forhåndsvisning av gjengivelse eller direktegjengivelse er slått av i dette panelet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "podgląd renderowania lub renderowanie na żywo jest wyłączone w tym panelu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "a prévia de renderização ou a renderização ao vivo está desativada neste painel"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "предпросмотр рендера или живой рендер отключён в этой панели"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การแสดงตัวอย่างการเรนเดอร์หรือการเรนเดอร์สดถูกปิดในบานหน้าต่างนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "bu bölmede işleme önizlemesi veya canlı işleme kapalı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "попередній перегляд рендера або живий рендер вимкнено в цій панелі"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "xem trước kết xuất hoặc kết xuất trực tiếp đang tắt trong ngăn này"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此窗格中已关闭渲染预览或实时渲染"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此窗格中已關閉渲染預覽或即時渲染"
+          }
+        }
+      }
+    },
+    "agentPane.renderPreview.failed": {
+      "comment": "Error the agent.render_preview API returns to the agent that asked for a render preview",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر على WebKit التقاط معاينة العرض"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "WebKit nije mogao snimiti pregled prikaza"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "WebKit kunne ikke tage gengivelsesforhåndsvisningen"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "WebKit konnte die Render-Vorschau nicht aufnehmen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "WebKit could not capture the render preview"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "WebKit no pudo capturar la vista previa de renderizado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "WebKit n'a pas pu capturer l'aperçu de rendu"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "WebKit non è riuscito ad acquisire l'anteprima di rendering"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "WebKit はレンダープレビューをキャプチャできませんでした"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "WebKit មិនអាចថតការមើលជាមុននៃការបង្ហាញបានទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "WebKit이 렌더 미리보기를 캡처하지 못했습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "WebKit kunne ikke ta opp forhåndsvisningen av gjengivelsen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "WebKit nie mógł przechwycić podglądu renderowania"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "o WebKit não conseguiu capturar a prévia de renderização"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "WebKit не удалось снять предпросмотр рендера"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "WebKit จับภาพตัวอย่างการเรนเดอร์ไม่ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "WebKit işleme önizlemesini yakalayamadı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "WebKit не вдалося зняти попередній перегляд рендера"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "WebKit không thể chụp bản xem trước kết xuất"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "WebKit 无法捕获渲染预览"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "WebKit 無法擷取渲染預覽"
+          }
+        }
+      }
+    },
+    "agentPane.renderPreview.notLaidOut": {
+      "comment": "Error the agent.render_preview API returns to the agent that asked for a render preview",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يتم تخطيط الدردشة أو إطار العرض بعد"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "chat ili okvir prikaza još nije raspoređen"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "chatten eller gengivelsesrammen er ikke lagt ud endnu"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Chat oder der Render-Rahmen ist noch nicht angeordnet"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "the chat or render frame is not laid out yet"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "el chat o el marco de renderizado aún no está maquetado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "la discussion ou le cadre de rendu n'est pas encore mis en page"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "la chat o il riquadro di rendering non è ancora impaginato"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チャットまたはレンダーフレームのレイアウトがまだ完了していません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការជជែក ឬស៊ុមបង្ហាញមិនទាន់ត្រូវបានរៀបចំប្លង់នៅឡើយទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "채팅 또는 렌더 프레임의 레이아웃이 아직 완료되지 않았습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "chatten eller gjengivelsesrammen er ikke lagt ut ennå"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "czat lub ramka renderowania nie ma jeszcze układu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "o chat ou o quadro de renderização ainda não foi diagramado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "чат или кадр рендера ещё не размещены"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แชตหรือเฟรมการเรนเดอร์ยังไม่ได้จัดวาง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sohbet veya işleme çerçevesi henüz yerleştirilmedi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "чат або кадр рендера ще не розміщено"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "khung trò chuyện hoặc khung kết xuất chưa được bố trí"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聊天或渲染框架尚未完成布局"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聊天或渲染框架尚未完成版面配置"
+          }
+        }
+      }
+    },
+    "agentPane.renderPreview.timeout": {
+      "comment": "Error the agent.render_preview API returns to the agent that asked for a render preview",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تجاوزت معاينة العرض مهلتها"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "pregled prikaza je prekoračio rok"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "gengivelsesforhåndsvisningen overskred sin frist"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Render-Vorschau hat ihre Frist überschritten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "render preview exceeded its deadline"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "la vista previa de renderizado superó su plazo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "l'aperçu de rendu a dépassé son délai"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "l'anteprima di rendering ha superato il tempo limite"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "レンダープレビューが期限を超えました"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការមើលជាមុននៃការបង្ហាញបានលើសពេលកំណត់របស់វា"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "렌더 미리보기가 제한 시간을 넘었습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "forhåndsvisningen av gjengivelsen gikk over fristen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "podgląd renderowania przekroczył limit czasu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "a prévia de renderização excedeu o prazo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "предпросмотр рендера превысил отведённое время"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การแสดงตัวอย่างการเรนเดอร์เกินกำหนดเวลา"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "işleme önizlemesi süre sınırını aştı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "попередній перегляд рендера перевищив відведений час"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "bản xem trước kết xuất đã vượt quá thời hạn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "渲染预览超出了时限"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "渲染預覽超出了時限"
+          }
+        }
+      }
+    },
+    "agentPane.renderPreview.globalBusy": {
+      "comment": "Error the agent.render_preview API returns to the agent that asked for a render preview",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تجري معاينتا عرض بالفعل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "već rade dva pregleda prikaza"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "to gengivelsesforhåndsvisninger kører allerede"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Es laufen bereits zwei Render-Vorschauen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "two render previews are already running"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ya hay dos vistas previas de renderizado en curso"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "deux aperçus de rendu sont déjà en cours"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "due anteprime di rendering sono già in corso"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すでに 2 つのレンダープレビューを実行中です"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការមើលជាមុននៃការបង្ហាញពីរកំពុងដំណើរការរួចហើយ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이미 렌더 미리보기 두 개가 실행 중입니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "to forhåndsvisninger av gjengivelse kjører allerede"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "już działają dwa podglądy renderowania"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "duas prévias de renderização já estão em execução"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "уже выполняются два предпросмотра рендера"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "มีการแสดงตัวอย่างการเรนเดอร์สองรายการทำงานอยู่แล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "zaten iki işleme önizlemesi çalışıyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "уже виконуються два попередні перегляди рендера"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "đã có hai bản xem trước kết xuất đang chạy"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已有两个渲染预览在运行"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已有兩個渲染預覽在執行"
+          }
+        }
+      }
+    },
+    "agentPane.renderPreview.invalidParams": {
+      "comment": "Error the agent.render_preview API returns to the agent that asked for a render preview",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يحتاج render_preview إلى agent_session الخاص بـ MCP و1 MiB كحد أقصى من HTML"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "render_preview treba svoj MCP agent_session i najviše 1 MiB HTML-a"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "render_preview kræver sin MCP agent_session og højst 1 MiB HTML"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "render_preview braucht seine MCP-agent_session und höchstens 1 MiB HTML"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "render_preview needs its MCP agent_session and at most 1 MiB of html"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "render_preview necesita su agent_session de MCP y como máximo 1 MiB de HTML"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "render_preview nécessite son agent_session MCP et au plus 1 Mio de HTML"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "render_preview richiede la sua agent_session MCP e al massimo 1 MiB di HTML"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "render_preview には MCP の agent_session と 1 MiB 以下の HTML が必要です"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "render_preview ត្រូវការ agent_session MCP របស់វា និង HTML មិនលើស 1 MiB"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "render_preview에는 MCP agent_session과 1MiB 이하의 HTML이 필요합니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "render_preview trenger sin MCP-agent_session og høyst 1 MiB HTML"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "render_preview wymaga swojej sesji MCP agent_session i najwyżej 1 MiB HTML"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "render_preview precisa do seu agent_session do MCP e de no máximo 1 MiB de HTML"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "render_preview нужен его agent_session MCP и не более 1 МиБ HTML"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "render_preview ต้องมี agent_session ของ MCP และ HTML ไม่เกิน 1 MiB"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "render_preview, MCP agent_session değerine ve en fazla 1 MiB HTML'ye ihtiyaç duyar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "render_preview потребує свого agent_session MCP і не більше 1 МіБ HTML"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "render_preview cần agent_session MCP của nó và tối đa 1 MiB HTML"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "render_preview 需要其 MCP agent_session 和最多 1 MiB 的 HTML"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "render_preview 需要其 MCP agent_session 和最多 1 MiB 的 HTML 內容"
+          }
+        }
+      }
+    },
+    "agentPane.renderPreview.invalidWidth": {
+      "comment": "Error the agent.render_preview API returns to the agent that asked for a render preview",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يجب أن يكون العرض عددًا صحيحًا من 320 إلى 1440"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "širina mora biti cijeli broj od 320 do 1440"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "bredden skal være et heltal fra 320 til 1440"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Breite muss eine ganze Zahl von 320 bis 1440 sein"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "width must be an integer from 320 to 1440"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "el ancho debe ser un entero de 320 a 1440"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "la largeur doit être un entier de 320 à 1440"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "la larghezza deve essere un numero intero da 320 a 1440"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "幅は 320 から 1440 までの整数である必要があります"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទទឹងត្រូវតែជាចំនួនគត់ពី 320 ដល់ 1440"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "너비는 320에서 1440 사이의 정수여야 합니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "bredden må være et heltall fra 320 til 1440"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "szerokość musi być liczbą całkowitą od 320 do 1440"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "a largura deve ser um número inteiro de 320 a 1440"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ширина должна быть целым числом от 320 до 1440"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ความกว้างต้องเป็นจำนวนเต็มตั้งแต่ 320 ถึง 1440"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "genişlik 320 ile 1440 arasında bir tam sayı olmalıdır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ширина має бути цілим числом від 320 до 1440"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "chiều rộng phải là số nguyên từ 320 đến 1440"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "宽度必须是 320 到 1440 之间的整数"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "寬度必須是 320 到 1440 之間的整數"
+          }
+        }
+      }
+    },
+    "agentPane.renderPreview.noLocalPane": {
+      "comment": "Error the agent.render_preview API returns to the agent that asked for a render preview",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا تملك الجلسة الطالبة لوحة دردشة محلية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sesija koja traži nema lokalni panel za chat"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "den anmodende session har intet lokalt chatpanel"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die anfragende Sitzung hat keinen lokalen Chatbereich"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "the requesting session has no local chat pane"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "la sesión solicitante no tiene un panel de chat local"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "la session à l'origine de la demande n'a pas de panneau de discussion local"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "la sessione richiedente non ha un riquadro chat locale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要求元のセッションにはローカルのチャットペインがありません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "វគ្គដែលស្នើសុំមិនមានផ្ទាំងជជែកមូលដ្ឋានទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "요청한 세션에 로컬 채팅 패널이 없습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "økten som ber om dette, har ikke noe lokalt chattepanel"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sesja zgłaszająca nie ma lokalnego panelu czatu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "a sessão solicitante não tem um painel de chat local"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "у запрашивающего сеанса нет локальной панели чата"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เซสชันที่ร้องขอไม่มีบานหน้าต่างแชตในเครื่อง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "isteği yapan oturumun yerel bir sohbet bölmesi yok"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "сеанс, що надіслав запит, не має локальної панелі чату"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "phiên yêu cầu không có ngăn trò chuyện cục bộ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "发出请求的会话没有本地聊天窗格"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "發出請求的工作階段沒有本機聊天窗格"
+          }
+        }
+      }
+    },
     "agentPane.error.cause.exited": {
       "extractionState": "manual",
       "localizations": {

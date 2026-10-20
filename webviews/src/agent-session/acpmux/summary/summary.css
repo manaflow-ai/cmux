@@ -3,7 +3,11 @@
    Rows are 28px, text truncates, and every control follows the Motion hover fade. */
 .acpmux-summary{position:relative;flex:none;display:flex}
 .acpmux-summary-button{display:grid;place-items:center;width:26px;height:26px;padding:0;border:0;border-radius:6px;background:none;color:inherit;cursor:default;transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
-.acpmux-summary-button:hover,.acpmux-summary-button[aria-pressed="true"]{background:color-mix(in srgb,currentColor 8%,transparent)}
+.acpmux-summary-button:hover{background:color-mix(in srgb,currentColor 8%,transparent)}
+/* The same look as the header's other buttons (Lucas 2026-10-19): on brightens the icon and keeps a fill. */
+.acpmux-summary-button:hover{color:var(--agent-text)}
+.acpmux-summary-button[aria-pressed="true"]{background:color-mix(in srgb,currentColor 10%,transparent);color:var(--agent-text)}
+.acpmux-summary-button[aria-pressed="true"]:hover{background:color-mix(in srgb,currentColor 14%,transparent)}
 .acpmux-summary-button:active{background:color-mix(in srgb,var(--agent-text) 20%,transparent)}
 .acpmux-summary-button:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}
 .acpmux-summary-card{display:flex;flex-direction:column;box-sizing:border-box;border-radius:var(--ui-popup-radius);color:var(--agent-text);font-size:var(--text-control);line-height:18px;background:var(--surface-popup);box-shadow:var(--acpmux-popup-elevation)}
@@ -192,3 +196,125 @@
 .acpmux-rail-output:hover{background:var(--acpmux-menu-hover)}
 .acpmux-rail-output:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:-1.5px}
 .acpmux-rail-note{margin:0;padding:4px 8px 6px;color:var(--agent-muted);font-size:var(--text-detail)}
+
+/* Thread details' top (summary/ThreadDetails.tsx, after T3 Code's thread menu): rows on the menu's 32px
+   rhythm, a 16px glyph or app icon, the words, a muted note; Open in's chevron sits past a hairline. */
+.acpmux-thread-details {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 6px;
+  border-bottom: 0.5px solid var(--agent-border);
+}
+.acpmux-thread-details__row {
+  all: unset;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  height: 32px;
+  padding: 0 10px;
+  border-radius: 8px;
+  color: var(--agent-text);
+  font-size: var(--text-control);
+  cursor: default;
+}
+button.acpmux-thread-details__row:hover,
+.acpmux-thread-details__main:hover,
+.acpmux-thread-details__more:hover,
+.acpmux-thread-details__more[data-popup-open] {
+  background: color-mix(in srgb, var(--agent-text) 7%, transparent);
+}
+.acpmux-thread-details__icons {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--agent-muted);
+}
+.acpmux-thread-details__text {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.acpmux-thread-details__meta {
+  flex: none;
+  margin-left: auto;
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+  font-variant-numeric: tabular-nums;
+}
+.acpmux-thread-details__commit {
+  font-family: var(--cv-code-font, var(--cv-mono, ui-monospace, "SF Mono", Menlo, monospace));
+}
+.acpmux-thread-details__app {
+  flex: none;
+  width: 16px;
+  height: 16px;
+}
+/* Open in: the main part opens the folder in the app shown; the chevron past a hairline lists the rest. */
+.acpmux-thread-details__split {
+  padding: 0;
+  gap: 0;
+}
+.acpmux-thread-details__main {
+  all: unset;
+  box-sizing: border-box;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  height: 32px;
+  padding: 0 10px;
+  border-radius: 8px;
+  cursor: default;
+}
+.acpmux-thread-details__more {
+  all: unset;
+  box-sizing: border-box;
+  position: relative;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 32px;
+  border-radius: 8px;
+  color: var(--agent-muted);
+  cursor: default;
+}
+.acpmux-thread-details__more::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 9px;
+  bottom: 9px;
+  width: 0.5px;
+  background: var(--agent-border);
+}
+.acpmux-thread-details__main:focus-visible,
+.acpmux-thread-details__more:focus-visible,
+button.acpmux-thread-details__row:focus-visible {
+  outline: 1.5px solid color-mix(in srgb, var(--agent-text) 55%, transparent);
+  outline-offset: -1.5px;
+}
+.ui-menu-item.acpmux-thread-details__item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* No borders (appearance.borders = none): the details' rule and Open in's divider go too. */
+:root[data-borders="none"] .acpmux-thread-details {
+  border-bottom: 0;
+}
+:root[data-borders="none"] .acpmux-thread-details__more::before {
+  display: none;
+}
+
+/* A source's site icon (labs sourceIcons): the generic row icon's size, a hair of rounding. */
+.acpmux-summary-favicon{flex:none;border-radius:2px;object-fit:contain}
