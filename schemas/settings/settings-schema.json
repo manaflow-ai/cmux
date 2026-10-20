@@ -58,6 +58,7 @@
               "layout.dockColumnMode",
               "layout.frameOrientation",
               "layout.rows",
+              "layout.focusPaneOnScroll",
               "layout.minimumPaneWidth",
               "layout.minimumPaneHeight",
               "layout.newPanePlacement",
@@ -672,6 +673,16 @@
             }
           },
           {
+            "key" : "settings.group.chiefChat",
+            "rows" : [
+              "home.chiefBubbleStyle"
+            ],
+            "title" : {
+              "key" : "settings.group.chiefChat",
+              "text" : "Chief Chat"
+            }
+          },
+          {
             "key" : "settings.group.computerUse",
             "rows" : [
               "computerUse.enabled",
@@ -847,6 +858,7 @@
             "key" : "settings.group.engine",
             "rows" : [
               "browser.defaultEngine",
+              "browser.siteEngines",
               "browser.newTabPage"
             ],
             "title" : {
@@ -4767,6 +4779,58 @@
       "title" : {
         "key" : "settings.layout.rows",
         "text" : "Rows"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.columns",
+        "text" : "Columns"
+      },
+      "help" : {
+        "key" : "settings.layout.focusPaneOnScroll.help",
+        "text" : "Scrolling over a pane focuses it. Momentum and scrolling within a second of typing leave focus where it is."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "layout.focusPaneOnScroll",
+      "keywords" : [
+        "focus",
+        "scroll",
+        "wheel",
+        "trackpad",
+        "pane",
+        "follows mouse"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "layout",
+        "focusPaneOnScroll"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : {
+        "key" : "settings.layout.focusPaneOnScroll.summary",
+        "text" : "Scrolling a pane focuses it"
+      },
+      "title" : {
+        "key" : "settings.layout.focusPaneOnScroll",
+        "text" : "Focus Pane on Scroll"
       },
       "validation" : "portable"
     },
@@ -24110,7 +24174,7 @@
       },
       "help" : {
         "key" : "settings.browser.defaultEngine.help",
-        "text" : "New browser tabs open in this engine."
+        "text" : "Browser tabs and cmux pages, such as History and Apps, open in this engine."
       },
       "kept_on_reset_all" : false,
       "key" : "browser.defaultEngine",
@@ -24134,7 +24198,76 @@
       "summary" : null,
       "title" : {
         "key" : "settings.browser.defaultEngine",
-        "text" : "Default Engine"
+        "text" : "Browser Engine"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        {
+
+        },
+        {
+          "*" : "★",
+          "Work" : ""
+        }
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : {
+        "amazon.com/gp/video" : "webkit",
+        "disneyplus.com" : "webkit",
+        "hulu.com" : "webkit",
+        "max.com" : "webkit",
+        "music.apple.com" : "webkit",
+        "netflix.com" : "webkit",
+        "primevideo.com" : "webkit",
+        "spotify.com" : "webkit",
+        "tv.apple.com" : "webkit"
+      },
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.engine",
+        "text" : "Engine"
+      },
+      "help" : {
+        "key" : "settings.browser.siteEngines.help",
+        "text" : "Sites that always open in one engine: a site, such as spotify.com, and chromium or webkit. Spotify, Netflix and other protected media sites open in WebKit, because their media does not play in Chromium."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.siteEngines",
+      "keywords" : [
+        "drm",
+        "widevine",
+        "spotify",
+        "netflix",
+        "site",
+        "webkit",
+        "chromium"
+      ],
+      "kind" : "string_map",
+      "page_hidden" : false,
+      "path" : [
+        "browser",
+        "siteEngines"
+      ],
+      "refuses" : [
+        "★",
+        [
+
+        ],
+        {
+          "Work" : 1
+        }
+      ],
+      "section" : "browser",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.browser.siteEngines",
+        "text" : "Site Engines"
       },
       "validation" : "portable"
     },
@@ -26192,6 +26325,126 @@
       "default" : false,
       "default_label" : null,
       "group" : {
+        "key" : "settings.group.passwords",
+        "text" : "Passwords"
+      },
+      "help" : {
+        "key" : "settings.browser.verificationAutofill.enabled.help",
+        "text" : "When a site emails you a code or link, its tab offers it. Only on the sender's own site, never filled without your click, and never stored."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.verificationAutofill.enabled",
+      "keywords" : [
+        "email",
+        "verification",
+        "code",
+        "one-time",
+        "otp",
+        "2fa",
+        "autofill",
+        "magic link"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : true,
+      "path" : [
+        "browser",
+        "verificationAutofill",
+        "enabled"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "browser",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.browser.verificationAutofill.enabled",
+        "text" : "Fill Codes from Verification Emails"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "imessage",
+        "theme"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : null,
+            "text" : "iMessage"
+          },
+          "value" : "imessage"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chiefBubbleStyle.theme",
+            "text" : "Theme"
+          },
+          "value" : "theme"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "imessage",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.chiefChat",
+        "text" : "Chief Chat"
+      },
+      "help" : {
+        "key" : "settings.home.chiefBubbleStyle.help",
+        "text" : "iMessage shows your messages in blue and the Chief's in gray. Theme uses your theme's accent and surface colors."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "home.chiefBubbleStyle",
+      "keywords" : [
+        "chief",
+        "imessage",
+        "messages",
+        "bubbles",
+        "blue",
+        "chat",
+        "theme",
+        "colors",
+        "home"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "home",
+        "chiefBubbleStyle"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "home",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.home.chiefBubbleStyle",
+        "text" : "Bubble Style"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
         "key" : "settings.group.attachments",
         "text" : "Attachments"
       },
@@ -26505,7 +26758,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "keystroke",
+      "default" : "focus",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.dismissal",
@@ -27559,8 +27812,8 @@
       ],
       "default" : null,
       "default_label" : {
-        "key" : "settings.default.theme",
-        "text" : "Theme"
+        "key" : "settings.default.notificationBlue",
+        "text" : "Notification Blue"
       },
       "group" : {
         "key" : "settings.group.attention",
