@@ -11,16 +11,16 @@ struct FirstWorkspaceLandingTests {
     @Test func homeIsTheFrontDoorByDefault() {
         #expect(HomeTunables.launchIntoHome.descriptor.key == "home.launchIntoHome")
         #expect(HomeTunables.all.contains { $0.key == "home.launchIntoHome" })
-        #expect(FirstWorkspace.landing(launchIntoHome: true, classic: false, home: "ws_home") == "ws_home")
+        #expect(FirstWorkspaceLanding(launchIntoHome: true, classic: false).home("ws_home") == "ws_home")
     }
 
     @Test func theSwitchOffOrClassicHomeMakesANewTabWorkspace() {
-        #expect(FirstWorkspace.landing(launchIntoHome: false, classic: false, home: "ws_home") == nil)
-        #expect(FirstWorkspace.landing(launchIntoHome: true, classic: true, home: "ws_home") == nil)
+        #expect(FirstWorkspaceLanding(launchIntoHome: false, classic: false).home("ws_home") == nil)
+        #expect(FirstWorkspaceLanding(launchIntoHome: true, classic: true).home("ws_home") == nil)
     }
 
     @Test func noHomeWorkspaceYetMakesANewTabWorkspace() {
-        #expect(FirstWorkspace.landing(launchIntoHome: true, classic: false, home: nil) == nil)
+        #expect(FirstWorkspaceLanding(launchIntoHome: true, classic: false).home(nil) == nil)
     }
 
     /// A fresh store can answer `ensure_home` before its snapshot lists the workspace: the launch
@@ -29,21 +29,21 @@ struct FirstWorkspaceLandingTests {
         let store = ListedHome()
         // task-owner: the test; lists Home once the wait has started
         Task { @MainActor in store.id = "ws_home" }
-        let home = await FirstWorkspace.landing(launchIntoHome: true, classic: false, ensured: true, within: .seconds(30)) { store.id }
+        let home = await FirstWorkspaceLanding(launchIntoHome: true, classic: false, deadline: .seconds(30)).home(ensured: true) { store.id }
         #expect(home == "ws_home")
     }
 
     @MainActor @Test func aHomeNeverListedFallsBackAfterTheDeadline() async {
         let store = ListedHome()
-        let home = await FirstWorkspace.landing(launchIntoHome: true, classic: false, ensured: true, within: .milliseconds(50)) { store.id }
+        let home = await FirstWorkspaceLanding(launchIntoHome: true, classic: false, deadline: .milliseconds(50)).home(ensured: true) { store.id }
         #expect(home == nil)
     }
 
     @MainActor @Test func noEnsureHomeOrTheSwitchOffDoesNotWait() async {
         let store = ListedHome()
         store.id = "ws_home"
-        let notEnsured = await FirstWorkspace.landing(launchIntoHome: true, classic: false, ensured: false, within: .seconds(30)) { store.id }
-        let switchedOff = await FirstWorkspace.landing(launchIntoHome: false, classic: false, ensured: true, within: .seconds(30)) { store.id }
+        let notEnsured = await FirstWorkspaceLanding(launchIntoHome: true, classic: false, deadline: .seconds(30)).home(ensured: false) { store.id }
+        let switchedOff = await FirstWorkspaceLanding(launchIntoHome: false, classic: false, deadline: .seconds(30)).home(ensured: true) { store.id }
         #expect(notEnsured == nil)
         #expect(switchedOff == nil)
     }

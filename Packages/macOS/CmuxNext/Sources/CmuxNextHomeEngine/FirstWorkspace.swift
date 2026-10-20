@@ -5,32 +5,6 @@ import Observation
 
 /// Whether launch gives the tree its first workspace (`WindowManager.restore`, `FirstWorkspaceLaunch`).
 public enum FirstWorkspace {
-    /// The Home workspace a first launch lands on (`HomeTunables.launchIntoHome`, `FirstWorkspaceLaunch`),
-    /// or nil to make a New Tab workspace: the switch is off, Home is classic, or Home has no workspace yet.
-    public static func landing(launchIntoHome: Bool, classic: Bool, home: String?) -> String? {
-        launchIntoHome && !classic ? home : nil
-    }
-
-    /// `landing` once the store lists the Home workspace `ensure_home` named (`ensured`): a fresh
-    /// store's snapshot can lag that reply, and on the very first launch landing must not depend on
-    /// which came first. `home` reads the listed workspace's id; it is waited for at most `within`,
-    /// then the launch makes a New Tab workspace as before.
-    @MainActor
-    public static func landing(launchIntoHome: Bool, classic: Bool, ensured: Bool, within deadline: Duration = .seconds(3),
-                               home: @escaping @MainActor @Sendable () -> String?) async -> String? {
-        guard launchIntoHome, !classic, ensured else { return nil }
-        if let listed = home() { return listed }
-        let expired = DeadlineFlag()
-        let timer = DemandTimer(owner: "first-workspace.home")
-        timer.schedule(after: deadline) { @MainActor in expired.passed = true }
-        defer { timer.cancel() }
-        for await (listed, passed) in ObservationStream({ (home(), expired.passed) }) {
-            if let listed { return listed }
-            if passed { return nil }
-        }
-        return nil
-    }
-
     /// A tree with no workspace of the user's own gets one at launch.
     /// Leftover incognito and ephemeral workspaces do not count, nor does
     /// the store's home workspace, which exists from the first connect
@@ -45,7 +19,48 @@ public enum FirstWorkspace {
     }
 }
 
-/// Set when `FirstWorkspace.landing`'s deadline passes, so its observation ends.
+/// Where a first launch lands (`FirstWorkspaceLaunch`): Home, the Chief's workspace, unless
+/// Debug Settings > Home > First launch opens Home is off (`HomeTunables.launchIntoHome`) or Home
+/// is classic; then the launch makes a New Tab workspace.
+public struct FirstWorkspaceLanding: Sendable {
+    public let launchIntoHome: Bool
+    public let classic: Bool
+    /// How long `home(ensured:listed:)` waits for the store to list Home.
+    public let deadline: Duration
+
+    public init(launchIntoHome: Bool, classic: Bool, deadline: Duration = .seconds(3)) {
+        self.launchIntoHome = launchIntoHome
+        self.classic = classic
+        self.deadline = deadline
+    }
+
+    /// The Home workspace to land on, or nil to make a New Tab workspace (also while Home has
+    /// no workspace).
+    public func home(_ listed: String?) -> String? {
+        launchIntoHome && !classic ? listed : nil
+    }
+
+    /// `home` once the store lists the Home workspace `ensure_home` named (`ensured`): a fresh
+    /// store's snapshot can lag that reply, and on the very first launch landing must not depend on
+    /// which came first. `listed` reads the listed workspace's id; it is waited for at most
+    /// `deadline`, then the launch makes a New Tab workspace as before.
+    @MainActor
+    public func home(ensured: Bool, listed: @escaping @MainActor @Sendable () -> String?) async -> String? {
+        guard launchIntoHome, !classic, ensured else { return nil }
+        if let id = listed() { return id }
+        let expired = DeadlineFlag()
+        let timer = DemandTimer(owner: "first-workspace.home")
+        timer.schedule(after: deadline) { @MainActor in expired.passed = true }
+        defer { timer.cancel() }
+        for await (id, passed) in ObservationStream({ (listed(), expired.passed) }) {
+            if let id { return id }
+            if passed { return nil }
+        }
+        return nil
+    }
+}
+
+/// Set when `FirstWorkspaceLanding`'s deadline passes, so its observation ends.
 @MainActor @Observable
 final class DeadlineFlag {
     var passed = false

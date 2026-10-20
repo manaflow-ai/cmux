@@ -19,8 +19,8 @@ struct FirstWorkspaceLaunch {
         let services = manager.services
         await services.home.awaitHomeEnsured()
         guard FirstWorkspace.isNeeded(services.daemon.store.workspaces, leftover: leftover, home: services.home.homeWorkspaceID) else { return nil }
-        if let home = await FirstWorkspace.landing(launchIntoHome: HomeTunables.launchIntoHome.value, classic: services.home.dock.isClassic,
-                                                  ensured: services.home.homeWorkspaceID != nil, home: { services.home.homeWorkspace?.id }) { return home }
+        let landing = FirstWorkspaceLanding(launchIntoHome: HomeTunables.launchIntoHome.value, classic: services.home.dock.isClassic)
+        if let home = await landing.home(ensured: services.home.homeWorkspaceID != nil, listed: { services.home.homeWorkspace?.id }) { return home }
         return await manager.createWorkspace(newTabPage: true)
     }
 
