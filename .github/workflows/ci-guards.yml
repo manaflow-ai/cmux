@@ -1129,6 +1129,12 @@ jobs:
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_cmux_next_media_tour_gate.py
 
+      - name: Validate webview-only changes tour on Linux, not a Mac
+        if: ${{ matrix.group == 'release-notary' }}
+        run: |
+          python3 tests/test_cmux_next_media_path_map.py
+          python3 tests/test_cmux_next_media_runner_scope.py
+
       - name: Validate the cmux-next tour bounds its DerivedData on each Mac
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_ci_prune_media_derived_data.py
