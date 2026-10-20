@@ -233,9 +233,9 @@ await requireBrowserLane("agent-pane-recap-card.test.ts", async () => {
         };
       });
     await page.waitForTimeout(300);
-    // Font metrics differ between hosts: the pane is sized from the chat as drawn, 4px to spare.
+    // Fit the drawn chat, its 16px trailing space, and 4px of spare room.
     const { spare } = await view();
-    await page.setViewportSize({ width: 900, height: 760 - spare + 4 });
+    await page.setViewportSize({ width: 900, height: 760 - spare + 16 + 4 });
     await page.waitForTimeout(300);
     expect(await view()).toMatchObject({ overflows: false, below: 0 });
     await setSessionStatus(page);
