@@ -1941,6 +1941,28 @@
      "presence": "required",
      "nullable": false
     },
+    "api_revision": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint32"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "constraints": [
+      "The API revision this daemon reads and writes natively (cmux-tui/spec/api-compat.json). Absent on daemons from before revisions."
+     ]
+    },
+    "min_api_revision": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint32"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "constraints": [
+      "The oldest API revision this daemon translates to and from for a client that declares it with set-client-info."
+     ]
+    },
     "capabilities": {
      "type": {
       "kind": "array",
@@ -9299,6 +9321,19 @@
       "constraints": [
        "Stable per-install device id; tells two devices of one user apart."
       ]
+     },
+     "api_revision": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint32"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "constraints": [
+       "The API revision the client reads and writes. An older revision within the daemon's range is translated both ways by the daemon; a newer client translates for itself; an older one than min_api_revision is refused. Absent: revision 12."
+      ]
      }
     },
     "additional_properties": false
@@ -9883,12 +9918,23 @@
       "nullable": false,
       "default": false,
       "since": 7
+     },
+     "expect_foreground": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "capability": "send-expect-foreground-v1"
      }
     },
     "additional_properties": false,
     "constraints": [
      "When both are present, UTF-8 text bytes precede decoded bytes.",
-     "Exactly one of surface and terminal_id; terminal_id (terminal-input-while-creating-v1) is the host terminal id, also of a terminal still being created, and has the semantics of terminal.input.write."
+     "Exactly one of surface and terminal_id; terminal_id (terminal-input-while-creating-v1) is the host terminal id, also of a terminal still being created, and has the semantics of terminal.input.write.",
+     "expect_foreground (send-expect-foreground-v1) needs surface: the write happens only while the surface's foreground executable equals it, else the request fails with nothing written."
     ]
    },
    "result": {
@@ -22427,6 +22473,24 @@
     "Trusted local connections only. limit is 1-200. Calls the cloud; errors carry error_code, reason and retryable. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
    ]
   },
+  "cloud-requests-list": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "cloud-conversations-v1",
+    "request": {
+      "kind": "object",
+      "fields": {},
+      "additional_properties": false
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    },
+    "stream": null,
+    "constraints": [
+      "Trusted local connections only. Reads the lease person's open message requests (POST /v1/read home.requests.list); no fields are accepted. Returns {requests} with rows whose conversation is not a conversation id dropped. Calls the cloud; errors carry error_code, reason and retryable. See spec/commands.md."
+    ]
+  },
   "cloud-conversation-snapshot": {
    "authority": "local-admin",
    "since": 12,
@@ -29314,6 +29378,44 @@
       "type": {
        "kind": "literal",
        "value": "cloud-session-needed"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "reason": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "expires_at": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": true
+     }
+    },
+    "additional_properties": false
+   }
+  },
+  "cloud-host-replica-needed": {
+   "since": 12,
+   "capability": "cloud-host-replica-v1",
+   "streams": [
+    "subscribe"
+   ],
+   "emission": "emitted",
+   "payload": {
+    "kind": "object",
+    "fields": {
+     "event": {
+      "type": {
+       "kind": "literal",
+       "value": "cloud-host-replica-needed"
       },
       "presence": "required",
       "nullable": false

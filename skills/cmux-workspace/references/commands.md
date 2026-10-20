@@ -8,7 +8,7 @@ Use these commands from a cmux terminal; the CLI reads the session from the envi
 cmux app identify              # the app: bundle, tag, socket
 cmux app capabilities
 cmux app ping
-cmux session list
+cmux workspace list            # reaches the cmux-tui daemon
 cmux terminal "$CMUX_TUI_TERMINAL_ID" show --json
 ```
 
@@ -151,14 +151,14 @@ cmux pane flash-focused                                  # app action
 
 ## Not supported
 
-Sidebar status, progress and log (`set-status`, `set-progress`, `log`, `sidebar-state`), `surface-health`, `drag-surface-to-split`, `reorder-surface`, and `cmux docs` have no equivalent in cmux-next. `cmux workspace set-status --target ws_… --status done` sets only the workflow status.
+Sidebar status, progress and log (`set-status`, `set-progress`, `log`, `sidebar-state`), `surface-health`, `drag-surface-to-split`, and `reorder-surface` have no equivalent in cmux-next. `cmux docs` is now a different, catalog-backed help command. `cmux workspace set-status --target ws_… --status done` sets only the workflow status.
 
 ## Settings and actions
 
 ```bash
 cmux settings get
-cmux settings get app.appearance
-cmux settings set app.appearance dark
+cmux settings get diff.layout
+cmux settings set diff.layout split
 cmux settings reload-configuration     # app action
 cmux action list --noun workspace
 cmux action describe "workspace new"

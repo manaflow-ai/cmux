@@ -139,7 +139,7 @@ nonisolated enum NotificationSettingsSchema {
             SettingDescriptor(
                 ["notifications", "attention", "color"], section: .notifications, group: ring,
                 title: SettingsText.keyed("settings.attention.color", "Color"),
-                kind: .color, default: nil, defaultLabel: SettingsText.keyed("settings.default.theme", "Theme")
+                kind: .color, default: nil, defaultLabel: SettingsText.keyed("settings.default.notificationBlue", "Notification Blue")
             ),
             SettingDescriptor(
                 ["notifications", "attention", "width"], section: .notifications, group: ring,
