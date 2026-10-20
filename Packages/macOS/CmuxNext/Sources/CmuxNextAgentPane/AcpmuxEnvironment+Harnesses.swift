@@ -50,6 +50,11 @@ public nonisolated enum AcpmuxHarnessMethod: String, Sendable, CaseIterable {
     /// `{prompt, harness?, model?, maxTokens?, timeoutMs?}` answers `{text, harness, model}`. The
     /// unix socket only; the harness CLI runs headless with no tools, MCP, hooks or session.
     case complete = "_acpmux/complete"
+    /// The probed models of every harness, with each model's efforts (the Chief editor's picker).
+    case models = "_acpmux/models"
+    /// Stores one secret in the Keychain (`cmux harness secret set ID KEY`): `{id, key, value}`
+    /// answers `{item}` (`cmux-harness/<id>/<KEY>`), the name a profile reads as `keychain:NAME`.
+    case secretSet = "_acpmux/harness/secret/set"
 
     /// Doctor starts the harness and sends one prompt; a registry refresh fetches over HTTPS; a
     /// health check runs each harness's `--version` and may ask npm and Homebrew for the newest.
@@ -58,8 +63,8 @@ public nonisolated enum AcpmuxHarnessMethod: String, Sendable, CaseIterable {
         case .doctor: .seconds(150)
         // The daemon's own limit is at most 60 s (`timeoutMs`).
         case .complete: .seconds(65)
-        case .registry, .health: .seconds(40)
-        case .list, .add, .remove, .restore, .reload: .seconds(10)
+        case .registry, .health, .models: .seconds(40)
+        case .list, .add, .remove, .restore, .reload, .secretSet: .seconds(10)
         }
     }
 }

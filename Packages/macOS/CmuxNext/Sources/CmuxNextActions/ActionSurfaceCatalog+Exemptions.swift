@@ -37,6 +37,7 @@ nonisolated extension ActionSurfaceCatalog {
         "workspaceGroup.closeWorkspaces", "workspaceGroup.moveToNewWindow", "workspaceGroup.addToSection",
         "workspaceGroup.moveToTop", "workspaceGroup.moveToBottom", "workspaceGroup.collapseOthers", "workspaceGroup.sortByName",
         "workspaceGroup.sortByLastUsed", "workspaceGroup.sortByDirectory",
+        "fileEditor.importEditorSettings",
         "space.newWindow", "space.newWorkspace", "space.newGroup", "space.rename", "space.setColor", "space.clearColor",
         "space.setIcon", "space.clearIcon", "space.setDefaults", "space.delete", "space.moveLeft",
         "space.moveRight", "space.move", "space.switch", "workspace.moveToSpace", "workspace.duplicateToSpace",
@@ -55,7 +56,8 @@ nonisolated extension ActionSurfaceCatalog {
         "renameTab", "palette.clearTabName", "tab.restart",
         "moveSurfaceLeft", "moveSurfaceRight", "moveSurfaceToPreviousPane", "moveSurfaceToNextPane",
         "moveSurfaceToPaneLeft", "moveSurfaceToPaneRight", "moveSurfaceToPaneUp", "moveSurfaceToPaneDown",
-        "palette.moveTabToNewWorkspace", "palette.toggleTabPin", "palette.toggleTabUnread", "duplicateTab",
+        "palette.moveTabToNewWorkspace", "palette.toggleTabPin", "palette.toggleTabUnread", "toggleTabAudioMute", "tab.muteAudio", "tab.unmuteAudio", "tab.muteOtherAudio",
+        "workspace.toggleAudioMute", "duplicateTab",
         "tab.setIcon", "tab.clearIcon",
         "reloadTab", "reopenClosedBrowserPanel", "tabGroup.create",
         "tabGroup.addTab", "tabGroup.removeTab", "tabGroup.rename", "tabGroup.setColor", "tabGroup.setIcon", "tabGroup.clearIcon", "tabGroup.collapse",
@@ -86,7 +88,7 @@ nonisolated extension ActionSurfaceCatalog {
         "browserProfile.openLink", "browserProfile.setWorkspaceDefault", "browserProfile.clearWorkspaceDefault",
         "browserProfile.setSpaceDefault", "browserProfile.clearSpaceDefault", "browserProfile.moveTab",
         "browserProfile.duplicateTab", "palette.toggleMatchTerminalBackground", "palette.enableMinimalMode",
-        "palette.disableMinimalMode", "markAllNotificationsRead", "clearAllNotifications",
+        "palette.disableMinimalMode", "palette.enableBrowser", "palette.disableBrowser", "markAllNotificationsRead", "clearAllNotifications",
         "notifications.toggleWorkspaceMute", "notifications.toggleBanners", "notifications.dismissal.keystroke",
         "notifications.dismissal.focus", "notifications.dismissal.click", "notifications.dismissal.explicit",
         "notifications.dismissal.timeout", "notifications.dismissal.never", "palette.newAgentChat", "palette.quickAgentChat",
@@ -134,6 +136,10 @@ nonisolated extension ActionSurfaceCatalog {
         .duplicateOfDefault: [
             "openBrowser.chromium",
         ],
+        // Mute Tab and Unmute Tab list in its place; the right-click menu keeps the toggle, titled for the tab.
+        .familyMember: [
+            "toggleTabAudioMute",
+        ],
         // A row of the titlebar Back / Forward list: the click on the row is the gesture.
         .focusMove: [
             "history.goTo", "agent.openSessionWorkspace",
@@ -144,10 +150,7 @@ nonisolated extension ActionSurfaceCatalog {
     static let cliExemptionsByReason: [SurfaceExemption: [ActionID]] = [
         .ownerVerb: ownerVerbActions,
         .unimplemented: [
-            "palette.disableBrowser",
-            "palette.enableBrowser",
             "disconnectRemoteTab",
-            "toggleTabAudioMute",
             "agentChat.toggleNotificationMute",
             "palette.openVaultPane",
             "palette.openFindPane",
@@ -173,7 +176,7 @@ nonisolated extension ActionSurfaceCatalog {
             "switchRightSidebarToSessions", "switchRightSidebarToFeed", "switchRightSidebarToDock",
             "switchRightSidebarToMachines", "showNotifications", "feed.show", "palette.openTerminalChatView",
             "palette.computerUse.setup", "palette.computerUse.accessibility", "palette.computerUse.screenRecording",
-            "palette.cloud.tools", "cloudOpenMachine", "openTeamPicker", "palette.mobileConnect",
+            "palette.cloud.tools", "cloudOpenMachine", "openTeamPicker",
             "palette.openCmuxSettingsFile", "palette.openGhosttySettings", "ghostty.showDiagnostics", "palette.searchShortcuts", "agentPane.searchChats",
             "palette.pro.upgrade", "sendFeedback", "help.featureFlags",
             "help.documentation", "recentlyFocused", "recentlyClosed", "history.commands", "browserShowHistory",
@@ -229,7 +232,7 @@ nonisolated extension ActionSurfaceCatalog {
             "focusPaneByNumber", "focusSidebar",
             "canvasRevealFocusedPane", "navigate.next", "navigate.previous", "nextSurface", "prevSurface", "selectSurfaceByNumber",
             "screen.next", "screen.previous", "screen.select", "screen.selectLast", "focusTextBoxInput",
-            "focusBrowserAddressBar", "focusLocation", "focusRightSidebar", "vaultFocusSession", "jumpToUnread", "jumpToLastPrompt",
+            "focusBrowserAddressBar", "browser.focusSearch", "focusLocation", "focusRightSidebar", "vaultFocusSession", "jumpToUnread", "jumpToLastPrompt",
             "markOldestUnreadAndJumpNext", "notificationOpen", "computerUseFocus", "computerUseFocusCallingTerminal",
             "column.focusLeft", "column.focusRight", "focusHistoryBack", "focusHistoryForward", "focusHistoryLast",
         ],
@@ -306,6 +309,8 @@ nonisolated extension ActionSurfaceCatalog {
             "notifications.toggleBanners",
             "palette.enableMinimalMode",
             "palette.disableMinimalMode",
+            "palette.enableBrowser",
+            "palette.disableBrowser",
             "palette.toggleMatchTerminalBackground",
             "layout.toggleStripScrollbar",
             "keepMacAwake",

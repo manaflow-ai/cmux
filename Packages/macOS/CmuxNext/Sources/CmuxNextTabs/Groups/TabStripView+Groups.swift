@@ -40,6 +40,7 @@ extension TabStripView {
             chip.themeScope = themeScope
             chip.scale = window?.backingScaleFactor ?? 2
             chip.accessibility.setAccessibilityParent(self)
+            chip.accessibility.setAccessibilityIdentifier("cmux.tabs.group.\(group.rawValue)")
             chip.accessibility.onPress = { [weak self] in self?.model.send(.toggleGroupCollapsed(group)) }
             let band = TabGroupBandCell(color: item.tint)
             band.themeScope = themeScope

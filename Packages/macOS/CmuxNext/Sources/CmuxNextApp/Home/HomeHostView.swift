@@ -1,11 +1,13 @@
 import AppKit
 import CmuxHomeCore
+import CmuxHomeRender
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextActions
 import CmuxNextDesign
 import CmuxNextHome
 import CmuxNextHomeEngine
+import CmuxNextHostedChief
 import CmuxNextPages
 import CmuxNextWakeups
 
@@ -41,17 +43,28 @@ final class HomeHostView: NSView {
     /// The settings panel shows a paired server's brain (a cloud Chief).
     private var showsCloud = false
     private var isWorking = false
+    /// "Chief" or "Chief (Mac mini)": shown while both cloud Chiefs exist.
+    private let chiefSwitch: HomeChiefSwitch
 
     init(services: AppServices, conversation: String) {
         let service = services.home
         let id = ConversationID(conversation)
-        transcript = HomeNativeTranscriptView(store: service.homeStore, conversation: id, me: service.homeSource.me.id)
+        transcript = HomeNativeTranscriptView(store: service.homeStore, conversation: id, me: service.homeSource.me.id,
+                                              diagrams: service.diagrams)
         control = HomeChiefControl(services: services, conversation: id, muxHome: HomeBrainHost.muxHome(tag: services.environment.tag))
         settings = HomeChiefSettingsPopover(content: HomeChiefSettingsView(muxHome: control.brainHome, source: control.engineSource()))
+        chiefSwitch = HomeChiefSwitch(conversation: conversation, state: { [weak service] in (service?.tabChiefs ?? HomeCloudChiefs(), service?.cloudChief?.mainConversation) },
+                                      pick: { [weak service] in service?.hostedChief.pick($0) })
         super.init(frame: .zero)
         transcript.linkScheme = services.linkScheme  // "Copy Link" names messages in this build's scheme
         transcript.setNamePillHelp(HomeEngineStrings.pillHelp)
-        transcript.onNamePill = { [weak self] in self?.toggleChiefSettings() }
+        // The header's name: the Chief's settings over a Chief; a DM's or group's info otherwise.
+        transcript.onNamePill = { [weak self, weak services] in
+            guard let self else { return }
+            if isChief || settings.isShown { return toggleChiefSettings() }
+            _ = services?.registry.perform("home.conversationInfo",
+                                           invocation: ActionInvocation(arguments: ["conversation": .string(conversation)], origin: .user))
+        }
         loadAvatar()
         settingsView.onAvatar = { [weak self, weak service] in
             self?.loadAvatar()
@@ -184,6 +197,7 @@ final class HomeHostView: NSView {
         message.stringValue = HomeStrings.unavailable
         addSubview(transcript)
         addSubview(message)
+        addSubview(chiefSwitch)
         // task-owner: lives as long as this view; event-driven (Observation)
         availability = Task { [weak self] in
             // Usable when its own owner answers: a cloud conversation (a Chief
@@ -243,6 +257,7 @@ final class HomeHostView: NSView {
         message.preferredMaxLayoutWidth = width
         let height = ceil(message.size(forWidth: width).height)
         message.frame = NSRect(x: inset, y: (bounds.height - height) / 2, width: width, height: height)
+        chiefSwitch.place(column: transcript.frame, header: transcript.headerHeight)
     }
 
     /// The name pill's click (or `home.toggleChiefSettings`): the Chief's
@@ -300,6 +315,9 @@ final class HomeHostView: NSView {
     /// `debug.home.drive` chief_control: the named Chief this view's controls name (nil: the default).
     var debugNamedChief: String? { control.named }
     #endif
+
+    /// The transcript header's height (New Message's To: field covers it).
+    var headerHeight: CGFloat { transcript.headerHeight }
 
     /// The view that takes the keyboard when the tab's pane is focused.
     /// Home's primary input: the message box itself. Focusing the transcript

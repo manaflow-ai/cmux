@@ -137,7 +137,7 @@ nonisolated enum WorkspaceActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.editWorkspaceDescription", defaultValue: "Edit Workspace Description…", bundle: .module),
                 keywords: ["notes", "summary"], defaultShortcut: Shortcut("e", modifiers: [.option, .command]),
                 category: .workspace, symbol: "text.alignleft", surfaces: [.palette, .keyboard, .menu, .contextMenu],
-                arguments: [CatalogArgument.descriptionString], targets: [.workspace],
+                arguments: [CatalogArgument.descriptionString.describingTarget], targets: [.workspace],
                 cliName: "workspace edit-description", mainMenu: .file
             ),
             ActionDescriptor(
@@ -252,6 +252,12 @@ nonisolated enum WorkspaceActionCatalog: ActionCatalogGroup {
                 keywords: ["unread", "notifications"], category: .workspace, symbol: "envelope.badge",
                 surfaces: [.palette, .menu, .contextMenu], targets: [.workspace], cliName: "workspace mark-as-unread",
                 mainMenu: .file
+            ),
+            ActionDescriptor(
+                id: "workspace.toggleAudioMute",
+                title: String(localized: "action.workspace.toggleAudioMute", defaultValue: "Mute/Unmute Workspace Tabs", bundle: .module),
+                keywords: ["workspace", "audio", "sound", "mute", "unmute"], category: .workspace, symbol: "speaker.slash",
+                surfaces: [.palette, .contextMenu], targets: [.workspace], cliName: "workspace mute-unmute"
             ),
             ActionDescriptor(
                 id: "palette.workspaceColor",

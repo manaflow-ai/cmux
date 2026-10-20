@@ -183,10 +183,8 @@ public final class AgentPaneView: NSView {
         if webView.responds(to: NSSelectorFromString("_setDrawsBackground:")) {
             webView.setValue(false, forKey: "drawsBackground")
         }
-        #if DEBUG
-        // Web Inspector and profiling for the pane (debug.agent_pane).
+        // Web Inspector and profiling for the pane in every build (Inspect Element, Cmd-Opt-I).
         webView.isInspectable = true
-        #endif
         model.onSaveFile = { [weak self] save in try await self?.savePanel.save(save, window: self?.window) ?? false }
         model.onChooseFiles = { [weak self] in await AgentPaneFilePicker.pick(window: self?.window) }
         model.onFramePacing = { [weak self] _ in self?.framePacingSettings() ?? [:] }

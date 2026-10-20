@@ -127,6 +127,8 @@ pub(crate) fn run_host_parser(
     let ParserSignals { pending_responses, title_changed, bell, program_status: _ } = signals;
     let mut last_colors = initial_colors;
     let mut last_pwd = None;
+    // The title last sent: one rewritten unchanged is not sent again.
+    let mut last_title: Option<String> = None;
     let mut shell_marks = crate::prompt_mode_reset::ShellMarks::default();
     // Ghostty can answer terminal queries without producing a parser
     // frame. Flush those answers after every parser command, not only
@@ -162,7 +164,11 @@ pub(crate) fn run_host_parser(
                     }
                     let title = title_changed
                         .swap(false, Ordering::AcqRel)
-                        .then(|| term.title().unwrap_or_default());
+                        .then(|| crate::terminal_title::read(&term))
+                        .filter(|title| last_title.as_deref() != Some(title.as_str()));
+                    if let Some(title) = &title {
+                        last_title = Some(title.clone());
+                    }
                     let pwd = term.pwd();
                     let colors = term.color_overrides();
                     let cursor_changed = term

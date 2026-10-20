@@ -127,8 +127,12 @@ public nonisolated struct PageNativeOp {
     public static let popupHide = "cmux.app.popup.hide"
     /// Stream every page may subscribe to: the popup's `pick`, `highlight` and `dismiss`.
     public static let pagePopup = "cmux.page.popup"
-    /// The page commands the dispatcher sends (the Settings lead's page pattern).
-    public static let commands: Set<String> = ["find", "focusSearch", "back", "forward", "reset"]
+    /// The page command the host sends each time the page's web view becomes first responder: the
+    /// page focuses its primary input when nothing in it has focus (pane-focus-DESIGN.md P1).
+    public static let focusContent = "focusContent"
+    /// The page commands the dispatcher sends (the Settings lead's page pattern), and
+    /// ``focusContent``.
+    public static let commands: Set<String> = ["find", "focusSearch", "back", "forward", "reset", focusContent]
 }
 
 public extension PageDescriptor {
@@ -150,7 +154,9 @@ public extension PageDescriptor {
     /// preview and sound ops share the namespace; the page may run only its own actions and the
     /// sections' buttons, and writes the pasteboard for a row's Copy Setting Key.
     static let settings = PageDescriptor(
-        id: "cmux.settings", resource: "settings", namespaces: ["cmux.settings."],
+        // Agents > Chiefs draws the Chief editor: the Chief owner through the host's page relay
+        // (`cmux.chief.profile.`) and the harness center (`cmux.chief.backend.`), as Home does.
+        id: "cmux.settings", resource: "settings", namespaces: ["cmux.settings.", "cmux.chief.profile.", "cmux.chief.backend."],
         nativeOps: [PageNativeOp.actionRun, PageNativeOp.clipboardWrite],
         actions: Set<String>(["palette.openCmuxSettingsFile", "openSettings", "browserProfile.new", "browserProfile.rename",
                   "browserProfile.setColor", "browserProfile.clearColor", "browserProfile.setIcon", "browserProfile.clearIcon",

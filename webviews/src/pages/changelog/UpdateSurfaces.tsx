@@ -10,6 +10,8 @@
 //    (Leo 2026-10-13; the card has Update Ready, the short version and the date): a quiet "What's
 //    new in nightly 3845050" (the full build in its tooltip, Leo 2026-10-19), the top three changes
 //    numbered, each a title, one line and its picture when it has one, and "See all changes", once.
+//    Under the title, the version it replaces ("Updating from nightly 3801702", Lawrence 2026-10-19:
+//    show at once what is going to change); with no change list, "See release notes" instead.
 // Data: UpdateHighlights (updateHighlights.ts); the host mounts these and wires the actions.
 import { useId, useSyncExternalStore } from "react";
 import { getColorScheme, subscribeColorScheme } from "./colorScheme";
@@ -90,6 +92,9 @@ export function UpdateReadyHighlights({
       <div className="wn-pop-title" id={titleId} title={data.version}>
         {strings.format("updates.popover.title", cardVersion(data.version))}
       </div>
+      {data.fromVersion && data.fromVersion !== data.version && (
+        <div className="wn-pop-from">{strings.format("updates.popover.from", cardVersion(data.fromVersion))}</div>
+      )}
       {data.items.length > 0 && (
         <ol className="wn-pop-list">
           {data.items.map((item, index) => (
@@ -113,7 +118,7 @@ export function UpdateReadyHighlights({
           <span className="wn-pop-more">{strings.format("updates.card.more", String(data.moreCount))}</span>
         )}
         <button type="button" className="wn-pop-all" onClick={actions.openChangelog}>
-          {strings.t("updates.popover.seeAll")}
+          {strings.t(data.items.length > 0 ? "updates.popover.seeAll" : "updates.popover.seeReleaseNotes")}
           <span aria-hidden="true"> →</span>
         </button>
       </div>
