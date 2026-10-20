@@ -63,6 +63,12 @@ struct Fresh {
 }
 """
 
+INTENT = """import AppIntents
+struct RecordChiefVoiceNoteIntent: AppIntent {
+    static let title: LocalizedStringResource = "Record Voice Note for Chief"
+    static let description = IntentDescription("It is transcribed on this device and sent to your Chief.")
+}
+"""
 
 class PrePushGateTests(unittest.TestCase):
     def setUp(self):
@@ -162,6 +168,27 @@ class PrePushGateTests(unittest.TestCase):
         self.assertIn("Fresh.swift", output)
         self.assertIn("try!", output)
         self.assertNotIn("Old.swift", output, "base debt in an untouched file must not be reported")
+
+    def test_push_that_names_an_apple_device_in_an_app_intent_is_refused(self):
+        # ITMS-90626 (2026-10-20): Apple rejected cmux INTERNAL builds after upload for this text.
+        before = self.remote_head()
+        self.write("cnx-ios/App/ChiefVoiceIntents.swift", INTENT.replace("this device", "this iPhone"))
+        self.commit("intent text names the iPhone")
+
+        result = self.push()
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertEqual(self.remote_head(), before, "the rejected text must not reach origin")
+        self.assertIn("90626-reserved-term", output)
+
+    def test_push_with_device_neutral_app_intent_text_passes(self):
+        self.write("cnx-ios/App/ChiefVoiceIntents.swift", INTENT)
+        self.commit("intent text for every device")
+
+        result = self.push()
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_push_that_touches_a_file_with_old_debt_passes(self):
         self.write(f"{PKG}/Sources/CmuxNextKit/Old.swift", OLD.replace('"old"', '"renamed"'))

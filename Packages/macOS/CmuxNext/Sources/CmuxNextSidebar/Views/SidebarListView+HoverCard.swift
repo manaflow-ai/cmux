@@ -29,6 +29,20 @@ extension SidebarListViewComponents {
               !row.rowState.isPending else { return nil }
         return id
     }
+    /// The group header under `point` that may have a summary card now
+    /// (`sidebar.hoverCards.groups.workspaceGroups`): none during a drag, a rename or an open group
+    /// editor. One row lookup by position, like a workspace row's: a hover never walks the groups.
+    func hoverCardGroup(at point: CGPoint) -> GroupID? {
+        guard DesignSettings.shared.groupHoverCard.workspaceGroups, drag == nil, !inlineRename.isActive,
+              visibleRect.contains(point), !isHiddenOrHasHiddenAncestor,
+              case .group(let id)? = displayed.row(at: point.y)?.key, groups[id] != nil else { return nil }
+        return id
+    }
+    /// The group header's frame on screen, nil when it is not laid out.
+    func hoverCardAnchor(forGroup id: GroupID) -> CGRect? {
+        guard let window, let row = displayed.row(for: .group(id)) else { return nil }
+        return window.convertToScreen(convert(frame(for: row), to: nil))
+    }
     /// The row's frame on screen, nil when it is not laid out.
     func hoverCardAnchor(for id: WorkspaceID) -> CGRect? {
         guard let window, let row = displayed.row(for: .workspace(id)) else { return nil }

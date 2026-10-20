@@ -2068,7 +2068,11 @@ def _operation_catalog(
                 "cwd",
                 "argv",
                 "shell",
+                "focus",
             }
+            or create_fields.get("focus", {}).get("required") is not False
+            or create_fields.get("focus", {}).get("type")
+            != {"kind": "primitive", "name": "boolean"}
             or create_fields.get("cwd", {}).get("required") is not False
             or create_fields.get("cwd", {}).get("type") != {"kind": "primitive", "name": "string"}
             or create_fields.get("argv", {}).get("required") is not False
@@ -2099,7 +2103,7 @@ def _operation_catalog(
                 diagnostics,
                 path,
                 text,
-                "workspace.create params must be optional name, ephemeral, cwd, argv, shell, correlation_key, and expected_revision plus required initial_content",
+                "workspace.create params must be optional name, ephemeral, cwd, argv, shell, focus, correlation_key, and expected_revision plus required initial_content",
                 "workspace.create",
             )
 

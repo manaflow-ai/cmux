@@ -10,11 +10,11 @@ head, next to the check scripts (from the head) and their baselines (from each s
 runs on both trees; a finding is new when the head has it and the base does not. A finding is keyed
 by file, rule and the text of its source line, not its line number, so moving code is not new.
 
-Layers (each one only on files the push changes under Packages/macOS/CmuxNext, cmux-tui, webviews):
+Layers (each one only on files the push changes under Packages/macOS/CmuxNext, cmux-tui, webviews, cnx-ios):
   scanners     the CI job's line scanners: concurrency, crash safety, dialog key hints, type scale,
                motion, scrollbars, state roots, process scan, Swift CLI, closed history, test
                notification centers, string tables, module resources, capability text, browser
-               chrome icons
+               chrome icons, App Store review rules (also on cnx-ios/ changes)
   ast-grep     scripts/cmux-next/lint/ast-grep-rules: try!, blocking calls, raw font sizes, system
                dialogs (tree-sitter, so comments, strings and `case .alert` never match)
   swiftformat  --lint with scripts/cmux-next/lint/swiftformat.conf
@@ -69,6 +69,7 @@ CONTEXT = (
     PKG + "/Sources/CmuxNextIcons/IconName+Members.swift",
     PKG + "/Sources/CmuxNextIcons/Resources/icon-catalog.json",
     "cmux.xcodeproj/project.pbxproj",
+    "cnx-ios/project.yml",
 )
 DATA_SUFFIXES = (".tsv", ".json")
 
@@ -94,6 +95,8 @@ SCANNERS = (
     ("Module resource bundles", ["/bin/bash", "{s}/check-module-resources.sh", "{pkg}"], (PKG + "/",)),
     ("Capability texts never say update the app", ["python3", "-I", "{s}/check-capability-text.py", "--root", "{root}"], ("cmux-tui/",)),
     ("Browser chrome icons", ["python3", "-I", "{s}/lint-browser-chrome-icons.py"], (PKG + "/",)),
+    ("App Store review rules (cnx-ios intents, Info.plist)",
+     ["python3", "-I", "{s}/check-app-store-rules.py", "--source", "{root}"], ("cnx-ios/",)),
 )
 
 # Ghostty's default split keys stay Ghostty's (Lawrence 2026-10-20, after 2f3e1f95983).
@@ -169,7 +172,7 @@ def pushed_ranges(repo: Path, lines: list[str]) -> list[tuple[str, str]]:
 
 def changed_files(repo: Path, base: str, head: str) -> list[str]:
     names = git(repo, "diff", "--name-only", "--no-renames", "--diff-filter=ACMRT", "-z", base, head).decode()
-    return sorted(n for n in names.split("\0") if n and n.startswith(SCOPES + ("Packages/Shared/",)))
+    return sorted(n for n in names.split("\0") if n and n.startswith(SCOPES + ("Packages/Shared/", "cnx-ios/")))
 
 
 # ---------------------------------------------------------------- pinned tools
@@ -412,17 +415,15 @@ def swiftlint(binary: Path, config: Path, tree: Path, swift: list[str]) -> str:
 
 # ---------------------------------------------------------------- gate
 
-<<<<<<< HEAD
-def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
-         trusted_scripts: Path | None = None) -> list[tuple[str, list[str]]]:
-=======
-def reserved_keys(repo: Path, base: str, head: str) -> list[str]:
+def reserved_keys(repo: Path, base: str, head: str, trusted_scripts: Path | None = None) -> list[str]:
     """What head adds to the Ghostty-default keys check (RESERVED_CHECK) over base."""
     def blob(rev: str, path: str) -> bytes | None:
         result = subprocess.run(["git", "-C", str(repo), "show", f"{rev}:{path}"], capture_output=True)
         return result.stdout if result.returncode == 0 else None
 
-    script = blob(head, RESERVED_SCRIPT)
+    # The hook runs the installed reviewed checker (as for the scanners), else the head's.
+    trusted = trusted_scripts / Path(RESERVED_SCRIPT).name if trusted_scripts else None
+    script = trusted.read_bytes() if trusted and trusted.is_file() else blob(head, RESERVED_SCRIPT)
     if script is None:
         return []  # a commit older than this check
     with tempfile.TemporaryDirectory(prefix="cmux-reserved-") as tmp:
@@ -452,12 +453,12 @@ def reserved_keys(repo: Path, base: str, head: str) -> list[str]:
     return fresh
 
 
-def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool) -> list[tuple[str, list[str]]]:
->>>>>>> 7dd30cbfaa3 (fix(next): Cmd-Opt-arrows focus panes again (Ghostty goto_split); Ghostty split keys reserved)
+def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
+         trusted_scripts: Path | None = None) -> list[tuple[str, list[str]]]:
     """[(check, new findings)] that head adds over base."""
     reserved: list[tuple[str, list[str]]] = []
     if only is None or "reserved" in only:
-        fresh = reserved_keys(repo, base, head)
+        fresh = reserved_keys(repo, base, head, trusted_scripts)
         reserved = [(RESERVED_CHECK, fresh)] if fresh else []
     changed = changed_files(repo, base, head)
     if not changed:

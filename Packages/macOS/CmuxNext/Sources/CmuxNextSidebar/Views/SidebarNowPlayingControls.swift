@@ -144,7 +144,7 @@ final class SidebarNowPlayingLevels: NSView {
 
     /// Whether the bars move now.
     var moves: Bool {
-        isPlaying && window != nil && !isHiddenOrHasHiddenAncestor && (reduceMotionOverride.map { !$0 } ?? Motion.animatesLoops)
+        isPlaying && window != nil && !isHiddenOrHasHiddenAncestor && (reduceMotionOverride.map { !$0 } ?? Motion.indicators.animatesLoops)
     }
 
     override func layout() {

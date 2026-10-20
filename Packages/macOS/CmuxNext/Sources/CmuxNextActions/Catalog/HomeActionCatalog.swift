@@ -89,6 +89,14 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
                 cliName: "home attach",
                 surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
             ),
+            // Reply to Selection (plans/cmux-next/reply-to-selection-DESIGN.md): the text selected in one
+            // message of the shown Home conversation is the reply's quote. Cmd-Shift-R on Home (KeyBindingDefaults).
+            ActionDescriptor(
+                id: "home.replyToSelection", title: t("action.home.replyToSelection", "Reply to Selection"),
+                keywords: ["home", "reply", "quote", "selection", "selected", "highlight", "message", "thread"],
+                category: .window, symbol: "text.quote", surfaces: [.palette, .keyboard],
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.liveInput), contextMenuExemption: .liveInput)
+            ),
             // The Home page's conversation list (plans/cmux-next/home-messaging.md):
             // New Message (a DM or a group), Invite, New Chief and Archive Chief.
             // Without arguments the first three open their sheet on the Home page;
@@ -232,6 +240,18 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
                 category: .window, symbol: "bubble.left.and.text.bubble.right", surfaces: [.palette, .keyboard],
                 arguments: [Self.conversation, Self.replies(isRequired: true)],
                 cliName: "chat replies",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noTargetSurface)
+            ),
+            // Pin or unpin a conversation in the Home sidebar's pinned grid (pinning-DESIGN.md): the
+            // row's Pin/Unpin, a tile dragged out of the grid, the palette, `cmux home pin-unpin` and
+            // MCP run it. `pinned` sets the state; without it the action toggles.
+            ActionDescriptor(
+                id: "home.togglePin", title: t("action.home.togglePin", "Pin/Unpin Conversation"),
+                keywords: ["home", "pin", "unpin", "pinned", "favorite", "top", "conversation", "chief", "dm", "group"],
+                category: .window, symbol: "pin", surfaces: [.palette, .keyboard],
+                arguments: [Self.conversation,
+                            ActionArgument(name: "pinned", title: t("argument.home.pinned", "Pinned"), kind: .bool, isRequired: false)],
+                cliName: "home pin-unpin",
                 surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noTargetSurface)
             ),
             // `cmux home send --conversation <id> --text "…"`: a message as me, in a DM or group.
