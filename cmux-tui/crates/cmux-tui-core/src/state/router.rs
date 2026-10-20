@@ -273,12 +273,15 @@ pub(crate) fn dispatch(
     match operation {
         // A1: workspace identity, pins, tab state
         Op::WorkspaceUpdate => {
-            require_any(fields, &["title", "color", "icon"])?;
+            require_any(fields, &["title", "color", "icon", "description", "task_status"])?;
             let update = WorkspacePresentationUpdate {
                 group: None,
                 color: nullable_string(fields, "color"),
                 icon: nullable_string(fields, "icon"),
                 title: nullable_string(fields, "title"),
+                // workspace-description-v1 and workspace-status-v1.
+                description: nullable_string(fields, "description"),
+                task_status: nullable_string(fields, "task_status"),
                 ..WorkspacePresentationUpdate::default()
             };
             let commit = mux

@@ -19,7 +19,7 @@ struct TabSwitchPathBench {
         let page = InternalPageID(rawValue: "switch-path-bench")
         var title: String { "Notes" }
         var symbol: String { "doc" }
-        var made: [NSView] = []
+        var made: [MoveCounting] = []
         func makeView(for key: String, in window: WindowController?) -> NSView {
             let view = MoveCounting(frame: NSRect(x: 0, y: 0, width: 900, height: 460))
             view.wantsLayer = true

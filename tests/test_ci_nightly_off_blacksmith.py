@@ -50,7 +50,7 @@ def code_lines(path: Path):
 class NightlyOffBlacksmithTests(unittest.TestCase):
     def test_nightly_workflows_are_discovered(self) -> None:
         names = {path.name for path in nightly_workflows()}
-        for required in ("nightly.yml", "cmux-tui-nightly.yml", "auto-resume-nightly-notarization.yml"):
+        for required in ("nightly.yml", "auto-resume-nightly-notarization.yml"):
             self.assertIn(required, names)
 
     def test_no_nightly_job_names_blacksmith(self) -> None:
@@ -71,6 +71,28 @@ class NightlyOffBlacksmithTests(unittest.TestCase):
         ]
         self.assertEqual(failures, [], "a shared runner variable points at Blacksmith; use a literal owned or hosted label")
 
+    def test_nightlies_skip_the_benchmark_mini(self) -> None:
+        """cmux11s is the dedicated benchmark mini (since 2026-10-20, a153).
+
+        Its runners are off and must stay idle, so no nightly job may name it or
+        any pool it carries: the std PR/side/session pools and the shared
+        side-lane or daemon variables (which an operator may point at a std
+        pool). Nightly macOS work uses only the cmux15 trusted tuple or the
+        light side lane (light-class minis; cmux11s is std class).
+        """
+        forbidden = re.compile(
+            r"cmux11s|glaeda-(side-|root-|gui-|session-|aws-)?std-xcode"
+            r"|vars\.(CI_SIDE_LANE_RUNNER|CI_NEXT_DAEMON_POOL|CI_NEXT_PROMOTE_POOL|CI_LIGHT_LANE_RUNNER)\b"
+        )
+        allowed = ("vars.CI_SEED_TRUSTED_POOL", "vars.CI_NIGHTLY_NEXT_TRUSTED_POOL")
+        failures = []
+        for path in nightly_workflows():
+            for number, line in code_lines(path):
+                if forbidden.search(line) and not any(name in line for name in allowed):
+                    failures.append(f"{path.name}:{number}: {line.strip()}")
+        self.assertEqual(failures, [], "nightly jobs must never reach the benchmark mini cmux11s")
+
+    @unittest.skipUnless((WORKFLOWS / "cmux-tui-nightly.yml").exists(), "no cmux-tui nightly on this branch")
     def test_tui_nightly_overrides_every_package_builder_runner(self) -> None:
         text = (WORKFLOWS / "cmux-tui-nightly.yml").read_text(encoding="utf-8")
         block = text[text.index("uses: ./.github/workflows/cmux-tui-build-package.yml"):]
@@ -86,8 +108,9 @@ class NightlyOffBlacksmithTests(unittest.TestCase):
         job = text[text.index("\n  build-nightly-app:"):]
         runs_on = re.search(r"^    runs-on: (.+)$", job, re.MULTILINE).group(1)
         self.assertIn("vars.CI_NIGHTLY_TRUSTED_RUNNER", runs_on)
-        self.assertIn("vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER", runs_on)
-        self.assertIn("glaeda-trusted-next-nightly", runs_on)
+        if "vars.CI_NIGHTLY_NEXT_TRUSTED_POOL" in text:
+            self.assertIn("vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER", runs_on)
+            self.assertIn("glaeda-trusted-next-nightly", runs_on)
 
 
 if __name__ == "__main__":

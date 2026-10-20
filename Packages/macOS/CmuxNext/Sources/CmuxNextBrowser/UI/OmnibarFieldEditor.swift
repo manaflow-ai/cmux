@@ -22,6 +22,8 @@ import AppKit
 /// and has AppKit undo off: the state machine owns the text and its undo.
 final class OmnibarFieldEditor: NSTextView {
     weak var sink: (any OmnibarFieldEditorSink)?
+    /// Bench marks (`debug.omnibar_bench`): nil outside a bench run.
+    var probe: ((String) -> Void)?
     /// Between `shouldChangeText` and `didChangeText`: selection changes
     /// there belong to the edit and are reported with it.
     private var isChangingText = false
@@ -124,9 +126,12 @@ final class OmnibarFieldEditor: NSTextView {
     }
 
     override func mouseDown(with event: NSEvent) {
+        probe?("editor.mouseDown")
         sink?.fieldEditorMouseDown(clickCount: event.clickCount, button: .left, word: word(at: event))
+        probe?("editor.tracking")
         // Tracks the click or drag until mouse-up.
         super.mouseDown(with: event)
+        probe?("editor.tracked")
         sink?.fieldEditorMouseUp()
     }
 

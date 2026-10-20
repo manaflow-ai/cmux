@@ -25,6 +25,12 @@ public final class WorkspaceModel: Identifiable {
     /// The folder new agent chats of this workspace start in, set by the user with "Choose
     /// Folder…" (`workspace.agent_folder.set`); from the daemon's state resources.
     public internal(set) var agentFolder: String?
+    /// The person's notes for the workspace (Edit Workspace Description…,
+    /// `workspace-description-v1`); from the daemon's state resources.
+    public internal(set) var workspaceDescription: String?
+    /// The task lane the person pinned (Mark as Done, Set Workspace Status,
+    /// `workspace-status-v1`); nil is automatic. From the daemon's state resources.
+    public internal(set) var taskStatus: WorkspaceTaskStatus?
     /// Status line, progress, and newest log line hooks and the CLI report
     /// (`workspace_status.*`); from the daemon's state resources.
     public internal(set) var status: WorkspaceStatus?
@@ -114,9 +120,12 @@ public final class WorkspaceModel: Identifiable {
     }
 
     /// Lays the daemon's workspace state over the record.
-    func applyState(ephemeral: Bool, agentFolder: String? = nil, status: WorkspaceStatus?, screenGroups groups: [ScreenGroupSnapshot]?) {
+    func applyState(ephemeral: Bool, agentFolder: String? = nil, notes: SessionStateMirror.WorkspaceNotes = .init(),
+                    status: WorkspaceStatus?, screenGroups groups: [ScreenGroupSnapshot]?) {
         if self.ephemeral != ephemeral { self.ephemeral = ephemeral }
         if self.agentFolder != agentFolder { self.agentFolder = agentFolder }
+        if workspaceDescription != notes.description { workspaceDescription = notes.description }
+        if taskStatus != notes.taskStatus { taskStatus = notes.taskStatus }
         if self.status != status { self.status = status }
         screenGroupsFromState = groups != nil
         if let groups, screenGroups != groups { screenGroups = groups }

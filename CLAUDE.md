@@ -52,6 +52,28 @@ commit the result. The hook comes with `scripts/install-git-hooks.sh` (run by
 `CMUX_WEB_LINT_SKIP_REASON="<failing check> is red on base <sha>"`; the
 `web lint (fast)` job of cmux-next-web.yml still checks every feat-cmux-next push.
 
+## cmux-next checks before every push
+
+Before every push, run `python3 scripts/cmux-next/prepush-gate.py` (the pre-push hook
+runs it too; install once with `scripts/install-git-hooks.sh`). In a few seconds and
+with no build, it runs the static checks of the `cmux-next checks` CI job, pinned
+ast-grep rules, SwiftFormat `--lint` and syntax-only SwiftLint on the files you
+changed, and refuses only violations your commits add; base debt does not block you.
+Swift/Rust builds and tests stay on the fleet.
+
+- Never `--no-verify` and never `CMUX_NEXT_CHECKS_SKIP_REASON`, unless the failure is
+  in files you did not touch. Then say so in your report, naming the check and the base sha.
+  CI step "Pushed commits add no violations" names every commit that adds one.
+- No blocking calls on the main thread: use the async or background API
+  (`openInBackground`/`revealInBackground`, async reads, an injected `Clock`), not
+  `Thread.sleep`, `.wait()`, `readDataToEndOfFile()`, `waitUntilExit()` or `NSWorkspace.shared.open`.
+- No `try!`: throw or handle a typed error.
+- Fonts come from `TypeScale` or `Typography`, never a literal size.
+- Dialogs use the standard key-hint components (`CmuxDialogSpec`, `CmuxDialogActionButton`,
+  `ThemedBezelButton.keyHint`, web `ui/DialogButton`), never `NSAlert`, `.alert` or `.confirmationDialog`.
+- An escape comment (`// concurrency-allow:`, `// crash-allow:`, `dialog-keys-exempt:`)
+  needs a reason that proves the code is safe; it is not a way to pass the gate.
+
 ## Swift namespace convention
 
 Public and package types in package source must expose an instance surface or
