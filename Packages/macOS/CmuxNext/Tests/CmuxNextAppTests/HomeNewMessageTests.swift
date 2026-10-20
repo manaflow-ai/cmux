@@ -24,7 +24,8 @@ struct HomeNewMessageTests {
     @Test func returnTurnsAnEmailOrPhoneIntoAnAddressToken() {
         var draft = HomeNewMessageDraft()
         draft.query = " Austin@Manaflow.ai "
-        #expect(draft.commit(contacts: Self.contacts))
+        let committed = draft.commit(contacts: Self.contacts)
+        #expect(committed)
         draft.query = "(415) 555-0134"
         draft.commit(contacts: Self.contacts)
         #expect(draft.recipients == [.address(.email("austin@manaflow.ai")), .address(.phone("+14155550134"))])
@@ -72,13 +73,16 @@ struct HomeNewMessageTests {
         draft.add(.contact(Self.ada))
         draft.add(.contact(Self.alan))
         draft.query = "x"
-        #expect(!draft.deleteBackward())
+        let typedStays = draft.deleteBackward()
+        #expect(!typedStays)
         #expect(draft.tokens.count == 2)
         draft.query = ""
-        #expect(draft.deleteBackward())
+        let removedOne = draft.deleteBackward()
+        #expect(removedOne)
         #expect(draft.recipients == [.contact(Self.ada)])
         draft.deleteBackward()
-        #expect(!draft.deleteBackward())
+        let removedNone = draft.deleteBackward()
+        #expect(!removedNone)
         #expect(draft.isEmpty)
     }
 
