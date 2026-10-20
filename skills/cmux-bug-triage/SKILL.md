@@ -21,7 +21,8 @@ printf '%s\n' "$REPORT_TEXT" | $T add --text - --image ~/Desktop/shot1.png --fro
 #      - shot1.png: <one bullet per visible bug: what is wrong, where, which control>
 
 # 3. Triage everything new. Pass open subagents as "aN: task" lines from your view.
-$T inbox --open-work /tmp/open-agents.txt --repo ~/fun/cmux            # triage.md per report
+gh issue list -R manaflow-ai/cmux --state open -L 400 --json number,title,url > /tmp/gh-issues.json
+$T inbox --open-work /tmp/open-agents.txt --github /tmp/gh-issues.json --repo ~/fun/cmux  # triage.md per report
 $T inbox --open-work /tmp/open-agents.txt --repo ~/fun/cmux --json     # tasks for spawn
 $T triage ~/fun/cmux-bug-inbox/<folder> --json                          # re-run one report (no logs)
 ```
@@ -29,6 +30,10 @@ $T triage ~/fun/cmux-bug-inbox/<folder> --json                          # re-run
 Sources: `--open-work FILE`, `--prompt-commits FILE` (default `~/fun/cmux-prompt-commits.md`,
 `CMUX_PROMPT_COMMITS=` disables), `--sentry FILE` (JSON from `sentry-cli issues list --json`, when
 `sentry-cli` is logged in), `--repo DIR` for the `origin/feat-cmux-next` log (`--no-git` skips).
+`--github FILE` links a matching open issue in the fix task (it never changes the decision). The
+git source reads each commit's subject and first body paragraph (fix commits quote the tester),
+prefers a fix commit over its test commit, and checks the sha against `--nightly-ref`
+(default `nightly-next`): the skip reason says "in nightly-next" or "not in nightly-next yet".
 
 ## Decisions
 

@@ -29,8 +29,10 @@ const editable = (target: EventTarget | null) =>
 export function useHomeKeys(actions: HomeKeyActions): void {
   const onKeyDown = useEffectEvent((event: KeyboardEvent) => {
     if (event.defaultPrevented || event.isComposing) return;
-    // A popup (menu, popover, picker, the palette) owns its own Escape and arrows.
-    if (event.target instanceof Element && event.target.closest(".ui-popup, .lg-palette, .lg-form")) return;
+    // A popup (menu, popover, picker, the palette) owns its own Escape and arrows; so does the
+    // Chief editor page (its Back and Cancel leave it, never a stray Escape over typed text).
+    if (event.target instanceof Element && event.target.closest(".ui-popup, .lg-palette, .lg-form, .chief-editor"))
+      return;
     const key = event.key.toLowerCase();
     const plain = !event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey;
     if (key === "k" && event.metaKey && !event.shiftKey && !event.altKey) actions.openPalette();

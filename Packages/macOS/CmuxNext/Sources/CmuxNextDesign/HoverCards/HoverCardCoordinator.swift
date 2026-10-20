@@ -99,8 +99,9 @@ public final class HoverCardCoordinator {
         observers.append(NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.activeSpaceDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.dismiss(.windowResignedKey) } // main-proof: observer on queue: .main
         })
-        for name in [NSWindow.didMoveNotification, NSWindow.didResizeNotification, NSWindow.didEndLiveResizeNotification] {
-            let ended = name == NSWindow.didEndLiveResizeNotification
+        for name in [NSWindow.didMoveNotification, NSWindow.didResizeNotification, NSWindow.didEndLiveResizeNotification,
+                     NSWindow.didEnterFullScreenNotification, NSWindow.didExitFullScreenNotification] {
+            let ended = name != NSWindow.didMoveNotification && name != NSWindow.didResizeNotification
             observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] note in
                 let number = (note.object as? NSWindow)?.windowNumber
                 MainActor.assumeIsolated { self?.windowGeometryChanged(number, liveResizeEnded: ended) } // main-proof: observer on queue: .main
@@ -180,7 +181,8 @@ public final class HoverCardCoordinator {
     public func geometryChanged(in window: NSWindow?) { geometryChanged(in: window, liveResizeEnded: false) }
 
     private func geometryChanged(in window: NSWindow?, liveResizeEnded: Bool) {
-        if !liveResizeEnded, window?.inLiveResize == true { return }
+        // A full screen transition too: AppKit animates a snapshot, the pointer is not over what it shows.
+        if !liveResizeEnded, Motion.isLiveResizing(window) { return }
         // Content moving under a held button (a click's relayout, a drag) changes nothing: a hit
         // of nil here would end the click's quiet, and the card would come back on release.
         if mouseButtonDown() { followShownTarget(); return }
@@ -308,19 +310,39 @@ public final class HoverCardCoordinator {
         let needed = machine.activeTarget != nil
         if needed, monitor == nil {
             monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown, .scrollWheel]) { [weak self] event in
-                let reason: HoverDismissal = switch event.type {
-                case .keyDown: .keyDown
-                case .scrollWheel: .scrollWheel
-                default: .click
-                }
-                self?.dismiss(reason)
-                return event
+                guard let self else { return event }
+                return self.handleMonitoredEvent(event)
             }
         } else if !needed, let monitor {
             NSEvent.removeMonitor(monitor)
             self.monitor = nil
         }
         updateMoveMonitor()
+    }
+
+    /// One key press, click or wheel scroll seen by the dismissal monitor: it ends the card and
+    /// passes the event on. Returns the event to deliver, nil when the card took it.
+    ///
+    /// A wheel scroll with the pointer on the shown card is the card's (Lawrence 2026-10-19,
+    /// u3320: "If I open a card, move my mouse over, and start scrolling, the card just
+    /// disappears"): the card ignores the mouse, so the window under it would scroll. The card
+    /// scrolls its own scroll view (a long timeline) instead, stays, and the event goes no further.
+    func handleMonitoredEvent(_ event: NSEvent) -> NSEvent? {
+        if event.type == .scrollWheel, let panel, machine.shownTarget != nil, panel.isShowingCard {
+            // A real event names the window under the pointer; a synthesized one may name none.
+            let point = event.window.map { $0.convertPoint(toScreen: event.locationInWindow) } ?? currentPointer()
+            if panel.cardFrame.contains(point) {
+                panel.scrollCard(with: event, at: point)
+                return nil
+            }
+        }
+        let reason: HoverDismissal = switch event.type {
+        case .keyDown: .keyDown
+        case .scrollWheel: .scrollWheel
+        default: .click
+        }
+        dismiss(reason)
+        return event
     }
 
     /// While a card shows, pointer moves on it or just off it reach the machine: leaving the

@@ -28,7 +28,7 @@ extension TabCell {
     /// theme-scoped: callers run it inside `themeScope.perform`.
     func applyAudioIcon() {
         guard let icon = audioLayer else { return }
-        let name: IconName = item.audio == .muted ? .mediaMuted : .mediaAudio
+        let name: IconName = item.audio == .muted ? .browserTabMuted : .browserTabAudio
         icon.contentsScale = scale
         icon.contents = TabPackIconCache.shared.image(name: name, tint: Palette.textSecondary, size: Self.audioIconSize, scale: scale)
     }

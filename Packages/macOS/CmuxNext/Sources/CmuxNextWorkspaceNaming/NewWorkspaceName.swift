@@ -1,3 +1,4 @@
+import CmuxNextDaemon
 import Foundation
 
 /// The name a workspace made from dragged or moved tabs takes (Lawrence,
@@ -48,7 +49,8 @@ public nonisolated struct NewWorkspaceName {
             }
             return clean(host)
         case .terminal, .remoteTerminal:
-            if let title = clean(tab.title), !isBareShell(title) { return title }
+            // An agent's spinner glyphs (`⠐ Fix the bug`) are status, not the name.
+            if let title = clean(tab.title.map { TerminalTitle(raw: $0).text }), !isBareShell(title) { return title }
             let directory = tab.cwd.map { URL(fileURLWithPath: $0).lastPathComponent }
             return clean(directory == "/" ? nil : directory)
         }

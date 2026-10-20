@@ -350,6 +350,16 @@ nonisolated enum TabActionCatalog: ActionCatalogGroup {
                 keywords: ["id", "ref"], category: .tab, symbol: "number.circle", surfaces: [.palette, .contextMenu],
                 targets: [.tab], cliName: "tab copy-identifiers"
             ),
+            // A PNG of the tab's content, never changing focus or selection
+            // (ScreenshotHandlers): Copy menu, palette, CLI, MCP.
+            ActionDescriptor(
+                id: "tab.screenshot",
+                title: String(localized: "action.tab.screenshot", defaultValue: "Screenshot Tab", bundle: .module),
+                keywords: ["screenshot", "capture", "image", "png", "picture"], category: .tab, symbol: "camera",
+                surfaces: [.palette, .contextMenu], arguments: [CatalogArgument.screenshotOut], targets: [.tab],
+                cliName: "tab screenshot",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenus: [ActionSurfaceCatalog.p(.tab, .inspect, 510, folder: .copy)])
+            ),
             ActionDescriptor(
                 id: "palette.copyPaneID",
                 title: String(localized: "action.palette.copyPaneID", defaultValue: "Copy Pane ID", bundle: .module),

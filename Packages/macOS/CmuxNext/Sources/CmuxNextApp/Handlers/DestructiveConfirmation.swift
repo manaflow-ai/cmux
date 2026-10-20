@@ -71,6 +71,12 @@ enum DestructiveConfirmation {
             // brings the group back, so only work in progress asks.
             guard let (tabs, daemon) = tabGroup(invocation, context) else { return nil }
             return await TabCloseGuard.prompt(closing: tabs, on: daemon, services: services)
+        case "taskManager.killProcess":
+            // A process Kill Process refuses is not asked about: the handler says why.
+            let key = services.taskManager.process(invocation["process"]?.stringValue)
+            guard let key, services.taskManager.refusal(for: key) == nil else { return nil }
+            let question = services.taskManager.prompt(for: key)
+            return Prompt(title: question.title, body: question.body, button: question.button)
         case "closeWorkspace":
             guard let workspace = context.scope(invocation).workspace, let daemon = services.machines.daemon(forWorkspace: workspace.id) else { return nil }
             return await WorkspaceBulkClose.prompt([(workspace, daemon)], warn: warn)

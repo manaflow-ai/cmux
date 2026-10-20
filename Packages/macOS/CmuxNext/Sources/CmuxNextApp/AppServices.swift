@@ -11,6 +11,7 @@ import CmuxNextControl
 import CmuxNextCrashReporting
 import CmuxNextDesign
 import CmuxNextDaemon
+import CmuxNextFeed
 import CmuxNextPalette
 import CmuxNextPages
 import CmuxNextPopups
@@ -21,6 +22,7 @@ import CmuxNextSettings
 import CmuxNextSidebar
 import CmuxNextTerminal
 import CmuxNextUpdater
+import CmuxNextVSCodeServer
 import CmuxNextWorkspaceRepair
 import os
 /// Process-wide services the window controllers share. Model state is not
@@ -82,6 +84,8 @@ final class AppServices {
     private(set) lazy var emptyWorkspaces: EmptyWorkspaceRepair = EmptyWorkspaceRepair(daemon: daemon)  // first read in init (no IUO)
     /// The closed-tab signal and the undo toasts of user closes; set when the tab handlers bind. The daemon owns the closed history (`DaemonClosedHistory`).
     var closedTabs: ClosedTabsFeed?
+    /// Find Work's GitHub reads, with the user's `gh` login (``FindWorkPalettePage``); tests replace it.
+    lazy var findWorkGitHub: any GitHubFeedAPI = GitHubCLIClient(executable: AgentChatPullRequestReader.findGitHubCLI() ?? "/usr/bin/env")
     /// The app-wide "where was I" trail (plans/cmux-next/history.md 4.2).
     private(set) lazy var locationTrail = LocationTrailService(services: self)
     /// The merged history read side and the per-profile visit logs.
@@ -119,6 +123,8 @@ final class AppServices {
                             scratch: FileManager.default.temporaryDirectory.appending(path: "cmux-phone", directoryHint: .isDirectory))
     }()
     private(set) lazy var phoneFeedback = PhoneChiefFeedback(home: home)
+    /// The Task Manager page and Kill Process (`TaskManagerPageService`).
+    private(set) lazy var taskManager = TaskManagerPageService(services: self)
     /// The viewers' recents, the cmux picker, the diff, markdown and editor tabs (R89, S4, S6, S7).
     private(set) lazy var viewers = ViewerService(services: self)
     /// The cmux server menu bar item (DEV and NIGHTLY prototype; plans/cmux-next/server.md 14).
@@ -135,6 +141,12 @@ final class AppServices {
         SidebarDocWiring.start(self, layout: service)
         return service
     }()
+    /// Sleepy Mode, the keep-awake screensaver (`palette.sleepyMode`); tests set one with fake seams.
+    lazy var sleepyMode = SleepyModeController(
+        keepAwake: SleepyKeepAwakeActivity(),
+        overlay: SleepyOverlayWindows(workingAgents: { [weak self] in self?.workingAgentTabCount() ?? 0 },
+                                      lockMac: { SleepyMacLock().lock() })
+    )
     /// Each pane's own Hide Tab Bar choice (`PaneTabBarChoices`).
     let paneTabBars = PaneTabBarChoices()
     /// Pane controller mounts and releases in any window (`PaneMounts`).
@@ -185,6 +197,8 @@ final class AppServices {
     /// Links, files and services macOS hands cmux (default browser, ssh:, scripts).
     private(set) lazy var externalOpen = ExternalOpenController(services: self)
     let terminalTheme = TerminalThemeSetting(backdropScope: .app)
+    /// This Mac's layout templates (Save Layout as Template, New Workspace from Template).
+    private(set) lazy var layoutTemplates = LayoutTemplateLibrary(repository: LayoutTemplateRepository(fileURL: environment.layoutTemplatesFile))
     /// Room, workspace and terminal themes.
     private(set) lazy var themes: ThemeCoordinator = ThemeCoordinator(services: self, terminalThemes: .forApplication(bundleIdentifier: environment.launch.bundleID))  // first read in init (no IUO)
     /// Browser tabs of remote machines reach that machine's localhost.
@@ -200,6 +214,8 @@ final class AppServices {
     let popups: BrowserPopupWindows
     /// The link-hint session (`f`, `F`) on a focused Chromium page.
     let linkHints = LinkHintController()
+    /// Toggle React Grab on a page; the library is fetched once per run (`ReactGrabScriptLoader`).
+    let reactGrab = ReactGrab(scripts: ReactGrabScriptLoader())
     /// Click by Hint over the whole window (`hints.show`, Cmd-J).
     let windowHints = WindowHintController()
     /// Browser profiles: records, the new-tab cascade, each tab's store.
@@ -226,6 +242,12 @@ final class AppServices {
     let hoverCards = HoverCardCoordinator()
     /// Refusal messages for keyboard and menu runs.
     let refusalHUD = RefusalHUD()
+    /// The inline VS Code server (`serve-web`) behind VS Code (Inline); starts on first use.
+    let vscodeServeWeb = VSCodeServeWebService(
+        planner: VSCodeServeWebLaunchPlanner(homeDirectory: FileManager.default.homeDirectoryForCurrentUser,
+                                             environment: ProcessInfo.processInfo.environment),
+        launcher: VSCodeServeWebProcessLauncher(), tokenDirectory: FileManager.default.temporaryDirectory
+    )
     /// The browser host's engine provider (idle until the daemon offers the endpoint).
     private(set) var browserHost: AppBrowserHost?
     /// Remote-terminal tabs: mount, placeholder, snapshot, moves.
@@ -311,6 +333,7 @@ final class AppServices {
             PageInfoHandlers.installRouter(on: entry, registry: registry)
             CertificateWarningHandlers.installRouter(on: entry, registry: registry)
             BrowserToolbarHandlers.install(on: entry, services: self)
+            installOmnibarHooks(on: entry)
             bookmarks.attach(entry)
             onboarding.browserImportOffer.attach(entry)
             attachMachineBadgeMenu(entry)
@@ -324,7 +347,10 @@ final class AppServices {
         cache.onDevToolsChange = { [weak self] key, state, focused in self?.devToolsDidChange(key, state: state, focused: focused) }
         registry.menuKeyEquivalentGate = { [weak self] id in self?.keyRouter.allowsMenuKeyEquivalent(id) ?? true }
         (NSApp as? CmuxApplication)?.keyDownInterceptor = { [weak self] event, window in
-            self?.keyRouter.interceptKeyDown(event, in: window) ?? false
+            guard let self else { return false }
+            // A key on Sleepy Mode's scene only wakes it; no shortcut runs behind the cover.
+            if self.sleepyMode.consumesKeyDown() { return true }
+            return self.keyRouter.interceptKeyDown(event, in: window)
         }
         surfaceInvariant.services = self
         surfaceInvariant.observeWindowOcclusion()

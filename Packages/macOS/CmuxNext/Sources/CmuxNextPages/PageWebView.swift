@@ -210,9 +210,8 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
             webView.setValue(false, forKey: "drawsBackground")
         }
         webView.underPageBackgroundColor = .clear
-        #if DEBUG
+        // Web Inspector in every build (Inspect Element, Cmd-Opt-I).
         webView.isInspectable = true
-        #endif
         webView.navigationDelegate = self
         webView.uiDelegate = PageOpenPanel.shared
         webView.onUserEvent = { [weak self] in self?.noteTouch() }
