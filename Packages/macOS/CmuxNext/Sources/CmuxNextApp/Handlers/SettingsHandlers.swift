@@ -50,9 +50,12 @@ enum SettingsHandlers {
                 throw ActionFailure(message: RefusalStrings.controlListenerRestartFailed(String(describing: error)))
             }
         })
+        registry.bind("help.featureFlags", run: { [weak services = context.services] invocation in
+            guard let services else { return }
+            try FeatureFlagsPage(services: services).open(invocation)
+        })
         let unbuilt: [(ActionID, String)] = [
             ("palette.pro.upgrade", "account-billing"),
-            ("help.featureFlags", "feature-flags"),
         ]
         for (id, feature) in unbuilt {
             registry.bindUnavailable([id], ActionFailure.needsAppCapability(feature))
