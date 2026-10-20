@@ -113,7 +113,12 @@ extension SidebarListView {
         let shownCard = hoverCard.shownID
         for ws in patched {
             workspaces[ws.id] = ws
-            for tab in ws.tabs { tabs[tab.id] = tab }
+            // A tab switch changes the workspace row, not its tabs: only a tab whose own content changed is drawn again.
+            var changedTabs: [TabID] = []
+            for tab in ws.tabs where tabs[tab.id] != tab {
+                tabs[tab.id] = tab
+                changedTabs.append(tab.id)
+            }
             for path in model.rowIndex?.paths(of: ws.id) ?? [] {
                 let section = model.sections[path.section]
                 sections[section.id] = section
@@ -136,7 +141,7 @@ extension SidebarListView {
             }
             displayed.setContent(content, for: row.key)
             reconfigure(row.key)
-            for tab in ws.tabs { reconfigure(.tab(ws.id, tab.id)) }
+            for tab in changedTabs { reconfigure(.tab(ws.id, tab)) }
         }
         return heightChanged
     }

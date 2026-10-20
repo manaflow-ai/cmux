@@ -53,17 +53,36 @@ public nonisolated struct BrowserDesignModeCards: Sendable {
 
     private static func card(_ selection: [String: Any], key: String, pageURL: URL?) -> BrowserDesignModeCard {
         let tag = (selection["tag_name"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? "element"
-        let host = pageURL?.host() ?? pageURL?.absoluteString ?? ""
+        let host = pageURL.map { $0.isFileURL ? $0.lastPathComponent : ($0.host() ?? $0.absoluteString) } ?? ""
         let bounds = selection["bounds"] as? [String: Any]
         let viewport = selection["viewport"] as? [String: Any]
+        let picked = pickedVariation(selection, key: key)
+        var text = agentText(selection, key: key, tag: tag, pageURL: pageURL)
+        if let picked {
+            let title = ((selection["text_content"] as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            let stripped = title.replacingOccurrences(of: "^\\d+\\.\\s*", with: "", options: .regularExpression)
+            text = "Picked design variation \(picked)" + (stripped.isEmpty ? "" : ": \(stripped)") + "\n\n" + text
+        }
         return BrowserDesignModeCard(
             id: "design-" + stableHash(key + "|" + (pageURL?.absoluteString ?? "")),
             name: Strings.designModeCardName(tag: tag, host: host),
-            text: agentText(selection, key: key, tag: tag, pageURL: pageURL),
+            text: text,
             bounds: CGRect(x: number(bounds?["x"]), y: number(bounds?["y"]),
                            width: number(bounds?["width"]), height: number(bounds?["height"])),
-            viewportWidth: number(viewport?["width"])
+            viewportWidth: number(viewport?["width"]),
+            pickedVariation: picked
         )
+    }
+
+    /// The variation a gallery tile names (`data-testid="cmux-variation-<n>"`, or its caption's
+    /// `cmux-variation-<n>-title`, scripts/cmux-next/design-variations.py); nil for other elements.
+    private static func pickedVariation(_ selection: [String: Any], key: String) -> Int? {
+        let selectors = [key] + ((selection["selectors"] as? [String]) ?? [])
+        for selector in selectors {
+            guard let match = selector.firstMatch(of: /data-testid="cmux-variation-(\d+)(-title)?"/) else { continue }
+            return Int(match.1)
+        }
+        return nil
     }
 
     /// What the agent reads. Plain English on purpose: it is prompt text for the agent, not UI.

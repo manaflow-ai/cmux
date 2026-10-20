@@ -1,8 +1,12 @@
-//! The command a respawned terminal offers on its new prompt (cx-6so.49
-//! L2), typed without a newline so the user decides whether to run it:
+//! The command a respawned terminal types on its new prompt (cx-6so.49
+//! L2):
 //! - the agent session it last ran, when its harness is known:
-//!   `claude --resume <id>` or `codex resume <id>`;
-//! - else, for a command terminal, its argv, shell-quoted: the full argv
+//!   `claude --resume <id>` or `codex resume <id>`, typed and run (#22292):
+//!   an agent in a workspace nobody opened yet runs again at launch. The
+//!   command is built here from a validated session id and carries none of
+//!   the agent's launch flags, so it never runs with an approval bypass;
+//! - else, for a command terminal, its argv, typed without a newline so the
+//!   user decides whether to run it: the full argv
 //!   when this daemon process launched it, else the relaunch record's argv
 //!   without credential-like arguments (`relaunch_store::stored_argv`). A
 //!   record without one has only the program name, which the marker line
@@ -32,8 +36,18 @@ pub(in crate::mux) struct Prefill {
 }
 
 impl Prefill {
-    /// Wait for the new shell's prompt, then write the text to its input,
-    /// never a newline.
+    /// The bytes typed on the new prompt: an agent's resume command with a
+    /// carriage return, so it runs; a command line without one.
+    pub(in crate::mux) fn input(&self) -> Vec<u8> {
+        let mut input = self.text.as_bytes().to_vec();
+        if self.kind == Prefilled::Harness {
+            input.push(b'\r');
+        }
+        input
+    }
+
+    /// Wait for the new shell's prompt, then write the text to its input
+    /// ([`Prefill::input`]).
     pub(in crate::mux) fn type_on_prompt(&self, surface: &Surface) {
         let deadline = Instant::now() + PROMPT_WAIT;
         let Ok(mut seen) = surface.terminal_stream_revision() else { return };
@@ -60,7 +74,7 @@ impl Prefill {
             }
         }
         if !surface.is_dead()
-            && let Err(error) = surface.write_bytes(self.text.as_bytes())
+            && let Err(error) = surface.write_bytes(&self.input())
         {
             eprintln!("cmux-tui: could not pre-fill a respawned terminal: {error}");
         }
@@ -130,6 +144,15 @@ mod tests {
         assert_eq!(resume_command("claude", "abc;rm -rf"), None);
         assert_eq!(resume_command("claude", &"a".repeat(129)), None);
         assert_eq!(resume_command("opencode", "abc"), None);
+    }
+
+    /// #22292: an agent's resume runs; a command line waits for Return.
+    #[test]
+    fn only_an_agent_resume_is_typed_with_return() {
+        let agent = Prefill { kind: Prefilled::Harness, text: "claude --resume abc".into() };
+        assert_eq!(agent.input(), b"claude --resume abc\r");
+        let command = Prefill { kind: Prefilled::Command, text: "npm run dev".into() };
+        assert_eq!(command.input(), b"npm run dev");
     }
 
     #[test]
