@@ -196,11 +196,14 @@ extension LinkMachine.Phase {
 
     /// Whether terminal tabs show their Mac as offline (last frame kept,
     /// no "Reattaching…" spinner) after the link has been down this long.
+    /// A first dial still under way is not called offline: only one that
+    /// failed (the Mac did not answer) or presence says so.
     public func showsTerminalsOffline(notConnectedFor down: Duration) -> Bool {
         switch self {
         case .idle, .connected: false
         case .macOffline: true
         case .waiting(_, _, let reason, _) where reason == LinkController.reason(LinkError(code: "offline", message: "")): true
+        case .connecting(_, let attempt) where attempt <= 1: false
         case .connecting, .waiting: down >= Self.offlineAfter
         }
     }

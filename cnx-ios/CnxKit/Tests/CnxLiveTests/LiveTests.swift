@@ -172,6 +172,11 @@ import Testing
         #expect(!connecting.showsTerminalsOffline(notConnectedFor: .seconds(1)))
         #expect(connecting.showsTerminalsOffline(notConnectedFor: LinkMachine.Phase.offlineAfter))
         #expect(LinkMachine.Phase.offlineAfter <= .seconds(4))
+        // A first dial under way is not "offline" (a slow connect is not a dead Mac).
+        #expect(!LinkMachine.Phase.connecting(.webRTC, attempt: 1).showsTerminalsOffline(notConnectedFor: .seconds(60)))
+        let failed = LinkMachine.Phase.waiting(.webRTC, attempt: 2, reason: "ICE timed out", retryIn: .seconds(1))
+        #expect(!failed.showsTerminalsOffline(notConnectedFor: .seconds(1)))
+        #expect(failed.showsTerminalsOffline(notConnectedFor: .seconds(4)))
         let refused = LinkMachine.Phase.waiting(.webRTC, attempt: 2, reason: LinkController.reason(LinkError(code: "offline", message: "")),
                                                 retryIn: .seconds(1))
         #expect(refused.showsTerminalsOffline(notConnectedFor: .zero))

@@ -12,7 +12,7 @@ import Testing
         #expect(TerminalConnectionState.reattaching(mac: "mini").composerNotSentNotice
             == "Not sent: reconnecting to mini. Send again when it's back.")
         #expect(TerminalConnectionState.connecting(mac: nil).composerNotSentNotice
-            == "Not sent: reconnecting to your Mac. Send again when it's back.")
+            == "Not sent: connecting to your Mac. Send again when it's connected.")
     }
 
     @Test func droppedKeysAreSaidOnce() {

@@ -93,14 +93,13 @@ public enum TerminalConnectionState: Sendable, Equatable {
     /// stays in the composer: a command must never run long after it was
     /// typed (termfix-r13 D5, T-INPUT-17).
     public var composerNotSentNotice: String? {
-        let mac: String?
+        func named(_ mac: String?) -> String { mac.flatMap { $0.isEmpty ? nil : $0 } ?? "your Mac" }
         switch self {
         case .attached: return nil
-        case .offline(let name):
-            return "Not sent: \(name.flatMap { $0.isEmpty ? nil : $0 } ?? "your Mac") is offline. Send again when it's back."
-        case .connecting(let name), .reattaching(let name): mac = name
+        case .offline(let mac): return "Not sent: \(named(mac)) is offline. Send again when it's back."
+        case .connecting(let mac): return "Not sent: connecting to \(named(mac)). Send again when it's connected."
+        case .reattaching(let mac): return "Not sent: reconnecting to \(named(mac)). Send again when it's back."
         }
-        return "Not sent: reconnecting to \(mac.flatMap { $0.isEmpty ? nil : $0 } ?? "your Mac"). Send again when it's back."
     }
 
     /// Said once keys typed during an outage were dropped (``TerminalSessionEvent/inputNotSent(bytes:)``).
