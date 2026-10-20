@@ -10,8 +10,15 @@ public nonisolated protocol HomeChiefEngineSource: Sendable {
     /// The paired server that runs the brain (nil: this Mac).
     var place: String? { get }
     func read() async throws(HomeChiefEngineError) -> HomeChiefSnapshot
+    /// Sets (nil: clears) any of harness, model and effort in one brain write; the snapshot after.
+    func set(_ fields: [String: String?]) async throws(HomeChiefEngineError) -> HomeChiefSnapshot
+}
+
+extension HomeChiefEngineSource {
     /// Sets (nil: clears) one of harness, model, effort; the snapshot after.
-    func set(_ key: String, _ value: String?) async throws(HomeChiefEngineError) -> HomeChiefSnapshot
+    func set(_ key: String, _ value: String?) async throws(HomeChiefEngineError) -> HomeChiefSnapshot {
+        try await set([key: value])
+    }
 }
 
 /// This Mac's brain. It reads its mux home's files (engine.json, profile,
@@ -55,27 +62,27 @@ public nonisolated struct HomeChiefLocalEngine: HomeChiefEngineSource {
         return snapshot.offering(report)
     }
 
-    public func set(_ key: String, _ value: String?) async throws(HomeChiefEngineError) -> HomeChiefSnapshot {
+    public func set(_ fields: [String: String?]) async throws(HomeChiefEngineError) -> HomeChiefSnapshot {
         guard let connection = await connection() else { throw .localUnreachable }
         do {
-            return files.snapshot().offering(try await HomeChiefEngineSet.send(key, value, on: connection, chief: chief))
+            return files.snapshot().offering(try await HomeChiefEngineSet.send(fields, on: connection, chief: chief))
         } catch .unreachable {
             throw await startBrain(true) ? .localStarting : .localUnreachable
         }
     }
 }
 
-/// One `chief.engine.set` of one field ("default" clears it), for the local
-/// and the paired-server brain alike.
+/// One `chief.engine.set` of the given fields (nil, sent as "default", clears
+/// one; a field not given is left as it is), for the local and the
+/// paired-server brain alike.
 nonisolated enum HomeChiefEngineSet {
     @discardableResult
-    static func send(_ key: String, _ value: String?,
+    static func send(_ fields: [String: String?],
                      on connection: DaemonConnection, chief: String? = nil) async throws(HomeChiefEngineError) -> ChiefEngineReport {
-        let value = value ?? "default"
+        let sent = { (key: String) in fields[key].map { $0 ?? "default" } }
         do {
-            return try await ChiefControlClient(connection).setChiefEngine(harness: key == "harness" ? value : nil,
-                                                                           model: key == "model" ? value : nil,
-                                                                           effort: key == "effort" ? value : nil, chief: chief)
+            return try await ChiefControlClient(connection).setChiefEngine(harness: sent("harness"), model: sent("model"),
+                                                                           effort: sent("effort"), chief: chief)
         } catch let error as ChiefControlError {
             throw HomeChiefEngineError(error)
         } catch {
@@ -111,9 +118,9 @@ public nonisolated struct HomeChiefRemoteEngine: HomeChiefEngineSource {
         }
     }
 
-    public func set(_ key: String, _ value: String?) async throws(HomeChiefEngineError) -> HomeChiefSnapshot {
+    public func set(_ fields: [String: String?]) async throws(HomeChiefEngineError) -> HomeChiefSnapshot {
         guard let connection = await connection() else { throw .unreachable }
-        return snapshot(try await HomeChiefEngineSet.send(key, value, on: connection))
+        return snapshot(try await HomeChiefEngineSet.send(fields, on: connection))
     }
 
     private func snapshot(_ report: ChiefEngineReport) -> HomeChiefSnapshot {

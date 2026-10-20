@@ -52,8 +52,8 @@ private struct RecordingChief: HomeChiefEngineSource {
 
     func read() async throws(HomeChiefEngineError) -> HomeChiefSnapshot { Self.start }
 
-    func set(_ key: String, _ value: String?) async throws(HomeChiefEngineError) -> HomeChiefSnapshot {
-        writes.yield([key: value])
+    func set(_ fields: [String: String?]) async throws(HomeChiefEngineError) -> HomeChiefSnapshot {
+        writes.yield(fields)
         if refuses { throw .refused(reason: "invalid_effort", message: "refused") }
         return Self.start
     }

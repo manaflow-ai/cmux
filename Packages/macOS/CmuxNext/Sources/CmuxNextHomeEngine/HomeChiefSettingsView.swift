@@ -67,6 +67,8 @@ public final class HomeChiefSettingsView: NSView {
     var localViews: [NSView] = []
     let stack = NSStackView()
     var source: any HomeChiefEngineSource
+    /// The engine the pickers last showed (the brain's answer), which a refused pick shows again.
+    var shownEngine: HomeChiefSnapshot?
     /// Renames the Chief conversation (the daemon's set-title op).
     public var onRename: (String) -> Void = { _ in }
     /// The Chief's avatar changed on disk (its picture): read it again.
@@ -174,6 +176,7 @@ public final class HomeChiefSettingsView: NSView {
     @discardableResult
     public func use(_ source: any HomeChiefEngineSource) -> Task<Void, Never> {
         self.source = source
+        shownEngine = nil
         // A named Chief's panel keeps its own files (cx-327wl), never the default's.
         if let files = (source as? HomeChiefLocalEngine)?.files ?? (source as? HomeChiefRemoteEngine)?.files, files.muxHome != muxHome {
             muxHome = files.muxHome
@@ -307,12 +310,20 @@ public final class HomeChiefSettingsView: NSView {
     /// Sets (nil: clears) one engine field on the brain, then shows the result.
     @discardableResult
     public func pick(_ key: String, _ value: String?) -> Task<Void, Never> {
+        pick([key: value])
+    }
+
+    /// Sets (nil: clears) engine fields on the brain in one write, then shows
+    /// the result. A write the brain refuses shows what it still runs again,
+    /// so a popup never keeps a value the brain did not take.
+    @discardableResult
+    func pick(_ fields: [String: String?]) -> Task<Void, Never> {
         let source = source
         let home = muxHome
         // task-owner: one write off the main actor; ends when its result is shown
         return Task { [weak self] in
             let result = await Task.detached { () async -> Result<HomeChiefSnapshot, HomeChiefEngineError> in
-                do { return .success(try await source.set(key, value)) } catch let error as HomeChiefEngineError { return .failure(error) } catch { return .failure(.other(String(describing: error))) }
+                do { return .success(try await source.set(fields)) } catch let error as HomeChiefEngineError { return .failure(error) } catch { return .failure(.other(String(describing: error))) }
             }.value
             // A pick for the Chief shown before (another conversation) is not shown.
             guard let self, muxHome == home else { return }
@@ -320,7 +331,9 @@ public final class HomeChiefSettingsView: NSView {
             case .success(let snapshot):
                 show(snapshot)
                 onEngineChanged()
-            case .failure(let error): say(error, readable: true)
+            case .failure(let error):
+                if let shownEngine { show(shownEngine) }
+                say(error, readable: true)
             }
         }
     }
@@ -334,6 +347,7 @@ public final class HomeChiefSettingsView: NSView {
     }
 
     func show(_ snapshot: HomeChiefSnapshot) {
+        shownEngine = snapshot
         failure.isHidden = true
         for button in [harness, model, effort] { button.isEnabled = true }
         let shown = HomeChiefEngineTitles(snapshot)
@@ -370,9 +384,16 @@ public final class HomeChiefSettingsView: NSView {
     }
 
     @objc func picked(_ sender: NSPopUpButton) {
-        let key = sender === harness ? "harness" : sender === model ? "model" : "effort"
-        if sender === harness { showHarnessHint() }
-        pick(key, sender.selectedItem?.representedObject as? String)
+        let value = sender.selectedItem?.representedObject as? String
+        guard sender === harness else {
+            pick(sender === model ? "model" : "effort", value)
+            return
+        }
+        showHarnessHint()
+        // A new harness starts on its own default model and effort, as the Chief editor's
+        // backend picker does: the brain keeps a field it is not sent, and another
+        // harness's model would not run on this one.
+        if let shownEngine, shownEngine.harness == value { pick("harness", value) } else { pick(["harness": value, "model": nil, "effort": nil]) }
     }
 
     /// The hint under the Harness row: only UniiChat's (sign in with `unii login` first), since
