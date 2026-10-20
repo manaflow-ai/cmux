@@ -21,6 +21,8 @@ export interface Attachment {
   subscribed: boolean
   /** Secondary streams this socket subscribed to (for example `inbox`). */
   streams?: Array<string>
+  /** CloudDO's live TeamDO authority at admission; never supplied by a client. */
+  team_authority?: string
 }
 
 /** Engine options a subclass may set: row mode and redaction (row-backed domains). */
@@ -412,13 +414,19 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
     const principalJson = request.headers.get("x-cmux-principal")
     if (!entity || !principalJson || request.headers.get("Upgrade") !== "websocket") return new Response("bad request", { status: 400 })
     const principal = JSON.parse(principalJson) as Principal
+    return this.acceptOwnerSocket(entity, { principal, subscribed: false })
+  }
+
+  /** Synchronous acceptance after the subclass's owner-authoritative admission check. */
+  protected acceptOwnerSocket(entity: string, attachment: Attachment): Response {
+    const principal = attachment.principal
     if (!this.isBound(entity) && !this.maySubscribe(this.domain.initial(), principal)) return new Response("forbidden", { status: 403 })
     const engine = this.bind(entity)
     if (!this.maySubscribe(engine.currentState, principal)) return new Response("forbidden", { status: 403 })
     const pair = new WebSocketPair()
     const [client, server] = [pair[0], pair[1]]
     this.ctx.acceptWebSocket(server)
-    server.serializeAttachment({ principal, subscribed: false } satisfies Attachment)
+    server.serializeAttachment(attachment)
     // The Worker checked the install just now; the alarm closes the socket at its token's expiry.
     this.gate.seed(server, principal, { cls: this.constructor.name, name: entity })
     this.afterCommit()
