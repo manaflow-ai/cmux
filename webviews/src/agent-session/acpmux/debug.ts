@@ -260,6 +260,8 @@ export function createAcpmuxDebug(
             follow: followTrace.snapshot(),
             // The summary card as drawn (summary/SummaryCard.tsx), and the subagent this pane shows.
             summaryCard: summaryCardState(),
+            // The prompts as drawn, top first: who sent each, its bubble, and the collapsed view line.
+            userBubbles: userBubblesState(),
             subagentOf: document.querySelector(".cv-subagent-of__parent")?.textContent ?? null,
             // The composer's chips as drawn (model, effort, access), keyed by their menu label.
             composer: composerChips(),
@@ -308,6 +310,16 @@ export function createAcpmuxDebug(
       return loadRun({ sessionId: () => host.sessionId?.(), rowCount: host.rowCount }, options);
     },
   };
+}
+
+/// The prompts as drawn, top first: the "From the Chief" label, the collapsed view line and the bubble.
+function userBubblesState() {
+  return [...document.querySelectorAll<HTMLElement>(".cv-user")].slice(0, 8).map((row) => ({
+    from: row.querySelector(".cv-user__from")?.textContent ?? null,
+    context: row.querySelector(".cv-user__context summary")?.textContent ?? null,
+    text: (row.querySelector(".cv-user__bubble")?.textContent ?? "").slice(0, 400),
+    top: Math.round(row.getBoundingClientRect().top),
+  }));
 }
 
 /// The summary card's rows as drawn: each subagent's name and status, or null with no card.

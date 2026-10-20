@@ -98,9 +98,9 @@ nonisolated enum BrowserActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "toggleBrowserDeveloperTools",
                 title: String(localized: "action.toggleBrowserDeveloperTools", defaultValue: "Toggle Developer Tools", bundle: .module),
-                keywords: ["browser", "devtools", "inspector"],
+                keywords: ["browser", "devtools", "inspector", "web inspector", "debug", "web view"],
                 defaultShortcut: Shortcut("i", modifiers: [.option, .command]), category: .browser, symbol: "hammer",
-                surfaces: [.palette, .keyboard, .menu], requires: [.browserFocused], targets: [.pane],
+                surfaces: [.palette, .keyboard, .menu], targets: [.pane],
                 cliName: "browser toggle-developer-tools", mainMenu: .view
             ),
             ActionDescriptor(
@@ -108,15 +108,15 @@ nonisolated enum BrowserActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.showBrowserJavaScriptConsole", defaultValue: "Show JavaScript Console", bundle: .module),
                 keywords: ["browser", "devtools", "console"],
                 defaultShortcut: Shortcut("j", modifiers: [.option, .command]), category: .browser, symbol: "terminal",
-                surfaces: [.palette, .keyboard, .menu], requires: [.browserFocused], targets: [.pane],
+                surfaces: [.palette, .keyboard, .menu], targets: [.pane],
                 cliName: "browser show-javascript-console", mainMenu: .view
             ),
             ActionDescriptor(
                 id: "inspectBrowserElement",
                 title: String(localized: "action.inspectBrowserElement", defaultValue: "Inspect Element", bundle: .module),
-                keywords: ["browser", "devtools", "inspector", "element", "picker"],
+                keywords: ["browser", "devtools", "inspector", "element", "picker", "web inspector", "debug", "web view"],
                 defaultShortcut: Shortcut("c", modifiers: [.option, .command]), category: .browser, symbol: "cursorarrow.rays",
-                surfaces: [.palette, .keyboard, .menu], requires: [.browserFocused], targets: [.pane],
+                surfaces: [.palette, .keyboard, .menu], targets: [.pane],
                 cliName: "browser inspect-element", mainMenu: .view
             ),
             ActionDescriptor(
@@ -137,8 +137,8 @@ nonisolated enum BrowserActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "toggleReactGrab",
                 title: String(localized: "action.toggleReactGrab", defaultValue: "Toggle React Grab", bundle: .module),
-                // No default chord: Shift-Cmd-G is Find Previous in a browser
-                // (R88); this action is not built yet.
+                // No default chord: Shift-Cmd-G is Find Previous in a browser (R88).
+                // The page's menu offers it next to Design Mode (Options).
                 keywords: ["browser", "react", "inspect"], category: .browser,
                 symbol: "hand.point.up.left", surfaces: [.palette, .keyboard, .menu], requires: [.browserFocused],
                 targets: [.pane], cliName: "browser toggle-react-grab", mainMenu: .view
@@ -428,5 +428,6 @@ nonisolated enum BrowserActionCatalog: ActionCatalogGroup {
                 targets: [.pane], cliName: "browser fit-desktop-1280"
             ),
         ] + vscodeServerDescriptors() + agentGuardDescriptors() + importFilesDescriptors() + importCookiesDescriptors() + pinnedPageDescriptors()
+            + devToolsDescriptors()
     }
 }

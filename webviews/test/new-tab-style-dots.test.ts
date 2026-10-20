@@ -75,7 +75,7 @@ await requireBrowserLane("new-tab-style-dots.test.ts", async () => {
     return result;
   }
 
-  test("five round dots, no radio circles and no names at rest, each a target larger than its dot", async () => {
+  test("one round dot per style, no radio circles and no names at rest, each a target larger than its dot", async () => {
     const { options, text } = await drawn("threads");
     expect(options.length).toBe(PAGE_STYLES.length);
     expect(text).toEqual([]);
