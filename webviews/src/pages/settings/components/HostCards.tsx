@@ -5,7 +5,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useSettingsState, useStore } from "../context";
 import { settingsFileName } from "../format";
-import { rowsByKey } from "../schema";
+import { rowsByKey, type SchemaRow } from "../schema";
 import { Icon } from "../icons";
 import { locale, t } from "../strings";
 import { ActionRow } from "./ActionRow";
@@ -29,6 +29,21 @@ export const BACKDROP_ROWS: ReadonlySet<string> = new Set([BACKGROUND_KEY, BACKG
 /** How long the pointer rests on a tile before the window shows it: sweeping across the grid
  * previews nothing, so it fetches no full-size art. */
 const PREVIEW_DWELL_MS = 150;
+
+/** Over a picture the window at 100% shows the work's own tint instead (the theme's opacity is
+ * only the default there), so the slider's last step fell back to it: the slider stops below. */
+const ART_MAX_OPACITY = 0.95;
+const overArtRows = new WeakMap<SchemaRow, SchemaRow>();
+function overArt(row: SchemaRow): SchemaRow {
+  const range = row.range;
+  if (!range) return row;
+  let capped = overArtRows.get(row);
+  if (!capped) {
+    capped = { ...row, range: { ...range, max: Math.min(range.max, ART_MAX_OPACITY) } };
+    overArtRows.set(row, capped);
+  }
+  return capped;
+}
 
 /** A tile's thumbnail; when the app answers none (a picture that is gone), an empty framed box
  * in place of the webview's broken-image mark. */
@@ -228,7 +243,12 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
       )}
       {!own && (
         <div className="rows">
-          {opacity && <SettingRow row={opacity} focused={focus === BACKGROUND_OPACITY_KEY} />}
+          {opacity && (
+            <SettingRow
+              row={current === "none" ? opacity : overArt(opacity)}
+              focused={focus === BACKGROUND_OPACITY_KEY}
+            />
+          )}
           <WindowGlass />
         </div>
       )}
