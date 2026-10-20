@@ -55,7 +55,8 @@ function settle(sessionId: string, list: number[]): void {
 export function setBookmarkTransport(next: BookmarkTransport | undefined): void {
   transport = next;
   version += 1;
-  marks = new Map();
+  // The marks shown stay until each session's read on the new connection answers (no dots leaving
+  // and coming back on a reconnect); only the reads are asked again.
   loaded = new Set();
   pending.clear();
   emit();

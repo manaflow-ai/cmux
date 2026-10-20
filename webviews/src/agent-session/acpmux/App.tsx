@@ -498,6 +498,9 @@ const postStartInBackground = (sessionId: string, cwd: string | undefined, name:
 /// and pushed the composer on each switch and reconnect).
 const knownHarnessHealth = new Map<string, HarnessHealth | undefined>();
 
+/// The last measured transcript box on this page: a transcript mounting again starts from it.
+const lastTranscriptBox = { height: 600, width: 760 };
+
 const trustSource: TrustSource = {
   get: (cwd) => callNative("acp.trust.get", { cwd }),
   set: (cwd, level) => callNative("acp.trust.set", { cwd, level }),
@@ -1289,9 +1292,10 @@ export function VirtualTranscript({
     setFollowing(next);
   };
   const settle = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const [height, setHeight] = useState(600);
+  // The last transcript box on this page until this one is measured (before its first paint, below).
+  const [height, setHeight] = useState(() => lastTranscriptBox.height);
   const ref = useRef<HTMLDivElement>(null);
-  const [width, setWidth] = useState(760);
+  const [width, setWidth] = useState(() => lastTranscriptBox.width);
   // The column's cap (layout.json `chatWidth`): a new one measures every row again.
   const chatWidth = useChatWidth();
   // Rows place by their drawn height once drawn, and by the estimate until then.
@@ -1493,19 +1497,23 @@ export function VirtualTranscript({
   };
   useEffect(() => () => clearTimeout(seekTimer.current), []);
   const previousSession = useRef(sessionId);
-  useEffect(() => {
+  // A layout effect: the first measure lands before the first paint, so a mounted transcript (a page
+  // load, a new chat's first send, back from Harnesses) never draws a frame at a guessed size.
+  useLayoutEffect(() => {
     const node = ref.current;
     if (!node) return;
+    const measure = (resized: boolean) => {
+      // A box not laid out yet (hidden, 0 high) keeps the last height rather than showing no rows.
+      if (resized || node.clientHeight > 0) setHeight(node.clientHeight);
+      setWidth(node.clientWidth);
+      if (node.clientHeight > 0) lastTranscriptBox.height = node.clientHeight;
+      if (node.clientWidth > 0) lastTranscriptBox.width = node.clientWidth;
+    };
     // Before the frame paints: a resized pane (its tab strip showing or hiding) otherwise drew the
     // transcript at its old offset and caught up a frame later.
-    const observer = new ResizeObserver(() =>
-      flushSync(() => {
-        setHeight(node.clientHeight);
-        setWidth(node.clientWidth);
-      }),
-    );
+    const observer = new ResizeObserver(() => flushSync(() => measure(true)));
     observer.observe(node);
-    setWidth(node.clientWidth);
+    measure(false);
     return () => observer.disconnect();
   }, []);
   const previousLayout = useRef<ReturnType<typeof layoutConversation> | null>(null);
@@ -2981,7 +2989,13 @@ function AcpmuxPane() {
   }, [snapshot.rows]);
   const [shell, setShell] = useState<HTMLElement | null>(null);
   const summaryCard = useSummaryCard(useSummaryColumn(shell, artifact !== undefined || freshView), summaryHasContent);
-  useEffect(() => setSubagentView(undefined), [shownSessionId]);
+  // Another chat closes the subagent view in the render that shows it, not an effect later (which
+  // drew one frame of the old subagent id against the new chat's rows: an empty child view).
+  const [subagentChat, setSubagentChat] = useState(shownSessionId);
+  if (subagentChat !== shownSessionId) {
+    setSubagentChat(shownSessionId);
+    setSubagentView(undefined);
+  }
   // After the reset above: a pane opened on a subagent shows it once its chat is shown.
   useEffect(() => {
     if (!requestedSubagent || !shownSessionId) return;
@@ -4007,7 +4021,9 @@ function AcpmuxPane() {
           (host.newSession && !host.sessionId) ||
           (host.sessionId && snapshotRef.current?.sessionId && host.sessionId !== snapshotRef.current.sessionId)
         )
-          setSnapshot(emptySnapshot());
+          // The chats list and peers stay (the New Tab page, the hero's projects and Recents draw from
+          // them); the client's first frame replaces them.
+          setSnapshot((previous) => ({ ...emptySnapshot(), sessions: previous.sessions, peers: previous.peers }));
         if (!reconnect) setSurface(readSurface(host.surface));
         setMachineName(typeof host.machineName === "string" && host.machineName ? host.machineName : undefined);
         // Before the transcript's rows arrive: it opens where the reader left it (cx-6bgzj).
