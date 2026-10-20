@@ -57,9 +57,6 @@ public nonisolated struct SidebarRow: Hashable, Sendable {
     public var tabDisclosure: SidebarTabDisclosure? = nil
     /// What a workspace row draws (`WorkspaceRowContent`); nil for other rows.
     public var content: WorkspaceRowContent? = nil
-    /// A group header drawn as a thin line, its name small beside a hairline (minimal mode).
-    public var isThinHeader = false
-
     /// A workspace row's tab count, when `sidebar.workspaceRow.tabCount` is on.
     public var tabCount: Int? { content?.tabCount }
     /// A workspace row's second line.

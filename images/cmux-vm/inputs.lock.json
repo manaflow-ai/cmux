@@ -353,27 +353,27 @@
   "programs": [
     {
       "name": "cmux-tui",
-      "version": "bb1999443c165ce16144b01bd6609497c3974601",
-      "url": "https://files.cmux.com/cmux-tui/bb1999443c165ce16144b01bd6609497c3974601/cmux-tui-x86_64-unknown-linux-musl",
-      "sha256": "0b8458302755ffacdc8010eacd431f8b2f240e94c718035e2b86f0901192c99c",
-      "size": 88300832,
+      "version": "d9d752fd1ab431f92e8870efdd26a9be65809997",
+      "url": "https://files.cmux.com/cmux-tui/d9d752fd1ab431f92e8870efdd26a9be65809997/cmux-tui-x86_64-unknown-linux-musl",
+      "sha256": "f299e5d285a77c794e836a7d014d07a3d0fa66d4053581bd8f8d73d8667f5c63",
+      "size": 76388304,
       "format": "raw",
       "fileName": "cmux-tui",
       "bin": { "cmux": "cmux-tui", "cmux-tui": "cmux-tui" },
       "versionArgs": ["--version"],
-      "source": "https://files.cmux.com/cmux-tui/bb1999443c165ce16144b01bd6609497c3974601/manifest.json (cmux-tui-artifacts run 38193946642, feat-cmux-next push bb1999443c16; contains 287ee287a708 cmux-host writes /etc/cmux/vm-kind and 90c6df25d73f acpmux daemon start --person-key-fd; bead cx-w6u84 hostrun8)"
+      "source": "https://files.cmux.com/cmux-tui/d9d752fd1ab431f92e8870efdd26a9be65809997/manifest.json (cmux-tui-artifacts run 38658515603, feat-cmux-next push d9d752fd1ab; tree bd3db56a0b34; issue #18912)"
     },
     {
       "name": "cmux-tui-hook",
-      "version": "bb1999443c165ce16144b01bd6609497c3974601",
-      "url": "https://files.cmux.com/cmux-tui/bb1999443c165ce16144b01bd6609497c3974601/cmux-tui-hook-x86_64-unknown-linux-musl",
-      "sha256": "c423180cfe0ad45afbfbacc6e0b415135e6aad57e674b0873fd4bd3f7bd9757d",
-      "size": 3840344,
+      "version": "d9d752fd1ab431f92e8870efdd26a9be65809997",
+      "url": "https://files.cmux.com/cmux-tui/d9d752fd1ab431f92e8870efdd26a9be65809997/cmux-tui-hook-x86_64-unknown-linux-musl",
+      "sha256": "c0e4bb14243d028fda5cb5f09ae82c6491f6275ad9ce6ee741ddf093b1f36211",
+      "size": 3915104,
       "format": "raw",
       "fileName": "cmux-tui-hook",
       "bin": { "cmux-tui-hook": "cmux-tui-hook" },
       "versionArgs": [],
-      "source": "https://files.cmux.com/cmux-tui/bb1999443c165ce16144b01bd6609497c3974601/manifest.json (cmux-tui-artifacts run 38193946642, feat-cmux-next push bb1999443c16; contains 287ee287a708 cmux-host writes /etc/cmux/vm-kind and 90c6df25d73f acpmux daemon start --person-key-fd; bead cx-w6u84 hostrun8)"
+      "source": "https://files.cmux.com/cmux-tui/d9d752fd1ab431f92e8870efdd26a9be65809997/manifest.json (cmux-tui-artifacts run 38658515603, feat-cmux-next push d9d752fd1ab; tree bd3db56a0b34; issue #18912)"
     },
     {
       "name": "coderouter",

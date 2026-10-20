@@ -46,9 +46,7 @@ enum TabHandlers {
         })
         registry.bind("closeTabsToLeft", invoke: { invocation in
             guard let (pane, id) = ctx.tab(invocation) else { return }
-            let tabs = pane.stripModel.orderedTabs
-            guard let index = tabs.firstIndex(where: { $0.id == id }) else { return }
-            CloseUndoToasts.close(in: pane, tabs[..<index].filter { !$0.isPinned }.map(\.id))
+            CloseUndoToasts.close(in: pane, pane.stripModel.closedByCloseToLeft(of: id))
         })
         registry.bind("duplicateTab", invoke: { invocation in
             guard let (pane, id) = ctx.tab(invocation) else { return }
@@ -199,10 +197,9 @@ enum TabHandlers {
 
     private static func reorder(_ ctx: AppActionContext, _ invocation: ActionInvocation, by offset: Int) {
         guard let (pane, id) = ctx.tab(invocation) else { return }
-        let ids = pane.orderedIDs
-        guard let index = ids.firstIndex(of: id) else { return }
-        let target = min(max(index + offset, 0), ids.count - 1)
-        guard target != index else { return ctx.refuseQuietly(RefusalStrings.tabAtEdge) }
+        // A pinned tab moves among the pinned tabs, an unpinned one among the rest (Chrome):
+        // the daemon puts a move across the boundary back, so it would do nothing.
+        guard let target = pane.stripModel.moveIndex(of: id, by: offset) else { return ctx.refuseQuietly(RefusalStrings.tabAtEdge) }
         pane.move(id, toPane: pane, index: target)
     }
 
@@ -252,6 +249,12 @@ enum TabHandlers {
             guard let tab = pane.tab(id) ?? ctx.refuse(RefusalStrings.sessionLocalCannotPin) else { return }
             commands.setTabPinned(id.rawValue, pinned: !tab.pinned, origin: invocation.origin)
         })
+        // A tab only this app holds (an internal page, a session-only browser tab) has no daemon
+        // record to pin: its menu has no Pin row, rather than one that refuses.
+        ActionTargetVisibility.hide("palette.toggleTabPin", in: registry) { invocation in
+            guard invocation.target?.kind == .tab, let id = invocation.target?.id else { return false }
+            return id.hasPrefix(LocalBrowserTab.prefix) || id.hasPrefix(LocalPageTab.prefix)
+        }
         // The tab menu reads Pin Tab or Unpin Tab for the right-clicked tab.
         ActionTargetTitles.set("palette.toggleTabPin", in: registry) { invocation in
             guard let id = invocation.target?.id, let (tab, _) = ctx.services.locateTab(id) else { return nil }

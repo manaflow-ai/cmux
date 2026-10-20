@@ -195,6 +195,47 @@ pub enum Command {
         #[arg(long)]
         policy: Option<String>,
     },
+    /// Be an ACP agent that answers each prompt by running a plain CLI once
+    /// (prompt on stdin, reply from stdout): makes any CLI a harness. In a
+    /// profile: `args = ["cli-agent", "--", "/path/to/program"]`.
+    CliAgent {
+        /// Send only the prompt's last text block (a Chief turn's new
+        /// messages), for a program that keeps its own memory.
+        #[arg(long)]
+        last_block: bool,
+        /// Pass the prompt as the last argument instead of on stdin.
+        #[arg(long)]
+        prompt_arg: bool,
+        /// Drop output up to the frame that echoes the prompt (unii).
+        #[arg(long)]
+        after_echo: bool,
+        /// Put the session folder's AGENTS.md before the prompt.
+        #[arg(long)]
+        instructions: bool,
+        /// Give the program a terminal as stdout and controlling terminal
+        /// (stdin stays the prompt), for one that prints only to a terminal.
+        #[arg(long)]
+        tty: bool,
+        /// The program and its arguments, after `--`.
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true, required = true)]
+        command: Vec<String>,
+    },
+    /// Be an ACP agent backed by a UniiChat server (uniichat.com or your own
+    /// `unii serve`), over UniiChat's own protocol: streaming, stop, images.
+    /// Signs in with the token `unii login` keeps. In a profile:
+    /// `args = ["uniichat-agent"]`.
+    UniichatAgent {
+        /// The server; default `$UNII_URL`, else https://uniichat.com.
+        #[arg(long)]
+        url: Option<String>,
+        /// Where `unii` keeps its sign-ins; default `$UNII_HOME`, else ~/.unii.
+        #[arg(long)]
+        home: Option<std::path::PathBuf>,
+        /// Send every text block of a prompt (UniiChat keeps its own memory,
+        /// so by default only the last one: a Chief turn's new messages).
+        #[arg(long)]
+        whole_prompt: bool,
+    },
     /// Print the dashboard URL and open it in the browser.
     Web {
         /// Only print the URL.
@@ -243,6 +284,10 @@ pub enum Command {
     /// session (agent_tools.rs registers it; not for people).
     #[command(hide = true)]
     OfferMcp,
+    /// The agent's sub-session tools (start_session and the rest): an MCP
+    /// stdio server for one agent session (agent_tools.rs registers it; not for people).
+    #[command(hide = true)]
+    SubsessionMcp,
     // Old spellings, kept working but hidden from help.
     #[command(hide = true)]
     Tail {

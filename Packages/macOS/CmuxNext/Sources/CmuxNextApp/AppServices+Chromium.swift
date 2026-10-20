@@ -1,4 +1,5 @@
 import CmuxNextBrowser
+import CmuxNextChromiumWarmup
 import CmuxNextCompat
 import CmuxNextSettings
 import CmuxNextTabs

@@ -12,14 +12,37 @@ import AppKit
 /// `Fixture.withRenderScale(_:_:)` and the process fallback outside one. Work sent to another queue takes the scale
 /// with it (a task local does not follow DispatchQueue blocks): RowBitmaps, Pager, TiledBody, MorphBubble.prepare.
 enum RenderScaleScope {
+    /// The scope's scale for work inside a Swift task or off the main thread.
     @TaskLocal static var scoped: CGFloat? = nil
+    /// cmux: the scope's scale on the main thread outside any task (a layer's draw, a window
+    /// move, a layout pass). A task local bound there lives in the thread's fallback storage, and an
+    /// isolated deinit run inline under it (every main-actor class of a main-actor-default target
+    /// has one) makes the macOS 15.4 to 15.x runtime free() a marker its task allocator made: cmux
+    /// trapped under Chromium's allocator when Cmd-1 left Home (CMUXTERM-MACOS-44XN, macOS 15.8.1).
+    // Read and written only on the main thread (`with` and `current` check it).
+    nonisolated(unsafe) static var mainThreadScoped: CGFloat? = nil
+
+    /// The scale of the scope that runs now, nil outside any scope.
+    static var current: CGFloat? { scoped ?? (Thread.isMainThread ? mainThreadScoped : nil) }
+
+    /// Runs `body` in a scope of scale `s`, binding no task local where no task runs.
+    static func with<T>(_ s: CGFloat, _ body: () throws -> T) rethrows -> T {
+        if Thread.isMainThread, !withUnsafeCurrentTask(body: { $0 != nil }) {
+            let outer = mainThreadScoped
+            mainThreadScoped = s
+            defer { mainThreadScoped = outer }
+            return try body()
+        }
+        // concurrency-allow: bound inside a task or off the main thread, never in fallback storage on main
+        return try $scoped.withValue(s, operation: body)
+    }
 }
 
 extension Fixture {
     /// Runs `body` with `Fixture.renderScale` = `s` on this thread (a scale of 0 or less: the current value).
     static func withRenderScale<T>(_ s: CGFloat, _ body: () throws -> T) rethrows -> T {
-        guard s > 0, RenderScaleScope.scoped != s else { return try body() }
-        return try RenderScaleScope.$scoped.withValue(s, operation: body)
+        guard s > 0, RenderScaleScope.current != s else { return try body() }
+        return try RenderScaleScope.with(s, body)
     }
 }
 
@@ -1057,13 +1080,14 @@ enum RowBuilder {
         // A stream with text is its sender's bubble (no typing indicator for them); one without text is the indicator.
         let typists = s.ui.typing.contains { t in t != me && !writing.contains { $0.sender == t } }
             || (tail && s.ui.streams.contains { $0.parts.isEmpty && $0.sender != me })
-        if !threadMode, span.upperBound == messages.count, s.atNewest, typists {
-            rows.append(RowSpec(key: "typing", kind: .typing, gap: 0, height: 35))
-        }
-        // The host's status line (ask 9), last, under the typing indicator: drawn like Messages' own notice in the
-        // transcript ("You unsent a message": 11 pt, secondary, centered) at the unsent row's gap and height.
+        // cmux: the host's status line (ask 9) goes above the typing indicator, not under it (upstream: last,
+        // centered): the Chief's "working on" line reads as a caption of the bubble it heads (RowDraw `.notice`
+        // draws it at the bubble's left edge). Same gap and height as upstream's.
         if !threadMode, span.upperBound == messages.count, s.atNewest, let notice = s.ui.notice, !notice.isEmpty {
             rows.append(RowSpec(key: "notice", kind: .notice(notice), gap: 8, height: 16))
+        }
+        if !threadMode, span.upperBound == messages.count, s.atNewest, typists {
+            rows.append(RowSpec(key: "typing", kind: .typing, gap: 0, height: 35))
         }
         rows = rows.map { var r = $0; r.width = width; return r } // no index writes
         return rows

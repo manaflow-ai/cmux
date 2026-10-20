@@ -92,10 +92,13 @@ impl Hub {
             (json!({}), String::new())
         } else {
             let child = self.child_for(session).await?;
+            let all = self.config.read().await.profile(&parent_meta.harness).is_some_and(|p| {
+                crate::agent_tools::lists_all_tools(&parent_meta.harness, p, &fork_env)
+            });
             let res = child
                 .request(
                     method::SESSION_FORK,
-                    json!({"sessionId": sid, "cwd": cwd, "mcpServers": crate::agent_tools::acp_servers_for(parent_meta.remote_origin, &fork_env, &id)}),
+                    json!({"sessionId": sid, "cwd": cwd, "mcpServers": crate::agent_tools::acp_servers_for(parent_meta.remote_origin, &fork_env, &id, all)}),
                 )
                 .await?;
             let new_sid = res
@@ -174,6 +177,9 @@ impl Hub {
             // whole-chat fork; a fork through an earlier turn has no known baseline.
             totals: None,
             harness_cost_usd: if cut.is_none() { parent_meta.harness_cost_usd } else { None },
+            // A fork is the person's new chat, never a sub-session of the parent's parent.
+            subsession: None,
+            subsession_limits: Default::default(),
         };
         let new = self.make_session(meta);
         if is_claude && cut.is_none() {
