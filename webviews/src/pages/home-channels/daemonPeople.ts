@@ -38,6 +38,10 @@ export function chief(raw: Json): HomeChief {
     createdAt: str(raw.created_at),
   };
   if (avatar && typeof avatar.sha256 === "string") result.avatar = avatar.sha256;
+  // The backend: the record's `engine` (older owners: top-level fields); empty means the usual.
+  const engine = (raw.engine && typeof raw.engine === "object" ? raw.engine : raw) as Json;
+  for (const key of ["harness", "model", "effort"] as const) if (str(engine[key])) result[key] = str(engine[key]);
+  if (raw.locked === true) result.locked = true;
   return result;
 }
 

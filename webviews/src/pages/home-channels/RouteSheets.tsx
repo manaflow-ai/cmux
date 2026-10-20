@@ -1,10 +1,11 @@
 // The sheet the page's route names (routes.ts), drawn over the page. A route whose capability is
 // missing (an older cmux instance, a plain browser for an archive) shows why and how, never a
 // form that cannot work. Archive asks once, in the person's words: the Chief stops, leaves the
-// list, and its memory is kept for 30 days.
+// list, and its memory is kept for 30 days. New Chief and Edit Chief are no sheet: they are a
+// page on Home's right side (ChiefRoutePage, ChiefPage.tsx).
 import { useState } from "react";
 import type { Strings } from "../shared/i18n";
-import { ChiefSheet } from "./ChiefSheet";
+import { ChiefPage } from "./ChiefPage";
 import { InviteSheet, NewMessageSheet } from "./ConversationSheets";
 import { FormDialog } from "./FormDialog";
 import { conversationName } from "./model";
@@ -49,26 +50,9 @@ export function RouteSheets({
       );
     }
     case "newChief":
-      return caps.chiefs ? (
-        <ChiefSheet sheets={sheets} strings={strings} grants={state.chiefGrants} />
-      ) : (
-        <Notice sheets={sheets} strings={strings} />
-      );
-    case "editChief": {
-      const chief = state.chiefs.get(route.chief);
-      if (!caps.chiefs) return <Notice sheets={sheets} strings={strings} />;
-      if (!chief) return <Notice sheets={sheets} strings={strings} body={strings.t("sheet.chiefMissing")} />;
-      return (
-        <ChiefSheet
-          key={chief.id}
-          sheets={sheets}
-          strings={strings}
-          chief={chief}
-          picture={state.pictures.get(chief.id)}
-          grants={state.chiefGrants}
-        />
-      );
-    }
+    case "editChief":
+      // A page, not a sheet: HomeChannelsPage draws ChiefRoutePage in its right side.
+      return null;
     case "archiveChief": {
       const chief = state.chiefs.get(route.chief);
       if (!caps.chiefs) return <Notice sheets={sheets} strings={strings} />;
@@ -80,6 +64,49 @@ export function RouteSheets({
       return <ArchiveChiefSheet sheets={sheets} strings={strings} chief={chief} />;
     }
   }
+}
+
+/** New Chief and Edit Chief as a page in Home's right side (u2586), or why it cannot show. */
+export function ChiefRoutePage({
+  sheets,
+  state,
+  strings,
+}: {
+  sheets: HomeSheets;
+  state: SheetsSnapshot;
+  strings: Strings;
+}) {
+  const { t } = strings;
+  const route = state.route;
+  if (!route || (route.kind !== "newChief" && route.kind !== "editChief") || !state.ready) return null;
+  const chief = route.kind === "editChief" ? state.chiefs.get(route.chief) : undefined;
+  const reason = !state.capabilities.chiefs
+    ? t("sheet.unavailable.body")
+    : route.kind === "editChief" && !chief
+      ? t("sheet.chiefMissing")
+      : undefined;
+  if (reason)
+    return (
+      <div className="lg-empty" data-chief-page="unavailable">
+        <h1 className="lg-empty-title">{t("sheet.unavailable.title")}</h1>
+        <p className="lg-empty-body">{reason}</p>
+        <div className="lg-empty-actions">
+          <button type="button" className="lg-button" onClick={() => sheets.close()}>
+            {t("sheet.close")}
+          </button>
+        </div>
+      </div>
+    );
+  return (
+    <ChiefPage
+      key={chief?.id ?? "new"}
+      service={sheets.chiefEditor()}
+      strings={strings}
+      chief={chief}
+      picture={chief ? state.pictures.get(chief.id) : undefined}
+      chiefName={(id) => state.chiefs.get(id)?.name}
+    />
+  );
 }
 
 function ArchiveChiefSheet({ sheets, strings, chief }: { sheets: HomeSheets; strings: Strings; chief: HomeChief }) {
