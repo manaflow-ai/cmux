@@ -54,6 +54,9 @@ class FakeGitHub:
         self.commit_checks: dict[str, list[dict]] = {}
         self.pr_runs: list[dict] = []
         self.pr_commits: dict[int, list[str]] = {}
+        # Runs of workflows other than 7, by workflow; the workflow of each run that is not 7.
+        self.other_runs: dict[int, list[dict]] = {}
+        self.run_workflows: dict[int, int] = {}
 
     def json(self, route, *, paginate=False):
         self.routes.append(route)
@@ -76,11 +79,16 @@ class FakeGitHub:
         if "/actions/runs/" in route and route.endswith("/jobs?filter=latest&per_page=100"):
             run = int(route.split("/actions/runs/", 1)[1].split("/", 1)[0])
             return [{"jobs": [copy.deepcopy(job) for job in self.jobs.values() if job["run_id"] == run]}]
+        if "/actions/workflows/" in route and "/actions/workflows/7/" not in route:
+            assert "branch=feat-cmux-next" in route and "status=completed" in route, route
+            workflow = int(route.split("/actions/workflows/", 1)[1].split("/", 1)[0])
+            return {"workflow_runs": copy.deepcopy(self.other_runs.get(workflow, []))}
         if "/actions/workflows/7/runs?" in route:
             assert "branch=feat-cmux-next" in route and "status=completed" in route, route
             return {"workflow_runs": copy.deepcopy(self.base_runs)}
         if "/actions/runs/" in route:
-            return {"id": int(route.rsplit("/", 1)[1]), "workflow_id": 7}
+            run = int(route.rsplit("/", 1)[1])
+            return {"id": run, "workflow_id": self.run_workflows.get(run, 7)}
         raise AssertionError(route)
 
     def log(self, repo, job):
@@ -527,6 +535,167 @@ class BaseCommitEvidence(unittest.TestCase):
                          f"merge-base ({MERGE_BASE[:10]}", "no completed feat-cmux-next run of its workflow",
                          "gh workflow run"):
             self.assertIn(expected, message)
+
+
+RAC = "web / react-apps-check"
+SHARD_STEP = "Run webview tests"
+TABLE = "(fail) markdown table keys > Cmd-A selects the cell's text, then the whole table [18.20ms]"
+LAYERS = "(fail) check-layers > this checkout passes with its baseline [537.18ms]"
+
+
+def shard_job(job_id, run_id, sha, shard, conclusion="failure"):
+    job = dict(failed_job(job_id, run_id, sha, name=f"{RAC} ({shard})", step=SHARD_STEP),
+               html_url=f"https://github.com/{REPO}/actions/runs/{run_id}/job/{job_id}")
+    if conclusion != "failure":
+        job["conclusion"] = conclusion
+        job["steps"][-1]["conclusion"] = conclusion
+    return job
+
+
+def status_job(job_id, run_id, sha, name, *reported):
+    """A status job: its one failed step prints `<job id>: failure` for each red job it needs."""
+    job = {"id": job_id, "run_id": run_id, "head_sha": sha, "name": name, "status": "completed",
+           "conclusion": "failure", "html_url": f"https://github.com/{REPO}/actions/runs/{run_id}/job/{job_id}",
+           "steps": [{"name": "Set up job", "status": "completed", "conclusion": "success"},
+                     {"name": "Check routed web jobs", "status": "completed", "conclusion": "failure"}]}
+    lines = ["##[group]Run python3 - <<'PY'", "import json", "##[endgroup]"]
+    lines += [f"{reported_job}: failure" for reported_job in reported]
+    lines.append("##[error]Process completed with exit code 1.")
+    return job, log(name, "Check routed web jobs", *lines)
+
+
+class ShardsAndStatusJobs(unittest.TestCase):
+    """2026-10-20: #22097 was refused for reds feat-cmux-next had too. The web jobs run in
+    ci.yml on a pull request and in cmux-next web on a push, react-apps-check only when the
+    push touches webviews (so the base tip's is skipped), its twelve shards place a test
+    differently each run, and `web / Web status` prints nothing but `<job>: failure`."""
+
+    def setUp(self):
+        self.gh = FakeGitHub()
+        self.gh.jobs = {1: shard_job(1, 10, HEAD, 1)}
+        self.gh.logs = {1: log(f"{RAC} (1)", SHARD_STEP, TABLE, "##[error]Process completed with exit code 1.")}
+        self.gh.base_runs = []
+        self.gh.history = {"feat-cmux-next": [TIP, TIP_1, TIP_2]}
+
+    def judge(self, runs=(10,), **kwargs):
+        return excuse.judge(REPO, "feat-cmux-next", HEAD, list(runs), self.gh, **kwargs)
+
+    def base_shards(self, run_id, sha, red_shard=4, lines=(TABLE,), shards=4, checks=True):
+        """A base run of every shard; only `red_shard` fails, printing `lines`."""
+        for shard in range(1, shards + 1):
+            job_id = run_id * 100 + shard
+            red = shard == red_shard
+            self.gh.jobs[job_id] = shard_job(job_id, run_id, sha, shard, "failure" if red else "success")
+            self.gh.logs[job_id] = log(f"{RAC} ({shard})", SHARD_STEP, *(lines if red else ("12 pass",)))
+            if checks:
+                self.gh.commit_checks.setdefault(sha, []).append(check_run(self.gh.jobs[job_id]))
+
+    def test_bun_test_failures_are_failing_test_names_without_their_duration(self):
+        job = shard_job(9, 1, HEAD, 1)
+        _, tests, _ = excuse.signature(job, log(f"{RAC} (1)", SHARD_STEP, TABLE, LAYERS))
+        self.assertEqual(tests, {"markdown table keys > Cmd-A selects the cell's text, then the whole table",
+                                 "check-layers > this checkout passes with its baseline"})
+
+    def test_a_red_test_in_another_shard_on_the_base_is_excused(self):
+        self.base_shards(40, TIP, red_shard=4, lines=(TABLE.replace("18.20ms", "25.71ms"),))
+        text = "\n".join(self.judge())
+        self.assertIn(f"excused '{RAC} (1)'", text)
+        self.assertIn("every shard", text)
+        self.assertIn(f"base tip {TIP[:10]}", text)
+
+    def test_red_tests_spread_over_several_base_shards_are_pooled(self):
+        self.gh.logs[1] = log(f"{RAC} (1)", SHARD_STEP, TABLE, LAYERS)
+        self.base_shards(40, TIP, red_shard=2, lines=(LAYERS,))
+        self.gh.jobs[4003] = shard_job(4003, 40, TIP, 3)
+        self.gh.logs[4003] = log(f"{RAC} (3)", SHARD_STEP, TABLE)
+        self.gh.commit_checks[TIP] = [check for check in self.gh.commit_checks[TIP] if check["id"] != 4003]
+        self.gh.commit_checks[TIP].append(check_run(self.gh.jobs[4003]))
+        text = "\n".join(self.judge())
+        self.assertIn("2 failed shards", text)
+
+    def test_a_red_test_no_base_shard_has_is_refused(self):
+        self.base_shards(40, TIP, red_shard=4, lines=(LAYERS,))
+        with self.assertRaisesRegex(excuse.Refused, "markdown table keys"):
+            self.judge()
+
+    def test_every_base_shard_green_is_refused(self):
+        self.base_shards(40, TIP, red_shard=0)
+        with self.assertRaisesRegex(excuse.Refused, f"green on base tip {TIP[:10]}"):
+            self.judge()
+
+    def skipped_on_the_tip(self, run_id=50, workflow=9):
+        """The base tip's push ran the web jobs in workflow 9 and skipped react-apps-check."""
+        for job_id, name in ((5001, f"{RAC} (${{{{ matrix.shard }}}})"), (5002, RAC)):
+            self.gh.jobs[job_id] = {"id": job_id, "run_id": run_id, "head_sha": TIP, "name": name,
+                                    "status": "completed", "conclusion": "skipped", "steps": []}
+            self.gh.commit_checks.setdefault(TIP, []).append(check_run(self.gh.jobs[job_id]))
+        self.gh.run_workflows[run_id] = workflow
+
+    def test_the_newest_base_run_that_ran_a_path_filtered_job_decides(self):
+        self.skipped_on_the_tip()
+        # Run 51 (the tip's push) skipped it; run 52, an older push that touched webviews, ran it.
+        self.gh.other_runs[9] = [{"id": 51, "event": "push", "conclusion": "success"},
+                                 {"id": 52, "event": "push", "conclusion": "failure"}]
+        self.gh.jobs[5101] = dict(self.gh.jobs[5001], id=5101, run_id=51)
+        self.base_shards(52, "9" * 40, red_shard=3, checks=False)
+        text = "\n".join(self.judge())
+        self.assertIn(f"excused '{RAC} (1)'", text)
+        self.assertIn("feat-cmux-next run 52", text)
+
+    def test_a_path_filtered_job_green_on_the_newest_base_run_that_ran_it_is_refused(self):
+        self.skipped_on_the_tip()
+        self.gh.other_runs[9] = [{"id": 52, "event": "push", "conclusion": "success"},
+                                 {"id": 53, "event": "push", "conclusion": "failure"}]
+        self.base_shards(52, "9" * 40, red_shard=0, checks=False)
+        self.base_shards(53, "8" * 40, red_shard=3, checks=False)
+        with self.assertRaisesRegex(excuse.Refused, "is not red on feat-cmux-next run 52"):
+            self.judge()
+
+    def test_without_the_base_tip_naming_its_workflow_there_is_no_verdict(self):
+        self.gh.other_runs[9] = [{"id": 52, "event": "push", "conclusion": "failure"}]
+        self.base_shards(52, "9" * 40, red_shard=3, checks=False)
+        with self.assertRaisesRegex(excuse.Refused, "no feat-cmux-next verdict"):
+            self.judge()
+
+    def add_status_jobs(self):
+        aggregate, aggregate_log = status_job(2, 10, HEAD, RAC, "react-apps-check-shard")
+        status, status_log = status_job(3, 10, HEAD, "web / Web status", "react-apps-check")
+        self.gh.jobs.update({2: aggregate, 3: status})
+        self.gh.logs.update({2: aggregate_log, 3: status_log})
+
+    def test_status_jobs_are_excused_when_the_jobs_under_them_are(self):
+        self.add_status_jobs()
+        self.base_shards(40, TIP)
+        text = "\n".join(self.judge())
+        self.assertIn(f"excused '{RAC} (1)'", text)
+        self.assertIn("excused 'web / Web status': it only reports react-apps-check red", text)
+        self.assertIn(f"excused '{RAC}': it only reports react-apps-check-shard red", text)
+
+    def test_a_red_status_check_brings_in_the_failed_jobs_of_its_run(self):
+        self.add_status_jobs()
+        self.base_shards(40, TIP)
+        self.gh.commit_checks[HEAD] = [check_run(self.gh.jobs[3])]
+        text = "\n".join(self.judge(runs=(), checks=["web / Web status"]))
+        self.assertIn(f"excused '{RAC} (1)'", text)
+        self.gh.logs[1] = log(f"{RAC} (1)", SHARD_STEP, LAYERS)
+        with self.assertRaisesRegex(excuse.Refused, "check-layers"):
+            self.judge(runs=(), checks=["web / Web status"])
+
+    def test_a_status_job_with_no_failed_job_under_it_is_refused(self):
+        self.add_status_jobs()
+        del self.gh.jobs[1]
+        with self.assertRaisesRegex(excuse.Refused, "every failed job of its run is a status job"):
+            self.judge()
+        del self.gh.jobs[3]
+        with self.assertRaisesRegex(excuse.Refused, "has no failed job under web / to compare"):
+            self.judge()
+
+    def test_a_status_line_beside_other_output_is_not_a_status_job(self):
+        job, status_log = status_job(2, 10, HEAD, RAC, "react-apps-check-shard")
+        self.assertEqual(excuse.aggregated(job, status_log), ["react-apps-check-shard"])
+        self.assertIsNone(excuse.aggregated(job, status_log + "\n" + log(RAC, "Check routed web jobs", "boom")))
+        cancelled = log(RAC, "Check routed web jobs", "react-apps-check-shard: cancelled")
+        self.assertIsNone(excuse.aggregated(job, cancelled))
 
 
 class Script(unittest.TestCase):

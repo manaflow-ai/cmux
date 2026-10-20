@@ -2078,6 +2078,7 @@ class BaseRedAndReasonRegression(unittest.TestCase):
                      "head_sha": HEAD, "event": "pull_request"}]}],
                 ["actions/runs/900/jobs", [{"jobs": [head_lint]}]],
                 ["actions/runs/900", {"id": 900, "workflow_id": 7}],
+                ["actions/runs/41", {"id": 41, "workflow_id": 7}],
                 ["actions/jobs/7", head_lint],
                 ["actions/jobs/8", base_job],
                 ["commits?sha=feat-cmux-next", [{"sha": TIP}]],
@@ -2120,13 +2121,14 @@ class BaseRedAndReasonRegression(unittest.TestCase):
         self.assertIn("God files and types (Swift)", result.stderr)
         self.assertIn(f"base tip {TIP[:10]}", result.stderr)
 
-    def test_a_lint_red_stays_unwaivable_by_override(self):
+    def test_override_waives_a_lint_red_the_base_does_not_have(self):
+        # #22203 (2026-10-20) made a red lint check waivable by --override; risk evidence stays unwaivable.
         reason = "the lint lane is a known base failure unrelated to this change"
         result, merged, _ = self.run_case(head_red=("God files and types (Swift)",),
                                           args=("--full", "--override", reason, "--squash"))
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIsNone(merged)
-        self.assertIn("--override cannot bypass", result.stderr)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIsNotNone(merged)
+        self.assertIn("--override waives", result.stderr)
 
     def test_no_base_verdict_says_what_was_missing(self):
         # #21729: the checks job never runs on feat-cmux-next pushes.
