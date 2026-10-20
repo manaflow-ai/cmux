@@ -60,7 +60,8 @@ export class CloudDO extends CloudIdle {
       const authority_version = await owner.personalScopeAuthority(team, user)
       return authority_version ? { role: "owner", authority_version } : null
     },
-    () => this.ctx.getWebSockets()
+    () => this.ctx.getWebSockets(),
+    (team, users) => this.env.TEAM_DO.get(this.env.TEAM_DO.idFromName(team)).cloudAuthorities(team, users)
   )
 
   /**

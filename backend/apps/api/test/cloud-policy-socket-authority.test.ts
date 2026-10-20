@@ -79,4 +79,29 @@ describe("Cloud policy authority fanout", () => {
     await gate.changedAll("team")
     expect(fresh.closes).toEqual([])
   })
+
+  it("batches many subscribers without per-user RPCs", async () => {
+    const peers = Array.from({ length: 257 }, (_, i) => socket(`user-${i}`, A)), batches: number[] = []
+    const gate = new CloudSocketAuthority(async () => { throw new Error("unexpected single-user read") },
+      () => peers.map((peer) => peer.ws), async (_team, users) => { batches.push(users.length); return users.map(() => member(B)) })
+    await gate.changedAll("team")
+    expect(batches).toEqual([128, 128, 1])
+    expect(peers.every((peer) => peer.closes.length === 1)).toBe(true)
+  })
+
+  it("a missing batch answer closes its candidates and remains retryable", async () => {
+    const peer = socket("user", A)
+    const gate = new CloudSocketAuthority(async () => member(B), () => [peer.ws], async () => [])
+    await expect(gate.changedAll("team")).rejects.toThrow("Cloud team authority unavailable")
+    expect(peer.closes).toEqual([4401])
+  })
+
+  it("a per-member unavailable result preserves another member's verified current socket", async () => {
+    const current = socket("one", B), unavailable = socket("two", A)
+    const gate = new CloudSocketAuthority(async () => member(B), () => [current.ws, unavailable.ws],
+      async () => [member(B), { unavailable: true }])
+    await expect(gate.changedAll("team")).rejects.toThrow("Cloud team authority unavailable")
+    expect(current.closes).toEqual([])
+    expect(unavailable.closes).toEqual([4401])
+  })
 })

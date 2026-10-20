@@ -6,6 +6,8 @@ import { ROLE_GRANTS, type Role } from "./team-roles.ts"
 export const TABLE_MEMBER_AUTHORITY = "member_authority"
 export const TEAM_MEMBER_AUTHORITY_CHANGED = "team.member_authority.changed"
 export const TEAM_AUTHORITY_CHANGED = "team.authority.changed"
+/** Cache metadata only; an unavailable row must close its candidates without acknowledging delivery. */
+export type TeamCloudAuthority = { role: string; authority_version: string } | { unavailable: true } | null
 const GENERATION_KEY = "@generation"
 
 /** A durable wakeup only: the target reads current authority instead of trusting delayed payloads. */
