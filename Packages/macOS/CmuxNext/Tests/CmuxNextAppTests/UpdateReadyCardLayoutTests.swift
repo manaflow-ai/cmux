@@ -1,8 +1,9 @@
 import AppKit
 @testable import CmuxNextApp
-import CmuxNextDesign
+@testable import CmuxNextDesign
 import CmuxNextSettings
 @testable import CmuxNextSidebar
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -131,33 +132,62 @@ import Testing
         return condition()
     }
 
-    /// "Only the right side" opened it: the pointer on the card's left, middle or right opens it.
+    /// Puts the card's popup close on `clock`, so a test moves time itself (no fixed sleeps).
+    func manualClose(_ h: Harness) -> ManualClock {
+        let clock = ManualClock()
+        h.card.notesCloseTimer = DemandTimer(owner: "test.update-card.notes-close", clock: clock)
+        return clock
+    }
+
+    /// One close wait passes: waits for the timer to sleep, moves the clock past it, and lets its fire run.
+    func passCloseDelay(_ clock: ManualClock) async throws {
+        try await clock.waitForSleeper()
+        clock.advance(by: SidebarUpdateCardView.notesCloseDelay)
+        for _ in 0..<20 { await Task.yield() }
+    }
+
+    /// A move over the card with no enter before it (the pointer already there): the card's own
+    /// move tracking, not the hover owner's refresh, has to open the popup.
+    func moveOver(_ h: Harness, to point: (screen: CGPoint, window: CGPoint)) {
+        h.card.screenPointer = { point.screen }
+        PointerHover.debugPointers[ObjectIdentifier(h.window)] = PointerHover.DebugPointer(point: point.window, mouse: NSEvent.mouseLocation)
+        let event = NSEvent.mouseEvent(with: .mouseMoved, location: point.window, modifierFlags: [], timestamp: 0,
+                                       windowNumber: h.window.windowNumber, context: nil, eventNumber: 0, clickCount: 0, pressure: 0)
+        h.card.mouseMoved(with: event!)
+    }
+
+    /// "Only the right side" opened it: a move over the card's left, middle or right opens it.
     @Test func thePointerAnywhereOnTheCardOpensThePopup() async throws {
         let h = try await make()
         defer {
             h.card.hideNotes()
+            PointerHover.setDebugPointer(nil, in: h.window)
             h.window.close()
         }
         try #require(!h.card.isHidden, "the staged update shows no card")
         h.window.orderFront(nil)
         h.card.highlights = Highlights()
+        let clock = manualClose(h)
         for fraction in [0.08, 0.5, 0.92] as [CGFloat] {
-            let point = cardPoint(h, fraction: fraction)
-            h.card.screenPointer = { point.screen }
-            PointerHover.setDebugPointer(point.window, in: h.window)
-            #expect(h.card.notesAreShown, "the pointer at \(fraction) of the card's width opened no popup")
+            PointerHover.setDebugPointer(nil, in: h.window)
+            try #require(!h.card.isHovered, "the card is hovered with the pointer outside the window")
+            moveOver(h, to: cardPoint(h, fraction: fraction))
+            #expect(h.card.notesAreShown, "a move at \(fraction) of the card's width opened no popup")
             h.card.screenPointer = { CGPoint(x: -50_000, y: -50_000) }
             PointerHover.setDebugPointer(nil, in: h.window)
+            try await passCloseDelay(clock)
             #expect(await eventually { !h.card.notesAreShown }, "the popup stayed open after the pointer left the card")
         }
     }
 
     /// Leaving the card diagonally toward the popup (up and right, over the sidebar list) keeps it
-    /// open while the pointer is on its way; leaving elsewhere closes it after a short delay.
+    /// open while the pointer is on its way, up to the corridor's limit; on the popup it stays;
+    /// leaving elsewhere closes it after one short delay.
     @Test func thePopupStaysOpenWhileThePointerTravelsToIt() async throws {
         let h = try await make()
         defer {
             h.card.hideNotes()
+            PointerHover.setDebugPointer(nil, in: h.window)
             h.window.close()
         }
         try #require(!h.card.isHidden, "the staged update shows no card")
@@ -165,6 +195,7 @@ import Testing
         let page = Highlights()
         page.contentHeight = 300
         h.card.highlights = page
+        let clock = manualClose(h)
         let start = cardPoint(h, fraction: 0.5)
         h.card.screenPointer = { start.screen }
         PointerHover.setDebugPointer(start.window, in: h.window)
@@ -180,18 +211,85 @@ import Testing
         let between = CGPoint(x: x, y: y)
         h.card.screenPointer = { between }
         PointerHover.setDebugPointer(h.window.convertPoint(fromScreen: between), in: h.window)
-        try? await Task.sleep(for: .milliseconds(400))
+        try await passCloseDelay(clock)
         #expect(h.card.notesAreShown, "the popup closed while the pointer crossed to it at \(between)")
-        // On the popup: it stays.
+        // On the popup: it stays, and no close is pending.
         let inside = CGPoint(x: surface.midX, y: surface.midY)
         h.card.screenPointer = { inside }
-        try? await Task.sleep(for: .milliseconds(400))
+        try await passCloseDelay(clock)
         #expect(h.card.notesAreShown, "the popup closed with the pointer on it")
+        #expect(!h.card.notesCloseTimer.isScheduled, "a close is still pending with the pointer on the popup")
         // Away from both: it closes after the delay, not at once.
         h.card.screenPointer = { CGPoint(x: card.minX - 400, y: card.minY - 400) }
         h.card.pointerLeftNotes()
         #expect(h.card.notesAreShown, "the popup closed at once instead of after the delay")
+        try await passCloseDelay(clock)
         #expect(await eventually { !h.card.notesAreShown }, "the popup stayed open after the pointer left it")
+    }
+
+    /// A pointer that stops in the corridor does not hold the popup open for good: it closes at
+    /// the corridor's limit.
+    @Test func aPointerParkedOnTheWayClosesThePopupAtTheLimit() async throws {
+        let h = try await make()
+        defer {
+            h.card.hideNotes()
+            PointerHover.setDebugPointer(nil, in: h.window)
+            h.window.close()
+        }
+        try #require(!h.card.isHidden, "the staged update shows no card")
+        h.window.orderFront(nil)
+        let page = Highlights()
+        page.contentHeight = 300
+        h.card.highlights = page
+        let clock = manualClose(h)
+        let start = cardPoint(h, fraction: 0.5)
+        h.card.screenPointer = { start.screen }
+        PointerHover.setDebugPointer(start.window, in: h.window)
+        try #require(h.card.notesAreShown, "hovering the card opened no popup")
+        let popup = try #require(h.window.childWindows?.first)
+        let surface = PopupStyle.standard.cardFrame(inWindow: popup.frame)
+        let card = h.window.convertToScreen(h.card.convert(h.card.bounds, to: nil))
+        // Off the card on the diagonal toward the popup, and parked there.
+        let parked = CGPoint(x: card.maxX - 20, y: surface.maxY > card.maxY + 24 ? card.maxY + 16 : card.minY - 16)
+        h.card.screenPointer = { parked }
+        PointerHover.setDebugPointer(h.window.convertPoint(fromScreen: parked), in: h.window)
+        let waits = Int((SidebarUpdateCardView.notesCorridorLimit / SidebarUpdateCardView.notesCloseDelay).rounded(.up))
+        for _ in 0..<(waits - 1) {
+            try await passCloseDelay(clock)
+            #expect(h.card.notesAreShown, "the popup closed before the corridor's limit")
+        }
+        try await passCloseDelay(clock)
+        #expect(await eventually { !h.card.notesAreShown }, "the popup stayed open past the corridor's limit")
+    }
+
+    /// The sidebar hid the card: its popup goes with it. A popup closed under the pointer (Hide,
+    /// an action, the app resigning) stays closed until the pointer leaves the card and comes back.
+    @Test func aHiddenOrDismissedPopupStaysClosedUnderThePointer() async throws {
+        let h = try await make()
+        defer {
+            h.card.hideNotes()
+            PointerHover.setDebugPointer(nil, in: h.window)
+            h.window.close()
+        }
+        try #require(!h.card.isHidden, "the staged update shows no card")
+        h.window.orderFront(nil)
+        h.card.highlights = Highlights()
+        _ = manualClose(h)
+        let point = cardPoint(h, fraction: 0.5)
+        h.card.screenPointer = { point.screen }
+        PointerHover.setDebugPointer(point.window, in: h.window)
+        try #require(h.card.notesAreShown, "hovering the card opened no popup")
+        h.card.hideNotes()
+        #expect(await eventually { h.card.notesDismissedWhileHovered }, "the close under the pointer was not noted")
+        moveOver(h, to: point)
+        #expect(!h.card.notesAreShown, "a move over the card reopened the popup it was told to close")
+        PointerHover.setDebugPointer(nil, in: h.window)
+        PointerHover.setDebugPointer(point.window, in: h.window)
+        #expect(h.card.notesAreShown, "coming back to the card opened no popup")
+        h.card.isHidden = true
+        #expect(!h.card.notesAreShown, "the popup stayed open after its card hid")
+        #expect(!h.card.pointerIsOverCard(point.screen), "a hidden card still counts the pointer as over it")
+        h.card.isHidden = false
     }
 
     /// Long notes: the popup is at most 60% of the window tall (the page scrolls inside it) and

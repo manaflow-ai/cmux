@@ -35,8 +35,8 @@ AGENT_PANE = re.compile(r"(?:agent.?pane|agent-session|AgentPane|acpmux)", re.IG
 NOW_PLAYING = re.compile(r"(?:now.?playing|music)", re.IGNORECASE)
 # The sidebar's workspace hover card (its surface and content), in dark, light and over art.
 HOVER_CARD = re.compile(r"(?:WorkspaceHoverCard|HoverCards/HoverCardPanel)")
-# The sidebar's Update Ready card and its What's New popup (native card, React popup page).
-UPDATE_CARD = re.compile(r"(?:SidebarUpdateCard|SidebarUpdateNotes|UpdateReadyCard|UpdateSurface|pages/changelog/surface\.)", re.IGNORECASE)
+# The sidebar's native Update Ready card and its popup window (the popup's React page is gallery work).
+UPDATE_CARD = re.compile(r"(?:SidebarUpdateCard|SidebarUpdateNotes|UpdateReadyCard|UpdateSurfaceIsland)")
 # Themes, glass and background art: the glass tour shows them over art and opaque.
 GLASS = re.compile(r"(?:theme|glass|backdrop|WindowBackground|SurfaceBackground|TerminalHostView|cmux-themes|composerStates\.css)", re.IGNORECASE)
 # Webview code: the gallery advisory run captures it on Linux (glass and themes excepted).

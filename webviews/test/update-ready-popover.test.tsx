@@ -138,7 +138,14 @@ test("a change's picture shows inline and a click on it opens the notes", async 
               category: "new",
               media: { light, dark: "data:image/png;base64,AAAA", alt: "The sidebar with workspace groups" },
             },
-            { id: "undo", title: "Undo a tab close from a toast", summary: null, category: "new" },
+            {
+              id: "undo",
+              title: "Undo a tab close from a toast",
+              summary: null,
+              category: "new",
+              // A remote file the host never inlined: it must not load in the popup.
+              media: { light: "https://cmux.com/a.png", dark: "media/1.0/a.png", alt: "x" },
+            },
           ],
           moreCount: 0,
           changelog: { from: "1.0.0-nightly.3917159104301", to: "1.0.0-nightly.3932981759301" },
@@ -151,6 +158,7 @@ test("a change's picture shows inline and a click on it opens the notes", async 
   expect(host.querySelector(".wn-pop-title")?.textContent).toBe("What's new in nightly 3932981");
   const pictures = [...host.querySelectorAll(".wn-pop-list li")].map((li) => li.querySelectorAll("img").length);
   expect(pictures).toEqual([1, 0]);
+  expect(host.querySelectorAll(".wn-pop-media").length).toBe(1);
   const button = host.querySelector<HTMLButtonElement>(".wn-pop-media")!;
   expect(button.getAttribute("aria-label")).toBe("The sidebar with workspace groups");
   expect(button.querySelector("img")?.getAttribute("src")).toBe(light);

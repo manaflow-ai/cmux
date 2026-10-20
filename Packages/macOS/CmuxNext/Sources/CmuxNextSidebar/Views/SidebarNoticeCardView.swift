@@ -206,6 +206,7 @@ final class SidebarNoticeCardView: NSView {
         actionButtons = actions.prefix(2).map { action in
             let button = SidebarUpdateButton()
             button.isQuiet = !action.prominent
+            button.fixedStyle = .inverted
             button.onPress = { [weak self] in
                 guard let id = self?.notice?.id else { return }
                 self?.onAction?(id, action.id)

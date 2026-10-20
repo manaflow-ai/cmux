@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextWakeups
 import QuartzCore
 
 /// The staged update card above the sidebar footer (UPDATE-CARD, Arc-style
@@ -86,8 +87,15 @@ final class SidebarUpdateCardView: NSView {
     /// appeared under, an enter that a child window covering the card at that moment took).
     private var moveTracking: NSTrackingArea?
     /// The popup's delayed close after the pointer left the card or the popup
-    /// (``scheduleNotesClose()``).
-    var notesCloseTask: Task<Void, Never>?
+    /// (``scheduleNotesClose()``): one-shot, re-armed while the pointer is on its way.
+    /// Tests swap in one on a manual clock.
+    var notesCloseTimer = DemandTimer(owner: "sidebar.update-card.notes-close")
+    /// How long the pending close has already waited (capped at ``notesCorridorLimit``).
+    var notesCloseWaited: Duration = .zero
+    /// The popup closed while the pointer was still on the card (Hide, an
+    /// action, the app resigning active): moves over the card do not reopen it
+    /// until the pointer leaves and comes back.
+    var notesDismissedWhileHovered = false
     /// The pointer on screen, read by every popup check (tests place it).
     var screenPointer: () -> CGPoint = { NSEvent.mouseLocation }
     /// Shows and hides the card with its entrance and exit (``SidebarCardTransition``).
@@ -255,6 +263,7 @@ final class SidebarUpdateCardView: NSView {
     private func setHovered(_ hovering: Bool) {
         isHovered = hovering
         if hovering { return showNotes() }
+        notesDismissedWhileHovered = false
         guard !pointerIsOverNotes() else { return }
         // Not at once: the pointer may be on its way to the popup (``scheduleNotesClose()``).
         scheduleNotesClose()
@@ -272,11 +281,12 @@ final class SidebarUpdateCardView: NSView {
     override func mouseMoved(with event: NSEvent) {
         guard !isHovered || !notesAreShown else { return }
         pointerHover?.refresh()
-        if isHovered, !notesAreShown { showNotes() }
+        if isHovered, !notesAreShown, !notesDismissedWhileHovered { showNotes() }
     }
 
     override func viewDidHide() {
         super.viewDidHide()
+        hideNotes()
         pointerHover?.refresh()
     }
 }

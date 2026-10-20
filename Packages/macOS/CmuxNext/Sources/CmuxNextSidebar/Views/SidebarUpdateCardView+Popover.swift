@@ -56,7 +56,11 @@ extension SidebarUpdateCardView {
         panel.host.onPointerExit = { [weak self] in self?.pointerLeftNotes() }
         panel.host.onPointerEnter = { [weak self] in self?.cancelNotesClose() }
         // The close finished: the highlights page goes back to wait in the card.
-        panel.onClosed = { [weak self] in self?.parkHighlights() }
+        panel.onClosed = { [weak self] in
+            guard let self else { return }
+            if self.isHovered { self.notesDismissedWhileHovered = true }
+            self.parkHighlights()
+        }
         highlights.onHeightChange = { [weak self, weak panel, weak highlights] in
             guard let self, let panel, let highlights, highlights.contentHeight > 0 else { return }
             panel.resize(height: self.notesHeight(for: highlights.contentHeight))
@@ -79,7 +83,8 @@ extension SidebarUpdateCardView {
 
     /// Whether `point` (screen, default the pointer now) is over the card.
     func pointerIsOverCard(_ point: CGPoint? = nil) -> Bool {
-        cardScreenFrame?.insetBy(dx: -Metrics.space1, dy: -Metrics.space1).contains(point ?? screenPointer()) ?? false
+        guard window != nil, !isHiddenOrHasHiddenAncestor else { return false }
+        return cardScreenFrame?.insetBy(dx: -Metrics.space1, dy: -Metrics.space1).contains(point ?? screenPointer()) ?? false
     }
 
     /// Whether `point` is on the way between the card and the popup: the
@@ -96,29 +101,35 @@ extension SidebarUpdateCardView {
     }
 
     /// The pointer left the card or the popup: close after ``notesCloseDelay``
-    /// unless it is back on either by then. While it crosses the corridor
-    /// the popup waits longer (up to ``notesCorridorLimit``).
+    /// unless it is back on either by then. While it is in the corridor
+    /// between them, or in the small margin around either, the close waits
+    /// again, up to ``notesCorridorLimit`` in all.
     func scheduleNotesClose() {
         guard notesAreShown else { return }
-        notesCloseTask?.cancel()
-        let started = ContinuousClock.now
-        // task-owner: notesCloseTask, cancelled on the next hover, open or close.
-        notesCloseTask = Task { @MainActor [weak self] in
-            while true {
-                try? await Task.sleep(for: Self.notesCloseDelay)
-                guard let self, !Task.isCancelled else { return }
-                if self.isHovered || self.pointerIsOverCard() || self.pointerIsOverNotes() { return }
-                if self.pointerIsInNotesCorridor(), ContinuousClock.now - started < Self.notesCorridorLimit { continue }
-                self.notesCloseTask = nil
-                self.notesPanel?.dismiss()
-                return
-            }
+        notesCloseWaited = .zero
+        armNotesClose()
+    }
+
+    private func armNotesClose() {
+        notesCloseTimer.schedule(after: Self.notesCloseDelay) { @MainActor [weak self] in
+            self?.notesCloseFired()
         }
     }
 
+    /// One wait passed: stay (pointer on the card or inside the popup), wait
+    /// again (on the way, under the cap), or close.
+    func notesCloseFired() {
+        notesCloseWaited += Self.notesCloseDelay
+        if isHovered && !isHiddenOrHasHiddenAncestor { return }
+        if let panel = notesPanel, panel.isPresented, panel.cardFrame.contains(screenPointer()) { return }
+        let onTheWay = pointerIsInNotesCorridor() || pointerIsOverCard() || pointerIsOverNotes()
+        if onTheWay, notesCloseWaited < Self.notesCorridorLimit { return armNotesClose() }
+        notesPanel?.dismiss()
+    }
+
     func cancelNotesClose() {
-        notesCloseTask?.cancel()
-        notesCloseTask = nil
+        notesCloseTimer.cancel()
+        notesCloseWaited = .zero
     }
 
     /// The pointer left the popup: it closes after the delay unless the

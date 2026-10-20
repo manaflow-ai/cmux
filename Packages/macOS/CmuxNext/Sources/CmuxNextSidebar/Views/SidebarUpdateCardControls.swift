@@ -46,6 +46,13 @@ final class SidebarUpdateButton: NSView {
     /// A secondary button (the tip card's Try It): the hover fill and the
     /// primary text, never the call-to-action fill.
     var isQuiet = false { didSet { if isQuiet != oldValue { needsDisplay = true } } }
+    /// A fixed fill (the notice card's prominent action keeps ``SidebarUpdateButtonStyle/inverted``);
+    /// nil follows `sidebar.updateCard.button` (the update card).
+    var fixedStyle: SidebarUpdateButtonStyle? { didSet { if fixedStyle != oldValue { needsLayout = true; needsDisplay = true } } }
+    /// The fill this button draws.
+    var style: SidebarUpdateButtonStyle { fixedStyle ?? SidebarTunables.updateCardButton.value }
+    /// The app's button (hairline edge, regular weight, popup row corners) rather than a call-to-action slab.
+    private var isBordered: Bool { !isQuiet && style == .bordered }
     private let label = ChromeLabel(labelWithString: "")
     private var isHovered = false { didSet { if isHovered != oldValue { needsDisplay = true } } }
     private var isPressed = false { didSet { if isPressed != oldValue { needsDisplay = true } } }
@@ -77,7 +84,10 @@ final class SidebarUpdateButton: NSView {
 
     /// The app's control height (the Updated card's button, 24 pt at the default spacing).
     static var height: CGFloat { Metrics.sidebarRowHeight - Metrics.space1 }
-    static var font: NSFont { Typography.system(size: Typography.caption.pointSize, weight: .medium) }
+    static var font: NSFont { font(bordered: false) }
+    static func font(bordered: Bool) -> NSFont {
+        Typography.system(size: Typography.caption.pointSize, weight: bordered ? TypeScale.regular : TypeScale.emphasis)
+    }
 
     func configure(title: String, enabled: Bool, help: String?) {
         label.stringValue = title
@@ -95,8 +105,8 @@ final class SidebarUpdateButton: NSView {
 
     override func layout() {
         super.layout()
-        layer?.cornerRadius = PopupStyle.standard.rowCornerRadius + 2
-        label.font = Self.font
+        layer?.cornerRadius = isBordered ? PopupStyle.standard.rowCornerRadius + 2 : Metrics.space2
+        label.font = Self.font(bordered: isBordered)
         let h = ceil(label.intrinsicContentSize.height)
         label.frame = NSRect(x: Metrics.space2, y: (bounds.height - h) / 2, width: max(0, bounds.width - 2 * Metrics.space2), height: h)
     }
@@ -116,8 +126,8 @@ final class SidebarUpdateButton: NSView {
     /// darker while held, faded while disabled.
     var fill: NSColor {
         performWithTheme {
-            let neutral = isQuiet || SidebarTunables.updateCardButton.value == .bordered
-            let base = isQuiet ? Palette.hoverFill : Self.colors(SidebarTunables.updateCardButton.value).fill
+            let neutral = isQuiet || style == .bordered
+            let base = isQuiet ? Palette.hoverFill : Self.colors(style).fill
             if !isEnabled, neutral { return base.withAlphaComponent(0.5) }
             if neutral, isPressed { return Palette.pressedFill }
             if neutral, isHovered { return Palette.selectionFill }
@@ -130,10 +140,10 @@ final class SidebarUpdateButton: NSView {
     override func updateLayer() {
         performWithTheme {
             layer?.backgroundColor = fill.cgColor
-            let bordered = !isQuiet && SidebarTunables.updateCardButton.value == .bordered
+            let bordered = isBordered
             layer?.borderColor = (showsKeyFocus ? Palette.focusRing : Palette.separator).cgColor
             layer?.borderWidth = showsKeyFocus ? Metrics.lineWidth(1.5) : bordered ? Metrics.lineWidth(1) : 0
-            let text = isQuiet ? Palette.textPrimary : Self.colors(SidebarTunables.updateCardButton.value).text
+            let text = isQuiet ? Palette.textPrimary : Self.colors(style).text
             label.textColor = isEnabled || !bordered ? text : Palette.textSecondary
         }
     }

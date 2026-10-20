@@ -127,6 +127,8 @@ export function UpdateReadyHighlights({
 function PopMedia({ media, onOpen }: { media: UpdateHighlightMedia; onOpen: () => void }) {
   const scheme = useSyncExternalStore(subscribeColorScheme, getColorScheme, () => "light" as const);
   const src = scheme === "dark" ? media.dark : media.light;
+  // Anything but an inlined picture (a remote or relative URL) never loads here.
+  if (!src.startsWith("data:image/")) return null;
   return (
     <button type="button" className="wn-pop-media" onClick={onOpen} aria-label={media.alt}>
       <img key={src} src={src} alt="" decoding="async" />
