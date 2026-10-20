@@ -33,6 +33,10 @@ EOF
 cat > "$tmp/root/bin/hang-child.sh" <<'EOF'
 sleep 30 &
 echo $! >> "$1"
+# SwiftPM starts xctest in a process group of its own: killing the entry's
+# group alone misses it.
+python3 -c 'import os, time; os.setpgid(0, 0); time.sleep(30)' &
+echo $! >> "$1"
 wait
 EOF
 
