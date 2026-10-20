@@ -7,7 +7,8 @@ with no Swift build, no relaunch and no wait on CI. The same edits still go thro
 
 `web-dev.json` next to `cmux-next.json` (`~/.config/cmux/web-dev.json`) is read by Debug and
 NIGHTLY builds only (`WebDevOverride.isAvailable`, the DevTools rule). Release and RC builds never
-read it.
+read it. Debug Settings > Pages > "Live web reload (web-dev.json)" (`PageTunables.webDevOverride`, on
+by default) ignores the file while off, without editing it.
 
 ```json
 {"server": "http://127.0.0.1:4181/", "overlay": "~/Library/Application Support/cmux-next/web-overlay"}

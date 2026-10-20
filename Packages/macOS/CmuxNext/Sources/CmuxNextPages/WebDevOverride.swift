@@ -60,8 +60,12 @@ public nonisolated struct WebDevOverride: Sendable, Equatable {
 
     private static let state = Mutex(WebDevOverride())
 
-    /// The override in force: empty unless ``isEnabled`` and the watcher read a file.
-    public static var current: WebDevOverride { state.withLock { $0 } }
+    /// The override in force: empty unless ``isEnabled``, the watcher read a file and the Debug
+    /// Settings toggle (``PageTunables/webDevOverride``) is on.
+    public static var current: WebDevOverride {
+        guard PageTunables.webDevOverride.value else { return WebDevOverride() }
+        return state.withLock { $0 }
+    }
 
     /// Replaces ``current``; returns whether it changed. Ignored unless ``isEnabled``.
     @discardableResult
