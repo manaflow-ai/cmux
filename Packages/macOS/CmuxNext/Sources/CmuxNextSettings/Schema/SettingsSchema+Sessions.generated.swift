@@ -5,6 +5,9 @@ extension SessionSettings {
     /// `sessions.keepAwake`: Idle system sleep stays off while a local agent works (KeepAwakeService). The display can still sleep, and closing the lid still sleeps the Mac.
     public nonisolated static let keepAwakePath = ["sessions", "keepAwake"]
     public nonisolated static let keepAwakeDefault: SessionKeepAwakeSetting = .pluggedIn
+    /// `sessions.resumeAgents`: On: a terminal brought back after a crash or restart runs its agent's resume (claude --resume <id>, codex resume <id>) at the new shell's empty prompt. Off, or a settings file that does not parse: nothing runs, and the restored line shows the command. The daemon reads it at each respawn (cmux-tui-util user_settings::resume_agents). Commands other than agents never run again.
+    public nonisolated static let resumeAgentsPath = ["sessions", "resumeAgents"]
+    public nonisolated static let resumeAgentsDefault = true
 }
 
 extension SessionSettings {
@@ -41,6 +44,16 @@ nonisolated enum SessionSettingsSchema {
                 ]),
                 default: .string(SessionSettings.keepAwakeDefault.rawValue),
                 keywords: ["sleep", "awake", "caffeinate", "battery", "power", "agents"]
+            ),
+            SettingDescriptor(
+                SessionSettings.resumeAgentsPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.sessions.resumeAgents", "Resume Agents After Restart"),
+                help: SettingsText.keyed("settings.sessions.resumeAgents.help", "Terminal agents reopen their session after a crash or restart."),
+                kind: .toggle,
+                default: .bool(SessionSettings.resumeAgentsDefault),
+                keywords: ["resume", "restore", "restart", "reboot", "crash", "claude", "codex", "agents"]
             ),
         ]
     }

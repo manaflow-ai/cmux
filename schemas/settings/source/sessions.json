@@ -57,6 +57,31 @@
             "power",
             "agents"
           ]
+        },
+        {
+          "key": "sessions.resumeAgents",
+          "name": "resumeAgents",
+          "note": "On: a terminal brought back after a crash or restart runs its agent's resume (claude --resume <id>, codex resume <id>) at the new shell's empty prompt. Off, or a settings file that does not parse: nothing runs, and the restored line shows the command. The daemon reads it at each respawn (cmux-tui-util user_settings::resume_agents). Commands other than agents never run again.",
+          "title": {
+            "key": "settings.sessions.resumeAgents",
+            "text": "Resume Agents After Restart"
+          },
+          "help": {
+            "key": "settings.sessions.resumeAgents.help",
+            "text": "Terminal agents reopen their session after a crash or restart."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "resume",
+            "restore",
+            "restart",
+            "reboot",
+            "crash",
+            "claude",
+            "codex",
+            "agents"
+          ]
         }
       ]
     },

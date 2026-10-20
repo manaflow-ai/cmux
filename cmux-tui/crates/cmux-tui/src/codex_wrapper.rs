@@ -45,6 +45,9 @@ pub(crate) fn run(args: &[OsString]) -> i32 {
 
     let mut command = Command::new(&codex);
     command.env("PATH", path_without_shims(&path, shim_dir.as_deref()));
+    // The arguments as given, before the hooks are added (see claude_wrapper).
+    command
+        .env(crate::claude_wrapper::AGENT_ARGS_ENV, crate::claude_wrapper::agent_args_json(args));
     let mut launch_args = args.to_vec();
     if should_inject(args, |name| std::env::var_os(name)) {
         match prepare_hooks(args) {

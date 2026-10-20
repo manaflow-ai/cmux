@@ -522,6 +522,7 @@
     "setting.screenshots.findTools": true,
     "setting.screenshots.folders": [],
     "setting.sessions.keepAwake": "pluggedIn",
+    "setting.sessions.resumeAgents": true,
     "setting.shortcuts.showModifierHoldHints": true,
     "setting.sidebar.border": false,
     "setting.sidebar.borderWidth": null,
