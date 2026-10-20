@@ -182,8 +182,10 @@ await requireBrowserLane("new-tab-paste-attachments.test.ts", async () => {
         canvas.height = 800;
         const context = canvas.getContext("2d")!;
         const pixels = context.createImageData(canvas.width, canvas.height);
-        for (let at = 0; at < pixels.data.length; at += 1)
-          pixels.data[at] = at % 4 === 3 ? 255 : Math.imul(at, 2654435761) >>> 24;
+        // Random bytes, not a formula: a patterned fill compresses to a few hundred kilobytes.
+        for (let at = 0; at < pixels.data.length; at += 65_536)
+          crypto.getRandomValues(pixels.data.subarray(at, at + 65_536));
+        for (let at = 3; at < pixels.data.length; at += 4) pixels.data[at] = 255;
         context.putImageData(pixels, 0, 0);
         const blob = await new Promise<Blob>((resolve) => canvas.toBlob((png) => resolve(png!), "image/png"));
         Object.assign(window, { __fullLength: Math.ceil(blob.size / 3) * 4 });
