@@ -511,6 +511,7 @@
     "setting.phone.keepAwake": "pluggedIn",
     "setting.phone.startSessions": true,
     "setting.picker.pinned": [],
+    "setting.sessions.allowFullAccess": true,
     "setting.sessions.keepAwake": "pluggedIn",
     "setting.shortcuts.showModifierHoldHints": true,
     "setting.sidebar.border": false,
