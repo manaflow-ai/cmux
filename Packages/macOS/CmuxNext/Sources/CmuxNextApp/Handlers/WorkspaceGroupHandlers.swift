@@ -205,10 +205,10 @@ enum WorkspaceGroupHandlers {
         Task { _ = try? await windows.createWorkspace(spawn, on: daemon, into: target) }
     }
 
-    /// The id `model` lists personal group `id` under: the sidebar document's item (`itm_g_<id>`,
-    /// cmux-tui `group_item_id`), else the group's own id.
+    /// The id `model` lists personal group `id` under (`SidebarModel.groupID(personal:)`), nil when it lists none.
     private static func shownGroupID(_ id: WorkspaceGroupID, in model: SidebarModel) -> CmuxNextSidebar.GroupID? {
-        [CmuxNextSidebar.GroupID("itm_g_" + id.rawValue), CmuxNextSidebar.GroupID(id.rawValue)].first { model.group($0) != nil }
+        let shown = model.groupID(personal: id.rawValue)
+        return model.group(shown) != nil ? shown : nil
     }
 
     /// A new group inside `parent` on the sidebar document (remote-groups-DESIGN.md slice 3), with the

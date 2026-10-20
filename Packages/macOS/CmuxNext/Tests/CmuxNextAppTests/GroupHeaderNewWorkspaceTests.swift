@@ -24,7 +24,8 @@ struct GroupHeaderNewWorkspaceTests {
 
     /// The id the sidebar lists group `id` under: the document's item, else the group's own.
     private static func headerID(of id: WorkspaceGroupID, in sidebar: SidebarModel) -> CmuxNextSidebar.GroupID? {
-        [CmuxNextSidebar.GroupID("itm_g_" + id.rawValue), CmuxNextSidebar.GroupID(id.rawValue)].first { sidebar.group($0) != nil }
+        let shown = sidebar.groupID(personal: id.rawValue)
+        return sidebar.group(shown) != nil ? shown : nil
     }
 
     private struct Launched {
