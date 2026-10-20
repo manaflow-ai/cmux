@@ -269,6 +269,7 @@ struct PhonePushSharedStateTests {
         try #require(SecItemAdd(legacy as CFDictionary, nil) == errSecSuccess)
 
         let storage = PhonePushKeychainStateStorage(accessGroup: nil)
+        #expect(storage.data(forKey: key) == Data("legacy-state".utf8))
         let current = Data("current-state".utf8)
         storage.setData(current, forKey: key)
         #expect(storage.data(forKey: key) == current)
