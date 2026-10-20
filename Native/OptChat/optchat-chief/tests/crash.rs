@@ -8,7 +8,7 @@ mod common;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-use cmux_conversation::{Change, Participant, ParticipantKind};
+use cmux_conversation::{Change, Part, Participant, ParticipantKind, TextRun};
 use common::*;
 use optchat_chief::brain::Input;
 use optchat_chief::daemon::DaemonEvent;
@@ -299,7 +299,7 @@ fn a_pending_turn_and_its_items_survive_a_restart_in_the_database() {
 #[test]
 fn security_a_shared_pending_turn_resumes_without_private_memory() {
     const PRIVATE: &str = "PRIVATE-BEFORE-GROUP-RESTART-91a2";
-    const GROUP_REQUEST: &str = "finish the group request";
+    const GROUP_REQUEST: &str = "@Chief finish the group request";
 
     let mut h = Harness::new(default_script());
     h.connect();
@@ -324,7 +324,18 @@ fn security_a_shared_pending_turn_resumes_without_private_memory() {
         },
     }));
     h.agents.hold(true);
-    h.say("user_local", GROUP_REQUEST);
+    h.say_parts(
+        "user_local",
+        vec![Part::Text {
+            text: GROUP_REQUEST.into(),
+            runs: Some(vec![TextRun {
+                start: 0,
+                length: GROUP_REQUEST.encode_utf16().count() as u32,
+                mention: Some("agent_mux".into()),
+                link: None,
+            }]),
+        }],
+    );
     while h.agents.inner.lock().unwrap().prompts.len() < 2 {
         h.step();
     }
