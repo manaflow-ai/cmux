@@ -702,10 +702,12 @@ class ShardsAndStatusJobs(unittest.TestCase):
                      "react-apps-check-shard: cancelled")
         self.assertEqual(excuse.reported_red(echoed), [])
         under = [shard_job(1, 10, HEAD, 1), dict(shard_job(4, 10, HEAD, 1), name="web / Web tests (2/4)")]
-        self.assertEqual(excuse.reports_only(["react-apps-check-shard", "web-tests", "react-apps-check"], under), [])
-        self.assertEqual(excuse.reports_only(["migrations"], under), ["migrations"])
-        top = [dict(shard_job(5, 10, HEAD, 1), name="web / Web status")]
-        self.assertEqual(excuse.reports_only(["web"], top), [])
+        unnamed = lambda reported, jobs, prefixed=True: [  # noqa: E731
+            job_id for job_id, found in excuse.report_matches(reported, jobs, prefixed).items() if not found]
+        self.assertEqual(unnamed(["react-apps-check-shard", "web-tests", "react-apps-check"], under), [])
+        self.assertEqual(unnamed(["migrations", "web-tests-e2e", "web"], under), ["migrations", "web-tests-e2e", "web"])
+        # Only a status job without a caller prefix names a caller's jobs by the caller.
+        self.assertEqual(unnamed(["web"], under, prefixed=False), [])
 
     def test_gh_run_view_filing_every_line_under_unknown_step_still_finds_a_status_job(self):
         # #22097's `web / react-apps-check` job 118426578476: the runner banner and the step's
@@ -739,6 +741,35 @@ class ShardsAndStatusJobs(unittest.TestCase):
             self.judge()
         self.gh.logs[1] = log(f"{RAC} (1)", SHARD_STEP, "FAIL test/markdown-table-keys.test.ts (limit 120s)", TABLE)
         self.assertTrue(self.judge())
+
+    def test_two_legs_each_ending_in_a_status_line_naming_the_other_are_refused(self):
+        # Re-review of #22140: `web / migrations (pg15)` and `(pg16)` each print `migrations: failure`.
+        self.base_shards(40, TIP)
+        for job_id, leg in ((2, "pg15"), (3, "pg16")):
+            name = f"web / migrations ({leg})"
+            self.gh.jobs[job_id] = dict(failed_job(job_id, 10, HEAD, name=name),
+                                        html_url=f"https://github.com/{REPO}/actions/runs/10/job/{job_id}")
+            self.gh.logs[job_id] = log(name, TEST_STEP, 'ERROR relation "x" already exists', "migrations: failure")
+        with self.assertRaisesRegex(excuse.Refused, "every failed job of its run is a status job"):
+            self.judge()
+
+    def test_bun_s_error_outside_any_test_is_a_failure_of_its_own(self):
+        # Re-review of #22140: a file the base fails a test in dies loading on the head.
+        self.gh.logs[1] = log(f"{RAC} (1)", SHARD_STEP, "FAIL test/markdown-table-keys.test.ts",
+                              "# Unhandled error between tests", "SyntaxError: Unexpected token")
+        self.base_shards(40, TIP, lines=("FAIL test/markdown-table-keys.test.ts", TABLE))
+        with self.assertRaisesRegex(excuse.Refused, "Unhandled error between tests"):
+            self.judge()
+
+    def test_a_green_merge_base_does_not_stop_the_search_for_the_tip_s_skipped_job(self):
+        # Re-review of #22140: only the base tip line's verdict outranks the base-run search.
+        self.gh.merge_base = MERGE_BASE
+        self.gh.history[MERGE_BASE] = [MERGE_BASE]
+        self.base_shards(45, MERGE_BASE, red_shard=0)
+        self.skipped_on_the_tip()
+        self.gh.other_runs[9] = [{"id": 52, "event": "push", "conclusion": "failure"}]
+        self.base_shards(52, "9" * 40, red_shard=3, checks=False)
+        self.assertIn("feat-cmux-next run 52", "\n".join(self.judge()))
 
     def test_a_green_base_tip_is_not_overruled_by_an_older_red_base_run(self):
         # Review of #22140: a dispatched base run stays the newest run long after the base is fixed.
