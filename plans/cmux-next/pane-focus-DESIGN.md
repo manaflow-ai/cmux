@@ -20,7 +20,8 @@ A key typed by the user reaches a text input only when every link holds:
 | L5 view | AppKit first responder (`FocusEffectApplier.moveResponder`) | the tab's focus target: Ghostty `TerminalSurfaceView`, a page's `PageWKWebView`, a browser tab's WebKit view or Chromium window, Home's message box, a Files list |
 | L6 element | the DOM (web views only) | the page's primary input: Monaco's text area, Settings' search, Home Channels' composer |
 
-L1 to L5 have one owner each (focus.md). L6 had none: `makeFirstResponder(webView)` makes
+L1 to L5 have one owner each (focus.md): the reducer, plus one memory above it in
+`FocusCoordinator`, `OmnibarFocusMemory`, which brings a browser tab's address bar back (P20). L6 had none: `makeFirstResponder(webView)` makes
 WebKit restore the element that had focus in that document before, and when there is none
 (a page that just loaded, or a page whose focused element went away), nothing in the page
 has focus. Keys then go to `<body>`, and typing goes nowhere.
@@ -85,6 +86,7 @@ already (focus.md, close-focus.md) and was not changed here.
 | P17 | Settings page | that pane/tab | web view; the search field only on Cmd-F (`focusSearch`), not on every focus | correct as is: auto-focusing search would eat type-to-scroll |
 | P18 | Agent chat pane (`AgentPaneView`, its own web view) | that pane/tab | composer | **open**: not a `PageWebView`; it has its own composer focus path. Wire it to `contentFocus` when that path is moved over |
 | P19 | Browser tabs (third-party pages) | that pane/tab | WebKit view / Chromium page window; the page's own autofocus rules | correct as is: cmux must not focus elements in a third-party page |
+| P20 | Return to a browser tab whose address bar had the keyboard when left (tab click, tab shortcut, pane or workspace switch) | that tab | its address bar (Chrome `OmniboxEditModel::RestoreState`); a click in its page or any other target there forgets it | in the model: `OmnibarFocusMemory` (a146, `FocusCoordinator`, above the reducer, which drops `addressBar` on a tab change); tests `OmnibarFocusMemoryTests`. L5 only; browser tabs are not `PageWKWebView`, so `focusContent` never reaches them |
 
 ## 5. Tests
 
