@@ -115,9 +115,10 @@ final class BrowserSwipeIndicatorView: NSView {
         }
     }
 
-    /// Chrome's toolbar Back or Forward arrow, a template tinted `onAccent`.
+    /// Chrome's toolbar Back or Forward arrow, a template tinted `onAccent`. Its path spans about
+    /// 60% of the icon box, so 22 and 24 pt draw it about as large as the 14 and 16 pt SF arrows did.
     private func updateArrow() {
         let name: IconName = direction == .back ? .browserToolbarBack : .browserToolbarForward
-        arrow.image = NSImage.icon(name, size: isArmed ? 18 : 16)
+        arrow.image = NSImage.icon(name, size: isArmed ? 24 : 22)
     }
 }
