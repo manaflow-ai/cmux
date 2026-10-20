@@ -25,6 +25,7 @@ struct SidebarBottomCardSlot {
         notice.onAction = { [weak sidebar] card, action in sidebar?.model.send(.noticeAction(card: card, action: action)) }
         notice.onDismiss = { [weak sidebar] card in sidebar?.model.send(.dismissNotice(card)) }
         nowPlaying.onCommand = { [weak sidebar] command in sidebar?.model.send(.nowPlaying(command)) }
+        updated.onDismiss = { [weak sidebar] in sidebar?.model.send(.dismissUpdated) }
         sidebar.addSubview(update)
         sidebar.addSubview(nowPlaying)
         sidebar.addSubview(updated)

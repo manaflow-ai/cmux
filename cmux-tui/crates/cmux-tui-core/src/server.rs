@@ -192,13 +192,11 @@ mod cmd_attach;
 mod cmd_browser;
 #[cfg(test)]
 use cmd_browser::browser_provider_registration;
+mod cmd_frontend;
 mod cmd_panes;
 mod cmd_profiles;
 mod cmd_screens;
 mod cmd_server;
-#[cfg(test)]
-use cmd_server::{stamped_build_commit, stamped_ghostty_commit};
-mod cmd_frontend;
 mod cmd_sizing;
 use cmd_sizing::{optional_surface_size, paired_surface_size};
 mod cmd_subscribe;
@@ -260,7 +258,9 @@ use terminal_snapshot::{attach_overflow_json, handle_attach_send_error, report_a
 mod capabilities;
 pub use capabilities::build_capabilities;
 mod daemon_build;
-pub use daemon_build::{DAEMON_BUILD_CAPABILITY, DaemonBuild, install_daemon_build};
+pub use daemon_build::{
+    BuildStamp, DAEMON_BUILD_CAPABILITY, DaemonBuild, install_build_stamp, install_daemon_build,
+};
 mod socket_path;
 #[cfg(test)]
 use socket_path::default_socket_path_in_runtime_dir;
@@ -889,22 +889,8 @@ enum Command {
         #[serde(default)]
         rows: Option<u16>,
     },
-    Send {
-        /// The terminal surface; or `terminal_id` (exactly one).
-        #[serde(default)]
-        surface: Option<SurfaceId>,
-        /// `terminal-input-while-creating-v1`: the host terminal id, also of a terminal still
-        /// being created (the input is queued for it, `mux::creating_input`).
-        #[serde(default)]
-        terminal_id: Option<String>,
-        #[serde(default)]
-        text: Option<String>,
-        /// Base64-encoded raw bytes, written verbatim to the pty.
-        #[serde(default)]
-        bytes: Option<String>,
-        #[serde(default)]
-        paste: bool,
-    },
+    /// `send`: write input to a terminal.
+    Send(cmd_terminal_io::SendParams),
     ReadScreen {
         surface: SurfaceId,
     },
@@ -2199,8 +2185,8 @@ impl Command {
             | Self::ReattachView { surface, .. }
             | Self::NoteSizeActivity { surface, .. }
             | Self::ScrollSurface { surface, .. } => Some(*surface),
+            Self::Send(send) => send.surface,
             Self::AttachSurface { surface, .. }
-            | Self::Send { surface, .. }
             | Self::Notify { surface, .. }
             | Self::ListAgents { surface, .. }
             | Self::Subscribe { surface, .. }
@@ -2217,7 +2203,7 @@ impl Command {
         matches!(
             self,
             Self::ClearHistory { .. }
-                | Self::Send { .. }
+                | Self::Send(_)
                 | Self::SendKey { .. }
                 | Self::BrowserFramePresented { .. }
                 | Self::BrowserMouse { .. }
@@ -2540,7 +2526,7 @@ pub use restoring::RestoringServer;
 use websocket_listener::handle_websocket_connection;
 pub use websocket_listener::{
     WebSocketAccess, WebSocketServer, parse_websocket_origin, serve_websocket,
-    serve_websocket_with_access, serve_websocket_with_pages,
+    serve_websocket_with_access, serve_websocket_with_keepalive, serve_websocket_with_pages,
 };
 
 #[cfg(test)]
