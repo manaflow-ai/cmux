@@ -68,6 +68,23 @@ jobs:
       - name: Check generated SDK wire layers
         run: python3 cmux-tui/bindings/codegen/generate.py --check
 
+  # A daemon protocol change that can break an older or newer peer must ship
+  # a compat rule (cmux-tui/crates/cmux-api-compat; spec/api-compat.json).
+  api-compat:
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Set up pinned Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: Protocol changes need compat rules
+        working-directory: cmux-tui
+        run: cargo run --locked -p cmux-api-compat --bin api-compat-check
+
   # PR CI never runs cmux-tui.yml (dispatch only), so #18706 landed unformatted
   # Rust and broke base `cargo fmt --check`. rustfmt alone on the packages the
   # change touches: no build and no dependency download.

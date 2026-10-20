@@ -5,11 +5,12 @@
 //!
 //! Claude Code's shells come from the translator's `background_task_update`
 //! (`claude_stdio/inbound.rs`): `running` when one goes to the background,
-//! then how it ended. Each change is logged as a mux `process_update`. A
-//! session's table is read back from its log the first time it is needed,
-//! and again when a daemon adopts a running host (`hosts.rs`); a harness that
-//! exited or was replaced took its processes with it, so those still running
-//! then are `lost`.
+//! then how it ended. Codex's background terminals come the same way from
+//! the bridge (`codex_app_server/background.rs`). Each change is logged as
+//! a mux `process_update`. A session's table is read back from its log the
+//! first time it is needed, and again when a daemon adopts a running host
+//! (`hosts.rs`); a harness that exited or was replaced took its processes
+//! with it, so those still running then are `lost`.
 //!
 //! Claude Code writes each shell's output to a file it names
 //! (`output_file`), which `_acpmux/process/tail` reads. The agent host runs
@@ -21,7 +22,7 @@ use serde::{Deserialize, Serialize};
 /// The reason of a process that ended with its harness.
 pub(super) const HARNESS_EXIT: &str = "harness_exit";
 
-/// How long a kill waits for Claude Code to take its `stop_task`.
+/// How long a kill waits for Claude Code's `stop_task` or Codex's terminate.
 const STOP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 
 /// What a tail without `maxBytes` reads: the last 64 KiB.
@@ -62,7 +63,7 @@ pub(super) struct Process {
     started_at: u64,
     ended_at: Option<u64>,
     state: ProcessState,
-    /// Not reported by Claude Code.
+    /// Reported by Codex, not by Claude Code.
     exit_code: Option<i64>,
     signal: Option<String>,
     /// Why it stopped: `person` (`_acpmux/process/kill`), `agent`, or
@@ -180,6 +181,7 @@ impl ProcessTable {
         };
         if state != ProcessState::Lost {
             p.detail = text("reason").or_else(|| text("summary")).map(str::to_owned);
+            p.exit_code = update.get("exitCode").and_then(Value::as_i64);
         }
         p.logged = false;
         Some(i)
@@ -425,7 +427,7 @@ impl Hub {
     /// 64 KiB) of the process's output from byte `from` (default: its last
     /// `max`). `eof`: the process ended and this read reached the end of
     /// its output. A file Claude Code has not named or written yet reads
-    /// empty.
+    /// empty. A Codex process is refused: its output is not kept yet.
     pub async fn tail_process(
         &self,
         id: &str,
@@ -438,6 +440,9 @@ impl Hub {
             let table = self.process_table(&session);
             let p = table.processes.iter().find(|p| p.id == id);
             let p = p.ok_or_else(|| unknown_process(id))?;
+            if p.harness == "codex" {
+                return Err(RpcError::invalid_params("tail is Claude Code only for now"));
+            }
             (p.output_file.clone(), p.state == ProcessState::Running)
         };
         let max = max.unwrap_or(TAIL_DEFAULT).min(TAIL_MAX);
@@ -454,28 +459,31 @@ impl Hub {
     }
 
     /// `_acpmux/process/kill`: asks Claude Code to stop the process
-    /// (`stop_task`); its end arrives as a `process_update`. One that already
-    /// ended is left alone. Never starts a harness: with none running, the
+    /// (`stop_task`), or Codex (`thread/backgroundTerminals/terminate`); its
+    /// end arrives as a `process_update`. One that already ended is left
+    /// alone. Never starts a harness: with none running, the
     /// process ended with it and is `lost`.
     pub async fn kill_process(&self, id: &str) -> Result<Value, RpcError> {
         let unknown = || unknown_process(id);
         let session = self.process_session(id)?;
         let harness = session.meta().harness;
-        let claude = self
-            .config
-            .read()
-            .await
-            .profile(&harness)
-            .is_some_and(|p| p.kind == crate::config::HarnessKind::ClaudeStdio);
-        if !claude {
+        let (claude, codex) = match self.config.read().await.profile(&harness) {
+            Some(p) => (
+                p.kind == crate::config::HarnessKind::ClaudeStdio,
+                p.kind == crate::config::HarnessKind::Acp
+                    && crate::codex_app_server::is_profile_launch(&p.argv),
+            ),
+            None => (false, false),
+        };
+        if !claude && !codex {
             return Err(RpcError::invalid_params(
-                "only Claude Code's background processes can be stopped",
+                "only Claude Code's and Codex's background processes can be stopped",
             ));
         }
-        let (task, running) = {
+        let (task, running, subagent) = {
             let table = self.process_table(&session);
             let p = table.processes.iter().find(|p| p.id == id).ok_or_else(unknown)?;
-            (p.task_id.clone(), p.state == ProcessState::Running)
+            (p.task_id.clone(), p.state == ProcessState::Running, p.subagent_session_id.clone())
         };
         if !running {
             return Ok(json!({}));
@@ -493,16 +501,22 @@ impl Hub {
             return Err(RpcError::invalid_params("Claude Code has not named this process's task"));
         }
         let inserted = self.process_table(&session).stopping.insert(id.to_owned());
-        let params = json!({"sessionId": session.meta().agent_session_id, "taskId": task});
-        let asked = tokio::time::timeout(
-            STOP_TIMEOUT,
-            child.request(crate::claude_stdio::STOP_TASK, params),
-        )
-        .await;
+        let agent_session = session.meta().agent_session_id;
+        // Codex: the app-server's terminate (`codex_app_server/background.rs`),
+        // on the thread that runs it (a subagent's session is its thread).
+        let (stop, params, harness) = if codex {
+            let thread = subagent.or(agent_session);
+            let params = json!({"threadId": thread, "processId": task});
+            (crate::codex_app_server::TERMINATE, params, "Codex")
+        } else {
+            let params = json!({"sessionId": agent_session, "taskId": task});
+            (crate::claude_stdio::STOP_TASK, params, "Claude Code")
+        };
+        let asked = tokio::time::timeout(STOP_TIMEOUT, child.request(stop, params)).await;
         let refused = match asked {
             Ok(Ok(_)) => return Ok(json!({})),
             Ok(Err(e)) => e,
-            Err(_) => RpcError::internal("Claude Code did not answer stop_task in time"),
+            Err(_) => RpcError::internal(format!("{harness} did not answer {stop} in time")),
         };
         // Another kill of this process may still wait on its own stop_task.
         if inserted {

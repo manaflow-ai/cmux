@@ -4,6 +4,7 @@ import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextHome
 import CmuxNextHomeEngine
+import CmuxNextHostedChief
 import Foundation
 import Observation
 import os
@@ -61,16 +62,29 @@ final class HomeService {
     /// The chief tab creation's idempotency key (one per creation).
     @ObservationIgnored let chiefTabKey = HomeChiefTabKey()
     @ObservationIgnored let dock = HomeDock() // the Home dock's page tab and links (cx-ebm.59.5, cx-ebm.59.6)
-    /// The signed-in user's chief placed on a paired server (G6), as last
-    /// read on a connect or sign-in; its main conversation is the Chief tab.
-    private(set) var cloudChief: CloudChief?
+    /// The signed-in user's cloud Chiefs (the Hosted Chief and the one
+    /// placed on a paired server), as last read on a connect or sign-in.
+    private(set) var cloudChiefs = HomeCloudChiefs()
+    /// The cloud Chief whose main conversation is the Chief tab, or nil (the local Chief).
+    var cloudChief: CloudChief? { tabChiefs.shown(choice: hostedChief.choice) }
+    /// The cloud Chiefs the Chief tab may show: without the Hosted Chief while
+    /// this Mac's history is still being copied into it (the local Chief stays).
+    var tabChiefs: HomeCloudChiefs { hostedChief.pending ? HomeCloudChiefs(hosted: nil, placed: cloudChiefs.placed) : cloudChiefs }
+    /// The one-time copy of this Mac's Chief into the Hosted Chief and its brain check (HomeService+HostedChief).
+    @ObservationIgnored let hostedChief = HostedChiefMigration()
     @ObservationIgnored private var homeObservation: Task<Void, Never>?
     /// The shared Home core over the local owner (home-mac.md): the native
     /// transcript of every conversation tab reads this one store.
+    /// Mermaid fences in Home chat draw as diagrams with the bundled Ondine
+    /// (`markdown-viewer/ondine.min.js`); one renderer (one JavaScriptCore context) for every pane.
+    /// nil when the bundle lacks the script: fences stay text.
+    @ObservationIgnored private(set) lazy var diagrams: OndineMermaidRenderer? = OndineMermaidRenderer.bundled()
     @ObservationIgnored let homeSource = DaemonHomeSource(me: HomeCoreMapping.participant(HomeService.localUser))
     /// Cloud conversations through the daemon's proxy (home-cloud-proxy.md),
     /// merged with the local ones into the one store.
     @ObservationIgnored let cloudSource = CloudHomeSource(me: HomeCoreMapping.participant(HomeService.localUser))
+    /// Message requests from people the user is not connected to (home-messaging-invites DESIGN 2.3).
+    @ObservationIgnored private(set) lazy var requests = HomeMessageRequests(source: cloudSource)
     @ObservationIgnored private(set) lazy var homeRouter = HomeSourceRouter(local: homeSource, cloud: cloudSource)
     /// The Home list rows (`home-inbox`) the Messages list maps: local from the Chief home, Cloud from the build daemon.
     @ObservationIgnored let homeInbox = HomeInboxSource(owners: ["local"])
@@ -112,6 +126,7 @@ final class HomeService {
         // MessagesLab's flight recorder (HomeTunables): DEV on, NIGHTLY opt-in, Release and RC never.
         HomeFlightRecording.install(available: DevTools.isEnabled,
                                     logFolder: Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String ?? "cmux")
+        wireHostedChief()
     }
 
     /// Observes the Chief owner: each new connection reloads the list and
@@ -179,9 +194,9 @@ final class HomeService {
     /// The Chief owner's connection, while it serves conversations.
     var connection: DaemonConnection? { isAvailable ? chief.connection : nil }
 
-    /// Records the placed chief the last read found (HomeService+Workspace).
-    func setCloudChief(_ chief: CloudChief?) {
-        if cloudChief != chief { cloudChief = chief }
+    /// Records the cloud Chiefs the last read found (HomeService+Workspace).
+    func setCloudChiefs(_ chiefs: HomeCloudChiefs) {
+        if cloudChiefs != chiefs { cloudChiefs = chiefs }
     }
 
     /// Home opened in a window (or its owner reconnected, not `asked`): start

@@ -80,6 +80,7 @@ public struct BrowserPageService: Sendable {
         router.register(waitAndCaptureMethods())
         router.register(tabMethods(router: router))
         router.register(inputMethods())
+        router.register(browserUseMethods())
         router.register(cookieAndStorageMethods())
     }
 
@@ -94,7 +95,7 @@ public struct BrowserPageService: Sendable {
                 throw ControlError(code: "not_found", message: error, data: ["selector": .string(selector)])
             }
             if let input = Self.agentInput(element: name, answer: value, text: text) {
-                await engine.announce(input, tabID: tab.id)
+                await engine.announce(input.by(Self.optionalString(call, "agent")), tabID: tab.id)
             }
             var result: [String: JSONValue] = Self.base(tab)
             result["value"] = value["value"] ?? .null
