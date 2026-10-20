@@ -673,6 +673,12 @@ fn fields(state: &HostState) -> BTreeMap<String, String> {
 }
 
 impl StateFile {
+    /// Where a turn's attached files are saved (`brain::files`): the
+    /// `attachments` folder beside the state, in the Chief's home.
+    pub fn attachments_dir(&self) -> PathBuf {
+        self.path.parent().unwrap_or_else(|| Path::new(".")).join("attachments")
+    }
+
     pub fn new(path: &Path) -> StateFile {
         StateFile {
             path: path.to_owned(),

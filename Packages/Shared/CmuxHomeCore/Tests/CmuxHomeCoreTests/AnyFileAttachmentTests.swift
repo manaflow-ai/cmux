@@ -71,4 +71,32 @@ import UniformTypeIdentifiers
             try HomeAttachmentPolicy.check(mimeType: "application/octet-stream", byteCount: 1, name: name)
         }
     }
+
+    @Test func aFolderIsRefusedAndNamed() async throws {
+        let root = try temporaryDirectory()
+        let folder = root.appendingPathComponent("Project", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        #expect(!HomeAttachmentPolicy.accepts(fileURL: folder))
+        await #expect(throws: HomeAttachmentError.folder(name: "Project")) {
+            try await store(root).prepareAttachment(fileURL: folder)
+        }
+    }
+
+    @Test func textSniffingKeepsACutCharacterAtTheEdge() {
+        let text = Data("añb✓".utf8)
+        // The prefix ends inside "✓" (3 bytes): still text when more follows.
+        #expect(HomeAttachmentPolicy.looksLikeText(text.prefix(text.count - 1), complete: false))
+        #expect(!HomeAttachmentPolicy.looksLikeText(text.prefix(text.count - 1), complete: true))
+        #expect(!HomeAttachmentPolicy.looksLikeText(Data([0x61, 0x00, 0x62]), complete: true))
+        #expect(HomeAttachmentPolicy.looksLikeText(Data("\u{1B}[31mred\u{1B}[0m\r\n".utf8), complete: true))
+    }
+
+    /// Active documents still attach, but opening one shows it in Finder
+    /// instead of running it.
+    @Test func activeFilesOpenInFinderOnly() {
+        #expect(HomeAttachmentPolicy.revealsInsteadOfOpening(name: "run.command"))
+        #expect(HomeAttachmentPolicy.revealsInsteadOfOpening(name: "index.HTML"))
+        #expect(!HomeAttachmentPolicy.revealsInsteadOfOpening(name: "notes.pdf"))
+        #expect(!HomeAttachmentPolicy.revealsInsteadOfOpening(name: "Makefile"))
+    }
 }

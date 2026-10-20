@@ -26,6 +26,7 @@ mod children;
 mod control;
 mod drafts;
 mod engine_control;
+pub mod files;
 mod image_fit;
 pub mod images;
 mod inbox;
