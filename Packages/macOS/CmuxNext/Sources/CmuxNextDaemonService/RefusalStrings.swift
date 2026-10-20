@@ -174,6 +174,12 @@ public nonisolated enum RefusalStrings {
     public static var filesPaneUnported: String { text("handlers.refusal.filesPaneUnported", "needs the Files panel as a pane (not in cmux-next yet)") }
     public static var findPaneUnported: String { text("handlers.refusal.findPaneUnported", "needs the Find panel as a pane (not in cmux-next yet)") }
     public static var vaultPaneUnported: String { text("handlers.refusal.vaultPaneUnported", "needs the Vault panel as a pane (not in cmux-next yet)") }
+    public static var controlListenerNotRunning: String {
+        text("handlers.refusal.controlListenerNotRunning", "The CLI listener is not running in this app.")
+    }
+    public static func controlListenerRestartFailed(_ reason: String) -> String {
+        format("handlers.refusal.controlListenerRestartFailed", "The CLI listener could not restart: %@", reason)
+    }
     public static var noRecentlyClosedTab: String { text("handlers.refusal.noRecentlyClosedTab", "no recently closed tab") }
     public static var noRecentlyClosedWorkspace: String { text("handlers.refusal.noRecentlyClosedWorkspace", "no recently closed workspace") }
     static var noRecentlyClosedItem: String { text("handlers.refusal.noRecentlyClosedItem", "nothing was closed recently") }

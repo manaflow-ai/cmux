@@ -42,8 +42,15 @@ enum SettingsHandlers {
         CLIInstallHandlers.bind(into: registry, context: context)
         KeymapHandlers.bind(into: registry, context: context)
 
+        registry.bind("palette.restartSocketListener", run: { [weak services = context.services] _ in
+            guard let restart = services?.restartControlListener else {
+                throw ActionFailure(message: RefusalStrings.controlListenerNotRunning)
+            }
+            do { try restart() } catch {
+                throw ActionFailure(message: RefusalStrings.controlListenerRestartFailed(String(describing: error)))
+            }
+        })
         let unbuilt: [(ActionID, String)] = [
-            ("palette.restartSocketListener", "control-socket-restart"),
             ("palette.pro.upgrade", "account-billing"),
             ("help.featureFlags", "feature-flags"),
         ]
