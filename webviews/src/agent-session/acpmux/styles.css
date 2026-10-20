@@ -592,14 +592,6 @@ button.acpmux-edited-file:hover{background:color-mix(in srgb,var(--agent-text) 4
 .acpmux-composer{flex-wrap:wrap}.acpmux-composer-dropping .acpmux-composer-box{border-color:var(--agent-accent)}
 .acpmux-switch-notice{display:block;padding:0 var(--cv-inset,max(18px,calc((100% - 760px)/2))) 6px;color:var(--agent-muted);font-size:12px;line-height:16px}
 .acpmux-folder-choice-button{padding:0;border:0;background:none;color:var(--agent-accent,inherit);font:inherit;text-decoration:underline;cursor:pointer}
-.acpmux-side-question{margin:0 var(--cv-inset,max(18px,calc((100% - 760px)/2))) 8px;padding:8px 10px;border:1px solid var(--agent-border);border-radius:8px;background:var(--agent-input-bg);color:var(--agent-text);font-size:var(--text-body);line-height:var(--text-body--line-height)}
-.acpmux-side-question-asked{margin:0 0 4px}
-.acpmux-side-question-label{color:var(--agent-muted);font-size:var(--text-detail)}
-.acpmux-side-question-status{margin:0;color:var(--agent-muted)}
-.acpmux-side-question-error{margin:0;color:var(--agent-danger)}
-.acpmux-side-question-answer{max-height:240px;overflow:auto}
-.acpmux-side-question-actions{display:flex;gap:12px;justify-content:flex-end;margin-top:6px}
-.acpmux-side-question-button{padding:0;border:0;background:none;color:var(--agent-accent,inherit);font:inherit;font-size:var(--text-detail);cursor:pointer}
 /* Agent question card (question/QuestionCard.tsx): the app's gray language, no accent. The card is a quiet tray; the highlighted row is a soft fill, a chosen row a firmer one with a check; Submit is the text color inverted. Previews sit beside the list and wrap under it when narrow. appearance.borders none drops the edge (--acpmux-question-edge). */
 .acpmux-shell,.ui-positioner{--acpmux-question-bg:color-mix(in srgb,var(--agent-text) 5%,var(--agent-page-bg,var(--acpmux-base)));--acpmux-question-edge:color-mix(in srgb,var(--agent-text) 12%,transparent);--acpmux-question-hover:color-mix(in srgb,var(--agent-text) 6%,transparent);--acpmux-question-highlight:color-mix(in srgb,var(--agent-text) 9%,transparent);--acpmux-question-chosen:color-mix(in srgb,var(--agent-text) 13%,transparent)}
 :root[data-borders=none] .acpmux-shell{--acpmux-question-edge:transparent}

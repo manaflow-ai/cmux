@@ -264,8 +264,7 @@ import { setFloatingState, useFloatingState } from "./floatingState";
 import { FailedPrompt } from "./FailedPrompt";
 import { ReplayScreen } from "./replay/ReplayScreen";
 import { sessionReplay } from "./replay/replay.experiment";
-import { SideQuestion, type SideQuestionState } from "./aside/SideQuestion";
-import { sideQuestion } from "./aside/sideQuestion.experiment";
+import { useSideSessions } from "./aside/sideSessions";
 import { ReceivedResult, SuggestedTasks, type OfferActions } from "./offer/SuggestedTasks";
 import { OFFER_RESULT, setSuggestedTasks } from "./offer/offersShown";
 import { offerWorktree } from "./offer/offerWorktree";
@@ -2559,9 +2558,9 @@ function AcpmuxPane() {
   const [newSession, setNewSession] = useState(false);
   /// The chat whose recorded history plays back read-only in place of it (chat menu Replay, cx-osmw).
   const [replaying, setReplaying] = useState<string | undefined>();
-  // The side question (`/btw`) shown above the composer, for the chat it was asked about.
-  const [aside, setAside] = useState<SideQuestionState & { sessionId: string; ask: number }>();
-  const asideAsks = useRef(0);
+  // Why the last `/btw` did not start its side session, for the chat it was asked in; "" when
+  // acpmux gave no reason.
+  const [btwFailure, setBtwFailure] = useState<{ sessionId: string; reason: string }>();
   // The host answered the handshake: the page shows what it is (a new chat's hero, a session).
   const [handshaken, setHandshaken] = useState(false);
   const handshakenRef = useRef(false);
@@ -2665,8 +2664,8 @@ function AcpmuxPane() {
   );
   // Another chat ends the replay: coming back to this one opens it live.
   if (replaying && snapshot.sessionId !== replaying) setReplaying(undefined);
-  // A side question belongs to its chat: another chat drops it.
-  if (aside && snapshot.sessionId !== aside.sessionId) setAside(undefined);
+  // A /btw failure belongs to its chat: another chat drops it.
+  if (btwFailure && snapshot.sessionId !== btwFailure.sessionId) setBtwFailure(undefined);
   // The side preview panel (cx-ncc.63) shows a document from the open chat; another chat closes it.
   // Each open is its own panel (`opened`), which starts on its preview.
   const [artifact, setArtifact] = useState<Artifact & { sessionId?: string; opened: number }>();
@@ -3625,8 +3624,15 @@ function AcpmuxPane() {
   }, [runningAgents.length, runningCommands.length, showSubagent, openFold]);
   // The Quick Composer cannot show the Harnesses page: it registers no opener, so its + hides.
   useEffect(() => (quick ? undefined : registerHarnessesPage(() => setHarnessesOpen(true))), [quick]);
-  // `/btw` (cx-ef2m), behind its experiment; the Quick Composer never shows a side question.
-  const asksAside = !quick && experimentArm(sideQuestion) === "on";
+  // `/btw` opens a side session beside the chat, behind its gate; the Quick Composer has none.
+  const sideSessions = useSideSessions();
+  const opensSideSessions = !quick && sideSessions;
+  const opensSideSessionsRef = useRef(opensSideSessions);
+  opensSideSessionsRef.current = opensSideSessions;
+  // A side session (New side chat's, or one `/btw` opened): its composer answers in it.
+  const isSideSession = snapshot.sessions.some(
+    (session) => session.sessionId === snapshot.sessionId && session.side === true,
+  );
   // Start Agent's floating chat (cx-b9qi): the App says when its panel holds this chat.
   const floatingHold = useFloatingState();
   const surfaceRef = useRef(surface);
@@ -3777,10 +3783,11 @@ function AcpmuxPane() {
     const enabledCmuxActions = new Set<CmuxCommand["action"]>(["import"]);
     if (forkable && forkSeq !== undefined) enabledCmuxActions.add("fork");
     if (continueAvailable) enabledCmuxActions.add("continue");
-    if (asksAside && snapshot.sessionId) enabledCmuxActions.add("btw");
+    // A side session asks nothing aside: its composer answers in it.
+    if (opensSideSessions && snapshot.sessionId && !isSideSession) enabledCmuxActions.add("btw");
     const withCommands = { ...snapshot, commands: mergedCommands(snapshot.commands, enabledCmuxActions) };
     return withDraftFolder(withCommands, projectDraft);
-  }, [snapshot, projectDraft, continueAvailable, forkable, forkSeq, asksAside]);
+  }, [snapshot, projectDraft, continueAvailable, forkable, forkSeq, opensSideSessions, isSideSession]);
   useEffect(() => {
     if (snapshot.sessionId) setProjectDraft(undefined);
   }, [snapshot.sessionId]);
@@ -3891,6 +3898,8 @@ function AcpmuxPane() {
       lastCodeBlock: () => lastCodeBlock(snapshotRef.current?.rows ?? []) ?? null,
       command(name) {
         if (name === "createCheckpoint") showCheckpoint.current();
+        // Side Question (the palette): the composer, focused, with `/btw ` to type the question after.
+        if (name === "sideQuestion" && opensSideSessionsRef.current) composerHandle.current?.prefill("/btw ");
         // Find, Find Next, Find Previous and Hide Find on an agent pane (the app's Edit menu, Cmd-F).
         // With the keyboard in the changes view (or the view covering the transcript) they find there.
         const diff = diffFindRef.current;
@@ -4548,7 +4557,8 @@ function AcpmuxPane() {
             await send(String(text ?? ""), attachments);
             return true;
           },
-          "chat.ask": ({ question }) => client.ask(String(question ?? "")),
+          // `/btw <question>`: acpmux starts the side session; the composer then opens it.
+          "chat.btw": ({ question }) => client.btw(String(question ?? "")),
           "chat.side": async ({ throughSeq }) => {
             // The chat it is beside, read before the fork (the reader may open another chat meanwhile).
             const chat = client.selectedSession;
@@ -5581,16 +5591,17 @@ function AcpmuxPane() {
       {worktreeError && freshChat && !snapshot.sessionId && (
         <WorktreeFailure error={worktreeError} onDismiss={() => setWorktreeError(undefined)} />
       )}
-      {aside && (
-        <SideQuestion
-          state={aside}
-          githubRepository={githubRepository}
-          onDismiss={() => setAside(undefined)}
-          onAdd={() => {
-            setAside(undefined);
-            ignoreFailure(callNative("chat.send", { text: aside.question, attachments: [] }));
-          }}
-        />
+      {btwFailure && (
+        <output className="acpmux-switch-notice acpmux-folder-choice">
+          <span role="alert">
+            {btwFailure.reason
+              ? t("sideSession.failedBecause", { reason: btwFailure.reason })
+              : t("sideSession.failed")}
+          </span>{" "}
+          <button type="button" className="acpmux-folder-choice-button" onClick={() => setBtwFailure(undefined)}>
+            {t("sideQuestion.dismiss")}
+          </button>
+        </output>
       )}
       {/* The agents pill (subagents/AgentsPill.tsx): in the bottom stack, right above the composer,
           while the turn works; an agent a cancel or a reconnect left "running" shows none. */}
@@ -5608,6 +5619,7 @@ function AcpmuxPane() {
         <Composer
           snapshot={composerSnapshot}
           sessionId={snapshot.sessionId ?? snapshot.summary?.sessionId}
+          placeholder={isSideSession ? t("sideSession.placeholder") : undefined}
           switching={Boolean(switchView.intent)}
           chips={ComposerChips}
           permissionAccess={permissionAccess}
@@ -5617,16 +5629,16 @@ function AcpmuxPane() {
             if (command.action === "btw") {
               const question = args?.trim();
               const sessionId = snapshot.sessionId;
-              if (!asksAside || !question || !sessionId) return false;
-              const ask = ++asideAsks.current;
-              setAside({ sessionId, ask, question });
-              const settle = (outcome: Partial<SideQuestionState>) =>
-                setAside((current) => (current?.ask === ask ? { ...current, ...outcome } : current));
-              callNative<string>("chat.ask", { question }).then(
-                (answer) => settle({ answer: typeof answer === "string" ? answer : "" }),
-                (error: unknown) => settle({ error: errorMessage(error) || String(error) }),
-              );
-              return true;
+              if (!opensSideSessions || !question || !sessionId) return false;
+              setBtwFailure(undefined);
+              // Not a prompt: the chat's turn keeps running and nothing joins its queue. The
+              // composer keeps the question until the side session has started.
+              const fail = (error: unknown) => setBtwFailure({ sessionId, reason: errorMessage(error) });
+              const started = callNative<string>("chat.btw", { question });
+              // Started is sent: the question clears even when the app can't open the side session,
+              // so sending it again can't start a second one.
+              started.then((side) => postNative("chat.sideChat", { sessionId: side }).catch(fail), fail);
+              return started;
             }
             if (command.action === "fork") {
               if (!forkable || forkSeq === undefined || args?.trim()) return false;

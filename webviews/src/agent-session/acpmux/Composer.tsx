@@ -113,6 +113,10 @@ export type ComposerHandle = {
   send(): boolean;
   /// Puts the caret in the prompt (Edit and Resend).
   focus(): void;
+  /// Starts the prompt with `prefix` (the palette's Side Question writes `/btw `), keeping what is
+  /// typed after it, and puts the caret at the end. A prompt that already starts with it only
+  /// takes focus.
+  prefill(prefix: string): void;
   /// What it holds that acpmux's draft does not, for a page about to let go (`pane.wakeState`):
   /// file chips and shell mode's unrun command. Shell runs and move chips stay with their page.
   wakeState(): ComposerWake;
@@ -159,8 +163,11 @@ type Props = {
   /// The context menu's Cut, Copy, Paste and Paste as Plain Text: the host runs the web view's own
   /// editing command (`pane.edit`). Without it those items are disabled.
   onEdit?(command: ComposerEditCommand): void;
-  /// Handles a cmux-owned slash command after the user submits it.
-  onCmuxCommand?(command: CmuxCommand, args?: string): boolean | void;
+  /// Handles a cmux-owned slash command after the user submits it. False keeps the prompt; a
+  /// promise keeps it until it settles, clearing it only when it resolves.
+  onCmuxCommand?(command: CmuxCommand, args?: string): boolean | void | Promise<unknown>;
+  /// The empty prompt's text in place of the usual one (a side session's "Reply in this session…").
+  placeholder?: string;
   /// A new chat's typed text, before it has a session (acpmux keeps a session's draft): the host
   /// keeps it with the tab, so a relaunch opens the chat with it (cx-z5vd).
   onUnsentDraft?(text: string): void;
@@ -258,6 +265,7 @@ export function Composer({
   sessionId,
   switching,
   blocked,
+  placeholder,
 }: Props) {
   const t = useT();
   const chrome = useComposerChrome();
@@ -410,6 +418,16 @@ export function Composer({
       },
       send: () => submitNow.current(true),
       focus: () => field.current?.focus(),
+      prefill(prefix) {
+        const typed = (field.current?.value() ?? textRef.current).trimStart();
+        if (!typed.startsWith(prefix.trimEnd())) {
+          const next = prefix + typed;
+          pendingCaret.current = next.length;
+          setText(next);
+          setCaret(next.length);
+        }
+        field.current?.focus();
+      },
       wakeState: () => ({
         attachments: attachmentsRef.current.filter((chip) => !chip.shellRun),
         shell: shellRef.current.shell,
@@ -629,6 +647,25 @@ export function Composer({
       } else {
         const accepted = onCmuxCommand(owned, commandArgs(prompt, owned));
         if (accepted === false) return false;
+        if (accepted instanceof Promise) {
+          // The prompt stays until the command is done; a refusal leaves it to send again.
+          const written = field.current?.value() ?? "";
+          sending.current = true;
+          accepted.then(
+            () => {
+              sending.current = false;
+              // What was typed meanwhile stays.
+              if ((field.current?.value() ?? written) !== written) return;
+              plusDraft.current = undefined;
+              edit("", 0);
+              sentAt.current = Date.now();
+            },
+            () => {
+              sending.current = false;
+            },
+          );
+          return true;
+        }
       }
       setAttachments((current) => current.filter((attachment) => !attachments.includes(attachment)));
       setAttachError(undefined);
@@ -915,7 +952,7 @@ export function Composer({
   // Mid-turn it teaches both keys, as Claude's composer does (Leo 2026-10-18): Return queues and
   // ⌘Return steers or interrupts. The Quick Composer's ⌘Return opens the window, and ⌘Return needs
   // typed text, so with only attachments staged it says just that Return queues.
-  const placeholder = !queues
+  const placeholderKey = !queues
     ? COMPOSER_LABELS.placeholder
     : onOpenInWindow || attachments.length > 0
       ? COMPOSER_LABELS.placeholderQueued
@@ -1150,7 +1187,7 @@ export function Composer({
             ref={fieldRef}
             className={shell ? "acpmux-composer-prompt is-hidden" : "acpmux-composer-prompt"}
             value={text}
-            placeholder={t(placeholder)}
+            placeholder={placeholder ?? t(placeholderKey)}
             attributes={{
               role: "combobox",
               "aria-label": t(COMPOSER_LABELS.prompt),
