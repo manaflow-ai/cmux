@@ -249,9 +249,17 @@
       "scope": "chief:read",
       "class": "read"
     },
+    "chief.profile.history": {
+      "scope": "chief:read",
+      "class": "read"
+    },
     "chief.profile.list": {
       "scope": "chief:read",
       "class": "read"
+    },
+    "chief.profile.undo": {
+      "scope": "chief:write",
+      "class": "mutation"
     },
     "chief.profile.update": {
       "scope": "chief:write",
@@ -1763,6 +1771,22 @@
     },
     "window_record.put": {
       "scope": "window_record:write",
+      "class": "mutation"
+    },
+    "workspace_checklist.add": {
+      "scope": "workspace_checklist:write",
+      "class": "mutation"
+    },
+    "workspace_checklist.list": {
+      "scope": "workspace_checklist:read",
+      "class": "read"
+    },
+    "workspace_checklist.remove": {
+      "scope": "workspace_checklist:write",
+      "class": "mutation"
+    },
+    "workspace_checklist.update": {
+      "scope": "workspace_checklist:write",
       "class": "mutation"
     },
     "workspace_group.create": {

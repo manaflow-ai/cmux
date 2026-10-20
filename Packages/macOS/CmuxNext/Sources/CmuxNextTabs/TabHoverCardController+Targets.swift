@@ -17,6 +17,8 @@ extension TabHoverCardController {
         }
         // A New Tab page's card would only repeat its title (Leo 2026-10-11).
         guard let id = strip.tabID(at: point), let cell = strip.cells[id], strip.model.tab(id)?.isNewTabPage != true else { return nil }
+        // The speaker shows its own tooltip (Mute tab / Unmute tab), not the card over it.
+        guard !strip.isInAudioButton(id, point) else { return nil }
         return (id, cell.frame.width, window.convertToScreen(strip.tabsClip.convert(cell.frame, to: nil)))
     }
 

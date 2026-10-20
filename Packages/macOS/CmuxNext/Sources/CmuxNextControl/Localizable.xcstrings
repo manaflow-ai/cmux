@@ -9958,6 +9958,661 @@
           }
         }
       }
+    },
+    "control.error.rightNoHome": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No Home workspace"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا توجد مساحة عمل رئيسية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nema radnog prostora Home"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Intet Home-arbejdsområde"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kein Home-Arbeitsbereich"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No hay espacio de trabajo Home"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aucun espace de travail Home"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nessuno spazio di lavoro Home"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Home ワークスペースがありません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "គ្មានកន្លែងធ្វើការ Home ទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Home 워크스페이스가 없습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ingen Home-arbeidsområde"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Brak obszaru roboczego Home"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nenhum espaço de trabalho Home"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Нет рабочей области Home"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่มีพื้นที่ทำงาน Home"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Home çalışma alanı yok"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Немає робочого простору Home"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không có không gian làm việc Home"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "没有 Home 工作区"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "沒有 Home 工作區"
+          }
+        }
+      }
+    },
+    "control.error.rightNoColumn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No column right of the Home chat; make one with `cmux pane <dock_pane> split --right`"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يوجد عمود على يمين دردشة Home؛ أنشئ واحدًا باستخدام `cmux pane <dock_pane> split --right`"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nema kolone desno od Home razgovora; napravite je sa `cmux pane <dock_pane> split --right`"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ingen kolonne til højre for Home-chatten; lav en med `cmux pane <dock_pane> split --right`"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Keine Spalte rechts vom Home-Chat; erstelle eine mit `cmux pane <dock_pane> split --right`"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No hay columna a la derecha del chat de Home; crea una con `cmux pane <dock_pane> split --right`"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aucune colonne à droite du chat Home ; créez-en une avec `cmux pane <dock_pane> split --right`"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nessuna colonna a destra della chat Home; creane una con `cmux pane <dock_pane> split --right`"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Home チャットの右に列がありません。`cmux pane <dock_pane> split --right` で作成してください"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "គ្មានជួរឈរនៅខាងស្តាំការជជែក Home ទេ; បង្កើតមួយដោយ `cmux pane <dock_pane> split --right`"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Home 채팅 오른쪽에 열이 없습니다. `cmux pane <dock_pane> split --right`로 만드세요"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ingen kolonne til høyre for Home-chatten; lag en med `cmux pane <dock_pane> split --right`"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Brak kolumny na prawo od czatu Home; utwórz ją poleceniem `cmux pane <dock_pane> split --right`"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nenhuma coluna à direita do chat Home; crie uma com `cmux pane <dock_pane> split --right`"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Справа от чата Home нет колонки; создайте её командой `cmux pane <dock_pane> split --right`"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่มีคอลัมน์ทางขวาของแชท Home สร้างด้วย `cmux pane <dock_pane> split --right`"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Home sohbetinin sağında sütun yok; `cmux pane <dock_pane> split --right` ile oluşturun"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Праворуч від чату Home немає колонки; створіть її командою `cmux pane <dock_pane> split --right`"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không có cột bên phải cuộc trò chuyện Home; tạo bằng `cmux pane <dock_pane> split --right`"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Home 聊天右侧没有列；用 `cmux pane <dock_pane> split --right` 创建一个"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Home 聊天右側沒有欄；用 `cmux pane <dock_pane> split --right` 建立一個"
+          }
+        }
+      }
+    },
+    "control.error.rightLeaseHeld": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ is driving this tab; wait, or open your own tab with a URL"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ يتحكم في علامة التبويب هذه؛ انتظر، أو افتح علامة تبويب خاصة بك باستخدام عنوان URL"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ upravlja ovom karticom; sačekajte ili otvorite svoju karticu s URL-om"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ styrer denne fane; vent, eller åbn din egen fane med en URL"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ steuert diesen Tab; warte oder öffne einen eigenen Tab mit einer URL"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ está controlando esta pestaña; espera o abre tu propia pestaña con una URL"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ pilote cet onglet ; attendez ou ouvrez votre propre onglet avec une URL"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ sta controllando questa scheda; attendi o apri una tua scheda con un URL"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ がこのタブを操作中です。待つか、URL を指定して自分のタブを開いてください"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ កំពុងបញ្ជាផ្ទាំងនេះ; រង់ចាំ ឬបើកផ្ទាំងផ្ទាល់ខ្លួនជាមួយ URL"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@이(가) 이 탭을 조작 중입니다. 기다리거나 URL로 자신의 탭을 여세요"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ styrer denne fanen; vent, eller åpne din egen fane med en URL"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ steruje tą kartą; poczekaj lub otwórz własną kartę z adresem URL"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ está controlando esta aba; aguarde ou abra sua própria aba com uma URL"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ управляет этой вкладкой; подождите или откройте свою вкладку с URL"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ กำลังควบคุมแท็บนี้ รอ หรือเปิดแท็บของคุณเองด้วย URL"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ bu sekmeyi kullanıyor; bekleyin veya bir URL ile kendi sekmenizi açın"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ керує цією вкладкою; зачекайте або відкрийте власну вкладку з URL"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ đang điều khiển thẻ này; hãy chờ hoặc mở thẻ riêng của bạn bằng một URL"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ 正在操作此标签页；请等待，或用 URL 打开你自己的标签页"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ 正在操作此分頁；請等待，或用 URL 開啟你自己的分頁"
+          }
+        }
+      }
+    },
+    "control.error.rightEmptyColumn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The column right of the Home chat has no tab to open beside"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يحتوي العمود على يمين دردشة Home على علامة تبويب للفتح بجانبها"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kolona desno od Home razgovora nema karticu pored koje bi se otvorila nova"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kolonnen til højre for Home-chatten har ingen fane at åbne ved siden af"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Die Spalte rechts vom Home-Chat hat keinen Tab, neben dem geöffnet werden kann"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La columna a la derecha del chat de Home no tiene una pestaña junto a la cual abrir"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La colonne à droite du chat Home n'a aucun onglet à côté duquel ouvrir"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La colonna a destra della chat Home non ha schede accanto a cui aprire"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Home チャットの右の列に、隣に開くためのタブがありません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ជួរឈរខាងស្តាំការជជែក Home គ្មានផ្ទាំងដើម្បីបើកនៅក្បែរទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Home 채팅 오른쪽 열에 옆에 열 탭이 없습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kolonnen til høyre for Home-chatten har ingen fane å åpne ved siden av"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kolumna na prawo od czatu Home nie ma karty, obok której można otworzyć nową"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A coluna à direita do chat Home não tem aba ao lado da qual abrir"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "В колонке справа от чата Home нет вкладки, рядом с которой можно открыть новую"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "คอลัมน์ทางขวาของแชท Home ไม่มีแท็บให้เปิดข้างๆ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Home sohbetinin sağındaki sütunda yanına açılacak sekme yok"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "У колонці праворуч від чату Home немає вкладки, поруч із якою можна відкрити нову"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cột bên phải cuộc trò chuyện Home không có thẻ nào để mở bên cạnh"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Home 聊天右侧的列中没有可在旁边打开的标签页"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Home 聊天右側的欄中沒有可在旁邊開啟的分頁"
+          }
+        }
+      }
+    },
+    "control.error.mustBeBoolean": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ must be true or false"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يجب أن تكون قيمة %@ true أو false"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ mora biti true ili false"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ skal være true eller false"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ muss true oder false sein"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ debe ser true o false"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ doit valoir true ou false"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ deve essere true o false"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ は true か false である必要があります"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ ត្រូវតែជា true ឬ false"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ 값은 true 또는 false여야 합니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ må være true eller false"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ musi mieć wartość true lub false"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ deve ser true ou false"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ должно быть true или false"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ ต้องเป็น true หรือ false"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ true ya da false olmalıdır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ має бути true або false"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ phải là true hoặc false"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ 必须为 true 或 false"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ 必須為 true 或 false"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

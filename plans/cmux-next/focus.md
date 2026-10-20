@@ -522,6 +522,23 @@ Enter), `hover`, `source` (keyboard or mouse), `pointer` (last pointer location 
   `OmniboxResultView::SetMatch`); typing never rebuilds the card's views.
 - Dragging the page-info chip drags the page out as a link (URL, text, title as
   `public.url-name`) while the field is not focused.
+- A browser tab left while its address bar had the keyboard gets the address bar back when a
+  tab, pane or workspace change returns to it (Chrome `RestoreState`); a click into its page
+  forgets that. `OmnibarFocusMemory` in `FocusCoordinator` asks for `focusTarget(.addressBar)`
+  after the core reduced the return; the core still drops chrome targets on a tab change.
+- Search engines are keywords too (Chrome's tab to search): the default and built-in engines
+  and YouTube, Wikipedia and GitHub, by host (`youtube.com`). The keyword with Tab or a space
+  starts a session with no extension: no rows, the chip says "Search YouTube", Enter searches
+  there (with no text, it opens the site). An extension's own keyword wins over an engine's.
+- Search the Web (`browser.focusSearch`, Chrome's `IDC_FOCUS_SEARCH`) focuses the address bar
+  in a session of the default engine. It has no default key: Opt-Cmd-F stays Search All
+  Windows everywhere (a default key moves only with the user's OK); run it from the palette or
+  bind it in cmux.json.
+- `browser.omnibar.showFullURLs` (the field's menu: Always Show Full URLs) makes the resting
+  text the full URL, so nothing elides. The menu also has Manage Search Engines… (Settings).
+- Enter on a scheme-less address that loads over https (`example.com`) marks the load an
+  upgrade: if https cannot connect (not a name error), the chrome loads it once over http.
+- Page rows (history, bookmark, open tab) show the site's icon once it loads. The typed-address row keeps its globe, as in Chrome, so a half-typed host is never fetched.
 
 Chrome comparison, behavior by behavior: plans/cmux-next/omnibar-parity/PARITY.md.
 

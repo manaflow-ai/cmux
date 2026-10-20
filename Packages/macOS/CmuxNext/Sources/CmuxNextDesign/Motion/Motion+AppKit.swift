@@ -294,12 +294,13 @@ extension Motion {
 
     // MARK: Loops
 
-    /// A continuous rotation for a busy spinner, or nil when loops are off.
-    public static func spinAnimation(backward: Bool = false) -> CAAnimation? {
+    /// A continuous clockwise rotation for a busy spinner, or nil when loops are off. Clockwise
+    /// only: every spinner turns the same way.
+    public static func spinAnimation() -> CAAnimation? {
         guard let period = period(.spinner) else { return nil }
         let spin = CABasicAnimation(keyPath: "transform.rotation.z")
         spin.fromValue = 0
-        spin.toValue = (backward ? 2 : -2) * CGFloat.pi
+        spin.toValue = -2 * CGFloat.pi
         spin.duration = period
         spin.repeatCount = .infinity
         spin.isRemovedOnCompletion = false
