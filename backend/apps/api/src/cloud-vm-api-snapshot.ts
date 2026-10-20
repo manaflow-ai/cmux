@@ -9,8 +9,8 @@ const VM = /^vm_[0-9a-hjkmnp-tv-z]{26}$/
 
 /** Only a verified terminal receipt can release Cloud's saved quota after an uncertain capture. */
 export class VmApiSnapshotOutcome extends DriverError {
-  constructor(readonly outcome: "pending" | "deleted", message = "snapshot capture is still being confirmed") {
-    super("cloud.provider.unavailable", `VM API: ${message}`, outcome === "deleted")
+  constructor(readonly outcome: "pending" | "deleted" | "absent", message = "snapshot capture is still being confirmed", code = "cloud.provider.unavailable") {
+    super(code, outcome === "absent" ? message : `VM API: ${message}`, outcome !== "pending")
   }
 }
 

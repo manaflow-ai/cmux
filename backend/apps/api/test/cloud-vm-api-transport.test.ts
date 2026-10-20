@@ -143,6 +143,23 @@ describe("Cloud transport ownership", () => {
     expect((done.state as CloudState).saved).toBe(0);
   });
 
+  it("releases the saved slot when a capture ends before any send was admitted", () => {
+    const { rows, state } = created(), domain = cloudDomain(config);
+    const admitted = domain.reduce(state, "cloud.snapshot.create", { machine }, context(rows, "capture"));
+    if (!admitted.ok) throw new Error(admitted.code);
+    rows.apply(admitted.writes ?? []);
+    expect((admitted.state as CloudState).saved).toBe(1);
+    const key = rows.range<LedgerRow>(TABLE_LEDGER, { limit: 10 }).find((r) => r.row.op === "snapshot")?.key;
+    if (!key) throw new Error("capture ledger missing");
+    const closed = domain.reduce(admitted.state as CloudState, "cloud.driver_result", { key, ok: false, final: true, snapshot_outcome: "absent",
+      error: { code: "cloud.provider.vm_missing", message: "snapshot: no VM under the recorded name" } }, context(rows, "absent"));
+    if (!closed.ok) throw new Error(closed.code);
+    rows.apply(closed.writes ?? []);
+    expect((closed.state as CloudState).saved).toBe(0);
+    expect((closed.state as CloudState).pending[key]).toBeUndefined();
+    expect(rows.get<SnapshotRow>(TABLE_SNAPSHOT, snapshot)?.row.status).toBe("failed");
+  });
+
   it("keeps private transport fields out of public machine and snapshot projections", () => {
     const { rows } = created()
     expect(publicMachine(rows.get<MachineRow>(TABLE_MACHINE, machine)!.row)).not.toHaveProperty("transport")
