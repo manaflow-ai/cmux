@@ -94,6 +94,8 @@ final class HomeHostView: NSView {
         transcript.onStop = { _ = registry.perform(HomeChiefControl.stopAction, invocation: ActionInvocation(origin: .user)) }
         // A cmux app link (a workspace, pane, tab, chat or Chief subagent): opened here, through link.open.
         transcript.onAppLink = { [weak services] url in if let services { CmuxAppLinks.open(url, services: services) } }
+        // A link chip's hover card: the app's one coordinator, the target's live facts.
+        transcript.enableLinkPreviews(coordinator: services.hoverCards, previewer: HomeLinkPreviewProvider(services: services))
         transcript.onOpenLink = { LinkRouter.shared.open($0, otherTarget: $1) }
         stopObserver = NotificationCenter.default.addObserver(forName: HomeChiefControl.stopNotification, object: nil, queue: .main) { [weak self] _ in
             // task-owner: one hop to the main actor for the stop
