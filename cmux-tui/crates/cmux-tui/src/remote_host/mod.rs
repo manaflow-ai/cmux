@@ -14,6 +14,8 @@ mod preface;
 mod serve;
 mod service;
 mod tailnet;
+#[cfg(test)]
+mod teammate_tests;
 
 use std::path::{Path, PathBuf};
 
