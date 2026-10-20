@@ -25,6 +25,7 @@ import {
   canonicalAddress,
   defaultSelection,
   isAddress,
+  pairingLinkRefused,
   inlineCompletion,
   needsYouCards,
   recentChatCards,
@@ -532,6 +533,9 @@ export function NewTabScreen(props: Props) {
     setKeyboardPick(false);
   };
   const submit = () => {
+    // A pairing link (its room secret) is never searched, asked or opened: the host refuses it
+    // with the address bar's word, and the page keeps the text.
+    if (!shell && pairingLinkRefused(text)) return props.onOpen(text.trim());
     // Closed suggestions still answer Return: their top row ("reddit" opens reddit.com).
     // A switch whose rows have not rendered yet: Return takes the new mode's row.
     // An untouched location has no rows in either mode, so a switch changes nothing there.
@@ -571,7 +575,7 @@ export function NewTabScreen(props: Props) {
     if (created.current) return;
     created.current = true;
     const prompt = shell ? "" : text.trim();
-    askChat(harness, prompt && !isAddress(prompt, home) ? prompt : "", project, chipModel);
+    askChat(harness, prompt && !isAddress(prompt, home) && !pairingLinkRefused(prompt) ? prompt : "", project, chipModel);
   };
   const send = () => {
     touch();

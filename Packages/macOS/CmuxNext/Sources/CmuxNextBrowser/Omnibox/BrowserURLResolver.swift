@@ -32,6 +32,23 @@ public nonisolated struct BrowserURLResolver: Sendable {
         self.allowsChromiumSchemes = allowsChromiumSchemes
     }
 
+    /// Whether `text` holds an old Mac Screen pairing link (`cmux-vnc://pair?…`
+    /// or `cmux-vnc:pair?…`, any case, anywhere in the text). The link carries a
+    /// room secret, so no input surface loads, searches or sends such text to an
+    /// agent: the address bar, the New Tab field and `newTab.submit` refuse it with
+    /// Mac Screen's word. The New Tab page's `newTabIntent.ts` keeps the same rule;
+    /// `webviews/test/fixtures/new-tab-intents.json` holds both to it.
+    public static func containsPairingLink(_ text: String) -> Bool {
+        let lower = text.lowercased()
+        var rest = lower[...]
+        while let scheme = rest.range(of: "cmux-vnc:") {
+            let after = rest[scheme.upperBound...]
+            if after.hasPrefix("pair") || after.hasPrefix("//pair") { return true }
+            rest = after
+        }
+        return false
+    }
+
     /// A URL to load, or nil when the text should be searched.
     public func url(for input: String) -> URL? {
         let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -135,11 +152,9 @@ public nonisolated struct BrowserURLResolver: Sendable {
     /// search engine or its suggestions; the host refuses it, pairing links
     /// being gone). No engine loads either.
     private func macScreenAddress(_ text: String, scheme: String) -> URL? {
-        guard let url = URL(string: text), let host = url.host?.lowercased() else { return nil }
-        switch (scheme, host) {
-        case ("cmux-vnc", "pair"), ("cmux", "mac-screen"): return url
-        default: return nil
-        }
+        guard let url = URL(string: text) else { return nil }
+        if scheme == "cmux-vnc" { return Self.containsPairingLink(text) ? url : nil }
+        return url.host?.lowercased() == "mac-screen" ? url : nil
     }
 
     /// A Chromium internal page in canonical form. A WebKit tab takes only

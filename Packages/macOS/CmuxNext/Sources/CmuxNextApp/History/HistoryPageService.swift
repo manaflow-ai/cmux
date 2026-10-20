@@ -126,7 +126,7 @@ extension TabContentCache {
             }
             // A Mac Screen pairing link typed or pasted in the address bar: link pairing is
             // gone, so it is refused with a word; it never loads or searches (it carried a secret).
-            if let refusal = MacScreenPages.pairingLinkRefusal(url) {
+            if let refusal = MacScreenPages.pairingLinkRefusal(for: url.absoluteString) {
                 chrome?.addressBar.showPageURL()
                 services.registry.refuse(refusal)
                 return true

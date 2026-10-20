@@ -111,10 +111,12 @@ struct MacScreenAddressTests {
     @MainActor
     @Test func aPastedPairingLinkIsRefusedWithAWord() throws {
         let link = try #require(BrowserURLResolver().url(for: "cmux-vnc://pair?room=aa&secret=bb&name=Mac"))
-        let refusal = try #require(MacScreenPages.pairingLinkRefusal(link))
+        let refusal = try #require(MacScreenPages.pairingLinkRefusal(for: link.absoluteString))
         #expect(refusal.contains("Settings"))
-        #expect(MacScreenPages.pairingLinkRefusal(MacScreenRecord.homeURL) == nil)
-        #expect(MacScreenPages.pairingLinkRefusal(URL(string: "https://example.com")!) == nil)
+        #expect(MacScreenPages.pairingLinkRefusal(for: MacScreenRecord.homeURL.absoluteString) == nil)
+        #expect(MacScreenPages.pairingLinkRefusal(for: "https://example.com") == nil)
+        // A search for text that holds one (the address bar's other way to send it out).
+        #expect(MacScreenPages.pairingLinkRefusal(for: "https://www.google.com/search?q=hi%20cmux-vnc%3A%2F%2Fpair%3Froom%3Dr") != nil)
     }
 
     /// H7 walkthrough: the New Tab field offered "Search the web for cmux-vnc://pair?…" and
