@@ -1383,7 +1383,7 @@ export function Composer({
                 </button>
               )}
               {!plainFooter && speed && <FastToggle speed={speed} />}
-              {/* The mic leaves a narrow row (composerRowFit.ts micHidden). */}
+              {/* The mic stays at every width; the prompt shrinks instead (composerRowFit.ts). */}
               {accessory && (
                 <span className="acpmux-fit-mic" data-fit-part="mic" data-fit-forms="full">
                   {accessory}

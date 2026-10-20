@@ -55,8 +55,8 @@ export type FitForm = "full" | "short" | "family" | "icon" | "hidden";
  *  early and whole, a little before the row runs out of room: effort's short name, the model's
  *  family, the permission label (its glyph stays), the model's mark alone (its name only while the
  *  row can hold it, #20548), then the speed bolt leaves (the reasoning menu still sets it). The mic
- *  never leaves (Leo 2026-10-19, as Claude Code's): the prompt gives way instead. A row too long for its width's steps takes the next
- *  ones too, in this order, so a transient control (Steer while a turn runs) takes the mic last.
+ *  never leaves (Leo 2026-10-19, as Claude Code's): the prompt gives way instead. A row too long
+ *  for its width's steps takes the next ones too, in this order.
  *  One table: the steps change here. */
 export const ROW_FIT_STEPS: readonly { step: keyof typeof COMPOSER_FIT_STEPS; unit: FitUnit; to: FitForm }[] = [
   { step: "effortShort", unit: "effort", to: "short" },
