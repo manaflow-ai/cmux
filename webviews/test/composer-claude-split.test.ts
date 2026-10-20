@@ -145,9 +145,13 @@ await requireBrowserLane("composer-claude-split.test.ts", async () => {
           ring: rect(root.querySelector(".acpmux-composer-foot .acpmux-context-ring")),
           // The row's rightmost control: the context ring once the chat reports usage, else effort.
           end: Math.max(
-            ...[...root.querySelectorAll(".acpmux-composer-foot button")].map((button) => button.getBoundingClientRect().right),
+            ...[...root.querySelectorAll(".acpmux-composer-foot button")].map(
+              (button) => button.getBoundingClientRect().right,
+            ),
           ),
-          prompt: text(card.querySelector(".nt-field, .acpmux-md")?.closest(".nt-input, .acpmux-composer-prompt") ?? null),
+          prompt: text(
+            card.querySelector(".nt-field, .acpmux-md")?.closest(".nt-input, .acpmux-composer-prompt") ?? null,
+          ),
           mic: rect(card.querySelector(".acpmux-mic")),
           send: rect(card.querySelector(".acpmux-send")),
           plus: rect(card.querySelector(".acpmux-composer-plus .acpmux-picker-button")),
@@ -173,17 +177,25 @@ await requireBrowserLane("composer-claude-split.test.ts", async () => {
         // New Tab page before its chat starts may have no mode yet; the model and effort stay right.
         if (stage.plus) expect(at.mode, "the mode names itself").not.toBeNull();
         if (at.mode) {
-          expect(Math.abs(at.mode.left - (at.box.left + 16)), "the mode's text on the 16 px edge").toBeLessThanOrEqual(3);
+          expect(Math.abs(at.mode.left - (at.box.left + 16)), "the mode's text on the 16 px edge").toBeLessThanOrEqual(
+            3,
+          );
           expect(at.model!.left, "the model is right of the mode").toBeGreaterThan(at.mode.right + 40);
         }
-        expect(at.model!.left, "the model sits in the row's right half").toBeGreaterThan(at.box.left + at.box.width / 2);
+        expect(at.model!.left, "the model sits in the row's right half").toBeGreaterThan(
+          at.box.left + at.box.width / 2,
+        );
         // The model and effort chips side by side (each chip's 4 px hover inset is their spacing).
-        expect(Math.abs(at.effortButton!.left - at.modelButton!.right), "model and effort chips touch").toBeLessThanOrEqual(2);
+        expect(
+          Math.abs(at.effortButton!.left - at.modelButton!.right),
+          "model and effort chips touch",
+        ).toBeLessThanOrEqual(2);
         expect(at.box.right - at.end, "the row ends near the box's right side").toBeLessThanOrEqual(14);
         // Claude Code ends the row on the context ring, right of effort, once there is usage.
         // The chat's ring keeps its place from the start; the New Tab page has no chat yet, so no ring.
         expect(Boolean(at.ring), "the chat's quiet row ends on the context ring").toBe(stage.plus);
-        if (at.ring) expect(at.ring.left, "the ring follows effort").toBeGreaterThanOrEqual(at.effortButton!.right - 0.5);
+        if (at.ring)
+          expect(at.ring.left, "the ring follows effort").toBeGreaterThanOrEqual(at.effortButton!.right - 0.5);
       });
 
     for (const stage of COMPOSERS)
@@ -245,9 +257,10 @@ await requireBrowserLane("composer-claude-split.test.ts", async () => {
         expect(row.number, "its number gives way to the check").toBeNull();
         for (const other of rows.filter((row) => !row.checked)) {
           expect(other.number, "another row shows its number").not.toBeNull();
-          expect(Math.abs(other.number!.right - row.check!.right), "number and check share a column").toBeLessThanOrEqual(
-            6,
-          );
+          expect(
+            Math.abs(other.number!.right - row.check!.right),
+            "number and check share a column",
+          ).toBeLessThanOrEqual(6);
         }
       });
 

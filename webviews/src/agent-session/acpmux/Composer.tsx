@@ -1437,9 +1437,7 @@ export function Composer({
                 reports usage (inert, ContextRing), so the first report moves nothing in the row
                 (hq#1957: the composer holds still while a turn runs); the context-usage setting
                 hides it (showContextUsage). */}
-            {showContextUsage && (
-              <ContextRing used={usage?.used} size={usage?.size} working={snapshot.isWorking} />
-            )}
+            {showContextUsage && <ContextRing used={usage?.used} size={usage?.size} working={snapshot.isWorking} />}
           </ComposerFoot>
         </ChromeArea>
       )}

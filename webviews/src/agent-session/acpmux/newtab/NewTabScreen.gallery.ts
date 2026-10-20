@@ -214,7 +214,12 @@ export default agentPaneEntry({
     // quiet row under it. `composer-mic` at the stage's width, `composer-mic-narrow` with the page
     // squeezed to 300 px (a narrow split pane).
     ...Object.fromEntries(
-      ([["composer-mic", 0], ["composer-mic-narrow", 300]] as const).map(([name, width]) => [
+      (
+        [
+          ["composer-mic", 0],
+          ["composer-mic-narrow", 300],
+        ] as const
+      ).map(([name, width]) => [
         name,
         {
           note: width

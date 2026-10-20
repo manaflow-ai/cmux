@@ -263,7 +263,9 @@ await requireBrowserLane("composer-row-rhythm.test.ts", async () => {
             }),
           );
         }
-        console.log(JSON.stringify({ width, scheme, inGroup: list(inGroup), betweenGroups: list(betweenGroups), insides }));
+        console.log(
+          JSON.stringify({ width, scheme, inGroup: list(inGroup), betweenGroups: list(betweenGroups), insides }),
+        );
         const names = (measured: Row) => measured.controls.map((control) => control.name);
         // The effort chip and the mic may leave a short row (or fold into the model chip); the
         // rest always shows, each in its row.
@@ -292,7 +294,9 @@ await requireBrowserLane("composer-row-rhythm.test.ts", async () => {
         if (Math.abs(lead - trail) > 1)
           problems.push(`the row's drawn edges differ: ${lead.toFixed(1)} px leading, ${trail.toFixed(1)} px trailing`);
         if (send && Math.abs(send.box.right - inner.content.right) > 1)
-          problems.push(`Send ends ${(inner.content.right - send.box.right).toFixed(1)} px before the bar's content edge`);
+          problems.push(
+            `Send ends ${(inner.content.right - send.box.right).toFixed(1)} px before the bar's content edge`,
+          );
         expect(problems).toEqual([]);
       });
 });
