@@ -1,4 +1,4 @@
-import CmuxAuthRuntime
+package import CmuxAuthRuntime
 
 /// The parent publishes operation authority only after the original owner subscriptions are checked.
 @MainActor
