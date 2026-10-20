@@ -56,10 +56,6 @@ public final class LayoutRootView: NSView {
     /// target stays hidden until the target changes, instead of drawing and hiding on every move (#22287).
     var tabDragShownTarget: DropTarget?
     var tabDragRefusedTarget: DropTarget?
-    #if DEBUG
-    /// The last overlay state `probeTabDrop` logged (#22287 dogfood probe).
-    var tabDropProbeLast = ""
-    #endif
     /// The pane edge the drag is over and since when; it splits once held for the dwell.
     var tabDragEdge: (hit: DropTarget, since: CFTimeInterval)?
     /// When the edge under a held pointer arms (a new split); nil when none is pending. The

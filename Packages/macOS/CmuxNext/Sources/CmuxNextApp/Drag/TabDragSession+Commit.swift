@@ -73,8 +73,7 @@ extension TabDragSession {
             }
         case .newSplit(let paneID, let edge):
             guard let pane = paneModel(id: paneID) else { return gone(settle) }
-            // The tab's own pane with its only tab: the New Tab page opens behind it (#22287).
-            if liveContext(drag).splitsBehind(pane: paneID) { return TabMoves.splitBehind(pane, edge: edge.paneEdge, services: services, completion: settle) }
+            // The tab's own pane with its only tab opens the New Tab page behind it (`TabMoves.splitBehind`).
             // The preview decided split or new column with the same room
             // rule (`LayoutTabDropTarget.removingPane`); run that decision.
             TabMoves.toNewSplit(tab, pane: pane, edge: edge.paneEdge, services: services, roomDecided: true, transaction: transaction, completion: settle)

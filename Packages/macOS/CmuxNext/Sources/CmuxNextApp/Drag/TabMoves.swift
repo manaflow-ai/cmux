@@ -65,8 +65,7 @@ enum TabMoves {
     static func splitBehind(_ pane: PaneModel, edge: PaneEdge, services: AppServices, completion: @escaping Completion) {
         if ChatDockRules.isChatDock(pane, services: services) { services.registry.refuse(RefusalStrings.chatDockCannotSplit); return completion(false) }
         guard let controller = services.paneController(for: pane) else { return completion(false) }
-        NewTabPage.split(controller, edge: edge.opposite)
-        completion(true)
+        completion(NewTabPage.split(controller, edge: edge.opposite, focusesPage: false))
     }
 
     /// New pane on `edge` of `pane` holding the tab. `roomDecided`: the
@@ -80,6 +79,8 @@ enum TabMoves {
         // Workspaces never mix machines: a drop onto another machine's pane is refused.
         guard services.daemon(for: pane) === daemon else { return refuseOtherMachine(services, completion) }
         guard !refusesIncognitoCrossing(tab, to: pane, services: services) else { return completion(false) }
+        // Its own pane's only tab on that pane's edge (every entry point): the New Tab page opens behind it.
+        if respawn == nil, let source = services.locateTab(tab.id)?.1, source.handle == pane.handle, source.tabs.count == 1 { return splitBehind(pane, edge: edge, services: services, completion: completion) }
         // With a respawn the source pane stays (it gets the new tab).
         let decision = ChatDockRules.dropSplit(roomDecided: roomDecided, intoChatDock: ChatDockRules.isChatDock(pane, services: services)) {
             services.splitRoom(for: pane, edge: edge, movingFrom: respawn == nil ? services.locateTab(tab.id)?.1 : nil)

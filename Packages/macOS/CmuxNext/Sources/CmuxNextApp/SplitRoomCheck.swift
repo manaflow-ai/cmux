@@ -19,9 +19,6 @@ enum SplitRoomDecision {
 }
 
 extension AppServices {
-    /// The decision for splitting `pane` on `edge`. `source` is the pane a moved tab leaves; when that
-    /// was its only tab the pane disappears in the same step, which frees room. The chat dock never
-    /// splits. A pane no window shows (a background workspace driven from the CLI) always splits.
     /// Applies `layout.splitSizing` once a move that splits `pane` at `edge` landed, as a keyboard split
     /// does (#22287). The changes are computed now, without `emptied` (the pane the move closes).
     func splitSizing(for pane: PaneModel, edge: PaneEdge, emptying emptied: PaneModel?) -> @MainActor () -> Void {
@@ -30,6 +27,9 @@ extension AppServices {
         return { [weak content] in content?.layoutModel.applySplitSizing(changes) }
     }
 
+    /// The decision for splitting `pane` on `edge`. `source` is the pane a moved tab leaves; when that
+    /// was its only tab the pane disappears in the same step, which frees room. The chat dock never
+    /// splits. A pane no window shows (a background workspace driven from the CLI) always splits.
     func splitRoom(for pane: PaneModel, edge: PaneEdge, movingFrom source: PaneModel? = nil) -> SplitRoomDecision {
         guard let controller = paneController(for: pane), let content = controller.workspace else { return .split }
         let layoutPane = controller.layoutPaneID

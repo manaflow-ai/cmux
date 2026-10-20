@@ -82,7 +82,7 @@ enum PaneHandlers {
         let page = !invocation.opensTerminal && NewTabPage.splitsToPage(controller, direction: direction, byPerson: invocation.origin == .user)
         switch ctx.services.toolSplit(from: pane, edge: edge(direction), byPerson: invocation.origin == .user) {
         case .split:
-            if page, let controller { return NewTabPage.split(controller, edge: edge(direction)) }
+            if page, let controller { NewTabPage.split(controller, edge: edge(direction)); return }
         case .refused(let reason):
             return ctx.refuse(reason)
         case .tab(let strip):
