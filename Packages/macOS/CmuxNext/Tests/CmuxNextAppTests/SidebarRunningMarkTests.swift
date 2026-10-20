@@ -3,8 +3,10 @@ import AppKit
 @testable import CmuxNextSidebar
 import Testing
 
-/// Leo 2026-10-18: a running row gets its running mark on the left (the Orbit set's dots,
-/// `OrbitStatusIconSetTests`), on workspace rows and on the session rows listed under them. Leo
+/// A running row gets its running mark (the Orbit set's dots, `OrbitStatusIconSetTests`) on
+/// workspace rows and on the session rows listed under them. It sits on the right by default:
+/// "Nothing should ever be on the left side besides the favicon" (Lawrence 2026-10-19, 57997c32).
+/// Leo's left-hand mark (2026-10-18) stays a Debug Settings choice. Leo
 /// and Lawrence's team call (2026-10-14) and Leo 2026-10-15 (#20900): one status icon per row, the
 /// row's most urgent state, on the side Debug Settings `sidebar.statusIconSide` names, in a fixed
 /// slot so titles line up whether a row has a state or not; no corner badge and no count number.
@@ -17,14 +19,27 @@ import Testing
     private static let runningTab = TabID("tab-running")
     private static let quietTab = TabID("tab-quiet")
 
-    @Test func theStatusIconOnTheLeftIsTheDefaultAndDebugSettingsListsTheSide() {
+    @Test func theStatusIconOnTheRightIsTheDefaultAndDebugSettingsListsTheSide() {
         #expect(SidebarRowBadgeStyle.tunable.defaultValue == .status)
-        #expect(SidebarStatusIconSide.tunable.defaultValue == .left)
+        #expect(SidebarStatusIconSide.tunable.defaultValue == .right)
         #expect(SidebarTunables.all.map(\.key).contains(SidebarStatusIconSide.tunable.key))
     }
 
-    @Test func aWorkingAgentRowDrawsItsMarkBeforeTheTitle() throws {
+    @Test func byDefaultAWorkingAgentRowDrawsItsMarkAfterTheTitle() throws {
         try Self.withSide(nil) {
+            let row = try Self.row(Self.sidebar(), Self.agent)
+            #expect(row.statusSide == .right)
+            #expect(row.activity.state == .working)
+            #expect(!row.activity.isHidden && row.activity.frame.width > 0)
+            #expect(row.activity.frame.minX >= row.title.frame.maxX - 0.5,
+                    "the mark \(row.activity.frame) sits after the title \(row.title.frame)")
+            #expect(row.activity.frame.minX > row.layoutBounds.midX)
+            #expect(row.rowBadge.states.isEmpty, "no corner badge")
+        }
+    }
+
+    @Test func withTheLeftSideAWorkingAgentRowDrawsItsMarkBeforeTheTitle() throws {
+        try Self.withSide(.left) {
             let row = try Self.row(Self.sidebar(), Self.agent)
             #expect(row.statusSide == .left)
             #expect(row.activity.state == .working)
