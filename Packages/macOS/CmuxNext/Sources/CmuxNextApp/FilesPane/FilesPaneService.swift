@@ -115,6 +115,6 @@ final class FilesPaneService: InternalPageProvider {
            services.viewers.openFile(url, in: services.paneController(showingTab: key), userChose: true) == nil {
             return
         }
-        NSWorkspace.shared.open(url)
+        NSWorkspace.shared.openInBackground(url)
     }
 }
