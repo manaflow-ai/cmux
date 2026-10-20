@@ -132,6 +132,8 @@ pub(crate) mod values;
 pub(crate) mod window_record_store;
 pub(crate) mod window_records;
 pub(crate) mod workspace;
+#[cfg(test)]
+mod workspace_checklist_tests;
 pub(crate) mod workspace_status_store;
 
 pub(crate) use home_store::error_code as home_error_code;
