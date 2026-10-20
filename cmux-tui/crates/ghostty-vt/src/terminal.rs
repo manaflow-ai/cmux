@@ -17,6 +17,9 @@ use crate::mouse::{MouseModeProbe, MouseModeSignature, MouseWireFormat};
 use crate::render::{Cell, CellWidth, CursorShape, read_grid_ref_cell, terminal_palette};
 use crate::{Error, Result, check};
 
+pub(crate) mod byte_scan;
+mod fast_write;
+
 mod prompt_semantic;
 use prompt_semantic::*;
 
@@ -364,7 +367,7 @@ pub struct Terminal {
     prompt_semantic: PromptSemanticTracker,
     // Heap-pinned so the userdata pointer stays valid for the terminal's
     // lifetime.
-    callbacks: Box<Callbacks>,
+    hooks: Box<callbacks::Hooks>,
     cursor_override: CursorOverrideTracker,
     palette_override: Box<PaletteOverrideTracker>,
     color_overrides: ColorOverrideTracker,
@@ -457,6 +460,24 @@ impl Terminal {
             unsafe { sys::ghostty_terminal_free(raw) };
             return Err(error);
         }
+        // Grapheme clustering (DEC mode 2027) defaults on, as Ghostty's
+        // `grapheme-width-method = unicode` default sets it in every viewer
+        // that loads a Ghostty config. With it off here the host grid and the
+        // viewers disagree on emoji widths, so cursors and reflow drift apart.
+        let grapheme_default = sys::GhosttyTerminalModeConfig {
+            mode: sys::ghostty_mode_new(2027, false),
+            value: true,
+        };
+        if let Err(error) = check(unsafe {
+            sys::ghostty_terminal_set(
+                raw,
+                sys::GHOSTTY_TERMINAL_OPT_MODE_DEFAULT,
+                (&grapheme_default as *const sys::GhosttyTerminalModeConfig).cast(),
+            )
+        }) {
+            unsafe { sys::ghostty_terminal_free(raw) };
+            return Err(error);
+        }
 
         let mut term = Terminal {
             raw,
@@ -473,7 +494,7 @@ impl Terminal {
             mouse_mode_change_detector: MouseModeChangeDetector::default(),
             vt_boundary: VtBoundaryTracker::default(),
             prompt_semantic: PromptSemanticTracker::default(),
-            callbacks: Box::new(callbacks),
+            hooks: Box::new(callbacks::Hooks::new(callbacks, cols.max(1), rows.max(1))),
             cursor_override: CursorOverrideTracker::default(),
             palette_override: Box::default(),
             color_overrides: ColorOverrideTracker::default(),
@@ -481,9 +502,9 @@ impl Terminal {
             history_markers: Default::default(),
             empty_kitty_probe_filter: EmptyKittyProbeFilter,
         };
-        // SAFETY: `callbacks` is heap-pinned for the terminal's lifetime and
+        // SAFETY: `hooks` is heap-pinned for the terminal's lifetime and
         // Drop uninstalls the trampolines before the Box is freed.
-        unsafe { callbacks::install(raw, &mut term.callbacks) };
+        unsafe { callbacks::install(raw, &mut term.hooks) };
         term.mouse_mode_bits = term.current_mouse_mode_bits();
         term.mouse_mode_signature = term.mouse_mode_probe.signature(term.raw);
         Ok(term)
@@ -557,13 +578,7 @@ impl Terminal {
         let history_anchor_missing = previous_history_rows > 0 && self.history_anchor.is_null();
         let normalized = self.c1_normalizer.normalize(data);
         let normalized = self.empty_kitty_probe_filter.write(normalized);
-        self.kitty_inflight.write(&normalized);
-        self.vt_boundary.feed(&normalized);
-        self.prompt_semantic.feed(&normalized);
-        self.cursor_override.write(&normalized);
-        self.palette_override.write(&normalized);
-        self.color_overrides.write(&normalized);
-        let mouse_modes_may_have_changed = self.mouse_mode_change_detector.write(&normalized);
+        let mouse_modes_may_have_changed = self.feed_trackers(&normalized);
         self.history_markers_before_write();
         unsafe { sys::ghostty_terminal_vt_write(self.raw, normalized.as_ptr(), normalized.len()) };
         self.history_markers_after_write();
@@ -1017,6 +1032,12 @@ impl Terminal {
                 cell_height_px,
             )
         })?;
+        self.hooks.size = sys::GhosttySizeReportSize {
+            rows: rows.max(1),
+            columns: cols.max(1),
+            cell_width: cell_width_px,
+            cell_height: cell_height_px,
+        };
         self.bump_history_epoch();
         self.reset_history_anchor();
         if reflows {
@@ -1136,6 +1157,21 @@ impl Terminal {
             inflight_bytes: self.kitty_inflight_storage_limit(),
             images: self.kitty_image_count_limit()?,
             placements: self.kitty_placement_count_limit()?,
+        })
+    }
+
+    /// Names the terminfo entry this terminal's program runs as (its TERM),
+    /// which an XTGETTCAP "TN" query reports, as Ghostty does. An empty name
+    /// leaves the query unanswered; libghostty refuses names over 128 bytes.
+    pub fn set_terminfo_name(&mut self, name: &str) -> Result<()> {
+        let value = sys::GhosttyString { ptr: name.as_ptr(), len: name.len() };
+        // SAFETY: libghostty copies the string before the call returns.
+        check(unsafe {
+            sys::ghostty_terminal_set(
+                self.raw,
+                sys::GHOSTTY_TERMINAL_OPT_TERMINFO_NAME,
+                (&value as *const sys::GhosttyString).cast(),
+            )
         })
     }
 

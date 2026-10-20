@@ -122,6 +122,36 @@ export function createEntryStore(sources: readonly EntrySource[]) {
       return () => listeners.delete(listener);
     },
     getSnapshot: (): readonly EntryState[] => snapshot,
+    /** Resolves as soon as the requested entry loads; unrelated entries may still be loading. */
+    find(id: string): Promise<{ entry?: GalleryEntry; state?: EntryState }> {
+      const current = snapshot;
+      if (current.length === 0) return Promise.resolve({});
+      return new Promise((resolve) => {
+        let remaining = current.length;
+        let done = false;
+        const finish = () => {
+          remaining -= 1;
+          if (remaining === 0 && !done) {
+            done = true;
+            resolve({});
+          }
+        };
+        for (const state of current) {
+          void state.promise.then(
+            (entry) => {
+              if (done) return;
+              if (entry.id === id) {
+                done = true;
+                resolve({ entry, state });
+                return;
+              }
+              finish();
+            },
+            () => finish(),
+          );
+        }
+      });
+    },
     /** Loads these files again (fresh module copies), each on its own. */
     reload(paths: readonly string[], bust = Date.now()): void {
       let changed = false;
@@ -131,6 +161,24 @@ export function createEntryStore(sources: readonly EntrySource[]) {
           changed = true;
         }
       if (changed) publish();
+    },
+    /** Resolves as soon as a named entry is available; unknown ids fall back after all loads. */
+    async waitFor(id: string): Promise<GalleryEntry | undefined> {
+      const found = () => readyEntries(snapshot).find((entry) => entry.id === id);
+      const current = found();
+      if (current || snapshot.every((state) => state.status !== "loading")) return current;
+      await new Promise<void>((resolve) => {
+        const check = () => {
+          if (found() || snapshot.every((state) => state.status !== "loading")) {
+            unsubscribe();
+            resolve();
+          }
+        };
+        const unsubscribe = () => listeners.delete(check);
+        listeners.add(check);
+        check();
+      });
+      return found();
     },
     /** Resolves once no entry is loading (failed ones count as settled). */
     async settled(): Promise<readonly EntryState[]> {

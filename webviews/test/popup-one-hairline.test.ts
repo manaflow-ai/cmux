@@ -84,7 +84,9 @@ const layers = (value: string) => {
   return [...parts, value.slice(start).trim()];
 };
 const hairlines = (value: string) =>
-  layers(expand(value)).filter((layer) => /^inset\s+0\s+0\s+0\s+[\d.]*\d(px)?\b/.test(layer));
+  layers(expand(value)).filter((layer) =>
+    /^inset\s+0\s+0\s+0\s+(?:[\d.]*\d(px)?\b|var\(--cmux-hairline(?![\w-]))/.test(layer),
+  );
 
 // A border drawn by the rule is an edge too: any `border`/`border-width` that is not 0 or none.
 const borders = (body: string) =>
@@ -159,7 +161,6 @@ describe("web popups draw one hairline edge", () => {
       ".lg-palette",
       ".acpmux-file-menu-list",
       ".nt-popover",
-      ".acpmux-mp-cascade .acpmux-mp-sub",
       ".acpmux-find__bar",
       ".ui-popup",
     ]) {

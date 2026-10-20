@@ -33,6 +33,7 @@ WORKFLOWS = ROOT / ".github" / "workflows"
 NIGHTLY_LABEL = "blacksmith-12vcpu-macos-26"
 SIDE_LABEL = "glaeda-side-std-xcode-26.6"
 PROMOTE_LABEL = "glaeda-promote-trusted-std-xcode-26.6"
+DAEMON_LABEL = "glaeda-daemon-tests-xcode-26.6"
 
 # The repository's variables as of 2026-10-14 (gh variable list), the ones
 # these routes read. MACOS_RUNNER_PR is the nightly label.
@@ -41,6 +42,7 @@ LIVE_VARS = {
     "CI_SIDE_LANE_RUNNER": SIDE_LABEL,
     "CI_LIGHT_LANE_RUNNER": "glaeda-side-light-xcode-26.6",
     "CI_NEXT_PROMOTE_POOL": PROMOTE_LABEL,
+    "CI_NEXT_DAEMON_POOL": "",
     "CI_PAID_MACOS_OVERFLOW": "",
     "MACOS_RUNNER_15": "blacksmith-6vcpu-macos-15",
     "MACOS_RUNNER_26": NIGHTLY_LABEL,
@@ -194,6 +196,36 @@ def test_daemon_tests_stay_on_the_owned_minis_on_every_attempt() -> None:
                 continue
             # A cmux-tui-pin-* push, and every re-run, stays on the minis.
             assert label == SIDE_LABEL, where
+
+
+def test_daemon_tests_take_their_own_promote_time_pool_when_set() -> None:
+    # 2026-10-15: one mini serves CI_NEXT_PROMOTE_POOL, and cmux-next.yml's
+    # Release compile runs there too, so the daemon tests queued behind it
+    # for over an hour (runs 38702524262, 38702991658, 38705858681,
+    # 38706222238) and nightly-next promotion stalled. CI_NEXT_DAEMON_POOL
+    # takes attempt 1 of a feat-cmux-next push when set; empty, the promote
+    # pool keeps it. Every other context routes as before.
+    runs_on = load("cmux-tui-artifacts.yml")["jobs"]["cmux-next-daemon-tests"]["runs-on"]
+    for owned in ("1", ""):
+        for unset, set_ in zip(contexts(CI_PR_POOL_OWNED=owned),
+                               contexts(CI_PR_POOL_OWNED=owned, CI_NEXT_DAEMON_POOL=DAEMON_LABEL)):
+            where = (set_["github.repository_owner"], set_["github.event_name"],
+                     set_["github.ref"], set_["github.run_attempt"], owned)
+            promote_slot = (
+                set_["github.repository_owner"] == "manaflow-ai"
+                and set_["github.event_name"] == "push"
+                and set_["github.ref"] == "refs/heads/feat-cmux-next"
+                and set_["github.run_attempt"] == 1
+            )
+            if promote_slot:
+                assert route(runs_on, unset) == PROMOTE_LABEL, where
+                assert route(runs_on, set_) == DAEMON_LABEL, where
+            else:
+                assert route(runs_on, set_) == route(runs_on, unset), where
+                assert route(runs_on, set_) != DAEMON_LABEL, where
+            # The dispatch input still wins over the new pool.
+            set_["inputs.macos_runner"] = "blacksmith-6vcpu-macos-26"
+            assert route(runs_on, set_) == "blacksmith-6vcpu-macos-26", where
 
 
 def test_artifact_build_legs_never_rerun_on_the_nightly_label() -> None:

@@ -11,6 +11,7 @@ import java.util.Objects;
 
 
 public final class IdentifyResult implements WireValue {
+    private final Field<Long> apiRevision;
     private final Field<String> buildCommit;
     private final Field<String> buildId;
     private final Field<List<String>> capabilities;
@@ -19,7 +20,11 @@ public final class IdentifyResult implements WireValue {
     private final Field<String> ghosttyCommit;
     private final Field<String> launchSnapshotPath;
     private final Field<Boolean> lifecycleReady;
+    private final Field<List<String>> machineCapabilities;
+    private final Field<String> machineId;
     private final Field<String> machineName;
+    private final Field<MachinePlatform> machinePlatform;
+    private final Field<Long> minApiRevision;
     private final long pid;
     private final long protocol;
     private final String registryId;
@@ -30,6 +35,7 @@ public final class IdentifyResult implements WireValue {
     private final UInt64 workspaceRevision;
 
     private IdentifyResult(Builder builder) {
+        this.apiRevision = builder.apiRevision;
         this.buildCommit = builder.buildCommit;
         this.buildId = builder.buildId;
         this.capabilities = builder.capabilities.map(value -> List.copyOf(value));
@@ -39,7 +45,11 @@ public final class IdentifyResult implements WireValue {
         this.ghosttyCommit = builder.ghosttyCommit;
         this.launchSnapshotPath = builder.launchSnapshotPath;
         this.lifecycleReady = builder.lifecycleReady;
+        this.machineCapabilities = builder.machineCapabilities.map(value -> List.copyOf(value));
+        this.machineId = builder.machineId;
         this.machineName = builder.machineName;
+        this.machinePlatform = builder.machinePlatform;
+        this.minApiRevision = builder.minApiRevision;
         if (!builder.pidSet) throw new IllegalArgumentException("pid is required");
         this.pid = builder.pid;
         if (!builder.protocolSet) throw new IllegalArgumentException("protocol is required");
@@ -59,6 +69,7 @@ public final class IdentifyResult implements WireValue {
 
     public static Builder builder() { return new Builder(); }
 
+    public Field<Long> apiRevision() { return apiRevision; }
     public String app() { return "cmux-tui"; }
     public Field<String> buildCommit() { return buildCommit; }
     public Field<String> buildId() { return buildId; }
@@ -69,7 +80,11 @@ public final class IdentifyResult implements WireValue {
     public Field<String> ghosttyCommit() { return ghosttyCommit; }
     public Field<String> launchSnapshotPath() { return launchSnapshotPath; }
     public Field<Boolean> lifecycleReady() { return lifecycleReady; }
+    public Field<List<String>> machineCapabilities() { return machineCapabilities; }
+    public Field<String> machineId() { return machineId; }
     public Field<String> machineName() { return machineName; }
+    public Field<MachinePlatform> machinePlatform() { return machinePlatform; }
+    public Field<Long> minApiRevision() { return minApiRevision; }
     public long pid() { return pid; }
     public long protocol() { return protocol; }
     public String registryId() { return registryId; }
@@ -82,6 +97,10 @@ public final class IdentifyResult implements WireValue {
     public static IdentifyResult fromWire(Object value) {
         Map<String, Object> object = Wire.object(value, "IdentifyResult");
         Builder builder = builder();
+        Object rawApiRevision = Wire.optional(object, "api_revision");
+        if (!Wire.isMissing(rawApiRevision)) {
+            builder.apiRevision(rawApiRevision == null ? null : Wire.uint32(rawApiRevision, "IdentifyResult.api_revision"));
+        }
         Object rawApp = Wire.required(object, "app");
         ProtocolSupport.literal(rawApp, "cmux-tui", "IdentifyResult.app");
         Object rawBuildCommit = Wire.optional(object, "build_commit");
@@ -116,9 +135,25 @@ public final class IdentifyResult implements WireValue {
         if (!Wire.isMissing(rawLifecycleReady)) {
             builder.lifecycleReady(Wire.bool(rawLifecycleReady, "IdentifyResult.lifecycle_ready"));
         }
+        Object rawMachineCapabilities = Wire.optional(object, "machine_capabilities");
+        if (!Wire.isMissing(rawMachineCapabilities)) {
+            builder.machineCapabilities(Wire.array(rawMachineCapabilities, "IdentifyResult.machine_capabilities", item -> Wire.string(item, "IdentifyResult.machine_capabilities item")));
+        }
+        Object rawMachineId = Wire.optional(object, "machine_id");
+        if (!Wire.isMissing(rawMachineId)) {
+            builder.machineId(Wire.string(rawMachineId, "IdentifyResult.machine_id"));
+        }
         Object rawMachineName = Wire.optional(object, "machine_name");
         if (!Wire.isMissing(rawMachineName)) {
             builder.machineName(Wire.string(rawMachineName, "IdentifyResult.machine_name"));
+        }
+        Object rawMachinePlatform = Wire.optional(object, "machine_platform");
+        if (!Wire.isMissing(rawMachinePlatform)) {
+            builder.machinePlatform(MachinePlatform.fromWire(rawMachinePlatform));
+        }
+        Object rawMinApiRevision = Wire.optional(object, "min_api_revision");
+        if (!Wire.isMissing(rawMinApiRevision)) {
+            builder.minApiRevision(rawMinApiRevision == null ? null : Wire.uint32(rawMinApiRevision, "IdentifyResult.min_api_revision"));
         }
         Object rawPid = Wire.required(object, "pid");
         builder.pid(Wire.uint32(rawPid, "IdentifyResult.pid"));
@@ -144,6 +179,7 @@ public final class IdentifyResult implements WireValue {
     @Override
     public Map<String, Object> toWire() {
         LinkedHashMap<String, Object> object = new LinkedHashMap<>();
+        Wire.put(object, "api_revision", apiRevision);
         Wire.put(object, "app", "cmux-tui");
         Wire.put(object, "build_commit", buildCommit);
         Wire.put(object, "build_id", buildId);
@@ -154,7 +190,11 @@ public final class IdentifyResult implements WireValue {
         Wire.put(object, "ghostty_commit", ghosttyCommit);
         Wire.put(object, "launch_snapshot_path", launchSnapshotPath);
         Wire.put(object, "lifecycle_ready", lifecycleReady);
+        Wire.put(object, "machine_capabilities", machineCapabilities);
+        Wire.put(object, "machine_id", machineId);
         Wire.put(object, "machine_name", machineName);
+        Wire.put(object, "machine_platform", machinePlatform);
+        Wire.put(object, "min_api_revision", minApiRevision);
         Wire.put(object, "pid", pid);
         Wire.put(object, "protocol", protocol);
         Wire.put(object, "registry_id", registryId);
@@ -169,16 +209,17 @@ public final class IdentifyResult implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof IdentifyResult that)) return false;
-        return Objects.equals(buildCommit, that.buildCommit) && Objects.equals(buildId, that.buildId) && Objects.equals(capabilities, that.capabilities) && Objects.equals(cliPath, that.cliPath) && Objects.equals(generation, that.generation) && Objects.equals(ghosttyCommit, that.ghosttyCommit) && Objects.equals(launchSnapshotPath, that.launchSnapshotPath) && Objects.equals(lifecycleReady, that.lifecycleReady) && Objects.equals(machineName, that.machineName) && Objects.equals(pid, that.pid) && Objects.equals(protocol, that.protocol) && Objects.equals(registryId, that.registryId) && Objects.equals(session, that.session) && Objects.equals(sessionId, that.sessionId) && Objects.equals(terminalRevision, that.terminalRevision) && Objects.equals(version, that.version) && Objects.equals(workspaceRevision, that.workspaceRevision);
+        return Objects.equals(apiRevision, that.apiRevision) && Objects.equals(buildCommit, that.buildCommit) && Objects.equals(buildId, that.buildId) && Objects.equals(capabilities, that.capabilities) && Objects.equals(cliPath, that.cliPath) && Objects.equals(generation, that.generation) && Objects.equals(ghosttyCommit, that.ghosttyCommit) && Objects.equals(launchSnapshotPath, that.launchSnapshotPath) && Objects.equals(lifecycleReady, that.lifecycleReady) && Objects.equals(machineCapabilities, that.machineCapabilities) && Objects.equals(machineId, that.machineId) && Objects.equals(machineName, that.machineName) && Objects.equals(machinePlatform, that.machinePlatform) && Objects.equals(minApiRevision, that.minApiRevision) && Objects.equals(pid, that.pid) && Objects.equals(protocol, that.protocol) && Objects.equals(registryId, that.registryId) && Objects.equals(session, that.session) && Objects.equals(sessionId, that.sessionId) && Objects.equals(terminalRevision, that.terminalRevision) && Objects.equals(version, that.version) && Objects.equals(workspaceRevision, that.workspaceRevision);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(buildCommit, buildId, capabilities, cliPath, generation, ghosttyCommit, launchSnapshotPath, lifecycleReady, machineName, pid, protocol, registryId, session, sessionId, terminalRevision, version, workspaceRevision); }
+    public int hashCode() { return Objects.hash(apiRevision, buildCommit, buildId, capabilities, cliPath, generation, ghosttyCommit, launchSnapshotPath, lifecycleReady, machineCapabilities, machineId, machineName, machinePlatform, minApiRevision, pid, protocol, registryId, session, sessionId, terminalRevision, version, workspaceRevision); }
 
     @Override
     public String toString() { return "IdentifyResult" + toWire(); }
 
     public static final class Builder {
+        private Field<Long> apiRevision = Field.omitted();
         private Field<String> buildCommit = Field.omitted();
         private Field<String> buildId = Field.omitted();
         private Field<List<String>> capabilities = Field.omitted();
@@ -188,7 +229,11 @@ public final class IdentifyResult implements WireValue {
         private Field<String> ghosttyCommit = Field.omitted();
         private Field<String> launchSnapshotPath = Field.omitted();
         private Field<Boolean> lifecycleReady = Field.omitted();
+        private Field<List<String>> machineCapabilities = Field.omitted();
+        private Field<String> machineId = Field.omitted();
         private Field<String> machineName = Field.omitted();
+        private Field<MachinePlatform> machinePlatform = Field.omitted();
+        private Field<Long> minApiRevision = Field.omitted();
         private Long pid;
         private boolean pidSet;
         private Long protocol;
@@ -205,6 +250,10 @@ public final class IdentifyResult implements WireValue {
         private UInt64 workspaceRevision;
         private boolean workspaceRevisionSet;
 
+        public Builder apiRevision(Long value) {
+            this.apiRevision = Field.ofNullable(value);
+            return this;
+        }
         public Builder buildCommit(String value) {
             this.buildCommit = Field.ofNullable(value);
             return this;
@@ -238,8 +287,24 @@ public final class IdentifyResult implements WireValue {
             this.lifecycleReady = Field.of(value);
             return this;
         }
+        public Builder machineCapabilities(List<String> value) {
+            this.machineCapabilities = Field.of(value);
+            return this;
+        }
+        public Builder machineId(String value) {
+            this.machineId = Field.of(value);
+            return this;
+        }
         public Builder machineName(String value) {
             this.machineName = Field.of(value);
+            return this;
+        }
+        public Builder machinePlatform(MachinePlatform value) {
+            this.machinePlatform = Field.of(value);
+            return this;
+        }
+        public Builder minApiRevision(Long value) {
+            this.minApiRevision = Field.ofNullable(value);
             return this;
         }
         public Builder pid(long value) {

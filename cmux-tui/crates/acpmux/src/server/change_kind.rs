@@ -1,0 +1,35 @@
+//! Part of the server; see `server/mod.rs`. Which mux records a watcher
+//! hears of as `_acpmux/session_changed`, and the `kind` each is sent as.
+
+/// The `kind` a mux record is sent as, or None when watchers do not hear of it.
+pub(super) fn session_change_kind(record_kind: &str) -> Option<&str> {
+    Some(match record_kind {
+        "status"
+        | "created"
+        | "user_message"
+        | "turn_end"
+        | "turn_error"
+        | "renamed"
+        | "titled"
+        | "forked"
+        | "imported"
+        | "permission_request"
+        | "permission_decision"
+        | "permission_group"
+        | "permission_chat_allowance"
+        | "mode"
+        | "model"
+        | "config"
+        | "policy"
+        | "tools"
+        | "rules"
+        | "tags"
+        | "turn_started"
+        | "turn_result"
+        | "subsession" => record_kind,
+        k if k == "dequeued" || k.starts_with("queue") => "queue",
+        "permission_auto" => "permission_resolved",
+        "permission_reissued" => "permission_request",
+        _ => return None,
+    })
+}

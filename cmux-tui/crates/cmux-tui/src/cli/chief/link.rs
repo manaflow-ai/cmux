@@ -111,7 +111,19 @@ impl Link {
                 Some(reason) if !reason.is_empty() => format!("{}: {reason}", text("code")),
                 _ => text("code"),
             };
-            return Err(LinkError::Rejected { code, message: text("message") });
+            // cx-8mla8: operation.failed carries the reason as its message and
+            // the daemon's own words in details.extra.message; show those.
+            let detail = error
+                .pointer("/details/extra/message")
+                .and_then(Value::as_str)
+                .filter(|m| !m.trim().is_empty());
+            let mut message =
+                detail.map_or_else(|| text("message"), crate::cli::wire::sanitize_remote_text);
+            if let Some(id) = error.pointer("/details/extra/request_id").and_then(Value::as_str) {
+                let id = crate::cli::wire::sanitize_remote_text(id);
+                message.push_str(&format!(" (Request ID {id})"));
+            }
+            return Err(LinkError::Rejected { code, message });
         }
     }
 

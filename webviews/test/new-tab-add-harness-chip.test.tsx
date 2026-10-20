@@ -126,13 +126,13 @@ const named = (name: string, scopeElement?: ParentNode) =>
     (button) => (button.getAttribute("aria-label") ?? button.textContent ?? "").trim() === name,
   );
 
-test("with no harness installed, the page has no No agent row and the chip says Add harness", async () => {
+test.serial("with no harness installed, the page has no No agent row and the chip says Add harness", async () => {
   const opened = await page([]);
   expect(host.textContent).not.toContain("No agent to ask");
   expect(named("Integrate a harness")).toBeUndefined();
 
-  const field = host.querySelector<HTMLInputElement>(".nt-field")!;
-  const setValue = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!;
+  const field = host.querySelector<HTMLTextAreaElement>(".nt-field")!;
+  const setValue = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(field), "value")!.set!;
   await act(async () => {
     setValue.call(field, "fix the flaky upload test");
     field.dispatchEvent(new window.Event("input", { bubbles: true }));
@@ -151,7 +151,7 @@ test("with no harness installed, the page has no No agent row and the chip says 
   expect(opened.count).toBe(1);
 });
 
-test("with harnesses installed, the picker's last item is Add harness…, by click and by keyboard", async () => {
+test.serial("with harnesses installed, the picker's last item is Add harness…, by click and by keyboard", async () => {
   const opened = await page(noChat().catalog);
   expect(named("Add harness", host.querySelector(".nt-pickers")!)).toBeUndefined();
   await act(async () => host.querySelector<HTMLButtonElement>('[data-menu="Model"]')!.click());

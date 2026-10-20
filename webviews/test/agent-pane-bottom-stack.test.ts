@@ -1,6 +1,6 @@
 // l10n-allow-file: test fixture prompts and replies, not shipped UI.
-// The chat's bottom stack (hq#1957, Leo 2026-10-14): the pull request dock, the queued prompts,
-// the folder strip and the composer card stack, under a question waiting for an answer, in the layout flow under the transcript, so none
+// The chat's bottom stack (hq#1957, Leo 2026-10-14): the pull request dock, the queued prompts
+// and the composer card stack (a started chat has no folder strip, so the queue meets the card), under a question waiting for an answer, in the layout flow under the transcript, so none
 // overlaps another and none is clipped (the queue never covers Allow and Deny, hq #1893). The stack never takes the whole pane: the transcript keeps
 // room, and the queue and the dock scroll inside their own heights instead. The page is the pane's
 // dev entry with its browser host, talking JSON-RPC to a stand-in acpmux daemon whose chat opened
@@ -211,6 +211,7 @@ await requireBrowserLane("agent-pane-bottom-stack.test.ts", async () => {
           box("ask", ".acpmux-asks-stack"),
           box("dock", ".acpmux-pr-dock"),
           box("queue", ".acpmux-composer-queue"),
+          box("fold", ".acpmux-queue-foldbar"),
           box("strip", ".acpmux-composer-strip"),
           box("card", ".acpmux-composer-box"),
         ].filter((part) => part !== undefined),
@@ -223,7 +224,12 @@ await requireBrowserLane("agent-pane-bottom-stack.test.ts", async () => {
 
   /// Every part drawn, inside the chat column, below the transcript, and over no other part.
   function expectStacked({ main, transcript, parts }: { main: Box; transcript: Box; parts: Box[] }) {
-    expect(parts.map((part) => part.name)).toEqual(["ask", "dock", "queue", "strip", "card"]);
+    // The chat has started: no location strip, and nothing left where it stood.
+    // Six queued prompts fold: the fold's bar closes the queue, right on the card.
+    expect(parts.map((part) => part.name)).toEqual(["ask", "dock", "queue", "fold", "card"]);
+    const [queue, fold, card] = parts.slice(-3) as [Box, Box, Box];
+    expect({ queueToFold: Math.abs(fold.top - queue.bottom) <= 0.5 }).toEqual({ queueToFold: true });
+    expect({ foldToCard: Math.abs(card.top - fold.bottom) <= 0.5 }).toEqual({ foldToCard: true });
     for (const part of parts) {
       expect({ part: part.name, clipped: part.top < main.top - 0.5 || part.bottom > main.bottom + 0.5 }).toEqual({
         part: part.name,
@@ -246,11 +252,13 @@ await requireBrowserLane("agent-pane-bottom-stack.test.ts", async () => {
     await page.goto(url());
     await page.getByText("Three PRs open.").waitFor();
     await page.locator(".acpmux-pr-dock").waitFor({ timeout: 10_000 });
+    // Six queued prompts fold behind "4 more queued"; open it so the whole queue draws.
+    await page.locator(".acpmux-queue-fold").click();
     await page.locator(".acpmux-queued", { hasText: "sixth" }).waitFor();
     return page;
   }
 
-  test("the question, the dock, the queue, the strip and the card stack without overlapping", async () => {
+  test("the question, the dock, the queue and the card stack without overlapping or a gap where the strip was", async () => {
     const page = await open(760);
     const drawn = await layout(page);
     expectStacked(drawn);

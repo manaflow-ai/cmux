@@ -27,7 +27,7 @@ final class BookmarkStarButton: NSView, PointerHoverReporting {
     var state: BookmarkStarState = .hidden {
         didSet {
             guard state != oldValue else { return }
-            image.image = NSImage.icon(state == .on ? .bookmarkActive : .bookmark, size: .iconRowSize(forLabelPointSize: OmnibarStyle.iconPointSize))
+            image.image = NSImage.icon(state == .on ? .browserOmniboxStarActive : .browserOmniboxStar, size: OmnibarStyle.trailingIconSize)
             let label = state == .on ? Strings.bookmarkEdit : Strings.bookmarkAdd
             themedToolTip = label
             setAccessibilityLabel(label)
@@ -83,7 +83,7 @@ final class BookmarkStarButton: NSView, PointerHoverReporting {
         hover?.refresh()
     }
 
-    override var wantsUpdateLayer: Bool { true }
+    nonisolated override var wantsUpdateLayer: Bool { true }
 
     override func updateLayer() {
         // A redraw during a hover fade leaves the fade running.

@@ -38,6 +38,9 @@
 //! - Web only: no `_acpmux/set_tools` (`tools.remote`). Turning an MCP
 //!   server on makes the harness start the stdio command the user's config
 //!   names on this machine; unlike a mode, no asking table makes that safe.
+//! - Web and Peer: no `_acpmux/btw` (`btw.remote`). A side session is a new
+//!   session on this machine, in the chat's harness and folder, with a policy
+//!   that approves reads: the app and the unix socket only.
 //! - Web and LocalApp: no `_acpmux/peer_add` or `_acpmux/peer_remove` (they
 //!   change which machines this daemon reaches with the user's ssh keys and
 //!   tokens); `peer_reconnect` only retries a configured peer.
@@ -124,11 +127,27 @@ pub(super) async fn check(
         return Err(super::conn_auth::refused());
     }
     let web = origin.web_class();
+    if m == method::SESSION_CANCEL && web {
+        check_cancel_ownership(hub, params)?;
+    }
     // A per-session env is set over the unix socket only (session_env.rs).
     if matches!(m, method::SESSION_NEW | method::SESSION_FORK)
         && crate::session_env::present(params.pointer("/_meta/acpmux"))
     {
         return Err(crate::session_env::origin_refused());
+    }
+    // So is a chat's route: it decides where the harness sends its model traffic.
+    if m == method::SESSION_NEW
+        && params
+            .pointer("/_meta/acpmux/route")
+            .or_else(|| params.get("route"))
+            .is_some_and(|v| !v.is_null())
+    {
+        return Err(RpcError::new(
+            -32602,
+            "a session route is accepted only over the local unix socket",
+        )
+        .with_data(serde_json::json!({"reason": "route.origin_refused"})));
     }
     // So is a prompt's provenance (prompt_provenance.rs): no remote text passes as an agent's.
     if m == method::SESSION_PROMPT
@@ -153,6 +172,14 @@ pub(super) async fn check(
     // The listener's own credential changes over the unix socket only.
     if m == method::MUX_WEB_TOKEN_ROTATE {
         return Err(refused("rotating the web token"));
+    }
+    // A side session starts a new local session that approves reads (`hub/btw.rs`):
+    // never for a Web connection or a peer, whatever the chat.
+    if m == method::MUX_BTW && origin.web_class() {
+        return Err(RpcError::invalid_params(
+            "btw.remote: a side session is opened only in the app or over the local unix socket",
+        )
+        .with_data(serde_json::json!({"reason": "btw.remote"})));
     }
     if non_empty(params.get("mcpServers")) || non_empty(params.pointer("/_meta/acpmux/mcpServers"))
     {
@@ -254,6 +281,30 @@ pub(super) async fn check(
         web_starts_asking(hub, control_of(origin, auth, params), m, params).await?;
     }
     Ok(())
+}
+
+/// A remote connection may stop only a session that was created by a remote
+/// origin. Local-origin sessions belong to the person at this daemon, even
+/// when a Web/Peer caller can resolve their id.
+fn check_cancel_ownership(
+    hub: &std::sync::Arc<crate::hub::Hub>,
+    params: &Value,
+) -> Result<(), RpcError> {
+    let key = super::session_key(params)?;
+    match hub.resolve(key) {
+        Ok(session) if session.meta().remote_origin => Ok(()),
+        Ok(_) => Err(
+            RpcError::invalid_params(
+                "session/cancel is refused for a local-origin session; only its local owner may cancel it",
+            )
+            .with_data(serde_json::json!({"reason": "remote.session_cancel_ownership"})),
+        ),
+        Err(_) if hub.resolve_remote(key).is_some() => Ok(()),
+        Err(e) => Err(RpcError::invalid_params(format!(
+            "session/cancel from a remote WebSocket connection is refused: the session cannot be resolved ({})",
+            e.message
+        ))),
+    }
 }
 
 /// The asking modes for `family`: the merged table (`web_modes.rs`).
@@ -444,6 +495,7 @@ async fn web_starts_asking(
     let controls = matches!(
         m,
         method::SESSION_PROMPT
+            | method::SESSION_CANCEL
             | method::MUX_QUEUE_EDIT
             | method::MUX_PERMISSION_RESPOND
             | method::MUX_PERMISSION_GROUP_RESPOND

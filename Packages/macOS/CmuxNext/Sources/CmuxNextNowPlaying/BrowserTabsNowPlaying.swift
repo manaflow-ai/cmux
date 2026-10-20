@@ -2,6 +2,7 @@ import AppKit
 public import CmuxNextBrowser
 public import CmuxNextSidebar
 public import Observation
+import CmuxNextWakeups
 
 /// The sidebar Now Playing card's source (cx-ouoxo): the browser tab that
 /// plays, in either engine, picked the way macOS Now Playing picks it
@@ -19,6 +20,13 @@ public final class BrowserTabsNowPlaying: NowPlayingSource {
     /// The shown tab's artwork, small PNG data once loaded (nil while loading or without art).
     private var artwork: (url: URL, data: Data?)?
     private static let artworkSide: CGFloat = 96
+    /// How long after a failed artwork fetch the tab is asked again, doubling with each failure
+    /// up to ``artworkRetryLimit`` (tests shorten it).
+    @ObservationIgnored var artworkRetry: Duration = .seconds(10)
+    private static let artworkRetryLimit: Duration = .seconds(300)
+    /// The artwork URL whose fetches failed, and how many times in a row.
+    @ObservationIgnored private var artworkFailures: (url: URL, count: Int)?
+    @ObservationIgnored private let artworkWait = DemandTimer(owner: "now-playing.artwork-retry")
 
     public init() {}
 
@@ -53,7 +61,8 @@ public final class BrowserTabsNowPlaying: NowPlayingSource {
         Task { await tab.media(media) }
     }
 
-    /// The artwork for `url` once loaded; asks the tab for it the first time.
+    /// The artwork for `url` once loaded; asks the tab for it the first time, and again a while
+    /// after a fetch that failed (the tab was still loading, the network dropped).
     private func artworkData(_ url: URL?, tab id: BrowserTabID) -> Data? {
         guard let url else { return nil }
         if let artwork, artwork.url == url { return artwork.data }
@@ -68,7 +77,23 @@ public final class BrowserTabsNowPlaying: NowPlayingSource {
         Task { [weak self] in
             let image = await tab.fetchFavicon(url)
             guard let self, self.artwork?.url == url else { return }
-            self.artwork = (url, image.flatMap(Self.png))
+            guard let data = image.flatMap(Self.png) else {
+                self.artworkFailed(url)
+                return
+            }
+            self.artworkFailures = nil
+            self.artwork = (url, data)
+        }
+    }
+
+    /// Forgets the failed fetch a while later: readers look again and the next read asks the tab anew.
+    private func artworkFailed(_ url: URL) {
+        let count = artworkFailures?.url == url ? (artworkFailures?.count ?? 0) + 1 : 1
+        artworkFailures = (url, count)
+        let delay = min(artworkRetry * (1 << min(count - 1, 16)), Self.artworkRetryLimit)
+        artworkWait.schedule(after: delay) { @MainActor [weak self] in
+            guard let self, self.artwork?.url == url, self.artwork?.data == nil else { return }
+            self.artwork = nil
         }
     }
 

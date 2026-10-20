@@ -9,6 +9,7 @@ import { ToolRows } from "../../agent-session/acpmux/conversation/TurnRows";
 import { formatDuration } from "../../agent-session/acpmux/conversation/turns";
 import type { AcpmuxActivity, AcpmuxRow } from "../../agent-session/acpmux/model";
 import type { Strings } from "../shared/i18n";
+import { liveReply, tail, useLiveRun, type LiveBook } from "./live";
 import { isStale, runCost, useLiveRuns, useRunEntry, type RunBook, type RunEntry } from "./runs";
 import { Avatar } from "./Avatar";
 import type { HomeMessage, HomeParticipant, HomeRun, HomeRunStep } from "./types";
@@ -53,10 +54,11 @@ function summary(input: Record<string, unknown>): string {
   return JSON.stringify(input).slice(0, 200);
 }
 
-/** Consecutive tool and thought steps as one agent-pane activity row; text steps between them. */
+/** Consecutive tool steps as one agent-pane activity row; text and thought steps between them. */
 export type RunBlock =
   | { kind: "tools"; key: string; row: AcpmuxRow }
   | { kind: "talk"; key: string; step: HomeRunStep }
+  | { kind: "thought"; key: string; step: HomeRunStep }
   | { kind: "note"; key: string; step: HomeRunStep };
 
 export function runBlocks(run: HomeRun, steps: readonly HomeRunStep[]): RunBlock[] {
@@ -82,7 +84,7 @@ export function runBlocks(run: HomeRun, steps: readonly HomeRunStep[]): RunBlock
     first = undefined;
   };
   for (const step of steps) {
-    if (step.kind === "tool" || step.kind === "thought") {
+    if (step.kind === "tool") {
       first ??= step;
       items.push(stepActivity(step));
     } else {
@@ -132,13 +134,23 @@ export interface RunCardProps {
   onOpen(run: HomeRun): void;
   /** Reads the run's steps from the owner (a run the page has only a summary of). */
   onLoad(run: HomeRun): void;
+  /** The page's live run text (`chief-live-v1`): a running run shows its reply as it streams. */
+  live?: LiveBook;
+  /** The turn of the draft row the timeline shows. */
+  draftTurn?: string;
 }
 
-export function RunCard({ entry, author, strings, onOpen, onLoad }: RunCardProps) {
+/** How much of a streaming reply the card shows: its end, about two lines. */
+const CARD_LIVE_CHARS = 240;
+
+export function RunCard({ entry, author, strings, onOpen, onLoad, live, draftTurn }: RunCardProps) {
   const { run, steps } = entry;
   const now = useNow(run.status === "running");
   const status = shownStatus(run, now);
   const running = status === "running";
+  const streamed = useLiveRun(live, run.conversation, run.author, run.id);
+  // A reply the timeline shows as a draft row is not repeated here.
+  const reply = running && !(draftTurn && run.turn === draftTurn) ? liveReply(streamed) : "";
   const [open, setOpen] = useState(running);
   // A run the page knows only by its summary reads its steps once it is opened (or while it runs).
   useEffect(() => {
@@ -148,8 +160,9 @@ export function RunCard({ entry, author, strings, onOpen, onLoad }: RunCardProps
   useEffect(() => {
     if (running) setOpen(true);
   }, [running]);
+  // The card shows tool calls only: a thought stays in the run sheet, folded.
   const shown = useMemo(() => {
-    const work = steps.filter((step) => step.kind === "tool" || step.kind === "thought");
+    const work = steps.filter((step) => step.kind === "tool");
     return runBlocks(run, work.slice(-CARD_STEPS));
   }, [run, steps]);
   const count = run.stepCount;
@@ -179,6 +192,11 @@ export function RunCard({ entry, author, strings, onOpen, onLoad }: RunCardProps
         </button>
       </div>
       {run.title && <p className="lg-run-title">{run.title}</p>}
+      {reply && (
+        <p className="lg-run-live" dir="auto">
+          {tail(reply, CARD_LIVE_CHARS)}
+        </p>
+      )}
       {open && shown.length > 0 && (
         <div className="lg-run-steps">
           {count > shown.length && <p className="lg-run-more">{strings.t("run.earlier")}</p>}
@@ -202,6 +220,10 @@ export interface RunsContextValue {
   people?: ReadonlyMap<string, HomeParticipant>;
   onOpen(run: HomeRun): void;
   onLoad(run: HomeRun): void;
+  /** The page's live run text (`chief-live-v1`). */
+  live?: LiveBook;
+  /** The turn of the draft row the open conversation shows. */
+  draftTurn?: string;
 }
 
 export const RunsContext = createContext<RunsContextValue | undefined>(undefined);
@@ -221,6 +243,8 @@ export function MessageRuns({ message }: { message: HomeMessage }) {
       strings={context.strings}
       onOpen={context.onOpen}
       onLoad={context.onLoad}
+      live={context.live}
+      draftTurn={context.draftTurn}
     />
   );
   return (
