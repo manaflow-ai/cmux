@@ -102,10 +102,11 @@ it("keeps partial growth unresolved until the image is approved again, without r
   withdraw();
   expect((await create({ resources: { vcpus: 8 } })).status).toBe(503);
   expect(h.upstream.callsTo("POST", /\/resize$/)).toHaveLength(1);
-  expect(h.resources).toHaveLength(0);
+  expect(h.resources.map((row) => row.committed)).toEqual([false]);
   h.setBootImages(JSON.stringify(CATALOG));
   expect((await create({ resources: { vcpus: 8 } })).status).toBe(201);
   expect(h.upstream.callsTo("POST", /\/resize$/)).toHaveLength(2);
+  expect(h.resources.map((row) => row.committed)).toEqual([true]);
   expect(allocations()).toHaveLength(1);
 });
 
