@@ -1,7 +1,9 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextDesign
+import CmuxNextLayout
 import CmuxNextSidebar
 import CmuxNextTabs
 import Observation
@@ -20,7 +22,7 @@ final class WindowShortcutHints {
         guard let window = controller.window else { return }
         controller.root.addSubview(overlay, positioned: .above, relativeTo: nil)
         overlay.setAccessibilityElement(false)
-        monitor = WindowScopedShortcutHintModifierMonitor(window: window) { [weak self] flags in
+        monitor = WindowScopedShortcutHintModifierMonitor(window: window, keepsHints: { [weak self] in self?.keepsHints(for: $0) ?? false }) { [weak self] flags in
             self?.held = flags
             self?.refresh()
         }
@@ -33,9 +35,14 @@ final class WindowShortcutHints {
 
     func refresh() {
         guard let controller else { return }
+        overlay.frame = controller.root.bounds
+        overlay.hints = held.map(hints(held:)) ?? []
+    }
+
+    /// The chips a hold of `held` shows in this window now, from its resolved binding table.
+    func hints(held: NSEvent.ModifierFlags) -> [ShortcutHintOverlayView.Hint] {
+        guard let controller else { return [] }
         let root = controller.root
-        overlay.frame = root.bounds
-        guard let held else { overlay.hints = []; return }
         let registry = controller.services.registry
         let context = controller.services.keyRouter.keyContext(for: controller.focus.state, facts: KeyRouter.Facts())
         let bindings = RegistryKeyBindings(registry)
@@ -76,16 +83,24 @@ final class WindowShortcutHints {
                 hints.append(.init(text: text, rect: root.convert(rect, from: strip)))
             }
         }
-        // Focus Pane 1…9: each pane of the focused screen, in Focus Next Pane order.
+        // Pane navigation: each pane of the focused screen shows its Focus Pane 1…9 key and the key of
+        // every pane-navigation action that moves focus to it from the focused pane (one chip per pane).
         if let content = controller.content,
            let focused = content.panes.values.first(where: { $0.paneKey == controller.focus.state.pane }),
            let screen = content.layoutModel.screen(containing: focused.layoutPaneID) {
-            let order = screen.layout.panes
-            for (index, id) in order.enumerated() {
-                guard index < 8 || index == order.count - 1, let pane = content.panes[id] else { continue }
-                let digit = index == order.count - 1 && index >= 8 ? 9 : index + 1
-                guard digit <= 9, let text = label("focusPaneByNumber", digit: digit) else { continue }
-                hints.append(.init(text: text, rect: root.convert(pane.view.bounds, from: pane.view)))
+            let plan = PaneNavigationHintPlan(order: screen.layout.panes, focused: focused.layoutPaneID) { move in
+                let direction: LayoutDirection? = switch move {
+                case .left: .left
+                case .right: .right
+                case .up: .up
+                case .down: .down
+                case .previous, .next: nil
+                }
+                return direction.flatMap { PaneHandlers.neighbor(of: focused.layoutPaneID, direction: $0, in: content) }
+            }
+            for chip in plan.chips(label: { label($0, digit: $1) }) {
+                guard let pane = content.panes[chip.pane] else { continue }
+                hints.append(.init(text: chip.text, rect: root.convert(pane.view.bounds, from: pane.view), target: "pane:\(pane.paneKey)"))
             }
         }
         for (action, rect) in [(ActionID(rawValue: "toggleSidebar"), root.sidebarToggleFrame),
@@ -93,7 +108,7 @@ final class WindowShortcutHints {
                                ("focusHistoryForward", root.historyButtonFrame(.forward))] {
             if let rect, let text = label(action) { hints.append(.init(text: text, rect: root.convert(rect, from: nil), row: .titlebar)) }
         }
-        overlay.hints = hints
+        return hints
     }
 
     /// What a sidebar chip selects, for debug readback (`debug.shortcut_hints`).
@@ -105,7 +120,25 @@ final class WindowShortcutHints {
         }
     }
 
-    func keyDown() { monitor?.keyDown() }
+    /// A key-down in this window: a pane-navigation key (by the resolved binding table, so a
+    /// rebound one counts and a removed one does not) keeps the chips up while the modifier is
+    /// held, and they follow focus once it settles; any other key hides them until release.
+    func keyDown(_ event: NSEvent) { monitor?.keyDown(keepsHints: keepsHints(for: event)) }
+
+    /// Whether `event` runs a pane-navigation action here.
+    func keepsHints(for event: NSEvent) -> Bool {
+        // Typing (no Cmd, Ctrl or Option) never resolves the table: this runs on every key-down.
+        guard event.type == .keyDown, KeyRouter.isChord(event.modifierFlags), let controller,
+              let candidate = controller.services.keyRouter.candidate(for: event, focus: controller.focus.state) else { return false }
+        _ = candidate
+        return false
+    }
+
+    /// Focus settled: chips shown for a held modifier move to the new focus.
+    func focusDidSettle() {
+        guard held != nil else { return }
+        refresh()
+    }
 
     #if DEBUG
     var shownHints: [ShortcutHintOverlayView.Hint] { overlay.hints }
