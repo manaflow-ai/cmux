@@ -6,7 +6,7 @@ import type { Http } from "./team-domain-external.ts"
 import type { VmApiTenant } from "./team-vm-api-tenant.ts"
 import type { ReadResult } from "./owner-do.ts"
 import { networkOrigin, verifyNetworkIdentity } from "./network-policy-read.ts"
-import { digest, hostStamp, identityMatches, liveHost, networkHosts, ownHost, peerAuthorityVersion, pointOf, type NetworkIdentity, type NetworkHost, type PeerDeps } from "./host-network-peers.ts"
+import { boundedIdentities, pointUnique, sameCandidate, sameNetwork, digest, hostStamp, identityMatches, liveHost, networkHosts, ownHost, peerAuthorityVersion, pointOf, type NetworkIdentity, type NetworkHost, type PeerDeps } from "./host-network-peers.ts"
 
 interface Deps extends PeerDeps { project: string; origin(): string | undefined; tenant(): Promise<VmApiTenant | null>; revision(): string; http: Http }
 type Allow = { protocol: "tcp" | "udp" | "icmp" | "any"; port?: number }
@@ -32,24 +32,6 @@ const peersOf = (policy: Record<string, unknown>, self: NetworkHost, point: stri
   }
   return peers
 }
-const sameNetwork = (a: NetworkHost, b: NetworkHost): boolean => a.network?.tenant === b.network?.tenant && a.network?.mesh === b.network?.mesh
-const sameCandidate = (a: NetworkHost, b: NetworkHost): boolean => a.network?.device === b.network?.device || a.wg_public_key === b.wg_public_key || a.enrolled_by === b.enrolled_by
-const boundedIdentities = async (d: Deps, hosts: NetworkHost[]) => {
-  const found = new Map<string, NetworkIdentity | null>(), owners = new Map<string, NetworkHost[]>()
-  for (const host of hosts) if (host.owner_user) owners.set(host.owner_user, [...(owners.get(host.owner_user) ?? []), host])
-  const chunks = [...owners].flatMap(([user, values]) => Array.from({ length: Math.ceil(values.length / 128) }, (_, index) => ({ user, hosts: values.slice(index * 128, (index + 1) * 128) })))
-  for (let offset = 0; offset < chunks.length; offset += 16) {
-    await Promise.all(chunks.slice(offset, offset + 16).map(async ({ user, hosts }) => {
-      const entries = hosts.map((h) => ({ install: h.enrolled_by, grant: h.network?.state === "confirmed" ? h.network.install_grant ?? "" : "" }))
-      const values = await d.identities(user, entries)
-      if (values.length !== hosts.length) throw new Error("unavailable identity snapshot")
-      hosts.forEach((h, i) => found.set(h.id, values[i] ?? null))
-    }))
-  }
-  return found
-}
-const pointUnique = (d: Deps, hosts: NetworkHost[], identities: Map<string, NetworkIdentity | null>, point: string): boolean =>
-  hosts.filter((h) => identityMatches(h, identities.get(h.id) ?? null, d.now()) && pointOf(identities.get(h.id) ?? null) === point).length === 1
 
 /** A fresh identity projection, not a dial token or permission to activate a listener. */
 export const hostNetworkPolicy = async (d: Deps, p: Principal, params: unknown): Promise<ReadResult> => {

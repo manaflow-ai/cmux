@@ -109,7 +109,7 @@ export class VmApiCloudNetwork {
   }
 }
 
-const addressInMesh = (value: unknown, cidr: string): value is string => {
+export const addressInMesh = (value: unknown, cidr: string): value is string => {
   if (typeof value !== "string" || !/^\d{1,3}(\.\d{1,3}){3}$/.test(value) || !meshCidr(cidr)) return false
   const parts = value.split(".").map(Number)
   if (parts.some((n) => n > 255) || parts.join(".") !== value) return false

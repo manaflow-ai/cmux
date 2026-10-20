@@ -5,6 +5,50 @@
 use super::*;
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HomeInboxEntry {
+    pub conversation: ConversationId,
+    pub rev: i64,
+    pub kind: ConversationKind,
+    pub title: String,
+    pub last_seq: i64,
+    pub last_at: Timestamp,
+    pub preview: String,
+    /// Attachments of the last message, for a localized preview ("2 photos"); preview is empty for an attachment-only message.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preview_attachments: Option<HomeInboxEntryPreviewAttachments>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dm_peer: Option<ParticipantId>,
+    pub removed: bool,
+    pub unread: i64,
+    pub mentions: i64,
+    pub counts_rev: i64,
+    pub pinned: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pin_position: Option<i64>,
+    pub muted: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub muted_until: Option<WireNumber>,
+    pub archived: bool,
+    pub archived_seq: i64,
+    pub marked_unread: bool,
+}
+
+wire_enum! {
+    HomeInboxEntryPreviewAttachmentsKind {
+        Photo = "photo",
+        Video = "video",
+        Audio = "audio",
+        File = "file",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HomeInboxEntryPreviewAttachments {
+    pub kind: HomeInboxEntryPreviewAttachmentsKind,
+    pub count: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct HomeInvite {
     pub id: InviteId,
     pub address: AddressId,
@@ -856,46 +900,4 @@ wire_enum! {
         Human = "human",
         Agent = "agent",
     }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct SshPresenceProof {
-    pub install: InstallId,
-    pub nonce: String,
-    pub signature: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub app_attest: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct SsoConnection {
-    pub id: SsoConnectionId,
-    pub kind: LitOidc,
-    pub state: SsoConnectionState,
-    pub domains: Vec<EmailDomain>,
-    pub oidc: SsoConnectionOidc,
-    pub secret_set: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub secret_generation: Option<i64>,
-    pub jit: SsoConnectionJit,
-    pub created_at: i64,
-    pub updated_at: i64,
-}
-
-wire_enum! {
-    SsoConnectionState {
-        Draft = "draft",
-        Active = "active",
-        Disabled = "disabled",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct SsoConnectionOidc {
-    pub issuer: String,
-    pub client_id: String,
-    pub scopes: Vec<String>,
-    pub authorization_endpoint: Option<String>,
-    pub token_endpoint: Option<String>,
-    pub jwks_uri: Option<String>,
 }

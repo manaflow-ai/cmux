@@ -876,26 +876,21 @@ wire_errors! {
 }
 
 wire_op! {
-    /// The VM's own machine record (the public machine view). VM installs only (kind vm, grant vm-self, its own bound machine).
-    CloudVmSelfGetOp {
-        name: "cloud.vm.self.get",
+    /// Read the bound VM's current receiving identities and daemon/SSH permissions, joined to original live install grants, team policy and Native service rules. The lease is at most 30 seconds and never outlives an included grant. This hidden VM-only read does not activate a listener or mint a dial credential. VM installs only (kind vm, grant vm-self, its own bound machine).
+    CloudVmNetworkPolicyOp {
+        name: "cloud.vm.network_policy",
         class: Read,
         idempotency: Forbidden,
         owner: "cloud:CloudDO",
         risk: "read",
         principals: [Install],
-        params: CloudVmSelfGetParams,
-        result: CloudVmSelfGetResult,
-        error: CloudVmSelfGetError,
+        params: CloudVmNetworkPolicyParams,
+        result: CloudVmNetworkPolicyView,
+        error: CloudVmNetworkPolicyError,
     }
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CloudVmSelfGetParams {
+pub struct CloudVmNetworkPolicyParams {
     pub machine: MachineId,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CloudVmSelfGetResult {
-    pub machine: CloudMachine,
 }

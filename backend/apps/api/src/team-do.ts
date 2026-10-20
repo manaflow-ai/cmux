@@ -1,4 +1,5 @@
 import { hostNetworkPolicy } from "./host-network-policy.ts"
+import { vmReceiverPeers, type VmReceiverPeerTarget } from "./cloud-vm-receiver-peers.ts"
 import { authorizeNativeDial, recheckNativeDial, type NativeDialDeps, type NativeDialPermit, type NativeDialTarget } from "./cloud-native-dial.ts"
 import type { EventFrame, OwnerFrame, Principal } from "@cmux/ownership"
 import type { ServerNetworkReservation } from "@cmux/protocol"
@@ -256,6 +257,18 @@ export class TeamDO extends OwnerDO<TeamState> {
   async recheckCloudDial(entity: string, p: Principal, permit: NativeDialPermit): Promise<boolean> {
     const deps = this.nativeDialDeps(entity)
     return deps ? recheckNativeDial(deps, p, permit) : false
+  }
+
+  /** CloudDO only: current client authority for its already-owned Native VM policy. */
+  async vmReceiverPeers(entity: string, target: VmReceiverPeerTarget) {
+    if (!this.isBound(entity)) return null
+    const engine = this.bind(entity)
+    return vmReceiverPeers({ team: entity, project: this.env.STACK_PROJECT_ID, origin: () => this.env.CLOUD_VM_API_ORIGIN,
+      state: () => engine.currentState, rows: engine.rows, tenant: () => this.vmApiTenant(entity, "operate"), now: Date.now,
+      allowed: () => cloudPolicyOf(engine.currentState).connect_services,
+      identity: (user, install, grant) => this.env.USER_DO.get(this.env.USER_DO.idFromName(user)).networkIdentity(user, install, grant, entity),
+      identities: (user, entries) => this.env.USER_DO.get(this.env.USER_DO.idFromName(user)).networkIdentities(user, entries, entity)
+    }, target)
   }
 
   async cloudPolicy(entity: string) { return cloudPolicyOf(this.isBound(entity) ? this.bind(entity).currentState : undefined) } // RPC from CloudDO (CLOUD-CONNECT-ACCESS, cloud.idlePause)

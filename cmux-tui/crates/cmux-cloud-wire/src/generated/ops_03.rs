@@ -5,6 +5,42 @@
 use super::*;
 
 wire_errors! {
+    /// The error codes cloud.vm.network_policy declares.
+    CloudVmNetworkPolicyError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        CloudMachineNotFound = "cloud.machine.not_found",
+        CloudRateLimited = "cloud.rate_limited",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// The VM's own machine record (the public machine view). VM installs only (kind vm, grant vm-self, its own bound machine).
+    CloudVmSelfGetOp {
+        name: "cloud.vm.self.get",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:CloudDO",
+        risk: "read",
+        principals: [Install],
+        params: CloudVmSelfGetParams,
+        result: CloudVmSelfGetResult,
+        error: CloudVmSelfGetError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudVmSelfGetParams {
+    pub machine: MachineId,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudVmSelfGetResult {
+    pub machine: CloudMachine,
+}
+
+wire_errors! {
     /// The error codes cloud.vm.self.get declares.
     CloudVmSelfGetError {
         AuthForbidden = "auth.forbidden",
@@ -864,43 +900,3 @@ pub struct FeedCancelParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub note: Option<String>,
 }
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FeedCancelResult {
-    pub item: FeedItem,
-}
-
-wire_errors! {
-    /// The error codes feed.cancel declares.
-    FeedCancelError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        FeedClosed = "feed.closed",
-        FeedFull = "feed.full",
-        FeedMoving = "feed.moving",
-        FeedRateLimited = "feed.rate_limited",
-        IdempotencyConflict = "idempotency.conflict",
-        OwnerMoved = "owner.moved",
-        RevisionConflict = "revision.conflict",
-        SelectorNotFound = "selector.not_found",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Badge counts: open requests, unread active items, open requests by priority.
-    FeedCountsOp {
-        name: "feed.counts",
-        class: Read,
-        idempotency: Forbidden,
-        owner: "cloud:FeedDO",
-        risk: "read",
-        principals: [Session, Install],
-        params: FeedCountsParams,
-        result: FeedCountsResult,
-        error: FeedCountsError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FeedCountsParams {}

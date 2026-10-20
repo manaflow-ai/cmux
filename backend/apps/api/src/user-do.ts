@@ -537,6 +537,18 @@ export class UserDO extends OwnerDO<UserState> {
     return Promise.all(entries.map((v) => this.networkIdentity(entity, v.install, v.grant, team)))
   }
 
+  /** CloudDO only: the original VM grant and key, bound to this exact creator/team/machine. */
+  async vmNetworkIdentity(entity: string, install: string, grant: string, team: string, machine: string) {
+    const engine = this.existing()
+    if (!engine || engine.stream !== `user:${entity}`) return null
+    const state = engine.currentState, inst = state.installs[install]
+    const held = liveInstallGrant(state, { identity: install, kind: "install", user: entity, install, grant, team }, Date.now())
+    if (state.user?.id !== entity || !inst || inst.kind !== "vm" || inst.bound_team !== team || inst.bound_machine !== machine
+      || !held || !held.op_classes.includes("vm-self")) return null
+    return { key: inst.public_jwk as JsonWebKey, kind: inst.kind, expires_at: held.expires_at,
+      authority_version: installAuthorityVersion(state, install), op_classes: held.op_classes }
+  }
+
   /** For other owners (TeamDO): is this install active, and what does its grant allow? */
   async installGrant(entity: string, install: string, grant: string, agent?: string): Promise<{ ok: true; op_classes: ReadonlyArray<string>; kind: string; email: string | null; email_verified: boolean; expires_at: number | null; authority_version: string; bound_machine?: string; sso_team?: string } | { ok: false }> {
     const engine = this.existing()

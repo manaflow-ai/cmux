@@ -5,6 +5,48 @@
 use super::*;
 
 wire_op! {
+    /// Run a chief's brain locally (on a host) or in the cloud (the chief's owner).
+    MuxConfigureOp {
+        name: "mux.configure",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:MuxDO",
+        risk: "mutate-own",
+        principals: [Session, Install],
+        params: MuxConfigureParams,
+        result: Value,
+        error: MuxConfigureError,
+    }
+}
+
+wire_enum! {
+    MuxConfigureParamsBrain {
+        Local = "local",
+        Cloud = "cloud",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct MuxConfigureParams {
+    pub agent: AgentId,
+    pub brain: MuxConfigureParamsBrain,
+    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
+    pub brain_host: Option<Option<String>>,
+}
+
+wire_errors! {
+    /// The error codes mux.configure declares.
+    MuxConfigureError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        InvalidParams = "invalid_params",
+        RevisionConflict = "revision.conflict",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
     /// List the caller-owned private Cloud networks.
     NetworkListOp {
         name: "network.list",
@@ -847,59 +889,4 @@ wire_errors! {
         AuthForbidden = "auth.forbidden",
         AuthUnauthenticated = "auth.unauthenticated",
     }
-}
-
-wire_op! {
-    /// Seal the OIDC client secret (owners and admins). The secret is never returned, logged or recorded in events.
-    SsoConnectionSetSecretOp {
-        name: "sso.connection.set_secret",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:TeamDO",
-        risk: "mutate-shared",
-        principals: [Session],
-        params: SsoConnectionSetSecretParams,
-        result: SsoConnection,
-        error: SsoConnectionSetSecretError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct SsoConnectionSetSecretParams {
-    pub connection: SsoConnectionId,
-    pub client_secret: String,
-}
-
-wire_errors! {
-    /// The error codes sso.connection.set_secret declares.
-    SsoConnectionSetSecretError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        RevisionConflict = "revision.conflict",
-        SelectorNotFound = "selector.not_found",
-        SsoNotConfigured = "sso.not_configured",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Monthly AI spending limits: the team default, your own limit and spend this month, and when they reset. Team admins and billing members also get every member's limit and spend, and the team's usage this period against its included amount.
-    TeamAiLimitGetOp {
-        name: "team.ai_limit.get",
-        class: Read,
-        idempotency: Forbidden,
-        owner: "cloud:TeamDO",
-        risk: "read",
-        principals: [Session, Install],
-        params: TeamAiLimitGetParams,
-        result: TeamAiLimitGetResult,
-        error: TeamAiLimitGetError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamAiLimitGetParams {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub cursor: Option<String>,
 }

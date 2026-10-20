@@ -322,6 +322,49 @@ pub struct CloudVmNetwork {
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudVmNetworkPolicyView {
+    pub schema_version: IntLit<1>,
+    pub machine: MachineId,
+    pub host: HostId,
+    pub epoch: i64,
+    pub user: UserId,
+    pub install: InstallId,
+    pub team: TeamId,
+    pub origin: String,
+    pub tenant: NativeTenantId,
+    pub mesh: NativeMeshId,
+    pub vm: String,
+    pub ipv4: Option<String>,
+    pub wg_public_key: WgPublicKey,
+    pub install_public_key: String,
+    pub authority_version: String,
+    pub checked_at: i64,
+    pub expires_at: i64,
+    pub acl_version: i64,
+    pub policy_digest: String,
+    pub peers: Vec<CloudVmReceiverPeer>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudVmReceiverPeer {
+    pub host: HostId,
+    pub user: UserId,
+    pub install: InstallId,
+    pub device: NativeDeviceId,
+    pub wg_public_key: WgPublicKey,
+    pub install_public_key: String,
+    pub authority_version: String,
+    pub services: Vec<CloudVmReceiverPeerServicesItem>,
+}
+
+wire_enum! {
+    CloudVmReceiverPeerServicesItem {
+        Daemon = "daemon",
+        Ssh = "ssh",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct CodeRef {
     pub commit: CommitSha,
     pub path: String,
@@ -848,48 +891,4 @@ wire_enum! {
         Suppressed = "suppressed",
         RefusedEnv = "refused_env",
     }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct HomeInboxEntry {
-    pub conversation: ConversationId,
-    pub rev: i64,
-    pub kind: ConversationKind,
-    pub title: String,
-    pub last_seq: i64,
-    pub last_at: Timestamp,
-    pub preview: String,
-    /// Attachments of the last message, for a localized preview ("2 photos"); preview is empty for an attachment-only message.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub preview_attachments: Option<HomeInboxEntryPreviewAttachments>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub dm_peer: Option<ParticipantId>,
-    pub removed: bool,
-    pub unread: i64,
-    pub mentions: i64,
-    pub counts_rev: i64,
-    pub pinned: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub pin_position: Option<i64>,
-    pub muted: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub muted_until: Option<WireNumber>,
-    pub archived: bool,
-    pub archived_seq: i64,
-    pub marked_unread: bool,
-}
-
-wire_enum! {
-    HomeInboxEntryPreviewAttachmentsKind {
-        Photo = "photo",
-        Video = "video",
-        Audio = "audio",
-        File = "file",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct HomeInboxEntryPreviewAttachments {
-    pub kind: HomeInboxEntryPreviewAttachmentsKind,
-    pub count: i64,
 }
