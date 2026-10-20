@@ -81,6 +81,7 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
     #[cfg(unix)]
     if mux.serves_agent_update() {
         capabilities.push(agent_transfer::agent_update::AGENT_UPDATE_CAPABILITY);
+        capabilities.push(agent_transfer::agent_update::AGENT_UPDATE_OWNER_CAPABILITY);
     }
     #[cfg(unix)]
     if mux.serves_agent_transfer() {
