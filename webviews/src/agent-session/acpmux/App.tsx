@@ -3191,15 +3191,22 @@ function AcpmuxPane() {
   const [subagentChat, setSubagentChat] = useState(shownSessionId);
   // The groups opened on their own, each once: a group the person closes stays closed.
   const [openedGroups, setOpenedGroups] = useState<ReadonlySet<string>>(() => new Set());
+  // The open folds are each chat's own (row ids such as `subagents-<seq>` repeat across chats):
+  // the chats shown before keep theirs here for a switch back.
+  const [chatFolds, setChatFolds] = useState<
+    ReadonlyMap<string, { expanded: Set<string>; opened: ReadonlySet<string> }>
+  >(() => new Map());
   if (subagentChat !== shownSessionId) {
     setSubagentChat(shownSessionId);
     setSubagentView(undefined);
-    // The open folds are the chat's own: row ids such as `subagents-<seq>` repeat across chats.
-    setExpanded(new Set());
-    setOpenedGroups(new Set());
+    const kept = shownSessionId === undefined ? undefined : chatFolds.get(shownSessionId);
+    if (subagentChat !== undefined)
+      setChatFolds(new Map(chatFolds).set(subagentChat, { expanded, opened: openedGroups }));
+    setExpanded(kept?.expanded ?? new Set());
+    setOpenedGroups(kept?.opened ?? new Set());
   }
   // A group of subagents starts open while its agents run in the working turn, in the render that
-  // first draws it (an agent a cancel or a reconnect left "running" opens none).
+  // first draws it (an agent a cancel or a reconnect left "running" in an earlier turn opens none).
   const liveGroups = useMemo(
     () => (snapshot.isWorking ? runningGroups(snapshot.rows, snapshot.subagentViews) : []),
     [snapshot.isWorking, snapshot.rows, snapshot.subagentViews],

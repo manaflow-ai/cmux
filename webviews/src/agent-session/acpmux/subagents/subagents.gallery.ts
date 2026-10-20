@@ -223,7 +223,12 @@ export default agentPaneEntry({
       snapshot: MIXED,
     },
     running: {
-      note: "Four subagents started together, all still working.",
+      note: "Four subagents started together, all still working: the group is open, a line per agent, with no click.",
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-subagent").length === AUDIT.length);
+        if (ctx.find({ selector: ".cv-subagents" }).getAttribute("aria-expanded") !== "true")
+          throw new Error("a group of running agents in a working turn must start open");
+      },
       snapshot: chat(
         [
           user(prompt, 2),
@@ -235,7 +240,7 @@ export default agentPaneEntry({
         { isWorking: true },
       ),
     },
-    mixed: { note: "Some done, one failed, one still working.", snapshot: MIXED },
+    mixed: { note: "Some done, one failed, one still working: open while it works.", snapshot: MIXED },
     codex: {
       note: "Codex subagents (native sessions through codex-acp, cx-07ezn): Codex marks, names from the agent path.",
       snapshot: CODEX,
@@ -274,7 +279,7 @@ export default agentPaneEntry({
         isWorking: true,
       }),
     },
-    many: { note: "Seven subagents: three avatars, then +4.", snapshot: MANY },
+    many: { note: "Seven subagents: three avatars, then +4; open while they work.", snapshot: MANY },
     done: { note: "An ended turn: the group stays in view above the reply, outside Worked for.", snapshot: DONE },
     stopped: {
       note: "A turn stopped while subagents ran: cancelled and disconnected.",
