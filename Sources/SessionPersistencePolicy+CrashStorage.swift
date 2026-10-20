@@ -235,11 +235,10 @@ extension SessionPersistencePolicy {
         let supplemental = lhsIsRicher ? rhs : lhs
         var mergedWorkspaces = preferred.tabManager.workspaces
 
-        for (supplementalIndex, workspace) in supplemental.tabManager.workspaces.enumerated() {
+        for workspace in supplemental.tabManager.workspaces {
             let supplementalCheckpoints = workspaceCheckpointIDs(workspace)
             if let matchingIndex = duplicateWorkspaceMatchIndex(
                 workspace,
-                supplementalIndex: supplementalIndex,
                 in: mergedWorkspaces,
                 checkpoints: supplementalCheckpoints
             ) {
@@ -266,7 +265,6 @@ extension SessionPersistencePolicy {
 
     private static func duplicateWorkspaceMatchIndex(
         _ workspace: SessionWorkspaceSnapshot,
-        supplementalIndex: Int,
         in existing: [SessionWorkspaceSnapshot],
         checkpoints: Set<String>
     ) -> Int? {
@@ -294,14 +292,12 @@ extension SessionPersistencePolicy {
                 return titled[0]
             }
         }
-        // Legacy snapshots often omit workspace identities and titles. Within
-        // a duplicate window, the remaining plain workspaces retain their
-        // relative order, so use that position before appending anything.
-        guard supplementalIndex < existing.count,
-              (workspace.customTitle ?? "").isEmpty else {
-            return nil
-        }
-        return supplementalIndex
+        // Legacy snapshots often omit workspace identities and titles. Array
+        // position is not an identity: crash generations can reorder tabs, so
+        // guessing here can merge two unrelated worktrees and silently discard
+        // one of them. Keep the supplemental workspace instead; only a stable
+        // identity, checkpoint, or unique title is safe to merge.
+        return nil
     }
 
     private static func crashWindowCheckpointIDs(

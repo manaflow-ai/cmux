@@ -382,8 +382,86 @@ struct CrashDiagnosticSessionPolicyTests {
 
         #expect(pruned.removedAny)
         #expect(pruned.snapshot?.windows.count == 1)
-        #expect(pruned.snapshot?.windows.first?.tabManager.workspaces.count == 2)
+        #expect(pruned.snapshot?.windows.first?.tabManager.workspaces.count == 3)
         #expect(pruned.snapshot?.windows.first?.tabManager.workspaces.first?.currentDirectory == projectDirectory)
+    }
+
+    @Test
+    func sessionSnapshotDoesNotMatchIdentityLessWorkspacesByPosition() {
+        let retainedID = "01a149a7-fbec-7240-9c88-ed6faec559ca"
+        let projectDirectory = "/Volumes/Workshop/Code/pulp"
+
+        func workspace(directory: String, checkpointID: String?) -> SessionWorkspaceSnapshot {
+            let panelID = UUID()
+            let terminal = SessionTerminalPanelSnapshot(
+                workingDirectory: directory,
+                agent: checkpointID.map {
+                    SessionRestorableAgentSnapshot(
+                        kind: .codex,
+                        sessionId: $0,
+                        workingDirectory: projectDirectory
+                    )
+                },
+                wasAgentRunning: checkpointID != nil
+            )
+            return SessionWorkspaceSnapshot(
+                workspaceId: nil,
+                processTitle: "Terminal",
+                customTitle: nil,
+                customColor: nil,
+                isPinned: false,
+                currentDirectory: directory,
+                focusedPanelId: panelID,
+                layout: .pane(SessionPaneLayoutSnapshot(panelIds: [panelID], selectedPanelId: panelID)),
+                panels: [terminalPanelSnapshot(id: panelID, directory: directory, terminal: terminal)],
+                statusEntries: [],
+                logEntries: [],
+                progress: nil,
+                gitBranch: nil
+            )
+        }
+
+        func window(workspaces: [SessionWorkspaceSnapshot]) -> SessionWindowSnapshot {
+            SessionWindowSnapshot(
+                frame: nil,
+                display: nil,
+                tabManager: SessionTabManagerSnapshot(
+                    selectedWorkspaceIndex: 0,
+                    workspaces: workspaces
+                ),
+                sidebar: SessionSidebarSnapshot(isVisible: true, selection: .tabs, width: nil)
+            )
+        }
+
+        let snapshot = AppSessionSnapshot(
+            version: SessionSnapshotSchema.currentVersion,
+            createdAt: 10,
+            windows: [
+                window(workspaces: [
+                    workspace(directory: projectDirectory, checkpointID: retainedID),
+                    workspace(directory: "/Volumes/Workshop/Code/first", checkpointID: nil),
+                    workspace(directory: "/Volumes/Workshop/Code/auxiliary", checkpointID: nil),
+                ]),
+                window(workspaces: [
+                    workspace(directory: projectDirectory, checkpointID: retainedID),
+                    workspace(directory: "/Volumes/Workshop/Code/second", checkpointID: "01a149a8-00ed-7890-845c-dce07298068a"),
+                    workspace(directory: "/Volumes/Workshop/Code/third", checkpointID: nil),
+                ]),
+            ]
+        )
+
+        let pruned = SessionPersistencePolicy.pruningCmuxCrashDiagnosticWindows(from: snapshot)
+
+        #expect(pruned.removedAny)
+        #expect(pruned.snapshot?.windows.count == 1)
+        #expect(Set(pruned.snapshot?.windows.first?.tabManager.workspaces.map(\.currentDirectory) ?? []) == [
+            projectDirectory,
+            "/Volumes/Workshop/Code/first",
+            "/Volumes/Workshop/Code/second",
+            "/Volumes/Workshop/Code/third",
+            "/Volumes/Workshop/Code/first",
+            "/Volumes/Workshop/Code/auxiliary",
+        ])
     }
 
     @Test
