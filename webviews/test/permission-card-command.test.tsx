@@ -1,0 +1,45 @@
+// l10n-allow-file: test fixture tool titles and commands, not shipped UI.
+// A single permission card drew a command block for every ask with a title: with no command in
+// the request it showed the title, minus a leading "Run", as code. An edit, a fetch or an MCP
+// call read "Edit src/app.ts" as its label and again as a command under it. The card shows a
+// command when the request carries one, and reads it from the title only for a command ask
+// (kind execute) whose title is the command, the way Codex titles it ("Run npm test").
+import { expect, test } from "bun:test";
+import { renderToStaticMarkup } from "react-dom/server";
+import type { AcpmuxPermission } from "../src/agent-session/acpmux/model";
+import { PermissionCard } from "../src/agent-session/acpmux/PermissionCard";
+
+const options: AcpmuxPermission["options"] = [
+  { id: "allow", name: "Allow", kind: "allow_once", allow: true },
+  { id: "deny", name: "Deny", kind: "reject_once", allow: false },
+];
+const ask = (fields: Partial<AcpmuxPermission>): AcpmuxPermission => ({
+  permissionId: "p1",
+  pending: true,
+  options,
+  ...fields,
+});
+const card = (permission: AcpmuxPermission) =>
+  renderToStaticMarkup(<PermissionCard permission={permission} onAnswer={() => undefined} harness="codex" />);
+const commandBlock = (html: string) => html.match(/<details class="acpmux-permission-command">.*?<\/details>/s)?.[0];
+
+test("an edit ask without a command draws no command block", () => {
+  const html = card(ask({ title: "Edit src/app.ts", kind: "edit" }));
+  expect(html).toContain("Edit src/app.ts");
+  expect(commandBlock(html)).toBeUndefined();
+});
+
+test("a fetch or tool ask without a kind draws no command block either", () => {
+  expect(commandBlock(card(ask({ title: "Fetch https://example.com", kind: "fetch" })))).toBeUndefined();
+  expect(commandBlock(card(ask({ title: "mcp__linear__create_issue" })))).toBeUndefined();
+});
+
+test("a command ask shows its command", () => {
+  const html = card(ask({ title: "Run tests", kind: "execute", command: "bun test" }));
+  expect(commandBlock(html)).toContain("bun test");
+});
+
+test("a command ask titled with its command shows it without the Run", () => {
+  const html = card(ask({ title: "Run npm test", kind: "execute" }));
+  expect(commandBlock(html)).toContain("<code>npm test</code>");
+});
