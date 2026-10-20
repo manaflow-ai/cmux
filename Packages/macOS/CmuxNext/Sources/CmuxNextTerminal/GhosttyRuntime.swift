@@ -231,6 +231,7 @@ public final class GhosttyRuntime {
             line.withCString { ghostty_config_load_string(config, $0, UInt(line.utf8.count), "cmux-next") }
         }
         ghostty_config_finalize(config)
+        enforceClipboardWriteConsent(into: config)
         let count = ghostty_config_diagnostics_count(config)
         for index in 0..<count {
             let diagnostic = ghostty_config_get_diagnostic(config, index)
