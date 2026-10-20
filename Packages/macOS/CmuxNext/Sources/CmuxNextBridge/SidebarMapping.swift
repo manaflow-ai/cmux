@@ -171,6 +171,8 @@ public struct SidebarMapping {
         row.lastMessage = lastMessage(front, tabs)
         if showsUnread { row.notificationText = newestUnread(tabs).flatMap(notificationText) }
         row.reported = Self.reported(workspace.status, asset: iconAsset)
+        row.workspaceDescription = workspace.workspaceDescription
+        row.taskStatus = workspace.taskStatus.map(Self.taskStatus)
         row.detail = detail(tabs: tabs, indicator: indicator.state, agentTab: agentTab(tabs), front: front,
                             notification: row.notificationText)
         return row
@@ -285,6 +287,17 @@ public struct SidebarMapping {
         }
     }
 
+    /// The sidebar's lane for a workspace's manual task status (`workspace-status-v1`).
+    static func taskStatus(_ status: WorkspaceTaskStatus) -> SidebarTaskStatus {
+        switch status {
+        case .todo: .todo
+        case .working: .working
+        case .needsAttention: .needsAttention
+        case .review: .review
+        case .done: .done
+        }
+    }
+
     /// Status entry keys that feed their own row elements, not the status
     /// line (`cmux workspace status set ports|pr <text>`).
     public static let portsKey = "ports"
@@ -303,7 +316,7 @@ public struct SidebarMapping {
         guard let status else { return nil }
         let block = SidebarWorkspaceStatus(
             entries: status.entries.filter { $0.key != portsKey && $0.key != pullRequestKey }.map {
-                SidebarWorkspaceStatus.Entry(key: $0.key, text: $0.text, icon: $0.icon, tint: SidebarWorkspaceStatus.Tint($0.color),
+                SidebarWorkspaceStatus.Entry(key: $0.key, text: $0.text, icon: $0.icon, tint: SidebarWorkspaceStatus.Tint($0.color), state: $0.state,
                                              image: $0.icon.flatMap(asset))
             },
             log: status.lastLog.map {

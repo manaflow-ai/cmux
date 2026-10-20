@@ -12,7 +12,7 @@ public nonisolated struct SettingsPageLayout: Sendable {
     /// studio, file actions). Raw values are the export's card ids.
     public nonisolated enum Card: String, Sendable, Hashable, CaseIterable {
         case themeStudio, terminalInfo, ghosttyDiagnostics, computerUse, harnesses, spaces, browserProfiles
-        case machines, accounts, agentHarnesses, advancedInfo, advancedActions, backdrops, chiefPet
+        case machines, accounts, agentHarnesses, chiefs, advancedInfo, advancedActions, backdrops, chiefPet
     }
 
     /// A group card as the layout states it: the rows of a schema group
@@ -145,8 +145,8 @@ public nonisolated struct SettingsPageLayout: Sendable {
                 group("settings.group.subsessions"),
             ],
             // Harnesses lists every harness; Your Agents (BRING-YOUR-OWN-HARNESS) adds, checks and
-            // removes the ones you added.
-            trail: [.harnesses, .agentHarnesses, .computerUse]),
+            // removes the ones you added; Chiefs lists every Chief, each opening its editor (u2586).
+            trail: [.harnesses, .agentHarnesses, .chiefs, .computerUse]),
         // The Chief pet floating over every app (ChatGPT's Mini & Pets): its card draws the preview,
         // Show/Hide and the characters from its group's two rows (the page lists them for search).
         CategorySpec(

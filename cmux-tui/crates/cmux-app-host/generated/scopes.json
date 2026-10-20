@@ -501,6 +501,10 @@
       "scope": "conversation:read",
       "class": "read"
     },
+    "conversation.members": {
+      "scope": "conversation:read",
+      "class": "read"
+    },
     "conversation.search": {
       "scope": "conversation:read",
       "class": "read"
@@ -1022,6 +1026,14 @@
       "class": "mutation"
     },
     "participants.add": {
+      "scope": "participants:write",
+      "class": "mutation"
+    },
+    "participants.set_role": {
+      "scope": "participants:write",
+      "class": "mutation"
+    },
+    "participants.unban": {
       "scope": "participants:write",
       "class": "mutation"
     },
@@ -1902,6 +1914,8 @@
     "firewall.list",
     "frontend_projection.get",
     "frontend_projection.put",
+    "grant.create",
+    "grant.revoke",
     "history.backups.purge",
     "history.clear",
     "history.entries.list",
@@ -1937,6 +1951,7 @@
     "layout.bulk",
     "network.list",
     "origin.confirmation.issue",
+    "ownership.transfer",
     "pairing_request.list",
     "pairing_request.resolve",
     "pane.close",
