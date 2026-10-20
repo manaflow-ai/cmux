@@ -12,6 +12,9 @@ enum HibernationHandlers {
         registry.bind("browser.hibernation.off", run: { _ in set(.off, context) })
         registry.bind("browser.hibernation.moderate", run: { _ in set(.moderate, context) })
         registry.bind("browser.hibernation.aggressive", run: { _ in set(.aggressive, context) })
+        for radius in BrowserHibernationSetting.neighborRadiusRange {
+            registry.bind(ActionID(rawValue: "browser.keepNeighborTabsAwake.\(radius)"), run: { _ in setNeighbors(radius, context) })
+        }
         registry.bind("hibernateTab", invoke: { invocation in
             guard let (_, id) = context.tab(invocation), let hibernation = context.services.cache.hibernation else { return }
             switch hibernation.hibernateNow(id.rawValue) {
@@ -25,6 +28,22 @@ enum HibernationHandlers {
             guard let (_, id) = context.tab(invocation), let hibernation = context.services.cache.hibernation else { return }
             if !hibernation.wake(id.rawValue) { context.refuseQuietly(RefusalStrings.wakeNotHibernated) }
         })
+    }
+
+    /// `browser.keepNeighborTabsAwake`: applies at once, then writes cmux.json.
+    private static func setNeighbors(_ radius: Int, _ context: AppActionContext) {
+        let services = context.services
+        if let hibernation = services.cache.hibernation {
+            var setting = hibernation.setting
+            setting.neighborRadius = radius
+            hibernation.apply(setting)
+        }
+        guard let settings = services.settings else { return }
+        Task {
+            do { try await settings.setKeepNeighborTabsAwake(radius) } catch {
+                logger.error("set browser.keepNeighborTabsAwake failed: \(String(describing: error), privacy: .public)")
+            }
+        }
     }
 
     private static func set(_ mode: BrowserHibernationSetting.Mode, _ context: AppActionContext) {

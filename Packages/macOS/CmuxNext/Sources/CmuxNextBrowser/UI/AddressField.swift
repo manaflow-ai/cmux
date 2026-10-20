@@ -41,16 +41,18 @@ final class AddressField: ChromeTextField, OmnibarFieldSurface {
     /// The last written style, so a theme change can recolor the text.
     private var lastStyle: OmnibarPresentation.Style = .plain
 
+    // AppKit refuses the keyboard to a selectable field that is not editable
+    // (a read-only sign-in bar): Cmd-L would do nothing there. The bar still
+    // takes it, to select and copy the address.
+    override var acceptsFirstResponder: Bool { super.acceptsFirstResponder || (isEnabled && isSelectable) }
+
     override func becomeFirstResponder() -> Bool {
         probe?("field.becomeFirstResponder")
         let accepted = super.becomeFirstResponder()
         probe?("field.becameFirstResponder")
-        if accepted {
-            performWithTheme {
-                (currentEditor() as? NSTextView)?.selectedTextAttributes = [.backgroundColor: OmnibarStyle.selection]
-            }
-            onFocus?()
-        }
+        // ChromeTextField (and its cell, at each field editor set-up) applies
+        // the caret and the gray selection.
+        if accepted { onFocus?() }
         return accepted
     }
 
@@ -63,6 +65,7 @@ final class AddressField: ChromeTextField, OmnibarFieldSurface {
         sink?.fieldEditorMouseDown(clickCount: event.clickCount, button: .left, word: nil)
         super.mouseDown(with: event)
         probe?("field.tracked")
+        if event.omnibarDragged(to: NSApp.currentEvent) { sink?.fieldEditorMouseDragged() }
         sink?.fieldEditorMouseUp()
         probe?("field.mouseUpDone")
     }

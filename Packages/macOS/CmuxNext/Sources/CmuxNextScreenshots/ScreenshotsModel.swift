@@ -1,14 +1,17 @@
 public import CmuxNextFileGrid
+public import CmuxNextFiles
 public import Foundation
 public import Observation
 
 /// The Screenshots pane's state: its folders, the merged newest-first
 /// listing of every folder, and the source filter and search text.
 ///
-/// It lists each folder once off the main actor, then keeps the listing live
-/// from one FSEvents watch over all folders: a changed file is looked at
-/// alone (a new screenshot is one `stat`, not a relist); a changed folder,
-/// a burst or lost events relist that folder only. Nothing polls.
+/// It reads each source once off the main actor through CmuxNextFiles
+/// (``ScreenshotFolderReader``), then keeps the listing live with one
+/// CmuxNextFiles ``FolderWatching`` stream per folder it read (the source's
+/// folder and every subfolder its rule entered): a changed file is looked at
+/// alone (a new screenshot is one `lstat`, not a relist); a new or removed
+/// subfolder, a burst or lost events relist that source only. Nothing polls.
 ///
 /// ```swift
 /// let model = ScreenshotsModel()
@@ -21,7 +24,7 @@ public final class ScreenshotsModel {
     /// The folders shown, in menu order.
     public private(set) var sources: [ScreenshotSource] = []
     /// Every listed file of every folder, newest first.
-    public private(set) var listing = FileGridListing()
+    public private(set) var listing = ScreenshotListing()
     /// Folders that could not be read (missing permission, removed).
     public private(set) var unreadableSourceIDs: Set<String> = []
     /// The source the grid shows, nil for all.
@@ -29,20 +32,23 @@ public final class ScreenshotsModel {
     /// Filters by file name.
     public var query = ""
 
-    @ObservationIgnored private let scanner: DirectoryScanner
-    @ObservationIgnored private let watcher: any DirectoryWatching
-    @ObservationIgnored private var watchTask: Task<Void, Never>?
+    @ObservationIgnored private let reader: ScreenshotFolderReader
+    @ObservationIgnored private let watcher: any FolderWatching
     @ObservationIgnored private var scans: [String: Task<Void, Never>] = [:]
-    /// Above this many changes for one folder in one batch, the folder is listed again.
+    /// The folders each source's last read covered, by source id.
+    @ObservationIgnored private var foldersBySource: [String: [String]] = [:]
+    /// One watch per folder path.
+    @ObservationIgnored private var watches: [String: Task<Void, Never>] = [:]
+    /// Above this many changed names in one batch, the source is read again.
     @ObservationIgnored private let rescanThreshold = 128
 
     /// Makes a model.
     ///
     /// - Parameters:
-    ///   - scanner: lists folders (default: the disk).
-    ///   - watcher: reports changes (default: FSEvents).
-    public init(scanner: DirectoryScanner = DirectoryScanner(), watcher: any DirectoryWatching = DirectoryWatcher()) {
-        self.scanner = scanner
+    ///   - reader: reads folders (default: the disk through CmuxNextFiles).
+    ///   - watcher: reports changes (default: CmuxNextFiles' FSEvents ``FolderWatcher``).
+    public init(reader: ScreenshotFolderReader = ScreenshotFolderReader(), watcher: any FolderWatching = FolderWatcher()) {
+        self.reader = reader
         self.watcher = watcher
     }
 
@@ -60,7 +66,10 @@ public final class ScreenshotsModel {
         return sources.first(where: \.acceptsDrops)?.folder
     }
 
-    /// Shows these folders: lists the new or changed ones, drops the gone ones, and watches them all.
+    /// The folder paths watched now (each source's folder and the subfolders it entered).
+    var watchedFolders: Set<String> { Set(watches.keys) }
+
+    /// Shows these folders: reads the new or changed ones, drops the gone ones, and watches them.
     /// The same sources again change nothing.
     ///
     /// - Parameter newSources: the folders, in menu order.
@@ -70,25 +79,30 @@ public final class ScreenshotsModel {
         let kept = Set(newSources.map(\.id))
         for source in sources where !kept.contains(source.id) {
             scans.removeValue(forKey: source.id)?.cancel()
+            foldersBySource.removeValue(forKey: source.id)
             listing.removeSource(source.id)
             unreadableSourceIDs.remove(source.id)
         }
         sources = newSources
         if let selectedSourceID, !kept.contains(selectedSourceID) { self.selectedSourceID = nil }
-        for source in newSources where old[source.id] != source { scheduleRescan(source) }
-        watch()
+        for source in newSources where old[source.id] != source {
+            foldersBySource[source.id] = [source.folder.path]
+            scheduleRescan(source)
+        }
+        syncWatches()
     }
 
-    /// Lists every folder again and returns when all are listed.
+    /// Reads every folder again and returns when all are read.
     public func refresh() async {
         for source in sources { scheduleRescan(source) }
-        for task in Array(scans.values) { await task.value }
+        // Each read clears its own entry when done (a newer read replaces a cancelled one).
+        while let pending = scans.values.first { await pending.value }
     }
 
-    /// Stops the watch and every listing in flight (the tab closed).
+    /// Stops every watch and every read in flight (the tab closed).
     public func stop() {
-        watchTask?.cancel()
-        watchTask = nil
+        for task in watches.values { task.cancel() }
+        watches.removeAll()
         for task in scans.values { task.cancel() }
         scans.removeAll()
     }
@@ -98,39 +112,42 @@ public final class ScreenshotsModel {
     /// - Parameter urls: the new files.
     public func noteSaved(_ urls: [URL]) async {
         for url in urls {
-            guard let source = source(containing: url.path), let item = await scanner.item(at: url, sourceID: source.id, rule: source.rule)
-            else { continue }
+            guard let source = source(containing: url.path), let item = await reader.item(at: url, in: source) else { continue }
             listing.upsert(item)
         }
     }
 
-    /// Applies one batch of watch events: each changed file is looked at alone; a changed folder,
-    /// lost events or a burst relist the folder.
+    /// Applies one change the watch of `folder` reported: each changed file is looked at alone;
+    /// a subfolder that appeared or went, lost events or a burst read the source again.
     ///
-    /// - Parameter events: what FSEvents reported.
-    public func apply(_ events: [DirectoryWatcherEvent]) async {
-        var files: [String: [String]] = [:]
-        var relist: Set<String> = []
-        for event in events {
-            guard let source = source(containing: event.path) else { continue }
-            if event.mustRescan || event.isDirectory || event.path == source.folder.path {
-                relist.insert(source.id)
+    /// - Parameters:
+    ///   - change: what CmuxNextFiles' watcher reported.
+    ///   - folder: the watched folder.
+    public func apply(_ change: FolderChange, in folder: URL) async {
+        guard let source = source(containing: folder.path) else { return }
+        guard case .items(let names) = change, names.count <= rescanThreshold else { return scheduleRescan(source) }
+        let known = Set(foldersBySource[source.id] ?? [])
+        let depth = Self.depth(of: folder.path, below: source.folder.path)
+        var relist = false
+        for name in Set(names) {
+            let url = folder.appendingPathComponent(name)
+            if known.contains(url.path) {
+                relist = true
+                continue
+            }
+            guard let entry = await reader.entry(at: url) else {
+                listing.remove(path: url.path)
+                continue
+            }
+            if ScreenshotFolderReader.enters(entry, depth: depth, rule: source.rule) {
+                relist = true
+            } else if let item = ScreenshotFolderReader.item(entry, in: source), Self.isListed(url.path, in: source) {
+                listing.upsert(item)
             } else {
-                files[source.id, default: []].append(event.path)
+                listing.remove(path: url.path)
             }
         }
-        for (id, paths) in files where paths.count > rescanThreshold { relist.insert(id) }
-        for source in sources where relist.contains(source.id) { scheduleRescan(source) }
-        for source in sources {
-            guard !relist.contains(source.id), let paths = files[source.id] else { continue }
-            for path in Set(paths) where Self.isListed(path, in: source) {
-                if let item = await scanner.item(at: URL(fileURLWithPath: path), sourceID: source.id, rule: source.rule) {
-                    listing.upsert(item)
-                } else {
-                    listing.remove(path: path)
-                }
-            }
-        }
+        if relist { scheduleRescan(source) }
     }
 
     /// Whether `path` sits where `source`'s rule lists files (its depth and folder prefix).
@@ -142,6 +159,11 @@ public final class ScreenshotsModel {
         return parts.dropLast().allSatisfy { source.rule.entersFolder(named: $0) }
     }
 
+    /// How many folder levels `path` is below `root` (0 for the root itself).
+    private static func depth(of path: String, below root: String) -> Int {
+        path == root ? 0 : path.dropFirst(root.count + 1).split(separator: "/").count
+    }
+
     /// The source whose folder holds `path` (the deepest one).
     private func source(containing path: String) -> ScreenshotSource? {
         sources.filter { path == $0.folder.path || path.hasPrefix($0.folder.path + "/") }
@@ -150,22 +172,35 @@ public final class ScreenshotsModel {
 
     private func scheduleRescan(_ source: ScreenshotSource) {
         scans[source.id]?.cancel()
-        let scanner = scanner
+        let reader = reader
+        // task-owner: `scans[source.id]`; a newer read of the source or stop() cancels it
         scans[source.id] = Task { [weak self] in
-            let result = await scanner.scan(source.folder, sourceID: source.id, rule: source.rule)
+            let result = await reader.read(source)
             guard !Task.isCancelled, let self, self.sources.contains(where: { $0.id == source.id }) else { return }
             self.listing.replace(source: source.id, with: result.items)
+            self.foldersBySource[source.id] = result.readable ? result.folders : [source.folder.path]
             if result.readable { self.unreadableSourceIDs.remove(source.id) } else { self.unreadableSourceIDs.insert(source.id) }
+            self.syncWatches()
+            self.scans[source.id] = nil
         }
     }
 
-    private func watch() {
-        watchTask?.cancel()
-        let stream = watcher.events(for: sources.map(\.folder.path))
-        watchTask = Task { [weak self] in
-            for await batch in stream {
-                guard let self else { return }
-                await self.apply(batch)
+    /// Watches exactly the folders the sources' last reads covered.
+    private func syncWatches() {
+        let wanted = Set(sources.flatMap { foldersBySource[$0.id] ?? [$0.folder.path] })
+        for (path, task) in watches where !wanted.contains(path) {
+            task.cancel()
+            watches[path] = nil
+        }
+        for path in wanted where watches[path] == nil {
+            let folder = URL(fileURLWithPath: path, isDirectory: true)
+            let stream = watcher.changes(in: folder)
+            // task-owner: `watches[path]`; cancelled when the folder leaves the sources or on stop()
+            watches[path] = Task { [weak self] in
+                for await change in stream {
+                    guard let self else { return }
+                    await self.apply(change, in: folder)
+                }
             }
         }
     }

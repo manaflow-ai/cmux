@@ -314,9 +314,7 @@ fn an_unadoptable_host_that_dies_without_a_record_is_respawned() {
 
     // The host and its shell die with no exit record.
     let host_pid = record.host_pid as libc::pid_t;
-    let _ = std::process::Command::new("/usr/bin/pkill")
-        .args(["-KILL", "-P", &host_pid.to_string()])
-        .status();
+    let _ = Command::new("/usr/bin/pkill").args(["-KILL", "-P", &host_pid.to_string()]).status();
     // SAFETY: the record PID is the harness-owned terminal host.
     unsafe { libc::kill(host_pid, libc::SIGKILL) };
     wait_for_process_and_group_absent(host_pid);
@@ -329,10 +327,12 @@ fn an_unadoptable_host_that_dies_without_a_record_is_respawned() {
     assert_eq!(lines[0]["cause"], "unadoptable_host_ended");
 }
 
-/// c. An agent session the terminal ran is typed on the new prompt for the
-/// user to resume; it does not run.
+/// c. An agent session the terminal ran resumes by itself in the new shell
+/// (#22292): its resume command is typed and run, so an agent in a
+/// workspace nobody opened yet runs again at launch, not once its tab is
+/// shown and someone presses Return.
 #[test]
-fn a_respawned_terminal_offers_its_agent_session_for_resume_without_running_it() {
+fn a_respawned_terminal_resumes_its_agent_session() {
     let _exclusive = exclusive_process_test();
     let harness = RecoveryHarness::start("respawn-agent");
     let (terminal_id, incarnation, surface) = start_default_shell(&harness, "agent");
@@ -383,15 +383,26 @@ fn a_respawned_terminal_offers_its_agent_session_for_resume_without_running_it()
             .unwrap_or_default()
     };
     let command = "claude--resumeabc-123";
-    let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
+    // The respawn waits up to 10 s for the new prompt before it types, so
+    // a loaded host needs more than that to show the command.
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(20));
     while !after_marker(&screen(&harness, surface)).contains(command) {
         assert!(Instant::now() < deadline, "no resume offer: {}", screen(&harness, surface));
         std::thread::sleep(Duration::from_millis(50));
     }
-    std::thread::sleep(Duration::from_secs(1));
-    let text = screen(&harness, surface);
-    assert!(!text.contains("not found"), "the resume command ran: {text}");
-    assert!(after_marker(&text).trim_end().ends_with(command), "not on the prompt line: {text}");
+    // It ran: the shell answered it (this host has no `claude`, so it
+    // reports the command missing) and the command is no longer waiting at
+    // the end of the prompt line.
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
+    loop {
+        let text = screen(&harness, surface);
+        let tail = after_marker(&text);
+        if !tail.trim_end().ends_with(command) && tail.contains(command) {
+            break;
+        }
+        assert!(Instant::now() < deadline, "the resume command did not run: {text}");
+        std::thread::sleep(Duration::from_millis(50));
+    }
     let lines = wait_for_respawn_lines(&harness, &terminal_id, 1);
     assert_eq!(lines.first().map(|line| line["prefilled"].clone()), Some("harness".into()));
 }

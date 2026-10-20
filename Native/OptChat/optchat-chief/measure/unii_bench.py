@@ -24,6 +24,7 @@ tokens, cache hit (read / (input + read + write)), cost at list prices.
 usage:
   unii_bench.py --harness unii --unii-src DIR [--model M] [--turns N] [--sticky KEY]
   unii_bench.py --harness chief --chief-system FILE [--model M] [--turns N] [--sticky KEY]
+  unii_bench.py --harness chief-keep --chief-system FILE ...   (one kept Claude Code session)
 Route: ANTHROPIC_BASE_URL / ANTHROPIC_AUTH_TOKEN / ANTHROPIC_CUSTOM_HEADERS from
 the environment (the team sr2 gateway signs requests itself). Prints one JSON
 line per turn ("UNII-BENCH {...}") and a summary line. Cheap, network-bound: a
@@ -216,7 +217,7 @@ def chief_turn(args, system_file, view, delta, prev_end, msg, cwd):
     argv = [args.claude, "-p", "--input-format", "stream-json", "--output-format", "stream-json",
             "--verbose", "--include-partial-messages", "--model", args.model, "--effort", args.effort,
             "--system-prompt-file", system_file, "--setting-sources", "project",
-            "--disable-slash-commands", "--tools", "Bash,Read,Edit,Write,WebFetch,WebSearch,ToolSearch",
+            "--disable-slash-commands", "--tools", os.environ.get("BENCH_TOOLS", "Bash,Read,Edit,Write,WebFetch,WebSearch,ToolSearch"),
             "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}']
     t0 = time.monotonic()
     p = subprocess.Popen(argv, cwd=cwd, env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
@@ -249,9 +250,74 @@ def chief_turn(args, system_file, view, delta, prev_end, msg, cwd):
             "first_request": reqs[0] if reqs else None, "reply": "".join(text)}
 
 
+class KeptChief:
+    """The Chief harness with a kept turn session (keep_turn_session): one
+    Claude Code process for every turn, Claude Code's own 1h cache marks, and
+    each turn sends only its new messages (the first turn sends the view)."""
+
+    def __init__(self, args, system_file, cwd):
+        env = dict(os.environ)
+        env.update({"CLAUDE_CODE_DISABLE_CLAUDE_MDS": "1", "DISABLE_AUTOUPDATER": "1",
+                    "CLAUDE_CODE_DISABLE_AUTO_MEMORY": "1", "ENABLE_PROMPT_CACHING_1H": "1",
+                    "CLAUDE_CODE_PROMPT_CACHE_TTL": "1h"})
+        env.pop("CLAUDECODE", None)
+        env.pop("DISABLE_PROMPT_CACHING", None)
+        hdr = [l for l in (env.get("ANTHROPIC_CUSTOM_HEADERS") or "").splitlines()
+               if l.strip() and not l.lower().startswith("x-subrouter-session")]
+        if args.sticky:
+            hdr.append("X-Subrouter-Session: " + args.sticky)
+        env["ANTHROPIC_CUSTOM_HEADERS"] = "\n".join(hdr)
+        argv = [args.claude, "-p", "--input-format", "stream-json", "--output-format", "stream-json",
+                "--verbose", "--include-partial-messages", "--model", args.model, "--effort", args.effort,
+                "--system-prompt-file", system_file, "--setting-sources", "project",
+                "--disable-slash-commands", "--tools", os.environ.get("BENCH_TOOLS", "Bash,Read,Edit,Write,WebFetch,WebSearch,ToolSearch"),
+                "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}']
+        self.t0 = time.monotonic()
+        self.p = subprocess.Popen(argv, cwd=cwd, env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                  stderr=subprocess.DEVNULL, text=True)
+        self.started = False
+
+    def turn(self, content):
+        t0 = time.monotonic()
+        # Turn 1 counts the process start, as a fresh turn does.
+        base = self.t0 if not self.started else t0
+        self.p.stdin.write(json.dumps({"type": "user", "message": {"role": "user", "content": content}}) + "\n")
+        self.p.stdin.flush()
+        first = start = None
+        text, use, reqs = [], None, []
+        for line in self.p.stdout:
+            try:
+                ev = json.loads(line)
+            except ValueError:
+                continue
+            if ev.get("type") == "system" and start is None and not self.started:
+                start = time.monotonic() - base
+            if ev.get("type") == "stream_event":
+                e = ev.get("event", {})
+                if e.get("type") == "message_start":
+                    reqs.append(usage_of(e["message"].get("usage") or {}))
+                if e.get("type") == "content_block_delta" and first is None and \
+                        e.get("delta", {}).get("type") in ("text_delta", "thinking_delta"):
+                    first = time.monotonic() - base
+                if e.get("type") == "content_block_delta" and e.get("delta", {}).get("type") == "text_delta":
+                    text.append(e["delta"]["text"])
+            if ev.get("type") == "result":
+                use = usage_of(ev.get("usage") or {})
+                break
+        was = self.started
+        self.started = True
+        return {"ttft_s": first, "start_s": start if not was else 0.0, "turn_s": time.monotonic() - base,
+                "usage": use or {}, "requests": len(reqs), "first_request": reqs[0] if reqs else None,
+                "reply": "".join(text)}
+
+    def close(self):
+        self.p.stdin.close()
+        self.p.wait(timeout=60)
+
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--harness", choices=["unii", "chief"], required=True)
+    ap.add_argument("--harness", choices=["unii", "chief", "chief-keep"], required=True)
     ap.add_argument("--unii-src", default="")
     ap.add_argument("--chief-system", default="")
     ap.add_argument("--model", default="claude-opus-5-5")
@@ -263,17 +329,24 @@ def main():
     args = ap.parse_args()
     lines = view_lines(args.view_kb)
     rows = []
+    kept = None
     if args.harness == "unii":
         system = open(os.path.join(args.unii_src, "prompt.txt"), encoding="utf-8").read()
     else:
         system_file = args.chief_system
         cwd = tempfile.mkdtemp(prefix="chief-bench-")
         delta, prev_end, base = [], None, len(lines) * 256
+        kept = KeptChief(args, system_file, cwd) if args.harness == "chief-keep" else None
     for k, msg in enumerate(TURNS[:args.turns]):
         mid = (len(lines) + k * 2) * 256 + k
         if args.harness == "unii":
             r = unii_turn(args, system, lines, msg)
             lines = lines + [f"{base_id(lines)}|user: {msg}\n", f"{base_id(lines) + 1}|unii: {flat(r['reply'])}\n"]
+        elif kept:
+            content = [{"type": "text", "text": "<chat>\n" + "".join(lines) + "</chat>\n"}] if k == 0 else []
+            content.append({"type": "text", "text": f"{mid}|user: {msg}\n" + ASK})
+            r = kept.turn(content)
+            delta = delta + [f"{mid}|user: {msg}\n", f"{mid + 1}|talk: {flat(r['reply'])}\n"]
         else:
             r = chief_turn(args, system_file, lines, delta, prev_end, f"{mid}|user: {msg}", cwd)
             prev_end = len(delta)
@@ -285,12 +358,14 @@ def main():
                "start_s": round(r["start_s"], 3) if r.get("start_s") is not None else None,
                "turn_s": round(r["turn_s"], 3), **u,
                "hit": round(u.get("cache_read", 0) / den, 3) if den else None,
-               "cost_usd": round(cost(args.model, u, args.harness == "chief"), 5)}
-        if args.harness == "chief":
+               "cost_usd": round(cost(args.model, u, args.harness != "unii"), 5)}
+        if args.harness != "unii":
             row["requests"] = r["requests"]
             row["first_request"] = r["first_request"]
         rows.append(row)
         print("UNII-BENCH " + json.dumps(row), flush=True)
+    if kept:
+        kept.close()
     warm = rows[1:]
     tot = {k: sum(r.get(k, 0) or 0 for r in warm) for k in ("input", "cache_read", "cache_write", "output")}
     den = tot["input"] + tot["cache_read"] + tot["cache_write"]

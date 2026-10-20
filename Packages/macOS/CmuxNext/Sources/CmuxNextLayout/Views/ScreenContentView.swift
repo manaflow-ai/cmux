@@ -27,9 +27,11 @@ final class ScreenContentView: NSView {
     /// A zoom or unzoom: the pane that owns the motion, and the panes a zoom covers, unchanged under it.
     internal(set) var zoomMotion = PaneZoomMotion()
     var covered: Set<PaneID> { zoomMotion.covered }
-    /// A close: the strip camera moves on the panes' spring until they rest, so a column whose
-    /// strip move the camera cancels (the one right of a closed column, as the focus goes left)
-    /// stays still instead of sliding in and out on two springs.
+    /// A close: the strip camera and each row column's move on the panes' (close) spring until
+    /// everything rests, so a column whose strip move the camera cancels (the one right of a
+    /// closed column, as the focus goes left) stays still instead of sliding in and out on two
+    /// springs, and the shift after the last column or row closed is the close's own curve. A user
+    /// scroll takes the camera back to the scroll spring.
     var scrollRidesFrames = false
     /// A close waits for `syncScroll` to place its camera, then takes its first frame (`leadIfPending`).
     var leadsFrame = false
@@ -101,6 +103,14 @@ final class ScreenContentView: NSView {
 
     override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
+        reconcileAndScroll()
+    }
+
+    /// Ends pane and divider motion where it was going before a hidden workspace's clock stops.
+    /// A pane spring left mid-flight could park its pane off screen. Column and row camera
+    /// springs may resume when the workspace shows (Lucas 2026-10-19).
+    func settleMotion() {
+        guard hasMotion else { return }
         reconcileAndScroll()
     }
 

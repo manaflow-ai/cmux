@@ -126,6 +126,11 @@ pub struct SpawnPlan {
     /// The engine of the turn that called spawn (engine.json); None before
     /// any turn.
     pub engine: Option<SpawnEngine>,
+    /// The acpmux peer its subagents run on (cloud; the first one's when
+    /// they differ); None: this host.
+    pub peer: Option<String>,
+    /// Each subagent's peer, in `ids` order (B4: the least busy one each).
+    pub peers: Vec<Option<String>>,
 }
 
 /// The engine a spawn's subagents run on: the calling turn's harness and
@@ -302,6 +307,11 @@ pub struct Spawner {
     refused: Mutex<BTreeMap<String, String>>,
     /// Cloud placement: new subagents start on this acpmux peer.
     cloud: Option<CloudPlacement>,
+    /// The subagent system text for a peer set at run time
+    /// (`control cloud`) when the env set none.
+    cloud_text: Option<String>,
+    /// The VMs behind cloud peers (B4): resumed before a subagent starts.
+    cloud_vms: Option<Arc<dyn crate::cloud_vms::CloudVms>>,
 }
 
 impl Spawner {
@@ -326,10 +336,43 @@ impl Spawner {
             grant: None,
             refused: Mutex::new(BTreeMap::new()),
             cloud: None,
+            cloud_text: None,
+            cloud_vms: None,
         }
     }
 
     /// New subagents start on this peer (None: on this machine).
+    /// The subagent system text a cloud subagent gets in its first message
+    /// when the peer comes from `control cloud` (no env placement).
+    pub fn with_cloud_text(mut self, text: String) -> Spawner {
+        self.cloud_text = Some(text);
+        self
+    }
+
+    /// The placement on `peer`: the env's folder and harness when it set
+    /// one, else the defaults (`/home/agent/work`, `claude`).
+    fn placement(&self, peer: &str) -> CloudPlacement {
+        match &self.cloud {
+            Some(c) => CloudPlacement {
+                peer: peer.to_owned(),
+                ..c.clone()
+            },
+            None => CloudPlacement {
+                peer: peer.to_owned(),
+                dir: PathBuf::from("/home/agent/work"),
+                harness: "claude".to_owned(),
+                instructions: self.cloud_text.clone().unwrap_or_default(),
+            },
+        }
+    }
+
+    /// The VMs behind cloud peers: resumed before a subagent starts or is
+    /// told there.
+    pub fn with_cloud_vms(mut self, vms: Option<Arc<dyn crate::cloud_vms::CloudVms>>) -> Spawner {
+        self.cloud_vms = vms;
+        self
+    }
+
     pub fn with_cloud(mut self, cloud: Option<CloudPlacement>) -> Spawner {
         self.cloud = cloud;
         self
@@ -406,11 +449,11 @@ impl Spawner {
     /// The running turn's view (`Input::TurnView`); None outside a turn.
     fn turn_view(&self) -> Option<String> {
         let (reply, answer) = channel();
-        self.send(Input::TurnView { reply }).ok()?;
+        self.to_brain(Input::TurnView { reply }).ok()?;
         answer.recv().ok().flatten()
     }
 
-    fn send(&self, input: Input) -> Result<(), String> {
+    fn to_brain(&self, input: Input) -> Result<(), String> {
         self.tx
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -430,9 +473,10 @@ impl Spawner {
         view: &str,
         floor: Option<&str>,
         s: &SubagentSettings,
+        peer: Option<&str>,
     ) -> Result<String, String> {
         let began = Instant::now();
-        let peer = self.cloud.as_ref().map(|c| c.peer.clone());
+        let peer = peer.map(str::to_owned);
         // Claude only through acpmux's own Claude Code adapter (harness_gate).
         // A peer's harness is its own profile: the gate reads this daemon's
         // catalog, so it does not apply there.
@@ -540,10 +584,10 @@ impl Spawner {
             ));
         }
         // Registered before its prompt: its turn end can only follow.
-        self.send(Input::SubagentStarted {
+        self.to_brain(Input::SubagentStarted {
             id: id.to_owned(),
             session_id: session.clone(),
-            policy: floor.map(str::to_owned),
+            policy: Some(spec.policy.clone()),
         })?;
         let (tx, rx) = channel();
         let prompt_id = format!("{PROMPT_PREFIX}sub:{id}:{}", now_ms());
@@ -553,7 +597,7 @@ impl Spawner {
             &prompt_id,
             tx,
         )?;
-        let _ = self.send(Input::SubagentPrompted { id: id.to_owned() });
+        let _ = self.to_brain(Input::SubagentPrompted { id: id.to_owned() });
         self.forward_answer(id, rx);
         self.trace.emit(
             "subagent.start",
@@ -574,14 +618,25 @@ impl Spawner {
         match workspaces.open(&key, &session, &name, &group, &s.cwd) {
             Ok(key) => {
                 let place = workspaces.place();
+                // a313: the real ws_ id and its session, so the CLI can list, move and pin it.
+                let located = workspaces.locate(&key);
                 self.trace.emit(
                     "subagent.workspace",
-                    json!({"id": id, "spawn": spawn, "workspace": key, "name": name, "group": group, "place": place}),
+                    json!({"id": id, "spawn": spawn, "workspace": key, "name": name, "group": group, "place": place,
+                        "ws": located.as_ref().map(|r| r.id.clone()), "session": located.as_ref().map(|r| r.session.clone())}),
                 );
                 // No link here: the posted reply links every mention (link_subagents), so
                 // the memory keeps the plain id, not a 70-character URL per mention.
-                let note = format!("workspace \"{name}\" in group \"{group}\" in {place}");
-                let _ = self.send(Input::SubagentWorkspace {
+                let mut note = format!("workspace \"{name}\" in group \"{group}\" in {place}");
+                if let Some(r) = &located {
+                    note.push_str(&format!(
+                        " (id {}, cmux session \"{}\"; `{}` moves it to the top)",
+                        r.id,
+                        r.session,
+                        r.move_to_top()
+                    ));
+                }
+                let _ = self.to_brain(Input::SubagentWorkspace {
                     id: id.to_owned(),
                     key,
                     name,
@@ -648,7 +703,7 @@ impl Spawner {
     /// too when the brain does not answer (fail closed).
     fn spawn_floor(&self) -> Option<String> {
         let (reply, answer) = channel();
-        if self.send(Input::SpawnPolicy { reply }).is_err() {
+        if self.to_brain(Input::SpawnPolicy { reply }).is_err() {
             return Some(crate::approval::ASK.to_owned());
         }
         match answer.recv_timeout(Duration::from_secs(30)) {
@@ -725,7 +780,7 @@ impl Spawner {
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .remove(id);
         let fail = |error: &str| {
-            let _ = self.send(Input::SubagentFailed {
+            let _ = self.to_brain(Input::SubagentFailed {
                 id: id.to_owned(),
                 error: error.to_owned(),
             });
@@ -764,7 +819,16 @@ impl Spawner {
             ),
             None => w.task.clone(),
         };
-        match self.start_one(&w.spawn, id, &task, &view, w.floor.as_deref(), &w.launch) {
+        // Queued ones are local: a cloud subagent never queues.
+        match self.start_one(
+            &w.spawn,
+            id,
+            &task,
+            &view,
+            w.floor.as_deref(),
+            &w.launch,
+            None,
+        ) {
             Ok(note) => (self.log)(&format!("subagent {id} started from the queue: {note}")),
             Err(e) => fail(&e),
         }
@@ -772,7 +836,8 @@ impl Spawner {
 
     /// A queued subagent's launch after a restart: its saved launch, else its
     /// spawn call in the log; the harness is the engine of now. A launch
-    /// from the log has no saved floor: the floor of now applies.
+    /// from the log has no trustworthy saved floor, so it fails closed to
+    /// `ask` rather than inheriting a possibly lower floor from now.
     fn rebuild_waiting(&self, queued: &QueuedStart) -> Result<Waiting, String> {
         let (saved, from_log) = match queued.launch.clone() {
             Some(saved) => (saved, false),
@@ -791,7 +856,7 @@ impl Spawner {
         let run = self.engine_settings(queued.engine.as_ref());
         let (dir, _) = self.run_dir(saved.cwd.as_deref(), &run);
         let floor = if from_log {
-            self.spawn_floor()
+            Some(crate::approval::ASK.to_owned())
         } else {
             saved.floor
         };
@@ -812,7 +877,7 @@ impl Spawner {
     /// Subagent `id`'s whole chat, one page of `page` characters from `at`.
     pub fn agent_chat_page(&self, id: &str, at: u64, page: u64) -> Result<String, String> {
         let (reply, answer) = channel();
-        self.send(Input::SubSession {
+        self.to_brain(Input::SubSession {
             id: id.to_owned(),
             reply,
         })?;
@@ -911,6 +976,16 @@ impl Orchestrator for Spawner {
         cwd: Option<String>,
         effort: Option<String>,
     ) -> Result<String, String> {
+        self.spawn_placed(tasks, cwd, effort, None)
+    }
+
+    fn spawn_placed(
+        &self,
+        tasks: Vec<String>,
+        cwd: Option<String>,
+        effort: Option<String>,
+        place: Option<String>,
+    ) -> Result<String, String> {
         if let Some(e) = effort.as_deref()
             && !crate::tools::EFFORTS.contains(&e)
         {
@@ -937,14 +1012,16 @@ impl Orchestrator for Spawner {
             }
         };
         let (reply, answer) = channel();
-        self.send(Input::SpawnRegister {
+        self.to_brain(Input::SpawnRegister {
             tasks: tasks.clone(),
             peer: self.cloud.as_ref().map(|c| c.peer.clone()),
+            place,
             reply,
         })?;
         let plan = answer
             .recv()
             .map_err(|_| "the Chief host is stopping".to_owned())??;
+        let cloud = plan.peer.as_deref().map(|p| self.placement(p));
         let run = self.engine_settings(plan.engine.as_ref());
         // The person's grant: a harness outside it starts nothing.
         let grant = self.grant.as_ref().map(|g| g.grant());
@@ -966,7 +1043,7 @@ impl Orchestrator for Spawner {
                 "harness": run.harness,
             }),
         );
-        if let (None, Some(text), Some(preset)) = (&self.cloud, &run.claude_md, &run.preset) {
+        if let (None, Some(text), Some(preset)) = (&cloud, &run.claude_md, &run.preset) {
             let file = (!self.agents.system_prompt(preset)).then_some(text.as_str());
             if let Err(e) = crate::session_dir::set_claude_md(&run.cwd, file) {
                 (self.log)(&format!("the subagent directory's CLAUDE.md: {e}"));
@@ -976,7 +1053,7 @@ impl Orchestrator for Spawner {
         // ask child or subagent lives, every subagent runs with policy ask.
         // No answer from the brain fails closed (ask).
         let floor = self.spawn_floor();
-        let (dir, dir_note) = match &self.cloud {
+        let (dir, dir_note) = match &cloud {
             Some(c) => (c.dir.clone(), None),
             None => self.run_dir(cwd.as_deref(), &run),
         };
@@ -990,7 +1067,7 @@ impl Orchestrator for Spawner {
             ..run.clone()
         };
         // On a peer: its own harness profile, no local preset or model.
-        if let Some(c) = &self.cloud {
+        if let Some(c) = &cloud {
             launch.harness = c.harness.clone();
             launch.preset = None;
             launch.model = None;
@@ -1010,14 +1087,16 @@ impl Orchestrator for Spawner {
                 map.insert(id.clone(), e.clone());
             }
         }
-        for (id, task) in plan.ids.iter().zip(&tasks) {
+        for (k, (id, task)) in plan.ids.iter().zip(&tasks).enumerate() {
+            let sub_peer = plan.peers.get(k).cloned().flatten();
+            let sub_cloud = sub_peer.as_deref().map(|p| self.placement(p));
             if let Some(e) = &refused {
                 (self.log)(&format!("subagent {id} did not start: {e}"));
                 lines.push(format!("- {id}: did not start ({e})"));
                 if plan.queued.contains(id) {
                     continue;
                 }
-                let _ = self.send(Input::SubagentFailed {
+                let _ = self.to_brain(Input::SubagentFailed {
                     id: id.clone(),
                     error: e.clone(),
                 });
@@ -1025,7 +1104,7 @@ impl Orchestrator for Spawner {
             }
             if plan.queued.contains(id) {
                 // Saved in its record too: a restarted host still starts it.
-                let _ = self.send(Input::SubagentQueued {
+                let _ = self.to_brain(Input::SubagentQueued {
                     id: id.clone(),
                     launch: crate::state::QueuedLaunch {
                         task: task.clone(),
@@ -1061,18 +1140,34 @@ impl Orchestrator for Spawner {
                 ));
                 continue;
             }
-            let task = match &self.cloud {
+            let task = match &sub_cloud {
                 Some(c) => c.task(id, cwd.as_deref(), task),
                 None => task.clone(),
             };
-            match self.start_one(&plan.spawn, id, &task, &view, floor.as_deref(), &launch) {
+            // A paused VM resumes first (B4); a no-op when it runs.
+            let resumed = match (&sub_peer, &self.cloud_vms) {
+                (Some(p), Some(vms)) => vms.resume(p),
+                _ => Ok(()),
+            };
+            let started_one = resumed.and_then(|()| {
+                self.start_one(
+                    &plan.spawn,
+                    id,
+                    &task,
+                    &view,
+                    floor.as_deref(),
+                    &launch,
+                    sub_peer.as_deref(),
+                )
+            });
+            match started_one {
                 Ok(note) => {
                     started.push(id.clone());
                     lines.push(format!("- {id}: {note}"));
                 }
                 Err(e) => {
                     (self.log)(&format!("subagent {id} did not start: {e}"));
-                    let _ = self.send(Input::SubagentFailed {
+                    let _ = self.to_brain(Input::SubagentFailed {
                         id: id.clone(),
                         error: e.clone(),
                     });
@@ -1084,13 +1179,32 @@ impl Orchestrator for Spawner {
             "No subagent started.".to_owned()
         } else if started.is_empty() {
             format!("Queued {}.", plan.queued.join(", "))
-        } else if let Some(c) = &self.cloud {
-            format!(
-                "Started {} on the cloud VM {} (acpmux peer), in {}.",
-                started.join(", "),
-                c.peer,
-                dir.display()
-            )
+        } else if let Some(c) = &cloud {
+            let mut on: Vec<&str> = plan.peers.iter().flatten().map(String::as_str).collect();
+            on.sort_unstable();
+            on.dedup();
+            if on.len() > 1 {
+                let each = plan
+                    .ids
+                    .iter()
+                    .zip(&plan.peers)
+                    .filter(|(id, _)| started.contains(id))
+                    .filter_map(|(id, p)| p.as_ref().map(|p| format!("{id} on {p}")))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!(
+                    "Started {} on the cloud VMs (acpmux peers; {each}), in {}.",
+                    started.join(", "),
+                    dir.display()
+                )
+            } else {
+                format!(
+                    "Started {} on the cloud VM {} (acpmux peer), in {}.",
+                    started.join(", "),
+                    c.peer,
+                    dir.display()
+                )
+            }
         } else {
             format!("Started {} in {}.", started.join(", "), dir.display())
         };
@@ -1112,11 +1226,22 @@ impl Orchestrator for Spawner {
     }
 
     fn tell_keyed(&self, id: &str, message: &str, key: Option<&str>) -> Result<String, String> {
+        self.tell_with(id, message, key, false)
+    }
+
+    fn tell_with(
+        &self,
+        id: &str,
+        message: &str,
+        key: Option<&str>,
+        queue: bool,
+    ) -> Result<String, String> {
         let (reply, answer) = channel();
-        self.send(Input::Tell {
+        self.to_brain(Input::Tell {
             id: id.to_owned(),
             message: message.to_owned(),
             key: key.map(str::to_owned),
+            queue,
             reply,
         })?;
         answer
@@ -1126,7 +1251,7 @@ impl Orchestrator for Spawner {
 
     fn control(&self, request: crate::tools::ControlCall) -> Result<String, String> {
         let (reply, answer) = channel();
-        self.send(Input::Control { request, reply })?;
+        self.to_brain(Input::Control { request, reply })?;
         answer
             .recv()
             .map_err(|_| "the Chief host is stopping".to_owned())?
@@ -1134,7 +1259,7 @@ impl Orchestrator for Spawner {
 
     fn react(&self, id: u64, reaction: &str) -> Result<String, String> {
         let (reply, answer) = channel();
-        self.send(Input::React {
+        self.to_brain(Input::React {
             id,
             reaction: reaction.to_owned(),
             reply,
@@ -1146,9 +1271,49 @@ impl Orchestrator for Spawner {
 
     fn reply(&self, id: u64, text: &str) -> Result<String, String> {
         let (reply, answer) = channel();
-        self.send(Input::Reply {
+        self.to_brain(Input::Reply {
             id,
             text: text.to_owned(),
+            reply,
+        })?;
+        answer
+            .recv()
+            .map_err(|_| "the Chief host is stopping".to_owned())?
+    }
+
+    fn send(&self, call: crate::tools::SendCall) -> Result<String, String> {
+        let (reply, answer) = channel();
+        self.to_brain(Input::Send { call, reply })?;
+        answer
+            .recv()
+            .map_err(|_| "the Chief host is stopping".to_owned())?
+    }
+
+    fn stop_turn(&self) -> Result<String, String> {
+        let (reply, answer) = channel();
+        self.to_brain(Input::StopTurn { reply })?;
+        answer
+            .recv()
+            .map_err(|_| "the Chief host is stopping".to_owned())?
+    }
+
+    fn sleep(&self, call: crate::tools::SleepCall) -> Result<String, String> {
+        let (reply, answer) = channel();
+        self.to_brain(Input::Sleep { call, reply })?;
+        answer
+            .recv()
+            .map_err(|_| "the Chief host is stopping".to_owned())?
+    }
+
+    fn escalate_auth(
+        &self,
+        agent: &str,
+        request: &crate::tools::AuthEscalation,
+    ) -> Result<String, String> {
+        let (reply, answer) = channel();
+        self.to_brain(Input::EscalateAuth {
+            agent: agent.to_owned(),
+            request: request.clone(),
             reply,
         })?;
         answer

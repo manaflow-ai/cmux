@@ -142,6 +142,11 @@ public final class HomeSidebarSource {
         inboxes.first { $0.rows?.contains { $0.id == id.rawValue } == true }
     }
 
+    /// Whether `id` shows in the pinned grid.
+    public func isPinned(_ id: ConversationID) -> Bool {
+        model(query: "", now: Date()).pinned.contains { $0.id == id }
+    }
+
     /// Pins or unpins `id`: with the owner when it lists `id`, else for this account on this Mac.
     public func setPinned(_ on: Bool, _ id: ConversationID) {
         if let inbox = owner(of: id) { return inbox.setPinned(on, id.rawValue) }

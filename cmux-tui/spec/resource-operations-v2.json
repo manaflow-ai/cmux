@@ -17879,6 +17879,22 @@
             },
             "description": "Indexes into the group's `members` to reopen. Omit to reopen every member; the rest stay in the group."
           },
+          "tab": {
+            "required": false,
+            "type": {
+              "kind": "resource_id",
+              "resource": "tab"
+            },
+            "description": "Reopen the member of the newest group that holds this tab (a tab member, or the screen or workspace member that contains it), under the SAME tab id, so a `cmux://tab/` link to it keeps working. Excludes `closed` and `members`. `resource.not_found` when no group holds it: the tab is open, or its record was deleted."
+          },
+          "fallback_pane": {
+            "required": false,
+            "type": {
+              "kind": "resource_id",
+              "resource": "pane"
+            },
+            "description": "Where a reopened tab goes when its own pane and workspace are gone, instead of the session's focused pane (a link clicked in Home passes the pane right of Home)."
+          },
           "expected_revision": {
             "required": false,
             "type": {
@@ -17891,7 +17907,8 @@
         "extra": false,
         "constraints": [
           "One close gesture is one group; reopen restores its members in order.",
-          "A tab reopens in its pane at its old index when that pane is live, else in the focused pane of its workspace; a screen reopens in its workspace; a workspace reopens as a new workspace."
+          "A tab reopens in its pane at its old index when that pane is live, else in the focused pane of its workspace, else in `fallback_pane`; a screen reopens in its workspace; a workspace reopens as a new workspace.",
+          "A reopened tab keeps its tab id."
         ]
       },
       "result": {
@@ -22880,6 +22897,35 @@
               "name": "string"
             }
           },
+          "argv": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string"
+              },
+              "min_items": 1
+            },
+            "description": "Exact executable and arguments the new pane's terminal runs instead of a shell, so no empty shell tab is left. Use [executable, \"-lc\", script] to choose a shell executable."
+          },
+          "shell": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "Script the new pane's terminal runs with the server platform default shell and -lc. Clients never expand $SHELL."
+          },
+          "focus": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "Move focus to the new pane. Default false: the caller's focus stays where it is, like tab.create_terminal."
+          },
           "cols": {
             "required": false,
             "type": {
@@ -22909,7 +22955,9 @@
         "constraints": [
           "ratio is finite and greater than 0 and less than 1.",
           "viewport_width requires direction right and is finite and greater than or equal to 0.1 and less than or equal to 1.",
-          "cols and rows are paired."
+          "cols and rows are paired.",
+          "At most one of argv or shell is present; argv[0] is non-empty.",
+          "focus defaults to false: a programmatic split never moves the user's focus unless it asks."
         ]
       },
       "result": {
@@ -28730,6 +28778,17 @@
             },
             "description": "When present, exact name bytes are preserved, including empty, whitespace, and Unicode."
           },
+          "engine": {
+            "required": false,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "webkit",
+                "cef"
+              ]
+            },
+            "description": "The engine the app renders the tab with when the tab becomes an app-rendered (frontend) tab. Absent is the person's browser.defaultEngine setting: webkit for webkit, else cef (Chromium, the setting's default). A cmux-browser provider renders its own tabs and ignores it."
+          },
           "width_px": {
             "required": false,
             "type": {
@@ -31822,6 +31881,14 @@
               "name": "boolean"
             },
             "description": "An ephemeral workspace is closed by the daemon at its next start."
+          },
+          "focus": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "Make the new workspace the focused one. Default false: the focused workspace stays."
           },
           "cwd": {
             "required": false,

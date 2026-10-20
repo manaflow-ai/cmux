@@ -36,6 +36,9 @@ public final class TerminalSurfaceView: NSView {
     /// whatever grid the PTY owner announced. Nil before the first layout.
     var fittedGrid: TerminalGridSize? { geometry.desired }
 
+    /// Whether a grid report waits for the pane's layout spring to land (``TerminalGridPolicy/held``).
+    var isHeldGridPending: Bool { geometry.held }
+
     /// Whether this view reports its grid to the PTY owner. Followers only
     /// render the announced grid (shell.md 2.3).
     var ownsGeometry: Bool {
@@ -337,10 +340,14 @@ public final class TerminalSurfaceView: NSView {
         let desired = TerminalGridSize(columns: Int(size.columns), rows: Int(size.rows))
         let metrics = TerminalGridMetrics(cellWidth: Int(size.cell_width_px), cellHeight: Int(size.cell_height_px),
                                           paddingWidth: 0, paddingHeight: 0)
-        let report = geometry.viewSized(desired, force: forceReport)
+        // A pane on a layout spring (Cmd-Shift-Enter zoom, split, close) resizes this view on every
+        // display frame: the surface draws each size (the reflow preview), and the grid goes to the
+        // owner once the spring lands (`paneMotionDidSettle`), one PTY resize instead of one per frame.
+        let report = geometry.viewSized(desired, force: forceReport, holding: !forceReport && isInPaneMotion)
         // In the same main-thread turn as set_size: the frame of the new size
         // draws at the next display pass, already reflowed.
-        updateReflowPreview(reporting: report != nil)
+        // A held grid is reported when the spring lands: the preview draws it meanwhile.
+        updateReflowPreview(reporting: report != nil || geometry.held)
         guard let report else { return }
         Self.gridReports &+= 1
         let cells = metrics.cellPixels(of: report)

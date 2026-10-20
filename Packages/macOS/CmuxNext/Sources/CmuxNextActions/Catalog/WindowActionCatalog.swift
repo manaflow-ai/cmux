@@ -189,6 +189,16 @@ nonisolated enum WindowActionCatalog: ActionCatalogGroup {
                 category: .window, symbol: "arrow.right.square", surfaces: [.keyboard, .menu],
                 arguments: [CatalogArgument.workspaceWorkspace], cliName: "app go-to-workspace", mainMenu: .window
             ),
+            // Cmd-Shift-A: the merged Search window (Cmd-P) with the Chats & agents chip set
+            // (plans/cmux-next/search-everything-DESIGN.md section 10.1). Backspace drops the chip.
+            ActionDescriptor(
+                id: "search.chats",
+                title: String(localized: "action.search.chats", defaultValue: "Search Chats & Agents…", bundle: .module),
+                keywords: ["search", "chats", "agents", "chief", "find", "acp"],
+                defaultShortcut: Shortcut("a", modifiers: [.command, .shift]),
+                category: .window, symbol: "bubble.left.and.bubble.right", surfaces: [.palette, .keyboard, .menu],
+                arguments: [CatalogArgument.queryString], cliName: "app search-chats", mainMenu: .window
+            ),
             ActionDescriptor(
                 id: "palette.openTaskManager",
                 title: String(localized: "action.palette.openTaskManager", defaultValue: "Task Manager", bundle: .module),

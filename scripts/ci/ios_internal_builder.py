@@ -42,6 +42,7 @@ STATIC_PREFIXES = (
     ".github/workflows/ios-internal-nightly.yml",
     ".github/workflows/ios-internal-nightly-trigger.yml",
     "scripts/ci/ios_internal_builder.py",
+    "scripts/cmux-next/check-app-store-rules.py",
 )
 
 
@@ -190,8 +191,8 @@ def changed_files(repo: str, base: str | None, head: str) -> list[str] | None:
     if not base:
         return None
     try:
-        subprocess.run(["git", "-C", repo, "fetch", "-q", "--no-tags", "origin", base], capture_output=True, timeout=300)
-        return [line for line in _git(repo, "diff", "--name-only", base, head).splitlines() if line]
+        subprocess.run(["git", "-C", repo, "fetch", "-q", "--no-tags", "--depth=1", "--filter=blob:none", "origin", base], capture_output=True, timeout=300)
+        return [line for line in _git(repo, "diff", "--no-renames", "--name-only", base, head).splitlines() if line]
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
         return None
 
