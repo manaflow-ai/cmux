@@ -274,12 +274,12 @@ extension DaemonStore {
             return .none
 
         case .sessionState(let item): session.apply(item, in: self); return .none
-        case .bookmarksChanged, .historyChanged, .keybindingsChanged, .conversationChanged, .conversationTyping, .conversationDraft, .conversationLive, .conversationRunChanged, .cloudConversations,
+        case .terminalRegistryChanged, .bookmarksChanged, .historyChanged, .keybindingsChanged, .conversationChanged, .conversationTyping, .conversationDraft, .conversationLive, .conversationRunChanged, .cloudConversations,
              .terminalClipboardRead, .terminalClipboardReadCancelled, .unknown: // .unknown: the `apps-*` events of apps-v1
             sideEvents.deliver(event, envelope: envelope)
             return .none
 
-        case .scrollChanged, .bell, .frontendProjectionChanged, .terminalRegistryChanged, .client:
+        case .scrollChanged, .bell, .frontendProjectionChanged, .client:
             return .none
         }
     }
