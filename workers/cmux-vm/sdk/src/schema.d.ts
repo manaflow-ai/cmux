@@ -852,8 +852,7 @@ export interface components {
         };
         Forbidden: {
             message: string;
-            /** @enum {string} */
-            missingScope?: "vm:read" | "vm:write" | "vm:exec" | "vm:files" | "vm:terminal" | "snapshot:*" | "snapshot:read" | "snapshot:write" | "domain:*" | "deploy:*" | "git:*" | "mesh:read" | "mesh:write" | "mesh:join" | "acl:read" | "acl:write" | "admin";
+            missingScope?: string;
             /** @enum {string} */
             _tag: "Forbidden";
         };
@@ -1072,7 +1071,7 @@ export interface components {
             /** @description a string matching the pattern ^vmk_[0123456789abcdefghjkmnpqrstvwxyz]{26}$ */
             id: string;
             name: string;
-            scopes: ("vm:read" | "vm:write" | "vm:exec" | "vm:files" | "vm:terminal" | "snapshot:*" | "snapshot:read" | "snapshot:write" | "domain:*" | "deploy:*" | "git:*" | "mesh:read" | "mesh:write" | "mesh:join" | "acl:read" | "acl:write" | "admin")[];
+            scopes: string[];
             resourceAllowlist: string[] | null;
             createdAt: string;
             expiresAt: string | null;
@@ -1085,7 +1084,7 @@ export interface components {
             /** @description a string matching the pattern ^vmk_[0123456789abcdefghjkmnpqrstvwxyz]{26}$ */
             id: string;
             name: string;
-            scopes: ("vm:read" | "vm:write" | "vm:exec" | "vm:files" | "vm:terminal" | "snapshot:*" | "snapshot:read" | "snapshot:write" | "domain:*" | "deploy:*" | "git:*" | "mesh:read" | "mesh:write" | "mesh:join" | "acl:read" | "acl:write" | "admin")[];
+            scopes: string[];
             resourceAllowlist: string[] | null;
             createdBy: string;
             createdAt: string;
