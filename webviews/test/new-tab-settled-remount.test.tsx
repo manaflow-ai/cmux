@@ -40,8 +40,11 @@ beforeAll(() => {
   host = window.document.getElementById("root")!;
 });
 
-afterAll(() => {
+afterAll(async () => {
   act(() => root?.unmount());
+  // The device chats are module state every later test file in this process shares.
+  const { setDeviceChats } = await import("../src/agent-session/acpmux/newtab/deviceChats");
+  setDeviceChats([]);
   for (const [key, had, value] of saved) {
     if (had) scope[key] = value;
     else delete scope[key];
