@@ -74,6 +74,7 @@ final class SpaceSwitchBench {
             services.windows.select(keys[index], in: state)
             controller.showWorkspace(requested: state.workspaceID)
             drain()
+            if index % 50 == 49 { print("SPACE-SWITCH-BENCH parked \(index + 1) of \(total)") } // progress for the suite watchdog
         }
         if parked > 0 {
             services.windows.select(keys[0], in: state)
