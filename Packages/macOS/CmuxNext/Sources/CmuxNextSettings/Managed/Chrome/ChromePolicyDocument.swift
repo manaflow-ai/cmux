@@ -43,7 +43,7 @@ public nonisolated struct ChromePolicyDocument: Sendable, Equatable {
     /// (CefSettings.chrome_policy_id): Chrome's, unless `cmuxBrowser` (the
     /// ``cmuxDomain`` document) forces `HonorChromePolicy` to false.
     public static func nativePolicyDomain(cmuxBrowser: ChromePolicyDocument) -> String? {
-        nil  // red: Chromium reads no policy yet
+        cmuxBrowser.mandatory[honorChromePolicyKey]?.boolValue == false ? nil : chromeDomain
     }
 
     /// This document with `other`'s values on top, key by key in each level.

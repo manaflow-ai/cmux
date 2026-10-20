@@ -9,7 +9,13 @@ extension ManagedPreferences {
     /// only when mandatory (Chrome never reads them as recommended) and stay
     /// policy keys under their Chrome names. A value of the wrong type is ignored.
     public init(chromePolicy: ChromePolicyDocument) {
-        self.init()  // red: no mapping yet
+        self.init(forced: Self.settings(fromChromePolicies: chromePolicy.mandatory),
+                  recommended: Self.settings(fromChromePolicies: chromePolicy.recommended))
+        for key in ["URLBlocklist", "URLAllowlist", "ExtensionInstallForcelist"] {
+            guard case .array(let items) = chromePolicy.mandatory[key] else { continue }
+            let strings = items.compactMap(\.stringValue).filter { !$0.isEmpty }
+            if !strings.isEmpty { forced[key] = .array(strings.map(JSONValue.string)) }
+        }
     }
 
     /// The cmux.json keys one level (mandatory or recommended) of Chrome policies sets.

@@ -36,6 +36,9 @@ public nonisolated struct ChromePolicyManagedPreferenceReader: ManagedPreference
     }
 
     public func read() -> ManagedPreferences {
-        cmux.read()  // red: Chrome policies not layered yet
+        let mapped = ManagedPreferences(chromePolicy: chromePolicies())
+        let own = cmux.read()
+        return ManagedPreferences(forced: mapped.forced.merging(own.forced) { $1 },
+                                  recommended: mapped.recommended.merging(own.recommended) { $1 })
     }
 }

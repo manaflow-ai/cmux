@@ -36,7 +36,10 @@ public nonisolated struct BrowserURLFilter: Sendable, Hashable {
 
     /// Whether the organization blocks loading `url`.
     public func blocks(_ url: URL) -> Bool {
-        false  // red: not enforced yet
+        guard !blocked.isEmpty, let scheme = url.scheme?.lowercased(), !Self.exemptSchemes.contains(scheme) else { return false }
+        guard let block = blocked.filter({ $0.matches(url) }).map(\.specificity).max() else { return false }
+        guard let allow = allowed.filter({ $0.matches(url) }).map(\.specificity).max() else { return true }
+        return block > allow
     }
 
     /// cmux's own pages and blank pages, which a filter never blocks (Chrome
