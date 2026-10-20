@@ -4373,6 +4373,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         self.bonsplitController.tabMiddleClickCapture = { onMiddleClick in
             AnyView(MiddleClickCapture(onMiddleClick: onMiddleClick))
         }
+        refreshTabShortcutModifier()
         paneTree.attach(host: self)
         surfaceList.attach(tree: self)
         bonsplitController.contextMenuShortcuts = Self.buildContextMenuShortcuts()
@@ -4689,6 +4690,15 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         guard configuration.appearance.splitButtonTooltips != tooltips else { return }
         configuration.appearance.splitButtonTooltips = tooltips
         bonsplitController.configuration = configuration
+    }
+
+    /// Bonsplit's tab hints read UserDefaults by default, which misses
+    /// shortcuts configured in cmux.json.
+    func refreshTabShortcutModifier() {
+        let shortcut = KeyboardShortcutSettings.shortcut(for: .selectSurfaceByNumber)
+        let flags: NSEvent.ModifierFlags? = shortcut.isUnbound ? nil : shortcut.modifierFlags
+        guard bonsplitController.tabShortcutModifierFlags != flags else { return }
+        bonsplitController.tabShortcutModifierFlags = flags
     }
 
     func refreshSplitButtonBackdropEffect() {

@@ -4789,6 +4789,13 @@ class TabManager: ObservableObject {
         }
     }
 
+    /// Push the configured select-surface modifier into every workspace's tab hints.
+    func refreshTabShortcutModifiers() {
+        for workspace in tabs {
+            workspace.refreshTabShortcutModifier()
+        }
+    }
+
     func refreshTabCloseButtonVisibility() {
         for workspace in tabs {
             workspace.refreshTabCloseButtonVisibility()

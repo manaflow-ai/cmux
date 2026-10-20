@@ -14808,6 +14808,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         var refreshedManagers: Set<ObjectIdentifier> = []
         if let manager = tabManager {
             manager.refreshSplitButtonTooltips()
+            manager.refreshTabShortcutModifiers()
             refreshedManagers.insert(ObjectIdentifier(manager))
         }
         for context in mainWindowContexts.values {
@@ -14815,6 +14816,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             let identifier = ObjectIdentifier(manager)
             guard refreshedManagers.insert(identifier).inserted else { continue }
             manager.refreshSplitButtonTooltips()
+            manager.refreshTabShortcutModifiers()
         }
     }
 
