@@ -155,6 +155,7 @@ public final class AgentPaneView: NSView {
             inputReadiness = PageInputReadiness(configuration: configuration)
             // Pages share web content processes, 8 per process (WebProcessGroups): a process per
             // page made 55 tabs cost 54 processes and 4 GB (plans/cmux-next/sequoia-lag.md).
+            // webview-allow: agent chat needs WebKit (native context menu, file drops, input hooks)
             webView = Self.processGroups.webView(for: configuration) { AgentPaneWKWebView(frame: .zero, configuration: $0) }
             #if DEBUG
             // Automation launches (capture slots) keep a covered window's page drawing, as
