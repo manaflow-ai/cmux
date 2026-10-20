@@ -128,8 +128,14 @@ type Props = {
   /// Sends a prompt. False when nothing can take it yet (no acpmux), so the prompt keeps it. A
   /// promise holds the prompt in the composer until the host takes it: it clears when the promise
   /// resolves and stays (for the user to send again) when it rejects, so a refusal loses nothing.
-  /// `steer`: into the running turn now (⌘Return); otherwise a prompt sent mid-turn waits behind it.
-  onSend(text: string, attachments?: ComposerAttachment[], steer?: boolean): boolean | void | Promise<unknown>;
+  /// `steer`: into the running turn now (⌘Return). `queue`: wait behind the running turn (⌥Return).
+  /// Neither: a prompt sent mid-turn stops the turn and runs next (acpmux's default).
+  onSend(
+    text: string,
+    attachments?: ComposerAttachment[],
+    steer?: boolean,
+    queue?: boolean,
+  ): boolean | void | Promise<unknown>;
   onStop(): void;
   /// Withdraws a queued prompt (`_acpmux/queue_remove`); false when it already started.
   onQueueRemove?(promptId: string): Promise<boolean>;
@@ -590,7 +596,7 @@ export function Composer({
     event.preventDefault();
     return send(false);
   };
-  const send = (force: boolean, steer = false): boolean => {
+  const send = (force: boolean, steer = false, queue = false): boolean => {
     // acpmux refuses this chat on this connection (remoteEditing.ts): keep the draft.
     if (!remote.canSend) return false;
     // The folder's trust question is open: the prompt stays where it is.
@@ -639,7 +645,7 @@ export function Composer({
     }
     const fromSend = document.activeElement?.classList.contains("acpmux-send") ?? false;
     const sent = attachments;
-    const taken = onSend(prompt, sent, steer);
+    const taken = onSend(prompt, sent, steer, queue);
     if (taken === false) return false;
     const written = field.current?.value() ?? "";
     const clear = (rest = "") => {
@@ -771,6 +777,14 @@ export function Composer({
     if (commandReturn && steerable) {
       event.preventDefault();
       send(false, true);
+      return;
+    }
+    // ⌥Return while a turn runs queues: the prompt waits for the turn to end instead of stopping it.
+    const optionReturn =
+      event.key === "Enter" && event.altKey && !event.shiftKey && !event.metaKey && !event.ctrlKey && !quick;
+    if (optionReturn && queues) {
+      event.preventDefault();
+      send(false, false, true);
       return;
     }
     // ⌘Return on an empty prompt after a turn answers the recap card's question (RecapCard.tsx).
@@ -910,16 +924,18 @@ export function Composer({
   // A prompt typed while a turn runs can go in now; an agent that cannot steer stops the turn.
   const steerable = !shell && snapshot.isWorking && remote.canSend && !blocked && Boolean(text.trim());
   const steerKind = snapshot.summary?.steering ? "steer" : "interrupt";
-  // While a turn runs, what is sent waits behind it, so the empty prompt says so.
+  // While a turn runs, what is sent stops it and runs next (acpmux's default; the user,
+  // 2026-10-20: "We do not like queuing here. We want to always interrupt"); ⌥Return queues.
   const queues = !shell && snapshot.isWorking && remote.canSend && !blocked;
-  // Mid-turn it teaches both keys, as Claude's composer does (Leo 2026-10-18): Return queues and
-  // ⌘Return steers or interrupts. The Quick Composer's ⌘Return opens the window, and ⌘Return needs
-  // typed text, so with only attachments staged it says just that Return queues.
+  // Mid-turn the empty prompt teaches the keys: Return interrupts, ⌘Return steers an agent that
+  // takes a prompt mid-turn, ⌥Return queues. The Quick Composer keeps its own ⌘Return and ⌥Return,
+  // so it says only that Return interrupts; ⌘Return needs typed text, so with only attachments
+  // staged it does not name steering.
   const placeholder = !queues
     ? COMPOSER_LABELS.placeholder
-    : onOpenInWindow || attachments.length > 0
+    : onOpenInWindow
       ? COMPOSER_LABELS.placeholderQueued
-      : steerKind === "steer"
+      : steerKind === "steer" && attachments.length === 0
         ? COMPOSER_LABELS.placeholderSteer
         : COMPOSER_LABELS.placeholderInterrupt;
   // Focus leaving the composer closes the menu and takes back what + wrote.

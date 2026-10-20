@@ -2392,7 +2392,8 @@ export class AcpmuxDirectClient {
   /// `ticket`: the gesture a send kept for this prompt while acpmux held it for the folder trust
   /// answer (heldPrompt.ts); it rides as `_meta.cmuxGesture`, and the host strips it.
   /// `steer`: into the running turn now, and an agent that cannot steer stops the turn and
-  /// takes it next (`_meta.acpmux.interrupt`); otherwise it waits behind the turn.
+  /// takes it next (`_meta.acpmux.interrupt`). `queue`: it waits behind the turn
+  /// (`_meta.acpmux.queue`). Neither: it stops the running turn and runs next (acpmux's default).
   async send(
     input: string,
     attachments: ComposerAttachment[] = [],
@@ -2400,6 +2401,7 @@ export class AcpmuxDirectClient {
     accepted?: () => void,
     ticket?: string,
     steer = false,
+    queue = false,
   ): Promise<string | undefined> {
     // A chat opening (a switch) is drawn first: the prompt goes to it once it shows, never while the
     // pane still draws the chat before.
@@ -2434,7 +2436,7 @@ export class AcpmuxDirectClient {
     if (attachments.length) this.optimisticPromptAttachments.set(promptId, attachments);
     // A prompt behind the shown chat's running turn waits in the queue: it shows there from the
     // send on, never first as a transcript bubble that acpmux's `queued` record then moves.
-    const waits = !steer && shown === sessionId && this.turnOpen;
+    const waits = queue && !steer && shown === sessionId && this.turnOpen;
     const generation = this.selectionGeneration;
     if (waits)
       this.queue = [...this.queue.filter((entry) => entry.id !== promptId), queuedEntry(promptId, text, false)];
@@ -2467,7 +2469,7 @@ export class AcpmuxDirectClient {
         _meta: {
           acpmux: {
             promptId,
-            ...(steer ? { steer: true, interrupt: true } : {}),
+            ...(steer ? { steer: true, interrupt: true } : queue ? { queue: true } : {}),
             ...(context ? { context } : {}),
           },
           ...(ticket ? { cmuxGesture: ticket } : {}),

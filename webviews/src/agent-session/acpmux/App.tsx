@@ -4406,6 +4406,7 @@ function AcpmuxPane() {
           accepted?: () => void,
           steer = false,
           promptId?: string,
+          queue = false,
         ) => {
           // acpmux holds the prompt while the folder's trust question is open (on session/new
           // or session/prompt): the question shows for the folder acpmux named, and Trust sends
@@ -4441,7 +4442,7 @@ function AcpmuxPane() {
           });
           await persistSession(sessionId);
           const turn = client
-            .send(text, attachments, kept?.promptId, accepted, kept?.ticket, steer)
+            .send(text, attachments, kept?.promptId, accepted, kept?.ticket, steer, queue)
             .catch((error: unknown) => refused(error, Boolean(accepted)));
           // The prompt is written; a Quick Composer hand-off can close this page now.
           promptLanded.current();
@@ -4449,12 +4450,14 @@ function AcpmuxPane() {
         };
         window.cmuxAcpmuxActions = {
           // `accepted` (in-page only): the composer holds the prompt until acpmux takes it.
-          "chat.send": ({ text, attachments, accepted, steer }) =>
+          "chat.send": ({ text, attachments, accepted, steer, queue }) =>
             send(
               String(text ?? ""),
               Array.isArray(attachments) ? attachments : [],
               typeof accepted === "function" ? (accepted as () => void) : undefined,
               steer === true,
+              undefined,
+              queue === true,
             ),
           "chat.cancel": () => client.cancel(),
           "chat.queue.remove": ({ promptId }) => client.removeQueued(String(promptId)),
@@ -5745,7 +5748,7 @@ function AcpmuxPane() {
             ignoreFailure(callNative("chat.handoff.prepare", { harness: target.id }));
             return true;
           }}
-          onSend={(text, chips, steer) => {
+          onSend={(text, chips, steer, queue) => {
             // Until acpmux connects nothing takes a prompt; the composer keeps it.
             if (!window.cmuxAcpmuxActions?.["chat.send"]) return false;
             // Shell mode's chips carry their commands' output as it is now.
@@ -5767,7 +5770,7 @@ function AcpmuxPane() {
                   }
                   throw error;
                 });
-              return callNative("chat.send", { text, attachments, accepted: () => accept(true), steer });
+              return callNative("chat.send", { text, attachments, accepted: () => accept(true), steer, queue });
             };
             // The composer that holds the prompt: a refusal that comes once it is gone (the pane
             // swaps it when the chat's session starts) puts the prompt in the one shown now.
