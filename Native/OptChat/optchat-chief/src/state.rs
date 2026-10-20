@@ -586,6 +586,28 @@ impl HostState {
         }
     }
 
+    /// Subagents whose automatic continue (auto_resume.rs) was planned but
+    /// not sent, with the planned attempt: the run ended, `resume_attempts`
+    /// is set, and the Chief has not paused or cancelled it. The plan's
+    /// backoff or network wait is a thread that dies with the host, so a
+    /// restarted host re-arms these.
+    pub fn pending_auto_resumes(&self) -> Vec<(String, u32)> {
+        let mut pending: Vec<(String, u32)> = self
+            .spawns
+            .values()
+            .flat_map(|r| &r.subs)
+            .filter(|s| {
+                s.resume_attempts > 0
+                    && matches!(s.status, SubStatus::Done | SubStatus::Reported)
+                    && !s.paused
+                    && !s.cancelled
+            })
+            .map(|s| (s.id.clone(), s.resume_attempts))
+            .collect();
+        pending.sort();
+        pending
+    }
+
     /// The subagent `id` and its spawn id.
     pub fn sub(&self, id: &str) -> Option<(&String, &SubRecord)> {
         self.spawns
@@ -950,6 +972,49 @@ impl FrozenRecord {
             cuts: self.cuts.clone(),
             starts: self.starts.clone(),
         })
+    }
+}
+
+#[cfg(test)]
+mod auto_resume_tests {
+    use super::{HostState, SpawnRecord, SubRecord, SubStatus};
+
+    fn sub(id: &str, status: SubStatus, attempts: u32) -> SubRecord {
+        SubRecord {
+            id: id.to_owned(),
+            status,
+            resume_attempts: attempts,
+            ..SubRecord::default()
+        }
+    }
+
+    #[test]
+    fn a_planned_continue_survives_a_host_restart() {
+        let mut state = HostState::default();
+        let mut paused = sub("a5", SubStatus::Done, 1);
+        paused.paused = true;
+        let mut cancelled = sub("a6", SubStatus::Reported, 1);
+        cancelled.cancelled = true;
+        state.spawns.insert(
+            "spawn-1".to_owned(),
+            SpawnRecord {
+                subs: vec![
+                    sub("a1", SubStatus::Done, 2),
+                    sub("a2", SubStatus::Reported, 1),
+                    sub("a3", SubStatus::Running, 1),
+                    sub("a4", SubStatus::Done, 0),
+                    paused,
+                    cancelled,
+                ],
+                ..SpawnRecord::default()
+            },
+        );
+        let saved = serde_json::to_vec(&state).unwrap();
+        let restarted: HostState = serde_json::from_slice(&saved).unwrap();
+        assert_eq!(
+            restarted.pending_auto_resumes(),
+            vec![("a1".to_owned(), 2), ("a2".to_owned(), 1)]
+        );
     }
 }
 

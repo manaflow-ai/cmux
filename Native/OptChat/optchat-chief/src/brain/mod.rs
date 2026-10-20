@@ -889,6 +889,7 @@ impl Brain {
 
     /// Runs until a fatal error; returns it.
     pub fn run(mut self, rx: Receiver<Input>) -> String {
+        self.rearm_auto_resumes();
         loop {
             if let Some(fatal) = &self.fatal {
                 return fatal.clone();
