@@ -37,7 +37,7 @@ struct ChromiumPageHostWireTests {
     }
 
     @Test func mainFrameNavigationAndLoadAreDocumentEvents() {
-        let main = #"{"method":"Page.frameNavigated","params":{"frame":{"id":"A","url":"cmux-page://test.plain/","urlFragment":"#/x"}}}"#
+        let main = ##"{"method":"Page.frameNavigated","params":{"frame":{"id":"A","url":"cmux-page://test.plain/","urlFragment":"#/x"}}}"##
         #expect(ChromiumPageHostWire.documentEvent(main) == .committed(URL(string: "cmux-page://test.plain/#/x")))
         let child = #"{"method":"Page.frameNavigated","params":{"frame":{"id":"B","parentId":"A","url":"about:blank"}}}"#
         #expect(ChromiumPageHostWire.documentEvent(child) == nil)

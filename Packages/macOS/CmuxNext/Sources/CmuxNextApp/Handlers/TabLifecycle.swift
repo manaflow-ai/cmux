@@ -286,7 +286,7 @@ enum TabLifecycle {
                                     profile: AgentBrowserProfile.Request) -> SplitRespawn? {
         guard case let browserTabs = ctx.services.cache.browserTabs, browserTabs.isAvailable(on: ctx.services.daemon),
               browserTabs.refusal(for: url) == nil,
-              case .open(let choice) = browserTabs.resolve(requested: engine) else { return nil }
+              case .open(let choice) = browserTabs.resolve(requested: engine, url: url) else { return nil }
         var profileID: String?
         if case .explicit(let id) = profile { profileID = id }
         return .browser(url: url?.absoluteString ?? ctx.services.newTabAddress(for: choice), engine: choice.engine, profileID: profileID)
@@ -313,7 +313,7 @@ enum TabLifecycle {
             return ctx.refuse(RefusalStrings.needsDaemonCapability(DaemonCapabilities.shared.frontendBrowserTabs))
         }
         let choice: BrowserEngineChoice
-        switch browserTabs.resolve(requested: engine) {
+        switch browserTabs.resolve(requested: engine, url: url) {
         case .refuse(let reason): return ctx.refuse(BrowserTabService.message(reason))
         case .open(let resolved): choice = resolved
         }
