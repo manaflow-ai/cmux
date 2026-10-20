@@ -15,7 +15,7 @@ Both engines (Chromium and WebKit) use this one omnibar (`BrowserChromeView`).
 How it was checked: the baseline build `omnibar-base-v1` (feat-cmux-next `ef7a7d84e4f`,
 fleet job `c7cec5f7e22ec1a7fcca89c3`) driven with `debug.key` / `debug.omnibar` /
 `debug.focus` on a Chromium tab and a WebKit tab, plus reading both sources. Tests:
-`Tests/CmuxNextBrowserTests/OmnibarChromeParityTests.swift`.
+`Tests/CmuxNextBrowserTests/OmnibarChromeParityTests.swift`, `OmnibarChromeGapsTests.swift`, `Tests/CmuxNextAppTests/OmnibarFocusMemoryTests.swift`.
 
 Status: **match** (same behavior), **fixed** (gap closed by this work), **gap** (still
 different), **n/a** (no Mac equivalent).
@@ -29,9 +29,9 @@ different), **n/a** (no Mac equivalent).
 | Ctrl-Enter adds `www.` and `.com` | desired TLD `com` (`AI`, `OEM::OnControlKeyChanged`) | none: loaded or searched the bare word | **fixed**: `.enterAddingTLD`, `OmnibarRules.desiredTLDURL` |
 | Escape: revert arrowed row, close card, revert text, then blur | `OEM::OnEscapeKeyPressed` | same steps (`OmnibarReducer+Popup.escape`) | match |
 | Cmd-L focuses, full URL, select all | `OVV::SetFocus(true)` | `.focusLocation` | match |
-| Opt-Cmd-F / Ctrl-K focus with search keyword | `IDC_FOCUS_SEARCH` | not bound | gap (left: needs a search keyword mode) |
+| Opt-Cmd-F focuses a search with the default engine | `IDC_FOCUS_SEARCH`, `EnterKeywordModeForDefaultSearchProvider` | `browser.focusSearch` (Opt-Cmd-F in a browser tab; Search All Windows elsewhere) → `.searchWithDefaultEngine`, chip "Search Google" | **fixed**; tests `searchTheWebSearchesWithTheDefaultEngine`, `beginSearchWaitsForTheFocus`. Ctrl-K is Chrome's key on Windows and Linux only; on the Mac it stays the field's kill-line |
 | Focus lost keeps typed text; next focus restores it, all selected | `OVV::OnBlur`, `SaveStateToTab` | `retainedText` | match |
-| Return to a tab that was being edited restores omnibox focus | `OmniboxEditModel::RestoreState` (`focus_state`) | text restored, focus goes to the page | gap (left: needs the focus core to remember chrome focus per tab) |
+| Return to a tab that was being edited restores omnibox focus | `OmniboxEditModel::RestoreState` (`focus_state`) | `OmnibarFocusMemory` in `FocusCoordinator`: a tab left from its address bar gets `focusTarget(.addressBar)` back when a tab, pane or workspace change returns to it; a click in its page forgets it. The focus core's corpus is unchanged | **fixed**; tests `OmnibarFocusMemoryTests` |
 
 ## Typing
 
@@ -54,14 +54,14 @@ different), **n/a** (no Mac equivalent).
 | Shift-Delete removes a history row | `OEM::TryDeletingPopupLine` | `.deleteSuggestion` | match |
 | History, bookmarks, open tabs (Switch to Tab), search suggestions, calculator, internal pages | providers | `OmniboxLocalIndex`, remote suggest, `OmniboxCalculator`, `OmniboxInternalPages`, Switch to Tab rows | match |
 | Hover highlights only after the pointer moves | `OmniboxPopupViewViews` | `popup.pointer` | match |
-| Site favicons in rows | favicon per match | kind glyph (history, bookmark, globe) | gap (left: needs the favicon store in the card) |
-| Tab to search a site's engine (`youtube.com` Tab) | keyword mode for search engines | extension keywords (`chrome.omnibox`) only | gap (left) |
+| Site favicons in rows | favicon per match | page rows (history, bookmark, open tab, typed address) show the site's icon as the tab fetches icons (an open tab's icon, else `/favicon.ico`); the kind glyph until it loads, and for searches and answers | **fixed**; test `pageRowsShowTheSiteIcon` |
+| Tab to search a site's engine (`youtube.com` Tab) | keyword mode for search engines | the built-in engines and YouTube, Wikipedia, GitHub as keywords (their host): Tab or a space starts "Search YouTube"; Enter searches there, Enter with no text opens the site, Backspace at the start leaves. Chrome also adds sites that offer OpenSearch; cmux does not (yet) | **fixed** for the shipped engines; tests `tabAfterAnEngineSiteSearchesThatEngine` and 3 more |
 
 ## URL or search
 
 | Input | Chrome | cmux before | Status |
 | --- | --- | --- | --- |
-| `example.com` | https (typed-navigation upgrade, http fallback) | https, no fallback | match for https; **gap** for the http fallback when https fails (left: needs an engine load-failure hook) |
+| `example.com` | https (typed-navigation upgrade, http fallback) | https; when https cannot connect (refused, reset, timed out, TLS or certificate error, not a name error) the tab loads it once over http (`HTTPSUpgradeFallback`) | **fixed**; tests `typedAddressesAreMarkedAsUpgrades`, `aRefusedUpgradeFallsBackToHTTP`, `chromiumErrorsThatFallBack` |
 | `localhost:3000`, `127.0.0.1` | http | http | match |
 | `192.168.1.20:3000`, `10.0.0.5`, `100.89.225.106:18765` (tailnet) | http (non-unique, never upgraded) | https: dev servers and routers failed | **fixed** |
 | `devbox:8080`, `router/`, `router/setup` | http URL | `devbox:8080` https; `router/` searched | **fixed** |
@@ -85,7 +85,7 @@ different), **n/a** (no Mac equivalent).
 | Drag the location icon out as a link | `LocationIconView` drag | none | **fixed**: chip drags URL, text and title (`BrowserURLDragItem`); test `dragOutWritesTheURLTitleAndText` |
 | Security chip, page info bubble | `LocationIconView`, `PageInfoBubbleView` | `PageInfoChipButton`, page info | match |
 | Right-click: Undo, Cut, Copy, Paste, Paste and Go, Delete, Select All | yes | AppKit menu plus Paste and Go | match |
-| Right-click: Always show full URLs; Manage search engines | yes | missing | gap (left) |
+| Right-click: Always show full URLs; Manage search engines | yes | both, after the edit items. Always Show Full URLs writes `browser.omnibar.showFullURLs` (also in Settings > Browser > Address Bar); every bar shows `https://www.…` at rest. Manage Search Engines… opens Settings at Search Engine | **fixed**; tests `showFullURLsKeepsSchemeAndWWW`, `theBarFollowsTheSetting`, `theMenuTogglesFullURLsAndManagesEngines` |
 
 ## Accessibility
 

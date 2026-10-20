@@ -119,4 +119,12 @@ nonisolated extension OmnibarReducer {
     private static func isHTTP(_ url: URL) -> Bool {
         url.scheme?.lowercased() == "http" || url.scheme?.lowercased() == "https"
     }
+
+    /// `url` is the https upgrade of scheme-less typed `text`: the text
+    /// names no scheme and resolves to this https URL by itself.
+    static func isHTTPSUpgrade(of text: String, to url: URL, resolver: BrowserURLResolver) -> Bool {
+        let trimmed = text.trimmingCharacters(in: .whitespaces)
+        guard url.scheme?.lowercased() == "https", !trimmed.contains("://") else { return false }
+        return resolver.url(for: trimmed) == url
+    }
 }
