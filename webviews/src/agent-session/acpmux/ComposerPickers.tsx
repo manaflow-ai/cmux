@@ -768,7 +768,12 @@ export function ComposerPickers({
         <ContextMenu
           className="acpmux-plan-menu"
           items={[
-            { id: "plan", label: t(PICKER_LABELS.plan), disabled: planning, onSelect: () => void settle(() => onMode(plan.id)) },
+            {
+              id: "plan",
+              label: t(PICKER_LABELS.plan),
+              disabled: planning,
+              onSelect: () => void settle(() => onMode(plan.id)),
+            },
             {
               id: "build",
               label: t(PICKER_LABELS.build),
