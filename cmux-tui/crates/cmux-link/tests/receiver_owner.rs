@@ -154,3 +154,86 @@ fn receiver_owner_keeps_original_jws_identity_and_single_use() {
         Err(TokenRefused::Replayed)
     );
 }
+
+#[test]
+fn receiver_owner_dropped_current_read_closes_authority_but_stale_drop_does_not() {
+    let (owner, _) = owner();
+    let first = owner.begin().unwrap();
+    let start = first.started();
+    owner
+        .install(first, keys(), policy(start, NOW), ReceiverTime { unix_ms: NOW, monotonic: start })
+        .unwrap();
+    let verifier = owner.verifier();
+    let lease =
+        verifier.verify(fixture()["token"].as_str().unwrap(), &expected()).unwrap().lease.unwrap();
+    let stale = owner.begin().unwrap();
+    let current = owner.begin().unwrap();
+    drop(stale);
+    assert!(lease.deadline().is_some());
+    drop(current);
+    assert!(lease.deadline().is_none());
+}
+
+#[test]
+fn receiver_owner_readers_cannot_publish_partial_snapshots() {
+    let (owner, _) = owner();
+    let first = owner.begin().unwrap();
+    let start = first.started();
+    owner
+        .install(first, keys(), policy(start, NOW), ReceiverTime { unix_ms: NOW, monotonic: start })
+        .unwrap();
+    let verifier = owner.verifier();
+    assert!(verifier.replace_keys(keys()).is_err());
+    assert!(verifier.replace_authority(policy(start, NOW + 1)).is_err());
+    assert!(verifier.verify(fixture()["token"].as_str().unwrap(), &expected()).is_ok());
+}
+
+#[test]
+fn receiver_owner_drop_closes_retained_verifier_and_active_lease() {
+    let (owner, _) = owner();
+    let first = owner.begin().unwrap();
+    let start = first.started();
+    owner
+        .install(first, keys(), policy(start, NOW), ReceiverTime { unix_ms: NOW, monotonic: start })
+        .unwrap();
+    let verifier = owner.verifier();
+    let token = fixture()["token"].as_str().unwrap().to_owned();
+    let lease = verifier.verify(&token, &expected()).unwrap().lease.unwrap();
+    drop(owner);
+    assert!(lease.deadline().is_none());
+    assert!(verifier.verify(&token, &expected()).is_err());
+}
+
+#[test]
+fn receiver_owner_invalid_current_snapshot_closes_then_recovers_without_replay_reset() {
+    let (owner, _) = owner();
+    let first = owner.begin().unwrap();
+    let start = first.started();
+    owner
+        .install(first, keys(), policy(start, NOW), ReceiverTime { unix_ms: NOW, monotonic: start })
+        .unwrap();
+    let verifier = owner.verifier();
+    let token = fixture()["token"].as_str().unwrap().to_owned();
+    let lease = verifier.verify(&token, &expected()).unwrap().lease.unwrap();
+    let second = owner.begin().unwrap();
+    let start = second.started();
+    let mut bad = policy(start, NOW + 1);
+    bad.epoch = 0;
+    assert!(
+        owner
+            .install(second, keys(), bad, ReceiverTime { unix_ms: NOW + 1, monotonic: start })
+            .is_err()
+    );
+    assert!(lease.deadline().is_none());
+    let third = owner.begin().unwrap();
+    let start = third.started();
+    owner
+        .install(
+            third,
+            keys(),
+            policy(start, NOW + 2),
+            ReceiverTime { unix_ms: NOW + 2, monotonic: start },
+        )
+        .unwrap();
+    assert_eq!(verifier.verify(&token, &expected()), Err(TokenRefused::Replayed));
+}

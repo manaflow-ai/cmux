@@ -27,6 +27,23 @@ fn fixture() -> Value {
     serde_json::from_str(include_str!("../../../../../schemas/link-token/native.json")).unwrap()
 }
 
+pub(super) fn public_fixture()
+-> (super::receiver::ReceiverBinding, cmux_link::keyset::Keyset, Vec<u8>) {
+    let (mut client, wg, _) = setup(|_, _| {});
+    let binding = super::receiver::ReceiverBinding::from_original(
+        client.bound(),
+        &wg,
+        &client.install_public_jwk(),
+    )
+    .unwrap();
+    let snapshot = client.receiving_policy(&wg, NOW).unwrap();
+    (
+        binding,
+        snapshot.keys().clone(),
+        serde_json::to_vec(&snapshot.public_reply(Instant::now()).unwrap()).unwrap(),
+    )
+}
+
 #[derive(Clone)]
 struct Server {
     public: Value,
