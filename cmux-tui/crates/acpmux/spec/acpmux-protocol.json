@@ -466,6 +466,18 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/composer_set",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/composers",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/export",
       "params": true,
       "result": true

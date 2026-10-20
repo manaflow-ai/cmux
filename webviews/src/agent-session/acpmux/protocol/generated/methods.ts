@@ -70,6 +70,8 @@ export interface AcpmuxRequests {
   "_acpmux/queue_edit": { params: unknown; result: unknown };
   "_acpmux/draft_get": { params: unknown; result: unknown };
   "_acpmux/draft_set": { params: unknown; result: unknown };
+  "_acpmux/composer_set": { params: unknown; result: unknown };
+  "_acpmux/composers": { params: unknown; result: unknown };
   "_acpmux/export": { params: unknown; result: unknown };
   "_acpmux/import": { params: unknown; result: unknown };
   "_acpmux/permission_respond": { params: PermissionRespondParams; result: PermissionRespondResult };
@@ -255,6 +257,8 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/queue_edit", kind: "request", acp: false, typed: false },
   { name: "_acpmux/draft_get", kind: "request", acp: false, typed: false },
   { name: "_acpmux/draft_set", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/composer_set", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/composers", kind: "request", acp: false, typed: false },
   { name: "_acpmux/export", kind: "request", acp: false, typed: false },
   { name: "_acpmux/import", kind: "request", acp: false, typed: false },
   { name: "_acpmux/permission_respond", kind: "request", acp: false, typed: true },
