@@ -169,7 +169,7 @@ extension AppOnboardingServices {
         }
         let hosts = connecting
         let run = ClassicMigrationRunState(
-            ledger: ledger, outcome: outcome, plan: plan, groups: groups, hosts: hosts, repository: repository,
+            ledger: ledger, outcome: outcome, mode: mode, plan: plan, groups: groups, hosts: hosts, repository: repository,
             targets: plan.windows.indices.map { $0 == 0 ? windows.targetWindow(preferring: firstWindow) : UUID().uuidString.lowercased() })
 
         // One window after another: creating windows side by side was five
@@ -261,7 +261,8 @@ extension AppOnboardingServices {
         run.ledger.workspaces[saved.key] = ClassicMigrationLedger.Entry(stage: .done, nextWorkspace: made)
         try await save(run.ledger, to: repository)
         run.outcome.opened.append(made)
-        if saved.key != window.selectedKey { await parkClassicTerminals(of: made, saved: saved) }
+        // The launch's run only: Import from Classic is the person asking now, its terminals open live.
+        if run.mode == .automatic, saved.key != window.selectedKey { await parkClassicTerminals(of: made, saved: saved) }
         if index == 0 { run.openedInFirstWindow = true }
         if index == 0, saved.key == window.selectedKey { run.reveal = made }
     }
@@ -454,6 +455,8 @@ fileprivate struct ClassicWorkspaceTurn: Sendable {
 fileprivate final class ClassicMigrationRunState {
     var ledger: ClassicMigrationLedger
     var outcome: ClassicMigrationOutcome
+    /// Who started the run (only the launch's run parks background workspaces).
+    let mode: ClassicMigrationPlanner.Mode
     let plan: ClassicMigrationPlan
     /// cmux-next group ids by classic group id.
     let groups: [String: WorkspaceGroupID]
@@ -467,10 +470,11 @@ fileprivate final class ClassicMigrationRunState {
     var reveal: String?
     var openedInFirstWindow = false
 
-    init(ledger: ClassicMigrationLedger, outcome: ClassicMigrationOutcome, plan: ClassicMigrationPlan,
+    init(ledger: ClassicMigrationLedger, outcome: ClassicMigrationOutcome, mode: ClassicMigrationPlanner.Mode, plan: ClassicMigrationPlan,
          groups: [String: WorkspaceGroupID], hosts: [String: DaemonService], repository: ClassicMigrationRepository, targets: [String]) {
         self.ledger = ledger
         self.outcome = outcome
+        self.mode = mode
         self.plan = plan
         self.groups = groups
         self.hosts = hosts
