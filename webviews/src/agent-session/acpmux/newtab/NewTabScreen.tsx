@@ -44,6 +44,7 @@ import { useEscapingPopup } from "../../../ui/popupHost";
 import { usePopupHost } from "../../../ui/UiProvider";
 import { UI_ANCHOR_GAP } from "../../../ui/anchor";
 import { useComposerChrome } from "../composerChrome";
+import { useComposerSettings } from "../composerSettings";
 import { useMenuPressGuard } from "../menuPressGuard";
 import { useMinuteClock } from "../clock";
 
@@ -277,6 +278,9 @@ export function NewTabScreen(props: Props) {
   };
   const t = useT();
   const chrome = useComposerChrome();
+  // The chat composer's footer look (composerSettings.ts plainFooter): the New Tab row draws the
+  // same plain chips, so the two composers never disagree (composerLocation.css).
+  const { plainFooter } = useComposerSettings();
   // A press outside an open chip menu only closes it (menuPressGuard.ts).
   useMenuPressGuard();
   const device = useDeviceChats();
@@ -771,7 +775,11 @@ export function NewTabScreen(props: Props) {
           {/* The button row: a right-click here shows the mic hidden from its own (composerChrome.tsx);
             this page draws no context ring. */}
           <ChromeArea className="acpmux-chrome-area" items={[chrome.dictation]}>
-            <div className="nt-pickers" onPointerDownCapture={touch}>
+            <div
+              className="nt-pickers"
+              data-footer-look={plainFooter ? "plain" : undefined}
+              onPointerDownCapture={touch}
+            >
               {/* The folder Enter asks in (screenActions: the picked project, else the tab's), so a pick's
               switch is the one Enter reuses. */}
               {Chips && <Chips snapshot={chipSnapshot} {...(chatFolder ? { cwd: chatFolder } : {})} />}
