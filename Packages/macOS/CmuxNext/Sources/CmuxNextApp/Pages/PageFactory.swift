@@ -78,11 +78,14 @@ struct PageFactory {
     }
 
     /// The Cloud app page (cmux.cloud) with the machine list layout from Debug Settings. Its
-    /// namespace answers "not available yet" until the app supervisor (apps-v1) runs the Cloud app
-    /// server; then the route goes to the supervisor relay.
+    /// namespace runs on the Cloud app server through the local daemon (``CloudPageProvider``);
+    /// sign-in and sign-out run the app's own account flow after the native sheet.
     func cloudWebPage() -> PageWebView? {
         let native = AppPageNativeProvider(services: services, page: .cloud)
-        let cloud = UnavailablePageProvider(code: "cmux.cloud.unsupported")
+        let account = services.cloud
+        let cloud = CloudPageProvider(op: account.appOps,
+                                      signIn: { [weak account] in await account?.auth.signIn() ?? false },
+                                      signOut: { [weak account] in await account?.signOut() })
         native.forward = { op, params, context in try await cloud.call(op, params: params, context: context) }
         let routes = [PageRoute(prefix: "cmux.cloud.", provider: cloud), PageRoute(prefix: "cmux.app.", provider: native)]
         let attributes = ["cloud-machines-layout": PageTunables.cloudMachinesLayout.value.rawValue]
@@ -123,7 +126,7 @@ struct PageFactory {
             }
         )
         provider.harnessesState = { harnesses.state }
-        provider.harnessesRun = { params in try await harnesses.run(params) }
+        provider.harnessesRun = { params, context in try await harnesses.run(params, context: context) }
         provider.setTheme = { [weak services] level, spec in try services?.settingsWindow.setPageTheme(level: level, spec: spec) }
         provider.acceptsTheme = { [weak services] text in services?.settingsWindow.acceptsTheme(text) ?? false }
         provider.themeColors = { [weak services] in
@@ -171,7 +174,13 @@ struct PageFactory {
                 set: { [weak services] value, id in services?.themes.setWorkspaceOpacity(value, for: id) },
                 preview: { [weak services] value, id in services?.themes.previewWorkspaceOpacity(value, for: id) }))
         let native = AppPageNativeProvider(services: services, page: .settings)
+        // Your own backgrounds from a link, removed or revealed (BackdropImagesPageProvider).
+        let images = provider.backdropImages.map { images in
+            BackdropImagesPageProvider(images: images.images, use: { [weak provider] in try await provider?.useBackdropImage($0) ?? "" },
+                                       inUse: { [weak services] in services?.settings?.snapshot.backdropSelection })
+        }
         let routes = [PageRoute(prefix: "cmux.settings.", provider: provider), PageRoute(prefix: "cmux.app.", provider: native)]
+            + (images.map { [PageRoute(prefix: BackdropImagesPageProvider.prefix, provider: $0)] } ?? [])
         // `appearance.surfaces.settings` colors the page, as it colored the Swift Settings view.
         let dynamicResources = SettingsBackdropThumbnails(choices: SettingsWindowService.backdrops.choices,
                                                           currentChoices: { SettingsWindowService.backdrops.choices },
@@ -185,10 +194,8 @@ struct PageFactory {
             ?? PageWebView(descriptor: .settings, routes: routes, route: route, surface: .settings,
                            dynamicResources: dynamicResources)
         native.anchor = { [weak page] in page }
-        // An image dropped on Settings becomes the background (cx-t2x.8), while the picker shows.
-        page?.fileDrop = PageFileDrop(accepts: { [weak services] url in
-            services?.settings?.snapshot.experimentalAppearance == true && BackdropUserImages.isImage(url)
-        }) { [weak provider] url in
+        // An image or movie dropped on Settings becomes the background (cx-t2x.8).
+        page?.fileDrop = PageFileDrop(accepts: { url in BackdropUserImages.isImage(url) }) { [weak provider] url in
             // task-owner: one short copy and settings write per drop; a failed one changes nothing
             Task { try? await provider?.useBackdropImage(url) }
         }

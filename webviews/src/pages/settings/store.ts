@@ -7,11 +7,22 @@
 // owner and the per-row refusals. Components read both through useSettingsState (context.ts).
 import { MutationObserver, type QueryClient } from "@tanstack/react-query";
 import type { GhosttyTheme } from "../../theme/ghosttyTheme";
+import { AppearanceHistory, diff, type HistoryEntry, type TargetState } from "./appearanceHistory";
+import {
+  appearanceKeys,
+  captureAppearance,
+  captureKeys,
+  captureThemes,
+  changeLabel,
+  tracksAppearance,
+  withLinked,
+} from "./appearanceUndo";
 import type { PageCommand } from "./keyboard";
 import {
   createSettingsQueryClient,
   optimistic,
   scopeData,
+  shareScope,
   settingsKeys,
   type AccountsData,
   type HarnessesData,
@@ -92,6 +103,9 @@ export type WriteResult = { ok: true } | { ok: false; error: WireError };
 /** Where the page opens things it does not edit itself (catalog actions). */
 export type NativeTarget = "cmuxJSON";
 
+/** `appearance.background`, which the picker's host ops set. */
+const BACKGROUND = "appearance.background";
+
 const emptyDomains: Domains = { themes: [], font_families: [], sounds: [] };
 
 /** The page's state from the cache and the UI state (one function for hooks and getSnapshot). */
@@ -126,6 +140,16 @@ export class SettingsStore {
   private readonly commandListeners = new Set<(command: PageCommand) => void>();
   private disposed = false;
   private themeColorsRequested = false;
+  /** The last composed state and what it was composed from (getSnapshot answers it while equal). */
+  private composed: { ui: UiState; cache: CacheView; state: SettingsState } | null = null;
+  /** The newest revision a finished or running read of the scope is sure to show. */
+  private covered = 0;
+  /** Settings > Appearance's undo stack (appearanceHistory.ts): page state, never written. */
+  readonly appearance = new AppearanceHistory();
+  /** Every appearance target as it was when Appearance first showed in this visit. */
+  private appearanceOpened: TargetState[] | null = null;
+  /** How many appearance steps are running (`trackAppearance`); inner ones record nothing. */
+  private tracking = 0;
 
   constructor(
     private readonly client: SettingsClient,
@@ -161,7 +185,8 @@ export class SettingsStore {
           for (const key of event.keys) errors.delete(key);
           this.updateUi({ errors });
         }
-        void this.refresh();
+        // A read that already shows this revision (this page's own write re-reads it) is enough.
+        void this.refresh(typeof event.revision === "number" ? event.revision : undefined);
       },
       connection: (connected) => {
         if (this.disposed) return;
@@ -190,6 +215,9 @@ export class SettingsStore {
   scopeQuery() {
     return {
       queryKey: settingsKeys.scope("user"),
+      // A re-read keeps every unchanged row's object, so a change renders only its own rows.
+      structuralSharing: (previous: unknown, next: unknown) =>
+        shareScope(previous as ScopeData | undefined, next as ScopeData),
       queryFn: async (): Promise<ScopeData> => {
         try {
           const read = scopeData(await this.transport.get("user"));
@@ -204,12 +232,20 @@ export class SettingsStore {
   }
 
   /** Re-reads the scope. The newest read wins: a read still in flight is cancelled first, so an
-   * older answer never replaces a newer one. */
-  async refresh(): Promise<void> {
+   * older answer never replaces a newer one. With `revision` (a change the owner announced, or
+   * this page's own write) nothing is read when a finished or running read already shows it: each
+   * read builds every row on the owner. */
+  async refresh(revision?: number): Promise<void> {
     if (this.disposed) return;
+    if (revision !== undefined && revision <= this.covered) return;
+    // Any read that starts now shows at least `revision`: the owner applied it before saying so.
+    if (revision !== undefined) this.covered = revision;
     const { queryKey } = this.scopeQuery();
     await this.queryClient.cancelQueries({ queryKey, exact: true });
-    await this.queryClient.fetchQuery({ ...this.scopeQuery(), staleTime: 0 }).catch(() => undefined);
+    const read = await this.queryClient.fetchQuery({ ...this.scopeQuery(), staleTime: 0 }).catch(() => undefined);
+    if (read) this.covered = Math.max(this.covered, read.revision);
+    // A failed or cancelled read covers nothing it did not show: the next announcement reads again.
+    else this.covered = this.queryClient.getQueryData<ScopeData>(queryKey)?.revision ?? 0;
   }
 
   /** Re-reads the host lists (after an action, or when the host has no change stream). */
@@ -232,8 +268,14 @@ export class SettingsStore {
 
   /** Sets one theme level of the active window, then re-reads the lists (the current theme). */
   async setTheme(level: string, spec: string | null): Promise<void> {
-    await this.request("cmux.settings.theme.set", { level, spec });
-    await this.refreshHost();
+    await this.trackAppearance(
+      [],
+      async () => {
+        await this.request("cmux.settings.theme.set", { level, spec });
+        await this.refreshHost();
+      },
+      { themes: true },
+    );
   }
 
   /** Save as Ghostty Theme (cx-wqn5.1): the host writes `base` with its edits as the user theme `name`. */
@@ -288,9 +330,41 @@ export class SettingsStore {
   /** Opens the cmux picker for an image of the person's own; the host copies it into the
    * backgrounds folder and sets it as the background. */
   async chooseBackdropImage(): Promise<void> {
-    const reply = await this.request("cmux.settings.backdrop.choose_image", {});
-    if (!reply.ok) this.setError("appearance.background", rowError(reply.error));
-    else await Promise.all([this.refresh(), this.refreshHost()]);
+    await this.trackAppearance([BACKGROUND], async () => {
+      const reply = await this.request("cmux.settings.backdrop.choose_image", {});
+      if (!reply.ok) this.setError(BACKGROUND, rowError(reply.error));
+      else await Promise.all([this.refresh(), this.refreshHost()]);
+    });
+  }
+
+  /** Downloads the image or movie at `url` and sets it (backgrounds plan phase 3). Resolves to the
+   * refusal code the picker words, or null once it is the background. */
+  async addBackdropLink(url: string): Promise<string | null> {
+    return this.trackAppearance([BACKGROUND], async () => {
+      const reply = await this.request("cmux.settings.backdrop.image.link", { url });
+      if (!reply.ok) return reply.error.code || "cmux.settings.backdrop.download_failed";
+      await Promise.all([this.refresh(), this.refreshHost()]);
+      return null;
+    });
+  }
+
+  /** Deletes one of the person's own images; resolves to the bytes the rest take, or null. */
+  async removeBackdropImage(id: string): Promise<number | null> {
+    const reply = await this.request("cmux.settings.backdrop.image.remove", { id });
+    if (!reply.ok) return null;
+    await this.refreshHost();
+    return reply.value.bytes;
+  }
+
+  /** Shows one of the person's images, or with no id the backgrounds folder, in Finder. */
+  revealBackdropImage(id?: string): void {
+    void this.request("cmux.settings.backdrop.image.reveal", id ? { id } : {});
+  }
+
+  /** The bytes the person's own images take; null when the host cannot say. */
+  async backdropUsage(): Promise<number | null> {
+    const reply = await this.request("cmux.settings.backdrop.image.usage", {});
+    return reply.ok ? reply.value.bytes : null;
   }
 
   /** Opens the Wallpaper pane of System Settings, where macOS downloads a wallpaper the picker
@@ -341,9 +415,11 @@ export class SettingsStore {
 
   /** Downloads the work `key` and sets it as the background; false when that failed. */
   async useMuseumArt(key: string): Promise<boolean> {
-    const reply = await this.request("cmux.settings.art.use", { key });
-    if (reply.ok) await Promise.all([this.refresh(), this.refreshHost()]);
-    return reply.ok;
+    return this.trackAppearance([BACKGROUND], async () => {
+      const reply = await this.request("cmux.settings.art.use", { key });
+      if (reply.ok) await Promise.all([this.refresh(), this.refreshHost()]);
+      return reply.ok;
+    });
   }
 
   /** Writes `text` to the pasteboard (a row's Copy Setting Key) through the host. */
@@ -426,7 +502,26 @@ export class SettingsStore {
     };
   }
 
-  getSnapshot = (): SettingsState => composeState(this.ui, this.cacheView());
+  /** The page's state; the same object until the UI state or a cached part changes, so
+   * useSyncExternalStore subscribers render only on a real change. */
+  getSnapshot = (): SettingsState => {
+    const cache = this.cacheView();
+    const last = this.composed;
+    if (
+      last &&
+      last.ui === this.ui &&
+      last.cache.scope === cache.scope &&
+      last.cache.scopeSettled === cache.scopeSettled &&
+      last.cache.host === cache.host &&
+      last.cache.accounts === cache.accounts &&
+      last.cache.harnesses === cache.harnesses &&
+      last.cache.themeColors === cache.themeColors
+    )
+      return last.state;
+    const state = composeState(this.ui, cache);
+    this.composed = { ui: this.ui, cache, state };
+    return state;
+  };
 
   /** Dispatcher commands (find, back, forward, reset) for the mounted page. */
   onCommand(listener: (command: PageCommand) => void): () => void {
@@ -435,11 +530,140 @@ export class SettingsStore {
   }
 
   set(key: string, value: unknown): Promise<WriteResult> {
-    return this.write({ kind: "set", key, value });
+    const write = () => this.write({ kind: "set", key, value });
+    return tracksAppearance(key) ? this.trackAppearance([key], write) : write();
   }
 
   reset(key: string): Promise<WriteResult> {
-    return this.write({ kind: "reset", key });
+    const write = () => this.write({ kind: "reset", key });
+    return tracksAppearance(key) ? this.trackAppearance([key], write) : write();
+  }
+
+  /**
+   * Runs `work` (a write, a host op that sets the background, a theme level) as one step of
+   * Appearance's undo stack: the states of `keys` (and the keys their writes also change, and with
+   * `themes` the theme levels) are read before and after it, and what changed is recorded, named
+   * `label` or by the first change ("Background → Shuffle Daily"). Other parts of Appearance (the
+   * Theme pane's rotation) call it to make their changes undoable too.
+   */
+  async trackAppearance<T>(
+    keys: readonly string[],
+    work: () => Promise<T>,
+    options: { label?: string; themes?: boolean } = {},
+  ): Promise<T> {
+    // A step inside a step (a preset's writes, the Theme pane's rotation) is part of the outer one.
+    if (this.tracking > 0) return work();
+    const linked = withLinked(keys);
+    const read = () => [
+      ...captureKeys(this.getSnapshot(), linked),
+      ...(options.themes ? captureThemes(this.getSnapshot()) : []),
+    ];
+    const before = read();
+    this.tracking += 1;
+    let result: T;
+    try {
+      result = await work();
+    } finally {
+      this.tracking -= 1;
+    }
+    const changes = diff(before, read());
+    if (changes.length > 0)
+      this.appearance.record({ label: options.label ?? changeLabel(this.getSnapshot(), changes[0]!.after), changes });
+    return result;
+  }
+
+  /** Records an appearance step its caller applied itself (states it read before and after). */
+  recordAppearanceChange(entry: HistoryEntry): boolean {
+    return this.appearance.record(entry);
+  }
+
+  /** Undo: puts the last appearance step's earlier states back. False when there was none or the
+   * owner refused (the step stays where it was). */
+  async undoAppearance(): Promise<boolean> {
+    const step = this.appearance.takeUndo();
+    if (!step) return false;
+    const ok = await this.applyAppearance(step.apply);
+    if (!ok) this.appearance.restore("undo", step.entry);
+    return ok;
+  }
+
+  /** Redo: puts the last undone step's states back. */
+  async redoAppearance(): Promise<boolean> {
+    const step = this.appearance.takeRedo();
+    if (!step) return false;
+    const ok = await this.applyAppearance(step.apply);
+    if (!ok) this.appearance.restore("redo", step.entry);
+    return ok;
+  }
+
+  /** Remembers every appearance target the first time Appearance shows in this visit, for
+   * Restore How It Was. Later calls keep the first snapshot. */
+  noteAppearanceOpened(): void {
+    const state = this.getSnapshot();
+    if (this.appearanceOpened || !state.readable) return;
+    this.appearanceOpened = captureAppearance(state);
+  }
+
+  /** Whether Restore How It Was would change anything. */
+  appearanceChangedSinceOpened(): boolean {
+    return (
+      this.appearanceOpened !== null && diff(captureAppearance(this.getSnapshot()), this.appearanceOpened).length > 0
+    );
+  }
+
+  /** Puts every appearance target back as it was when Appearance first showed: one undoable step. */
+  async restoreAppearanceOpened(): Promise<boolean> {
+    if (!this.appearanceOpened) return false;
+    return this.applyAppearanceStep(t("settingsPage.history.restoreOpened"), this.appearanceOpened);
+  }
+
+  /** Whether Reset to Defaults would change anything (an appearance key the person set). */
+  appearanceCustomized(): boolean {
+    const state = this.getSnapshot();
+    return appearanceKeys().some((key) => {
+      const row = state.rows.get(key);
+      return row !== undefined && row.customized && !row.managed;
+    });
+  }
+
+  /** Resets every appearance key the person set to its shipped default: one undoable step. */
+  async resetAppearanceToDefaults(): Promise<boolean> {
+    const state = this.getSnapshot();
+    const defaults = captureKeys(state, appearanceKeys())
+      .filter((target) => target.customized && !state.rows.get(target.key)?.managed)
+      .map((target) => ({ ...target, value: state.rows.get(target.key)?.default, customized: false }));
+    return this.applyAppearanceStep(t("settingsPage.history.resetDefaults"), defaults);
+  }
+
+  /** Applies `targets` as one recorded step named `label`; true when the owner took every write. */
+  private async applyAppearanceStep(label: string, targets: readonly TargetState[]): Promise<boolean> {
+    const state = this.getSnapshot();
+    const current = [...captureAppearance(state)];
+    const changes = diff(current, [...targets]);
+    if (changes.length === 0) return true;
+    const ok = await this.applyAppearance(changes.map((change) => change.after));
+    this.appearance.record({ label, changes });
+    return ok;
+  }
+
+  /** Writes each state (outside the undo stack): a set, a reset or a theme level. */
+  private async applyAppearance(states: readonly TargetState[]): Promise<boolean> {
+    let ok = true;
+    let themes = false;
+    for (const state of states) {
+      if (state.kind === "theme") {
+        themes = true;
+        const reply = await this.request("cmux.settings.theme.set", { level: state.level, spec: state.spec });
+        ok &&= reply.ok;
+      } else {
+        const result = state.customized
+          ? await this.write({ kind: "set", key: state.key, value: state.value })
+          : await this.write({ kind: "reset", key: state.key });
+        ok &&= result.ok;
+      }
+    }
+    if (themes) await this.refreshHost();
+    return ok;
   }
 
   resetAll(): Promise<WriteResult> {
@@ -474,7 +698,7 @@ export class SettingsStore {
     }
     const key = settingsKeys.scope("user");
     const queryClient = this.queryClient;
-    const observer = new MutationObserver<void, TransportError, Write, { previous: ScopeData | undefined }>(
+    const observer = new MutationObserver<number | void, TransportError, Write, { previous: ScopeData | undefined }>(
       queryClient,
       {
         mutationKey: settingsKeys.write,
@@ -491,7 +715,8 @@ export class SettingsStore {
         onError: (_error, _next, context) => {
           if (context?.previous) queryClient.setQueryData(key, context.previous);
         },
-        onSettled: () => this.refresh(),
+        // The owner's revision after the write: its own change event then reads nothing more.
+        onSettled: (revision) => this.refresh(revision ?? undefined),
       },
     );
     try {

@@ -29,6 +29,14 @@ public final class HoverCardCoordinator {
     private(set) var panel: HoverCardPanel?
     private var activated: HoverTargetID?
     private var monitor: Any?
+    /// Pointer moves while a card shows: the card ignores the mouse, so over it no source
+    /// sees the pointer leave it; this sees it at once (no wait for a deadline).
+    private var moveMonitor: Any?
+    /// The card's parent and whether it took mouse moves before the card showed: while a
+    /// card shows, the parent takes them everywhere, so moves over the card reach `moveMonitor`.
+    private var movesParent: (window: NSWindow, accepted: Bool)?
+    /// The last pointer move was on the card.
+    private var pointerWasOnCard = false
     private var observers: [any NSObjectProtocol] = []
     /// Machine events delivered (debug report).
     public private(set) var eventCount = 0
@@ -143,10 +151,13 @@ public final class HoverCardCoordinator {
         // On the card the pointer is on no target (the card ignores the mouse,
         // so the window under it hit-tests): it holds the card.
         let onCard = card?.contains(now) == true
+        pointerWasOnCard = onCard
         // A held mouse button (a press, a drag, a selection) gives no target a card, as in Chrome.
         let hit = onCard || mouseButtonDown() ? nil : hitTest()
-        // Between a source's targets (not on the card): a card that hides on leave waits for the next.
-        let bridging = !onCard && hit == nil && !mouseButtonDown() && bridges(at: now)
+        // On the card, or between a source's targets: a card that hides on leave waits (on the
+        // card it stays while the pointer rests there; Lawrence 2026-10-19: the card touches its
+        // tab, and moving onto it must not dismiss it).
+        let bridging = hit == nil && !mouseButtonDown() && (onCard || bridges(at: now))
         send(.hit(hit?.target, moved: true, aiming: aiming, bridging: bridging))
     }
 
@@ -176,8 +187,10 @@ public final class HoverCardCoordinator {
         if machine.phase == .idle, machine.lastHit == nil {
             guard let window, window.frame.contains(currentPointer()) else { return }
         }
-        let hit = pointerIsOnCard() ? nil : hitTest()
-        send(.hit(hit?.target, moved: false))
+        let onCard = pointerIsOnCard()
+        let hit = onCard ? nil : hitTest()
+        // Content moving under a pointer resting on the card keeps the card.
+        send(.hit(hit?.target, moved: false, bridging: onCard))
         // A pinned card whose target went away (closed while not hovered).
         if let active = machine.activeTarget, owners[active.id]?.source?.hoverCardAnchor(for: active.id) == nil {
             send(.targetRemoved(active.id))
@@ -199,7 +212,8 @@ public final class HoverCardCoordinator {
     public func unsuppress(_ reason: HoverSuppression) {
         send(.unsuppress(reason))
         guard !mouseButtonDown() else { return }
-        send(.hit(pointerIsOnCard() ? nil : hitTest()?.target, moved: false))
+        let onCard = pointerIsOnCard()
+        send(.hit(onCard ? nil : hitTest()?.target, moved: false, bridging: onCard))
     }
 
     public func targetRemoved(_ id: HoverTargetID) {
@@ -306,6 +320,36 @@ public final class HoverCardCoordinator {
             NSEvent.removeMonitor(monitor)
             self.monitor = nil
         }
+        updateMoveMonitor()
+    }
+
+    /// While a card shows, pointer moves on it or just off it reach the machine: leaving the
+    /// card hides it on that move (Lawrence 2026-10-19), not at the next deadline.
+    private func updateMoveMonitor() {
+        let parent = machine.shownTarget == nil ? nil : panel?.parent
+        if movesParent?.window !== parent {
+            if let old = movesParent { old.window.acceptsMouseMovedEvents = old.accepted }
+            movesParent = parent.map { ($0, $0.acceptsMouseMovedEvents) }
+            parent?.acceptsMouseMovedEvents = true
+        }
+        if parent != nil, moveMonitor == nil {
+            moveMonitor = NSEvent.addLocalMonitorForEvents(matching: [.mouseMoved]) { [weak self] event in
+                self?.cardPointerMoved(event.window.map { $0.convertPoint(toScreen: event.locationInWindow) })
+                return event
+            }
+        } else if parent == nil, let moveMonitor {
+            NSEvent.removeMonitor(moveMonitor)
+            self.moveMonitor = nil
+            pointerWasOnCard = false
+        }
+    }
+
+    /// A pointer move seen by `moveMonitor`: only one on the card, or the first off it, is news
+    /// (a source reports moves over its own targets itself).
+    func cardPointerMoved(_ eventPoint: CGPoint?) {
+        let point = eventPoint ?? pointerLocation()
+        guard pointerWasOnCard || shownCardFrame?.contains(point) == true else { return }
+        pointerMoved(to: point)
     }
 
     private func pruneOwners() {

@@ -19,7 +19,7 @@
 #   ref-sdk <mac-binary>           print the SDK version recorded in a Mac binary
 #   hosts <sha> <ghostty-sha> [version]  cmux-app-host, cmux-browser-host, cmux-cloud and the
 #                                  agent screen-detection plugin for both macOS targets
-#   bins <sha> <ghostty-sha> <version>  cmux-tui, cmux-tui-hook, acpmux, cmux-relay, chatmux-relay
+#   bins <sha> <ghostty-sha> <version>  cmux-tui, cmux-tui-hook, cmux-tui-host, acpmux, cmux-relay, chatmux-relay
 #                                  (framework stubs) for both macOS targets
 #   parity-bins                    compare the daemon family with the Mac references
 #   stubs-check                    the committed framework stubs cover every Mac reference import
@@ -256,6 +256,9 @@ cmd_bins() {
     (cd "$repo_root/cmux-tui"
       export CMUX_TUI_BUILD_COMMIT=$sha CMUX_TUI_GHOSTTY_COMMIT=$ghostty CMUX_TUI_DISTRIBUTION_VERSION=$version
       cargo build -p cmux-tui --bin cmux-tui --bin cmux-tui-hook --release --locked --target "$t"
+      # Its own command: cmuxterm-hq's build-cmux-tui-source.sh pins the text
+      # of cmd_bins up to the line above for its cmux-tui-only fast path.
+      cargo build -p cmux-tui --bin cmux-tui-host --release --locked --target "$t"
       cargo build -p cmux-relay --bin cmux-relay --release --locked --target "$t"
       cargo build -p chatmux-relay --bin chatmux-relay --release --locked --target "$t"
       cargo build -p acpmux --bin acpmux --release --locked --target "$t")
@@ -263,6 +266,7 @@ cmd_bins() {
     local r="$CARGO_TARGET_DIR/$t/release"
     cp "$r/cmux-tui" "$out/cmux-tui-$t"
     cp "$r/cmux-tui-hook" "$out/cmux-tui-hook-$t"
+    cp "$r/cmux-tui-host" "$out/cmux-tui-host-$t"
     cp "$r/acpmux" "$out/cmux-tui-acpmux-$t"
     cp "$r/cmux-relay" "$out/cmux-relay-$t"
     cp "$r/chatmux-relay" "$out/chatmux-relay-$t"

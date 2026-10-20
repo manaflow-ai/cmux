@@ -193,7 +193,9 @@ await requireBrowserLane("agent-pane-harness-catalog.test.ts", async () => {
     });
     await page.goto(url());
     await page.getByText("Hi there.").waitFor();
-    // The model picker's last row, Add harness…, opens the page in place.
+    // The model picker's last row, Add harness…, opens the page in place. This chat has a message,
+    // so its menu offers no other harness unless Debug Settings' started-chat harness switch is on.
+    await page.evaluate(() => window.cmuxAcpmuxComposer?.({ harnessSwitch: true }));
     await page.locator(".acpmux-model .acpmux-picker-button").click();
     await page.locator(".acpmux-mp-add-harness").click();
     const claude = page.locator("[data-harness-row]").filter({ hasText: "Claude Code" });

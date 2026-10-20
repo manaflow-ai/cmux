@@ -1,5 +1,6 @@
 //! Part of `Hub`; see `hub/mod.rs`.
 
+use super::exit_reason::explains_exit;
 use super::*;
 use std::sync::atomic::Ordering;
 
@@ -278,6 +279,12 @@ impl Hub {
             drop(guard);
             return Err(e);
         }
+        // A continuation Stop overtook since it fired is refused here (`auto_resume.rs`).
+        let turn = TurnInfo::prompted(client, &text, &turn_id, &prompt_id, control);
+        if let Err(e) = self.start_turn(session, after_turn.as_deref(), turn) {
+            drop(guard);
+            return Err(e);
+        }
         {
             let mut m = session.meta.lock().unwrap();
             m.last_prompt = Some(short_text(&text, 200));
@@ -286,15 +293,6 @@ impl Hub {
             m.preview = Some(String::new());
             m.turn_count += 1;
         }
-        *session.turn.lock().unwrap() = Some(TurnInfo {
-            started_at: now_ms(),
-            client: client.to_owned(),
-            prompt_preview: short_text(&text, 200),
-            turn_id: turn_id.clone(),
-            prompt_id: prompt_id.clone(),
-            turn_seq: 0,
-            control,
-        });
         session.floor.last_turn_web.store(control == Control::Web, Ordering::SeqCst);
         self.reset_stream(session);
         let msg = json!({"text": text, "client": client, "promptId": prompt_id, "turnId": turn_id});
@@ -505,10 +503,8 @@ impl Hub {
             if bare {
                 let tail: Vec<String> =
                     session.stderr_tail.lock().unwrap().iter().cloned().collect();
-                // The last stderr line that is not a stack frame or a wrapper tag.
-                if let Some(last) = tail.iter().rev().map(|l| l.trim()).find(|l| {
-                    !l.is_empty() && !l.starts_with("at ") && !l.starts_with("[SYSTEM_ERROR]")
-                }) {
+                // The last stderr line that says why: not a stack frame, a wrapper tag or a wrapper exit line.
+                if let Some(last) = tail.iter().rev().map(|l| l.trim()).find(|l| explains_exit(l)) {
                     let agent = session.meta().harness;
                     e.message = format!("{} ({agent}): {last}", e.message);
                 }
@@ -679,7 +675,7 @@ impl Hub {
     /// Waits until the inbound loop handled every agent message queued before
     /// now. Bounded: a loop that is gone (closed channel) or stuck never holds
     /// a turn's settlement past the bound.
-    async fn drain_inbound(session: &Session) {
+    pub(super) async fn drain_inbound(session: &Session) {
         let (done, handled) = tokio::sync::oneshot::channel();
         let queued = tokio::time::timeout(
             std::time::Duration::from_secs(5),
@@ -689,6 +685,39 @@ impl Hub {
         if matches!(queued, Ok(Ok(()))) {
             let _ = tokio::time::timeout(std::time::Duration::from_secs(5), handled).await;
         }
+    }
+
+    /// A bare "agent process closed" from a process that died while it
+    /// started (`initialize`, `session/new`): the same error with the last
+    /// stderr line that says why, once the inbound loop has taken what the
+    /// process printed. Any other error is returned as is.
+    pub(super) async fn explain_start_failure(session: &Session, mut e: RpcError) -> RpcError {
+        if e.message != "agent process closed" {
+            return e;
+        }
+        let last = || {
+            session
+                .stderr_tail
+                .lock()
+                .unwrap()
+                .iter()
+                .rev()
+                .map(|l| l.trim().to_owned())
+                .find(|l| explains_exit(l))
+        };
+        Self::drain_inbound(session).await;
+        let mut found = last();
+        if found.is_none() {
+            // The stderr reader can trail stdout's close by a moment: one
+            // bounded wait for its last lines, then the bare error.
+            tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+            Self::drain_inbound(session).await;
+            found = last();
+        }
+        if let Some(line) = found {
+            e.message = format!("agent process closed ({}): {line}", session.meta().harness);
+        }
+        e
     }
 
     /// Keep the outcome of the last turn on the session (`lastTurn` in the
@@ -713,50 +742,6 @@ impl Hub {
             return None;
         }
         Some(to)
-    }
-
-    /// Build a plain-text transcript from the log for rehydration.
-    pub(super) fn transcript(&self, session: &Session, max_chars: usize) -> Option<String> {
-        let events = self.store.events(&session.id, 0, 200_000).ok()?;
-        let mut lines: Vec<String> = Vec::new();
-        let mut agent_buf = String::new();
-        let flush = |agent_buf: &mut String, lines: &mut Vec<String>| {
-            if !agent_buf.trim().is_empty() {
-                lines.push(format!("assistant: {}", agent_buf.trim()));
-            }
-            agent_buf.clear();
-        };
-        for e in events {
-            match e.kind.as_str() {
-                "user_message" => {
-                    flush(&mut agent_buf, &mut lines);
-                    if let Some(t) = e.msg.get("text").and_then(Value::as_str) {
-                        lines.push(format!("user: {t}"));
-                    }
-                }
-                "agent_message_chunk" => {
-                    if let Some(t) =
-                        e.msg.pointer("/params/update/content/text").and_then(Value::as_str)
-                    {
-                        agent_buf.push_str(t);
-                    }
-                }
-                _ => {}
-            }
-        }
-        flush(&mut agent_buf, &mut lines);
-        if lines.is_empty() {
-            return None;
-        }
-        let mut text = lines.join("\n\n");
-        if text.chars().count() > max_chars {
-            let skip = text.chars().count() - max_chars;
-            text = format!(
-                "[… {skip} earlier characters omitted …]\n{}",
-                text.chars().skip(skip).collect::<String>()
-            );
-        }
-        Some(text)
     }
 
     /// Pass a session-scoped request to the child, rewriting the session id.
@@ -790,9 +775,9 @@ impl Hub {
                 if e.message == "agent process closed" {
                     let tail: Vec<String> =
                         session.stderr_tail.lock().unwrap().iter().cloned().collect();
-                    if let Some(last) = tail.iter().rev().map(|l| l.trim()).find(|l| {
-                        !l.is_empty() && !l.starts_with("at ") && !l.starts_with("[SYSTEM_ERROR]")
-                    }) {
+                    if let Some(last) =
+                        tail.iter().rev().map(|l| l.trim()).find(|l| explains_exit(l))
+                    {
                         e.message =
                             format!("agent process closed ({}): {last}", session.meta().harness);
                     }

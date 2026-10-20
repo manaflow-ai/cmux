@@ -6,13 +6,25 @@
 import { useRef, useState } from "react";
 import type { Strings } from "../shared/i18n";
 import { Avatar } from "./Avatar";
+import { DialogButton } from "../../ui/DialogButton";
 import { FormDialog } from "./FormDialog";
-import { CENTERED, preparePicture, type PictureCrop as Crop, type PreparedPicture } from "./picture";
+import {
+  CENTERED,
+  preparePicture,
+  STILL_MAX_BYTES,
+  withinPixels,
+  type PictureCrop as Crop,
+  type PreparedPicture,
+} from "./picture";
 import { PictureCrop } from "./PictureCrop";
 import type { HomeSheets } from "./sheets";
 import {
+  CHIEF_BACKENDS,
   CHIEF_HARNESSES,
   CHIEF_TOOLS,
+  chiefBackend,
+  chiefBackendLabel,
+  DEFAULT_CHIEF_BACKEND,
   DEFAULT_CHIEF_TOOLS,
   type HomeChief,
   type HomeChiefGrant,
@@ -46,6 +58,9 @@ export function ChiefSheet({ sheets, strings, chief, picture, grants }: ChiefShe
     harnesses: chief && chief.harnesses.length > 0 ? chief.harnesses : [...CHIEF_HARNESSES],
   };
   const [grant, setGrant] = useState<HomeChiefGrant>(startGrant);
+  // The engine a new Chief starts on. An existing Chief's engine changes only in its settings in
+  // the app (`cmux chief engine`), so the edit sheet shows it and does not send it.
+  const [backend, setBackend] = useState<string>(DEFAULT_CHIEF_BACKEND);
   // A GIF ready to send, null to go back to the default picture, undefined for no change.
   const [image, setImage] = useState<(PreparedPicture & { url: string }) | null | undefined>();
   // A still being placed in the circle; it is drawn at its crop when the sheet saves.
@@ -74,13 +89,14 @@ export function ChiefSheet({ sheets, strings, chief, picture, grants }: ChiefShe
       ...g,
       [key]: g[key].includes(name) ? g[key].filter((item) => item !== name) : [...g[key], name],
     }));
-  const refuse = (error: "type" | "size" | "tooBig" | "unreadable") =>
+  const refuse = (error: "type" | "size" | "tooBig" | "pixels" | "unreadable") =>
     setImageError(
       t(
         {
           type: "chief.picture.type",
           size: "chief.picture.size",
           tooBig: "chief.picture.tooBig",
+          pixels: "chief.picture.pixels",
           unreadable: "chief.picture.type",
         }[error],
       ),
@@ -89,10 +105,15 @@ export function ChiefSheet({ sheets, strings, chief, picture, grants }: ChiefShe
     if (!file) return;
     setImageError(undefined);
     if (file.type !== "image/gif") {
-      // A still is placed first; its size is checked and it is drawn when the sheet saves.
+      // A still is placed first and drawn when the sheet saves. Its bytes and pixels are checked
+      // before the preview decodes it: a small file can decode to gigabytes.
+      if (file.size > STILL_MAX_BYTES) return refuse("tooBig");
       const url = URL.createObjectURL(file);
       const size = await naturalSize(url);
-      if (!size) return refuse("unreadable");
+      if (!size || !withinPixels(size)) {
+        URL.revokeObjectURL(url);
+        return refuse(size ? "pixels" : "unreadable");
+      }
       setImage(undefined);
       setCrop(CENTERED);
       setPlacing({ file, url, size });
@@ -118,7 +139,7 @@ export function ChiefSheet({ sheets, strings, chief, picture, grants }: ChiefShe
     const changed = grants && grantChanged ? grantChange : undefined;
     const done = chief
       ? sheets.updateChief(chief, profile, changed, sent)
-      : sheets.createChief(profile, changed, sent ?? undefined).then(Boolean);
+      : sheets.createChief(profile, changed, sent ?? undefined, backend).then(Boolean);
     void done.finally(() => setBusy(false));
   };
   const shownPicture = image === null ? undefined : (image?.url ?? picture);
@@ -136,12 +157,12 @@ export function ChiefSheet({ sheets, strings, chief, picture, grants }: ChiefShe
       busy={busy}
       actions={
         <>
-          <button type="button" className="hc-text-button" onClick={() => sheets.close()}>
+          <DialogButton dialogKey="escape" className="hc-text-button" onClick={() => sheets.close()}>
             {t("edit.cancel")}
-          </button>
-          <button type="submit" className="hc-text-button primary" disabled={!ready}>
+          </DialogButton>
+          <DialogButton dialogKey="return" type="submit" className="hc-text-button primary" disabled={!ready}>
             {t(chief ? "chief.save" : "chief.create")}
-          </button>
+          </DialogButton>
         </>
       }
     >
@@ -184,16 +205,18 @@ export function ChiefSheet({ sheets, strings, chief, picture, grants }: ChiefShe
       <div className="lg-form-field">
         <span className="lg-form-label">{t("chief.field.picture")}</span>
         <span className="lg-form-row">
-          <button
+          <DialogButton
+            dialogKey={null}
             type="button"
             className="hc-text-button"
             disabled={!chief && locked}
             onClick={() => fileInput.current?.click()}
           >
             {t(shownPicture || placing ? "chief.picture.change" : "chief.picture.choose")}
-          </button>
+          </DialogButton>
           {(shownPicture || placing) && (
-            <button
+            <DialogButton
+              dialogKey={null}
               type="button"
               className="hc-text-button"
               disabled={!chief && locked}
@@ -204,7 +227,7 @@ export function ChiefSheet({ sheets, strings, chief, picture, grants }: ChiefShe
               }}
             >
               {t("chief.picture.useDefault")}
-            </button>
+            </DialogButton>
           )}
           <input
             ref={fileInput}
@@ -226,6 +249,38 @@ export function ChiefSheet({ sheets, strings, chief, picture, grants }: ChiefShe
           />
         )}
       </div>
+      {chief ? (
+        <div className="lg-form-field">
+          <span className="lg-form-label">{t("chief.field.backend")}</span>
+          <span className="lg-chief-backend">{chiefBackendLabel(t, chief.engine?.harness)}</span>
+          <span className="lg-form-note">{t("chief.backend.changeInSettings")}</span>
+        </div>
+      ) : (
+        <label className="lg-form-field">
+          <span className="lg-form-label">{t("chief.field.backend")}</span>
+          <select
+            className="hc-link-field lg-chief-backend-select"
+            aria-label={t("chief.field.backend")}
+            value={backend}
+            disabled={locked}
+            onChange={(event) => setBackend(event.target.value)}
+          >
+            {CHIEF_BACKENDS.map((option) => (
+              <option key={option.id} value={option.id}>
+                {t(option.label)}
+              </option>
+            ))}
+          </select>
+          {chiefBackend(backend) === "unii" && (
+            <span className="lg-form-note">
+              {/* The command stays as typed in every language: the catalog holds its place, %@. */}
+              {t("chief.backend.uniiNote")
+                .split("%@")
+                .flatMap((part, index) => (index === 0 ? [part] : [<code key={index}>unii login</code>, part]))}
+            </span>
+          )}
+        </label>
+      )}
       <label className="lg-form-field">
         <span className="lg-form-label">{t("chief.field.personality")}</span>
         <textarea

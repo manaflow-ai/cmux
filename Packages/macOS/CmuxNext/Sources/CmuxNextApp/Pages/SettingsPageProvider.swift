@@ -31,7 +31,7 @@ final class SettingsPageProvider: PageProvider {
     /// Settings > Agents > Harnesses (cx-mg91, `SettingsHarnesses`): its state, and one gesture;
     /// nil in tests without an app.
     var harnessesState: (@MainActor () -> JSONValue)?
-    var harnessesRun: (@MainActor (JSONValue) async throws -> JSONValue)?
+    var harnessesRun: (@MainActor (JSONValue, PageCallContext?) async throws -> JSONValue)?
     /// The theme picker's write (level, spec or nil) and its spec check (R82 commit 4).
     var setTheme: (@MainActor (_ level: String, _ spec: String?) throws -> Void)?
     var acceptsTheme: (@MainActor (String) -> Bool)?
@@ -121,7 +121,7 @@ final class SettingsPageProvider: PageProvider {
         case "cmux.settings.harnesses.state":
             return try Self.available(harnessesState, "no harnesses")()
         case "cmux.settings.harnesses.run":
-            return try await Self.available(harnessesRun, "no harnesses")(params)
+            return try await Self.available(harnessesRun, "no harnesses")(params, context)
         case "cmux.settings.theme.set":
             guard let setTheme else { throw PageError(code: "cmux.page.unavailable", message: "no theme host") }
             guard let level = params["level"]?.stringValue else { throw PageError.invalidParams("level is required") }
@@ -356,8 +356,8 @@ final class SettingsPageProvider: PageProvider {
         } catch let userOnly as SettingUserOnly {
             throw Self.userOnlyError(userOnly)
         }
-        // The watcher applies the write; reading it back now keeps the page's refresh current.
-        await settings.reload()
+        // setSetting returns once its own load applied the write (reloadAfterWrite), so the
+        // page's next read is current without a second full load and apply.
     }
 
     static func managedInfo(_ source: ManagedSource) -> JSONValue {
