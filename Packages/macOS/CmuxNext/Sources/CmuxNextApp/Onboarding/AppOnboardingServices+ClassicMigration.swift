@@ -173,13 +173,17 @@ extension AppOnboardingServices {
         // Classic's windows come over side by side (each window's workspaces in
         // order, one at a time: the window's creates queue anyway), so a session
         // at classic's limits takes about as long as its largest window.
-        var later: [(index: Int, saved: ClassicSessionWorkspace)] = []
-        try await withThrowingTaskGroup(of: [(index: Int, saved: ClassicSessionWorkspace)].self) { group in
-            for index in plan.windows.indices {
-                group.addTask { @MainActor [self] in try await self.makeClassicWindow(index, run: run) }
-            }
-            for try await waiting in group { later += waiting }
+        // Child tasks on the main actor, awaited in window order; a thrown
+        // ledger write ends the run, after every window stopped.
+        let windowRuns = plan.windows.indices.map { index in
+            Task { @MainActor in try await self.makeClassicWindow(index, run: run) }
         }
+        var later: [ClassicWorkspaceTurn] = []
+        var firstFailure: (any Error)?
+        for windowRun in windowRuns {
+            do { later += try await windowRun.value } catch { firstFailure = firstFailure ?? error }
+        }
+        if let firstFailure { throw firstFailure }
         if !later.isEmpty {
             // The hosts still connecting, waited for together (each within its connect limit).
             let waiting = Set(later.compactMap { $0.saved.remote?.sshDestination })
@@ -196,7 +200,7 @@ extension AppOnboardingServices {
                     await services.ssh.forget(session)
                 }
             }
-            for (index, saved) in later.sorted(by: { $0.index < $1.index }) { try await makeClassicWorkspace(saved, window: index, run: run) }
+            for turn in later.sorted(by: { $0.index < $1.index }) { try await makeClassicWorkspace(turn.saved, window: turn.index, run: run) }
         }
         await placeClassicWorkspaces(plan, made: run.made, ledger: run.ledger)
         ledger = run.ledger
@@ -220,12 +224,11 @@ extension AppOnboardingServices {
 
     /// One classic window's workspaces, in order; returns the SSH ones whose
     /// host was not up at their turn, for after the local ones.
-    fileprivate func makeClassicWindow(_ index: Int, run: ClassicMigrationRunState) async throws
-        -> [(index: Int, saved: ClassicSessionWorkspace)] {
-        var waiting: [(index: Int, saved: ClassicSessionWorkspace)] = []
+    fileprivate func makeClassicWindow(_ index: Int, run: ClassicMigrationRunState) async throws -> [ClassicWorkspaceTurn] {
+        var waiting: [ClassicWorkspaceTurn] = []
         for saved in run.plan.windows[index].workspaces {
             if let remote = saved.remote, let host = run.hosts[remote.sshDestination], host.connection == nil {
-                waiting.append((index, saved))
+                waiting.append(ClassicWorkspaceTurn(index: index, saved: saved))
                 continue
             }
             try await makeClassicWorkspace(saved, window: index, run: run)
@@ -447,6 +450,12 @@ extension AppOnboardingServices {
         formatter.dateFormat = "yyyyMMdd'T'HHmmss'Z'"
         return formatter.string(from: Date()) + "-" + UUID().uuidString.prefix(4).lowercased()
     }
+}
+
+/// A classic workspace and the index of the classic window it belongs to.
+fileprivate struct ClassicWorkspaceTurn: Sendable {
+    var index: Int
+    var saved: ClassicSessionWorkspace
 }
 
 /// One run's state that its windows, made side by side, all write.
