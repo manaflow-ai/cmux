@@ -83,7 +83,9 @@ async fn native_token_receiver_inbound_refuses_another_key_address_or_host_epoch
         let result = serve_host_inbound(inbound, key, source, &*verifier, &me).await;
         let expected = match case {
             "address" => HostRefused::AddressMismatch,
-            "epoch" => HostRefused::StaleEpoch,
+            // The receiver's own host/epoch pin is now checked before reading
+            // the hello, so a mismatched policy cannot start a handshake.
+            "epoch" => HostRefused::Token,
             _ => HostRefused::Token,
         };
         assert_eq!(result, Err(expected), "{case}");

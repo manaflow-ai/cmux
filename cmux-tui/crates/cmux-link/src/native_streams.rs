@@ -2,7 +2,30 @@
 use std::task::Waker;
 use std::time::{Duration, Instant};
 
-use super::{NativePolicy, ReceiverTime, State};
+use super::{NativePeer, NativePolicy, ReceiverTime, State};
+use crate::dial::Service;
+use crate::stream_lease::LeaseControl;
+use std::collections::BTreeMap;
+
+/// Captured under the verifier lock. Full authority prevents a replacement
+/// grant from adopting a stream in the admission-to-handoff race.
+pub(super) struct StreamAuthority {
+    pub(super) issuer: String,
+    pub(super) host: String,
+    pub(super) epoch: u64,
+    pub(super) team: String,
+    pub(super) authority_version: String,
+    pub(super) peer: NativePeer,
+    pub(super) proof: StreamProof,
+    pub(super) lease: LeaseControl,
+}
+
+pub(super) enum StreamProof {
+    Token { service: Service, kid: String, signing_key: [u8; 32] },
+    // Before a hello names its kid/service, pin all public keys and services.
+    // Keyset version metadata alone does not change signing authority.
+    Handshake { keys: BTreeMap<String, [u8; 32]> },
+}
 
 pub(super) fn stream_deadline(policy: &NativePolicy, now: ReceiverTime) -> Option<Instant> {
     Some(
@@ -30,16 +53,35 @@ pub(super) fn reconcile_streams(state: &mut State, now: Option<ReceiverTime>) ->
                 || p.epoch != stream.epoch
                 || p.team != stream.team
                 || p.authority_version != stream.authority_version
-                || state.keys.keys.get(&stream.kid) != Some(&stream.signing_key)
                 || !p.peers.iter().any(|peer| {
                     peer.install == stream.peer.install
                         && peer.binding == stream.peer.binding
-                        && peer.services.contains(&stream.service)
+                        && match &stream.proof {
+                            StreamProof::Token { service, kid, signing_key } => {
+                                peer.services.contains(service)
+                                    && state.keys.keys.get(kid) == Some(signing_key)
+                            }
+                            StreamProof::Handshake { keys } => {
+                                &state.keys.keys == keys
+                                    && peer.services.len() == stream.peer.services.len()
+                                    && peer
+                                        .services
+                                        .iter()
+                                        .all(|s| stream.peer.services.contains(s))
+                            }
+                        }
                 })
             {
                 return None;
             }
-            stream_deadline(p, now)
+            let next = stream_deadline(p, now)?;
+            // A partial hello never acquires an indefinitely renewed slot.
+            // Token admission replaces it with a separately verified lease.
+            Some(if matches!(stream.proof, StreamProof::Handshake { .. }) {
+                next.min(previous)
+            } else {
+                next
+            })
         });
         wake.extend(stream.lease.set(next));
         next.is_some()

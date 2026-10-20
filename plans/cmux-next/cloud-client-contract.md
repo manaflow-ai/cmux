@@ -198,6 +198,8 @@ The CloudDO projection and original-credential VM agent read are implemented. Th
 
 The receiving authority writer installs its authenticated keyset, generated policy and issuer-time calibration together. It retains the same verifier and replay history across refreshes. Refresh attempts are local capabilities tied to one owner and intent; invalidation cancels pending publication, and stale replies or failures cannot replace or clear newer authority. The Linux consumer authenticates the fixed root-owned agent socket and original public VM self identity before publishing. Its full request deadline covers connect and response body; lease accounting caps by both root remaining time and the full socket round trip without charging root work twice. No wall-clock fallback or team-stream scope is added.
 
+Receiving connections acquire bounded authority before reading a hello. That lease pins the host/epoch, receiving generation, full current peer, services and public signing keys; revocation or expiry closes partial frames too. Renewal cannot extend a pending hello. The handshake grants no service and spends no JWT: after a complete hello, signature and single-use verification acquire a separate service lease. Pending and admitted connections share bounded storage, with dropped slots reclaimed before admission. This prepares stream drain before WG removal; the supervised listener and drain composition remain required.
+
 Cache rules for `cmux link`:
 1. Cache the `connect_info` result by host id for at most 300 s or until a
    `cloud.machine.upsert` with a higher `revision` arrives (key rotation, epoch change, VPC change,
