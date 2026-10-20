@@ -22,6 +22,8 @@ public nonisolated struct AgentPaneGitHubRepository {
         process.arguments = ["-C", path, "remote", "get-url", "origin"]
         process.standardOutput = output
         process.standardError = Pipe()
+        process.standardInput = FileHandle.nullDevice
+        process.environment = AgentPaneGitProcess.environment(denyTransports: true)
         do {
             try process.run()
             // concurrency-allow: readSync runs only inside the detached utility task; git output is bounded.

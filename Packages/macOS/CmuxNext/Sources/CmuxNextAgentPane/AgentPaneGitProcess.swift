@@ -2,9 +2,11 @@ import CmuxNextCompat
 import Foundation
 
 /// One `git` run for the Changes view's writes (cx-tcwj): `/usr/bin/git` with a plain environment,
-/// no prompt for credentials, and a deadline that holds even when a child git started (a filter, a
-/// hook) keeps its output open.
+/// no prompt for credentials, and a deadline that holds even when a child git started (for example,
+/// a clean filter) keeps its output open.
 nonisolated enum AgentPaneGitProcess {
+    typealias Override = (key: String, value: String)
+
     /// Where a write may run: the chat's folder resolved, or why not.
     enum Place: Equatable {
         case folder(String)
@@ -33,7 +35,7 @@ nonisolated enum AgentPaneGitProcess {
     /// Nil when git exits 0, else git's message: its `fatal:` or `error:` line, else its first line
     /// (`git commit` says "nothing to commit" on its output), or why it did not run.
     static func run(_ arguments: [String], input: Data? = nil, timeout: Duration, network: Bool = false) async -> String? {
-        let outcome = await output(arguments, input: input, timeout: timeout, network: network)
+        let outcome = await output(arguments, input: input, timeout: timeout, network: network, allowRepositoryPrograms: true)
         return outcome.status == 0 ? nil : outcome.message
     }
 
@@ -41,7 +43,19 @@ nonisolated enum AgentPaneGitProcess {
     /// or did not finish in time).
     struct Outcome {
         var status: Int32?
-        var text: String
+        var data: Data
+
+        var text: String { String(decoding: data, as: UTF8.self) }
+
+        init(status: Int32?, text: String) {
+            self.status = status
+            data = Data(text.utf8)
+        }
+
+        init(status: Int32?, data: Data) {
+            self.status = status
+            self.data = data
+        }
 
         var message: String {
             let lines = text.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
@@ -54,12 +68,83 @@ nonisolated enum AgentPaneGitProcess {
     /// reach a remote (push, `gh`): they also get the user's tool folders, for credential helpers,
     /// and the SSH agent.
     static func output(_ arguments: [String], executable: String = "/usr/bin/git", directory: String? = nil,
-                       input: Data? = nil, timeout: Duration, network: Bool = false) async -> Outcome {
-        let environment = network ? networkEnvironment() : environment()
+                       input: Data? = nil, timeout: Duration, network: Bool = false,
+                       allowRepositoryPrograms: Bool = false) async -> Outcome {
+        let overrides: [Override]
+        if allowRepositoryPrograms {
+            overrides = []
+        } else if let folder = repositoryFolder(arguments: arguments, directory: directory) {
+            switch await filterOverrides(in: folder, timeout: timeout) {
+            case .ready(let configured): overrides = configured
+            case .failed(let outcome): return outcome
+            }
+        } else {
+            overrides = []
+        }
+        let environment = network
+            ? networkEnvironment(overrides: overrides)
+            : environment(overrides: overrides, denyTransports: !allowRepositoryPrograms,
+                          allowSystemConfiguration: allowRepositoryPrograms)
+        let safeArguments = executable == "/usr/bin/git" && !allowRepositoryPrograms ? safeReadConfiguration + arguments : arguments
         return await Task.detached(priority: .userInitiated) {
-            runSync(Command(executable: executable, arguments: arguments, directory: directory, environment: environment),
+            runSync(Command(executable: executable, arguments: safeArguments, directory: directory, environment: environment),
                     input: input, timeout: timeout)
         }.value
+    }
+
+    private enum FilterPreparation {
+        case ready([Override])
+        case failed(Outcome)
+    }
+
+    private static let safeReadConfiguration = [
+        "-c", "log.showSignature=false",
+        "-c", "diff.submodule=short",
+        "-c", "core.attributesFile=/dev/null",
+        "-c", "diff.orderFile=/dev/null",
+    ]
+
+    private static func filterOverrides(in folder: String, timeout: Duration) async -> FilterPreparation {
+        let pattern = #"^filter\..*\.(clean|smudge|process|required)$"#
+        let command = Command(
+            executable: "/usr/bin/git",
+            arguments: safeReadConfiguration + ["-C", folder, "config", "--null", "--name-only", "--get-regexp", pattern],
+            directory: nil,
+            environment: environment(denyTransports: true)
+        )
+        let outcome = await Task.detached(priority: .userInitiated) { runSync(command, input: nil, timeout: timeout) }.value
+        if outcome.status == 1, outcome.data.isEmpty { return .ready([]) }
+        guard outcome.status == 0, let overrides = parseFilterOverrides(outcome.data) else { return .failed(outcome) }
+        return .ready(overrides)
+    }
+
+    private static func parseFilterOverrides(_ data: Data) -> [Override]? {
+        guard data.count <= 64 * 1024, let output = String(data: data, encoding: .utf8) else { return nil }
+        let settings = Set(["clean", "smudge", "process", "required"])
+        var drivers: Set<String> = []
+        for field in output.split(separator: "\0", omittingEmptySubsequences: true) {
+            let key = String(field)
+            guard key.hasPrefix("filter."), let dot = key.lastIndex(of: "."), settings.contains(String(key[key.index(after: dot)...])) else {
+                return nil
+            }
+            let driver = String(key[key.index(key.startIndex, offsetBy: "filter.".count)..<dot])
+            guard !driver.isEmpty else { return nil }
+            drivers.insert(driver)
+        }
+        guard drivers.count <= 256 else { return nil }
+        return drivers.sorted().flatMap { driver in
+            [("filter.\(driver).clean", ""), ("filter.\(driver).smudge", ""),
+             ("filter.\(driver).process", ""), ("filter.\(driver).required", "false")]
+        }
+    }
+
+    private static func repositoryFolder(arguments: [String], directory: String?) -> String? {
+        if let index = arguments.firstIndex(of: "-C"), arguments.indices.contains(index + 1) {
+            let folder = arguments[index + 1]
+            return folder.hasPrefix("/") && !folder.contains("\0") ? folder : nil
+        }
+        guard let directory, directory.hasPrefix("/"), !directory.contains("\0") else { return nil }
+        return directory
     }
 
     private struct Command {
@@ -80,8 +165,8 @@ nonisolated enum AgentPaneGitProcess {
             data.withLock { $0.append(chunk) }
         }
 
-        var text: String {
-            data.withLock { String(decoding: $0, as: UTF8.self) }
+        var value: Data {
+            data.withLock { $0 }
         }
     }
 
@@ -137,22 +222,44 @@ nonisolated enum AgentPaneGitProcess {
         // concurrency-allow: runSync runs only inside output's detached task; bounded to one second.
         _ = ended.wait(timeout: .now() + 1)
         output.fileHandleForReading.readabilityHandler = nil
-        return Outcome(status: process.terminationStatus, text: shared.text)
+        return Outcome(status: process.terminationStatus, data: shared.value)
     }
 
     /// The user's own git settings (HOME) and none of the App's environment; never a terminal
-    /// prompt for credentials.
-    static func environment() -> [String: String] {
-        var environment = ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "GIT_TERMINAL_PROMPT": "0", "LC_ALL": "C"]
-        if let home = ProcessInfo.processInfo.environment["HOME"] { environment["HOME"] = home }
+    /// prompt for credentials or a repository-selected hook/file-system monitor. The fixed
+    /// `GIT_CONFIG_*` values are command-scope overrides, not inherited launcher values.
+    static func environment(overrides: [Override] = [], denyTransports: Bool = false, allowSystemConfiguration: Bool = false,
+                            app: [String: String] = ProcessInfo.processInfo.environment) -> [String: String] {
+        let configuration = [(key: "core.fsmonitor", value: "false"), (key: "core.hooksPath", value: "/dev/null")] + overrides
+        var environment = [
+            "GIT_CONFIG_COUNT": String(configuration.count),
+            "GIT_TERMINAL_PROMPT": "0",
+            "LC_ALL": "C",
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+        ]
+        for (index, override) in configuration.enumerated() {
+            environment["GIT_CONFIG_KEY_\(index)"] = override.key
+            environment["GIT_CONFIG_VALUE_\(index)"] = override.value
+        }
+        if allowSystemConfiguration {
+            environment["GIT_CONFIG_SYSTEM"] = app["GIT_CONFIG_SYSTEM"]
+        } else {
+            environment["GIT_CONFIG_NOSYSTEM"] = "1"
+        }
+        if denyTransports {
+            environment["GIT_ALLOW_PROTOCOL"] = ""
+            environment["GIT_NO_LAZY_FETCH"] = "1"
+        }
+        if let home = app["HOME"] { environment["HOME"] = home }
         return environment
     }
 
     /// The plain environment, plus what reaching a remote takes: the user's tool folders (a
     /// credential helper such as `gh` or Git Credential Manager), the SSH agent, and no prompt from
     /// `gh` either.
-    static func networkEnvironment(_ app: [String: String] = ProcessInfo.processInfo.environment) -> [String: String] {
-        var environment = environment()
+    static func networkEnvironment(_ app: [String: String] = ProcessInfo.processInfo.environment,
+                                   overrides: [Override] = []) -> [String: String] {
+        var environment = environment(overrides: overrides)
         environment["PATH"] = (toolFolders(app) + ["/usr/bin", "/bin", "/usr/sbin", "/sbin"]).joined(separator: ":")
         environment["SSH_AUTH_SOCK"] = app["SSH_AUTH_SOCK"]
         environment["GH_PROMPT_DISABLED"] = "1"

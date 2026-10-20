@@ -21,6 +21,7 @@ nonisolated struct MarkdownFileLocationReader: Sendable {
 
     private func git(_ path: String) async -> MarkdownGitLocation? {
         let folder = (path as NSString).deletingLastPathComponent
+        guard let runner = await runner.confined(to: folder) else { return nil }
         guard let top = await runner.run(["rev-parse", "--show-toplevel"], in: folder), top.status == 0 else { return nil }
         let rootLine = top.output.trimmingCharacters(in: .newlines)
         guard !rootLine.isEmpty else { return nil }
@@ -45,7 +46,9 @@ nonisolated struct MarkdownFileLocationReader: Sendable {
                 state = .pushed
             } else {
                 // Ahead of the upstream: pushed still when this file is the same there.
-                let diff = await runner.run(["diff", "--quiet", "@{upstream}", "HEAD", "--", relative], in: root)
+                let diff = await runner.run(
+                    ["diff", "--quiet", "--no-ext-diff", "--no-textconv", "@{upstream}", "HEAD", "--", relative], in: root
+                )
                 state = diff?.status == 0 ? .pushed : .unpushed
             }
         }
