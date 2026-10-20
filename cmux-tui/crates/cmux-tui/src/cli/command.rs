@@ -3347,6 +3347,16 @@ mod tests {
         assert_eq!(empty.params["initial_content"], "empty");
     }
 
+    /// Agents pass `--no-focus` out of habit (`cmux open`, other CLIs).
+    /// Creating a workspace never moves focus, so the flag is accepted and
+    /// changes nothing.
+    #[test]
+    fn workspace_create_accepts_no_focus_as_a_no_op() {
+        let plain = protocol(&["workspace", "create", "--name", "w"]);
+        let quiet = protocol(&["workspace", "create", "--no-focus", "--name", "w"]);
+        assert_eq!(quiet.params, plain.params);
+    }
+
     #[test]
     fn creation_correlation_is_bounded_and_scoped() {
         let correlated =
