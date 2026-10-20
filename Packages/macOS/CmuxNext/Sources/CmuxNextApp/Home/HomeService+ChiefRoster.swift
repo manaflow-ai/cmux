@@ -36,6 +36,14 @@ extension HomeService {
         return line
     }
 
+    /// The cloud Chief whose main conversation is `conversation`: its agent id and whether a
+    /// paired server runs it; nil while neither the Chief tab's Chiefs nor the directory know it.
+    func cloudChiefPlacement(of conversation: String) -> (id: String, placed: Bool)? {
+        if let chief = cloudChiefs.chief(for: conversation) { return (chief.id, chief.brainPlace != nil) }
+        guard let record = directory.chiefs.first(where: { $0.mainConversation == conversation }) else { return nil }
+        return (record.id, record.placed)
+    }
+
     /// The paired server's name for a placed Chief (its host id while the server is not paired here).
     func serverName(of chief: CloudChief?) -> String? {
         guard let host = chief?.brainPlace?.host else { return nil }

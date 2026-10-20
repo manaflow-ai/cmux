@@ -11,6 +11,12 @@ public struct ChiefEngineReport: Decodable, Sendable, Equatable {
         public var harness: String?
         public var model: String?
         public var effort: String?
+
+        public init(harness: String? = nil, model: String? = nil, effort: String? = nil) {
+            self.harness = harness
+            self.model = model
+            self.effort = effort
+        }
     }
 
     /// One recent turn's end, as the brain summarizes its trace.
@@ -48,6 +54,11 @@ public struct ChiefEngineReport: Decodable, Sendable, Equatable {
     public struct Model: Decodable, Sendable, Equatable {
         public var id: String
         public var name: String
+
+        public init(id: String, name: String) {
+            self.id = id
+            self.name = name
+        }
     }
 
     /// What a set may pick: acpmux's models for the engine's harness and the

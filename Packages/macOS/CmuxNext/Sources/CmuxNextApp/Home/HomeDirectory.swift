@@ -11,6 +11,8 @@ struct HomeChiefRecord: Hashable, Sendable {
     var isDefault: Bool
     var rev: Int
     var mainConversation: String?
+    /// A paired server runs it (`brain_place`); false: the Cloud service's brain does.
+    var placed = false
 }
 
 /// The people and Chiefs behind the Home page's New Message and New Chief
@@ -143,6 +145,7 @@ final class HomeDirectory {
         guard let object = value as? [String: Any], let id = object["id"] as? String,
               (object["archived_at"] as? String) == nil else { return nil }
         return HomeChiefRecord(id: id, name: object["display_name"] as? String ?? "", isDefault: object["is_default"] as? Bool ?? false,
-                               rev: (object["rev"] as? NSNumber)?.intValue ?? 0, mainConversation: object["main_conversation"] as? String)
+                               rev: (object["rev"] as? NSNumber)?.intValue ?? 0, mainConversation: object["main_conversation"] as? String,
+                               placed: object["brain_place"] is [String: Any])
     }
 }

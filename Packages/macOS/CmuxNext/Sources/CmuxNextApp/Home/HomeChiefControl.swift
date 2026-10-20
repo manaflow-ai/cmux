@@ -2,6 +2,7 @@ import CmuxHomeCore
 import CmuxNextActions
 import CmuxNextDaemon
 import CmuxNextHomeEngine
+import CmuxNextHostedChief
 import CmuxNextRemote
 import Foundation
 import os
@@ -9,8 +10,9 @@ import os
 /// Which brain answers a Home Chief conversation, and the owner's control
 /// of it: the engine source of the settings panel and `chief.stop`. This
 /// Mac's Chief goes through this Mac's Chief owner daemon (which forwards to
-/// its brain's tools socket); a cloud Chief goes through the daemon of the
-/// paired server its brain is placed on (the owner session the app holds).
+/// its brain's tools socket); a cloud Chief placed on a paired server goes
+/// through that server's daemon (the owner session the app holds); a hosted
+/// cloud Chief (no `brain_place`) through the Cloud service's brain route.
 @MainActor
 struct HomeChiefControl {
     let services: AppServices
@@ -30,6 +32,16 @@ struct HomeChiefControl {
     static let stopNotification = Notification.Name("HomeHostView.stopChief")
 
     var isCloud: Bool { services.home.isCloudConversation(conversation) }
+
+    /// A cloud Chief no paired server runs: the Cloud service's brain answers. A cloud Chief
+    /// not listed yet counts as hosted (a new Chief); the list's answer picks again.
+    var isHosted: Bool { isCloud && services.home.cloudChiefPlacement(of: conversation.rawValue)?.placed != true }
+
+    /// The hosted Chief's agent id; nil while it is not listed (or a server runs it).
+    var hostedChiefID: String? {
+        guard isCloud, let chief = services.home.cloudChiefPlacement(of: conversation.rawValue), !chief.placed else { return nil }
+        return chief.id
+    }
 
     /// The paired server that runs this cloud Chief's brain (`brain_place`).
     var server: ServerMachineSession? {
@@ -64,6 +76,11 @@ struct HomeChiefControl {
         }
         let conversation = conversation
         let muxHome = muxHome
+        if isHosted {
+            return HomeChiefHostedEngine(
+                chief: { HomeChiefControl(services: services, conversation: conversation, muxHome: muxHome).hostedChiefID },
+                send: services.home.hostedChief.brainRoute, files: files)
+        }
         return HomeChiefRemoteEngine(
             connection: { HomeChiefControl(services: services, conversation: conversation, muxHome: muxHome).connection },
             place: server?.name ?? services.home.cloudChiefs.chief(for: conversation.rawValue)?.brainPlace?.host,
@@ -73,6 +90,8 @@ struct HomeChiefControl {
     /// `chief.stop` on this Chief's brain; nil when it stopped (or had no
     /// turn), else why not.
     func stop() async -> HomeChiefEngineError? {
+        // The Cloud service has no stop for a hosted Chief's turn yet; no server to ask.
+        if isHosted { return .cloudStopUnsupported }
         guard let connection else { return .unreachable }
         do {
             let stopped = try await ChiefControlClient(connection).stopChief(chief: named)

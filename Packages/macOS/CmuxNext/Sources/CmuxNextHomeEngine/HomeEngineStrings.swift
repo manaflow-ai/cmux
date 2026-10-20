@@ -49,6 +49,26 @@ public nonisolated enum HomeEngineStrings {
     static var errorUnreachable: String {
         String(localized: "home.engine.error.unreachable", defaultValue: "The server with this Chief is not connected.", table: "Home", bundle: .module)
     }
+    /// A hosted cloud Chief: the Cloud service did not answer.
+    static var errorCloudUnreachable: String {
+        String(localized: "home.engine.error.cloudUnreachable", defaultValue: "cmux could not reach the cloud for this Chief. Check your connection and try again.", table: "Home", bundle: .module)
+    }
+    /// A hosted cloud Chief: no account is signed in.
+    static var errorSignedOut: String {
+        String(localized: "home.engine.error.signedOut", defaultValue: "Sign in to cmux to change this Chief's settings.", table: "Home", bundle: .module)
+    }
+    /// A hosted cloud Chief on a Cloud service that runs no Chief brains.
+    static var errorCloudUnavailable: String {
+        String(localized: "home.engine.error.cloudUnavailable", defaultValue: "This cloud does not run Chiefs, so this Chief does not answer.", table: "Home", bundle: .module)
+    }
+    /// A hosted cloud Chief's turn cannot be stopped from this Mac yet.
+    static var errorCloudStopUnsupported: String {
+        String(localized: "home.engine.error.cloudStopUnsupported", defaultValue: "A cloud Chief's reply cannot be stopped from here yet.", table: "Home", bundle: .module)
+    }
+    /// A hosted cloud Chief whose brain is turned off.
+    static var hostedBrainOff: String {
+        String(localized: "home.engine.hostedBrainOff", defaultValue: "This Chief is turned off, so it does not answer messages.", table: "Home", bundle: .module)
+    }
     /// This Mac's Chief: its owner daemon or brain host is not running.
     static var errorLocalUnreachable: String {
         String(localized: "home.engine.error.localUnreachable", defaultValue: "This Mac's Chief is not running.", table: "Home", bundle: .module)
@@ -78,6 +98,7 @@ public nonisolated enum HomeEngineStrings {
     /// know shows as the brain names it.
     static func effortTitle(_ id: String) -> String {
         switch id {
+        case "off": String(localized: "home.engine.effort.off", defaultValue: "Off", table: "Home", bundle: .module)
         case "minimal": String(localized: "home.engine.effort.minimal", defaultValue: "Minimal", table: "Home", bundle: .module)
         case "low": String(localized: "home.engine.effort.low", defaultValue: "Low", table: "Home", bundle: .module)
         case "medium": String(localized: "home.engine.effort.medium", defaultValue: "Medium", table: "Home", bundle: .module)

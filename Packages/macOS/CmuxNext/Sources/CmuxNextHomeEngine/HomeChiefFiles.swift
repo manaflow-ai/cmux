@@ -20,6 +20,8 @@ public nonisolated struct HomeChiefSnapshot: Sendable {
     /// What the turns run on (engine.json over the brain's defaults), which
     /// names each picker's "Default"; nil until the brain answers.
     var effective: ChiefEngineReport.Engine?
+    /// A hosted cloud Chief's brain is turned off: it answers no message (``HomeChiefHostedEngine``).
+    var brainOff = false
 
     /// This snapshot with `report`'s offered models and efforts and its effective engine.
     func offering(_ report: ChiefEngineReport) -> HomeChiefSnapshot {

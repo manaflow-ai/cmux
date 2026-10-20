@@ -107,7 +107,12 @@ extension HomeChiefSettingsView {
         replies.stringValue = snapshot.turns.isEmpty ? ""
             : HomeEngineStrings.answeredBy + "\n" + snapshot.turns.map(HomeEngineStrings.reply).joined(separator: "\n")
         replies.isHidden = snapshot.turns.isEmpty
-        onResize()
+        // A hosted cloud Chief whose brain is off answers no message: say so, never a silent Chief.
+        if snapshot.brainOff, !changeFailed {
+            note(HomeEngineStrings.hostedBrainOff, kept: false)
+        } else {
+            onResize()
+        }
     }
 
     /// `values` (value, title) after a "Default" item that names what it runs,
@@ -187,6 +192,7 @@ extension HomeChiefSettingsView {
     /// The hint under the Harness row: only UniiChat's (sign in with `unii login` first), since
     /// the other engines' sign-in is the brain host's own (a cloud Chief's runs on its server).
     func showHarnessHint() {
+        guard source.choosesHarness else { return }
         let unii = harness.selectedItem?.representedObject as? String == ChiefBackend.unii.id
         let hint = unii ? ChiefBackend.unii.hint : nil
         harnessHint.stringValue = hint ?? ""

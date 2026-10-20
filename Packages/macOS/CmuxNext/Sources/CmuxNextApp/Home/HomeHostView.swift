@@ -37,8 +37,10 @@ final class HomeHostView: NSView {
     /// Which brain answers this conversation (this Mac's or a paired server's).
     private var control: HomeChiefControl
     private var stopObserver: (any NSObjectProtocol)?
-    /// The settings panel shows a paired server's brain (a cloud Chief).
+    /// The settings panel shows a cloud Chief's brain, and whether the Cloud service hosts it
+    /// (else a paired server runs it).
     private var showsCloud = false
+    private var showsHosted = false
     private var isWorking = false
     /// Where this Chief runs and its other host, for the settings card (no floating switch over the chat).
     private var hostWatch: Task<Void, Never>?
@@ -141,14 +143,15 @@ final class HomeHostView: NSView {
         // whether this is the Chief conversation, and a refresh of the
         // settings' last turn on each new message.
         engineWatch = Task { [weak self] in
-            for await (isChief, _, title, cloud, typing, named) in ObservationStream({ () -> (Bool, Int, String, Bool, Bool, String?) in
+            for await (isChief, _, title, cloud, typing, named, hosted) in ObservationStream({ () -> (Bool, Int, String, Bool, Bool, String?, Bool) in
                 let row = store.rows.first { $0.summary.id == id }
                 let chief = row?.summary.participants.contains { $0.agentClass == .chief } ?? false
                 // A cloud Chief's brain runs on its paired server, never on
                 // this Mac's mux home (2026-10-08: the sidebar wrote codex
                 // here while cmux-lawrence ran claude-sr).
                 return (chief, store.transcriptVersion[id] ?? 0, row?.summary.title ?? "", service.isCloudConversation(id),
-                        row?.isTyping ?? false, row.flatMap { ChiefHome.namedChief(in: $0.summary.participants) })
+                        row?.isTyping ?? false, row.flatMap { ChiefHome.namedChief(in: $0.summary.participants) },
+                        service.cloudChiefPlacement(of: conversation)?.placed != true)
             }) {
                 guard let self else { return }
                 // A named Chief's conversation: its panel, Stop and avatar name it (cx-327wl).
@@ -161,8 +164,9 @@ final class HomeHostView: NSView {
                 // The Chief types while its turn runs: the compose bar offers Stop.
                 isWorking = isChief && typing
                 transcript.isWorking = isWorking
-                if cloud != showsCloud {
+                if cloud != showsCloud || (cloud && hosted != showsHosted) {
                     showsCloud = cloud
+                    showsHosted = hosted
                     settingsView.use(control.engineSource())
                 }
                 settingsView.setName(title)
