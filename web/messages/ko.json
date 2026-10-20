@@ -2258,6 +2258,7 @@
           "currentLineHighlight": "아무것도 선택하지 않았을 때 캐럿이 있는 줄에 색을 입힙니다.",
           "tabWidth": "탭 정지 하나가 차지하는 열 수입니다. 들여쓰기 가이드도 같은 간격을 사용합니다."
         },
+        "actions": "명령 팔레트, 단축키, 탭 표시줄 버튼, 더하기 버튼 메뉴에서 사용하는 재사용 가능한 동작입니다. builtin, command, agent, workspaceCommand, workspace, setting, settingPreset, text를 지원합니다. text 동작은 줄바꿈을 유지하여 포커스된 터미널에 붙여넣으며, submit: true는 Enter를 누릅니다. 설정 동작에는 전역 구성이 필요합니다.",
         "remoteTmux": {
           "beta": {
             "newWorkspaceOnHost": {
@@ -3463,6 +3464,16 @@
       "title": "cmux에서 규칙 열기",
       "intro": "이 페이지는 현재 cmux 작업 공간의 규칙을 엽니다.",
       "fallback": "cmux는 규칙을 먼저 표시하고 이를 현재 작업 공간에 붙여넣기 전에 묻습니다. cmux가 열리지 않으면 cmux를 설치하고 cmux에서 열기를 다시 클릭합니다."
+    },
+    "agent": {
+      "metaTitle": "cmux에서 에이전트 세션 열기",
+      "metaDescription": "cmux를 사용할 수 없을 때 설치 안내와 함께 웹에서 cmux 에이전트 세션 딥링크를 엽니다.",
+      "title": "에이전트 세션 열기",
+      "intro": "이 Mac이 이미 해당 세션에 접근할 수 있으면 이 링크가 cmux에서 에이전트의 세션을 엽니다. 링크 자체는 어떤 접근 권한도 부여하지 않습니다.",
+      "fallback": "cmux가 열리지 않으면 cmux를 설치하고 cmux에서 열기를 다시 클릭하세요. cmux는 이 Mac이 이미 접근할 수 있는 세션만 엽니다.",
+      "nameLabel": "이름: {value}",
+      "hostLabel": "호스트: {value}",
+      "harnessLabel": "하네스: {value}"
     }
   },
   "download": {
