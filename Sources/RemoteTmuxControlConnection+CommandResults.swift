@@ -95,6 +95,7 @@ extension RemoteTmuxControlConnection {
             }
             if case let .paneTitleSubscription(token) = kind,
                let completion = trackedSendCompletions.removeValue(forKey: token) {
+                paneTitleSubscriptionRejected = true
                 completion(false)
             }
             if case let .rawQuery(token) = kind {

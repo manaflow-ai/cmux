@@ -156,6 +156,8 @@ final class RemoteTmuxControlConnection {
     /// `refresh-client -B` subscriptions belong to the control client. A
     /// reconnect receives a new client, so this flag is reset with the stream.
     var paneTitleSubscriptionActive = false
+    /// A server rejection is not retried until a fresh control stream starts.
+    var paneTitleSubscriptionRejected = false
     /// Configured tmux pane-title placement per window; absence means off.
     var windowTitleRowPlacements: [Int: RemoteTmuxPaneTitleRowPlacement] = [:]
     /// Layouts awaiting authoritative pane rectangles before publication.
@@ -692,6 +694,7 @@ final class RemoteTmuxControlConnection {
         pendingLayouts.removeAll()
         paneTitleMetadataSnapshotRevisions.removeAll()
         paneTitleSubscriptionActive = false
+        paneTitleSubscriptionRejected = false
         initialBatchAwaiting = nil
         initialBatchStaged.removeAll()
         // Normally already flushed by beginReconnecting; kept here so a future
@@ -773,16 +776,9 @@ final class RemoteTmuxControlConnection {
             proc.executableURL = URL(fileURLWithPath: transportExecutable)
             proc.arguments = transportArgv
         }
-        // SSH forwards TERM when allocating the remote PTY. The GUI process can
-        // inherit an unsuitable value (for example from a launcher shell), which
-        // makes tmux reject the control client before it emits %enter. The mirror
-        // protocol needs a broadly available terminal definition rather than the
-        // launcher's terminal type.
-        var environment = transportProfile.childProcessEnvironment(
+        proc.environment = transportProfile.childProcessEnvironment(
             inheriting: ProcessInfo.processInfo.environment
         )
-        environment["TERM"] = "xterm-256color"
-        proc.environment = environment
         let inPipe = Pipe(), outPipe = Pipe(), errPipe = Pipe()
         proc.standardInput = inPipe
         proc.standardOutput = outPipe

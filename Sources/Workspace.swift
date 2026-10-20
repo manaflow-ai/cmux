@@ -3139,7 +3139,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// Most recent optimistic remote-tmux rename request for each projected pane.
     /// A rejected older request must not roll back a newer request with the same
     /// title text.
-    var remoteTmuxRenameGenerationByPanelID: [UUID: UInt64] = [:]
+    var remoteTmuxRenameGenerationByPanelID: [UUID: UUID] = [:]
     /// Transient labels an automation session puts in front of a panel's
     /// title (`<label> · <title>`); never persisted, and a custom title wins.
     var panelAutomationLabels: [UUID: String] = [:]
@@ -7087,6 +7087,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             }
             mirror.onTerminalPanelRemoved = { [weak self] panel in
                 guard let self else { return }
+                self.remoteTmuxRenameGenerationByPanelID.removeValue(forKey: panel.id)
                 AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: id, surfaceId: panel.id)
                 terminalFontSizeChangeCoordinator?
                     .terminalDidLeaveWorkspace(

@@ -56,11 +56,14 @@ extension Workspace {
         // stream reset restore the last authoritative projected-pane title.
         if propagateToRemoteTmux, source != .remote, let remoteTmuxPane {
             let authoritativeTitle = remoteTmuxPane.pane.title
-            let requestGeneration = (remoteTmuxRenameGenerationByPanelID[panelId] ?? 0) &+ 1
+            let requestGeneration = UUID()
             guard remoteTmuxPane.requestRename(title: trimmed, completion: { [weak self] accepted in
-                guard !accepted, let self else { return }
+                guard let self,
+                      self.remoteTmuxRenameGenerationByPanelID[panelId] == requestGeneration else { return }
+                self.remoteTmuxRenameGenerationByPanelID.removeValue(forKey: panelId)
+                guard !accepted else { return }
                 let current = self.panelCustomTitles[panelId]
-                guard self.remoteTmuxRenameGenerationByPanelID[panelId] == requestGeneration,
+                guard
                       (self.panelTitles[panelId] ?? authoritativeTitle) == authoritativeTitle,
                       (trimmed.isEmpty ? current == nil : current == trimmed) else { return }
                 self.updateRemoteTmuxPaneTitle(panelId: panelId, title: authoritativeTitle)
