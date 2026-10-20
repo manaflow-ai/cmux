@@ -8,8 +8,7 @@ import CmuxNextFloating
 import CmuxNextSettings
 
 /// What the Chief pet (`CmuxNextFloating`) opens and sends in this app; `NotificationCenterService+ChiefPet`
-/// makes and feeds the pet. A click on the pet opens its reply box; its right-click menu opens its
-/// settings or hides it.
+/// makes and feeds the pet. A click on the pet opens its reply box; its menu opens its settings or hides it.
 @MainActor
 struct ChiefPetRoutes {
     weak var services: AppServices?

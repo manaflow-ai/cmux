@@ -207,7 +207,6 @@
         "CmuxNextBrowserImport",
         "CmuxNextCLIInstall",
         "CmuxNextChiefMemory",
-        "CmuxNextChiefPetWiring",
         "CmuxNextChromiumRuntime",
         "CmuxNextChromiumWarmup",
         "CmuxNextCloud",
@@ -496,18 +495,6 @@
       ],
       "packages": [],
       "reads": []
-    },
-    "CmuxNextChiefPetWiring": {
-      "kind": "regular",
-      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextChiefPetWiring",
-      "targets": [
-        "CmuxNextCompat",
-        "CmuxNextDaemon",
-        "CmuxNextDesign",
-        "CmuxNextFloating",
-        "CmuxNextSettings"
-      ],
-      "packages": []
     },
     "CmuxNextChromiumRuntime": {
       "kind": "regular",
