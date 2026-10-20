@@ -340,7 +340,7 @@ public final class BrowserChromeView: NSView {
             showsStop = loading
             reloadButton.setIcon(loading ? .browserStop : .actionReload, label: loading ? Strings.stop : Strings.reload)
         }
-        addressBar.update(url: state.url, security: PageInfoSite.omnibarSecurity(for: state))
+        addressBar.update(url: Self.omnibarURL(for: state), security: PageInfoSite.omnibarSecurity(for: state))
         updateMachineBadge()
         recordHistory(state)
         reportFinishedLoad(state)
