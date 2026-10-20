@@ -27,6 +27,7 @@ struct AcpmuxLaunchSecurityTests {
 
     @Test func spawnEnvironmentWithholdsLegacyComputerUseSecrets() throws {
         var environment = try Self.environment()
+        environment.passesPersonKeyAtSpawn = false
         environment.computerUse = [
             "CMUX_NEXT_CUA_SOCKET": "/private/helper.sock",
             "CMUX_NEXT_CUA_SOCKET_AUTH_TOKEN": "fixture-secret",
@@ -48,6 +49,22 @@ struct AcpmuxLaunchSecurityTests {
         #expect(variables["CMUX_NEXT_CUA_SOCKET_HOST_AUTH_TOKEN"] == nil)
         #expect(variables["CMUX_NEXT_CUA_V2_DIR"] == "/private/v2")
         #expect(variables["PATH"] == "/usr/bin")
+    }
+
+    @Test func unsignedDevelopmentLaunchKeepsLegacyComputerUseAgentCredentials() throws {
+        var environment = try Self.environment()
+        environment.passesPersonKeyAtSpawn = true
+        environment.computerUse = [
+            "CMUX_NEXT_CUA_SOCKET": "/private/helper.sock",
+            "CMUX_NEXT_CUA_SOCKET_AUTH_TOKEN": "fixture-secret",
+            "CMUX_NEXT_CUA_SOCKET_HOST_AUTH_TOKEN": "host-secret",
+        ]
+
+        let variables = AcpmuxDaemonLauncher.spawnEnvironment(environment, inherited: [:])
+
+        #expect(variables["CMUX_NEXT_CUA_SOCKET"] == "/private/helper.sock")
+        #expect(variables["CMUX_NEXT_CUA_SOCKET_AUTH_TOKEN"] == "fixture-secret")
+        #expect(variables["CMUX_NEXT_CUA_SOCKET_HOST_AUTH_TOKEN"] == nil)
     }
 
     @Test func signedLaunchDoesNotInheritUnrelatedApplicationSecrets() throws {
