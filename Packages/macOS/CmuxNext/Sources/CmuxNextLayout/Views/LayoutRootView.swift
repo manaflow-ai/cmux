@@ -62,6 +62,11 @@ public final class LayoutRootView: NSView {
     var overlayIsStale = false
     var overlayFlushScheduled = false
 
+    /// A pane close holds the terminals' grids (red: never).
+    public var onTerminalGridHold: ((Bool) -> Void)?
+    /// Whether a pane close holds the terminals' grids now (red: never).
+    public var holdsTerminalGrids: Bool { false }
+
     /// Everything the view reads from the model, observed as one value.
     private struct Snapshot: Equatable, Sendable {
         var screens: [LayoutScreen]
