@@ -94,6 +94,7 @@ function Slider({
       <span>{label}</span>
       <input
         type="range"
+        aria-label={label}
         name={name}
         min={range.min}
         max={range.max}
@@ -184,9 +185,10 @@ export function DensityCard() {
           const custom = !PRESETS.some((preset) => preset.id === density.id);
           return (
             <button
+              // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- the ARIA radio pattern on a tile button; an <input type="radio"> would change the tile's keys and look.
+              role="radio"
               key={density.id}
               type="button"
-              role="radio"
               aria-checked={on}
               className="density-tile"
               data-density={density.id}
@@ -249,6 +251,7 @@ export function DensityCard() {
               <span>{t("settingsWindow.density.name")}</span>
               <input
                 type="text"
+                aria-label={t("settingsWindow.density.name")}
                 name="density-name"
                 value={editing.name}
                 onChange={(event) => edit({ name: event.target.value })}

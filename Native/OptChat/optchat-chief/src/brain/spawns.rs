@@ -1333,6 +1333,7 @@ impl Brain {
 }
 
 #[cfg(test)]
+#[allow(clippy::items_after_test_module)] // impl Brain items follow; moving them is the owner's change
 mod security_tests {
     use super::report_requires_approval;
 
