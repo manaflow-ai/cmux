@@ -48,3 +48,18 @@ With two Macs on the account, a terminal whose own Mac is gone shows "Reattachin
 ## Files
 
 `live/`: motion analyser json (`s2b-follow-kbup`, `s3b-jump`, `s3b-after-jump1/2`, `life-e-hostd-kill`, `life-e-hostd-kill-top`), `tabs-switch.settle.json`, scenario logs (`s23b-log`, `life-e-hostd-kill*`, `life13-d45`, `life13-d4`, `tabs-ab`, `life-c`, `tabs-switch`, `echo-idle`, `sizelog`), screenshots. Raw videos: `~/cnx-ios-e2e/r13-raw/` on the laptop.
+
+## D4/D5 re-run on 64dbc81595f (terminals know their own Mac)
+
+The same rig (phone simulator plus the hidden `cnx-e2e-e6d43df7` Mac app on mini-cmux11s, the other agent's parity rig still online on the same account). Graceful quit of the rig Mac app with stream20 running in `e2e-t1`, then a composer Send and direct typing, then a relaunch after more than 1 minute (`live/life13-d45-r2.json`).
+
+| Check | Before (3e6a2b56eff) | 43c6ef89 | 64dbc81595f |
+| --- | --- | --- | --- |
+| Offline label after the quit | never in 20 min | never in 60 s (the link moved to the other Mac) | **"Mac offline" at the first poll, 0.45 s** after the quit started (app and hostd gone at the same poll); still offline 70 s later |
+| Last frame | — | visible | visible and readable, dimmed status rows intact; 0 black frames, 0 flashes over the quit (motion.py, 12 s) |
+| Composer Send while down | cleared, ran later | kept, "Not sent: reconnecting…" | kept `echo STALECOMP2` with "Not sent: cmux11's Mac mini is offline. Send again when it's back." |
+| Direct typing while down | ran later | dropped with a notice | dropped: "Keys typed while your Mac was unreachable were not sent." |
+| After relaunch | ran 15.4 min later | nothing ran | **nothing ran** (neither token on the Mac screen) |
+| Relaunch → tab live | 2.3 s | 3.56 s | 3.88 s from the launch call (the call itself 1.36 s) |
+
+D4 (T-LIFE-13) now passes on this rig: offline label ≤ 5 s, reattach after relaunch about 2.5 s after the app is up.
