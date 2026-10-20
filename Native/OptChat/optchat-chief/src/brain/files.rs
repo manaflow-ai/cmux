@@ -67,6 +67,35 @@ pub fn read_files(
         .collect()
 }
 
+/// Non-owner files are named in the turn without downloading their bytes to
+/// the owner's Mac. The owner can re-send one to authorize materialization.
+pub fn unread_files(message: &Message) -> Vec<TurnFile> {
+    message
+        .parts
+        .iter()
+        .filter_map(|part| {
+            let Part::Attachment {
+                hash,
+                name,
+                mime_type,
+                byte_count,
+                ..
+            } = part
+            else {
+                return None;
+            };
+            (!mime_type.starts_with("image/")).then(|| TurnFile {
+                hash: hash.clone(),
+                name: name.clone(),
+                mime_type: mime_type.clone(),
+                byte_count: *byte_count,
+                path: None,
+                note: Some("not downloaded: the owner did not send it".into()),
+            })
+        })
+        .collect()
+}
+
 /// One file part read whole from the owner and written to
 /// `<root>/<hash>/<name>` (owner-only folder and file). An existing copy of
 /// the same bytes is reused. Never silently dropped: a failure keeps the
