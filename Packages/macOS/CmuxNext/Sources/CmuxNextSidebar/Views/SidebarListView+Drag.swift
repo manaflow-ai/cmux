@@ -115,7 +115,7 @@ extension SidebarListViewComponents {
             self.drag = nil
             // A drop is no focus change (hq-2d, cx-8quut): the reloads that show it anchor, and scroll only when the
             // focused row moved or was pushed out of view (sidebar-focused-visible, `ListViewport.settle`).
-            revealedActive = model.activeWorkspaceID.map { SidebarRowKey.workspace($0) }
+            revealedActive = selectionRevealKey
             let sentBefore = SidebarDocStore.current?.lastIntentKey
             doc.drop(items, target)
             settling?.key = SidebarDocStore.current?.lastIntentKey // nil already: refused inside the call
@@ -133,7 +133,7 @@ extension SidebarListViewComponents {
         self.drag = nil
         // A drop moves rows, not the list: its reloads anchor on the first visible row (cx-fnfj, cx-8quut) and reveal only
         // a focused row the drop moved or pushed out of view (sidebar-focused-visible).
-        revealedActive = model.activeWorkspaceID.map { SidebarRowKey.workspace($0) }
+        revealedActive = selectionRevealKey
         switch (drag.payload, target) {
         case let (.workspaces(ids), .position(position)):
             model.send(.reorder(ids, to: position))

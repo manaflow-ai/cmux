@@ -16,6 +16,13 @@ enum WorkspaceGroupHandlers {
         bindEdits(registry, context)
         bindMembers(registry, context)
         WorkspaceGroupPlaces.bind(into: registry, context: context)
+        // The header menu's toggles read as the change they make on the right-clicked group.
+        ActionTargetTitles.set("workspaceGroup.togglePin", in: registry) { invocation in
+            (try? context.group(invocation)).map { isPinned($0, context) ? WorkspaceVerbStrings.unpinGroup : WorkspaceVerbStrings.pinGroup }
+        }
+        ActionTargetTitles.set("toggleFocusedWorkspaceGroupCollapsed", in: registry) { invocation in
+            (try? context.group(invocation)).map { $0.collapsed ? WorkspaceVerbStrings.expandGroup : WorkspaceVerbStrings.collapseGroup }
+        }
         registry.bind("nextWorkspaceGroup", requires: DaemonCapabilities.shared.profiles, daemon: context.services.machines.local,
                       run: { _ in selectGroup(context, offset: 1) })
         registry.bind("prevWorkspaceGroup", requires: DaemonCapabilities.shared.profiles, daemon: context.services.machines.local,
@@ -58,7 +65,7 @@ enum WorkspaceGroupHandlers {
         ActionTargetVisibility.hide("removeWorkspaceFromGroup", in: registry) { (try? context.workspace($0).model).map { (try? WorkspaceVerbHandlers.group(of: $0, context)) == nil } ?? false }
         ActionTargetVisibility.hide("groupSelectedWorkspaces", in: registry) { _ in ((try? context.sidebar().model.orderedSelection.count) ?? 0) < 2 }
         registry.bind("workspaceGroup.newWorkspace", requires: DaemonCapabilities.shared.profiles, daemon: home, run: { invocation in
-            newPersonalWorkspace(in: try context.group(invocation).id, newTabPage: invocation.origin == .user, context)
+            try newPersonalWorkspace(in: context.group(invocation).id, newTabPage: invocation.origin == .user, context)
         })
         registry.bind("workspaceGroup.markRead", requires: DaemonCapabilities.shared.profiles, daemon: home, run: { invocation in try acknowledge(invocation, context) })
         registry.bind("workspaceGroup.clearNotifications", requires: DaemonCapabilities.shared.profiles, daemon: home, run: { invocation in try acknowledge(invocation, context) })
@@ -120,7 +127,7 @@ enum WorkspaceGroupHandlers {
         // A pinned (saved) group stays when its workspaces close.
         registry.bind("workspaceGroup.togglePin", requires: DaemonCapabilities.shared.workspaceGroupPin, daemon: home, run: { invocation in
             let group = try context.group(invocation)
-            try context.sidebar().handle(.setGroupPinned(sidebarID(group), !group.pinned))
+            try context.sidebar().handle(.setGroupPinned(sidebarID(group), !isPinned(group, context)))
         })
         // The group icon: the shared icon string, same rule as workspace and tab icons.
         registry.bind("workspaceGroup.setIcon", requires: DaemonCapabilities.shared.workspaceGroupIcon, daemon: home, run: { invocation in
@@ -155,17 +162,28 @@ enum WorkspaceGroupHandlers {
         })
     }
 
-    /// New workspace in the window's room, then into personal group `id`.
-    private static func newPersonalWorkspace(in id: WorkspaceGroupID, newTabPage: Bool, _ context: AppActionContext) {
+    /// New workspace in the window's room, made on the machine the group's workspaces run on
+    /// (`GroupSpawnHost`: a group in a remote host's section stays on that host), then into
+    /// personal group `id`. A remote host that is not connected refuses instead of making it here.
+    private static func newPersonalWorkspace(in id: WorkspaceGroupID, newTabPage: Bool, _ context: AppActionContext) throws {
         let windows = context.services.windows
         let target = windows.targetWindow(preferring: windows.active?.state.id)
-        let local = context.services.machines.local
+        let machines = context.services.machines, local = machines.local
+        let homes = context.workspaces(inPersonalGroup: id).compactMap { member in
+            machines.daemons.first { daemon in daemon.store.workspaces.contains { $0.id == member.id } }
+        }
+        let daemon = GroupSpawnHost(memberHomes: homes, local: local).host
+        guard daemon === local || daemon.connection != nil else {
+            throw ActionFailure.invalidTarget(WorkspaceVerbStrings.machineNotConnected)
+        }
         Task {
             var spawn = WorkspaceSpawn()
             spawn.opensNewTabPage = newTabPage
             // Placed into the group below, not at the new-workspace slot.
             spawn.placesBySetting = false
-            guard let key = try? await windows.createWorkspace(spawn, into: target), let session = local.store.registryID else { return }
+            guard let key = try? await windows.createWorkspace(spawn, on: daemon, into: target),
+                  let session = daemon.store.registryID else { return }
+            // The group lives in the home session's personal state, whichever machine runs the workspace.
             let workspace = WorkspaceKey(rawValue: key), resource = local.store.personalStateID(session: session, key: workspace)
             local.send("set-personal-workspace") {
                 try await $0.state.placePersonalWorkspace(session: session, key: workspace, resource: resource, group: .set(id))
@@ -175,6 +193,12 @@ enum WorkspaceGroupHandlers {
 
     private static func sidebarID(_ group: WorkspaceGroupModel) -> CmuxNextSidebar.GroupID {
         CmuxNextSidebar.GroupID(group.id.rawValue)
+    }
+
+    /// Whether the group reads as pinned where the person sees it: in the Pinned band on the sidebar
+    /// document, else the personal group's saved flag. Pin/Unpin toggles from this.
+    private static func isPinned(_ group: WorkspaceGroupModel, _ context: AppActionContext) -> Bool {
+        (try? context.sidebar().model.group(sidebarID(group))?.isPinned) ?? group.pinned
     }
 
     private static func createGroup(named name: String, members: [SidebarWorkspaceID], byUser: Bool, _ context: AppActionContext) throws {

@@ -59,6 +59,14 @@ extension SidebarViewComponents {
     }
     /// Draws the model now, in the caller's turn (SidebarSameTurn); the observation's next, equal state is skipped.
     public func renderNow() { render(RenderState(model, design)) }
+
+    /// Draws the model now and scrolls the selection into view, with the header
+    /// and list top around it, even when it did not change: Cmd-`n`, Cmd-Ctrl-[ / ]
+    /// and the palette pressed again on the item they already selected.
+    public func revealSelection() {
+        renderNow()
+        list.revealSelectionNow()
+    }
     func render(_ state: RenderState) {
         guard state != lastState else { return }
         let chromeChanged = lastState?.metrics != state.metrics || lastState?.fontSize != state.fontSize
@@ -89,11 +97,17 @@ extension SidebarViewComponents {
         if listChanged {
             if profileChanged {
                 switchSpace(from: lastState?.activeProfile, to: state.activeProfile, profiles: state.profiles, oldSections: previous ?? [])
-            } else if rowsChanged || !list.patchSelection(from: lastState?.selected, oldSelection: lastState?.selection ?? []) {
-                list.reload(animated: Self.animatesReload(from: previous, to: model.sections))
+            } else if selectionChanged, rowsChanged || !list.patchSelection(from: lastState?.selected, oldSelection: lastState?.selection ?? []) {
+                // A new selection shows now, wherever the pointer is (it is the user's, or asks to be seen).
+                list.reload(animated: Self.animatesReload(from: previous, to: model.sections) && model.followsUserIntent, fromModel: true)
+                if rowsChanged { SidebarNewRowTimer.shared.drew(model.sections, in: window) }
+            } else if rowsChanged {
+                // Only a change the user asked for moves rows; others show in place, after the pointer leaves (calm-sidebar-movement).
+                if list.showModelChange(animates: Self.animatesReload(from: previous, to: model.sections)) {
+                    SidebarNewRowTimer.shared.drew(model.sections, in: window)
+                }
             }
             lastSections = model.sections
-            if rowsChanged { SidebarNewRowTimer.shared.drew(lastSections, in: window) }
         }
         if lastState?.cards != state.cards { cardSlot.show(state.cards); needsLayout = true }
         if chromeChanged || profilesChanged { bandsDirty = true; needsLayout = true }
@@ -101,6 +115,6 @@ extension SidebarViewComponents {
     }
     /// Whether a sections change animates its rows. Provisional rows swap in place.
     static func animatesReload(from old: [SidebarSection]?, to new: [SidebarSection]) -> Bool {
-        !((old ?? []) + new).contains(where: \.hasProvisionalRows)
+        !new.contains(where: \.hasProvisionalRows) && !(old ?? []).contains(where: \.hasProvisionalRows)
     }
 }

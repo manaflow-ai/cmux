@@ -261,6 +261,17 @@ export function mergedView(notes: ReleaseNotes[], language: string): ReleaseView
   return { hero, groups, changes, internalChanges: internal, count: items.length };
 }
 
+/** A release day's title, Conductor style (2026-10-20): the curated headline of its newest build
+    that has curated entries. Undefined when none has one: such a day says "Maintenance and fixes". */
+export function releaseTitle(notes: ReleaseNotes[], language: string): string | undefined {
+  for (const n of notes) {
+    if (!n.whatsNew || n.whatsNew.entries.length === 0) continue;
+    const title = localized(n.whatsNew.headline, language).trim();
+    if (title) return title;
+  }
+  return undefined;
+}
+
 /** Builds (newest first) in runs of one release day. */
 export function groupByDay(builds: IndexEntry[]): { day: string; builds: IndexEntry[] }[] {
   const days: { day: string; builds: IndexEntry[] }[] = [];

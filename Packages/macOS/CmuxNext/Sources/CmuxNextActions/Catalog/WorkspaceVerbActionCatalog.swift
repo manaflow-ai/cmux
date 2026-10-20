@@ -163,6 +163,12 @@ nonisolated enum WorkspaceVerbActionCatalog: ActionCatalogGroup {
                 keywords: ["split", "detach", "tear off"], category: .pane, symbol: "rectangle.portrait.and.arrow.right",
                 surfaces: [.palette, .keyboard, .contextMenu], targets: [.pane], cliName: "pane move-to-new-workspace"
             ),
+            ActionDescriptor(
+                id: "pane.moveToNewWindow",
+                title: String(localized: "action.pane.moveToNewWindow", defaultValue: "Move Pane to New Window", table: "WorkspaceActions", bundle: .module),
+                keywords: ["window", "detach", "tear off"], category: .pane, symbol: "macwindow.badge.plus",
+                surfaces: [.palette, .contextMenu], targets: [.pane], cliName: "pane move-to-new-window"
+            ),
         ]
     }
 }

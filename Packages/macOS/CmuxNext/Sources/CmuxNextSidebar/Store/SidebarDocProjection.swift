@@ -27,6 +27,9 @@ public nonisolated struct SidebarDocProjection: Hashable, Sendable {
         public var members: [SidebarDocWorkspaceRef]
         /// The document section that holds it.
         public var section: String = ""
+        /// It sits in the Pinned band (Pin Group put it there): it lists above every machine
+        /// section, and its header and menu read as pinned (plans/cmux-next/sidebar-ordering-DESIGN.md).
+        public var pinned = false
         /// The document item ids of the workspace members, in order (`members`).
         public var memberItems: [String] = []
         /// The url, tab and app members (any item that is not a workspace or a group), in order.
@@ -84,6 +87,9 @@ public nonisolated struct SidebarDocProjection: Hashable, Sendable {
         var sectionIndex: [String: Int] = [:]
         var bandGroups: [Group] = []
         var machineOrder: [String] = []
+        // The top-level group of each nested group (remote-groups-DESIGN.md R1): until the list
+        // draws nested groups, a tree draws as its top group with every member of the tree.
+        var groupRoot: [String: String] = [:]
 
         for row in rows {
             // A live machine without a stored section yet (`sec_m_<session>`) still lists, unplaced.
@@ -102,7 +108,8 @@ public nonisolated struct SidebarDocProjection: Hashable, Sendable {
                     sections.append(LayoutSection(id: SidebarLayoutDocument.workspacesSectionID, region: .middle, look: .list,
                                                   arrangement: spacing, content: .workspaces))
                 }
-                Self.place(row, session: session, records: records, into: &machines, items: &items, unplaced: &unplaced)
+                Self.place(row, session: session, records: records, into: &machines, items: &items, unplaced: &unplaced,
+                           groupRoot: &groupRoot)
                 continue
             }
             if sectionIndex[record.id] == nil {
@@ -112,9 +119,13 @@ public nonisolated struct SidebarDocProjection: Hashable, Sendable {
             guard let id = row.item, let item = records.items[id], let index = sectionIndex[record.id] else { continue }
             if let ref = item.body.workspace { items[ref] = id } // members of a pinned group too: they list once
             if case let .group(name, color, icon, collapsed) = item.body, row.depth == 0 {
-                bandGroups.append(Group(id: id, name: name, color: color, icon: icon, collapsed: collapsed, members: [], section: record.id))
-            } else if row.depth > 0, let last = bandGroups.indices.last, bandGroups[last].id == (row.parent ?? item.parent) {
-                bandGroups[last].add(id, item) // a workspace, link, tab or app member: a member row in the list
+                bandGroups.append(Group(id: id, name: name, color: color, icon: icon, collapsed: collapsed, members: [], section: record.id,
+                                         pinned: record.kind == .pinned))
+            } else if case .group = item.body, let parent = row.parent ?? item.parent {
+                groupRoot[id] = groupRoot[parent] ?? parent
+            } else if row.depth > 0, let parent = row.parent ?? item.parent,
+                      let at = bandGroups.lastIndex(where: { $0.id == (groupRoot[parent] ?? parent) }) {
+                bandGroups[at].add(id, item) // a workspace, link, tab or app member: a member row in the list
             } else if row.depth == 0 {
                 sections[index].items.append(Self.layoutItem(item))
             }
@@ -132,33 +143,42 @@ public nonisolated struct SidebarDocProjection: Hashable, Sendable {
     }
 
     private static func place(_ row: SidebarDocRow, session: String, records: SidebarDocRecords, into machines: inout [String: [Node]],
-                              items: inout [SidebarDocWorkspaceRef: String], unplaced: inout [SidebarDocWorkspaceRef]) {
+                              items: inout [SidebarDocWorkspaceRef: String], unplaced: inout [SidebarDocWorkspaceRef],
+                              groupRoot: inout [String: String]) {
         guard let id = row.item, let item = records.items[id] else {
             if let ref = row.ref { unplaced.append(ref) }
             return
+        }
+        // A member row goes to its tree's top-level group (a nested group draws flat for now).
+        func addToGroup(of parent: String) {
+            let root = groupRoot[parent] ?? parent
+            guard var nodes = machines[session],
+                  let at = nodes.lastIndex(where: { if case let .group(group) = $0 { group.id == root } else { false } }),
+                  case .group(var group) = nodes[at] else { return }
+            group.add(id, item)
+            nodes[at] = .group(group)
+            machines[session] = nodes
         }
         switch item.body {
         case .workspace(let ref):
             items[ref] = id
             if let parent = row.parent ?? item.parent, row.depth > 0 {
-                guard var nodes = machines[session], let last = nodes.indices.last, case .group(var group) = nodes[last], group.id == parent else { return }
-                group.add(id, item)
-                nodes[last] = .group(group)
-                machines[session] = nodes
+                addToGroup(of: parent)
             } else {
                 machines[session, default: []].append(.workspace(ref, item: id))
             }
         case let .group(name, color, icon, collapsed):
+            if let parent = row.parent ?? item.parent, row.depth > 0 {
+                groupRoot[id] = groupRoot[parent] ?? parent
+                return
+            }
             machines[session, default: []].append(.group(Group(id: id, name: name, color: color, icon: icon, collapsed: collapsed, members: [],
                                                                 section: row.section)))
         case .url, .tab, .app, .builtin, .room, .savedGroup, .ref, .other:
             // Any item may sit in a machine section: it lists as a row, a group's member row inside a group.
             guard row.depth > 0 else { return machines[session, default: []].append(.link(Self.listItem(item))) }
-            guard let parent = row.parent ?? item.parent, var nodes = machines[session], let last = nodes.indices.last,
-                  case .group(var group) = nodes[last], group.id == parent else { return }
-            group.add(id, item)
-            nodes[last] = .group(group)
-            machines[session] = nodes
+            guard let parent = row.parent ?? item.parent else { return }
+            addToGroup(of: parent)
         }
     }
 
