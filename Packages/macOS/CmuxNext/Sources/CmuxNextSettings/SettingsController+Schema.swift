@@ -31,7 +31,13 @@ extension SettingsController {
         var legacy: [String]?
         if let old = WorkspaceRowSetting.legacyPath(for: descriptor.path), try await file.value(at: old) != nil { legacy = old }
         // The window background's opacity and material leave Ghostty, or return to it, together.
-        let linked = try await windowBackgroundLinkedEdits(writing: descriptor.path, value: value)
+        var linked = try await windowBackgroundLinkedEdits(writing: descriptor.path, value: value)
+        // A built-in density (any write of appearance.density) ends the custom one, which would win
+        // over it (plans/cmux-next/density-DESIGN.md).
+        let customDensity = CustomDensitySelectionSetting().configPath
+        if descriptor.path == DensitySetting().configPath, try await file.value(at: customDensity) != nil {
+            linked.append((path: customDensity, value: nil))
+        }
         if let value {
             guard descriptor.accepts(value) else { throw SettingRefused(key: descriptor.id, value: value) }
             if legacy != nil || !linked.isEmpty {

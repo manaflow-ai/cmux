@@ -75,6 +75,9 @@ public final class PageHostPool {
                       dynamicResources: (any PageDynamicResourceSource)? = nil, window: NSWindow?,
                       focus: Bool = true) -> PageWebView? {
         guard PageServedHosts.pooledDescriptors.contains(descriptor) else { return nil }
+        // Spares are WebKit views: a page that shows in Chromium is made fresh (PageWebView+Chromium).
+        let decision = PageWebView.engineDecision(for: descriptor, options: .standard)
+        guard decision.engine == .webKit else { return nil }
         isLikely = true
         if target == nil, let window { follow(window) }
         guard let host = spare, spareReady, host.isPooled else {
@@ -88,6 +91,7 @@ public final class PageHostPool {
         host.removeFromSuperview()
         host.countsTouches = true
         host.shouldFocusOnAttach = focus
+        host.engineDecision = decision
         _ = host.retarget(descriptor: descriptor, routes: routes, route: route,
                           documentAttributes: documentAttributes, surface: surface,
                           dynamicResources: dynamicResources)

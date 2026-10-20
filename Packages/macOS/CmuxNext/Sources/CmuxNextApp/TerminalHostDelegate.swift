@@ -129,6 +129,8 @@ final class TerminalHostDelegate: TerminalSessionDelegate {
         router.routing = { [weak services] in services?.settings?.snapshot.linkRouting ?? .fallback }
         router.textEditor = { [weak services] in services?.settings?.snapshot.textEditor.application ?? "" }
         router.appLink = { [weak services] url in services.map { CmuxAppLinks.open(url, services: $0) } ?? false }
+        // A click in a chat or page view opens beside the pane showing it (not the focused pane).
+        router.sourceTab = { [weak services] view in services?.linkOpener.source(containing: view)?.currentTabKey }
         router.openInCmux = { [weak services] url, background, source in
             guard let services else { return }
             // Beside the source pane (`layout.linkPlacement`, LinkOpener), never in its place.

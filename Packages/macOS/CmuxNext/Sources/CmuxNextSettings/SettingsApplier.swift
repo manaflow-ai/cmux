@@ -21,7 +21,7 @@ public final class SettingsApplier {
         self.registry = registry
     }
 
-    public static var validDensities: Set<String> { Set(Density.allCases.map(\.rawValue)) }
+    public static var validDensities: Set<String> { Set(DensityPreset.allCases.map(\.rawValue)) }
     public static var validMetrics: Set<String> { Set(MetricKey.allCases.map(\.rawValue)) }
 
     /// Applies `snapshot` and returns every diagnostic: the parse
@@ -35,8 +35,9 @@ public final class SettingsApplier {
         }
 
         if design.showModifierHoldHints != snapshot.showModifierHoldHints { design.showModifierHoldHints = snapshot.showModifierHoldHints }
-        let density = snapshot.density.flatMap(Density.init(rawValue:)) ?? .compact
-        if design.density != density { design.density = density }
+        if design.customDensities != snapshot.customDensities { design.customDensities = snapshot.customDensities }
+        let density = snapshot.selectedDensity
+        if design.densityTokens != density { design.densityTokens = density }
         let uiScale = DesignSettings.clampedUIScale(CGFloat(snapshot.uiScale))
         if design.uiScale != uiScale { design.uiScale = uiScale }
         let interfaceScale = DesignSettings.clampedInterfaceScale(CGFloat(snapshot.interfaceScale))
@@ -67,7 +68,7 @@ public final class SettingsApplier {
         if design.dockColumnMode != snapshot.dockColumnMode { design.dockColumnMode = snapshot.dockColumnMode }
         if design.frameOrientation != snapshot.frameOrientation { design.frameOrientation = snapshot.frameOrientation }
         if design.layoutRows != snapshot.layoutRows { design.layoutRows = snapshot.layoutRows }
-        if design.focusPaneOnScroll != snapshot.focusPaneOnScroll { design.focusPaneOnScroll = snapshot.focusPaneOnScroll }
+        if design.focusFollowsMouse != snapshot.focusFollowsMouse { design.focusFollowsMouse = snapshot.focusFollowsMouse }
         if design.minimumPaneContentSize != snapshot.minimumPaneContentSize { design.minimumPaneContentSize = snapshot.minimumPaneContentSize }
         if design.closeFocus != snapshot.closeFocus { design.closeFocus = snapshot.closeFocus }
         if design.defaultColumnWidth != snapshot.defaultColumnWidth { design.defaultColumnWidth = snapshot.defaultColumnWidth }

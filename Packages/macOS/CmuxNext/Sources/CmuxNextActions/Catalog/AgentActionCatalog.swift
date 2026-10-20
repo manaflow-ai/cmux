@@ -331,15 +331,25 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 symbol: "stop.circle", surfaces: [.palette],
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
             ),
-            // The local Chief's memory inspector (optchat-inspector.md): what the
-            // model saw each turn and the memory tree, in a browser tab in a new
-            // column. Debug builds only (DEV and nightly).
+            // The built-in Memory Inspector (memory-inspector-native-DESIGN.md): a
+            // Chief's memory tree, search, and the owner's edits, deletes and undo,
+            // in a native pane tab in the Home right column. Every build.
             ActionDescriptor(
                 id: "chief.openMemoryInspector",
                 title: String(localized: "action.chief.openMemoryInspector", defaultValue: "Chief: Open Memory Inspector", bundle: .module),
-                keywords: ["chief", "memory", "optchat", "view", "zoom", "tree", "trace", "cache", "debug", "inspector"],
-                category: .agents, symbol: "brain", surfaces: [.palette], isDebugOnly: true,
-                surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
+                keywords: ["chief", "memory", "optchat", "view", "zoom", "tree", "edit", "delete", "forget", "inspector"],
+                category: .agents, symbol: "brain", surfaces: [.palette], cliName: "chief memory",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
+            ),
+            // Chief Usage (chief-usage-analytics-DESIGN.md): tokens, cost, cache hit and turn
+            // time of this Mac's Chiefs, as a page tab (Home's right column in Home). The
+            // Chief's row menu in Home runs it too. `cmux chief usage` prints the same summary.
+            ActionDescriptor(
+                id: "chief.openUsage",
+                title: String(localized: "action.chief.openUsage", defaultValue: "Chief Usage", bundle: .module),
+                keywords: ["chief", "usage", "cost", "tokens", "cache", "spend", "stats", "analytics"],
+                category: .agents, symbol: "dollarsign.circle", surfaces: [.palette],
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
             ),
             ActionDescriptor(
                 id: "agentActivity.open",

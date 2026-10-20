@@ -115,6 +115,6 @@ extension SidebarViewComponents {
     }
     /// Whether a sections change animates its rows. Provisional rows swap in place.
     static func animatesReload(from old: [SidebarSection]?, to new: [SidebarSection]) -> Bool {
-        !((old ?? []) + new).contains(where: \.hasProvisionalRows)
+        !new.contains(where: \.hasProvisionalRows) && !(old ?? []).contains(where: \.hasProvisionalRows)
     }
 }
