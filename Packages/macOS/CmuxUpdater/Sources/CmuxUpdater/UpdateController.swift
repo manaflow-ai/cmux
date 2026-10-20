@@ -49,6 +49,8 @@ public final class UpdateController {
     /// The wake observer and the pending check after a wake (`UpdateController+Wake.swift`).
     var wakeObservation: Task<Void, Never>?
     var wakeCheckTask: Task<Void, Never>?
+    /// Runs after every Sparkle update cycle (scheduled, launch, wake, or asked for).
+    public var onUpdateCycleFinished: (@MainActor () -> Void)?
     /// Armed when the user asks to install; fires a visible "Update Didn't Start" error if the
     /// flow never reaches downloading/installing (or another visible outcome). See
     /// ``attemptUpdate`` in `UpdateController+InstallAttempt.swift` (internal for that file).

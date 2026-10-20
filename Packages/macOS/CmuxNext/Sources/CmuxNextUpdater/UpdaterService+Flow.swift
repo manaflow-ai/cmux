@@ -12,7 +12,7 @@ extension UpdaterService {
     /// found update the person closed or snoozed (``updateSnooze``) stays
     /// hidden; a check they ask for clears that first (``checkForUpdates()``).
     public var card: UpdateCard? {
-        guard let card = flow.card(downloadsAutomatically: downloadSetting.enabled) else { return nil }
+        guard let card = flow.card(downloadsAutomatically: downloadSetting.enabled) else { return pulledWatch.card }
         if case .available(let version) = card, updateSnooze.hides(version: version, at: now()) { return nil }
         return card
     }

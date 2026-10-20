@@ -61,6 +61,12 @@ extension UpdateCard {
         case .note(.needsNewerMacOS(let found, let required)):
             return UpdateCardPresentation(symbol: "desktopcomputer", title: UpdaterStrings.noticeAvailable,
                                           detail: UpdaterStrings.needsMacOSDetail(found, required))
+        case .pulled(let reason, let kept):
+            // "Wait for the Fix" is the default (first, prominent); Roll Back only when it would run.
+            return UpdateCardPresentation(symbol: "exclamationmark.octagon", title: UpdaterStrings.pulledTitle,
+                                          detail: reason.isEmpty ? nil : reason,
+                                          actions: kept == nil ? [.waitForFix] : [.waitForFix, .rollBack],
+                                          lines: [kept.map(UpdaterStrings.pulledKept) ?? UpdaterStrings.pulledNothingKept])
         }
     }
 
@@ -84,6 +90,7 @@ extension UpdateCard {
         case .note(.checkFailed): "check_failed"
         case .note(.found): "found"
         case .note(.needsNewerMacOS): "requires_newer_macos"
+        case .pulled: "pulled"
         }
     }
 }
