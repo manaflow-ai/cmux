@@ -329,7 +329,9 @@ public final class PaletteController {
         panel.keyHandler = { [weak self] event in self?.handleKeyDown(event) ?? false }
         panel.capturesKeyEquivalents = { [weak self] in self?.model.shortcutRecorder != nil }
         panel.capturesKeyEquivalent = { [weak self] event in
-            guard let model = self?.model, PaletteKeyMap.isCloseItem(event) else { return false }
+            guard let model = self?.model else { return false }
+            if PaletteKeyMap.isActionsKey(event) { return model.selectedItem != nil || model.actionsMenu != nil }
+            guard PaletteKeyMap.isCloseItem(event) else { return false }
             return model.currentPageOwnsCloseKey || model.selectedItem?.closeCommand != nil
         }
         // Shown without the keys (app inactive): the keys going to another

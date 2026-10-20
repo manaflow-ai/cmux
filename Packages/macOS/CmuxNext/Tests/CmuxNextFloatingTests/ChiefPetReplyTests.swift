@@ -55,6 +55,22 @@ import Testing
         #expect(panel.target == .chief)
     }
 
+    /// The placeholder that names the target hides once there is text, so a session's answer typed
+    /// before its notice left must not quietly go to the Chief instead: the text goes with it.
+    @Test func typedTextLeavesWithItsSession() {
+        let panel = ChiefPetReplyPanel()
+        let a = Self.notice(1, tab: "a", reply: .type)
+        panel.show(targets: [.notice(a), .chief])
+        panel.field.stringValue = "y"
+        panel.show(targets: [.chief])
+        #expect(panel.target == .chief)
+        #expect(panel.field.stringValue.isEmpty)
+        panel.field.stringValue = "status?"
+        panel.show(targets: [.notice(a), .chief])
+        #expect(panel.target == .chief, "the Chief stays chosen")
+        #expect(panel.field.stringValue == "status?", "text for a target that stayed is kept")
+    }
+
     @Test func placeholderNamesWhereItGoes() {
         #expect(ChiefPetReply.placeholder(.chief) == "Message Chief")
         #expect(ChiefPetReply.placeholder(.notice(Self.notice(1, tab: "a", reply: .type))) == "Reply to Claude a")

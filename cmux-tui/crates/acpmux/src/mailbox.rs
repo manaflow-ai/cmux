@@ -145,11 +145,15 @@ impl Mailbox {
 
     pub fn open(root: impl AsRef<Path>) -> Result<Self> {
         let root = root.as_ref();
-        std::fs::create_dir_all(root)
-            .with_context(|| format!("create mailbox {}", root.display()))?;
+        crate::config::private_state_dir(root)
+            .with_context(|| format!("create private mailbox {}", root.display()))?;
         let path = root.join("mailbox.json");
         let state = if path.exists() {
-            let bytes = std::fs::read(&path).with_context(|| format!("read {}", path.display()))?;
+            use std::io::Read;
+            let mut bytes = Vec::new();
+            crate::config::private_state_file(&path)?
+                .read_to_end(&mut bytes)
+                .with_context(|| format!("read {}", path.display()))?;
             let state: PersistedState = serde_json::from_slice(&bytes)
                 .with_context(|| format!("parse {}", path.display()))?;
             if state.schema != SCHEMA {
@@ -445,12 +449,7 @@ fn persist_state(
     let bytes = serde_json::to_vec_pretty(state)
         .map_err(|e| MailboxError::Storage(anyhow::Error::new(e)))?;
     let tmp = path.with_extension("json.tmp");
-    std::fs::write(&tmp, bytes).map_err(|e| MailboxError::Storage(anyhow::Error::new(e)))?;
-    std::fs::OpenOptions::new()
-        .read(true)
-        .open(&tmp)
-        .and_then(|file| file.sync_all())
-        .map_err(|e| MailboxError::Storage(anyhow::Error::new(e)))?;
+    write_private(&tmp, &bytes).map_err(|e| MailboxError::Storage(anyhow::Error::new(e)))?;
     std::fs::rename(&tmp, path).map_err(|e| MailboxError::Storage(anyhow::Error::new(e)))?;
     if let Some(parent) = path.parent() {
         #[cfg(unix)]
@@ -459,6 +458,41 @@ fn persist_state(
             .map_err(|e| MailboxError::Storage(anyhow::Error::new(e)))?;
     }
     Ok(())
+}
+
+/// Write a temporary mailbox state owner-only, then let `persist_state`
+/// durably rename it into place.
+#[cfg(unix)]
+fn write_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .mode(0o600)
+        .custom_flags(libc::O_NOFOLLOW)
+        .open(path)?;
+    if file.metadata()?.permissions().mode() & 0o077 != 0 {
+        file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
+    }
+    file.write_all(bytes)?;
+    file.sync_all()
+}
+
+#[cfg(windows)]
+fn write_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+
+    match std::fs::remove_file(path) {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error),
+    }
+    let mut file = crate::owner_only::create_new(path)?;
+    file.write_all(bytes)?;
+    file.sync_all()
 }
 
 #[cfg(test)]
@@ -523,6 +557,41 @@ mod tests {
         let row = &reopened.page("b", 0, 10).unwrap().rows[0];
         assert_eq!(row.message.id, "m1");
         assert_eq!(row.delivery.state, DeliveryState::Acknowledged);
+    }
+    #[cfg(unix)]
+    #[test]
+    fn persistent_mailbox_narrows_its_directory_and_state_file() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let d = TempDir::new();
+        std::fs::set_permissions(d.path(), std::fs::Permissions::from_mode(0o755)).unwrap();
+        let state = d.path().join("mailbox.json");
+        std::fs::write(
+            &state,
+            r#"{"schema":"acpmux.mailbox.v1","next_seq":1,"messages":[],"deliveries":[]}"#,
+        )
+        .unwrap();
+        std::fs::set_permissions(&state, std::fs::Permissions::from_mode(0o644)).unwrap();
+        let b = Mailbox::open(d.path()).unwrap();
+        b.send(input("m1", "b", "private message")).unwrap();
+        let mode = |path: &std::path::Path| {
+            std::fs::symlink_metadata(path).unwrap().permissions().mode() & 0o777
+        };
+        assert_eq!(mode(d.path()), 0o700);
+        assert_eq!(mode(&d.path().join("mailbox.json")), 0o600);
+    }
+    #[cfg(unix)]
+    #[test]
+    fn persistent_mailbox_refuses_a_symlinked_state_file() {
+        let d = TempDir::new();
+        let target = d.path().join("outside.json");
+        std::fs::write(
+            &target,
+            r#"{"schema":"acpmux.mailbox.v1","next_seq":1,"messages":[],"deliveries":[]}"#,
+        )
+        .unwrap();
+        std::os::unix::fs::symlink(&target, d.path().join("mailbox.json")).unwrap();
+        assert!(Mailbox::open(d.path()).is_err());
     }
     #[test]
     fn repeated_ack_is_idempotent() {

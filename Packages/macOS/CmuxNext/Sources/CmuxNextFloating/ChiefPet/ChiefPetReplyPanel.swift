@@ -52,7 +52,7 @@ final class ChiefPetReplyPanel: NSPanel, NSTextFieldDelegate {
         field.isBordered = false
         field.drawsBackground = false
         field.fill = { .clear }
-        field.font = .systemFont(ofSize: 15)
+        field.font = .systemFont(ofSize: TypeScale.title)
         field.lineBreakMode = .byTruncatingTail
         field.maximumNumberOfLines = 1
         field.delegate = self
@@ -68,8 +68,9 @@ final class ChiefPetReplyPanel: NSPanel, NSTextFieldDelegate {
     }
 
     /// Lists `targets`. The chosen one stays chosen while its tab is listed (a newer notice of the same
-    /// tab included); when it leaves, the box falls back to the Chief, never to another session. A
-    /// first list starts on its first target.
+    /// tab included); when it leaves, the box falls back to the Chief, never to another session, and
+    /// drops the typed text (written for that session, it must not go to the Chief). A first list
+    /// starts on its first target.
     func show(targets: [ChiefPetReplyTarget]) {
         let kept = target
         self.targets = targets
@@ -79,8 +80,9 @@ final class ChiefPetReplyPanel: NSPanel, NSTextFieldDelegate {
             picker.menu?.addItem(NSMenuItem(title: title, action: nil, keyEquivalent: ""))
         }
         if let kept {
-            let index = targets.firstIndex { ChiefPetReply.sameTarget($0, kept) } ?? targets.firstIndex(of: .chief)
-            picker.selectItem(at: index ?? 0)
+            let stayed = targets.firstIndex { ChiefPetReply.sameTarget($0, kept) }
+            if stayed == nil { field.stringValue = "" }
+            picker.selectItem(at: stayed ?? targets.firstIndex(of: .chief) ?? 0)
         } else {
             picker.selectItem(at: 0)
         }

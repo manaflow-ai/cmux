@@ -28,7 +28,7 @@ final class UnreadBadgeView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
 
-    override var wantsUpdateLayer: Bool { true }
+    nonisolated override var wantsUpdateLayer: Bool { true }
 
     func configure(_ state: UnreadState) {
         self.state = state

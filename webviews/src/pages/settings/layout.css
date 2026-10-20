@@ -70,11 +70,18 @@
   padding-bottom: 4px;
 }
 
+/* The filter sits on the search field's line at the field's height: icon and count centered on one
+   line (no superscript count). */
 .filter-button {
   position: relative;
-  gap: 2px;
-  border-radius: 6px;
-  padding: 4px;
+  flex: none;
+  align-self: stretch;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-width: 26px;
+  border-radius: 7px;
+  padding: 0 6px;
 }
 
 .filter-button[aria-pressed="true"] {
@@ -83,7 +90,8 @@
 }
 
 .filter-count {
-  font-size: 10px;
+  font-size: 11px;
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
   line-height: 1;
 }

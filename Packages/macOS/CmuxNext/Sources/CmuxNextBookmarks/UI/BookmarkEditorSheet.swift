@@ -53,15 +53,13 @@ struct BookmarkEditorSheet: View {
             }
             HStack {
                 Spacer()
-                Button(BookmarkStrings.cancel) {
+                CmuxDialogActionButton(BookmarkStrings.cancel, hint: .escape) {
                     model.errorMessage = nil
                     dismiss()
                 }
-                .keyboardShortcut(.cancelAction)
-                Button(BookmarkStrings.save) {
+                CmuxDialogActionButton(BookmarkStrings.save, hint: .return) {
                     if model.commitEditor(state) { dismiss() }
                 }
-                .keyboardShortcut(.defaultAction)
                 .accessibilityIdentifier("cmux.bookmarks.editor.save")
             }
         }

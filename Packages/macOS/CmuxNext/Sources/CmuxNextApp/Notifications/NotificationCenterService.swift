@@ -3,6 +3,7 @@ import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextDesign
 import CmuxNextFloating
 import CmuxNextSettings
 import CmuxNextTerminal
@@ -33,6 +34,9 @@ final class NotificationCenterService {
     /// Bumped when a window's settled focus changes: the viewed-tab rules
     /// (`followViewedProgramStatus`) re-read which tabs are viewed.
     private(set) var viewedRevision: UInt64 = 0
+    /// The tabs viewed at the last viewed-tab pass: a tab marked unread
+    /// (Mark Tab Unread) clears when it comes into view, not while it stays.
+    @ObservationIgnored var viewedTabIDs: Set<String> = []
     @ObservationIgnored let desktop = DesktopNotifier()
     /// Pages' click handlers of their web notifications' banners.
     @ObservationIgnored let webNotificationClicks = WebNotificationClicks()
@@ -50,6 +54,8 @@ final class NotificationCenterService {
     @ObservationIgnored private var lastSeen: UInt64 = 0
     /// The Dock badge this service set last (nil: none).
     @ObservationIgnored var dockBadgeLabel: String?
+    /// `notifications.dockBounce`: the running bounce, ended when nothing is unread.
+    @ObservationIgnored let dockAttention = DockAttention()
     /// Hands the daemon's local feed items to the cloud owner (feed.md 9.1).
     @ObservationIgnored var feedDriver: FeedHandoffDriver?
     /// Agent permission prompts to the person's feed, while
@@ -282,7 +288,7 @@ final class NotificationCenterService {
             feedDriver?.run()
             if decision.desktop { post(notification, tab: nil, workspace: nil, sound: decision.sound) }
             if !notification.desktop, let sound = decision.sound { NotificationSounds.playWithoutBanner(sound) }
-            bounceDock(decision.bounce)
+            if let mode = decision.bounce { dockAttention.bounce(untilActive: mode == .untilActive) }
             return
         }
         if decision.acknowledge {
@@ -345,7 +351,7 @@ final class NotificationCenterService {
             notification.desktop ? NotificationSounds.play(sound) : NotificationSounds.playWithoutBanner(sound)
         }
         if let seconds = decision.timeout { scheduleTimeout(seconds, tabID: located.tab.id) }
-        bounceDock(decision.bounce)
+        if let mode = decision.bounce { dockAttention.bounce(untilActive: mode == .untilActive) }
     }
 
     private func post(_ notification: DaemonNotification, tab: TabModel?, workspace: String?, sound: String?,

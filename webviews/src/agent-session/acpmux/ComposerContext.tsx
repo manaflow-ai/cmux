@@ -25,6 +25,7 @@ export const CONTEXT_LABELS = {
   connectSSH: "composer.connectSSH",
   connectCloud: "composer.connectCloud",
   newChatHere: "composer.newChatHere",
+  noProject: "composer.noProject",
 } as const;
 
 type Summary = NonNullable<AcpmuxSnapshot["summary"]>;
@@ -45,6 +46,8 @@ export function ComposerContext({
   projectChoices,
   onBrowseProject,
   onNewWorktree,
+  onNoProject,
+  noProject = false,
   localName,
   onNewChat,
   onBrowseFolder,
@@ -59,6 +62,9 @@ export function ComposerContext({
   onBrowseProject?(): void;
   /// New Worktree (cx-lyqio.2): a new chat on this Mac starts in a worktree of its folder.
   onNewWorktree?(cwd: string): void;
+  /// A new chat's Do not work in a project (FolderPopover); `noProject` while it is the choice.
+  onNoProject?(): void;
+  noProject?: boolean;
   /// This Mac's name (the handshake's `machineName`).
   localName?: string;
   /// A started chat's New Chat Here, or a folder picked from its menu: a new chat in that folder,
@@ -122,7 +128,13 @@ export function ComposerContext({
               face={
                 <LocationFace
                   icon={<FolderIcon />}
-                  value={currentFolder ? projectLabel(currentFolder) : t(CONTEXT_LABELS.chooseFolder)}
+                  value={
+                    currentFolder
+                      ? projectLabel(currentFolder)
+                      : noProject
+                        ? t(CONTEXT_LABELS.noProject)
+                        : t(CONTEXT_LABELS.chooseFolder)
+                  }
                   chevron
                   middle={currentFolder !== undefined}
                 />
@@ -131,6 +143,8 @@ export function ComposerContext({
               current={currentFolder}
               onPick={(cwd) => onProject?.(cwd)}
               onBrowse={onBrowseProject}
+              onNoProject={onNoProject}
+              noProject={noProject && !currentFolder}
               onNewWorktree={currentFolder && onNewWorktree ? () => onNewWorktree(currentFolder) : undefined}
               localName={localName}
               peers={peers}
