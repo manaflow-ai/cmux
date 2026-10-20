@@ -846,7 +846,10 @@ impl Brain {
         if let Ok(Some(summary)) = self.agents.session(&session)
             && !busy(summary.status)
         {
+            // Its turn end is read as usual; idle with none (an interrupt of
+            // a session that was idle already) is settled as done.
             self.sub_changed(&summary);
+            self.settle_idle(id);
             return;
         }
         let Some(watch) = self.refresh_watch(id) else {
@@ -964,7 +967,7 @@ impl Brain {
     /// report (#7: a51, a60, a62 stayed "at work" for 15 h): it is done,
     /// quietly. A follow-up the Chief queued (`after_stop`) is sent when
     /// fresh and dropped when the run has been quiet for an hour.
-    pub(super) fn settle_idle(&mut self, id: &str) {
+    fn settle_idle(&mut self, id: &str) {
         let now = self.now();
         let Some((_, sub)) = self.state.sub(id) else {
             return;
