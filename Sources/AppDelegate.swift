@@ -626,6 +626,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// the SDK is off.
     private var transportSentryReporter: TransportSentryReporter?
     private let cmuxThemePreviewReloadScheduler = MainActorDeferredActionScheduler()
+    private let terminalWakeRendererRecoveryScheduler =
+        TerminalWakeRendererRecoveryScheduler()
+#if DEBUG
+    var debugTerminalWakeRendererRecoveryScheduleCount = 0
+#endif
     private let connectivityInvalidationSubscriberCoordinator = ConnectivityInvalidationSubscriberCoordinator()
     let workspacePresenceController = WorkspacePresenceController()
     private let sudoApprovalCoordinator: SudoApprovalCoordinator?
@@ -4668,6 +4673,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             onDidWake: { [weak self] in
                 self?.restartSocketListenerIfEnabled(source: "workspace.didWake")
                 self?.rearmRemoteSessionsAfterSystemWake()
+                self?.scheduleTerminalWakeRendererRecovery(
+                    source: "workspace.didWake"
+                )
+            },
+            onScreensDidWake: { [weak self] in
+                self?.scheduleTerminalWakeRendererRecovery(
+                    source: "workspace.screensDidWake"
+                )
             }
         )
         lifecycleSnapshotObservers.append(contentsOf: remotePowerObservers)
@@ -4716,6 +4729,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         lifecycleSnapshotObservers.append(screenParamsObserver)
     }
+
+    func scheduleTerminalWakeRendererRecovery(source: String) {
+#if DEBUG
+        debugTerminalWakeRendererRecoveryScheduleCount += 1
+#endif
+        terminalWakeRendererRecoveryScheduler.schedule(
+            surfaces: {
+                GhosttyApp.terminalSurfaceRegistry
+                    .allTerminalSurfacesUnordered()
+            },
+            reason: source
+        )
+    }
+
+#if DEBUG
+    func debugInstallLifecycleSnapshotObserversForTesting() {
+        installLifecycleSnapshotObserversIfNeeded()
+    }
+#endif
 
     private func disableSuddenTerminationIfNeeded() {
         guard !didDisableSuddenTermination else { return }

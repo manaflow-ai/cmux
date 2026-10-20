@@ -25,10 +25,33 @@ extension TerminalSurface {
         surfaceView.applyWindowBackgroundIfActive()
     }
 
-    /// Requests a redraw after the Mac or display wakes.
+    /// Rebuilds a visible renderer after the Mac or display wakes.
+    ///
+    /// - Parameter reason: A diagnostic label identifying the wake source.
     @MainActor
     public func recoverRendererAfterWake(reason: String) {
-        forceRefresh(reason: reason)
+#if os(macOS)
+        guard isRendererEffectivelyVisible,
+              isRendererPresentationReady,
+              let surface = liveSurfaceForGhosttyAccess(
+                reason: "renderer.wake.\(reason)"
+              ) else {
+            return
+        }
+
+        let shellExited = renderHealth == .shellExited
+        setOcclusion(false)
+        guard rebuildRendererForPresentation(
+            surface: surface,
+            shellExited: shellExited,
+            probeReason: "wake.\(reason)"
+        ) else {
+            setOcclusion(true)
+            markRendererNotRendering(reason: "wakeRebuildRejected.\(reason)")
+            forceRefresh(reason: "renderer.wakeFallback.\(reason)")
+            return
+        }
+#endif
     }
 
     /// Keep `desiredFocusState` in sync when the hosted view's responder chain
@@ -321,7 +344,6 @@ extension TerminalSurface {
         // transition when the window comes back on screen.
         guard rendererWindowVisible else { return }
         guard let surface = liveSurfaceForGhosttyAccess(reason: "renderer.ensurePresented") else { return }
-        let callbackContext = surfaceCallbackContext?.takeUnretainedValue()
         let shellExited = renderHealth == .shellExited
 
         if rendererPresentationPhase == .presented {
@@ -348,16 +370,37 @@ extension TerminalSurface {
         // transaction outside the renderer mailbox. Unlike separate boolean
         // publications, a later realized state cannot coalesce away the
         // unrealize step needed to rebuild a missing first drawable.
-        callbackContext?.armRendererPresentationRepair()
-        if ghostty_surface_rebuild_renderer(surface) {
-            callbackContext?.cancelRendererPresentationRepair()
-            rendererPresentationPhase = .presented
-            renderHealth = shellExited ? .shellExited : .awaitingFrame
-            setOcclusion(true)
-            requestRendererPresentationProbe(reason: "renderer.rebuild")
-        }
+        _ = rebuildRendererForPresentation(
+            surface: surface,
+            shellExited: shellExited,
+            probeReason: "renderer.rebuild"
+        )
 #endif
     }
+
+#if os(macOS)
+    @MainActor
+    @discardableResult
+    private func rebuildRendererForPresentation(
+        surface: ghostty_surface_t,
+        shellExited: Bool,
+        probeReason: String
+    ) -> Bool {
+        let callbackContext = surfaceCallbackContext?.takeUnretainedValue()
+        callbackContext?.armRendererPresentationRepair()
+        guard ghostty_surface_rebuild_renderer(surface) else { return false }
+
+        callbackContext?.cancelRendererPresentationRepair()
+        rendererPresentationState.inFlightToken = nil
+        rendererPresentationState.recoveryAttempted = false
+        rendererPresentationState.didPresentFrame = false
+        rendererPresentationPhase = .presented
+        renderHealth = shellExited ? .shellExited : .awaitingFrame
+        setOcclusion(true)
+        requestRendererPresentationProbe(reason: probeReason)
+        return true
+    }
+#endif
 
     /// Retries an unresolved presentation after Ghostty reports renderer activity.
     ///
