@@ -620,7 +620,10 @@ fn mcp_line(server: &str, tool: &str, input: Option<&Value>) -> String {
             },
             "zoom" => "Reading the chat history".to_owned(),
             "date" => "Checking a message's date".to_owned(),
+            "version" => "Checking the cmux and Chief versions".to_owned(),
             "profile" => "Reading the Chief's profile".to_owned(),
+            "react" => "Reacting to a message".to_owned(),
+            "reply" => "Replying in a thread".to_owned(),
             _ => String::new(),
         };
         if !line.is_empty() {

@@ -187,6 +187,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // After two quick unexpected ends in a row, Chromium starts only
         // when the user reloads a browser tab.
         services.observeBorders()
+        services.startChromiumRuntime()
         if !services.crashRecovery.recovery.skipsBrowserPages { services.startChromiumWarmup() }
         services.newTabSpares.start()
         services.pageHostPool.start(
@@ -204,7 +205,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         WebAuthSessionHandler.install(webAuthHandler)
         NSAppleEventManager.shared().setEventHandler(self, andSelector: #selector(handleURLEvent(_:reply:)),
                                                      forEventClass: AEEventClass(kInternetEventClass), andEventID: AEEventID(kAEGetURL))
-        services.windows.onContentDidAppear = { [weak services] _ in services?.externalOpen.flush() }
+        services.windows.onContentDidAppear = { [weak services] in services?.externalOpen.flush(); services?.pageHostPool.windowDidAppear($0.window) }
         NSApp.servicesProvider = CmuxServicesProvider(open: services.externalOpen)
     }
 
@@ -393,6 +394,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services?.viewers.markdownPages.terminate()
         services?.viewers.editorPages.terminate()
         services?.home.applicationWillTerminate()
+        services?.vscodeServeWeb.terminateForAppExit()
         cloudContext?.cancel()
         services?.cloud.stop()
         for session in services?.machines.cloud ?? [] { session.disconnect() }
@@ -403,6 +405,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services?.globalHotKeys.stop()
         settings?.stop()
         services?.mobile.stop()
+        services?.iphone.stop()
         services?.daemon.shutdownConnection()
     }
 

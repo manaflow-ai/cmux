@@ -13,7 +13,7 @@ import { ArtBrowser } from "./ArtBrowser";
 import { BackdropLink, formatBytes } from "./BackdropLink";
 import { CollageEditor } from "./CollageEditor";
 import type { Collage } from "./collageLayout";
-import { BackdropScopePicker, FOLLOW_ID, useWorkspaceBackground, WindowGlass, WorkspaceOpacity } from "./BackdropScope";
+import { BackdropScopePicker, FOLLOW_ID, useWorkspaceBackground, WorkspaceOpacity } from "./BackdropScope";
 import { SettingRow } from "./SettingRow";
 
 export const BACKGROUND_KEY = "appearance.background";
@@ -25,7 +25,9 @@ const YOURS = "yours";
 /** The person's collages (BackdropCollages.collection). */
 const COLLAGES = "collages";
 /** The rows the picker draws, left out of their group while it shows. */
-export const BACKDROP_ROWS: ReadonlySet<string> = new Set([BACKGROUND_KEY, BACKGROUND_OPACITY_KEY]);
+/** `appearance.backgroundBlur`: the window's Material, drawn in the card beside Opacity. */
+export const MATERIAL_KEY = "appearance.backgroundBlur";
+export const BACKDROP_ROWS: ReadonlySet<string> = new Set([BACKGROUND_KEY, BACKGROUND_OPACITY_KEY, MATERIAL_KEY]);
 /** How long the pointer rests on a tile before the window shows it: sweeping across the grid
  * previews nothing, so it fetches no full-size art. */
 const PREVIEW_DWELL_MS = 150;
@@ -138,6 +140,7 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
     ? (own.value ?? FOLLOW_ID)
     : (((background?.value ?? background?.default) as string | undefined) ?? "none");
   const opacity = rowsByKey.get(BACKGROUND_OPACITY_KEY);
+  const material = rowsByKey.get(MATERIAL_KEY);
   const choose = async (id: string) => {
     cancelDwell();
     if (own) {
@@ -241,17 +244,17 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
       {own && (
         <WorkspaceOpacity background={own} onSaved={(saved) => setWorkspaceBackground({ ...own, opacity: saved })} />
       )}
-      {!own && (
-        <div className="rows">
-          {opacity && (
-            <SettingRow
-              row={current === "none" ? opacity : overArt(opacity)}
-              focused={focus === BACKGROUND_OPACITY_KEY}
-            />
-          )}
-          <WindowGlass />
-        </div>
-      )}
+      <div className="rows">
+        {!own && opacity && (
+          <SettingRow
+            row={current === "none" ? opacity : overArt(opacity)}
+            focused={focus === BACKGROUND_OPACITY_KEY}
+          />
+        )}
+        {/* The window's other control, on either scope: Frosted, Glass, Clear Glass (the desktop
+          through the wallpaper) or None. It replaces the Window Glass switch, which set Clear Glass. */}
+        {material && <SettingRow row={material} focused={focus === MATERIAL_KEY} />}
+      </div>
       {/* Place the picture by hand in the window (backgrounds plan phase 6): a still only. */}
       {!own &&
         current !== "none" &&

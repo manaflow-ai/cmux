@@ -351,6 +351,42 @@ body {
   max-width: 100%;
 }
 
+.md-image-node {
+  display: inline;
+}
+
+.md-remote-image-placeholder {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  border: 1px solid var(--cmux-md-border-color);
+  border-radius: var(--cmux-md-code-radius);
+  background: var(--cmux-md-code-background);
+  color: var(--cmux-md-muted-color);
+  font-size: var(--cmux-md-toolbar-font-size);
+  vertical-align: middle;
+  user-select: none;
+}
+
+.md-remote-image-placeholder > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.md-remote-image-placeholder .md-button {
+  flex: 0 0 auto;
+  color: var(--cmux-md-text-color);
+  font: inherit;
+}
+
+.md-remote-image-placeholder .md-button:disabled {
+  color: var(--cmux-md-faint-color);
+}
+
 /* Wide tables (MARKDOWN-TABLE-SCROLL, user 2026-10-19). The editor draws every table inside a
    `.tableWrapper` (prosemirror-tables TableView) and gives the table an inline `min-width` of
    100px a column. That wrapper is the table's horizontal scroller: the table keeps its natural
@@ -365,6 +401,34 @@ body {
   max-width: 100%;
   overflow: auto hidden;
   overscroll-behavior-x: contain;
+}
+
+/* A wide table fades out at each edge with more table past it (tables.ts sets `data-overflow`
+   to "start", "end" or both), so it shows that it scrolls sideways even while macOS hides the
+   overlay scrollbar (user 2026-10-20: tables must scroll "such that it's intuitive"). A table
+   that fits has no attribute and no fade. */
+.md-prose .tableWrapper[data-overflow] {
+  --cmux-md-table-fade: 2.5em;
+  -webkit-mask-image: var(--cmux-md-table-mask);
+  mask-image: var(--cmux-md-table-mask);
+}
+
+.md-prose .tableWrapper[data-overflow="end"] {
+  --cmux-md-table-mask: linear-gradient(to right, black calc(100% - var(--cmux-md-table-fade)), transparent);
+}
+
+.md-prose .tableWrapper[data-overflow="start"] {
+  --cmux-md-table-mask: linear-gradient(to left, black calc(100% - var(--cmux-md-table-fade)), transparent);
+}
+
+.md-prose .tableWrapper[data-overflow="start end"] {
+  --cmux-md-table-mask: linear-gradient(
+    to right,
+    transparent,
+    black var(--cmux-md-table-fade),
+    black calc(100% - var(--cmux-md-table-fade)),
+    transparent
+  );
 }
 
 /* Table borders (MARKDOWN-OBSIDIAN-PARITY, user 2026-10-19: in transparency mode "when the border
@@ -436,11 +500,12 @@ body {
   position: relative;
 }
 
+/* tables.ts sets the handle's left and width to the boundary's hit zone (5px either side, clipped
+   to the table's box) and --md-col-line to the boundary's offset in it: the line, the col-resize
+   cursor and the press always cover the same pixels. */
 .md-prose .md-col-resize {
   position: absolute;
   z-index: var(--layer-raised);
-  width: 9px;
-  margin-left: -5px;
   cursor: col-resize;
   user-select: none;
 }
@@ -454,7 +519,7 @@ body {
   position: absolute;
   top: 0;
   bottom: 0;
-  left: 3px;
+  left: clamp(0px, calc(var(--md-col-line, 5px) - 1.5px), calc(100% - 3px));
   width: 3px;
   border-radius: 2px;
   background: var(--cmux-md-link-color);

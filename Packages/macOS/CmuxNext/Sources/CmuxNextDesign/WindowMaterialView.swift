@@ -46,7 +46,7 @@ public final class WindowMaterialView: NSView {
         // window resize, the sidebar's slide) moves it at once, frame by frame with the column.
         didSet {
             if coveredColumns != oldValue {
-                updateArtCrop(animated: coveredColumns.count != oldValue.count && window?.inLiveResize != true)
+                updateArtCrop(animated: coveredColumns.count != oldValue.count && !Motion.isLiveResizing(window))
             }
         }
     }

@@ -46,12 +46,14 @@ function receive(message: unknown): void {
   (globalThis as unknown as Record<string, (message: unknown) => void>)[RECEIVE_NAME]?.(message);
 }
 
-function emit(stream: string, data: unknown): void {
+/** Sends a host event on `stream`; false while the page has not subscribed to it yet. */
+function emit(stream: string, data: unknown): boolean {
   const sub = streams.get(stream);
-  if (sub === undefined) return;
+  if (sub === undefined) return false;
   const seq = (seqs.get(sub) ?? 0) + 1;
   seqs.set(sub, seq);
   receive({ t: "ev", sub, seq, data });
+  return true;
 }
 
 async function op(name: string, params: unknown): Promise<{ ok: boolean; body: Record<string, unknown> }> {

@@ -1,6 +1,60 @@
 {
   "description" : "Managed settings for cmux (every channel). Keys are cmux.json key paths; capitalized keys are policy keys. Forced values lock the setting; non-forced values replace its default. Exception: agents.chats.roots adds locked roots to the user list; agents.chats.enabled and agents.chats.discovery can only be forced off.",
   "properties" : {
+    "agentPane.display.code.family" : {
+      "description" : "The font of code in the chat. Empty uses the Markdown viewer's code font, then the terminal font.",
+      "title" : "Chat Code Font",
+      "type" : "string"
+    },
+    "agentPane.display.code.scale" : {
+      "description" : "Code as a share of the chat's text size. Empty uses the Markdown viewer's.",
+      "maximum" : 1.25,
+      "minimum" : 0.6,
+      "title" : "Chat Code Size",
+      "type" : "number"
+    },
+    "agentPane.display.font.lineHeight" : {
+      "default" : 1.625,
+      "description" : "agentPane.display.font.lineHeight",
+      "maximum" : 2.4,
+      "minimum" : 1.2,
+      "title" : "Chat Line Height",
+      "type" : "number"
+    },
+    "agentPane.display.font.preset" : {
+      "default" : "markdown",
+      "description" : "agentPane.display.font.preset",
+      "enum" : [
+        "markdown",
+        "system",
+        "serif",
+        "mono"
+      ],
+      "title" : "Chat Font",
+      "type" : "string"
+    },
+    "agentPane.display.font.size" : {
+      "default" : 14,
+      "description" : "agentPane.display.font.size",
+      "maximum" : 28,
+      "minimum" : 10,
+      "title" : "Chat Font Size",
+      "type" : "number"
+    },
+    "agentPane.display.fullWidth" : {
+      "default" : false,
+      "description" : "The chat fills the whole pane instead of the text width.",
+      "title" : "Chat Full Width",
+      "type" : "boolean"
+    },
+    "agentPane.display.width" : {
+      "default" : 800,
+      "description" : "The widest the chat's column gets. On a wider pane the chat stays centered.",
+      "maximum" : 4000,
+      "minimum" : 480,
+      "title" : "Chat Text Width",
+      "type" : "number"
+    },
     "agentPane.editedFiles.maxRows" : {
       "default" : 5,
       "description" : "agentPane.editedFiles.maxRows",
@@ -1155,6 +1209,21 @@
       "title" : "Default Engine",
       "type" : "string"
     },
+    "browser.enabled" : {
+      "default" : true,
+      "description" : "When off, cmux opens no browser tabs for web pages and every link opens in your default browser.",
+      "title" : "Enable cmux Browser",
+      "type" : "boolean"
+    },
+    "browser.freezeHiddenTabs" : {
+      "default" : 30,
+      "description" : "Saves power: a hidden Chromium tab stops running until you show it. Pinned tabs and Never Hibernate hosts stay awake. Also accepts a number from 5 to 3600 in a raw profile.",
+      "enum" : [
+        "off"
+      ],
+      "title" : "Freeze Hidden Tabs",
+      "type" : "string"
+    },
     "browser.hibernatePinnedTabs" : {
       "default" : false,
       "description" : "browser.hibernatePinnedTabs",
@@ -1344,6 +1413,12 @@
       "default" : false,
       "description" : "A soft shadow under the glass address bar.",
       "title" : "Address Bar Shadow",
+      "type" : "boolean"
+    },
+    "browser.omnibar.showFullURLs" : {
+      "default" : false,
+      "description" : "Shows the whole address, with https:// and www., when you are not editing it.",
+      "title" : "Always Show Full URLs",
       "type" : "boolean"
     },
     "browser.openLinksInCmuxBrowser" : {
@@ -2185,6 +2260,12 @@
       "title" : "Dock Column Mode",
       "type" : "string"
     },
+    "layout.focusPaneOnScroll" : {
+      "default" : true,
+      "description" : "Scrolling over a pane focuses it. Momentum and scrolling within a second of typing leave focus where it is.",
+      "title" : "Focus Pane on Scroll",
+      "type" : "boolean"
+    },
     "layout.frameOrientation" : {
       "default" : "columnMajor",
       "description" : "layout.frameOrientation",
@@ -2193,6 +2274,17 @@
         "rowMajor"
       ],
       "title" : "Dock Corners",
+      "type" : "string"
+    },
+    "layout.linkPlacement" : {
+      "default" : "split-right",
+      "description" : "Where a link or file you open from a terminal, an agent chat, Home or a page appears. Split Right uses the pane on the right, or makes one.",
+      "enum" : [
+        "split-right",
+        "new-column",
+        "same-pane"
+      ],
+      "title" : "Open Links and Files",
       "type" : "string"
     },
     "layout.minimumPaneHeight" : {
@@ -2325,6 +2417,11 @@
       "title" : "Code Block Size",
       "type" : "number"
     },
+    "markdown.code.family" : {
+      "description" : "The font of code blocks and inline code. Empty uses the terminal font. The agent chat uses it too unless it has its own.",
+      "title" : "Code Font",
+      "type" : "string"
+    },
     "markdown.code.scale" : {
       "default" : 0.875,
       "description" : "Code as a share of the text size. A monospaced font looks bigger than the text font at the same size, so code is a little smaller by default.",
@@ -2374,6 +2471,12 @@
       "title" : "Text Width",
       "type" : "number"
     },
+    "markdown.remoteImages" : {
+      "default" : false,
+      "description" : "Web image sites can see your address and when you open a document. When off, each document asks before loading its web images.",
+      "title" : "Load Web Images Automatically",
+      "type" : "boolean"
+    },
     "markdown.spacing.paragraph" : {
       "default" : 1,
       "description" : "The gap after each paragraph, as a share of the text size.",
@@ -2407,6 +2510,12 @@
       "description" : "Oldest cmux version allowed to sign in, for example 1.2.0.",
       "title" : "MinimumVersion",
       "type" : "string"
+    },
+    "mobile.allowIPhoneConnections" : {
+      "default" : false,
+      "description" : "Lets the cmux app on your iPhone open this Mac's workspaces, terminals and agent chats while you are signed in with the same account.",
+      "title" : "Allow iPhone Connections",
+      "type" : "boolean"
     },
     "navigation.history.scope" : {
       "default" : "workspaces",
@@ -2513,7 +2622,7 @@
       "type" : "string"
     },
     "notifications.dismissal" : {
-      "default" : "keystroke",
+      "default" : "focus",
       "description" : "notifications.dismissal",
       "enum" : [
         "keystroke",
@@ -2832,6 +2941,23 @@
       "title" : "RestrictToManagedTeam",
       "type" : "boolean"
     },
+    "screenshots.findTools" : {
+      "default" : true,
+      "description" : "The Screenshots pane also shows the folders of screenshot apps it finds, such as CleanShot X, Shottr and Kap.",
+      "title" : "Find Screenshot Apps",
+      "type" : "boolean"
+    },
+    "screenshots.folders" : {
+      "default" : [
+
+      ],
+      "description" : "The Screenshots pane also shows the pictures and videos in these folders. Use full paths or ~/ paths.",
+      "items" : {
+        "type" : "string"
+      },
+      "title" : "More Screenshot Folders",
+      "type" : "array"
+    },
     "sessions.keepAwake" : {
       "default" : "pluggedIn",
       "description" : "Stops idle sleep while an agent on this Mac is working. Your display can still turn off, and closing the lid still puts the Mac to sleep.",
@@ -2933,6 +3059,57 @@
       "title" : "Show Hover Cards",
       "type" : "boolean"
     },
+    "sidebar.hoverCards.layout" : {
+      "default" : "timeline",
+      "description" : "What a workspace's hover card shows: its history of prompts and waits, its details, or both.",
+      "enum" : [
+        "timeline",
+        "compact",
+        "log",
+        "classic",
+        "minimal"
+      ],
+      "title" : "Workspace Card Layout",
+      "type" : "string"
+    },
+    "sidebar.hoverCards.maxRows" : {
+      "default" : 20,
+      "description" : "The most prompts, waits and finished turns a workspace's card lists. The list scrolls.",
+      "maximum" : 100,
+      "minimum" : 1,
+      "title" : "Workspace Card History Lines",
+      "type" : "number"
+    },
+    "sidebar.hoverCards.sections.git" : {
+      "default" : true,
+      "description" : "The workspace's branch and pull request.",
+      "title" : "Show Branch in Workspace Cards",
+      "type" : "boolean"
+    },
+    "sidebar.hoverCards.sections.ports" : {
+      "default" : true,
+      "description" : "The ports the workspace listens on.",
+      "title" : "Show Ports in Workspace Cards",
+      "type" : "boolean"
+    },
+    "sidebar.hoverCards.sections.prompts" : {
+      "default" : true,
+      "description" : "Each prompt you sent and when, in the card's history.",
+      "title" : "Show Prompts in Workspace Cards",
+      "type" : "boolean"
+    },
+    "sidebar.hoverCards.sections.timings" : {
+      "default" : true,
+      "description" : "How long the workspace has worked or waited, and how long its command has run.",
+      "title" : "Show Running Times in Workspace Cards",
+      "type" : "boolean"
+    },
+    "sidebar.hoverCards.sections.waiting" : {
+      "default" : true,
+      "description" : "When an agent waited for your input or finished its turn, in the card's history.",
+      "title" : "Show Waits in Workspace Cards",
+      "type" : "boolean"
+    },
     "sidebar.minimal" : {
       "default" : false,
       "description" : "Workspace rows show only their icon, name and unread mark, and section titles become thin lines.",
@@ -2953,7 +3130,7 @@
     },
     "sidebar.nowPlaying.enabled" : {
       "default" : false,
-      "description" : "A player for what is playing, at the bottom of the sidebar and on the new chat page.",
+      "description" : "A player for what is playing, at the bottom of the sidebar.",
       "title" : "Show Now Playing",
       "type" : "boolean"
     },
@@ -3008,6 +3185,12 @@
       "default" : true,
       "description" : "sidebar.showSpaces",
       "title" : "Show Spaces",
+      "type" : "boolean"
+    },
+    "sidebar.showTimestamps" : {
+      "default" : false,
+      "description" : "Workspace rows show when they last changed: a time today, else an age such as 3d. Off, rows show no times; the hover card still does.",
+      "title" : "Show Timestamps",
       "type" : "boolean"
     },
     "sidebar.showWorkspaceTabs" : {
@@ -3556,6 +3739,12 @@
       "title" : "Cmd-W Closes Pinned Tabs",
       "type" : "boolean"
     },
+    "tabs.newTabNowPlaying" : {
+      "default" : true,
+      "description" : "A player for what is playing, on the New Tab page.",
+      "title" : "Show Now Playing on New Tab",
+      "type" : "boolean"
+    },
     "tabs.newTabPosition" : {
       "default" : "end",
       "description" : "Where Cmd-T and the + button put the new tab. New Tab to the Right in a tab's menu always puts it after that tab.",
@@ -3567,9 +3756,10 @@
       "type" : "string"
     },
     "tabs.newTabTemplate" : {
-      "default" : "default",
+      "default" : "cards",
       "description" : "The layout of the New Tab page. Terminal skips the page and opens a terminal. The dots at the bottom of the page also change it.",
       "enum" : [
+        "cards",
         "default",
         "composer",
         "threads",

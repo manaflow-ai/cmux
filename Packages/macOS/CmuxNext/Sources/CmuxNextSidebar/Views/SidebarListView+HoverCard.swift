@@ -63,6 +63,13 @@ extension SidebarViewComponents {
         set { list.hoverCard.customization = newValue }
     }
 
+    /// A workspace's history for its hover card (u3320): prompts, starts, waits and finished
+    /// turns, newest first. Nil shows no history.
+    public var timelineSource: SidebarTimelineSource? {
+        get { list.hoverCard.timelineSource }
+        set { list.hoverCard.timelineSource = newValue }
+    }
+
     /// True while the workspace hover card samples resources.
     public var isSamplingResources: Bool { list.hoverCard.resources.isOpen }
 

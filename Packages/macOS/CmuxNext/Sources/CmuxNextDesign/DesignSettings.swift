@@ -106,6 +106,8 @@ public final class DesignSettings {
     /// `sidebar.hoverCards.delay`: pointer rest before a sidebar row's or a tab's card opens.
     /// Defaults to `HoverCardTiming.showDelay`.
     public var hoverCardDelay: Duration = HoverCardTiming.showDelay
+    /// `sidebar.hoverCards.layout`, `.sections.*` and `.maxRows`: what a workspace card shows (u3320).
+    public var workspaceHoverCard = WorkspaceHoverCardOptions()
     /// `layout.closeFocus`: who gets focus when the focused pane closes.
     public var closeFocus: CloseFocusPolicy = .previousNeighbor
     /// `layout.defaultColumnWidth`: new column width, a viewport fraction.
@@ -197,6 +199,8 @@ public final class DesignSettings {
     public var tabBarPosition: TabBarPosition = .top
     /// `tabs.barOrder` (R109).
     public var tabBarOrder: TabBarOrder = .aboveToolbar
+    /// `appearance.paneBackgrounds`: one background for the window or a copy per pane.
+    public var paneBackgrounds: PaneBackgroundMode = .shared
 
     public init() {}
 
