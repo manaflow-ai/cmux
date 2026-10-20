@@ -1121,7 +1121,9 @@ export default agentPaneEntry({
       }),
     },
     "model-menu-starred": {
-      note: "Play: open the model picker, star Sonnet, then open the rail's Starred tab: it lists the starred models of every harness.",
+      // A chat before its first send: once a chat has a message its harness is fixed and the menu
+      // has no rail, so no Starred tab (ComposerPickers `locked`, #22226).
+      note: "Play: in a chat before its first send, open the model picker, star Sonnet, then open the rail's Starred tab: it lists the starred models of every harness.",
       checks: {
         layoutShiftMax: {
           value: 0.055,
@@ -1129,7 +1131,7 @@ export default agentPaneEntry({
             "Filtering the model catalog reflows rows inside the fixed-height popup; the transcript and composer anchors must remain fixed.",
         },
       },
-      snapshot: chat(finished, { harness: "claude", model: "claude-opus-5-5", title: "Starred models" }),
+      snapshot: chat([], { harness: "claude", model: "claude-opus-5-5", title: "Starred models" }),
       play: async (ctx) => {
         const { translate } = await import("./i18n");
         const starred = { role: "option", name: translate("picker.starred") };
