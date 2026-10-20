@@ -10,6 +10,7 @@ import type { Rendered } from "./testing";
 const restore = installDom();
 afterAll(() => restore());
 const { changeValue, click, fire, ops, renderPage, run } = await import("./testing");
+const { t } = await import("./strings");
 
 let page: Rendered | null = null;
 afterEach(() => {
@@ -54,7 +55,7 @@ test("every popup is the same fixed-width button, and every row has its Reset sl
 test("the accent is a swatch popup: each choice has its swatch, the check is on the right, a pick writes it", async () => {
   page = await renderPage({ path: "/settings/theme", mock: { values: { "appearance.theme": "Dracula" } } });
   const button = themeRow(page, "accent")!.querySelector<HTMLElement>("[data-accent-picker]")!;
-  expect(button.textContent).toContain("Neutral");
+  expect(button.textContent).toContain(t("settings.choice.accent.neutral"));
   expect(button.querySelector("[data-accent-swatch]")?.getAttribute("style")).toContain("background");
   await click(button);
   const options = [...document.querySelectorAll<HTMLElement>("[data-accent-option]")];
@@ -84,14 +85,14 @@ test("the accent is a swatch popup: each choice has its swatch, the check is on 
   );
   await fire(document.querySelector('[data-accent-option="blue"]')!, "mousedown");
   expect(ops(page.provider, "cmux.settings.set").at(-1)).toEqual({ key: "appearance.accent", value: "blue" });
-  expect(button.textContent).toContain("Blue");
+  expect(button.textContent).toContain(t("settings.choice.accent.blue"));
 });
 
 test("the app theme's Match System Appearance follows the terminal's until the app theme has its own pick", async () => {
   page = await renderPage({ path: "/settings/theme" });
   const appSwitch = () => themeRow(page!, "app-match")!.querySelector<HTMLButtonElement>("[role=switch]")!;
   expect(appSwitch().disabled).toBe(true);
-  expect(themeRow(page, "app-match")!.textContent).toContain("Follows the terminal theme");
+  expect(themeRow(page, "app-match")!.textContent).toContain(t("settingsPage.theme.appFollowsTerminal"));
   await run(() => page!.store.set("appearance.appTheme", "Gruvbox Dark"));
   expect(appSwitch().disabled).toBe(false);
   await click(appSwitch());
@@ -105,7 +106,7 @@ test("the app theme's Match System Appearance follows the terminal's until the a
   // A side of the pair is always a theme: its list has no Match Terminal Theme row.
   await click(themeRow(page, "app-light")!.querySelector("[data-theme-picker]")!);
   expect([...document.querySelectorAll(".theme-option")].map((option) => option.textContent)).not.toContain(
-    "Match Terminal Theme",
+    t("settings.default.followTerminal"),
   );
   expect(document.querySelectorAll("[data-theme-option]").length).toBeGreaterThan(0);
 });
@@ -114,14 +115,69 @@ test("a theme row in search results is the Theme section's picker, not a plain l
   page = await renderPage({ path: "/settings/general" });
   await changeValue(page.container.querySelector<HTMLInputElement>("[data-settings-search]")!, "app theme");
   const row = page.container.querySelector<HTMLElement>('[data-search-results] [data-row-key="appearance.appTheme"]')!;
-  expect(row.querySelector("[data-theme-picker]")?.textContent).toContain("Match Terminal Theme");
+  expect(row.querySelector("[data-theme-picker]")?.textContent).toContain(t("settings.default.followTerminal"));
   expect(row.querySelector(".domain-button")).toBeNull();
   await click(row.querySelector("[data-theme-picker]")!);
-  expect(document.querySelector(".theme-popover input")?.getAttribute("placeholder")).toBe("Search Ghostty themes");
-  expect(document.querySelector(".theme-count")?.textContent).toMatch(/\d+ themes/);
+  expect(document.querySelector(".theme-popover input")?.getAttribute("placeholder")).toBe(
+    t("settingsWindow.themeSearch"),
+  );
+  expect(document.querySelector(".theme-count")).not.toBeNull();
 });
 
 test("?focus= on a theme key reveals its row in the card", async () => {
   page = await renderPage({ path: "/settings/theme?focus=appearance.accent" });
   expect(document.activeElement?.closest('[data-theme-row="accent"]')).not.toBeNull();
+});
+
+test("a pick on one side of the app pair keeps the other side; Match off goes back to one theme", async () => {
+  page = await renderPage({
+    path: "/settings/theme",
+    mock: { values: { "appearance.appTheme": "light:GitHub Light,dark:Dracula" } },
+  });
+  await click(themeRow(page, "app-light")!.querySelector("[data-theme-picker]")!);
+  await click(document.querySelector('[data-theme-option="Solarized Light"]')!.closest("li")!);
+  expect(ops(page.provider, "cmux.settings.set").at(-1)).toEqual({
+    key: "appearance.appTheme",
+    value: "light:Solarized Light,dark:Dracula",
+  });
+  await click(themeRow(page, "app-match")!.querySelector("[role=switch]")!);
+  expect(ops(page.provider, "cmux.settings.set").at(-1)).toEqual({
+    key: "appearance.appTheme",
+    value: expect.not.stringContaining(":"),
+  });
+  expect(themeRow(page, "app")).not.toBeNull();
+});
+
+test("a managed app theme pair says why its controls are off", async () => {
+  page = await renderPage({
+    path: "/settings/theme",
+    mock: {
+      managed: {
+        "appearance.appTheme": { value: "light:GitHub Light,dark:Dracula", source: "profile", reason: "Set by your organization" },
+      },
+    },
+  });
+  expect(themeRow(page, "app-match")!.querySelector("[data-managed-reason]")).not.toBeNull();
+  expect(themeRow(page, "app-match")!.querySelector<HTMLButtonElement>("[role=switch]")!.disabled).toBe(true);
+  expect(themeRow(page, "app-light")!.querySelector<HTMLButtonElement>("[data-theme-picker]")!.disabled).toBe(true);
+});
+
+test("the Reset command on a focused studio row resets its key", async () => {
+  page = await renderPage({ path: "/settings/theme", mock: { values: { "appearance.accent": "blue" } } });
+  themeRow(page, "accent")!.querySelector<HTMLElement>("[data-accent-picker]")!.focus();
+  await run(() => page!.provider.sendCommand("reset"));
+  expect(ops(page.provider, "cmux.settings.reset")).toEqual([{ key: "appearance.accent" }]);
+});
+
+test("?focus= on a paired theme lands on its Light row, once: a later Match switch keeps the focus", async () => {
+  page = await renderPage({
+    path: "/settings/theme?focus=appearance.theme",
+    mock: { values: { "appearance.theme": "light:GitHub Light,dark:Dracula" } },
+  });
+  expect(document.activeElement?.closest('[data-theme-row="light"]')).not.toBeNull();
+  const toggle = themeRow(page, "match")!.querySelector<HTMLElement>("[role=switch]")!;
+  toggle.focus();
+  await click(toggle);
+  expect(themeRow(page, "single")).not.toBeNull();
+  expect(document.activeElement).toBe(toggle);
 });

@@ -161,8 +161,12 @@ export function ThemeStudio({ focus = null }: { focus?: string | null } = {}) {
   );
   const accentRow = rowsByKey.get(ACCENT_KEY);
   const accentState = useRowState(ACCENT_KEY);
-  // The row `?focus=` names, once the owner's values arrive (before that every control is disabled).
-  const focused = state.readable ? focus : null;
+  // The row `?focus=` names, once the owner's values arrive (before that every control is disabled),
+  // revealed once: a row that mounts later (Match System Appearance swapping the rows) never takes
+  // the focus back from the control just used.
+  const revealed = useRef<string | null>(null);
+  const focused = state.readable && focus !== revealed.current ? focus : null;
+  const markRevealed = () => void (revealed.current = focus);
 
   const lookup = (name: string | null): GhosttyTheme | undefined => (name ? colors?.get(name) : undefined);
   const terminal =
@@ -285,7 +289,7 @@ export function ThemeStudio({ focus = null }: { focus?: string | null } = {}) {
         <div className="rows">
           {names.length === 0 ? (
             // The app published no theme names: the plain setting row (a text field for the spec).
-            <SettingRow row={row} />
+            <SettingRow row={row} focused={focused === THEME_KEY} />
           ) : (
             <>
               <StudioRow
@@ -311,6 +315,7 @@ export function ThemeStudio({ focus = null }: { focus?: string | null } = {}) {
                     kind={side}
                     settingKey={THEME_KEY}
                     reveal={side === "light" && focused === THEME_KEY}
+                    onRevealed={markRevealed}
                     id={ids[side]}
                     title={side === "light" ? t("settingsPage.theme.light") : t("settingsPage.theme.dark")}
                     menu={themeMenu}
@@ -324,6 +329,7 @@ export function ThemeStudio({ focus = null }: { focus?: string | null } = {}) {
                   kind="single"
                   settingKey={THEME_KEY}
                   reveal={focused === THEME_KEY}
+                  onRevealed={markRevealed}
                   id={ids.theme}
                   title={t("settingsPage.theme.terminal")}
                   help={t("settingsPage.theme.terminalHelp")}
@@ -344,12 +350,13 @@ export function ThemeStudio({ focus = null }: { focus?: string | null } = {}) {
             </div>
           )}
           <ScopeOverrides />
-          {appRow && names.length === 0 && <SettingRow row={appRow} />}
+          {appRow && names.length === 0 && <SettingRow row={appRow} focused={focused === APP_THEME_KEY} />}
           {appRow && names.length > 0 && (
             <>
               <StudioRow
                 kind="app-match"
                 settingKey={APP_THEME_KEY}
+                managedNote={appManaged}
                 id={ids.appMatch}
                 title={t("settingsPage.theme.matchSystem")}
                 help={appSpec ? t("settingsPage.theme.matchSystemHelp") : t("settingsPage.theme.appFollowsTerminal")}
@@ -364,13 +371,14 @@ export function ThemeStudio({ focus = null }: { focus?: string | null } = {}) {
                   onToggle={(on) => void writeApp(toggledPair(appSpec, on, scheme, fallbackName))}
                 />
               </StudioRow>
-              {appPaired && appSpec?.kind === "pair" ? (
+              {appSpec?.kind === "pair" ? (
                 (["light", "dark"] as const).map((side) => (
                   <StudioRow
                     key={side}
                     kind={`app-${side}`}
                     settingKey={APP_THEME_KEY}
                     reveal={side === "light" && focused === APP_THEME_KEY}
+                    onRevealed={markRevealed}
                     id={ids[`app-${side}`]}
                     title={side === "light" ? t("settingsPage.theme.light") : t("settingsPage.theme.dark")}
                     menu={appMenu}
@@ -388,10 +396,10 @@ export function ThemeStudio({ focus = null }: { focus?: string | null } = {}) {
                   kind="app"
                   settingKey={APP_THEME_KEY}
                   reveal={focused === APP_THEME_KEY}
+                  onRevealed={markRevealed}
                   id={ids.app}
                   title={t("settingsPage.theme.app")}
                   help={text(appRow.summary)}
-                  managedNote={appManaged}
                   menu={appMenu}
                   reset={appReset}
                 >
@@ -407,6 +415,7 @@ export function ThemeStudio({ focus = null }: { focus?: string | null } = {}) {
               kind="accent"
               settingKey={ACCENT_KEY}
               reveal={focused === ACCENT_KEY}
+              onRevealed={markRevealed}
               id={ids.accent}
               title={text(accentRow.title)}
               help={text(accentRow.summary)}
@@ -459,6 +468,7 @@ function StudioRow({
   kind,
   settingKey,
   reveal = false,
+  onRevealed,
   id,
   title,
   help,
@@ -472,6 +482,7 @@ function StudioRow({
   settingKey: string;
   /** The row `?focus=` names: scrolled to with its control focused. */
   reveal?: boolean;
+  onRevealed?(): void;
   id: string;
   title: string;
   help?: string;
@@ -486,7 +497,15 @@ function StudioRow({
       data-theme-row={kind}
       data-row-key={settingKey}
       tabIndex={-1}
-      ref={reveal ? revealRow : undefined}
+      ref={
+        reveal
+          ? (node: HTMLDivElement | null) => {
+              if (!node) return;
+              revealRow(node);
+              onRevealed?.();
+            }
+          : undefined
+      }
     >
       <div className="row-main">
         <ContextMenu className="row-label" items={menu}>

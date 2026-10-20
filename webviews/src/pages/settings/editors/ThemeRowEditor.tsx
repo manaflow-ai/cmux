@@ -4,7 +4,7 @@ import { useSettingsSelector, useStore } from "../context";
 import { ThemePicker } from "../components/ThemePicker";
 import { valueOf } from "../store";
 import { t, text } from "../strings";
-import { parseThemeSpec, themeFor } from "../themeSpec";
+import { formatThemeSpec, parseThemeSpec, themeFor, type ThemeSpec } from "../themeSpec";
 import { TextEditor } from "./TextEditor";
 import type { EditorProps } from "./types";
 
@@ -16,8 +16,8 @@ const scheme = (): "dark" | "light" =>
 
 /**
  * A `theme` row outside the Theme section (search results): the Theme section's own picker, so a
- * theme is chosen the same way everywhere. A light/dark pair shows the side in effect; the Theme
- * section edits both sides. With no published names, a text field for the spec.
+ * theme is chosen the same way everywhere. A light/dark pair shows and replaces the side in effect;
+ * the Theme section edits both sides. With no published names, a text field for the spec.
  */
 export function ThemeRowEditor({ row, value, disabled, labelId }: EditorProps) {
   const store = useStore();
@@ -40,7 +40,18 @@ export function ThemeRowEditor({ row, value, disabled, labelId }: EditorProps) {
       configLabel={text(row.default_label) || t("settingsWindow.themeUseConfig")}
       configColors={undefined}
       custom={(name) => isEdited(edits, name)}
-      onPick={(name) => (name ? store.set(row.key, name) : store.reset(row.key))}
+      // A light/dark pair keeps its other side: the pick replaces the side in effect.
+      onPick={(name) => {
+        if (!name) return store.reset(row.key);
+        const side = scheme();
+        const next: ThemeSpec =
+          spec?.kind !== "pair"
+            ? { kind: "single", name }
+            : side === "light"
+              ? { ...spec, light: name }
+              : { ...spec, dark: name };
+        return store.set(row.key, formatThemeSpec(next));
+      }}
       onPreview={(name) => (name ? store.preview(row.key, name) : store.previewEnd(row.key))}
     />
   );

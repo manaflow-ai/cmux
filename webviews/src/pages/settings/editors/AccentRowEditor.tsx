@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import type { GhosttyTheme } from "../../../theme/ghosttyTheme";
 import { withAllEdits, type ThemeEditMap } from "../../../theme/themeEdits";
 import { accentChoices } from "../accentChoices";
@@ -32,6 +32,7 @@ export function AccentRowEditor({ row, value, disabled, labelId }: EditorProps) 
   const themeColors = useSettingsSelector((state) => state.themeColors);
   const edits = useSettingsSelector((state) => valueOf(state, "appearance.themeEdits") as ThemeEditMap | null);
   const config = useSettingsSelector((state) => state.host?.theme?.config ?? null);
+  useEffect(() => void store.loadThemeColors(), [store]);
   const source: GhosttyTheme | undefined = useMemo(() => {
     const colors = withAllEdits(themeColors, edits);
     return (name ? colors?.get(name) : undefined) ?? config ?? undefined;

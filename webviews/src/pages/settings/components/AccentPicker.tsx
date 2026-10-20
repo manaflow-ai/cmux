@@ -61,7 +61,7 @@ export function AccentPicker({
         className="button theme-button"
         data-accent-picker=""
         aria-labelledby={labelId}
-        aria-haspopup="listbox"
+        aria-haspopup="dialog"
         aria-expanded={open}
         disabled={disabled}
         onClick={() => setOpen(!open)}
