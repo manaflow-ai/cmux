@@ -73,14 +73,11 @@ extension TabDragSession {
             }
         case .newSplit(let paneID, let edge):
             guard let pane = paneModel(id: paneID) else { return gone(settle) }
-            // The tab's own pane with its only tab: the owner spawns a fresh tab of the same kind
-            // there in the same op, else a fresh terminal opens behind it (#22287).
+            // The tab's own pane with its only tab: the New Tab page opens behind it (#22287).
             if liveContext(drag).splitsBehind(pane: paneID) { return TabMoves.splitBehind(pane, edge: edge.paneEdge, services: services, completion: settle) }
-            let respawn = liveContext(drag).splitRespawns(pane: paneID) ? TabMoves.respawn(for: tab, in: pane, services: services) : nil
             // The preview decided split or new column with the same room
             // rule (`LayoutTabDropTarget.removingPane`); run that decision.
-            TabMoves.toNewSplit(tab, pane: pane, edge: edge.paneEdge, services: services, respawn: respawn, roomDecided: true,
-                                transaction: transaction, completion: settle)
+            TabMoves.toNewSplit(tab, pane: pane, edge: edge.paneEdge, services: services, roomDecided: true, transaction: transaction, completion: settle)
         case .newColumn(let screenID, let after):
             guard let (anchor, column) = columnAnchor(screenID: screenID, after: after, in: dropWindow) else { return gone(settle) }
             TabMoves.toNewColumn(tab, anchor: anchor, afterColumn: column, services: services, transaction: transaction, completion: settle)

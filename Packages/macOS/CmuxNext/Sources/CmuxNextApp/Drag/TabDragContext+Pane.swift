@@ -20,11 +20,5 @@ extension TabDragContext {
                   sourceGroupID: group)
         if case .group = item { isGroupDrag = true }
         sourceStaysPut = TabPromotion.staysPut(kind: pane.workspace?.workspace.kind)
-        // A single daemon tab of a kind that can respawn, on a daemon that
-        // splits a pane with its only tab by spawning a fresh one there.
-        if case .tab(let id) = item, let tab = pane.pane.tabs.first(where: { $0.id == id }),
-           TabMoves.respawn(for: tab, in: pane.pane, services: pane.services) != nil {
-            respawnsOnSplit = pane.services.machines.daemon(forPane: pane.pane).supports(DaemonCapabilities.shared.tabSplitRespawn)
-        }
     }
 }

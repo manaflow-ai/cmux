@@ -2,9 +2,7 @@ import AppKit
 @testable import CmuxNextApp
 import CmuxNextBridge
 import CmuxNextDesign
-import enum CmuxNextDaemon.PaneDirection
 import enum CmuxNextDaemon.PaneEdge
-import enum CmuxNextDaemon.SplitDirection
 @testable import CmuxNextLayout
 import CmuxNextTabs
 import Testing
@@ -121,24 +119,22 @@ struct BonsplitDropParityTests {
 
     // MARK: Last tab
 
-    /// A pane's only tab dropped on its own edge is never refused (classic shows the zone and leaves
-    /// a terminal): the owner respawns the same kind when it can, else a terminal opens behind it.
+    /// A pane's only tab dropped on its own edge is never refused (classic shows the zone and fills
+    /// the pane it leaves): the tab stays and the New Tab page opens on the far side.
     @Test func aLoneTabOnItsOwnEdgeIsAlwaysATarget() {
-        var context = TabDragContext(sourcePaneID: "p1", sourcePaneTabCount: 1, sourceWorkspaceID: "w", sourceWorkspaceTabCount: 2,
+        let context = TabDragContext(sourcePaneID: "p1", sourcePaneTabCount: 1, sourceWorkspaceID: "w", sourceWorkspaceTabCount: 2,
                                      draggedTabCount: 1)
         #expect(TabDragResolver.verdict(.newSplit(paneID: "p1", edge: .left), context: context) == .accept)
-        #expect(context.splitsBehind(pane: "p1") && !context.splitRespawns(pane: "p1"))
-        #expect(!context.splitsBehind(pane: "p2"))
-        context.respawnsOnSplit = true
-        #expect(context.splitRespawns(pane: "p1") && !context.splitsBehind(pane: "p1"))
+        #expect(context.splitsBehind(pane: "p1") && !context.splitsBehind(pane: "p2"))
+        let busy = TabDragContext(sourcePaneID: "p1", sourcePaneTabCount: 2, sourceWorkspaceID: "w", sourceWorkspaceTabCount: 2,
+                                  draggedTabCount: 1)
+        #expect(!busy.splitsBehind(pane: "p1"))
     }
 
-    /// The split behind the tabs opens the new pane on the far side of the drop edge.
+    /// The New Tab page opens across the pane from the drop edge.
     @Test func theSplitBehindOpensOnTheFarSide() {
-        #expect(PaneEdge.left.splitBehind.direction == .right && PaneEdge.left.splitBehind.swapTowards == nil)
-        #expect(PaneEdge.top.splitBehind.direction == .down && PaneEdge.top.splitBehind.swapTowards == nil)
-        #expect(PaneEdge.right.splitBehind.direction == .right && PaneEdge.right.splitBehind.swapTowards == .right)
-        #expect(PaneEdge.bottom.splitBehind.direction == .down && PaneEdge.bottom.splitBehind.swapTowards == .down)
+        #expect(PaneEdge.left.opposite == .right && PaneEdge.right.opposite == .left)
+        #expect(PaneEdge.top.opposite == .bottom && PaneEdge.bottom.opposite == .top)
     }
 
     /// A target the App refuses stays hidden while the pointer stays on it, instead of drawing and

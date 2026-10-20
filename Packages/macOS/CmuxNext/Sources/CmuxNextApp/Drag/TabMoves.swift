@@ -60,19 +60,13 @@ enum TabMoves {
         }
     }
 
-    /// Every tab of `pane` dropped on its own `edge` (#22287): they stay, and a fresh terminal opens on
-    /// the far side, so they end at `edge` beside it, as classic cmux fills bonsplit's placeholder.
+    /// Every tab of `pane` dropped on its own `edge` (#22287): they stay, and the New Tab page (a new
+    /// pane's default, as a person's split opens it) opens on the far side, so they end at `edge`.
     static func splitBehind(_ pane: PaneModel, edge: PaneEdge, services: AppServices, completion: @escaping Completion) {
         if ChatDockRules.isChatDock(pane, services: services) { services.registry.refuse(RefusalStrings.chatDockCannotSplit); return completion(false) }
-        let split = edge.splitBehind, sizing = services.splitSizing(for: pane, edge: edge, emptying: nil)
-        let options = SpawnOptions(cwd: pane.tabs.first { $0.kind == .pty }?.cwd, workspace: services.workspaceKey(of: pane))
-        let command = PaneSplitCommand(pane: pane.handle, direction: split.direction, options: options, swapTowards: split.swapTowards)
-        services.registry.track(Task {
-            let ok = (try? await command.send(on: services.daemon(for: pane))) != nil
-            if ok { sizing() }
-            completion(ok)
-            return ok ? nil : "split failed (see the app log)"
-        })
+        guard let controller = services.paneController(for: pane) else { return completion(false) }
+        NewTabPage.split(controller, edge: edge.opposite)
+        completion(true)
     }
 
     /// New pane on `edge` of `pane` holding the tab. `roomDecided`: the
