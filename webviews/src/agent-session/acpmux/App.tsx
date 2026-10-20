@@ -206,6 +206,7 @@ import { RecapCard, useRecapCard } from "./RecapCard";
 import { configureQuickActions, quickActions, type QuickActionMode } from "./header/quickActions";
 import { chatColumnOf, configureChatWidth, useChatWidth } from "./chatWidth";
 import { configureCodexToolRuns, useCodexToolRuns } from "./codexToolRuns";
+import { configureLiveLineBelow, useLiveLineBelow } from "./liveLineBelow";
 import { configureNativeSidebarPreviewVariant, configureSidebarPreviewVariant } from "./sidebarPreview";
 import { archiveRow, markUnreadRow } from "./header/archiveRow";
 import { copyRow } from "./header/copyRow";
@@ -637,6 +638,7 @@ const ThinkingRow = memo(
     return (
       <Thinking
         status={row.status}
+        since={row.at}
         onCancel={
           queued
             ? () => void window.cmuxAcpmuxActions?.["chat.harness.cancelPrompt"]?.({ promptId: queued })
@@ -650,7 +652,8 @@ const ThinkingRow = memo(
     a.row.id === b.row.id &&
     a.row.version === b.row.version &&
     a.row.status === b.row.status &&
-    a.row.queued === b.row.queued,
+    a.row.queued === b.row.queued &&
+    a.row.at === b.row.at,
 );
 const WorkingRow = memo(
   function WorkingRow({ row }: RowProps) {
@@ -661,7 +664,9 @@ const WorkingRow = memo(
     a.row.version === b.row.version &&
     a.row.at === b.row.at &&
     a.row.durationMs === b.row.durationMs &&
-    a.row.doing === b.row.doing,
+    a.row.doing === b.row.doing &&
+    a.row.thinkingNow === b.row.thinkingNow &&
+    a.row.below === b.row.below,
 );
 
 /// How many turns back the header's Preview looks for a page.
@@ -3006,6 +3011,8 @@ function AcpmuxPane() {
   );
   // Codex-style tool runs in a running turn (Debug toggle, codexToolRuns.ts).
   const codexRuns = useCodexToolRuns();
+  // The running turn's status line as its last row (Debug toggle, liveLineBelow.ts).
+  const lineBelow = useLiveLineBelow();
   // The last snapshot's turns and subagent rows: the next builds on them (turnViewFrom).
   const lastTurns = useRef<{ turns: TurnView; subagents: SubagentRows } | undefined>(undefined);
   const transcriptRows = useMemo(() => {
@@ -3016,7 +3023,7 @@ function AcpmuxPane() {
       const turns = turnViewFrom(
         rows,
         expanded,
-        { working: snapshot.isWorking, clockOffset: snapshot.clockOffsetMs, liveRuns: codexRuns },
+        { working: snapshot.isWorking, clockOffset: snapshot.clockOffsetMs, liveRuns: codexRuns, lineBelow },
         last?.turns,
       );
       const subagents = subagentRowsFrom(turns.rows, expanded, last?.subagents);
@@ -3031,6 +3038,7 @@ function AcpmuxPane() {
     snapshot.isWorking,
     snapshot.clockOffsetMs,
     codexRuns,
+    lineBelow,
     chatShellRuns,
     panelAsks,
   ]);
@@ -3953,6 +3961,7 @@ function AcpmuxPane() {
         applyAgentTheme(theme as never);
         configureChatWidth(theme.chatWidth);
         configureCodexToolRuns(theme.codexToolRuns);
+        configureLiveLineBelow(theme.liveLineBelow);
       },
       applyShortcuts(labels) {
         setShortcuts(readShortcuts(labels));

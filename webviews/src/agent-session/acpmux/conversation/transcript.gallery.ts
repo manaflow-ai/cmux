@@ -735,6 +735,39 @@ export default agentPaneEntry({
         { isWorking: true },
       ),
     },
+    "working-thinking": {
+      note: "A turn before its first output: the last row reads Thinking with the turn's time, ticking.",
+      snapshot: chat([user(prompt, 0.2)], { isWorking: true }),
+    },
+    "working-after-text": {
+      note: "Text after work while the turn goes on (the agent thinks, or writes a call's input): the line stays under it and its clock keeps going.",
+      snapshot: chat(
+        [
+          user(prompt, 1.5),
+          activity(
+            [
+              tool("Read client.ts", "read", "completed", {
+                locations: [{ path: "/Users/you/src/atlas-web/src/net/client.ts" }],
+              }),
+            ],
+            1.4,
+          ),
+          assistant("The parser drops the status code. I'll write a typed error and a test for it.", 1.2),
+        ],
+        { isWorking: true },
+      ),
+    },
+    "working-line-above": {
+      note: "Debug toggle agentPane.debug.liveLineBelow off: the older line over the turn's work.",
+      theme: { liveLineBelow: false },
+      snapshot: chat(
+        [
+          user(prompt, 2),
+          activity([tool("bun test src/net", "execute", "in_progress", { command: "bun test src/net" })], 1.5),
+        ],
+        { isWorking: true },
+      ),
+    },
     "working-counts": {
       note: "A live turn with background work: the line counts the two agents still running and the dev server still up, not the agent that finished. A count opens what it counts.",
       snapshot: chat(

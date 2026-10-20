@@ -6,6 +6,10 @@
 // running and background shells that have not ended. Each count opens what it counts. The counts
 // follow on the same fixed-height line, so one that comes or goes moves neither the label nor the
 // rows below. When the turn ends, the "Worked for" disclosure takes its place.
+//
+// Drawn as the turn's last row (`row.below`, Debug Settings `agentPane.debug.liveLineBelow`), it
+// has no rule under it and its clock never stops while the turn runs, and while the agent thinks
+// (`row.thinkingNow`) it reads "Thinking" beside the time.
 import { createContext, useContext, useEffect, useState } from "react";
 import { type Translate, useT } from "../i18n";
 import type { AcpmuxRow } from "../model";
@@ -26,17 +30,23 @@ export type WorkingCounts = {
 
 export const WorkingCountsContext = createContext<WorkingCounts | undefined>(undefined);
 
-export function WorkingFor({ row, now = Date.now }: { row: AcpmuxRow; now?: () => number }) {
-  const t = useT();
-  const counts = useContext(WorkingCountsContext);
+/// `now()`, again each second while `running`.
+export function useTicking(running: boolean, now: () => number = Date.now): number {
   const [time, setTime] = useState(now);
-  const held = row.durationMs !== undefined;
   useEffect(() => {
-    if (held) return;
+    if (!running) return;
     setTime(now());
     const timer = setInterval(() => setTime(now()), 1000);
     return () => clearInterval(timer);
-  }, [now, held]);
+  }, [now, running]);
+  return time;
+}
+
+export function WorkingFor({ row, now = Date.now }: { row: AcpmuxRow; now?: () => number }) {
+  const t = useT();
+  const counts = useContext(WorkingCountsContext);
+  const held = !row.below && row.durationMs !== undefined;
+  const time = useTicking(!held, now);
   const until = held ? row.at + row.durationMs! : time;
   const parts = counts
     ? [
@@ -53,11 +63,13 @@ export function WorkingFor({ row, now = Date.now }: { row: AcpmuxRow; now?: () =
       ].filter((part) => part !== false)
     : [];
   return (
-    <div className="cv-worked has-divider">
+    <div className={row.below ? "cv-worked is-below" : "cv-worked has-divider"}>
       <WorkingMark />
-      {row.doing ? (
+      {row.doing || row.thinkingNow ? (
         <>
-          <span className="cv-worked__label cv-worked__doing">{row.doing}</span>
+          <span className={row.doing ? "cv-worked__label cv-worked__doing" : "cv-worked__label"}>
+            {row.doing ?? t("thinking")}
+          </span>
           <span className="cv-worked__time">{formatDuration(Math.max(0, until - row.at))}</span>
         </>
       ) : (

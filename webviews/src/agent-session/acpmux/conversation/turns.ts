@@ -70,7 +70,7 @@ const isEdit = (row: AcpmuxRow) => row.kind === "activity" && (row.items ?? []).
 export function turnView(
   rows: readonly AcpmuxRow[],
   expanded: ReadonlySet<string>,
-  options: { now?: number; working?: boolean; clockOffset?: number; liveRuns?: boolean } = {},
+  options: { now?: number; working?: boolean; clockOffset?: number; liveRuns?: boolean; lineBelow?: boolean } = {},
 ): AcpmuxRow[] {
   return turnViewFrom(rows, expanded, options).rows;
 }
@@ -81,6 +81,7 @@ export type TurnView = {
   expanded: ReadonlySet<string>;
   clockOffset: number;
   liveRuns: boolean;
+  lineBelow: boolean;
   /// Where the first prompt is: the rows before it draw as they are.
   lead: number;
   /// Each turn's prompt index in `source`, its times, whether it is dated, and how many drawn
@@ -103,7 +104,8 @@ export function turnViewFrom(
     working = false,
     clockOffset = 0,
     liveRuns = false,
-  }: { now?: number; working?: boolean; clockOffset?: number; liveRuns?: boolean } = {},
+    lineBelow = false,
+  }: { now?: number; working?: boolean; clockOffset?: number; liveRuns?: boolean; lineBelow?: boolean } = {},
   previous?: TurnView,
 ): TurnView {
   // The turn to shape from: the one holding the first changed row. The turn before it may
@@ -114,6 +116,7 @@ export function turnViewFrom(
     previous.expanded === expanded &&
     previous.clockOffset === clockOffset &&
     previous.liveRuns === liveRuns &&
+    previous.lineBelow === lineBelow &&
     previous.starts.length
   ) {
     const shared = previous.source;
@@ -174,11 +177,22 @@ export function turnViewFrom(
     const end = at + 1 < starts.length ? starts[at + 1]! : rows.length;
     // Only the last turn can still be running.
     const last = at === starts.length - 1;
-    for (const row of shapedTurn(rows, start, end, expanded, working && last, last, clockOffset, dated[at]!, liveRuns))
+    for (const row of shapedTurn(
+      rows,
+      start,
+      end,
+      expanded,
+      working && last,
+      last,
+      clockOffset,
+      dated[at]!,
+      liveRuns,
+      lineBelow,
+    ))
       out.push(row);
     ends.push(out.length);
   }
-  return { source: rows, expanded, clockOffset, liveRuns, lead, starts, times, dated, ends, rows: out };
+  return { source: rows, expanded, clockOffset, liveRuns, lineBelow, lead, starts, times, dated, ends, rows: out };
 }
 
 /// A turn as drawn, kept while its rows (by identity) and what shapes them stay the same: a long
@@ -206,6 +220,7 @@ function shapedTurn(
   clockOffset: number,
   dated: boolean,
   liveRuns = false,
+  lineBelow = false,
 ): AcpmuxRow[] {
   const user = rows[start]!;
   const open = expanded.size > 0 && expanded.has(`${WORKED}-${user.id}`);
@@ -242,7 +257,7 @@ function shapedTurn(
     shaped = [
       ...date,
       user,
-      ...shapeTurn(user, turn, expanded, live, last, last && held.length === 0, clockOffset, liveRuns),
+      ...shapeTurn(user, turn, expanded, live, last, last && held.length === 0, clockOffset, liveRuns, lineBelow),
       ...held,
     ];
   if (!live) shapedTurns.set(user, { source, open, last, clockOffset, dated, rows: shaped });
@@ -279,6 +294,7 @@ function shapeTurn(
   retryable: boolean,
   clockOffset = 0,
   liveRuns = false,
+  lineBelow = false,
 ): AcpmuxRow[] {
   const end = turn.findIndex((row) => row.kind === "turnSummary");
   // A turn still running shows its work as it happens, under its live status.
@@ -287,7 +303,7 @@ function shapeTurn(
   // summary, so it draws as it came.
   if (end < 0)
     return live
-      ? liveTurn(user, turn, clockOffset, liveRuns)
+      ? liveTurn(user, turn, clockOffset, liveRuns, lineBelow)
       : last
         ? turn
         : settledWithoutSummary(user, turn, expanded);
@@ -424,32 +440,60 @@ function settledWithoutSummary(user: AcpmuxRow, turn: AcpmuxRow[], expanded: Rea
   ];
 }
 
-/// The live status, shaped as the turn will fold when it ends: rows before the latest text are
+/// The live status. With `lineBelow` (the default in the app, Debug Settings
+/// `agentPane.debug.liveLineBelow`) it is the turn's last row from send to end, as Claude desktop
+/// draws it: what the agent is doing now ("Thinking", the call in flight, else "Working for") and
+/// the turn's time, which ticks until the turn ends, so the bottom of a running chat always moves.
+/// It keeps one id from the Thinking line the prompt opened (LIVE_THINKING), so its row never
+/// leaves and comes back.
+///
+/// Otherwise it is shaped as the turn will fold when it ends: rows before the latest text are
 /// its work, so a turn so far only streaming its answer draws no status (it ends without a
 /// fold). The line is timed from the prompt and draws its own clock; while text streams, the
 /// clock stops at that text's start, where "Worked for" would time the turn if it ended there.
 /// The client's empty "typing" placeholder gives way to it.
-function liveTurn(user: AcpmuxRow, turn: AcpmuxRow[], clockOffset: number, liveRuns = false): AcpmuxRow[] {
+function liveTurn(
+  user: AcpmuxRow,
+  turn: AcpmuxRow[],
+  clockOffset: number,
+  liveRuns = false,
+  lineBelow = false,
+): AcpmuxRow[] {
   const drawn = turn.filter((row) => row.kind !== "typing");
   const rows = liveRuns ? codexRuns(drawn) : drawn;
   const last = rows.at(-1);
-  if (!last) return [{ id: LIVE_THINKING, version: 1, at: user.at, kind: THINKING }];
+  // The status ticks on this computer's clock, from the prompt moved onto it.
+  const at = user.at + clockOffset;
+  if (lineBelow) {
+    const status: AcpmuxRow = { id: LIVE_THINKING, version: 2, at, kind: WORKING, below: true };
+    const doing = last && inFlightTitle(last);
+    if (doing) status.doing = doing;
+    else if (!last || thinkingNow(last)) status.thinkingNow = true;
+    return [...withLiveStep(rows), status];
+  }
+  if (!last) return [{ id: LIVE_THINKING, version: 1, at, kind: THINKING }];
   const answering = last.kind === "assistant";
   if (answering && rows.length === 1) return rows;
-  // The status ticks on this computer's clock, from the prompt moved onto it.
-  const status: AcpmuxRow = { id: `${WORKING}-${user.id}`, version: 1, at: user.at + clockOffset, kind: WORKING };
+  const status: AcpmuxRow = { id: `${WORKING}-${user.id}`, version: 1, at, kind: WORKING };
   if (answering) Object.assign(status, { version: 2, durationMs: Math.max(0, last.at - user.at) });
   // While a call runs the line names it, as Claude desktop's does (WorkingFor.tsx).
   else {
     const doing = inFlightTitle(last);
     if (doing) status.doing = doing;
   }
-  // The latest step row may still stream its last thought (ThoughtRow.tsx). Its version moves off
-  // the stored one, so the row draws again, done, once another row follows it.
-  if (last.kind === "activity")
-    return [status, ...rows.slice(0, -1), { ...last, live: true, version: last.version * 2 + 1 }];
-  return [status, ...rows];
+  return [status, ...withLiveStep(rows)];
 }
+
+/// The latest step row may still stream its last thought (ThoughtRow.tsx). Its version moves off
+/// the stored one, so the row draws again, done, once another row follows it.
+function withLiveStep(rows: AcpmuxRow[]): AcpmuxRow[] {
+  const last = rows.at(-1);
+  if (last?.kind !== "activity") return rows;
+  return [...rows.slice(0, -1), { ...last, live: true, version: last.version * 2 + 1 }];
+}
+
+/// The live turn's latest row is a thought still coming in: its last item is a thought.
+const thinkingNow = (row: AcpmuxRow) => row.kind === "activity" && row.items?.at(-1)?.kind === "thought";
 
 /// The newest call still running in a live turn's latest row, by its title.
 function inFlightTitle(row: AcpmuxRow): string | undefined {
