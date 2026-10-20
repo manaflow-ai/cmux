@@ -29,7 +29,11 @@ import Testing
 
     @Test func byDefaultAWorkingAgentRowDrawsItsMarkAfterTheTitle() throws {
         try Self.withSide(nil) {
-            let row = try Self.row(Self.sidebar(), Self.agent)
+            let sidebar = Self.sidebar()
+            let row = try Self.row(sidebar, Self.agent), quiet = try Self.row(sidebar, Self.quiet)
+            // No empty status slot is kept on the left either: the title starts where a quiet row's does.
+            #expect(abs(row.title.frame.minX - quiet.title.frame.minX) < 0.5,
+                    "the working row's title at \(row.title.frame.minX), a quiet row's at \(quiet.title.frame.minX)")
             #expect(row.statusSide == .right)
             #expect(row.activity.state == .working)
             #expect(!row.activity.isHidden && row.activity.frame.width > 0)
