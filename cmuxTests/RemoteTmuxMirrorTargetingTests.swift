@@ -877,6 +877,15 @@ struct RemoteTmuxMirrorTargetingTests {
         #expect(harness.workspace.remoteTmuxRenameGenerationByPanelID[panePanel.id] != nil)
         mirror.onTerminalPanelRemoved?(panePanel)
         #expect(harness.workspace.remoteTmuxRenameGenerationByPanelID[panePanel.id] == nil)
+
+        // Simulate an id reused for a new request before the old reply arrives.
+        #expect(harness.workspace.setPanelCustomTitle(
+            panelId: panePanel.id, title: "build", propagateToCloud: false
+        ))
+        harness.connection.handleMessageForTesting(.commandResult(
+            commandNumber: 99, lines: ["can't find pane"], isError: true
+        ))
+        #expect(harness.workspace.panelCustomTitles[panePanel.id] == "build")
     }
 
     @Test func liveTmuxPaneRetitleWinsOverOlderPaneRectSnapshot() throws {
