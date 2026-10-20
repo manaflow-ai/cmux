@@ -265,7 +265,7 @@ import { checkpointStrings } from "./checkpoints/strings";
 import { QUICK_MESSAGES, readSurface, useEscapeToDismiss, type PaneSurface } from "./paneSurface";
 import { QuickSurface } from "./QuickSurface";
 import { contextAttachment, floatingStatus, type QuickFloating } from "./FloatingChat";
-import { designSelectionChips } from "./designSelection";
+import { designSelectionChips, designSelectionRemovals } from "./designSelection";
 import { setFloatingState, useFloatingState } from "./floatingState";
 import { FailedPrompt } from "./FailedPrompt";
 import { ReplayScreen } from "./replay/ReplayScreen";
@@ -4170,6 +4170,8 @@ function AcpmuxPane() {
         deliverDictation(update);
       },
       designSelection(selection) {
+        const removals = designSelectionRemovals(selection);
+        if (removals.length) composerHandle.current?.detach(removals);
         for (const chip of designSelectionChips(selection)) composerHandle.current?.attach(chip);
       },
     };
