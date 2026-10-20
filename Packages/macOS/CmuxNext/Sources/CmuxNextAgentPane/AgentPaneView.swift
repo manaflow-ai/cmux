@@ -150,6 +150,7 @@ public final class AgentPaneView: NSView {
             // Console errors, uncaught errors and rejections go to the error journal (`cmux errors`).
             ConsoleErrorCapture(page: "agent-pane").install(in: configuration.userContentController)
             inputReadiness = PageInputReadiness(configuration: configuration)
+            // webview-allow: agent chat needs WebKit (native context menu, file drops, input hooks)
             webView = AgentPaneWKWebView(frame: .zero, configuration: configuration)
             #if DEBUG
             // Automation launches (capture slots) keep a covered window's page drawing, as

@@ -66,7 +66,7 @@ public final class BrowserDebugWindow: NSObject, BrowserTabDelegate {
             tabs.append(child)
             chrome.tab = child
             observe()
-        case .unhandledEscape, .unhandledKey, .resizePopup:
+        case .unhandledEscape, .unhandledKey, .resizePopup, .protectedMediaUnavailable:
             break
         case .takeFocus:
             chrome.perform(.focusAddressBar)
