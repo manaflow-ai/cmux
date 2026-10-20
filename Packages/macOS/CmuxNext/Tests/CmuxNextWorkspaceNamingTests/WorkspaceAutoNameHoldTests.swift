@@ -25,7 +25,7 @@ struct WorkspaceAutoNameHoldTests {
     private static func reader(_ turns: AgentTurnStateStore) -> WorkspaceAutoNameReader {
         WorkspaceAutoNameReader(enabled: { true }, isNewTabPage: { _ in false }, livePage: { _ in nil }, incognitoTitle: { _ in nil },
                                 terminal: { tab in .init(kind: .terminal, userName: nil, title: tab.titleText, pageTitle: nil, url: nil, cwd: tab.cwd) },
-                                turns: turns)
+                                turns: turns, hold: WorkspaceAutoNameHold())
     }
 
     private static func title(_ turns: AgentTurnStateStore, _ session: String, _ title: String?) {

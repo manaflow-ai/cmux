@@ -23,6 +23,8 @@ public struct WorkspaceAutoNameReader {
     /// What `NewWorkspaceName` reads of a terminal tab.
     let terminal: @MainActor (TabModel) -> NewWorkspaceName.Tab
     let turns: AgentTurnStateStore
+    /// The last name each row's front tab gave it.
+    let hold: WorkspaceAutoNameHold
 
     /// - Parameters:
     ///   - enabled: `workspaces.autoName`.
@@ -31,15 +33,19 @@ public struct WorkspaceAutoNameReader {
     ///   - incognitoTitle: an incognito tab's title (`.some`), nil for other tabs.
     ///   - terminal: a terminal tab as `NewWorkspaceName` reads it.
     ///   - turns: the chat titles (`AgentTurnStateStore.shared`).
+    ///   - hold: the names rows keep while their front tab's is unknown
+    ///     (`WorkspaceAutoNameHold.shared`: the app builds a reader per row it maps).
     public init(enabled: @escaping @MainActor () -> Bool, isNewTabPage: @escaping @MainActor (TabModel) -> Bool,
                 livePage: @escaping @MainActor (TabModel) -> LivePage?, incognitoTitle: @escaping @MainActor (TabModel) -> String??,
-                terminal: @escaping @MainActor (TabModel) -> NewWorkspaceName.Tab, turns: AgentTurnStateStore = .shared) {
+                terminal: @escaping @MainActor (TabModel) -> NewWorkspaceName.Tab, turns: AgentTurnStateStore = .shared,
+                hold: WorkspaceAutoNameHold = .shared) {
         self.enabled = enabled
         self.isNewTabPage = isNewTabPage
         self.livePage = livePage
         self.incognitoTitle = incognitoTitle
         self.terminal = terminal
         self.turns = turns
+        self.hold = hold
     }
 
     /// The rule as `workspaces.autoName` and `workspaces.autoName.variant` set it now.
@@ -50,8 +56,16 @@ public struct WorkspaceAutoNameReader {
     /// The name the sidebar row of `workspace` shows while `tab` fronts it
     /// (`WorkspaceAutoName.label`). `work` is the tab a browser front tab
     /// yields its name to (`SidebarMapping.workTab`).
+    ///
+    /// The same front tab that named the row keeps naming it while its own
+    /// name is briefly unknown (`WorkspaceAutoNameHold`): a chat whose title
+    /// the turn store has not read yet (a relaunch, a watch reconnect, a tree
+    /// resync) never drops the row back to the daemon's `workspace-N`.
     public func label(_ workspace: WorkspaceModel, front tab: TabModel, work: TabModel?) -> String? {
-        rule.label(name: workspace.name, title: workspace.title, front: front(tab), anchor: work.flatMap { front($0) })
+        let rule = self.rule
+        let label = rule.label(name: workspace.name, title: workspace.title, front: front(tab), anchor: work.flatMap { front($0) })
+        guard rule.enabled, !WorkspaceAutoName.isUserNamed(name: workspace.name, title: workspace.title) else { return label }
+        return hold.settle(workspace: workspace.id, namer: tab.id + "|" + (work?.id ?? ""), label: label)
     }
 
     /// What `tab` gives a workspace it fronts: an agent chat its chat's
