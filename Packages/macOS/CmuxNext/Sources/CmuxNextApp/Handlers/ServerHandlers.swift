@@ -32,7 +32,8 @@ enum ServerHandlers {
         registry.bind("server.showPanel", run: { _ in menuBar.open(.panel(nil)) })
         registry.bind("server.showHealth", run: { _ in menuBar.open(.health(nil)) })
         registry.bind("server.addServer", run: { invocation in
-            // No code: the sheet. A code: the same lookup and approve, headless (scripts, a Mac nobody watches).
+            // No code: the sheet. A code may come only from an in-process person action; the
+            // descriptor's person-only gate refuses every CLI, MCP, script, page and remote run.
             guard let code = invocation["code"]?.stringValue, !code.isEmpty else { return menuBar.open(.approver) }
             guard ServerHeadlessApproval.allows(origin: invocation.origin) else {
                 throw ActionFailure(message: ServerHeadlessApproval.notFromThisMac)

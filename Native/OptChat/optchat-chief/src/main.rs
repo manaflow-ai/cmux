@@ -227,6 +227,10 @@ fn main() -> std::process::ExitCode {
                             match key {
                                 REMOTE_AUTO_APPROVE => s.remote_auto_approve = parse_bool(value)?,
                                 CACHE_TTL => s.cache_ttl = Some(parse_ttl(value)?),
+                                optchat_chief::chief_settings::CLOUD_AUTO_PAUSE_IDLE_SECONDS => {
+                                    s.cloud_auto_pause_idle_secs =
+                                        optchat_chief::chief_settings::parse_idle_secs(value)?
+                                }
                                 _ => return Err(format!("unknown setting {key:?}")),
                             }
                             s.save(&file)

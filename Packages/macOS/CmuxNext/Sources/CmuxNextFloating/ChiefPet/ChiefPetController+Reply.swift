@@ -6,7 +6,13 @@ import AppKit
 extension ChiefPetController {
     func toggleReply() {
         if let replyPanel, replyPanel.isVisible { return closeReply() }
+        openReply()
+    }
+
+    /// Opens the reply box over the pet (a click on the pet, or Message the Chief); an open one keeps its text and place.
+    func openReply() {
         guard let panel else { return }
+        if let replyPanel, replyPanel.isVisible { return replyPanel.present() }
         let reply = replyPanelOnce()
         reply.show(targets: ChiefPetReply.targets(feed))
         place(reply, over: panel)
@@ -24,8 +30,8 @@ extension ChiefPetController {
 
     private func place(_ reply: ChiefPetReplyPanel, over panel: ChiefPetPanel) {
         guard let visible = panel.visibleFrame() ?? ChiefPetPanel.screenUnderPointer()?.visibleFrame else { return }
-        reply.setFrame(ChiefPetBubblePanel.frame(height: ChiefPetReplyPanel.size.height, over: panel.frame, in: visible,
-                                                 width: ChiefPetReplyPanel.size.width, gap: ChiefPetReplyPanel.gap), display: false)
+        let frame = ChiefPetReplyPanel.frame(over: panel.frame, in: visible)
+        if frame != reply.frame { reply.setFrame(frame, display: false) }
     }
 
     func closeReply() {

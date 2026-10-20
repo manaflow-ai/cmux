@@ -368,6 +368,36 @@ const footerActionsPlacement = (placement: "left" | "right") => async (ctx: Play
     throw new Error(`turn footer actions are not ${placement}-aligned`);
 };
 
+const MCP_THREAD = "01a14822-c01a-76a1-9fc5-1268687464d4";
+/// Codex's MCP call shape: `<server>.<tool> call`, arguments nested under `arguments`.
+const mcpTool = (name: string, args: unknown, output: string) =>
+  tool(`codex_apps.${name} call`, "execute", "completed", {
+    inputSummary: JSON.stringify({ server: "codex_apps", tool: name, arguments: args }),
+    output,
+  });
+const MCP_SENDS = ["READY #22338", "MERGED #22283", "CI armed", "Previews saved"].map((message) =>
+  mcpTool("send_message", { threadId: MCP_THREAD, message }, JSON.stringify({ ok: true })),
+);
+const MCP_READ = mcpTool(
+  "read_thread",
+  { threadId: MCP_THREAD },
+  JSON.stringify({
+    content: [
+      {
+        type: "text",
+        text: JSON.stringify({
+          thread: {
+            id: MCP_THREAD,
+            title: "Coordination hub",
+            preview:
+              '<in-app-browser-context source="ambient-ui-state">\nActive tab\n</in-app-browser-context>\nship it',
+          },
+        }),
+      },
+    ],
+  }),
+);
+
 export default agentPaneEntry({
   id: "agent-pane.transcript",
   title: "Transcript rows",
@@ -405,6 +435,7 @@ export default agentPaneEntry({
     "agent-session/acpmux/conversation/ToolRun.tsx",
     "agent-session/acpmux/conversation/transcriptDisclosure.tsx#TranscriptDisclosureProvider",
     "agent-session/acpmux/conversation/ToolGroupRow.tsx",
+    "agent-session/acpmux/conversation/McpCallRows.tsx#McpCallRows",
     "agent-session/acpmux/conversation/CommandRow.tsx",
     "agent-session/acpmux/conversation/ShellBlock.tsx#ShellBlock",
     "agent-session/acpmux/conversation/CopyButton.tsx#CopyButton",
@@ -767,6 +798,16 @@ export default agentPaneEntry({
             ],
           }),
           activity([tool("Read client.ts", "read", "in_progress")], 1.5),
+        ],
+        { isWorking: true },
+      ),
+    },
+    "mcp-calls": {
+      note: "MCP calls read as what they did: four sends to one chat are one line, the read names the chat.",
+      snapshot: chat(
+        [
+          user("Post the lane updates to the Coordination hub and read it back.", 1),
+          activity([...MCP_SENDS, MCP_READ], 0.8),
         ],
         { isWorking: true },
       ),
