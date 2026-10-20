@@ -51,6 +51,9 @@ import PackageDescription
 // follows its font grid only (PR 44), so a font change rebuilds once.
 // Since e923d79f1 CSI ? 996 n and mode 2031 report the surface's runtime
 // color scheme, so a plain theme in dark mode answers dark (PR 37).
+// Since a04c57e81 a snapshot restore keeps a scrolled-back viewport on the
+// rows it showed, and a scroll no longer turns the next local-history
+// restore into a full resend.
 //
 // A pin change is one reviewed commit that changes the URL and the checksum
 // together (the zip's sha256, also in the release's SHA256SUMS). Never pin
@@ -75,8 +78,8 @@ let package = Package(
         ),
         .binaryTarget(
             name: "GhosttyNextKit",
-            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-e923d79f1de2e425db97332e68fe669a31e7f117-apple-v6/GhosttyNextKit.xcframework.zip",
-            checksum: "1519a2b88d86da48b2bedb24e380aad86b51494712398096e280605d9b02627a"
+            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-a04c57e8148bdb27b75a141c76dd11c902ac33bf-apple-v6/GhosttyNextKit.xcframework.zip",
+            checksum: "88073882d8536776f82fa6feb0d50c852a97d0955e5374bc50a23aeacebf33ae"
         ),
     ]
 )

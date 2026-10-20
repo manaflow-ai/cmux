@@ -30,9 +30,10 @@ enum WorkspaceMetadataHandlers {
         registry.bind("palette.toggleWorkspacePin", requires: DaemonCapabilities.shared.workspacePin, daemon: {
             PinCommands(context: context).pinsAreTiles ? nil : context.services.activeDaemon
         }(), run: { invocation in
+            // Every selected row takes the right-clicked row's new state, as Finder's tags do.
             let commands = PinCommands(context: context)
-            let workspace = try context.workspace(invocation).model
-            try commands.setWorkspacePinned(workspace.id, pinned: !commands.isWorkspacePinned(workspace), origin: invocation.origin)
+            let pinned = try !commands.isWorkspacePinned(context.workspace(invocation).model)
+            try commands.setWorkspacesPinned(WindowMembershipHandlers.rowTargets(invocation, context).map(\.id), pinned: pinned, origin: invocation.origin)
         })
         // The workspace menu reads Pin Workspace or Unpin Workspace for the right-clicked row.
         ActionTargetTitles.set("palette.toggleWorkspacePin", in: registry) { invocation in
