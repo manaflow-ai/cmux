@@ -55,6 +55,9 @@ pub(crate) fn harness_command(
     // A bound route's provider variables the inherited env must not keep
     // (routes.rs): an earlier route's key never reaches this process.
     let route_unset = env.remove(crate::routes::UNSET_KEY);
+    // Your own endpoint (byo_endpoint.rs): the marker is acpmux's own.
+    let own_endpoint = crate::byo_endpoint::Kind::of_env(&env);
+    env.remove(crate::byo_endpoint::OWN_ENDPOINT_KEY);
     env.remove(crate::routes::PROFILE_ROUTE_KEY);
     // The session's workspace is for its computer use server only (agent_displays.rs).
     env.remove(crate::agent_displays::WORKSPACE_KEY);
@@ -106,6 +109,11 @@ pub(crate) fn harness_command(
     for k in route_unset.iter().flat_map(|list| list.split(',')) {
         cmd.env_remove(k);
     }
+    // An Anthropic endpoint harness: no inherited ANTHROPIC_* or Claude
+    // provider switch (the login shell's, the daemon's) overrides its own.
+    if own_endpoint == Some(crate::byo_endpoint::Kind::Anthropic) {
+        crate::byo_endpoint::clear_inherited(&mut cmd, &env);
+    }
     if let Some((id, sname)) = session {
         cmd.env("ACPMUX_ENV", "1")
             .env("ACPMUX_SESSION_ID", id)
@@ -133,6 +141,17 @@ pub(crate) fn harness_command(
     // Only its own session's credential: never acpmux's, a preset's or a Chief's.
     crate::launch_credential::apply(&mut cmd, session.map(|(id, _)| id));
     crate::harness_limits::lift_claude(&mut cmd, profile, session.is_some());
+    // A Chief turn or compactor (fresh process per turn): one sticky
+    // subrouter account, so its prompt cache stays readable (subrouter_session.rs).
+    let claude_code = profile.kind == crate::config::HarnessKind::ClaudeStdio
+        || family.is_some_and(|f| f.starts_with("claude"));
+    if claude_code {
+        let env = command_env(&cmd);
+        let get = |k: &str| env.iter().find(|(n, _)| n == k).map(|(_, v)| v.clone());
+        if let Some(headers) = crate::subrouter_session::custom_headers(get) {
+            cmd.env(crate::subrouter_session::HEADERS_ENV, headers);
+        }
+    }
     // A Claude agent's sign-in inputs, for a clear message if it has none.
     match (family == Some("claude"), session) {
         (true, Some((id, _))) => crate::claude_auth::remember(id, &command_env(&cmd)),

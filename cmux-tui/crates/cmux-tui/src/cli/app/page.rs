@@ -26,6 +26,8 @@ pub(super) const SCREENSHOT_TIMEOUT: Duration = Duration::from_secs(35);
 pub(super) fn parse_page(target: &str, args: &[String]) -> Result<AppCommand, UsageError> {
     let messages = &crate::localization::catalog().app_control;
     let usage = || UsageError::new(messages.browser_page_usage);
+    let (args, agent) = take_agent(args).ok_or_else(usage)?;
+    let agent = agent.or_else(|| agent_from_env(|key| std::env::var(key).ok()));
     let Some((verb, rest)) = args.split_first() else { return Err(usage()) };
     let mut params = Map::new();
     if target != "page" {
@@ -170,6 +172,21 @@ pub(super) fn parse_page(target: &str, args: &[String]) -> Result<AppCommand, Us
             | "select" | "press" | "key" | "scroll",
             _,
         ) => input_verb(verb, rest, &mut params).ok_or_else(usage)??,
+        ("drag", [selector, target]) => {
+            params.insert("selector".into(), json!(selector));
+            params.insert("target".into(), json!(target));
+            "browser.page.drag"
+        }
+        ("upload", [selector, files @ ..]) if !files.is_empty() => {
+            params.insert("selector".into(), json!(selector));
+            let cwd = std::env::current_dir().unwrap_or_default();
+            let files: Vec<String> = files
+                .iter()
+                .map(|file| cwd.join(file.as_str()).to_string_lossy().into_owned())
+                .collect();
+            params.insert("files".into(), json!(files));
+            "browser.page.upload"
+        }
         ("cookies", _) => cookies(rest, &mut params).ok_or_else(usage)??,
         ("storage", _) => storage(rest, &mut params).ok_or_else(usage)?,
         _ => return Err(usage()),
@@ -197,12 +214,80 @@ pub(super) fn parse_page(target: &str, args: &[String]) -> Result<AppCommand, Us
     if !flagged.contains(&verb.as_str()) && words.len() != rest.len() {
         return Err(usage());
     }
+    if let Some(agent) = agent
+        && AGENT_METHODS.contains(&method)
+    {
+        params.insert("agent".into(), json!(agent));
+    }
     Ok(AppCommand::Call {
         method,
         params: Value::Object(params),
         timeout: Some(timeout),
         pick: None,
     })
+}
+
+/// The page methods an agent's input goes through: they take `agent`, the
+/// name its cursor shows.
+const AGENT_METHODS: &[&str] = &[
+    "browser.page.click",
+    "browser.page.focus",
+    "browser.page.fill",
+    "browser.page.type",
+    "browser.page.hover",
+    "browser.page.check",
+    "browser.page.uncheck",
+    "browser.page.select",
+    "browser.page.press",
+    "browser.page.scroll",
+    "browser.page.drag",
+    "browser.page.upload",
+];
+
+/// `--agent NAME` (or `--agent=NAME`) anywhere in `args`, taken out; None
+/// when the flag has no name.
+pub(super) fn take_agent(args: &[String]) -> Option<(Vec<String>, Option<String>)> {
+    let (mut kept, mut agent) = (Vec::with_capacity(args.len()), None);
+    let mut index = 0;
+    while index < args.len() {
+        let arg = &args[index];
+        if arg == "--agent" {
+            let name = args.get(index + 1)?;
+            agent = Some(name.clone());
+            index += 2;
+            continue;
+        }
+        if let Some(name) = arg.strip_prefix("--agent=") {
+            agent = Some(name.to_owned());
+        } else {
+            kept.push(arg.clone());
+        }
+        index += 1;
+    }
+    let agent = agent.map(|name| name.trim().to_owned());
+    if agent.as_deref() == Some("") {
+        return None;
+    }
+    Some((kept, agent))
+}
+
+/// The agent's name when the caller gave none: `CMUX_AGENT_NAME`, else
+/// Claude (`CLAUDECODE`) or Codex (`CODEX_SANDBOX`, `CODEX_THREAD_ID`).
+pub(super) fn agent_from_env(get: impl Fn(&str) -> Option<String>) -> Option<String> {
+    if let Some(name) = get("CMUX_AGENT_NAME") {
+        let name = name.trim();
+        return (!name.is_empty()).then(|| name.to_owned());
+    }
+    if get("CLAUDECODE").is_some_and(|value| !value.is_empty()) {
+        return Some("Claude".into());
+    }
+    if get("CODEX_SANDBOX")
+        .or_else(|| get("CODEX_THREAD_ID"))
+        .is_some_and(|value| !value.is_empty())
+    {
+        return Some("Codex".into());
+    }
+    None
 }
 
 /// Positional words and `--flags` in any order; a valued flag takes the next word.
@@ -472,3 +557,7 @@ fn storage(args: &[String], params: &mut Map<String, Value>) -> Option<&'static 
         _ => None,
     }
 }
+
+#[cfg(test)]
+#[path = "page_browser_use_tests.rs"]
+mod browser_use_tests;

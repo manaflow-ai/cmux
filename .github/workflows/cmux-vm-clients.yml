@@ -10,8 +10,7 @@
 name: cmux VM clients
 
 on:
-  # feat-cmux-next push CI is the Swift app build only (Lawrence, 2026-10-10);
-  # dispatch this workflow on a ref to run it.
+  # These jobs only check generated clients; they never deploy the Worker.
   workflow_dispatch:
   pull_request:
     paths:
@@ -24,7 +23,7 @@ on:
   push:
     # feat-cmux-next too: cmux VM lands there first, and without this run an
     # openapi.json change left the generated clients stale unnoticed (cx-b4h.4).
-    branches: [main]
+    branches: [main, feat-cmux-next, "codex/vm-api-*"]
     paths:
       - workers/cmux-vm/openapi.json
       - workers/cmux-vm/cli/**
@@ -127,6 +126,7 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Generated schema matches openapi.json
+        id: regenerate
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: |
           set -euo pipefail
@@ -136,6 +136,14 @@ jobs:
             echo "::error::src/schema.d.ts is stale: run \`bun run generate\` in workers/cmux-vm/sdk and commit the result"
             exit 1
           fi
+
+      - name: Upload regenerated TypeScript schema
+        if: ${{ failure() && steps.regenerate.outcome == 'failure' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-vm-sdk-generated
+          path: workers/cmux-vm/sdk/src/schema.d.ts
+          retention-days: 7
 
       - name: Typecheck
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}

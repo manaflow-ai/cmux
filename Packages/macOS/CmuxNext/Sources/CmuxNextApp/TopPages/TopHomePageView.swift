@@ -2,6 +2,7 @@ import AppKit
 import CmuxHomeCore
 import CmuxNextActions
 import CmuxNextCompat
+import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextHome
 import CmuxNextHomeEngine
@@ -27,6 +28,14 @@ final class TopHomePageView: NSView {
     var lines: [HomeConversationLine] { rows.homeLines }
     private(set) var host: HomeHostView?
     private(set) var shown: ConversationID?
+    /// The New Message page (Messages' New Message: a page, not a sheet).
+    /// Kept while hidden when the person typed something, with its row in the list.
+    private(set) var newMessage: HomeNewMessageView?
+    /// The New Message page is the one on screen.
+    var isComposingNewMessage: Bool { newMessage.map { !$0.isHidden } ?? false }
+    /// A conversation the person started that the inbox does not list yet: opened (with the
+    /// keyboard in its box) when it shows.
+    private var opening: ConversationID?
     private var rowsObservation: Task<Void, Never>?
     private var selectionObservation: Task<Void, Never>?
     private var chiefObservation: Task<Void, Never>?
@@ -68,15 +77,23 @@ final class TopHomePageView: NSView {
         let sidebar = sidebar
         // Opening a conversation from the list reads it, so a Mark as Unread ends there.
         list.onSelect = { [weak self] id in
-            sidebar.setMarkedUnread(false, id)
+            if id != HomeSidebarView.draftRowID { sidebar.setMarkedUnread(false, id) }
             self?.show(id)
         }
+        // A plain click on a row or pinned tile (the open one too), or Return: the message box takes the keyboard.
+        list.onOpen = { [weak self] id in
+            if id != HomeSidebarView.draftRowID { sidebar.setMarkedUnread(false, id) }
+            self?.open(id)
+        }
         // The list redraws in the same turn, so a dropped tile lands from where it was drawn.
+        // The New Message row is no conversation: it never pins or takes a mark.
         list.onSetPinned = { [weak self] on, id in
+            guard id != HomeSidebarView.draftRowID else { return }
             sidebar.setPinned(on, id)
             self?.list.update(sidebar.model())
         }
         list.onPlacePinned = { [weak self] id, index in
+            guard id != HomeSidebarView.draftRowID else { return }
             sidebar.place(id, at: index)
             self?.list.update(sidebar.model())
         }
@@ -90,15 +107,37 @@ final class TopHomePageView: NSView {
             // task-owner: one op; ends with the owner's answer
             Task { _ = try? await store.perform(.setReadCursor(conversation: id, seq: row.summary.lastSeq)) }
         }
-        list.onMarkUnread = { id in sidebar.setMarkedUnread(true, id) }
-        // Archive Chief on a Chief's row (the same action as the palette and the CLI).
+        list.onMarkUnread = { id in if id != HomeSidebarView.draftRowID { sidebar.setMarkedUnread(true, id) } }
+        // Archive Chief on a Chief's row; Hide or Show Alerts on a DM or group's row, and for a group
+        // Group Info, Rename, Add People and Leave (the same actions as the palette and the CLI).
         list.menuItems = { id in
-            guard let row = home.homeStore.rows.first(where: { $0.id == id }), row.kind == .chief,
-                  let chief = row.summary.participants.lazy.compactMap({ home.directory.chief(for: $0.id) }).first,
-                  let title = registry.title(for: "home.archiveChief") else { return [] }
-            return [HomeSidebarView.menuItem(title) {
-                _ = registry.perform("home.archiveChief", invocation: ActionInvocation(arguments: ["chief": .string(chief.id)], origin: .user))
-            }]
+            guard let row = home.homeStore.rows.first(where: { $0.id == id }) else { return [] }
+            @MainActor func item(_ action: ActionID, _ title: String? = nil, _ arguments: [String: ActionValue] = [:]) -> [NSMenuItem] {
+                guard let title = title ?? registry.title(for: action) else { return [] }
+                return [HomeSidebarView.menuItem(title) {
+                    _ = registry.perform(action, invocation: ActionInvocation(arguments: arguments, origin: .user))
+                }]
+            }
+            if row.kind == .chief {
+                guard let chief = row.summary.participants.lazy.compactMap({ home.directory.chief(for: $0.id) }).first else { return [] }
+                return item("home.archiveChief", nil, ["chief": .string(chief.id)])
+            }
+            let conversation: [String: ActionValue] = ["conversation": .string(id.rawValue)]
+            let actions = home.groupActions
+            var items: [NSMenuItem] = []
+            if row.kind == .group {
+                items += item("home.conversationInfo", HomeGroupInfo.groupInfoMenuTitle, conversation)
+            }
+            if actions.info(id)?.canMute == true {
+                let muted = actions.info(id)?.muted == true
+                items += item(muted ? "home.unmuteConversation" : "home.muteConversation", nil, conversation)
+            }
+            if row.kind == .group {
+                items += item("home.renameConversation", nil, conversation)
+                items += item("home.addMembers", nil, conversation)
+                items += item("home.leaveConversation", nil, conversation)
+            }
+            return items
         }
         // Search: teammates with no DM yet, under the conversations; choosing one starts the DM.
         list.teammates = { [weak sidebar] query in
@@ -106,9 +145,12 @@ final class TopHomePageView: NSView {
             return HomeSidebarModel(rows: home.homeStore.rows, pins: sidebar.pins, me: home.homeStore.me?.id, query: query,
                                     contacts: home.contacts()).people
         }
-        list.onStartTeammate = { person in
+        list.onStartTeammate = { [weak self] person in
             // task-owner: one conversation start; ends with the owner's answer
-            Task { _ = await home.startConversation([.contact(person)], title: "") }
+            Task { [weak self] in
+                guard case .opened(let id) = await home.startConversation([.contact(person)], title: "") else { return }
+                self?.openWhenListed(id)
+            }
         }
         list.onNewMessage = { [weak self] in self?.presentNewMessage() }
         list.onOpenRequests = { [weak self] in self?.presentRequests() }
@@ -119,16 +161,19 @@ final class TopHomePageView: NSView {
     /// asked to show once it is listed.
     private func observe(_ home: HomeService) {
         let store = home.homeStore
-        home.refreshChiefAvatar()
         // task-owner: lives as long as this view; event-driven (Observation)
         let sidebar = sidebar
         rowsObservation = Task { [weak self] in
             // The Chiefs listed when their engines (the rows' badges) were last read.
             var badgedChiefs: Set<String>?
             var listed: Set<ConversationID> = []
-            for await (all, archived, _, _, _, _, _, _) in ObservationStream({
-                (store.rows, home.directory.archivedChiefs, sidebar.query, sidebar.pins, sidebar.unreadMarks, home.directory.chiefAvatar,
-                 sidebar.ownerRows, home.directory.chiefHarnesses)
+            // The owner's rows when the Chiefs' pictures were last read: a chief-changed event
+            // (a picture set by a tool or the CLI) reads the rows again, and the pictures with them.
+            var picturedRows: [HomeInboxRequest.Response?]?
+            var picturedChiefs: Set<String>?
+            for await (all, archived, _, _, _, _, owned, _, _) in ObservationStream({
+                (store.rows, home.directory.archivedChiefs, sidebar.query, sidebar.pins, sidebar.unreadMarks, home.directory.chiefAvatars,
+                 sidebar.ownerRows, home.directory.chiefHarnesses, home.chiefRoster)
             }) {
                 guard let self else { return }
                 let chiefs = Set(all.flatMap { $0.summary.participants.filter(\.isChief).map(\.id.rawValue) })
@@ -136,11 +181,16 @@ final class TopHomePageView: NSView {
                     badgedChiefs = chiefs
                     home.refreshChiefHarnesses()
                 }
+                if owned != picturedRows || chiefs != picturedChiefs {
+                    picturedRows = owned
+                    picturedChiefs = chiefs
+                    home.refreshChiefAvatars()
+                }
                 rows = Self.visible(all, archivedChiefs: archived, me: store.me?.id)
                 // A conversation came or went (a lease arrived, a request was accepted): requests may have changed.
                 if Set(all.map(\.id)) != listed { listed = Set(all.map(\.id)); home.requests.refresh() }
                 list.update(sidebar.model())
-                if shown == nil, let first = defaultConversation(rows: rows, home: home) { show(first) }
+                if shown == nil, !isComposingNewMessage, let first = defaultConversation(rows: rows, home: home) { show(first) }
                 // The cache's conversation of a Chief home made again (cx-ebm.55).
                 if shownIsGone(store), let chief = Self.chief(home) { replaceGone(with: ConversationID(chief), store: store) }
             }
@@ -174,6 +224,10 @@ final class TopHomePageView: NSView {
                 guard let self, let id = pending.0, pending.1.contains(id) else { continue }
                 home.pendingSelection = nil
                 show(id)
+                if opening == id {
+                    opening = nil
+                    host?.takeKeyboardOnOpen()
+                }
             }
         }
     }
@@ -197,7 +251,7 @@ final class TopHomePageView: NSView {
 
     static func chief(_ home: HomeService) -> String? {
         let local = HomeChiefName.select(from: home.conversations)
-        return HomeChiefSource.choose(local: local?.id, localHasHistory: (local?.lastSeq ?? 0) > 0, placed: home.cloudChief)
+        return home.tabChiefs.chiefTab(local: local?.id, localHasHistory: (local?.lastSeq ?? 0) > 0, choice: home.hostedChief.choice)
     }
 
     /// The shown conversation is one the owner's own inbox does not have:
@@ -222,13 +276,20 @@ final class TopHomePageView: NSView {
         show(chief)
     }
 
-    /// Shows `id` in the transcript column and selects it in the list.
+    /// Shows `id` in the transcript column and selects it in the list (the
+    /// New Message row shows the New Message page).
     func show(_ id: ConversationID) {
+        guard id != HomeSidebarView.draftRowID else { return presentNewMessage() }
         list.select(id)
-        guard id != shown, let services else { return }
+        let leftNewMessage = leaveNewMessage()
+        guard id != shown, let services else {
+            if leftNewMessage { focusPrimaryInput() }
+            return
+        }
         shown = id
         host?.removeFromSuperview()
         let view = HomeHostView(services: services, conversation: id.rawValue)
+        view.isHidden = isComposingNewMessage
         view.frame = transcriptColumn.bounds
         view.autoresizingMask = [.width, .height]
         transcriptColumn.addSubview(view)
@@ -237,27 +298,113 @@ final class TopHomePageView: NSView {
         if window?.firstResponder === window || window?.firstResponder == nil { focusPrimaryInput() }
     }
 
+    /// The person opened `id` (a click on its row or pinned tile, the shown one too; Return in the
+    /// list; the previous/next conversation keys; a conversation they started): shown, and its
+    /// message box takes the keyboard, as Messages' message field does. One path for every
+    /// entry point; `show` alone never moves a keyboard the person put somewhere.
+    func open(_ id: ConversationID) {
+        show(id)
+        guard shown == id else { return }
+        host?.takeKeyboardOnOpen()
+    }
+
+    /// A conversation the person just started or made (a teammate from search, a sheet): opened
+    /// now when listed, else once the inbox lists it (`pendingSelection`).
+    func openWhenListed(_ id: ConversationID) {
+        guard let services else { return }
+        if services.home.homeStore.rows.contains(where: { $0.id == id }) {
+            open(id)
+        } else {
+            opening = id
+            services.home.pendingSelection = id
+        }
+    }
+
     /// A permalink: its conversation, and its message's thread at its branch (any depth).
     func show(_ link: HomeDockSelection) { show(ConversationID(link.conversation)); if let m = link.message, let host { HomePageTab.transcript(in: host)?.reveal(message: m) } }
 
-    /// Home's primary input (the message box) takes the keyboard.
+    /// Home's primary input (the message box; To: on the New Message page) takes the keyboard:
+    /// the message box at once or, while the shown conversation's first page loads, once it exists.
     func focusPrimaryInput() {
-        guard let target = host?.focusTarget else { return }
-        window?.makeFirstResponder(target)
+        if isComposingNewMessage {
+            if let target = newMessage?.focusTarget { window?.makeFirstResponder(target) }
+            return
+        }
+        host?.takeKeyboardOnOpen()
+    }
+
+    // MARK: New Message
+
+    /// New Message (the compose button, the palette, the
+    /// File menu, `cmux action run home.newMessage`): a selected "New
+    /// Message" row at the top of the list and the New Message page in the
+    /// transcript column, with the caret in To:. A kept draft comes back as
+    /// the person left it.
+    func presentNewMessage() {
+        guard let services else { return }
+        let page = newMessage ?? makeNewMessage(services)
+        if page.superview == nil {
+            page.frame = transcriptColumn.bounds
+            page.autoresizingMask = [.width, .height]
+            transcriptColumn.addSubview(page)
+        }
+        page.isHidden = false
+        host?.isHidden = true
+        list.setDraftRow(HomeNewMessageDraft.rowTitle)
+        list.select(HomeSidebarView.draftRowID)
+        page.needsLayout = true
+        page.layoutSubtreeIfNeeded()
+        window?.makeFirstResponder(page.focusTarget)
+    }
+
+    private func makeNewMessage(_ services: AppServices) -> HomeNewMessageView {
+        let page = HomeNewMessageView(services: services)
+        // The first send made the conversation: the draft ends and the page shows it.
+        page.onSent = { [weak self] id in
+            // task-owner: one hop out of the draft store's send before the page goes
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                endNewMessage()
+                openWhenListed(id)
+            }
+        }
+        // Escape on an empty draft: back to the conversation shown before.
+        page.onEscape = { [weak self] in
+            guard let self else { return }
+            endNewMessage()
+            if let shown { list.select(shown) }
+            focusPrimaryInput()
+        }
+        newMessage = page
+        return page
+    }
+
+    /// Hides the New Message page for another conversation. An empty draft
+    /// goes with its row (Messages drops an untouched New Message); one with
+    /// recipients or text stays, its row unselected. True when it showed.
+    @discardableResult
+    private func leaveNewMessage() -> Bool {
+        guard let page = newMessage, !page.isHidden else { return false }
+        if page.isEmpty {
+            endNewMessage()
+        } else {
+            page.isHidden = true
+            host?.isHidden = false
+        }
+        return true
+    }
+
+    /// Drops the New Message draft, its page and its row.
+    private func endNewMessage() {
+        guard let page = newMessage else { return }
+        newMessage = nil
+        page.stop()
+        page.removeFromSuperview()
+        host?.isHidden = false
+        list.setDraftRow(nil)
     }
 
     // MARK: Sheets
-
-    func presentNewMessage() {
-        guard let services else { return }
-        let home = services.home
-        let sheet = HomeComposeSheet(contacts: home.contacts())
-        sheet.onStart = { recipients, title in await home.startConversation(recipients, title: title) }
-        sheet.onInviteInstead = { [weak self] prefill in self?.presentInvite(prefill: prefill) }
-        present(sheet)
-        // The team may arrive after the sheet opened: a refreshed list waits for the next sheet.
-        Task { await home.directory.refresh() }
-    }
 
     func presentInvite(prefill: String) {
         guard let services else { return }
@@ -286,11 +433,52 @@ final class TopHomePageView: NSView {
         present(sheet)
     }
 
+    /// The group info sheet for `id` (a DM or group): name, members, Add People, Hide Alerts and
+    /// Leave, each through `HomeService.groupActions` (Leave through its action, which asks first).
+    /// It follows the conversation while it shows.
+    func presentGroupInfo(_ id: ConversationID) {
+        guard let services, let window else { return }
+        let actions = services.home.groupActions
+        guard let info = actions.info(id) else { return services.registry.refuse(HomeGroupOutcome.unknownConversation.message ?? "") }
+        let registry = services.registry
+        let model = HomeGroupInfoModel(info: info, addable: actions.addable(to: id), actions: HomeGroupInfoActions(
+            rename: { await actions.rename(id, to: $0) },
+            add: { await actions.add($0, to: id, naming: $1) },
+            remove: { await actions.remove($0, from: id) },
+            setMuted: { actions.setMuted($0, id) },
+            leave: {
+                _ = registry.perform("home.leaveConversation",
+                                     invocation: ActionInvocation(arguments: ["conversation": .string(id.rawValue)], origin: .user))
+            },
+            inviteByEmail: { [weak self] in self?.presentInvite(prefill: "") },
+            setChiefReplies: { await actions.setChiefReplies($0, id) }))
+        let sheet = HomeGroupInfoSheet(model: model, colors: performWithTheme { HomeGroupInfoColors.resolve() })
+        // task-owner: lives while the sheet shows; event-driven (Observation): members, name and mute as the owner says
+        let watch = Task { [weak sheet] in
+            for await info in ObservationStream({ actions.info(id) }) {
+                guard let info else { sheet?.close(); return }
+                model.update(info: info, addable: actions.addable(to: id))
+            }
+        }
+        sheet.onClose = { watch.cancel() }
+        let panel = NSWindow(contentViewController: sheet)
+        panel.adoptThemeScope(of: self)
+        window.beginSheet(panel)
+    }
+
+    /// I left `id` while it showed: its neighbor in the list shows (else the default conversation).
+    func conversationLeft(_ id: ConversationID, next: ConversationID?) {
+        guard shown == id, let services else { return }
+        let fallback = next.flatMap { $0 == id ? nil : $0 } ?? defaultConversation(rows: rows.filter { $0.id != id }, home: services.home)
+        guard let fallback, fallback != id else { return }
+        show(fallback)
+    }
+
     private func present(_ sheet: HomeSheetController) {
         sheet.onFinish = { [weak self] id in
             guard let self, let id else { return }
-            // Shown now when listed; else once the inbox lists it.
-            if services?.home.homeStore.rows.contains(where: { $0.id == id }) == true { show(id) } else { services?.home.pendingSelection = id }
+            // Opened now when listed; else once the inbox lists it.
+            openWhenListed(id)
         }
         guard let window else { return }
         let panel = NSWindow(contentViewController: sheet)

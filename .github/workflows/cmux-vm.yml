@@ -66,16 +66,19 @@ on:
       - workers/cmux-vm/**
       # The Stack webhook signature check shared with the cmux-next API Worker.
       - libs/svix-webhook/**
+      - libs/vm-instance-identity/**
       - .github/workflows/cmux-vm.yml
   push:
     # Lane branches deploy the preview Worker (decision V6). The preview
     # environment admits only feat-cmux-vm-* refs, which a pull_request run
     # (refs/pull/N/merge) never is, so preview deploys run on push.
-    branches: [main, feat-cmux-next, "feat-cmux-vm-*"]
+    # Agent implementation branches run checks; only feat-cmux-vm-* deploy previews.
+    branches: [main, feat-cmux-next, "feat-cmux-vm-*", "codex/vm-api-*"]
     paths:
       - workers/cmux-vm/**
       # The Stack webhook signature check shared with the cmux-next API Worker.
       - libs/svix-webhook/**
+      - libs/vm-instance-identity/**
       - .github/workflows/cmux-vm.yml
   workflow_dispatch:
     inputs:
@@ -151,12 +154,12 @@ jobs:
       - name: openapi.json matches the HttpApi definition
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: bun run openapi:check
-      # Breaking changes to the published contract against the PR's base.
+      # PRs compare with their base branch; check-only pushes compare with the previous commit.
       # Add the label cmux-vm-breaking-change-ok to accept them deliberately.
       - name: openapi.json has no breaking change against the base branch
-        if: ${{ !cancelled() && github.event_name == 'pull_request' }}
+        if: ${{ !cancelled() && (github.event_name == 'pull_request' || (github.event_name == 'push' && startsWith(github.ref, 'refs/heads/codex/vm-api-'))) }}
         env:
-          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          BASE_REF: ${{ github.event.pull_request.base.ref || github.event.before }}
           ACCEPT_BREAKING: ${{ contains(github.event.pull_request.labels.*.name, 'cmux-vm-breaking-change-ok') }}
         run: bash scripts/openapi-breaking.sh "$BASE_REF"
       - name: Upstream coverage (every upstream operation wrapped, planned or denied)
@@ -165,6 +168,21 @@ jobs:
       - name: Integration tests in workerd (fake upstream)
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: bun run test:workers
+      - name: Generated creation storage survives an older ledger
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: bun scripts/test-generated-creation-compat.ts
+      - name: Snapshot capture storage survives an older ledger
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: bun scripts/test-snapshot-capture-compat.ts
+      - name: Snapshot key fences survive the previous capture engine
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: bun scripts/test-snapshot-key-fence-compat.ts
+      - name: Fork capture intent survives the previous ledger
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: bun scripts/test-fork-capture-compat.ts
+      - name: Pending history discovers slots from the previous writer
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: bun scripts/test-pending-history-compat.ts
       - name: Store tests on PGlite against the migration
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: bun run test:pg

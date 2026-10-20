@@ -52,6 +52,19 @@ impl Daemon {
         daemon
     }
 
+    /// A daemon whose fake agent steers as Claude Code does (`FAKE_CLAUDE_STEER`).
+    fn claude_steering(tag: &str) -> Self {
+        let mut daemon = Self::with_env(tag, "approve-all", &[]);
+        daemon.sigterm();
+        std::fs::write(
+            daemon.home.join("config.json"),
+            json!({"harnesses": {"fake": {"argv": ["/usr/bin/env", "FAKE_CLAUDE_STEER=1", "python3", FAKE]}}, "defaultHarness": "fake", "permissionPolicy": "approve-all"}).to_string(),
+        )
+        .unwrap();
+        daemon.start();
+        daemon
+    }
+
     /// A daemon that gets `key` on `--person-key-fd` at each start.
     fn keyed(tag: &str, policy: &str, key: &str) -> Self {
         let mut daemon = Self::with_env(tag, policy, &[]);
@@ -340,6 +353,63 @@ async fn agent_turn_survives_a_daemon_crash_and_completes_after_adoption() {
         .await;
     assert_eq!(reply["stopReason"], "end_turn", "{reply}");
     assert!(alive(harness_pid), "a second agent replaced the adopted one");
+}
+
+/// An update restarts acpmux while a turn runs that took a steer (the Chief's `tell`). Claude
+/// Code answers a steer "steered" at once and the turn runs on. The adopting daemon must keep
+/// the turn open until the turn's own prompt is answered; it settled the turn on the steer's
+/// answer instead, so every steered subagent read as finished after the 2026-10-19 nightly
+/// update while it kept working (update-keeps-sessions.md).
+#[tokio::test]
+async fn a_steered_turn_stays_open_across_an_update_restart_until_the_agent_ends_it() {
+    let mut daemon = Daemon::claude_steering("steer-up");
+    let session = new_session(&daemon).await;
+    let gate = daemon.home.join("gate");
+    make_fifo(&gate);
+    let mut client = daemon.rpc().await;
+    client
+        .send(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": [{"type": "text", "text": format!("gate: {}", gate.display())}]}),
+        )
+        .await;
+    daemon.wait_event(&session, "before-gate chunk", |e| chunk(e, "before-gate"));
+    let mut steerer = daemon.rpc().await;
+    let steered = steerer
+        .call(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": [{"type": "text", "text": "a tell"}], "_meta": {"acpmux": {"steer": true}}}),
+        )
+        .await;
+    assert_eq!(steered["stopReason"], "steered", "{steered}");
+    let turn_id = daemon.wait_event(&session, "turn_started", |e| e["kind"] == "turn_started")["msg"]
+        ["turnId"]
+        .clone();
+    let harness_pid = daemon.host_record(&session)["harness_pid"].as_i64().unwrap();
+
+    daemon.sigterm();
+    drop((client, steerer));
+    daemon.start();
+    daemon.wait_event(&session, "host_adopted", |e| e["kind"] == "host_adopted");
+    assert!(alive(harness_pid), "the agent died with the update restart");
+    std::fs::write(&gate, b"go").unwrap();
+    daemon.wait_event(&session, "turn_result", |e| e["kind"] == "turn_result");
+    let events = daemon.events(&session);
+    let after_gate = events.iter().find(|e| chunk(e, "after-gate")).map(|e| e["seq"].as_u64());
+    let results: Vec<&Value> = events
+        .iter()
+        .filter(|e| e["kind"] == "turn_result" && e["msg"]["turnId"] == turn_id)
+        .collect();
+    assert_eq!(results.len(), 1, "the turn settled more than once: {results:#?}");
+    assert_eq!(
+        results[0]["msg"]["stopReason"], "end_turn",
+        "settled on the steer's answer: {:#?}",
+        results[0]
+    );
+    assert!(
+        after_gate.flatten().is_some_and(|g| results[0]["seq"].as_u64().unwrap() > g),
+        "the turn settled before the agent ended it: {events:#?}"
+    );
 }
 
 #[tokio::test]

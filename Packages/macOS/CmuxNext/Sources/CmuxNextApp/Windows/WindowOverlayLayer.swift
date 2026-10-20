@@ -388,6 +388,8 @@ final class WindowOverlayLayer {
 
     /// The window's agent cursor layer (`WindowOverlayHost.agentCursorLayer`): y-down, content-view coordinates.
     var agentCursorLayer: CALayer { host.agentCursorLayer }
+    /// The mask of the agent cursor's behind-window glass (`WindowOverlayHost.agentCursorGlassLayer`).
+    var agentCursorGlassLayer: CALayer { host.agentCursorGlassLayer }
 
     var overlayPanel: NSWindow? { WindowOverlayHost.existingHost(for: window).flatMap { $0.isPanelAttached ? $0.panel : nil } }
     var adoptedPlanes: [OverlayPlane] { planes }
