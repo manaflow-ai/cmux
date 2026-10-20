@@ -3450,11 +3450,6 @@ function AcpmuxPane() {
       if (!opened) inPlace();
     }, inPlace);
   }, []);
-  useEffect(() => {
-    if (!chatViewer) return undefined;
-    setPathViewer(viewFile);
-    return () => setPathViewer(undefined);
-  }, [chatViewer, viewFile]);
   // An output in the summary opens the changes of the last turn that wrote it, at that file.
   const openOutput = useCallback(
     (path: string) => {
@@ -3834,6 +3829,11 @@ function AcpmuxPane() {
   /// The Quick Composer panel (`"surface": "quick"` in the host's ready reply) or a tab's pane.
   const [surface, setSurface] = useState<PaneSurface>("pane");
   const quick = surface === "quick";
+  useEffect(() => {
+    if (!chatViewer || quick) return undefined;
+    setPathViewer(viewFile);
+    return () => setPathViewer(undefined);
+  }, [chatViewer, quick, viewFile]);
   /// The header's tools in the pane's tab row, while the App offers one (header/tabRow.ts).
   const tabRow = useTabRow();
   const inTabRow = tabRow.height > 0 && !quick;
