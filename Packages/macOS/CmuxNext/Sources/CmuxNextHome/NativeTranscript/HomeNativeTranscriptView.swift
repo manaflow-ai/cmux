@@ -131,6 +131,8 @@ public final class HomeNativeTranscriptView: NSView {
         transcript.onRowsChange = { [weak self] in self?.updateFirstRun() }
         followTextSize()
         followBubbleStyle()
+        followHeroTunable()
+        followChiefPet()
         applyTheme()
         updateFirstRun()
     }
@@ -323,16 +325,6 @@ public final class HomeNativeTranscriptView: NSView {
         }
     }
 
-    /// A notice about the conversation itself (Home's merge notice): a row of
-    /// the transcript, under the newest message; nil removes it.
-    public func showConversationNotice(_ text: String?) {
-        guard transcript.notice != text else { return }
-        transcript.notice = text
-        if let text {
-            NSAccessibility.post(element: transcript, notification: .announcementRequested, userInfo: [.announcement: text])
-        }
-    }
-
     /// Shows (or with nil clears) the notice; VoiceOver hears it.
     public func showNotice(_ text: String?) {
         guard text != notice else { return }
@@ -344,19 +336,6 @@ public final class HomeNativeTranscriptView: NSView {
             NSAccessibility.post(element: noticeLabel, notification: .announcementRequested, userInfo: [.announcement: text])
         }
         layoutNotice()
-    }
-
-    /// The first-run rows' shortcuts and the Switching card's keys, as the
-    /// live binding table has them; nil hides one (nil `switching`: no card).
-    public func setFirstRunShortcuts(terminal: String?, agent: String?, switching: HomeSwitchKeys?) {
-        firstRun.setShortcuts(terminal: terminal, agent: agent, switching: switching)
-    }
-
-    /// The user's agents for the first-run panel's glance (the host maps
-    /// them from the tab status the strip and the sidebar draw); empty lists
-    /// none.
-    public func setFirstRunAgents(_ agents: [HomeAgentGlance]) {
-        firstRun.setAgents(agents)
     }
 
     /// The first-run panel shows only in an empty Chief conversation.
@@ -422,7 +401,7 @@ public final class HomeNativeTranscriptView: NSView {
         transcript.setHeaderPillBacking(performWithTheme { Palette.capsuleScrim })
         transcript.setHeaderFade(color: fade, maxAlpha: maxAlpha) { shown in Self.headerFadeDuration(shown: shown) }
         performWithTheme {
-            firstRun.applyColors(primary: Palette.textPrimary, tertiary: Palette.textTertiary, fill: Palette.elevatedBackground,
+            firstRun.applyColors(primary: Palette.textPrimary, secondary: Palette.textSecondary, tertiary: Palette.textTertiary, fill: Palette.elevatedBackground,
                                  hover: Palette.hoverFill, border: Palette.separator, attention: Palette.attention,
                                  danger: Palette.danger, done: Palette.highlight)
             noticeLabel.textColor = Palette.textSecondary

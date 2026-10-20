@@ -137,25 +137,6 @@
         "scripts/cmux-next/pin-cmux-tui.sh"
       ]
     },
-    "CmuxNextAgentPermissions": {
-      "kind": "regular",
-      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPermissions",
-      "targets": [
-        "CmuxNextCompat",
-        "CmuxNextDesign",
-        "CmuxNextWakeups"
-      ],
-      "packages": []
-    },
-    "CmuxNextAgentPermissionsTests": {
-      "kind": "test",
-      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextAgentPermissionsTests",
-      "targets": [
-        "CmuxNextAgentPermissions"
-      ],
-      "packages": [],
-      "reads": []
-    },
     "CmuxNextAgentQuestion": {
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextAgentQuestion",
@@ -179,7 +160,6 @@
         "CmuxNextAgentCursorVisibility",
         "CmuxNextAgentLanes",
         "CmuxNextAgentPane",
-        "CmuxNextAgentPermissions",
         "CmuxNextAgentQuestion",
         "CmuxNextApps",
         "CmuxNextBookmarks",
@@ -190,7 +170,6 @@
         "CmuxNextBrowserHost",
         "CmuxNextBrowserImport",
         "CmuxNextCLIInstall",
-        "CmuxNextChromiumRuntime",
         "CmuxNextChromiumWarmup",
         "CmuxNextCloud",
         "CmuxNextCodeRouter",
@@ -220,7 +199,6 @@
         "CmuxNextLayout",
         "CmuxNextMallocZone",
         "CmuxNextMobile",
-        "CmuxNextMobileHost",
         "CmuxNextNowPlaying",
         "CmuxNextOnboarding",
         "CmuxNextPages",
@@ -282,7 +260,6 @@
         "CmuxNextApp",
         "CmuxNextApps",
         "CmuxNextBrowserHistory",
-        "CmuxNextChromiumRuntime",
         "CmuxNextCompat",
         "CmuxNextComputerUse",
         "CmuxNextCookieImport",
@@ -294,7 +271,6 @@
         "CmuxNextDiff",
         "CmuxNextFeed",
         "CmuxNextFileGrid",
-        "CmuxNextFiles",
         "CmuxNextFloating",
         "CmuxNextFocus",
         "CmuxNextFocusUI",
@@ -455,21 +431,6 @@
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextCLIInstall",
       "targets": [],
       "packages": []
-    },
-    "CmuxNextChromiumRuntime": {
-      "kind": "regular",
-      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextChromiumRuntime",
-      "targets": [],
-      "packages": []
-    },
-    "CmuxNextChromiumRuntimeTests": {
-      "kind": "test",
-      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextChromiumRuntimeTests",
-      "targets": [
-        "CmuxNextChromiumRuntime"
-      ],
-      "packages": [],
-      "reads": []
     },
     "CmuxNextChromiumWarmup": {
       "kind": "regular",
@@ -882,36 +843,6 @@
         "CmuxIrxTransport"
       ]
     },
-    "CmuxNextMobileHost": {
-      "kind": "regular",
-      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextMobileHost",
-      "targets": [
-        "CmuxNextAgentPane",
-        "CmuxNextCloud",
-        "CmuxNextCompat",
-        "CmuxNextDaemon",
-        "CmuxNextDaemonService",
-        "CmuxNextDesign",
-        "CmuxNextMobile",
-        "CmuxNextPages",
-        "CmuxNextRemoteBrowser",
-        "CmuxNextSettings",
-        "CmuxNextWakeups"
-      ],
-      "packages": []
-    },
-    "CmuxNextMobileHostTests": {
-      "kind": "test",
-      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextMobileHostTests",
-      "targets": [
-        "CmuxNextAgentPane",
-        "CmuxNextMobileHost",
-        "CmuxNextPages",
-        "CmuxNextSettings"
-      ],
-      "packages": [],
-      "reads": []
-    },
     "CmuxNextMobileTests": {
       "kind": "test",
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextMobileTests",
@@ -932,11 +863,9 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextNowPlaying",
       "targets": [
-        "CmuxNextActions",
         "CmuxNextAgentPane",
         "CmuxNextBrowser",
         "CmuxNextCompat",
-        "CmuxNextSettings",
         "CmuxNextSidebar",
         "CmuxNextWakeups"
       ],
@@ -1137,8 +1066,7 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextScreenshots",
       "targets": [
-        "CmuxNextFileGrid",
-        "CmuxNextFiles"
+        "CmuxNextFileGrid"
       ],
       "packages": []
     },
@@ -1147,7 +1075,6 @@
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextScreenshotsTests",
       "targets": [
         "CmuxNextFileGrid",
-        "CmuxNextFiles",
         "CmuxNextScreenshots"
       ],
       "packages": [],
