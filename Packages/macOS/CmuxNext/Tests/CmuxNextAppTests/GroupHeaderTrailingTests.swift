@@ -83,6 +83,17 @@ import Testing
         #expect(Self.spinner(header) != nil, "a collapsed header with a working member shows no spinner")
     }
 
+    @Test func theSettingsBringTheCountsBack() throws {
+        let design = DesignSettings()
+        design.sidebarSections.groupHeaderMemberCount = true
+        design.sidebarSections.groupHeaderUnreadCount = true
+        let (header, sidebar) = try Self.header(activity: .working, design: design)
+        _ = sidebar
+        #expect(header.countText == "2", "the member count setting shows no count")
+        let badges = Self.views(UnreadBadgeView.self, in: header).filter { !Self.isHidden($0, in: header) }
+        #expect(badges.count == 1, "the unread count setting shows no unread count")
+    }
+
     @Test func aCollapsedHeaderShowsNoStatusButLoadingByDefault() throws {
         let (header, _) = try Self.header(activity: .waiting)
         #expect(Self.spinner(header) == nil, "a collapsed header shows a waiting member's status by default")

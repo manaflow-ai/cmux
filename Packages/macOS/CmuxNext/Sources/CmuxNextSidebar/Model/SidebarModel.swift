@@ -156,6 +156,10 @@ public final class SidebarModel {
     public var detailedStatus = false
     /// Rows show when they last changed (`sidebar.showTimestamps`, off by default).
     public var showsTimestamps = false
+    /// What a collapsed group header shows beside its loading spinner
+    /// (`sidebar.groupHeader.*`, all off by default; `sidebar.detailedStatusIcons`
+    /// adds its members' other states).
+    public var groupHeaderDetails = GroupHeaderDetails()
     /// Group by Folder (`sidebar.groupBy`): loose rows sit under folder headers.
     public var groupsByFolder = false
     /// `sidebar.groupByComputer`: a header per computer; off, one list.
@@ -502,6 +506,8 @@ public final class SidebarModel {
         (minimal, expanded) = (preferences.minimal, preferences.density == .expanded)
         detailedStatus = preferences.detailedStatusIcons
         showsTimestamps = preferences.showTimestamps
+        groupHeaderDetails = GroupHeaderDetails(memberCount: preferences.groupHeaderMemberCount,
+                                                unreadCount: preferences.groupHeaderUnreadCount)
         hidesWorkspaces = !preferences.showProjects
         groupsByFolder = preferences.groupBy == .folder
         groupsByComputer = preferences.groupsByComputer
