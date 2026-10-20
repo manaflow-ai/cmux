@@ -306,7 +306,7 @@ final class TabCell {
         case .needsInput: return Palette.attention
         case .success: return Palette.success
         case .failure: return Palette.danger
-        case .none: return item.isUnread ? Palette.textPrimary : nil
+        case .none: return item.isUnread ? Palette.notificationBlue : nil
         }
     }
 
