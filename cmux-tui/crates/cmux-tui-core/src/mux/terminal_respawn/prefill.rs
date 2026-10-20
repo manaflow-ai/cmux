@@ -224,13 +224,32 @@ mod tests {
         );
     }
 
+    /// A 60-column screen that received `bytes`.
+    fn screen(bytes: &[u8]) -> ghostty_vt::Terminal {
+        let mut term = ghostty_vt::Terminal::new(60, 5, 1_000, Default::default()).unwrap();
+        term.vt_write(bytes);
+        term
+    }
+
     #[test]
-    fn return_follows_only_a_marked_prompt_of_a_run() {
+    fn return_follows_only_an_empty_marked_prompt_of_the_shell_itself() {
         let prefill =
             |run| Prefill { kind: Prefilled::Harness, text: "claude --resume a".into(), run };
-        assert_eq!(prefill(true).input(true), "claude --resume a\r");
-        assert_eq!(prefill(true).input(false), "claude --resume a");
-        assert_eq!(prefill(false).input(true), "claude --resume a");
+        let prompt: &[u8] = b"restored\r\n\x1b]133;A\x07user@host:~$ \x1b]133;B\x07";
+        // The shell's own prompt, marked by shell integration, nothing typed on it.
+        assert_eq!(prefill(true).input(&mut screen(prompt), true), "claude --resume a\r");
+        assert_eq!(prefill(false).input(&mut screen(prompt), true), "claude --resume a");
+        // A program the shell's startup files started holds the terminal (tmux, ssh, a question).
+        assert_eq!(prefill(true).input(&mut screen(prompt), false), "claude --resume a");
+        // No mark: a startup question, or a shell without integration.
+        let question: &[u8] = b"Update oh-my-zsh now? [Y/n] ";
+        assert_eq!(prefill(true).input(&mut screen(question), true), "claude --resume a");
+        // The person typed on the new prompt before it was written: never Return their line.
+        let typed = [prompt, b"git sta".as_slice()].concat();
+        assert_eq!(prefill(true).input(&mut screen(&typed), true), "claude --resume a");
+        // The prompt went back to output (a command runs).
+        let running = [prompt, b"make\r\n\x1b]133;C\x07building".as_slice()].concat();
+        assert_eq!(prefill(true).input(&mut screen(&running), true), "claude --resume a");
     }
 
     #[test]

@@ -381,6 +381,19 @@ mod tests {
         assert_eq!(daemon_dir_of(&link), Some(std::fs::canonicalize(app_bin.path()).unwrap()));
     }
 
+    /// Running a restored agent's resume is opt-in (`agents.resume: "run"`);
+    /// a missing, other or unreadable setting only types it.
+    #[test]
+    fn an_agent_resume_runs_only_when_the_config_asks_for_it() {
+        assert!(raw(r#"{"resume":"run"}"#).resume_runs());
+        assert!(!raw("{}").resume_runs());
+        assert!(!raw(r#"{"resume":"type"}"#).resume_runs());
+        assert!(!raw(r#"{"resume":"yes"}"#).resume_runs());
+        assert!(!RawAgents::invalid().resume_runs());
+        assert!(!crate::config::Agents::default().resume_runs);
+        assert!(!cmux_tui_core::SurfaceOptions::default().agent_resume_runs);
+    }
+
     #[test]
     fn unknown_agents_keys_are_still_rejected() {
         assert!(serde_json::from_str::<RawAgents>(r#"{"screen_detect":false}"#).is_err());

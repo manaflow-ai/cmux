@@ -410,6 +410,27 @@ mod tests {
         assert!(agent_launch_from_job("claude", &strings(&["claude", "-p", "hi"]), &[]).is_none());
     }
 
+    /// A non-interactive run of the harness (`claude -p`, `codex exec`) has
+    /// no session to resume; an interactive one, another program, or a
+    /// process that could not be read says nothing.
+    #[test]
+    fn a_non_interactive_run_is_told_apart_from_an_unknown_process() {
+        let non_interactive = |harness: &str, argv: &[&str]| {
+            job_is_non_interactive(harness, &strings(argv), &[])
+        };
+        assert!(non_interactive("claude", &["claude", "-p", "hi"]));
+        assert!(non_interactive("claude", &["/bin/sh", "/tmp/x/claude", "--print", "hi"]));
+        assert!(non_interactive("codex", &["codex", "exec", "do it"]));
+        assert!(non_interactive("claude", &["claude", "mcp", "list"]));
+        assert!(!non_interactive("claude", &["claude", "--model", "opus"]));
+        assert!(!non_interactive("codex", &["codex", "resume", "abc"]));
+        assert!(!non_interactive("claude", &["zsh", "-l"]));
+        assert!(!non_interactive("opencode", &["opencode", "run", "x"]));
+        // The shim's arguments are the CLI's own.
+        let shim = env(&[(SHIM_ARGS_ENV, r#"["-p","hi"]"#)]);
+        assert!(job_is_non_interactive("claude", &strings(&["claude", "-p", "hi"]), &shim));
+    }
+
     #[test]
     fn a_credential_drops_the_flags_and_a_relative_account_is_not_kept() {
         let launch = agent_launch_from_job(
