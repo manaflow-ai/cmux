@@ -85,7 +85,7 @@ extension HomeService {
             store: HomePinStore(), inboxes: [homeInbox, homeCloudInbox], account: { [weak self] in self?.pinAccount ?? "local" },
             rows: { [weak self] in TopHomePageView.visible(store.rows, archivedChiefs: self?.directory.archivedChiefs ?? [], me: store.me?.id) },
             me: { store.me?.id }, contacts: { [weak self] in self?.contacts() ?? [] },
-            chiefAvatar: { [weak self] in self?.directory.chiefAvatar },
+            chiefAvatar: { [weak self] in self?.directory.chiefAvatar ?? HomeChiefFace.tile },  // nil: the pet character, live
             chiefHarnesses: { [weak self] in self?.directory.chiefHarnesses ?? [:] })
         source.onSelect = { [weak self] id in self?.pendingSelection = id }
         source.onStart = { [weak self] contact in
@@ -109,7 +109,7 @@ extension HomeService {
         // task-owner: one profile read off the main actor; ends when it is set
         Task { [weak self] in
             let avatar = await Task.detached { files.tileAvatar() }.value
-            self?.directory.chiefAvatar = avatar ?? HomeChiefFace.tile
+            self?.directory.chiefAvatar = avatar
         }
     }
 }

@@ -1,8 +1,9 @@
 public import CmuxNextDesign
 
 /// Debug Settings of the Home transcript (DEV and NIGHTLY only; Release and
-/// RC never activate the store, so they keep the defaults, which are off in
-/// every Release compile).
+/// RC never activate the store, so they keep the defaults: the flight
+/// recorder's are off; product defaults such as `firstRunHero` are on, and
+/// Release ships them on).
 ///
 /// The flight recorder is MessagesLab's (`HomeFlightRecorder`): after a
 /// send it samples every frame of the transcript, and on a blink (a row

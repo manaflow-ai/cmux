@@ -127,7 +127,7 @@ final class TopHomePageView: NSView {
             var badgedChiefs: Set<String>?
             var listed: Set<ConversationID> = []
             for await (all, archived, _, _, _, _, _, _) in ObservationStream({
-                (store.rows, home.directory.archivedChiefs, sidebar.query, sidebar.pins, sidebar.unreadMarks, home.directory.chiefAvatar,
+                (store.rows, home.directory.archivedChiefs, sidebar.query, sidebar.pins, sidebar.unreadMarks, home.directory.chiefAvatar ?? HomeChiefFace.tile,
                  sidebar.ownerRows, home.directory.chiefHarnesses)
             }) {
                 guard let self else { return }

@@ -8,7 +8,7 @@ import Testing
 /// The empty Chief conversation's front page (Leo 2026-10-19: the Chief setup screen should say
 /// what is there now, without the placeholder cat): the Chief pet's character and what the Chief
 /// does over the rows, a Show / Hide Chief Pet row, and the character as the Chief's default face.
-@MainActor @Suite struct HomeChiefFrontPageTests {
+@MainActor @Suite(.serialized) struct HomeChiefFrontPageTests {
     @Test func theHeroSaysWhatTheChiefDoesAboveTheRows() {
         let panel = HomeFirstRunView(frame: NSRect(x: 0, y: 0, width: 600, height: 700))
         panel.hero.image = ChiefPetMascot.orb.image

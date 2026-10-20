@@ -26,11 +26,11 @@ final class HomeFirstRunHero: NSView {
         picture.layer?.magnificationFilter = .nearest
         picture.layer?.minificationFilter = .nearest
         picture.setAccessibilityElement(false)
-        title.font = .systemFont(ofSize: 15, weight: .semibold)
+        title.font = .systemFont(ofSize: TypeScale.title, weight: TypeScale.emphasis)
         title.alignment = .center
         title.lineBreakMode = .byTruncatingTail
         title.setAccessibilityRole(.staticText)
-        body.font = .systemFont(ofSize: 12)
+        body.font = .systemFont(ofSize: TypeScale.detail)
         body.alignment = .center
         body.maximumNumberOfLines = 0
         body.setAccessibilityRole(.staticText)
@@ -50,8 +50,8 @@ final class HomeFirstRunHero: NSView {
     func applyScale(_ scale: CGFloat) {
         guard self.scale != scale else { return }
         self.scale = scale
-        title.font = .systemFont(ofSize: 15 * scale, weight: .semibold)
-        body.font = .systemFont(ofSize: 12 * scale)
+        title.font = .systemFont(ofSize: TypeScale.title * scale, weight: TypeScale.emphasis)
+        body.font = .systemFont(ofSize: TypeScale.detail * scale)
         invalidateIntrinsicContentSize()
         needsLayout = true
     }
