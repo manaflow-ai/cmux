@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # Fails when workers/cmux-vm/openapi.json breaks clients generated from the
-# version on the base branch (removed endpoints or fields, new required
+# version on a base branch or commit (removed endpoints or fields, new required
 # inputs, narrowed types), using a pinned, checksum-verified oasdiff release.
 # ACCEPT_BREAKING=true reports breaking changes without failing.
 #
-#   bash scripts/openapi-breaking.sh <base-branch>
+#   bash scripts/openapi-breaking.sh <base-branch-or-commit>
 set -euo pipefail
 cd "$(dirname "$0")/.."
-base_ref="${1:?usage: openapi-breaking.sh <base-branch>}"
+base_ref="${1:?usage: openapi-breaking.sh <base-branch-or-commit>}"
 
 OASDIFF_VERSION=1.32.1
 OASDIFF_SHA256=7c8939fc49b75ee11fec66a5b83b37a2fca6aee109fed85013b1ba2ac2a1ee7f
@@ -15,11 +15,14 @@ OASDIFF_SHA256=7c8939fc49b75ee11fec66a5b83b37a2fca6aee109fed85013b1ba2ac2a1ee7f
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 
+if [[ "$base_ref" =~ ^0+$ ]]; then base_ref=feat-cmux-next; fi
+fetch_ref="refs/heads/${base_ref}"
+if [[ "$base_ref" =~ ^[0-9a-f]{40}$ ]]; then fetch_ref="$base_ref"; fi
 # Depth 1 only in a shallow checkout: in a full clone --depth writes
 # .git/shallow and truncates history for every worktree sharing it.
 depth=()
 [[ "$(git rev-parse --is-shallow-repository)" == true ]] && depth=(--depth=1)
-git fetch --quiet ${depth[@]+"${depth[@]}"} origin "refs/heads/${base_ref}"
+git fetch --quiet ${depth[@]+"${depth[@]}"} origin "$fetch_ref"
 if ! git show "FETCH_HEAD:workers/cmux-vm/openapi.json" > "$work/base.json" 2>/dev/null; then
   echo "base branch ${base_ref} has no workers/cmux-vm/openapi.json; nothing to compare"
   exit 0

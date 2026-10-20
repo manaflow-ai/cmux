@@ -555,3 +555,115 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
 @media (prefers-reduced-motion:no-preference){.nt-widget-row,.nt-widget-chat,.nt-widget-dismiss{transition:background-color var(--agent-motion-hover-out,0s) var(--agent-ease-out,ease-out),color var(--agent-motion-hover-out,0s) var(--agent-ease-out,ease-out)}.nt-widget-row:hover,.nt-widget-chat:hover,.nt-widget-dismiss:hover{transition-duration:var(--agent-motion-hover,.08s)}}
 /* The quiet row sits 4 px under the box (the column gap is 6). */
 .nt-foot .acpmux-composer-foot { margin-top: -2px; }
+/* Cards (u2851, from a scrawl of Aside's New Tab page). The field is a pill of its own: a round
+   rim, the Search | Ask switch at its right end with the Tab hint before it. Under it, outside the
+   pill, one quiet row: the project strip on the left, the agent's chips and the mic on the right,
+   no Send disc (Return sends); it keeps its place but hides while Search shows its suggestions.
+   Then "Chats" as a segmented tab with "All Chats >" across from it, and three tall cards in a
+   grid that show more of each chat's last reply. Wider than the other templates' 720px column. */
+.nt-screen[data-template="cards"] {
+  gap: 10px;
+  padding-top: clamp(24px, 8vh, 96px);
+  padding-inline: max(var(--cv-edge, 18px), calc((100% - 880px) / 2));
+}
+.nt-screen[data-template="cards"] .nt-box {
+  border-radius: 999px;
+}
+.nt-screen[data-template="cards"] .nt-input {
+  align-items: center;
+  min-height: 56px;
+  padding: 0 8px 0 22px;
+}
+.nt-screen[data-template="cards"] .nt-field {
+  padding-block: 18px;
+}
+.nt-screen[data-template="cards"] .nt-mode {
+  align-self: center;
+  height: auto;
+  margin-top: 0;
+  font-size: var(--text-control);
+}
+.nt-screen[data-template="cards"] .nt-mode-track {
+  padding: 3px;
+  border-radius: 999px;
+}
+.nt-screen[data-template="cards"] .nt-mode-thumb {
+  inset: 3px auto 3px 3px;
+  width: calc(50% - 3px);
+  border-radius: 999px;
+  background: var(--acpmux-composer-surface, var(--cmux-surface-solid, var(--acpmux-base)));
+  box-shadow: var(--elevation-1);
+}
+.nt-screen[data-template="cards"] .nt-mode-track button {
+  padding: 5px 16px;
+  border-radius: 999px;
+}
+.nt-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  margin-top: 10px;
+  padding: 0 14px;
+}
+/* The strip is size-contained (its controls answer to its own width), so it takes the row's spare
+   room as a basis-0 item; the chips keep their own width at the right end. */
+.nt-toolbar .acpmux-composer-strip {
+  flex: 1 1 0;
+  min-width: 0;
+}
+.nt-toolbar .acpmux-chrome-area {
+  flex: none;
+  min-width: 0;
+}
+.nt-toolbar .nt-pickers {
+  flex-wrap: nowrap;
+  justify-content: flex-end;
+  min-height: 0;
+  padding: 0;
+  background: none;
+  box-shadow: none;
+}
+.nt-screen[data-template="cards"][data-mode="search"] .nt-toolbar {
+  visibility: hidden;
+}
+.nt-screen[data-template="cards"] .nt-chats {
+  margin-top: 36px;
+}
+.nt-screen[data-template="cards"] .nt-chats-head {
+  height: 34px;
+}
+.nt-screen[data-template="cards"] .nt-chats-tab.is-selected {
+  padding: 5px 14px;
+  border-radius: 999px;
+  background: var(--acpmux-composer-surface, var(--cmux-surface-solid, var(--acpmux-base)));
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, var(--agent-text) 7%, transparent),
+    var(--elevation-1);
+}
+.nt-screen[data-template="cards"] .nt-cards {
+  gap: 16px;
+  margin-top: 14px;
+}
+.nt-screen[data-template="cards"] .nt-card {
+  gap: 4px;
+  min-height: min(260px, 40vh);
+  padding: 14px 16px;
+  border-radius: 14px;
+  background: var(--acpmux-composer-surface, var(--cmux-surface-solid, var(--acpmux-base)));
+  box-shadow:
+    inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge),
+    var(--acpmux-composer-shadow, var(--elevation-1));
+}
+.nt-screen[data-template="cards"] .nt-card-title {
+  font-size: var(--text-title);
+  font-weight: 600;
+}
+.nt-screen[data-template="cards"] .nt-card-message {
+  -webkit-line-clamp: 9;
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+}
+:root[data-borders="none"] .nt-screen[data-template="cards"] .nt-card {
+  box-shadow: var(--acpmux-composer-shadow, var(--elevation-1));
+}
