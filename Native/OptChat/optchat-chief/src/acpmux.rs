@@ -179,6 +179,17 @@ pub trait AgentPort: Send + Sync {
         prompt_id: &str,
         signals: Sender<TurnSignal>,
     ) -> Result<(), String>;
+    /// `start_prompt`, but a running turn is not stopped: the prompt waits for it to end
+    /// (`_meta.acpmux.queue`; acpmux stops the running turn by default).
+    fn start_prompt_queued(
+        &self,
+        session: &str,
+        blocks: Vec<Value>,
+        prompt_id: &str,
+        signals: Sender<TurnSignal>,
+    ) -> Result<(), String> {
+        self.start_prompt(session, blocks, prompt_id, signals)
+    }
     /// The session's recorded events after `after`, oldest first.
     fn events(&self, session: &str, after: u64) -> Result<Vec<AcpmuxEvent>, String>;
     /// Stops routing the session's signals and removes the session.

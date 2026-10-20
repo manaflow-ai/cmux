@@ -513,6 +513,8 @@ pub struct Agents {
     pub cancels: Vec<String>,
     /// Queued prompts taken out (`_acpmux/queue_remove`): (session, prompt id).
     pub removed_queued: Vec<(String, String)>,
+    /// Prompts sent to wait behind a running turn (`start_prompt_queued`), by prompt id.
+    pub queued_prompts: Vec<String>,
     /// The next prompt's answer (default `{"stopReason": "end_turn"}`), used once.
     pub answer: Option<Value>,
     /// The next prompt fails with this JSON-RPC error message, used once
@@ -734,6 +736,21 @@ impl AgentPort for FakeAgents {
         inner.session_settings.push(settings);
         inner.specs.push(spec.clone());
         Ok(format!("s{}", inner.specs.len()))
+    }
+
+    fn start_prompt_queued(
+        &self,
+        session: &str,
+        blocks: Vec<Value>,
+        prompt_id: &str,
+        signals: Sender<TurnSignal>,
+    ) -> Result<(), String> {
+        self.inner
+            .lock()
+            .unwrap()
+            .queued_prompts
+            .push(prompt_id.to_owned());
+        self.start_prompt(session, blocks, prompt_id, signals)
     }
 
     fn start_prompt(

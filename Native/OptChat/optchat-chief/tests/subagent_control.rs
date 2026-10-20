@@ -316,6 +316,8 @@ fn a_queue_tell_waits_for_the_turn() {
         "{:?}",
         inner.prompt_ids
     );
+    // acpmux interrupts by default: only a prompt sent as queued waits for the turn.
+    assert_eq!(inner.queued_prompts, vec![inner.prompt_ids[1].clone()]);
 }
 
 /// Flush on the change: Chief tells an older host left in a running
