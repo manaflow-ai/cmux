@@ -376,6 +376,25 @@ import Testing
         #expect(owner.starts.count == 2 && owner.starts.last?.1 == "after-failed-start")
     }
 
+    /// `mutation.indeterminate` on a first start says the owner's effect may have run (its
+    /// reserved terminal may be live), so the job keeps blocking its CLI rather than let a
+    /// second update of it start; a new owner session retires it.
+    @Test func aFirstStartTheOwnerAnswersIndeterminateKeepsBlockingTheCLI() async throws {
+        let (owner, updates, registry) = make()
+        owner.fail = [.codex]
+        owner.failCode = "mutation.indeterminate"
+        do {
+            _ = try await updates.runSettings(id: "work-profile", context: page("indeterminate-start"), registry: registry)
+            Issue.record("an indeterminate start reported success")
+        } catch {}
+        #expect(updates.state.arrayValue?.first?["state"] == "unknown")
+        owner.fail = []
+        await #expect(throws: (any Error).self) {
+            _ = try await updates.runSettings(id: "work-profile", context: page("after-indeterminate"), registry: registry)
+        }
+        #expect(!owner.starts.contains { $0.1 == "after-indeterminate" })
+    }
+
     /// A lost first reply may have created the terminal. A replay the owner answers with a code
     /// other than an `agent_cli_job.*` refusal can come before the owner reads its journal
     /// (a handoff, a registry error), so it proves nothing ran: the job keeps blocking its CLI
