@@ -271,3 +271,28 @@ fn apply_remote_base(cmd: &mut Command) {
     let base: Vec<_> = std::env::vars_os().filter(|(key, _)| allowed(key)).collect();
     cmd.env_clear().envs(base).env_remove(REMOTE_ENV_CLEARED_KEY);
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn hosted_remote_environment_cannot_be_reopened_by_a_profile_key_collision() {
+        let mut profile: HarnessProfile = serde_json::from_value(serde_json::json!({
+            "argv": ["/usr/bin/true"],
+            "env": {
+                "ACPMUX_REMOTE_ENV_POLICY": "1",
+                "__ACPMUX_REMOTE_ENV_CLEARED": "collision"
+            }
+        }))
+        .unwrap();
+        profile.kind = crate::config::HarnessKind::Acp;
+        let command =
+            harness_command("remote", &profile, &std::env::temp_dir(), None, None).unwrap();
+        let env = command_env(&command);
+        assert!(
+            !env.iter().any(|(key, _)| key == "CARGO_MANIFEST_DIR"),
+            "hosted projection recovered the daemon environment: {env:?}"
+        );
+    }
+}
