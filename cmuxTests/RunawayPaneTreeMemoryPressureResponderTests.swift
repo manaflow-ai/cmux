@@ -219,8 +219,8 @@ struct RunawayPaneTreeMemoryPressureResponderTests {
         )
     }
 
-    @Test
-    func criticalPressureTerminatesTheRunawayGroupAndEscalatesOnOrphanedSurvivors() async {
+    @Test(arguments: [true, false])
+    func criticalPressureTerminatesTheRunawayGroupAndEscalatesOnSurvivors(leaderSurvives: Bool) async {
         let recorder = SignalRecorder()
         #expect(critical.severity == .critical)
 
@@ -228,14 +228,16 @@ struct RunawayPaneTreeMemoryPressureResponderTests {
             knownAggregate: critical,
             snapshots: SnapshotSequence([
                 census(session() + runawayJob()),
-                // The leader exited on SIGTERM; its reparented workers did not.
-                census(session() + runawayJob(includeLeader: false)),
+                // Surviving workers must be stopped whether their leader
+                // survived SIGTERM or exited and left them reparented.
+                census(session() + runawayJob(includeLeader: leaderSurvives)),
             ]),
             recorder: recorder
         )
 
         #expect(targets.map(\.selection.processGroupIDs) == [[300]])
         #expect(targets.first?.key == descriptor().key)
+        #expect(targets.first?.selection.processCount == 61)
         #expect(recorder.groups(for: SIGTERM) == [300])
         #expect(recorder.groups(for: SIGKILL) == [300])
     }
