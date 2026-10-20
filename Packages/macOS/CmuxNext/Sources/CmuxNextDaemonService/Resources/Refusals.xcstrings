@@ -263,137 +263,6 @@
         }
       }
     },
-    "handlers.refusal.canvasUnported": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "needs canvas layout, which cmux-next does not have yet"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "キャンバスレイアウトが必要ですが、cmux-next にはまだありません"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "يتطلب تخطيط اللوحة، وهو غير متوفر في cmux-next بعد"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "potreban je raspored platna, koji cmux-next još nema"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "kræver lærredslayout, som cmux-next endnu ikke har"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "erfordert Canvas-Layout, das cmux-next noch nicht hat"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "requiere la disposición de lienzo, que cmux-next aún no tiene"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "nécessite la disposition en canevas, absente de cmux-next pour l’instant"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "richiede il layout canvas, non ancora presente in cmux-next"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ត្រូវការប្លង់ Canvas ដែល cmux-next មិនទាន់មាន"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "캔버스 레이아웃이 필요하지만 cmux-next에는 아직 없음"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "krever lerretoppsett, som cmux-next ikke har ennå"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "wymaga układu kanwy, którego cmux-next jeszcze nie ma"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "requer layout de canvas, que o cmux-next ainda não tem"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "нужен макет холста, которого в cmux-next пока нет"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ต้องใช้เลย์เอาต์แคนวาส ซึ่ง cmux-next ยังไม่มี"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "kanvas yerleşimi gerekiyor; cmux-next’te henüz yok"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "потрібен макет полотна, якого cmux-next ще не має"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cần bố cục canvas, cmux-next chưa có"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "需要画布布局，但 cmux-next 尚不支持"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "需要畫布佈局，但 cmux-next 尚未提供"
-          }
-        }
-      }
-    },
     "handlers.refusal.closedTabPaneGone": {
       "extractionState": "manual",
       "localizations": {
@@ -2224,137 +2093,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "聚焦的窗格沒有標籤頁"
-          }
-        }
-      }
-    },
-    "handlers.refusal.fullWidthTabUnported": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "needs full-width tab support in the cmux-next tab strip"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux-next のタブバーで全幅タブへの対応が必要です"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "يتطلب دعم علامات التبويب بعرض كامل في شريط علامات التبويب في cmux-next"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "potrebna je podrška za tab pune širine u traci tabova cmux-next"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "kræver faner i fuld bredde i cmux-next-fanelinjen"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "erfordert Tabs in voller Breite in der cmux-next-Tableiste"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "requiere pestañas de ancho completo en la barra de pestañas de cmux-next"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "nécessite les onglets pleine largeur dans la barre d’onglets de cmux-next"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "richiede il supporto per schede a larghezza intera nella barra schede di cmux-next"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ត្រូវការការគាំទ្រថេបទទឹងពេញក្នុងរបារថេប cmux-next"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux-next 탭 막대에서 전체 너비 탭 지원이 필요함"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "krever støtte for fullbreddefaner i fanelinjen i cmux-next"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "wymaga obsługi kart o pełnej szerokości na pasku kart cmux-next"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "requer suporte a abas em largura total na barra de abas do cmux-next"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "нужна поддержка вкладок на всю ширину в полосе вкладок cmux-next"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ต้องรองรับแท็บเต็มความกว้างในแถบแท็บของ cmux-next"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux-next sekme şeridinde tam genişlik sekme desteği gerekiyor"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "потрібна підтримка вкладок на всю ширину в смузі вкладок cmux-next"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cần hỗ trợ tab toàn chiều rộng trong dải tab cmux-next"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "需要 cmux-next 标签栏支持全宽标签页"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "需要 cmux-next 標籤列支援全寬標籤頁"
           }
         }
       }
@@ -9826,268 +9564,6 @@
         }
       }
     },
-    "handlers.refusal.textBoxUnported": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "needs the TextBox composer, which cmux-next does not have yet"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "TextBox 入力欄が必要ですが、cmux-next にはまだありません"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "يتطلب أداة إنشاء مربع النص، وهي غير متوفرة في cmux-next بعد"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "potreban je TextBox uređivač, koji cmux-next još nema"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "kræver TextBox-editoren, som cmux-next endnu ikke har"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "erfordert den TextBox-Editor, den cmux-next noch nicht hat"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "requiere el editor TextBox, que cmux-next aún no tiene"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "nécessite l’éditeur TextBox, absent de cmux-next pour l’instant"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "richiede il compositore TextBox, non ancora presente in cmux-next"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ត្រូវការកម្មវិធីតែង TextBox ដែល cmux-next មិនទាន់មាន"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "TextBox 입력기가 필요하지만 cmux-next에는 아직 없음"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "krever TextBox-redigeringsfeltet, som cmux-next ikke har ennå"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "wymaga edytora TextBox, którego cmux-next jeszcze nie ma"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "requer o compositor TextBox, que o cmux-next ainda não tem"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "нужен редактор TextBox, которого в cmux-next пока нет"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ต้องใช้ตัวเขียน TextBox ซึ่ง cmux-next ยังไม่มี"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "TextBox düzenleyicisi gerekiyor; cmux-next’te henüz yok"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "потрібен редактор TextBox, якого cmux-next ще не має"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cần trình soạn TextBox, cmux-next chưa có"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "需要 TextBox 编辑器，但 cmux-next 尚不支持"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "需要 TextBox 編輯器，但 cmux-next 尚未提供"
-          }
-        }
-      }
-    },
-    "handlers.refusal.vaultPaneUnported": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "needs the Vault panel as a pane (not in cmux-next yet)"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ペインとしての Vault パネルが必要です(cmux-next にはまだありません)"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "يتطلب لوحة الخزنة كجزء (غير متوفرة في cmux-next بعد)"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "potreban je panel Trezor kao panel (još nije u cmux-next)"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "kræver Vault-panelet som rude (endnu ikke i cmux-next)"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "erfordert das Vault-Panel als Teilfenster (noch nicht in cmux-next)"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "requiere el panel Bóveda como panel (aún no está en cmux-next)"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "nécessite le panneau Coffre en tant que volet (pas encore dans cmux-next)"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "richiede il pannello Vault come pannello (non ancora in cmux-next)"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ត្រូវការផ្ទាំង Vault ជាផ្ទាំង (មិនទាន់មានក្នុង cmux-next)"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Vault 패널을 분할 창으로 열어야 함(cmux-next에는 아직 없음)"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "krever Vault-panelet som rute (ikke i cmux-next ennå)"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "wymaga panelu Vault jako panelu (jeszcze nie w cmux-next)"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "requer o painel Vault como painel (ainda não existe no cmux-next)"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "нужна панель Vault как панель (в cmux-next пока нет)"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ต้องใช้แผง Vault เป็นบานหน้าต่าง (ยังไม่มีใน cmux-next)"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Vault panelinin bölme olarak açılması gerekiyor (cmux-next’te henüz yok)"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "потрібна панель Vault як панель (у cmux-next ще немає)"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cần bảng Vault dưới dạng khung (chưa có trong cmux-next)"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "需要将 Vault 面板作为窗格（cmux-next 尚不支持）"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "需要以窗格呈現保險箱面板（cmux-next 尚未提供）"
-          }
-        }
-      }
-    },
     "handlers.refusal.workspaceArgumentRequired": {
       "extractionState": "manual",
       "localizations": {
@@ -15848,6 +15324,399 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "沒有伺服器在使用該代碼等待。"
+          }
+        }
+      }
+    },
+    "refusal.server.pairWordsMissing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pass the four words the server shows with the code."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "مرّر الكلمات الأربع التي يعرضها الخادم مع الرمز."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Navedite četiri riječi koje server prikazuje uz kod."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Angiv de fire ord, serveren viser sammen med koden."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gib die vier Wörter an, die der Server mit dem Code anzeigt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Indica las cuatro palabras que el servidor muestra con el código."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Indiquez les quatre mots que le serveur affiche avec le code."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Indica le quattro parole che il server mostra con il codice."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サーバーがコードと一緒に表示する4つの単語を指定してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បញ្ជូនពាក្យបួនដែលម៉ាស៊ីនមេបង្ហាញជាមួយលេខកូដ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "서버가 코드와 함께 표시하는 네 단어를 전달하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Oppgi de fire ordene serveren viser sammen med koden."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Podaj cztery słowa, które serwer pokazuje razem z kodem."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Informe as quatro palavras que o servidor mostra com o código."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Укажите четыре слова, которые сервер показывает вместе с кодом."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ระบุคำสี่คำที่เซิร์ฟเวอร์แสดงพร้อมกับรหัส"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sunucunun kodla birlikte gösterdiği dört sözcüğü verin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Укажіть чотири слова, які сервер показує разом із кодом."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cung cấp bốn từ mà máy chủ hiển thị cùng mã."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "请提供服务器与代码一起显示的四个词。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "請提供伺服器與代碼一起顯示的四個字詞。"
+          }
+        }
+      }
+    },
+    "refusal.server.pairWordsDiffer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The words do not match that server. Nothing was approved."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الكلمات لا تطابق ذلك الخادم. لم تتم الموافقة على أي شيء."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Riječi se ne podudaraju s tim serverom. Ništa nije odobreno."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ordene passer ikke til den server. Intet blev godkendt."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Die Wörter passen nicht zu diesem Server. Nichts wurde genehmigt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Las palabras no coinciden con ese servidor. No se aprobó nada."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Les mots ne correspondent pas à ce serveur. Rien n’a été approuvé."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le parole non corrispondono a quel server. Nulla è stato approvato."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "単語がそのサーバーと一致しません。何も承認されていません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ពាក្យមិនត្រូវនឹងម៉ាស៊ីនមេនោះទេ។ គ្មានអ្វីត្រូវបានអនុម័តទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "단어가 해당 서버와 일치하지 않습니다. 아무것도 승인되지 않았습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ordene stemmer ikke med den serveren. Ingenting ble godkjent."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Słowa nie pasują do tego serwera. Nic nie zostało zatwierdzone."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "As palavras não correspondem a esse servidor. Nada foi aprovado."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Слова не совпадают с этим сервером. Ничего не одобрено."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "คำไม่ตรงกับเซิร์ฟเวอร์นั้น ไม่มีสิ่งใดได้รับการอนุมัติ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sözcükler o sunucuyla eşleşmiyor. Hiçbir şey onaylanmadı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Слова не збігаються з цим сервером. Нічого не схвалено."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Các từ không khớp với máy chủ đó. Không có gì được phê duyệt."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "这些词与该服务器不匹配。未批准任何内容。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "這些字詞與該伺服器不相符。未核准任何內容。"
+          }
+        }
+      }
+    },
+    "refusal.server.pairLocalOnly": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Approve servers from this Mac only."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "وافق على الخوادم من هذا الـMac فقط."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Servere odobravajte samo s ovog Maca."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Godkend kun servere fra denne Mac."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Server nur von diesem Mac aus genehmigen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aprueba servidores solo desde este Mac."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Approuvez les serveurs depuis ce Mac uniquement."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Approva i server solo da questo Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サーバーの承認はこのMacからのみ行えます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "អនុម័តម៉ាស៊ីនមេពី Mac នេះតែប៉ុណ្ណោះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "서버는 이 Mac에서만 승인할 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Godkjenn servere bare fra denne Macen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zatwierdzaj serwery tylko z tego Maca."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aprove servidores somente a partir deste Mac."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Одобряйте серверы только с этого Mac."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "อนุมัติเซิร์ฟเวอร์จาก Mac เครื่องนี้เท่านั้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sunucuları yalnızca bu Mac'ten onaylayın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Схвалюйте сервери лише з цього Mac."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chỉ phê duyệt máy chủ từ máy Mac này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "只能在这台 Mac 上批准服务器。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "只能在這台 Mac 上核准伺服器。"
           }
         }
       }
@@ -22143,268 +22012,6 @@
         }
       }
     },
-    "handlers.refusal.markUnreadNotAvailable": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Marking as unread is not available yet. Only marking as read is."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "التعليم كغير مقروء غير متاح بعد. يتوفر التعليم كمقروء فقط."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Označavanje kao nepročitano još nije dostupno. Dostupno je samo označavanje kao pročitano."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Markering som ulæst er endnu ikke tilgængelig. Kun markering som læst er."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Als ungelesen markieren ist noch nicht verfügbar. Nur als gelesen markieren geht."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Marcar como no leído aún no está disponible. Solo se puede marcar como leído."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Marquer comme non lu n’est pas encore disponible. Seul marquer comme lu l’est."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Segnare come non letto non è ancora disponibile. Si può solo segnare come letto."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "未読にする操作はまだ利用できません。既読にする操作のみ利用できます。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ការសម្គាល់ថាមិនទាន់អានមិនទាន់មាននៅឡើយ។ មានតែការសម្គាល់ថាបានអានប៉ុណ្ណោះ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "읽지 않음으로 표시는 아직 사용할 수 없습니다. 읽음으로 표시만 가능합니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Merking som ulest er ikke tilgjengelig ennå. Bare merking som lest er det."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Oznaczanie jako nieprzeczytane nie jest jeszcze dostępne. Można tylko oznaczyć jako przeczytane."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Marcar como não lido ainda não está disponível. Só é possível marcar como lido."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Пометка как непрочитанного пока недоступна. Доступна только пометка как прочитанного."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ยังทำเครื่องหมายว่ายังไม่อ่านไม่ได้ ทำได้เฉพาะทำเครื่องหมายว่าอ่านแล้ว"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Okunmadı olarak işaretleme henüz kullanılamıyor. Yalnızca okundu olarak işaretleme var."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Позначення як непрочитаного поки недоступне. Доступне лише позначення як прочитаного."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chưa thể đánh dấu là chưa đọc. Chỉ có thể đánh dấu là đã đọc."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "暂不支持标记为未读，只能标记为已读。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "暫不支援標示為未讀，只能標示為已讀。"
-          }
-        }
-      }
-    },
-    "handlers.refusal.moveColumnNotAvailable": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Moving a whole column is not available yet. This column has %lld panes; move them one at a time."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "نقل عمود كامل غير متاح بعد. يحتوي هذا العمود على %lld من الأجزاء؛ انقلها واحدًا تلو الآخر."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Premještanje cijele kolone još nije dostupno. Ova kolona ima %lld okna; premjestite ih jedno po jedno."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Flytning af en hel kolonne er endnu ikke tilgængelig. Denne kolonne har %lld ruder; flyt dem én ad gangen."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Eine ganze Spalte zu verschieben ist noch nicht verfügbar. Diese Spalte hat %lld Bereiche; verschiebe sie einzeln."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Mover una columna entera aún no está disponible. Esta columna tiene %lld paneles; muévelos de uno en uno."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Déplacer une colonne entière n’est pas encore disponible. Cette colonne a %lld volets ; déplacez-les un par un."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Spostare un’intera colonna non è ancora disponibile. Questa colonna ha %lld riquadri; spostali uno alla volta."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "列全体の移動はまだ利用できません。この列には %lld 個のペインがあります。1 つずつ移動してください。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ការផ្លាស់ទីជួរឈរទាំងមូលមិនទាន់មាននៅឡើយ។ ជួរឈរនេះមានផ្ទាំង %lld សូមផ្លាស់ទីម្តងមួយ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "열 전체 이동은 아직 사용할 수 없습니다. 이 열에는 패널이 %lld개 있으니 하나씩 옮기세요."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Flytting av en hel kolonne er ikke tilgjengelig ennå. Denne kolonnen har %lld ruter; flytt dem én om gangen."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Przenoszenie całej kolumny nie jest jeszcze dostępne. Ta kolumna ma %lld paneli; przenoś je po jednym."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Mover uma coluna inteira ainda não está disponível. Esta coluna tem %lld painéis; mova-os um de cada vez."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Перемещение целого столбца пока недоступно. В этом столбце панелей: %lld; перемещайте их по одной."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ยังย้ายทั้งคอลัมน์ไม่ได้ คอลัมน์นี้มี %lld บานหน้าต่าง ให้ย้ายทีละบาน"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Bütün bir sütunu taşımak henüz kullanılamıyor. Bu sütunda %lld bölme var; bunları tek tek taşıyın."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Переміщення цілого стовпця поки недоступне. У цьому стовпці панелей: %lld; переміщуйте їх по одній."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chưa thể di chuyển cả cột. Cột này có %lld ngăn; hãy di chuyển từng ngăn một."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "暂不支持移动整列。此列有 %lld 个窗格，请逐个移动。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "暫不支援移動整欄。此欄有 %lld 個窗格，請逐一移動。"
-          }
-        }
-      }
-    },
     "handlers.refusal.daemonUnavailable": {
       "extractionState": "manual",
       "localizations": {
@@ -26593,6 +26200,1186 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "此工作區中沒有正在播放聲音的分頁"
+          }
+        }
+      }
+    },
+    "handlers.refusal.statusMustBeOneOf": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "status must be one of %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "status は %@ のいずれかにしてください"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يجب أن تكون الحالة أحد %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "status mora biti jedan od %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "status skal være en af %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Status muss einer der folgenden sein: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "el estado debe ser uno de %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "le statut doit être l’un des suivants : %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "lo stato deve essere uno tra %@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ស្ថានភាពត្រូវតែជាមួយក្នុងចំណោម %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "status는 %@ 중 하나여야 함"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "status må være en av %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "status musi być jednym z: %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "o status deve ser um destes: %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "статус должен быть одним из %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "สถานะต้องเป็นหนึ่งใน %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "durum şunlardan biri olmalı: %@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "статус має бути одним із: %@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "trạng thái phải là một trong %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "status 必须是 %@ 之一"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "status 必須是 %@ 其中之一"
+          }
+        }
+      }
+    },
+    "handlers.refusal.tabsInDifferentPanes": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "the tabs are in different panes"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "علامات التبويب في أجزاء مختلفة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "kartice su u različitim panelima"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fanerne er i forskellige ruder"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "die Tabs sind in verschiedenen Bereichen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "las pestañas están en paneles distintos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "les onglets sont dans des volets différents"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "le schede sono in riquadri diversi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブが別々のペインにあります"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ទាំងនៅក្នុងផ្ទាំងបង្ហាញផ្សេងគ្នា"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "탭이 서로 다른 패인에 있습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fanene er i forskjellige ruter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "karty są w różnych panelach"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "as abas estão em painéis diferentes"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "вкладки находятся в разных панелях"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แท็บอยู่ในบานหน้าต่างต่างกัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sekmeler farklı bölmelerde"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "вкладки в різних панелях"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "các tab nằm ở các ngăn khác nhau"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这些标签页位于不同的窗格中"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這些分頁位於不同的窗格中"
+          }
+        }
+      }
+    },
+    "handlers.refusal.canvasNotShown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "this screen is not a canvas; use Toggle Canvas Layout first"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この画面はキャンバスではありません。先に「キャンバスレイアウトを切り替え」を使ってください"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "هذه الشاشة ليست لوحة؛ استخدم «تبديل تخطيط اللوحة» أولاً"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ovaj ekran nije platno; prvo koristite Uključi/isključi raspored platna"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "denne skærm er ikke et lærred; brug Slå lærredslayout til/fra først"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "dieser Bildschirm ist kein Canvas; zuerst „Canvas-Layout umschalten“ verwenden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "esta pantalla no es un lienzo; usa primero Alternar disposición de lienzo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cet écran n’est pas un canevas ; utilisez d’abord Basculer la disposition en canevas"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "questa schermata non è un canvas; usa prima Attiva/disattiva layout canvas"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "អេក្រង់នេះមិនមែនជា Canvas ទេ។ សូមប្រើ បិទ/បើក ប្លង់ Canvas ជាមុនសិន"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 화면은 캔버스가 아님. 먼저 캔버스 레이아웃 전환을 사용하세요"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "denne skjermen er ikke et lerret; bruk Slå lerretoppsett av/på først"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ten ekran nie jest kanwą; najpierw użyj Przełącz układ kanwy"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "esta tela não é um canvas; use Alternar layout de canvas primeiro"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "этот экран не холст; сначала используйте «Переключить макет холста»"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "หน้าจอนี้ไม่ใช่แคนวาส ใช้ สลับเลย์เอาต์แคนวาส ก่อน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "bu ekran bir kanvas değil; önce Kanvas Yerleşimini Aç/Kapat’ı kullanın"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "цей екран не полотно; спершу скористайтеся «Перемкнути макет полотна»"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "màn hình này không phải canvas; hãy dùng Bật/tắt bố cục canvas trước"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此屏幕不是画布；请先使用“切换画布布局”"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此畫面不是畫布；請先使用「切換畫布佈局」"
+          }
+        }
+      }
+    },
+    "handlers.refusal.canvasZoomLimit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "the canvas is already at that zoom"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キャンバスはすでにそのズームです"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "اللوحة على هذا التكبير بالفعل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "platno je već na tom uvećanju"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "lærredet har allerede den zoom"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "der Canvas hat diesen Zoom bereits"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "el lienzo ya tiene ese zoom"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "le canevas est déjà à ce zoom"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "il canvas ha già questo zoom"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Canvas មានការពង្រីកនោះរួចហើយ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "캔버스가 이미 해당 확대/축소 상태임"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "lerretet har allerede den zoomen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "kanwa ma już to powiększenie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "o canvas já está nesse zoom"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "холст уже в этом масштабе"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แคนวาสอยู่ที่การซูมนั้นแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "kanvas zaten bu yakınlaştırmada"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "полотно вже в цьому масштабі"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "canvas đã ở mức thu phóng đó"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "画布已是该缩放比例"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "畫布已是該縮放比例"
+          }
+        }
+      }
+    },
+    "handlers.refusal.canvasNothingToArrange": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "nothing to arrange: the canvas needs two panes that this would move"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "整列するものがありません。この操作で動くペインが 2 つ以上必要です"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا شيء لترتيبه: تحتاج اللوحة إلى جزأين يحركهما هذا الأمر"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "nema šta da se rasporedi: platnu trebaju dva okna koja bi ovo pomjerilo"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "intet at arrangere: lærredet skal have to ruder, som dette ville flytte"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "nichts anzuordnen: der Canvas braucht zwei Bereiche, die dies verschieben würde"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "nada que ordenar: el lienzo necesita dos paneles que esto movería"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "rien à disposer : le canevas doit avoir deux volets que cette commande déplacerait"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "niente da disporre: il canvas deve avere due riquadri che questo sposterebbe"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "គ្មានអ្វីត្រូវរៀបចំទេ៖ Canvas ត្រូវការផ្ទាំងពីរដែលពាក្យបញ្ជានេះនឹងផ្លាស់ទី"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "정렬할 항목 없음: 캔버스에 이 명령으로 이동할 창이 두 개 필요함"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ingenting å ordne: lerretet trenger to ruter som dette ville flytte"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "nic do uporządkowania: kanwa potrzebuje dwóch paneli, które to przesunie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "nada para organizar: o canvas precisa de dois painéis que isto moveria"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "нечего упорядочивать: на холсте нужны две панели, которые это сдвинет"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่มีอะไรให้จัด: แคนวาสต้องมีสองบานที่คำสั่งนี้จะย้าย"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "düzenlenecek bir şey yok: kanvasta bunun taşıyacağı iki bölme olmalı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "нічого впорядковувати: на полотні потрібні дві панелі, які це перемістить"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "không có gì để sắp xếp: canvas cần hai ô mà lệnh này sẽ di chuyển"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "没有可排列的内容：画布需要两个会被移动的窗格"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "沒有可排列的內容：畫布需要兩個會被移動的窗格"
+          }
+        }
+      }
+    },
+    "handlers.refusal.controlListenerNotRunning": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The CLI listener is not running in this app."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مستمع سطر الأوامر لا يعمل في هذا التطبيق."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI slušatelj ne radi u ovoj aplikaciji."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI-lytteren kører ikke i denne app."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der CLI-Listener läuft in dieser App nicht."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El receptor de la CLI no está en ejecución en esta app."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’écouteur de la CLI ne s’exécute pas dans cette app."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il listener della CLI non è in esecuzione in questa app."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このアプリでは CLI リスナーが動作していません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កម្មវិធីស្ដាប់ CLI មិនកំពុងដំណើរការក្នុងកម្មវិធីនេះទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 앱에서 CLI 리스너가 실행되고 있지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI-lytteren kjører ikke i denne appen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Odbiornik CLI nie działa w tej aplikacji."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O ouvinte da CLI não está em execução neste app."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Обработчик CLI не запущен в этом приложении."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ตัวรับฟัง CLI ไม่ได้ทำงานอยู่ในแอปนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI dinleyicisi bu uygulamada çalışmıyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Обробник CLI не запущено в цьому застосунку."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trình lắng nghe CLI không chạy trong ứng dụng này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此应用中的 CLI 监听器未在运行。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 App 中的 CLI 監聽器未在執行。"
+          }
+        }
+      }
+    },
+    "handlers.refusal.controlListenerRestartFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The CLI listener could not restart: %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّرت إعادة تشغيل مستمع سطر الأوامر: %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI slušatelj se nije mogao ponovo pokrenuti: %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI-lytteren kunne ikke genstarte: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der CLI-Listener konnte nicht neu starten: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo reiniciar el receptor de la CLI: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de redémarrer l’écouteur de la CLI : %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile riavviare il listener della CLI: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI リスナーを再起動できませんでした: %@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនអាចចាប់ផ្ដើមកម្មវិធីស្ដាប់ CLI ឡើងវិញបានទេ៖ %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI 리스너를 다시 시작할 수 없습니다: %@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI-lytteren kunne ikke starte på nytt: %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie można ponownie uruchomić odbiornika CLI: %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível reiniciar o ouvinte da CLI: %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось перезапустить обработчик CLI: %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่สามารถเริ่มตัวรับฟัง CLI ใหม่ได้: %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI dinleyicisi yeniden başlatılamadı: %@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не вдалося перезапустити обробник CLI: %@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không thể khởi động lại trình lắng nghe CLI: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法重新启动 CLI 监听器：%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法重新啟動 CLI 監聽器：%@"
+          }
+        }
+      }
+    },
+    "handlers.refusal.noWorkspacePullRequestLinks": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This workspace has no pull request links."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا تحتوي مساحة العمل هذه على روابط طلبات سحب."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ovaj radni prostor nema linkove zahtjeva za povlačenje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dette arbejdsområde har ingen links til pull requests."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Workspace hat keine Pull-Request-Links."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este espacio de trabajo no tiene enlaces de pull request."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cet espace de travail n’a aucun lien de pull request."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questo spazio di lavoro non ha link a pull request."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このワークスペースにはプルリクエストのリンクがありません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កន្លែងធ្វើការនេះគ្មានតំណ pull request ទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 워크스페이스에는 풀 리퀘스트 링크가 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dette arbeidsområdet har ingen pull request-lenker."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ten obszar roboczy nie ma linków do pull requestów."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este espaço de trabalho não tem links de pull request."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В этом рабочем пространстве нет ссылок на pull request."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "พื้นที่ทำงานนี้ไม่มีลิงก์ pull request"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu çalışma alanında pull request bağlantısı yok."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "У цьому робочому просторі немає посилань на pull request."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không gian làm việc này không có liên kết pull request nào."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此工作区没有拉取请求链接。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此工作區沒有提取要求連結。"
+          }
+        }
+      }
+    },
+    "handlers.refusal.homeReplyNoSelection": {
+      "comment": "Refusal: home.replyToSelection ran with no text selected in one message of a shown Home conversation.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Select text in one message of a Home conversation to reply to it."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "حدد نصًا في رسالة واحدة من محادثة في الصفحة الرئيسية للرد عليه."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Odaberite tekst u jednoj poruci razgovora na Početnoj da biste odgovorili na njega."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Markér tekst i én besked i en Hjem-samtale for at svare på den."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wähle Text in einer Nachricht einer Home-Unterhaltung aus, um darauf zu antworten."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Selecciona texto en un mensaje de una conversación de Inicio para responder a él."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sélectionnez du texte dans un message d’une conversation de l’accueil pour y répondre."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Seleziona del testo in un messaggio di una conversazione Home per rispondere."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "返信するには、ホームの会話の1つのメッセージ内のテキストを選択してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ជ្រើសរើសអត្ថបទក្នុងសារមួយនៃការសន្ទនាទំព័រដើម ដើម្បីឆ្លើយតបទៅវា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "답장하려면 홈 대화의 메시지 하나에서 텍스트를 선택하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Marker tekst i én melding i en Hjem-samtale for å svare på den."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zaznacz tekst w jednej wiadomości rozmowy na stronie głównej, aby na niego odpowiedzieć."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Selecione um texto em uma mensagem de uma conversa do Início para responder a ele."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Выделите текст в одном сообщении беседы на главной, чтобы ответить на него."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เลือกข้อความในข้อความเดียวของการสนทนาในหน้าหลักเพื่อตอบกลับ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yanıtlamak için Ana Sayfa sohbetindeki bir mesajda metin seçin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Виділіть текст в одному повідомленні розмови на головній, щоб відповісти на нього."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chọn văn bản trong một tin nhắn của cuộc trò chuyện Trang chủ để trả lời."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在主页对话的一条消息中选择文本以回复。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在主頁對話的一則訊息中選取文字以回覆。"
           }
         }
       }

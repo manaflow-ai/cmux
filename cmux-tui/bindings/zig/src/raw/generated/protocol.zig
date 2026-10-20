@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "a453986b67d167174f384a45b851ba6779b4ecfde280ba17c07ea656ab7e84b0";
+pub const ir_sha256 = "d28b6c071931b63ff1a5f3d8212c6f894d99794587d18e247ed287611eb3726e";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -394,6 +394,24 @@ pub const CloseTerminalResult = struct {
 };
 
 pub const ColorHex = []const u8;
+
+pub const ColumnMoveDirection = enum {
+    left,
+    right,
+
+    pub fn fromWire(value: []const u8) !@This() {
+        if (std.mem.eql(u8, value, "left")) return .left;
+        if (std.mem.eql(u8, value, "right")) return .right;
+        return error.UnknownEnumValue;
+    }
+
+    pub fn toWire(self: @This()) []const u8 {
+        return switch (self) {
+            .left => "left",
+            .right => "right",
+        };
+    }
+};
 
 pub const ColumnPin = struct {
     edge: []const u8,
@@ -6526,6 +6544,26 @@ pub fn moveBrowserProfile(client: anytype, request: MoveBrowserProfileRequest) !
     );
 }
 
+pub const MoveColumnRequest = struct {
+    direction: ColumnMoveDirection,
+    pane: Id,
+};
+
+pub const MoveColumnResult = JsonValue;
+
+pub fn moveColumn(client: anytype, request: MoveColumnRequest) !wire.Decoded(MoveColumnResult) {
+    return client.callTyped(
+        MoveColumnResult,
+        .{
+            .name = "move-column",
+            .authority = "control",
+            .since = 12,
+            .capability = "column-move-v1",
+        },
+        request,
+    );
+}
+
 pub const MovePersonalGroupRequest = struct {
     group: []const u8,
     index: u64,
@@ -11289,7 +11327,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 278;
+pub const command_count: usize = 279;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -11436,6 +11474,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "mint-terminal-renderer-by-terminal", .authority = "frontend", .since = 11, .capability = null, .stream = null },
     .{ .name = "move-bookmark", .authority = "control", .since = 12, .capability = "bookmarks-v1", .stream = null },
     .{ .name = "move-browser-profile", .authority = "control", .since = 12, .capability = "browser-profiles-v1", .stream = null },
+    .{ .name = "move-column", .authority = "control", .since = 12, .capability = "column-move-v1", .stream = null },
     .{ .name = "move-personal-group", .authority = "control", .since = 12, .capability = "profiles-v1", .stream = null },
     .{ .name = "move-profile", .authority = "control", .since = 12, .capability = "profiles-v1", .stream = null },
     .{ .name = "move-screen", .authority = "control", .since = 12, .capability = "screen-metadata-v1", .stream = null },

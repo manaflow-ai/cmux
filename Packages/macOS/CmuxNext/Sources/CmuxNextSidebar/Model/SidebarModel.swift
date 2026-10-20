@@ -43,7 +43,15 @@ public final class SidebarModel {
     /// scroll reveal, cx-ml98q).
     @ObservationIgnored public private(set) var userMoveRevision: UInt64?
     /// The user moved rows: the structural set that shows the move may reveal the active row.
-    public func noteUserMove() { userMoveRevision = sectionsRevision }
+    public func noteUserMove() {
+        userMoveRevision = sectionsRevision
+        noteUserIntent()
+    }
+    /// When this app's user last asked for a sidebar change (`noteUserIntent`): only a change
+    /// that follows within `userIntentWindow` moves rows on a spring (calm-sidebar-movement).
+    @ObservationIgnored var userIntentAt: ContinuousClock.Instant?
+    /// The clock `noteUserIntent` reads; tests inject a fixed instant.
+    @ObservationIgnored public var userIntentClock: @MainActor () -> ContinuousClock.Instant = { .now }
     /// True once: at the first structural set after the user's move.
     public func takeUserMove() -> Bool {
         guard let mark = userMoveRevision, mark != sectionsRevision else { return false }
@@ -146,6 +154,12 @@ public final class SidebarModel {
     public var expanded = false
     /// Row badges draw each state apart (`sidebar.detailedStatusIcons`), not Working or Ready only.
     public var detailedStatus = false
+    /// Rows show when they last changed (`sidebar.showTimestamps`, off by default).
+    public var showsTimestamps = false
+    /// What a collapsed group header shows beside its loading spinner
+    /// (`sidebar.groupHeader.*`, all off by default; `sidebar.detailedStatusIcons`
+    /// adds its members' other states).
+    public var groupHeaderDetails = GroupHeaderDetails()
     /// Group by Folder (`sidebar.groupBy`): loose rows sit under folder headers.
     public var groupsByFolder = false
     /// `sidebar.groupByComputer`: a header per computer; off, one list.
@@ -491,6 +505,9 @@ public final class SidebarModel {
         workspaceRow = preferences.workspaceRow
         (minimal, expanded) = (preferences.minimal, preferences.density == .expanded)
         detailedStatus = preferences.detailedStatusIcons
+        showsTimestamps = preferences.showTimestamps
+        groupHeaderDetails = GroupHeaderDetails(memberCount: preferences.groupHeaderMemberCount,
+                                                unreadCount: preferences.groupHeaderUnreadCount)
         hidesWorkspaces = !preferences.showProjects
         groupsByFolder = preferences.groupBy == .folder
         groupsByComputer = preferences.groupsByComputer
@@ -511,6 +528,7 @@ public final class SidebarModel {
         o.workspaceRow = workspaceRow
         (o.minimal, o.expanded) = (minimal, expanded)
         o.detailedStatus = detailedStatus
+        o.showsTimestamps = showsTimestamps
         o.flattensMachines = !groupsByComputer
         if o.flattensMachines {
             for section in sections {

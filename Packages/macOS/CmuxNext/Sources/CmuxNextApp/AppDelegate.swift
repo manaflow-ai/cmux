@@ -47,6 +47,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Design mode files a crash left (BrowserDesignModeTempFiles); off the main thread.
+        Task.detached(priority: .background) { BrowserDesignModeController.tempFiles.removeAll() }
         // SIGTERM, SIGINT and SIGHUP (dev tooling, `kill`, Ctrl-C) are
         // "Quit, keep sessions" with no alert.
         QuitSignal.install(quit: { [weak self] in
@@ -182,11 +184,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.history.start(supportDirectory: profilesDirectory.deletingLastPathComponent())
         // cmux-page:// first-party pages for Chromium, before any window can start it.
         FirstPartyPageSchemes.install()
+        // Every cmux page view follows `browser.defaultEngine` (Chromium by default) through this one host.
+        PageWebView.chromiumHosting = ChromiumPageHost(
+            cef: services.cache.cef,
+            preference: { [weak services] in
+                services?.settings?.snapshot.browserDefaultEngine ?? services?.cache.browserTabs.preference.defaultEngine ?? .fallback
+            },
+            keyRouter: services.keyRouter)
         services.windows.restoreWhenLoaded()
         DebugTimings.markLaunch("dfl.windows")
         // After two quick unexpected ends in a row, Chromium starts only
         // when the user reloads a browser tab.
         services.observeBorders()
+        services.startChromiumRuntime()
         if !services.crashRecovery.recovery.skipsBrowserPages { services.startChromiumWarmup() }
         services.newTabSpares.start()
         services.pageHostPool.start(
@@ -204,7 +214,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         WebAuthSessionHandler.install(webAuthHandler)
         NSAppleEventManager.shared().setEventHandler(self, andSelector: #selector(handleURLEvent(_:reply:)),
                                                      forEventClass: AEEventClass(kInternetEventClass), andEventID: AEEventID(kAEGetURL))
-        services.windows.onContentDidAppear = { [weak services] _ in services?.externalOpen.flush() }
+        services.windows.onContentDidAppear = { [weak services] in services?.externalOpen.flush(); services?.pageHostPool.windowDidAppear($0.window) }
         NSApp.servicesProvider = CmuxServicesProvider(open: services.externalOpen)
     }
 
@@ -329,7 +339,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 DebugCloudMove.register(on: control.service?.router, services: services)
                 DebugTerminalLinks.register(on: control.service?.router, services: services)
                 if let router = control.service?.router {
-                    BrowserPageService(engine: AppBrowserPageEngine(services: services)).install(on: router)
+                    // The passkey hand-off: an agent's request waits for the person's banner click.
+                    let passkeys = BrowserPasskeyRequests(host: AppBrowserPasskeyHost(services: services))
+                    services.notifications.onPasskeyBanner = { id in Task { _ = try? await passkeys.answer(id) } }
+                    BrowserPageService(engine: AppBrowserPageEngine(services: services), passkeys: passkeys).install(on: router)
                     services.apps.attach(router: router)
                 }
                 logger.info("control socket \(self.control.socketPath ?? "", privacy: .public)")
@@ -392,7 +405,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services?.viewers.diffPages.terminate()
         services?.viewers.markdownPages.terminate()
         services?.viewers.editorPages.terminate()
+        // Design mode's Home composer files left by cards still in a draft (BrowserDesignModeTempFiles).
+        BrowserDesignModeController.tempFiles.removeAll()
         services?.home.applicationWillTerminate()
+        services?.vscodeServeWeb.terminateForAppExit()
         cloudContext?.cancel()
         services?.cloud.stop()
         for session in services?.machines.cloud ?? [] { session.disconnect() }
@@ -403,6 +419,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services?.globalHotKeys.stop()
         settings?.stop()
         services?.mobile.stop()
+        services?.iphone.stop()
         services?.daemon.shutdownConnection()
     }
 

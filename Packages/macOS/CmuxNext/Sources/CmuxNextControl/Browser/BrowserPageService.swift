@@ -7,9 +7,23 @@ import Foundation
 /// and a `browser_…` selector (a daemon-owned browser) to the daemon.
 public struct BrowserPageService: Sendable {
     let engine: any BrowserPageEngine
+    /// Which agent drives which tab through `browser.page.right`.
+    let leases: BrowserTabLeases
+    /// The passkey hand-off (`browser.page.passkey`); nil serves no such method.
+    let passkeys: BrowserPasskeyRequests?
 
-    public init(engine: any BrowserPageEngine) {
+    /// - Parameters:
+    ///   - engine: runs page operations in the app's tabs.
+    ///   - passkeys: the passkey hand-off the app's banners answer; nil (tests, hosts without
+    ///     banners) leaves `browser.page.passkey` unserved.
+    public init(engine: any BrowserPageEngine, passkeys: BrowserPasskeyRequests? = nil) {
+        self.init(engine: engine, leases: BrowserTabLeases(), passkeys: passkeys)
+    }
+
+    init(engine: any BrowserPageEngine, leases: BrowserTabLeases, passkeys: BrowserPasskeyRequests? = nil) {
         self.engine = engine
+        self.leases = leases
+        self.passkeys = passkeys
     }
 
     public func install(on router: ControlRouter) {
@@ -79,6 +93,8 @@ public struct BrowserPageService: Sendable {
         ])
         router.register(waitAndCaptureMethods())
         router.register(tabMethods(router: router))
+        router.register([rightMethod(router: router)])
+        router.register(passkeyMethods())
         router.register(inputMethods())
         router.register(browserUseMethods())
         router.register(cookieAndStorageMethods())
@@ -95,7 +111,7 @@ public struct BrowserPageService: Sendable {
                 throw ControlError(code: "not_found", message: error, data: ["selector": .string(selector)])
             }
             if let input = Self.agentInput(element: name, answer: value, text: text) {
-                await engine.announce(input.by(Self.optionalString(call, "agent")), tabID: tab.id)
+                await engine.announce(Self.attributed(input, call), tabID: tab.id)
             }
             var result: [String: JSONValue] = Self.base(tab)
             result["value"] = value["value"] ?? .null

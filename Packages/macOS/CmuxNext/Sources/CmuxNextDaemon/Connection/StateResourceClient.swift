@@ -79,6 +79,23 @@ extension StateResourceClient {
         try await stateMutation("closed.reopen", ["closed": .string(id)], as: ReopenedItem.self)
     }
 
+    /// Reopens closed tab `tab` (`tab_…`) by its id, under that same id
+    /// (`closed.reopen {tab}`, a `cmux://tab/` link to a closed tab): the
+    /// member of the newest closed group that holds it.
+    ///
+    /// - Parameters:
+    ///   - tab: The tab's resource id.
+    ///   - fallbackPane: The `pane_` id the tab opens in when its own pane
+    ///     and workspace are gone; nil for the session's focused pane.
+    /// - Throws: `DaemonError.command` with code `resource.not_found` when
+    ///   no closed group holds the tab (it is open, or its record is gone).
+    @discardableResult
+    public func reopenClosed(tab: String, fallbackPane: String?) async throws -> ReopenedItem {
+        var params: [String: JSONValue] = ["tab": .string(tab)]
+        if let fallbackPane { params["fallback_pane"] = .string(fallbackPane) }
+        return try await stateMutation("closed.reopen", params, as: ReopenedItem.self)
+    }
+
     /// The window ids of install `installID`'s window records (`window_record.list`).
     public func windowRecordIDs(installID: String) async throws -> [String] {
         let list = try await connection.resourceRequest({ id in
@@ -140,13 +157,19 @@ extension StateResourceClient {
         return try await stateMutation("workspace.create", params, as: CreatedWorkspace.self)
     }
 
-    /// Workspace title, color, and icon (`workspace.update`).
+    /// Workspace title, color, icon, description (`workspace-description-v1`) and manual task
+    /// status (`workspace-status-v1`; `.clear` is automatic) through `workspace.update`. The
+    /// caller checks the description and status capabilities; an older daemon refuses those fields.
     public func updateWorkspace(_ workspace: ResourceID, title: FieldUpdate<String> = .unchanged,
-                                color: FieldUpdate<String> = .unchanged, icon: FieldUpdate<String> = .unchanged) async throws {
+                                color: FieldUpdate<String> = .unchanged, icon: FieldUpdate<String> = .unchanged,
+                                description: FieldUpdate<String> = .unchanged,
+                                taskStatus: FieldUpdate<WorkspaceTaskStatus> = .unchanged) async throws {
         var params: [String: JSONValue] = ["workspace": .string(workspace.rawValue)]
         Self.field(title, into: &params, "title") { .string($0) }
         Self.field(color, into: &params, "color") { .string($0) }
         Self.field(icon, into: &params, "icon") { .string($0) }
+        Self.field(description, into: &params, "description") { .string($0) }
+        Self.field(taskStatus, into: &params, "task_status") { .string($0.rawValue) }
         try await stateMutation("workspace.update", params)
     }
 

@@ -166,6 +166,9 @@ impl Brain {
         if call.action == "cap" {
             return self.control_cap(call.n.unwrap_or(0) as usize);
         }
+        if call.action == "cloud" {
+            return self.control_cloud(call.peer.as_deref());
+        }
         if call.action == "status" && call.id.is_none() {
             return Ok(self.status_all());
         }
@@ -583,6 +586,41 @@ impl Brain {
         outcome("done", format!("{id} starts next"))
     }
 
+    /// `control cloud [PEER|off]`: shows or sets the acpmux peer new
+    /// subagents run on by default (plans/cmux-next/cloud-subagents-DESIGN.md).
+    fn control_cloud(&mut self, peer: Option<&str>) -> Result<String, String> {
+        let now = |p: Option<&str>| {
+            match p {
+            Some(p) => format!("new subagents run on the cloud peer {p} (spawn place \"local\" keeps one here)"),
+            None => "new subagents run on this host (spawn place \"cloud\" needs a peer: control cloud PEER)".to_owned(),
+        }
+        };
+        let current = self.state.cloud_peer.clone();
+        let effective = |saved: &Option<String>| match saved.as_deref() {
+            Some("") => None,
+            Some(p) => Some(p.to_owned()),
+            None => None,
+        };
+        let Some(peer) = peer.map(str::trim).filter(|p| !p.is_empty()) else {
+            return outcome("noop", now(effective(&current).as_deref()));
+        };
+        let next = if peer == "off" {
+            String::new()
+        } else {
+            peer.to_owned()
+        };
+        if current.as_deref() == Some(next.as_str()) {
+            return outcome(
+                "noop",
+                format!("{} already", now(effective(&current).as_deref())),
+            );
+        }
+        self.state.cloud_peer = Some(next);
+        self.save();
+        (self.log)(&format!("control cloud: {peer}"));
+        outcome("done", now(effective(&self.state.cloud_peer).as_deref()))
+    }
+
     fn control_cap(&mut self, n: usize) -> Result<String, String> {
         let before = self.live_cap();
         self.state.live_cap = Some(n);
@@ -599,6 +637,29 @@ impl Brain {
             "done",
             format!("subagents: {now}; queued ones start as there is room"),
         )
+    }
+
+    /// `escalate_auth` from subagent `agent`: the Chief reads it before
+    /// anything else queued (`queue_urgent`). Only a known subagent of this
+    /// Chief escalates.
+    pub(super) fn escalate_auth(
+        &mut self,
+        agent: &str,
+        request: &crate::tools::AuthEscalation,
+    ) -> Result<String, String> {
+        if self.state.sub(agent).is_none() {
+            return Err(format!("escalate_auth: no subagent {agent} on this Chief"));
+        }
+        self.trace.emit(
+            "subagent.escalate_auth",
+            json!({"id": agent, "site": request.site, "kind": request.kind}),
+        );
+        self.queue_urgent(request.note(agent));
+        Ok(format!(
+            "outcome: done. Your Chief has it now, ahead of its other work: it opens {url} in Home's right pane, fills what it may, presses the passkey or security-key button so macOS shows Touch ID, and asks the user to touch the sensor. It tells you when {site} is signed in. Until then do the parts that need no sign-in; never read or type a password, and do not escalate {site} again.",
+            url = request.url,
+            site = request.site,
+        ))
     }
 
     /// Once a minute: a running subagent whose session did not change for

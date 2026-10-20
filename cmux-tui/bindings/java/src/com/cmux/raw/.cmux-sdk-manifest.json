@@ -686,6 +686,11 @@
       "size": 8564
     },
     {
+      "path": "ColumnMoveDirection.java",
+      "sha256": "178a47739f57e6fc29537961ff6e3b9033465595b3d6ce9e1e8572668a4f66dc",
+      "size": 913
+    },
+    {
       "path": "ColumnPin.java",
       "sha256": "0f51dd9469d96aafbee6b410b85f75254beb13eda57444816a2073c278f92a55",
       "size": 3014
@@ -697,8 +702,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "6f556c945e59ad9c36fa058d3d967a3974e638e9789aa833c1bb8f1ce1309998",
-      "size": 76412
+      "sha256": "893a9ef04ef51a40cdc28d51782ee55ed56e3e96cfd410566aef959f4fb2a567",
+      "size": 76628
     },
     {
       "path": "ConfigReloadRequestedEvent.java",
@@ -1347,8 +1352,8 @@
     },
     {
       "path": "GeneratedCmuxClient.java",
-      "sha256": "fd4f8e6d0a57bbf323ea64360999cf391764a15a94f05ca909a2d3f7b7b32fb3",
-      "size": 66178
+      "sha256": "dce2c46bdd58e7bcd3d0d419aa23498b034b762f0e648930c5f1d13adfd7410c",
+      "size": 66386
     },
     {
       "path": "GetBlobRequest.java",
@@ -1746,6 +1751,11 @@
       "size": 2932
     },
     {
+      "path": "MoveColumnRequest.java",
+      "sha256": "f0d354b12ea99154c288ca6de8187014f42107aa6cf4cafdc1eb78dd55a4d878",
+      "size": 2738
+    },
+    {
       "path": "MovePersonalGroupRequest.java",
       "sha256": "0e5b158a8f49dbfa12cf627db6c14d45e8588ebb4b6fc9863726d4c50591133c",
       "size": 2709
@@ -2067,7 +2077,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "0677f054c1740e86d3ceeef2dba9ab273208c25ee45fb7676d1c3620efc47ef2",
+      "sha256": "1cae3f597025d7b037687f2efbf266a41ee6996582c05d911184c3fdf5ec614a",
       "size": 7486
     },
     {
@@ -3327,7 +3337,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "a453986b67d167174f384a45b851ba6779b4ecfde280ba17c07ea656ab7e84b0",
+  "ir_sha256": "d28b6c071931b63ff1a5f3d8212c6f894d99794587d18e247ed287611eb3726e",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

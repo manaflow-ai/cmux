@@ -24,6 +24,9 @@ extension ScreenContentView {
         guard let hit = DropZoneGeometry.target(atView: localPoint, offset: scroll.value, screen: screenID, geometry: geometry,
                                                 headers: headers, footers: footers, style: context.style,
                                                 previous: previous) else { return nil }
+        // A pinned dock that takes no other tab (the Home Chief pane) takes no drop at all: a join
+        // or a split there would only be refused (`dock-column-pinned`), so nothing promises one.
+        if case let .pane(pane, _) = hit, layout.column(containing: pane)?.dock?.takesTabs == false { return nil }
         let target: DropTarget
         if !edgesArmed, case let .pane(pane, zone) = hit, zone != .center {
             target = .pane(pane, .center)
@@ -38,12 +41,7 @@ extension ScreenContentView {
         if case let .pane(pane, zone) = target, zone != .center, let preview = finalLayoutPreview(splitting: pane, zone: zone, removing: removing) {
             rect = preview.newPane
             companions = preview.resized
-        } else if case let .pane(pane, zone) = target, let cell = geometry.panes[pane],
-           let content = DropZoneGeometry.regionRectInView(for: target, offset: scroll.value, geometry: geometry, style: context.style) {
-            let shown = geometry.scrolls(pane: pane) ? cell.offsetBy(dx: geometry.viewShift(offset: scroll.value), dy: 0) : cell
-            let top = max(content.minY, shown.minY + DropZoneGeometry.header(of: pane, in: cell, headers, context.style))
-            let bottom = min(content.maxY, shown.maxY - DropZoneGeometry.footer(of: pane, in: cell, footers, context.style))
-            let body = CGRect(x: content.minX, y: top, width: content.width, height: max(0, bottom - top))
+        } else if case let .pane(pane, zone) = target, let body = paneBody(pane, headers: headers, footers: footers) {
             rect = DropZoneGeometry.classicPaneHighlight(body: body, zone: zone)
         }
         // A strip target's highlight never draws over a docked column.
@@ -51,6 +49,30 @@ extension ScreenContentView {
         guard !rect.isNull else { return nil }
         let region = DropZoneGeometry.regionRectInView(for: target, offset: scroll.value, geometry: geometry, style: context.style) ?? rect
         return (target, hit, rect, region, companions)
+    }
+
+    /// `pane`'s body in view coordinates: its content rect below its tab bar (and above a bottom
+    /// tab bar), the area its drop zones divide.
+    func paneBody(_ pane: PaneID, headers: [PaneID: CGFloat], footers: [PaneID: CGFloat]) -> CGRect? {
+        guard let cell = geometry.panes[pane],
+              let content = DropZoneGeometry.regionRectInView(for: .pane(pane, .center), offset: scroll.value, geometry: geometry,
+                                                              style: context.style) else { return nil }
+        let shown = geometry.scrolls(pane: pane) ? cell.offsetBy(dx: geometry.viewShift(offset: scroll.value), dy: 0) : cell
+        let top = max(content.minY, shown.minY + DropZoneGeometry.header(of: pane, in: cell, headers, context.style))
+        let bottom = min(content.maxY, shown.maxY - DropZoneGeometry.footer(of: pane, in: cell, footers, context.style))
+        return CGRect(x: content.minX, y: top, width: content.width, height: max(0, bottom - top))
+    }
+
+    /// The join preview of `pane` (view coordinates): the same body fill a tab dropped in its center
+    /// shows. A pane drag previews its target with it, so both drags share one preview.
+    func joinHighlight(_ pane: PaneID) -> (highlight: CGRect, region: CGRect)? {
+        let (headers, footers) = paneChromeBands()
+        guard let body = paneBody(pane, headers: headers, footers: footers),
+              let region = DropZoneGeometry.regionRectInView(for: .pane(pane, .center), offset: scroll.value, geometry: geometry,
+                                                             style: context.style) else { return nil }
+        var rect = DropZoneGeometry.classicPaneHighlight(body: body, zone: .center)
+        if geometry.scrolls(pane: pane) { rect = rect.intersection(uncoveredRect) }
+        return rect.isNull || rect.isEmpty ? nil : (rect, region)
     }
 
     /// The new pane's rect and the final rects of the panes a split of `pane` at `zone` resizes or
@@ -90,7 +112,9 @@ extension ScreenContentView {
 
     /// Where splitting `pane` along `axis` goes on this screen right now.
     func splitPlacement(splitting pane: PaneID, axis: SplitAxis, removing: PaneID?) -> SplitPlacement {
-        SplitRoom.placement(splitting: pane, axis: axis, in: layout, viewport: bounds.size, style: context.style, removing: removing)
+        // A canvas places a split's new pane beside the old one at its size: there is always room.
+        if isCanvas { return .split }
+        return SplitRoom.placement(splitting: pane, axis: axis, in: layout, viewport: bounds.size, style: context.style, removing: removing)
     }
 
     /// An edge drop that cannot split for lack of room becomes a new column

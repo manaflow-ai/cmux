@@ -9,6 +9,8 @@ import AppKit
     func fieldEditorKey(_ key: OmnibarInput.Key) -> Bool
     /// `word`: the word under the press in the text shown now.
     func fieldEditorMouseDown(clickCount: Int, button: OmnibarInput.MouseButton, word: NSRange?)
+    /// The press moved past the drag threshold before its release.
+    func fieldEditorMouseDragged()
     func fieldEditorMouseUp()
     /// Copy and Cut text for the selection, with the omnibox copy adjustments.
     var copyContent: OmnibarCopy? { get }
@@ -22,6 +24,8 @@ import AppKit
 /// and has AppKit undo off: the state machine owns the text and its undo.
 final class OmnibarFieldEditor: NSTextView {
     weak var sink: (any OmnibarFieldEditorSink)?
+    /// Bench marks (`debug.omnibar_bench`): nil outside a bench run.
+    var probe: ((String) -> Void)?
     /// Between `shouldChangeText` and `didChangeText`: selection changes
     /// there belong to the edit and are reported with it.
     private var isChangingText = false
@@ -124,9 +128,13 @@ final class OmnibarFieldEditor: NSTextView {
     }
 
     override func mouseDown(with event: NSEvent) {
+        probe?("editor.mouseDown")
         sink?.fieldEditorMouseDown(clickCount: event.clickCount, button: .left, word: word(at: event))
+        probe?("editor.tracking")
         // Tracks the click or drag until mouse-up.
         super.mouseDown(with: event)
+        probe?("editor.tracked")
+        if event.omnibarDragged(to: NSApp.currentEvent) { sink?.fieldEditorMouseDragged() }
         sink?.fieldEditorMouseUp()
     }
 
@@ -198,7 +206,7 @@ final class OmnibarFieldEditor: NSTextView {
 }
 
 /// Hands the omnibar its own field editor.
-final class AddressFieldCell: NSTextFieldCell {
+final class AddressFieldCell: ChromeTextFieldCell {
     let editor = OmnibarFieldEditor()
 
     override func fieldEditor(for controlView: NSView) -> NSTextView? { editor }

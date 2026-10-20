@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR a453986b67d167174f384a45b851ba6779b4ecfde280ba17c07ea656ab7e84b0. */
+/* cmux-tui mux protocol 12, IR d28b6c071931b63ff1a5f3d8212c6f894d99794587d18e247ed287611eb3726e. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "a453986b67d167174f384a45b851ba6779b4ecfde280ba17c07ea656ab7e84b0" as const;
+export const SDK_IR_SHA256 = "d28b6c071931b63ff1a5f3d8212c6f894d99794587d18e247ed287611eb3726e" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -340,7 +340,7 @@ export const COMMAND_METADATA = {
     "fields": {},
     "stream": null,
     "constraints": [
-      "The owner's trusted connection only: a registered Unix client with no link peer record acting as the local user (a local client, or the link's owner_session splice). Link-stamped, relayed, WebSocket, unregistered and agent-bound connections are refused with origin.forbidden before anything is forwarded; the remote relay never admits it. Read-only: one of seven /api paths, GET, forwarded as one line to the brain host's tools socket (CMUX_TUI_CHIEF_TOOLS_SOCKET); answers above 5 MiB are refused. Every daemon advertises chief-inspect-v1; one without that socket answers the owner chief.not_configured. See spec/commands.md."
+      "The owner's trusted connection only: a registered Unix client with no link peer record acting as the local user (a local client, or the link's owner_session splice). Link-stamped, relayed, WebSocket, unregistered and agent-bound connections are refused with origin.forbidden before anything is forwarded; the remote relay never admits it. Reads: one of nine /api read paths, GET; the owner's memory changes (/api/memory/edit, /api/memory/delete, /api/memory/undo): POST, which the brain refuses to the Chief's own sessions; the reserved query key chief names a non-default Chief's brain. Forwarded as one line to the brain host's tools socket (CMUX_TUI_CHIEF_TOOLS_SOCKET); answers above 5 MiB are refused. Every daemon advertises chief-inspect-v1; one without that socket answers the owner chief.not_configured. See spec/commands.md."
     ]
   },
   "clear-history": {
@@ -1666,6 +1666,17 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "See spec/commands.md for the result object."
+    ]
+  },
+  "move-column": {
+    "authority": "control",
+    "since": 12,
+    "capability": "column-move-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "pane names any pane of the column that moves; the whole column (every pane, split and row) trades places with its neighbor in direction.",
+      "A docked column never moves and is never crossed. See spec/commands.md for the result object and error codes."
     ]
   },
   "move-personal-group": {
@@ -5245,6 +5256,13 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       "kind": "scalar",
       "name": "string"
     }
+  },
+  "ColumnMoveDirection": {
+    "kind": "enum",
+    "values": [
+      "left",
+      "right"
+    ]
   },
   "ColumnPin": {
     "additional_properties": false,
@@ -20060,6 +20078,34 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "scalar",
             "name": "uint64"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "move-column": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "direction": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "ColumnMoveDirection"
+          }
+        },
+        "pane": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
           }
         }
       },

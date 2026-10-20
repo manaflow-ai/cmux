@@ -51,6 +51,9 @@ public nonisolated enum OmnibarInput: Equatable, Sendable {
         /// Backspace with the caret at the start of the text: leaves an
         /// extension keyword session (not handled outside one).
         case backspaceAtStart
+        /// Opt-Cmd-F (Chrome's Search the Web, `IDC_FOCUS_SEARCH`): while
+        /// focused, a keyword session of the default search engine, empty.
+        case searchWithDefaultEngine
     }
 
     public enum FocusSource: Equatable, Sendable { case mouse, keyboard, programmatic }
@@ -75,6 +78,10 @@ public nonisolated enum OmnibarInput: Equatable, Sendable {
     // the machine uses it to fix the second click of a double-click that
     // follows an unelision (Chromium crbug.com/40693090).
     case fieldMouseDown(clickCount: Int, button: MouseButton = .left, word: NSRange? = nil)
+    /// The pointer moved past the drag threshold while the press was down
+    /// (Chromium `OnMouseDragged` past `ExceededDragThreshold`): the press is
+    /// a drag, so a focusing click keeps what it selected.
+    case fieldMouseDragged
     case fieldMouseUp
 
     // Mouse over suggestion rows. `row` nil: the pointer left the rows.
@@ -89,6 +96,8 @@ public nonisolated enum OmnibarInput: Equatable, Sendable {
     case moreSuggestions(generation: UInt64, rows: [BrowserSuggestion], capacity: Int)
 
     case pageURLChanged(URL?)
+    /// `browser.omnibar.showFullURLs` changed (`OmnibarState.showsFullURLs`).
+    case showFullURLsChanged(Bool)
     case searchEngineChanged
     case pasteAndGo(String)
 }
@@ -109,6 +118,10 @@ public nonisolated enum OmnibarEffect: Equatable, Sendable {
     /// Enter loaded the typed text as a URL (what-you-typed or its inline
     /// completion): the visit counts as typed (Chromium `PAGE_TRANSITION_TYPED`).
     case typedNavigation(URL)
+    /// Enter loads typed text without a scheme over https (`example.com`):
+    /// if https cannot connect, the chrome loads it once over http
+    /// (`HTTPSUpgradeFallback`, Chrome's HTTPS-Upgrades fallback).
+    case typedHTTPSUpgrade(URL)
     /// Enter fixed a top-level-domain typo in this typed host
     /// (`HostTypoFixup`): remember it, so typing it again loads it as typed.
     case hostTypoFixed(typedHost: String)

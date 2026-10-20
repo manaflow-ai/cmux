@@ -25,7 +25,10 @@ public final class AddressBarView: NSView {
     public var pageInfoAnchor: NSView { chip }
 
     public var suggestionEngine: OmniboxSuggestionEngine {
-        didSet { controller.send(.searchEngineChanged) }
+        didSet {
+            controller.send(.searchEngineChanged)
+            if suggestionEngine !== oldValue { followDisplay() }
+        }
     }
 
     let pill = OmnibarPillView()
@@ -35,8 +38,10 @@ public final class AddressBarView: NSView {
     private let machineBadgeView = MachineBadgeView()
     private let profileBadgeView = ProfileBadgeView()
     let starButton = BookmarkStarButton()
-    /// The trailing badges (browser profile, machine, bookmark star); hidden ones take no room.
-    private lazy var badges = NSStackView(views: [profileBadgeView, machineBadgeView, starButton])
+    /// The trailing badges (browser focus mode, browser profile, machine, bookmark star); hidden ones take no room.
+    let focusModeBadgeView = FocusModeBadgeView()
+    private var focusModeBadgeWanted = false
+    private lazy var badges = NSStackView(views: [focusModeBadgeView, profileBadgeView, machineBadgeView, starButton])
     // Built on first use in init (no IUO).
     private lazy var fieldToEdge = field.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -OmnibarStyle.trailingPadding)
     private lazy var fieldToBadge = field.trailingAnchor.constraint(equalTo: badges.leadingAnchor, constant: -OmnibarStyle.textLeading)
@@ -50,10 +55,29 @@ public final class AddressBarView: NSView {
     private var cursorTextArea = NSRect.zero
     /// The page's title, for a drag of the address out of the bar.
     public var pageTitle: (() -> String?)?
+    /// The site icon of a page suggestion row, fetched as the tab fetches
+    /// favicons (the App names the site's icon address). Nil: kind glyphs.
+    public var rowFavicon: ((URL) async -> NSImage?)? {
+        get { panel.faviconSource }
+        set { panel.faviconSource = newValue }
+    }
+    /// Enter loads typed text over https that may fall back to http
+    /// (`HTTPSUpgradeFallback`); the chrome watches the load.
+    public var onTypedHTTPSUpgrade: ((URL) -> Void)?
     /// The page's URL changed (the host refreshes the bookmark star).
     public var onPageURLChange: ((URL?) -> Void)?
+    /// Bench marks (`debug.omnibar_bench`): the press path's stages, nil
+    /// outside a bench run.
+    public var benchProbe: ((String) -> Void)? {
+        didSet {
+            field.probe = benchProbe
+            controller.probe = benchProbe
+        }
+    }
     /// Set by `focus()` for the responder change it causes.
     var pendingFocusSource: OmnibarInput.FocusSource?
+    /// `beginSearch()` ran before the field had focus: the next focus starts the search.
+    private var pendingSearch = false
     private var security: BrowserSecurityState = .none
     /// Built in init, where `onEffect` is set (no IUO; lazy because its closures capture self).
     private(set) lazy var controller = OmnibarController(
@@ -63,13 +87,41 @@ public final class AddressBarView: NSView {
         // resolver, as `suggest` answers `finished`.
         resolver: { [weak self, suggestionEngine] in self?.resolver ?? suggestionEngine.resolver },
         suggest: { [weak self] request in
-            guard let self else { return OmniboxDelivery.finished }
+            guard let self, !isReadOnly else { return OmniboxDelivery.finished }
             var request = request
             request.tabKey = tabKey
             request.allowsChromiumSchemes = allowsChromiumSchemes
             return suggestionEngine.deliveries(for: request)
         }
     )
+
+    /// A bar that shows the page's address but never edits it: a system
+    /// sign-in window (`WebAuthSessionWindow`), where navigating away would
+    /// lose the sign-in. The same view, chip, URL styling, selection, copy
+    /// and keys as an editable bar; typing, paste, Return, Paste and Go and
+    /// suggestions do nothing. False for browser tabs and page popups.
+    public var isReadOnly = false {
+        didSet {
+            field.isEditable = !isReadOnly
+            field.isSelectable = true
+            // The omnibar shows focus through its own capsule, never AppKit's ring.
+            field.focusRingType = .none
+        }
+    }
+
+    /// The text the bar shows now (the compact URL at rest, the full address
+    /// or the typed text while editing).
+    public var displayedText: String { field.currentText }
+
+    /// Whether `key` reaches the state machine. A read-only bar keeps the
+    /// keys that select or leave (Cmd-A, Cmd-L, Home, Escape).
+    func admits(_ key: OmnibarInput.Key) -> Bool {
+        guard isReadOnly else { return true }
+        switch key {
+        case .escape, .selectAll, .focusLocation, .home: return true
+        default: return false
+        }
+    }
 
     /// Chromium tabs also load `chrome://` and `chrome-extension://` pages
     /// (Chromium's own WebUI and extension pages, which WebKit cannot show).
@@ -95,7 +147,9 @@ public final class AddressBarView: NSView {
     var resolver: OmniboxResolver {
         var resolver = suggestionEngine.resolver
         resolver.urlResolver.allowsChromiumSchemes = allowsChromiumSchemes
-        resolver.keywords = keywordSource()
+        // Extension keywords first (an extension's own keyword wins), then
+        // the search engines' (Chrome's tab to search).
+        resolver.keywords = keywordSource() + OmnibarKeyword.searchEngines(default: resolver.searchEngine)
         return resolver
     }
 
@@ -118,6 +172,7 @@ public final class AddressBarView: NSView {
         field.onFocus = { [weak self] in self?.fieldDidFocus() }
         field.onPasteAndGo = { [weak self] in self?.pasteAndGo() }
         field.pasteAndGoTitle = { [weak self] in self?.pasteAndGoTitle() }
+        field.extraMenuItems = { [weak self] in self?.omnibarMenuItems() ?? [] }
         field.setAccessibilityLabel(Strings.omnibarPlaceholder)
         // A long URL truncates; it never widens the toolbar or the pane
         // (BrowserToolbarLayout decides the omnibar's width).
@@ -133,6 +188,7 @@ public final class AddressBarView: NSView {
         addSubview(chip)
         addSubview(field)
         machineBadgeView.isHidden = true
+        focusModeBadgeView.isHidden = true
         profileBadgeView.isHidden = true
         starButton.isHidden = true
         badges.orientation = .horizontal
@@ -175,6 +231,7 @@ public final class AddressBarView: NSView {
             updateChrome()
         }
         density.start()
+        followDisplay()
     }
 
     @available(*, unavailable)
@@ -223,8 +280,43 @@ public final class AddressBarView: NSView {
     /// The badge shown now, for diagnostics (`debug.browser`).
     public var profileBadgeName: String? { profileBadgeView.isHidden ? nil : profileBadgeView.themedToolTip }
 
+    /// Browser focus mode's badge: nil hides it, else "Focus Mode" or, once
+    /// the first Escape armed the exit, "Esc again to exit". It fades in and
+    /// out (at once under Reduce Motion or the app's motion setting).
+    public func setFocusModeBadge(armed: Bool?) {
+        if let armed { focusModeBadgeView.show(armed: armed) }
+        let shown = armed != nil
+        guard focusModeBadgeWanted != shown else { return }
+        focusModeBadgeWanted = shown
+        // Reduce Motion or the motion setting: the badge appears and goes at once (no animator
+        // proxy, whose zero-length group can leave the old alpha until the next commit).
+        guard Motion.animatesFades, Motion.canAnimate(in: focusModeBadgeView) else {
+            focusModeBadgeView.alphaValue = shown ? 1 : 0
+            focusModeBadgeView.isHidden = !shown
+            return updateBadgeSpace()
+        }
+        if !shown {
+            Motion.animate(.fadeOut, in: focusModeBadgeView, { focusModeBadgeView.animator().alphaValue = 0 }) { [weak self] in
+                // Shown again while fading out: stay visible.
+                guard let self, !focusModeBadgeWanted else { return }
+                focusModeBadgeView.isHidden = true
+                updateBadgeSpace()
+            }
+        } else {
+            focusModeBadgeView.alphaValue = 0
+            focusModeBadgeView.isHidden = false
+            updateBadgeSpace()
+            Motion.animate(.fadeIn, in: focusModeBadgeView) { focusModeBadgeView.animator().alphaValue = 1 }
+        }
+    }
+
+    /// Whether the focus mode badge shows (or is fading in); tests, diagnostics.
+    public var showsFocusModeBadge: Bool { focusModeBadgeWanted }
+    /// The focus mode badge's text (tests, diagnostics).
+    public var focusModeBadgeText: String? { showsFocusModeBadge ? focusModeBadgeView.shownText : nil }
+
     func updateBadgeSpace() {
-        let visible = !machineBadgeView.isHidden || !profileBadgeView.isHidden || !starButton.isHidden
+        let visible = !machineBadgeView.isHidden || !profileBadgeView.isHidden || !starButton.isHidden || !focusModeBadgeView.isHidden
         guard fieldToBadge.isActive != visible else { return }
         fieldToEdge.isActive = !visible
         fieldToBadge.isActive = visible
@@ -262,13 +354,26 @@ public final class AddressBarView: NSView {
         window?.makeFirstResponder(field)
     }
 
+    /// Opt-Cmd-F (Chrome's Search the Web): a search with the default
+    /// engine in the focused field ("Search Google" in the chip, empty text).
+    /// Called after the focus coordinator focused the field; a focus that
+    /// lands later (a Chromium page window giving key back) starts it then.
+    public func beginSearch() {
+        guard controller.state.hasFocus else {
+            pendingSearch = true
+            return
+        }
+        controller.send(.key(.searchWithDefaultEngine))
+    }
+
     /// Return with a disposition while the field is editing (the
     /// `omnibar.openIn…Tab` actions, Cmd-Return): commits the highlighted
     /// row or the typed text to `disposition`, as the field's own Return
     /// does. Returns false when the field is not editing.
     @discardableResult
     public func commit(_ disposition: OmnibarDisposition) -> Bool {
-        controller.send(.key(.enter(disposition)))
+        guard admits(.enter(disposition)) else { return false }
+        return controller.send(.key(.enter(disposition)))
     }
 
     /// Verification hook (`BrowserDebugWindow`, tests): focuses the field
@@ -308,6 +413,10 @@ public final class AddressBarView: NSView {
 
     private func fieldDidFocus() {
         controller.send(.focusGained(pendingFocusSource ?? (isMouseDownInField(NSApp.currentEvent) ? .mouse : .programmatic)))
+        if pendingSearch {
+            pendingSearch = false
+            controller.send(.key(.searchWithDefaultEngine))
+        }
     }
 
     /// A press in the bar focused it (not a click elsewhere, such as a
@@ -338,12 +447,16 @@ public final class AddressBarView: NSView {
 
     private func perform(_ effect: OmnibarEffect) {
         switch effect {
-        case .began: onEvent?(.didBeginEditing)
+        case .began:
+            benchProbe?("began")
+            onEvent?(.didBeginEditing)
+            benchProbe?("began.done")
         case .ended(let reason): onEvent?(.didEndEditing(reason))
         case .beep: NSSound.beep()
         case .deleteSuggestion(let url): suggestionEngine.deleteSuggestion(url)
         case .typedNavigation(let url): suggestionEngine.noteTyped(url)
         case .hostTypoFixed(let host): suggestionEngine.resolver.hostTypoMemory.recordFix(of: host)
+        case .typedHTTPSUpgrade(let url): onTypedHTTPSUpgrade?(url)
         case .copyAnswer(let answer):
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(answer, forType: .string)
@@ -360,13 +473,13 @@ public final class AddressBarView: NSView {
     }
 
     private func pasteAndGoTitle() -> String? {
-        guard let text = pastedText(), let destination = resolver.destination(for: text) else { return nil }
+        guard !isReadOnly, let text = pastedText(), let destination = resolver.destination(for: text) else { return nil }
         if case .search = destination { return Strings.pasteAndSearch }
         return Strings.pasteAndGo
     }
 
     private func pasteAndGo() {
-        guard let text = pastedText() else { return }
+        guard !isReadOnly, let text = pastedText() else { return }
         commitMarkedText()
         controller.send(.pasteAndGo(text))
     }
@@ -389,6 +502,7 @@ public final class AddressBarView: NSView {
     /// caret at the nearest character.
     public override func mouseDown(with event: NSEvent) {
         guard isBarHit(event) else { return super.mouseDown(with: event) }
+        benchProbe?("bar.mouseDown")
         // While editing the field editor tracks the press (it reports it to
         // the state machine itself).
         if controller.state.hasFocus, let editor = field.editor { return editor.mouseDown(with: event) }
@@ -444,6 +558,7 @@ public final class AddressBarView: NSView {
     // MARK: Appearance
 
     private func updateChrome() {
+        benchProbe?("chrome.update")
         let state = controller.state
         if state.hasFocus != cursorRectsEditing {
             // The field's cursor follows editing (`AddressField.resetCursorRects`).
