@@ -3,9 +3,10 @@
 
 Leo 2026-10-12: Cmd-Tab is the macOS app switcher, so the in-app keys must be solid. With the
 keyboard in a New Tab page's field (the agent pane's webview) of a one-tab workspace, each of
-Ctrl-PageDown, Ctrl-PageUp, Ctrl-Cmd-] and Ctrl-Cmd-[ must be taken by `nextSidebarTab` /
-`prevSidebarTab` and move the sidebar selection one workspace, wrapping. (Ctrl-Tab and
-Cmd-Shift-] / [ cycle the focused pane's tabs: #20116, Lawrence 2026-10-15.) The palette must
+Ctrl-Cmd-] and Ctrl-Cmd-[ must be taken by `nextSidebarTab` / `prevSidebarTab` and move the
+sidebar selection one workspace, wrapping. (Ctrl-Tab and Cmd-Shift-] / [ cycle the focused
+pane's tabs: #20116, Lawrence 2026-10-15. Ctrl-PageDown / PageUp have no cmux default and reach
+the page: Lawrence 2026-10-20.) The palette must
 list both commands with their keys.
 
 The script attaches to an app already running (a capture slot's `capture-host launch`, or a
@@ -111,8 +112,6 @@ def main():
     print(f"workspaces: {len(workspace_keys())}, shown {shown()}, selection {window.get('selection')}, "
           f"rows {[r.get('key') for r in (window.get('rows') or [])[:3]]}", flush=True)
 
-    press("Ctrl-PageDown", "pagedown", ["ctrl"], 1)
-    press("Ctrl-PageUp", "pageup", ["ctrl"], -1)
     press("Ctrl-Cmd-]", "]", ["ctrl", "cmd"], 1)
     press("Ctrl-Cmd-[", "[", ["ctrl", "cmd"], -1)
 
