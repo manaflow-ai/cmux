@@ -3,6 +3,7 @@
 // card with its name and a line about it, and None, which hides the pet. It draws the category's
 // two rows (`home.chiefPetEnabled`, `home.chiefPetMascot`), so SectionView leaves them out of the
 // group list; search, the palette and `cmux settings` still reach them.
+import { useRef } from "react";
 import { useRowState, useStore, type RowState } from "../context";
 import { Icon } from "../icons";
 import { t } from "../strings";
@@ -48,16 +49,20 @@ function Rail() {
   );
 }
 
-/** A search result (`?focus=`) lands on its control: the Show/Hide button, or the selected choice. */
-function reveal(control: HTMLElement | null): void {
-  control?.scrollIntoView?.({ block: "center" });
-  control?.focus();
-}
-
 export function ChiefPetCard({ focus = null }: { focus?: string | null }) {
   const store = useStore();
   const shown = useRowState(CHIEF_PET_ENABLED);
   const character = useRowState(CHIEF_PET_MASCOT);
+  // A search result (`?focus=`) lands on its control (Show/Hide, or the selected choice) once per
+  // focus, after the values arrive (as SettingRow): a later click that moves the selection keeps focus.
+  const revealedFor = useRef<string | null>(null);
+  const target = shown.connected && shown.readable && character.readable ? focus : null;
+  const reveal = (control: HTMLElement | null) => {
+    if (!control || revealedFor.current === target) return;
+    revealedFor.current = target;
+    control.scrollIntoView?.({ block: "center" });
+    control.focus();
+  };
   // As SettingRow: no writes before the owner's values arrive, while disconnected, or to a managed key.
   const locked = (state: RowState) => !state.connected || !state.readable || state.managed !== null;
   const toggleLocked = locked(shown);
@@ -83,7 +88,7 @@ export function ChiefPetCard({ focus = null }: { focus?: string | null }) {
           className="button"
           data-action="chief-pet-toggle"
           disabled={toggleLocked}
-          ref={focus === CHIEF_PET_ENABLED ? reveal : undefined}
+          ref={target === CHIEF_PET_ENABLED ? reveal : undefined}
           onClick={() => void store.set(CHIEF_PET_ENABLED, !enabled)}
         >
           {enabled ? t("settingsPage.chiefPet.hide") : t("settingsPage.chiefPet.show")}
@@ -103,7 +108,7 @@ export function ChiefPetCard({ focus = null }: { focus?: string | null }) {
           className="chief-pet-choice"
           data-pet="none"
           disabled={toggleLocked}
-          ref={focus === CHIEF_PET_MASCOT && selected === "none" ? reveal : undefined}
+          ref={target === CHIEF_PET_MASCOT && selected === "none" ? reveal : undefined}
           onClick={() => choose("none")}
         >
           <span className="chief-pet-choice-art chief-pet-none">
@@ -120,7 +125,7 @@ export function ChiefPetCard({ focus = null }: { focus?: string | null }) {
             className="chief-pet-choice"
             data-pet={entry.id}
             disabled={gridLocked}
-            ref={focus === CHIEF_PET_MASCOT && selected === entry.id ? reveal : undefined}
+            ref={target === CHIEF_PET_MASCOT && selected === entry.id ? reveal : undefined}
             onClick={() => choose(entry.id)}
           >
             <span className="chief-pet-choice-art">
