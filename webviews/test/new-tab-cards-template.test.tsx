@@ -30,6 +30,8 @@ const keys = [
   "getComputedStyle",
   "requestAnimationFrame",
   "cancelAnimationFrame",
+  "ResizeObserver",
+  "MutationObserver",
 ] as const;
 const saved = keys.map((key) => [key, key in scope, scope[key]] as const);
 let window: JSDOM["window"];
@@ -55,6 +57,9 @@ beforeAll(() => {
     getComputedStyle: window.getComputedStyle.bind(window),
     requestAnimationFrame: (run: (time: number) => void) => setTimeout(() => run(0), 0),
     cancelAnimationFrame: (id: number) => clearTimeout(id),
+    // The split's quiet row fits its labels to the width (composerRowFit.ts useRowFit).
+    ResizeObserver: (window as unknown as { ResizeObserver: unknown }).ResizeObserver,
+    MutationObserver: window.MutationObserver,
   });
   host = window.document.getElementById("root")!;
 });
@@ -73,7 +78,14 @@ test("Cards is a template and a style, and the page an unset template shows", ()
   expect(PAGE_STYLES[0]).toBe("cards");
   expect(parseNewTabTemplate("cards")).toBe("cards");
   expect(screenTemplate("cards")).toBe("cards");
-  expect(screenSections("cards")).toEqual({ chats: "cards", allChats: false, recent: 3, prompt: false, closed: false });
+  expect(screenSections("cards")).toEqual({
+    chats: "cards",
+    allChats: false,
+    recent: 3,
+    prompt: false,
+    closed: false,
+    stage: false,
+  });
   // Unset: Cards. Debug Settings design "a" still shows Classic; a saved pick always wins.
   expect(shownTemplate({ layout: "b" })).toBe("cards");
   expect(shownTemplate({ layout: "a" })).toBe("classic");
@@ -158,6 +170,67 @@ test("the other templates keep their composer card and Send disc", async () => {
     );
     expect(host.querySelector(".nt-toolbar")).toBeNull();
     expect(host.querySelector(".nt-box .nt-send")).not.toBeNull();
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+// Claude Code's split on Cards (Leo 2026-10-19: "put the claude code style composer on the first
+// dot in the new tab page and put the existing composer on the second one"). With the agent's chips
+// and the plain footer (on by default), Cards draws the chat composer's box: the prompt, the mic and
+// Send inside it, the mode, model and effort in the quiet row under it. Nothing hides the mic, in
+// Ask or in Search (the mic never leaves the New Tab composer).
+test("Cards with the agent's chips draws the split, and the mic stays in the box in Search", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { NewTabScreen } = await import("../src/agent-session/acpmux/newtab/NewTabScreen");
+  const root: Root = createRoot(host);
+  const Chips = () => (
+    <span className="acpmux-chips">
+      <button type="button" className="acpmux-model" aria-label="Model" />
+    </span>
+  );
+  try {
+    await act(async () =>
+      root.render(
+        <NewTabScreen
+          template="cards"
+          snapshot={noChat(manySessions(8))}
+          lastAgent="claude"
+          chips={Chips}
+          accessory={<button type="button" className="acpmux-mic" aria-label="Dictate" />}
+          onAsk={noop}
+          onOpen={noop}
+          onSearch={noop}
+          onShell={noop}
+          onJump={noop}
+          onOpenSession={noop}
+          onShowAll={noop}
+        />,
+      ),
+    );
+    const screen = host.querySelector<HTMLElement>(".nt-screen")!;
+    const box = host.querySelector<HTMLElement>(".nt-box")!;
+    // The split, not the pill: no toolbar under a pill; the mic and Send in the box; the chips in
+    // the quiet row under it; the project strip heads the card.
+    expect(screen.dataset.pill).toBeUndefined();
+    expect(host.querySelector(".nt-toolbar")).toBeNull();
+    expect(box.querySelector(".nt-pickers .acpmux-mic")).not.toBeNull();
+    expect(box.querySelector(".nt-send")).not.toBeNull();
+    expect(box.querySelector(".acpmux-model")).toBeNull();
+    expect(host.querySelector(".nt-foot .acpmux-composer-foot .acpmux-model")).not.toBeNull();
+    const composer = host.querySelector<HTMLElement>(".nt-composer")!;
+    const strip = composer.querySelector(".nt-location");
+    expect(strip).not.toBeNull();
+    expect(box.contains(strip)).toBe(false);
+    expect(strip!.compareDocumentPosition(box) & window.Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // Cards draws no create row with the split either (u2851): the app always passes the chips.
+    expect(host.querySelector(".nt-create")).toBeNull();
+    // Search keeps the mic where it is: nothing that Search hides holds it.
+    await act(async () => host.querySelector<HTMLButtonElement>('.nt-mode button[data-mode="search"]')!.click());
+    expect(screen.dataset.mode).toBe("search");
+    const mic = box.querySelector<HTMLElement>(".acpmux-mic");
+    expect(mic).not.toBeNull();
+    expect(mic!.closest(".nt-toolbar")).toBeNull();
   } finally {
     await act(async () => root.unmount());
   }

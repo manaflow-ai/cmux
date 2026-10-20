@@ -17,9 +17,11 @@ Sibling: `plans/cmux-next/nightly-builder-DESIGN.md` (the Mac nightly on cmux22)
   `--internal-only`, version and build number checks against App Store Connect,
   and a split mode: `--unsigned --no-asc` archives on a host with no secrets,
   and `--from-archive` signs, validates and uploads that archive elsewhere.
-- **Aziz's workflow** `cnx-ios-testflight.yml` uploads on a manual push to
-  `rc/cnx-ios-internal-*` (run 39347548402 uploaded on 2026-10-20). It runs on
-  Blacksmith and needs an admin push per build.
+- **The retired manual workflow** `cnx-ios-testflight.yml` uploaded from
+  `rc/cnx-ios-internal-*` in one job that also installed rolling tools, built
+  branch code and held signing/upload credentials. The continuous split
+  builder below replaces it; the legacy workflow was removed after the round-3
+  CI security audit.
 - The old `ios-testflight.yml` (main's `ios/` INTERNAL lane) is disabled.
 - Signing material (`ASC_API_*`, `IOS_*`) lives only in the GitHub `release`
   environment, which admits `main`, `rc/**` and `v*`. `rc/**` is admin-only
@@ -115,19 +117,34 @@ ssh cmux23 'python3 ~/ios-internal-builder/ios_internal_builder.py status'
 
 ## Fallback
 
-- A dispatch of `ios-internal-nightly.yml` with `runner=macos-26` archives on
-  GitHub-hosted macOS instead of cmux23.
-- Aziz's manual lane (`rc/cnx-ios-internal-*` push) keeps working; both use
-  timestamp build numbers, so they interleave without collisions.
+- Unset repo variable `CI_IOS_INTERNAL_RUNNER` and the archive runs on
+  GitHub-hosted `macos-26` instead of cmux23 (no warm cache).
+- Manual retries dispatch `ios-internal-nightly.yml` on the admin-only
+  `rc/cnx-ios-builder` ref. There is no second branch-controlled signing lane;
+  timestamp build numbers remain monotonic within the serialized builder.
 
 ## Operations
 
 - Move the builder's workflow forward (admin): `git push origin
-  <feat-cmux-next sha>:refs/heads/rc/cnx-ios-builder` (fast-forward only).
+  <feat-cmux-next sha>:refs/heads/rc/cnx-ios-builder` (fast-forward only;
+  the pre-push web lint covers other agents' files in that range, so set
+  `CMUX_WEB_LINT_SKIP_REASON`). The push also registers the dispatch-only
+  workflow with GitHub, which refuses to dispatch a workflow it never ran.
+- After `scripts/ci/ios_internal_builder.py` changes, copy it to the mini:
+  `scp scripts/ci/ios_internal_builder.py cmux23:ios-internal-builder/` (the
+  admission hook and watch loop run that copy; a stale copy refuses jobs).
+- The trigger does not retry a head that failed for 12 hours; to retry one at
+  once, dispatch `ios-internal-nightly.yml` on `rc/cnx-ios-builder` with `sha`.
 - Pause: set repo variable `IOS_INTERNAL_HOLD=1`; the trigger then dispatches
   nothing.
 
 ## Not done (follow-ups)
+
+- The admission hook does not check the iOS platform is installed. cmux23 had
+  none at first (`iOS 26.5 is not installed`); it was added with
+  `xcodebuild -downloadPlatform iOS`. An Xcode update needs the same step.
+- A build Apple rejects in processing holds the signer for 45 min
+  (`asc builds wait`).
 
 - The Mac nightly and this builder use separate minis; neither waits on the
   other.

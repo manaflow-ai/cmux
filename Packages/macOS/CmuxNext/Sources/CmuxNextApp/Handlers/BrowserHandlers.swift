@@ -16,7 +16,8 @@ enum BrowserHandlers {
         bindSplits(into: registry, context: context)
         bindLinkHints(into: registry, context: context)
         BrowserEnabledToggle.bind(into: registry, context: context)
-        bindUnavailable(registry)
+        BrowsingDataClear.bindClearHistory(registry, context: context)
+        registry.bind("palette.browserToggleOmnibar", run: { invocation in try context.page(invocation).chrome.toggleOmnibar() })
     }
 
     private static func bindPage(into registry: ActionRegistry, context: AppActionContext) {
@@ -49,14 +50,12 @@ enum BrowserHandlers {
         registry.bind("inspectBrowserElement", unavailable: { DevToolsHandlers.noTargetReason(context) }, run: {
             WebInspector.inspectElement(try DevToolsHandlers.target($0, context))
         })
-        // The toolbar shows the mode (BrowserPageModes); a new document starts with it off.
+        // Classic's Design Mode (plans/cmux-next/design-mode-DESIGN.md): highlights become cards in
+        // an agent chat. The toolbar shows the mode (BrowserPageModes); a new document starts with it off.
         registry.bind("toggleBrowserDesignMode", run: { invocation in
             let entry = try context.page(invocation)
-            let modes = entry.chrome.toolbarButtons.modes
-            modes.designMode.toggle()
-            let script = "document.designMode = '\(modes.designMode ? "on" : "off")'"
-            let tab = entry.tab
-            Task { _ = try? await tab.evaluate(script) }
+            guard let key = context.services.cache.key(of: entry.tab) else { return }
+            context.services.designMode.toggle(entry, key: key)
         })
         // React Grab (classic parity): the first toggle on a document loads the pinned library into
         // the page world, later toggles flip it. A load failure says so on the page.
@@ -221,11 +220,5 @@ enum BrowserHandlers {
                 }, notice: { [weak chrome = entry.chrome] text in chrome?.showNotice(text) })
             })
         }
-    }
-
-    private static func bindUnavailable(_ registry: ActionRegistry) {
-        func unavailable(_ ids: [ActionID], _ reason: String) { registry.bindUnavailable(ids, ActionFailure(message: reason)) }
-        unavailable(["palette.browserToggleOmnibar"], MiscHandlerStrings.omnibarToggle)
-        unavailable(["palette.browserClearHistory"], MiscHandlerStrings.browserHistory)
     }
 }

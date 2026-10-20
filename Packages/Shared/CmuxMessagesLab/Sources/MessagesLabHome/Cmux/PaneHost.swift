@@ -319,6 +319,12 @@ final class ChatController: NSObject, NSTextViewDelegate {
     var onPointerMoved: ((CGPoint?) -> Void)?
     /// cmux: a click on any other link (`otherTarget`: Shift-Command held); the system opens it unless the host routes it.
     var onOpenLink: (_ url: URL, _ otherTarget: Bool) -> Void = { url, _ in NSWorkspace.shared.open(url) }
+    /// cmux: a press on a link moved past the drag slop: the host may take the drag (a split or
+    /// tab drop zone opens the link there; plans/cmux-next/link-drag-DESIGN.md). `screenPoint` is
+    /// where the pointer is. True when the host took it: the gesture is then the host's (its own
+    /// event monitor tracks the rest), with no text selection, click or tapback hold here. Nil (or
+    /// false): the press selects text as before.
+    var onDragLink: ((_ url: URL, _ screenPoint: CGPoint) -> Bool)?
     /// cmux: one-shot wake-ups on the host's timer (CmuxNext: DemandTimer).
     let wake: ChatWakeScheduler
     private var wakeAt = Double.infinity
@@ -339,8 +345,7 @@ final class ChatController: NSObject, NSTextViewDelegate {
     private(set) var picker: TapbackPickerView?
     private var pickerDim: PickerDimView?
     private var pickerKeys: Any?
-    /// The pressed bubble lifted above the dim, and the picker's emoji bubble (PaneMenu).
-    private var pickerLift: NSView?
+    /// The picker's emoji bubble (PaneMenu).
     private var pickerEmoji: NSView?
     /// The context menu's target highlight, alive while its menu is (the menu's delegate).
     var menuHighlight: MenuHighlight?
@@ -348,6 +353,11 @@ final class ChatController: NSObject, NSTextViewDelegate {
     var tapbackChoice: TapbackChoice?
     /// Press and hold on a message (MessagesLab 7f1a811).
     private let hold = PressHold()
+    /// cmux: a press on a link (the link and where it started): a move past the slop offers it to
+    /// ``onDragLink``. Cleared on the move that offers it and on every press.
+    private var linkPress: (url: URL, at: CGPoint)?
+    /// cmux: the host took this press as a link drag; its later moves and release are not ours.
+    private var linkDragTaken = false
     private(set) lazy var selection = TranscriptSelection(controller: self)
     /// Trackpad swipe-to-reply (SwipeReply.swift). cmux: installed only when
     /// the owner can honor `.reply` (`intents.canReply`).
@@ -642,7 +652,10 @@ final class ChatController: NSObject, NSTextViewDelegate {
 
     func mouseDown(at p: CGPoint, _ e: NSEvent) {
         if let tv = demo?.compose.textView.view, demo?.compose.fieldRect.contains(p) == true { window?.makeFirstResponder(tv); return }
+        linkPress = nil
+        linkDragTaken = false
         if e.clickCount == 1 {
+            if onDragLink != nil, let url = linkURL(at: p) { linkPress = (url, p) }
             selection.mouseDown(p)
             // MessagesLab 7f1a811: press and hold on a message opens the tapback picker.
             if picker == nil, intents?.canReact == true, let hit = demo?.hit(p) {
@@ -654,6 +667,19 @@ final class ChatController: NSObject, NSTextViewDelegate {
         }
     }
     func mouseDragged(at p: CGPoint, _ e: NSEvent) {
+        // cmux: a link pressed and moved past the selection's slop goes to the host as a link drag
+        // (a split or pane drop zone); it then owns the gesture, so no selection, click or hold here.
+        if linkDragTaken { return }
+        if let press = linkPress, hypot(p.x - press.at.x, p.y - press.at.y) > 3 {
+            linkPress = nil
+            let screen = window.map { $0.convertPoint(toScreen: host.convert(p, to: nil)) } ?? p
+            if onDragLink?(press.url, screen) == true {
+                linkDragTaken = true
+                hold.cancel()
+                selection.clear()
+                return
+            }
+        }
         hold.moved(to: p)
         let doc = host.scrollView.document
         if selection.mouseDragged(p) {
@@ -663,6 +689,11 @@ final class ChatController: NSObject, NSTextViewDelegate {
         }
     }
     func mouseUp(at p: CGPoint, _ e: NSEvent) {
+        if linkDragTaken {
+            linkDragTaken = false
+            _ = selection.mouseUp()
+            return
+        }
         let held = hold.fired
         hold.cancel()
         if held || thread.swallowed(e) { return }
@@ -719,15 +750,13 @@ final class ChatController: NSObject, NSTextViewDelegate {
         let x = min(max(8, hit.row.outgoing ? hit.body.maxX - size.width : hit.body.minX), host.bounds.width - size.width - 8)
         p.frame = CGRect(x: x, y: max(Fixture.headerHeight + 4, hit.body.minY - size.height - 6), width: size.width, height: size.height)
         // The pane dims under the picker; a click on the dim closes it.
-        let dim = PickerDimView(frame: host.bounds)
+        // MessagesLab 69f4256: the pressed bubble stays bright above the dim. cmux: the dim has a hole
+        // in the bubble's shape, so the real bubble shows through (a bitmap copy over the dim drew
+        // upside down in a pane, Lawrence 2026-10-20).
+        let dim = PickerDimView(frame: host.bounds, hole: pickerHole(for: hit))
         dim.onClick = { [weak self] in self?.closePicker() }
         host.addSubview(dim, positioned: .below, relativeTo: host.above)
         pickerDim = dim
-        // MessagesLab 69f4256: the pressed bubble stays bright above the dim.
-        if let lift = pickerLift(for: hit) {
-            host.addSubview(lift, positioned: .below, relativeTo: host.above)
-            pickerLift = lift
-        }
         host.addSubview(p, positioned: .below, relativeTo: host.above)
         picker = p
         let emoji = pickerEmojiButton(under: p)
@@ -744,7 +773,6 @@ final class ChatController: NSObject, NSTextViewDelegate {
     func closePicker() {
         picker?.removeFromSuperview(); picker = nil
         pickerDim?.removeFromSuperview(); pickerDim = nil
-        pickerLift?.removeFromSuperview(); pickerLift = nil
         pickerEmoji?.removeFromSuperview(); pickerEmoji = nil
         if let m = pickerKeys { NSEvent.removeMonitor(m); pickerKeys = nil }
     }

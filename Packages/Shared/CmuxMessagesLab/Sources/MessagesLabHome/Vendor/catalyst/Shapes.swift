@@ -62,6 +62,22 @@ enum BubblePath {
 }
 
 extension BubblePath {
+    /// cmux: the one outline of a part's bubble in its frame `frame` (Lawrence 2026-10-20: "generally bubbles
+    /// should reuse code better"). Every bubble variant takes this path and changes only its fill or stroke:
+    /// the bubble's own fill (`BubbleView.drawBubble`), the outgoing gradient mask, the pressed highlight, the
+    /// selection, the find flash, the tapback picker's hole and a quoted root above a reply
+    /// (`ThreadPreview.shapeRow`). The drawn balloon (`RowDraw.balloon`) with its frame's corners, half-circle
+    /// ends on a 1-line text balloon (`RowDraw.circularEnds`) and the part's tail.
+    static func balloon(frame: CGRect, row p: PartRow, scale: CGFloat = Fixture.renderScale) -> UIBezierPath {
+        balloon(drawn: RowDraw.balloon(frame, row: p, scale: scale), frameSize: frame.size, row: p)
+    }
+    /// `balloon(frame:row:)` when the drawn balloon was already placed in another view's space (a hit's `outline`).
+    static func balloon(drawn: CGRect, frameSize: CGSize, row p: PartRow) -> UIBezierPath {
+        make(body: drawn, outgoing: p.outgoing, tail: p.tail, cornersOf: frameSize, circularEnds: RowDraw.circularEnds(p))
+    }
+}
+
+extension BubblePath {
     /// The tail in "outgoing" space, relative to the body's (maxX, maxY): the
     /// caller mirrors it for an incoming bubble. Fitted to real Messages
     /// (the lossless screenshots references/real-messages/state-*.png, 2x;
