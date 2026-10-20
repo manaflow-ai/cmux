@@ -54,13 +54,18 @@ final class ChiefPetBubblePanel: NSPanel {
         return expanded ? shown * pillHeight + (shown - 1) * spacing : pillHeight + (shown - 1) * deckStep
     }
 
-    /// Centered over `pet`, `gap` above it; below it when the screen's top is too close.
+    /// Toward the quadrant of the screen with room (Leo 2026-10-20): on the right half the frame's
+    /// trailing edge lines up with the pet's and it extends left, on the left half its leading
+    /// edge does and it extends right; on the lower half it sits `gap` above the pet, on the upper
+    /// half `gap` below it. Then kept fully on screen. The reply box takes the same place.
     static func frame(height: CGFloat, over pet: CGRect, in visible: CGRect, width: CGFloat = ChiefPetBubblePanel.width,
                       gap: CGFloat = ChiefPetBubblePanel.gap) -> CGRect {
-        var frame = CGRect(x: pet.midX - width / 2, y: pet.maxY + gap, width: width, height: height)
-        if frame.maxY > visible.maxY { frame.origin.y = pet.minY - gap - height }
-        frame.origin = ChiefPetPlacement.clamped(frame.origin, size: frame.size, in: visible)
-        return frame
+        let towardLeft = pet.midX > visible.midX
+        let below = pet.midY > visible.midY
+        let x = towardLeft ? pet.maxX - width : pet.minX
+        let y = below ? pet.minY - gap - height : pet.maxY + gap
+        let size = CGSize(width: width, height: height)
+        return CGRect(origin: ChiefPetPlacement.clamped(CGPoint(x: x, y: y), size: size, in: visible), size: size)
     }
 }
 
@@ -91,7 +96,11 @@ final class ChiefPetBubbleView: NSView {
             capsule.isHidden = index >= notices.count
             guard index < notices.count else { continue }
             // Folded, only the front capsule shows its text; the deck behind it is bare.
-            capsule.show(notices[index], text: expanded || index == 0)
+            let text = expanded || index == 0
+            capsule.show(notices[index], text: text)
+            // VoiceOver reads what a click can open: folded, the front notice; unfolded, each one.
+            capsule.setAccessibilityElement(text)
+            capsule.onPress = { [weak self] in self?.onOpen?(index) }
         }
         needsLayout = true
         return true
@@ -136,6 +145,8 @@ final class ChiefPetBubbleView: NSView {
 /// One notice: a glass capsule (the solid overlay surface under Reduce Transparency) with the
 /// title in bold and one muted line under it, no status glyph, as the references draw it.
 final class ChiefPetCapsule: NSView {
+    /// A VoiceOver press: opens this notice, as a click on it does.
+    var onPress: (() -> Void)?
     private let surface: NSView
     private let title = ChromeLabel(labelWithString: "")
     private let detail = ChromeLabel(labelWithString: "")
@@ -159,6 +170,12 @@ final class ChiefPetCapsule: NSView {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { nil }
+
+    override func accessibilityPerformPress() -> Bool {
+        guard let onPress else { return false }
+        onPress()
+        return true
+    }
 
     func show(_ notice: ChiefPetNotice, text: Bool) {
         title.stringValue = notice.title

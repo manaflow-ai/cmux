@@ -27,11 +27,15 @@ public struct FolderWatcher: FolderWatching {
     /// The coalescing latency in seconds.
     public var latency: CFTimeInterval
 
+    /// Changes held for a reader that lags; past this the oldest is dropped and a rescan follows.
+    static let bufferLimit = 64
+
     /// Makes a watcher. `latency` defaults to 50 ms.
     public init(latency: CFTimeInterval = 0.05) { self.latency = latency }
 
     public func changes(in folder: URL) -> AsyncStream<FolderChange> {
-        AsyncStream { continuation in
+        // Bounded: when the reader lags so far that a change is dropped, a rescan follows it.
+        AsyncStream(bufferingPolicy: .bufferingNewest(Self.bufferLimit)) { continuation in
             let box = FolderWatchStream(folder: Self.realFolder(folder), latency: latency, continuation: continuation)
             continuation.onTermination = { _ in box.stop() }
             box.start()
