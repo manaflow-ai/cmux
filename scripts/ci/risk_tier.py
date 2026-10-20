@@ -32,6 +32,7 @@ import re
 import subprocess
 import sys
 import time
+from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -52,8 +53,12 @@ RELEASE_WORDS = (
     r"(sign(ing)?|codesign|notari[sz]\w*|appcast|sparkle|release|publish|deploy|nightly|promote|rollback)([-_.][^/]*)?$"
 )
 RULES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
-    # Prose and copy stay low even inside a high directory (a relay's LICENSE, the updater's strings).
-    ("low", "docs or copy", ("*.md", "*.mdx", "LICENSE*", "*/LICENSE*", "*.xcstrings", "*.strings")),
+    # Prose, copy, lockfiles and logs stay low even inside a high directory (a relay's LICENSE, the
+    # updater's strings, an auth service's package-lock). CODEOWNERS is not among them.
+    ("low", "docs or copy", (
+        "*.md", "*.mdx", "LICENSE*", "*/LICENSE*", "*.xcstrings", "*.strings", "docs/*", "release-notes/*",
+        "*.lock", "*-lock.json", "*.log",
+    )),
     ("low", "test", (
         "*/Tests/*", "*/tests/*", "tests/*", "tests_v2/*", "*/test/*", "*_test.*", "*_tests.*",
         "*/tests.rs", "*/test_*.py", "*.test.*", "*Tests.swift", "*/fixtures/*", "*/__snapshots__/*",
@@ -98,7 +103,10 @@ RULES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     )),
     # The gate grades every other pull request, so a change to it gets a person.
     ("high", "the risk gate itself", (
-        ".github/CODEOWNERS", ".github/workflows/risk-tier.yml", "scripts/ci/risk_tier.py",
+        ".github/CODEOWNERS", ".github/workflows/risk-tier.yml", ".github/workflows/risk-tier-tests.yml",
+        "scripts/ci/risk_tier.py",
+        # What refuses a red `risk evidence`: gh-merge-green, and next-autoland's batch lander.
+        "scripts/gh-merge-green", "scripts/ci/next_batch.py",
     )),
     ("low", "docs, plans or skills", (
         "*.md", "*.mdx", "docs/*", "skills/*", "plans/*", "LICENSE*",
@@ -123,12 +131,13 @@ GENERATED = (
 
 # A change kind, read from the lines a pull request adds: a new delete of files or rows. Only in
 # product code (not tests, scripts, workflows or docs), where it can reach a user's data.
+# An in-memory purge (purge_stream_locked) is not here: it loses nothing a user stored.
 DELETES = re.compile(
-    r"(\bremoveItem\s*\(\s*at|\bremove_dir_all\s*\(|\bshutil\.rmtree\b|\brmSync\s*\(|\bfs\.(promises\.)?rm\s*\("
-    r"|\brimraf\b|\bDROP\s+(TABLE|COLUMN)\b|\bTRUNCATE\s+TABLE\b|\bDELETE\s+FROM\b|\.trashItem\s*\("
-    r"|\bdeleteAll\w*\s*\(|\bpurge\w*\s*\(|\bdb\.delete\s*\()")
-DELETE_SCOPE_EXCLUDED = ("scripts/*", ".github/*", "tools/*", "dogfood/*", "Prototypes/*", "samples/*",
-                         "examples/*", ".claude/*", ".codex/*", ".agents/*")
+    r"(\bremoveItem\s*\(\s*at|\bremove_dir_all\s*\(|\bfs::remove_(file|dir)\s*\(|\bshutil\.rmtree\b"
+    r"|\brmSync\s*\(|\bfs\.(promises\.)?rm\s*\(|\brimraf\b|\bDROP\s+(TABLE|COLUMN)\b|\bTRUNCATE\s+TABLE\b"
+    r"|\bDELETE\s+FROM\b|\.trashItem\s*\(|\bdeleteAll\w*\s*\(|\b(db|tx)\.delete\s*\()")
+DELETE_SCOPE_EXCLUDED = ("scripts/*", "*/scripts/*", ".github/*", "tools/*", "dogfood/*", "Prototypes/*",
+                         "samples/*", "examples/*", ".claude/*", ".codex/*", ".agents/*", "cmux-tui/bindings/*")
 
 # A change kind, read from the lines a workflow adds: a trigger that runs with the base's secrets
 # and a write token on a fork's pull request. A cache or checkout of the fork's code under one is
@@ -161,18 +170,43 @@ class Grade:
         return {"tier": self.tier, "label": LABELS[self.tier], "reasons": self.reasons}
 
 
-def added_deletes(path: str, patch: str) -> bool:
-    """Whether the patch adds a delete of files or rows to product code."""
-    if classify_path(path)[0] == "low" or any(matches(path, p) for p in DELETE_SCOPE_EXCLUDED + GENERATED):
-        return False
+def delete_lines(patch: str, sign: str) -> list[str]:
+    """The code lines a patch adds (sign "+") or removes ("-") that delete files or rows, with
+    whitespace collapsed. Comment lines don't count."""
+    found = []
     for line in patch.splitlines():
-        if line.startswith("+") and not line.startswith("+++"):
-            code = line[1:].strip()
-            if code.startswith(("//", "#", "--", "*", "///")):
+        if line.startswith(sign) and not line.startswith(sign * 3):
+            code = " ".join(line[1:].split())
+            if code.startswith(("//", "#", "--", "*", "/*")):
                 continue
             if DELETES.search(code):
-                return True
-    return False
+                found.append(code)
+    return found
+
+
+def new_delete_files(patches: dict[str, str]) -> set[str]:
+    """The product-code files that gain a delete of files or rows. A delete line the pull request
+    also removes, in the same file or another, was moved; a file that removes as many delete lines
+    as it adds was edited. Neither is new."""
+    removed = {path: Counter(delete_lines(patch, "-")) for path, patch in patches.items()}
+    added = {path: delete_lines(patch, "+") for path, patch in patches.items()}
+    unmatched: dict[str, list[str]] = {}
+    # A moved line cancels one removal of the same text, in its own file first, then anywhere.
+    for path in sorted(added, key=lambda p: 0 if removed[p] else 1):
+        for line in added[path]:
+            source = path if removed[path][line] else next((p for p in removed if removed[p][line]), None)
+            if source is None:
+                unmatched.setdefault(path, []).append(line)
+            else:
+                removed[source][line] -= 1
+    flagged = set()
+    for path, lines in unmatched.items():
+        if classify_path(path)[0] == "low" or any(matches(path, p) for p in DELETE_SCOPE_EXCLUDED + GENERATED):
+            continue
+        # A delete line still removed here was rewritten: each one pays for one added line.
+        if len(lines) > sum(removed[path].values()):
+            flagged.add(path)
+    return flagged
 
 
 def added_privileged_trigger(path: str, patch: str) -> bool:
@@ -193,11 +227,12 @@ def classify(files: list[str], patches: dict[str, str] | None = None) -> Grade:
     """The highest tier of any changed path, raised to high by a new delete of user data or a new
     privileged workflow trigger."""
     patches = patches or {}
+    deleting = new_delete_files(patches)
     rank = 0
     reasons: dict[str, list[str]] = {}
     for path in files:
         tier, reason = classify_path(path)
-        if tier != "high" and added_deletes(path, patches.get(path, "")):
+        if tier != "high" and path in deleting:
             tier, reason = "high", "adds a delete of files or stored rows"
         if tier != "high" and added_privileged_trigger(path, patches.get(path, "")):
             tier, reason = "high", "adds a pull_request_target or workflow_run trigger"

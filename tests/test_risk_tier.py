@@ -129,6 +129,10 @@ class ClassifyTests(unittest.TestCase):
         moved = {path: "-  await db.execute(`DELETE FROM sessions WHERE id = $1`)",
                  other: "+  await db.execute(`DELETE FROM sessions WHERE id = $1`)"}
         self.assertEqual(self.tier(path, other, patches=moved), "normal")
+        # Moving one delete out and writing a new one in its place is a new delete.
+        swapped = {path: "-  await db.execute(`DELETE FROM sessions WHERE id = $1`)\n+  await db.execute(`DELETE FROM tokens`)",
+                   other: "+  await db.execute(`DELETE FROM sessions WHERE id = $1`)"}
+        self.assertEqual(self.tier(path, other, patches=swapped), "high")
         # One kept, one new: still a new delete.
         grown = edited + "\n+  await db.execute(`DELETE FROM tokens WHERE id = $1`)"
         self.assertEqual(self.tier(path, patches={path: grown}), "high")

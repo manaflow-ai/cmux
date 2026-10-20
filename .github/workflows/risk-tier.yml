@@ -5,7 +5,7 @@ name: risk tier
 # has graded them (about a minute, alongside the rest of CI). High stays red until a person has
 # looked: an approving review on the head commit, or risk:human-ok from a maintainer. Any tier is
 # held while it takes back another pull request's change from the last week, until a
-# `Takes back #N: <why>` line owns it. gh-merge-green refuses a red `risk evidence` check.
+# `Takes back #N: <why>` line owns it. gh-merge-green and next-autoland refuse a red `risk evidence` check.
 #
 # pull_request_target so fork pull requests can be labeled. It never checks out or runs the
 # pull request's code: the classifier comes from the base branch and reads only the changed-file

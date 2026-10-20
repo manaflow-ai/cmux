@@ -16,8 +16,8 @@ A pull request takes the highest tier of any file it changes. A file no rule nam
 
 | Tier | What | Before merge |
 | --- | --- | --- |
-| low | docs, plans, skills, copy (`*.xcstrings`, `*.strings`), generated output, tests and fixtures, agent and tooling config (`.claude/`, `tools/`, prototypes) | green relevant checks. Post-merge checks catch the rest. |
-| normal | everything else: cmux NEXT UI and logic, webviews, the daemon and cmux-tui, web routes, CI workflows and scripts, `gh-merge-green`, pins, defaults behind a setting | agent review and the relevant checks, then auto-merge or the batch queue. No person. |
+| low | docs, plans, skills, copy (`*.xcstrings`, `*.strings`), lockfiles and logs (even inside a high directory), generated output, tests and fixtures, agent and tooling config (`.claude/`, `tools/`, prototypes) | green relevant checks. Post-merge checks catch the rest. |
+| normal | everything else: cmux NEXT UI and logic, webviews, the daemon and cmux-tui, web routes, CI workflows and scripts, pins, defaults behind a setting | agent review and the relevant checks, then auto-merge or the batch queue. No person. |
 | high | the six kinds below | a person looks first: an approving review on the head commit by a collaborator other than the author, or `risk:human-ok` added by a maintainer |
 
 High is kept small on purpose. Each kind is here because a regression in it can't be undone by
@@ -27,10 +27,10 @@ reverting the commit, or because it takes out the safety net every other tier re
 | --- | --- | --- |
 | auth and credentials | `CmuxAuthRuntime`, `CMUXAuthCore`, `WebAuth/`, keychain and token stores, `web/services/auth/`, `web/proxy.ts`, any `auth`, `oauth`, `sign-in` or `login` path word, `*.entitlements` | #12121 sent signed-in production users into a sign-in loop. A leaked token stays leaked after a revert. |
 | socket and relay access policy | `ControlAuthorizer`, `ControlPeer*`, `CheckedAccess`, the socket path, peer inspectors, relay crates, `services/iroh-relay-minter`, `web/services/relay`, any `relay-policy` or `socket-access` file | Who may drive the app or forward through a relay. #20644 (P1) broke local agent chats against this policy. The app has no relay policy yet, so every relay path must stay default-deny. |
-| stored-data migrations | `*/migrations/*`, `drizzle/`, `migrate/`, `*Migrat*` sources, `web/convex/schema*`, `backend/db/schema*` | #16397 deployed code before its migration was applied: every Cloud VM create failed for about 7 hours. A bad migration loses data on every machine that runs it. |
+| stored-data migrations | `migrations/`, `*/migrations/*`, `drizzle/`, `migrate/`, `*Migrat*` sources, `web/convex/schema*`, `backend/db/schema*` | #16397 deployed code before its migration was applied: every Cloud VM create failed for about 7 hours. A bad migration loses data on every machine that runs it. |
 | release, signing, notarization and the updater | `nightly*.yml`, any script or workflow named for sign, notarize, appcast, sparkle, release, publish, deploy, nightly, promote or rollback, `scripts/ci/lib/`, `CmuxNextUpdater` | Two release breaks in the window (#18817, 19f51d5ef2). A broken updater stops fixes from reaching anyone, so it breaks the nightly safety net that normal relies on. |
-| the risk gate itself | `risk-tier.yml`, `risk_tier.py`, `CODEOWNERS` | It grades every other pull request. |
-| new data deletion, new privileged trigger | a product-code line that adds a delete of files or rows (`removeItem(at:`, `remove_dir_all`, `rmtree`, `DELETE FROM`, `DROP TABLE`, `trashItem`, `deleteAll…`, `purge…`); a workflow line that adds `pull_request_target` or `workflow_run` | Deleted user data doesn't come back with a revert. 16c570b576 put a cargo cache on `pull_request_target`, a cache-poisoning path. Tests, CI scripts and comments don't count. |
+| the risk gate itself | `risk-tier.yml`, `risk-tier-tests.yml`, `risk_tier.py`, `CODEOWNERS`, and what refuses a red `risk evidence`: `scripts/gh-merge-green` and `scripts/ci/next_batch.py` (next-autoland) | It grades every other pull request. A normal change to an enforcer could drop the refusal with no person looking. |
+| new data deletion, new privileged trigger | a product-code line that adds a delete of files or rows (`removeItem(at:`, `remove_dir_all`, Rust `fs::remove_file`/`fs::remove_dir`, `rmtree`, `DELETE FROM`, `DROP TABLE`, `trashItem`, `deleteAll…`, Drizzle `db.delete(`/`tx.delete(`) that the pull request doesn't also remove (an edited or moved delete isn't new); a workflow line that adds `pull_request_target` or `workflow_run` | Deleted user data doesn't come back with a revert. 16c570b576 put a cargo cache on `pull_request_target`, a cache-poisoning path. Tests, CI scripts (`scripts/`, `*/scripts/`), generated bindings, comments and in-memory purges don't count. |
 
 ### Taking back a recent change
 
@@ -46,7 +46,7 @@ clears this; no person is needed.
 - **Size.** There is no line-count rule. In the audit, the changes that broke things were as
   often small as large: the unclosed CSS rule (#19473) was one line, and the P1 (#20644) was 48
   lines. A size rule mostly made large, safe UI work wait.
-- **CI workflows and merge tooling** (`cmux-next.yml`, `ci.yml`, `gh-merge-green`). They broke
+- **CI workflows** (`cmux-next.yml`, `ci.yml`), apart from the gate's enforcers above. They broke
   CI often (18 of the 142 fixes), but a bad line is one revert away and hurts no user. The cost
   of making them wait on a person was higher than the cost of the reds.
 - **Pins and the package graph** (`ghostty`, `vendor/`, `Package.resolved`). Three stale pins
