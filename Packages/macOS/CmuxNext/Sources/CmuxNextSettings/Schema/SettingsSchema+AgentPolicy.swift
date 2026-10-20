@@ -298,6 +298,11 @@ extension SettingsSchema {
         "agents.subsessions.enabled": .userOnly,
         "agents.subsessions.maxChildren": .userOnly,
         "agents.subsessions.maxDepth": .userOnly,
+        // Which folders an agent may open without asking is the person's call: an agent must not
+        // widen what it may open without asking.
+        "agents.trust.autoTrust": .userOnly,
+        "agents.trust.projectRoots": .userOnly,
+        "agents.trust.ownOrgs": .userOnly,
         // What reaches this Mac from outside and what leaves it: only the person opens phone access.
         "phone.allowConnections": .network,
         "phone.startSessions": .network,
