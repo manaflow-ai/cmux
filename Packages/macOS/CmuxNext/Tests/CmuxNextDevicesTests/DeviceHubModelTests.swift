@@ -56,6 +56,26 @@ import Testing
         #expect(seen.last == .sessionRevoked(sessionID: "s1", reason: "permission_changed"))
     }
 
+    /// The socket coming back is a change: History reads its log again (a relaunched host's new entries).
+    @Test func reconnectingCountsAsAChange() async {
+        let hub = makeHub(StubHub.routes([:]))
+        await hub.handle(.state(.connected))
+        #expect(hub.pushCount == 1)
+    }
+
+    /// A relay deleted elsewhere: its opened secret leaves this Mac's keychain too.
+    @Test func deletedRelaysLoseTheirSecrets() async {
+        let secrets = MemoryRelaySecretStore()
+        secrets.save(.sharedSecret("old"), relayID: "gone")
+        secrets.save(.sharedSecret("kept"), relayID: "r1")
+        let stub = StubHub.routes(["GET /v1/relays": (200, #"{"relays":[{"id":"r1","name":"Home","urls":["turn:h:3478"],"authMode":"shared_secret","sealed":{},"enabled":true,"priority":0}]}"#)])
+        let hub = makeHub(stub, secrets: secrets)
+        await hub.handle(.push(.relaysChanged))
+        #expect(secrets.secret(relayID: "gone") == nil)
+        #expect(secrets.secret(relayID: "r1") == .sharedSecret("kept"))
+        #expect(secrets.relayIDs() == ["r1"])
+    }
+
     /// Audit entries carry `deviceId` for device_added and device_removed.
     @Test func auditEntriesReadTheirDevice() throws {
         let data = Data(#"{"id":"a","ts":1800000000000,"event":"device_added","deviceId":"d1"}"#.utf8)

@@ -544,6 +544,27 @@ struct MacScreenPaneConnectTests {
         return (pane, { starts })
     }
 
+    /// Forget This Mac ends its stream at once, and nothing connects it again.
+    @Test func forgettingEndsTheStreamForGood() {
+        let (pane, starts) = pane(confirmed: true)
+        pane.resume()
+        #expect(starts() == 1)
+        pane.forgotten()
+        #expect(pane.session?.phase == .ended)
+        pane.pause()
+        pane.resume()
+        pane.view.chrome.actions.connect()
+        #expect(starts() == 1)
+        pane.close()
+    }
+
+    /// A stream whose connection stalls (ICE disconnected) shows Reconnecting at once, not a frozen picture.
+    @Test func aStalledStreamShowsReconnecting() {
+        #expect(MacScreenPaneModel.connectedCard(hasFrame: true, stalled: false) == nil)
+        #expect(MacScreenPaneModel.connectedCard(hasFrame: true, stalled: true) == .connecting(reconnecting: true))
+        #expect(MacScreenPaneModel.connectedCard(hasFrame: false, stalled: false) == .waitingForPicture)
+    }
+
     @Test func showingTheTabConnectsThroughTheReconnectPolicy() {
         let (pane, starts) = pane(confirmed: true)
         pane.resume()

@@ -19,6 +19,25 @@ struct ScreenKitTests {
         #expect(decoded == preferences)
     }
 
+    /// A closed session (its Mac forgotten, its tab closed) never connects again.
+    @MainActor @Test func aClosedSessionNeverConnectsAgain() throws {
+        let stream = try #require(VNCPairing(link: VNCPairing.generate(name: "Mac", kind: "stream").link))
+        let session = ScreenSession(title: "Mac", pairing: stream)
+        session.close()
+        #expect(session.phase == .ended)
+        session.connect()
+        session.reconnect()
+        session.resumeIfNeeded()
+        #expect(session.phase == .ended && session.stream == nil && !session.isReconnecting)
+    }
+
+    /// Reconnecting gives up after its tries or once it has tried for 45 s, whichever comes first.
+    @Test func reconnectingGivesUpByTriesOrTime() {
+        #expect(!ScreenSession.givesUp(attempts: 1, limit: 5, elapsed: 3))
+        #expect(ScreenSession.givesUp(attempts: 5, limit: 5, elapsed: 3))
+        #expect(ScreenSession.givesUp(attempts: 2, limit: 5, elapsed: 46))
+    }
+
     @MainActor @Test func sessionsKnowTheirKind() throws {
         let stream = try #require(VNCPairing(link: VNCPairing.generate(name: "Mac", kind: "stream").link))
         let rfb = try #require(VNCPairing(link: VNCPairing.generate(name: "Mac").link))

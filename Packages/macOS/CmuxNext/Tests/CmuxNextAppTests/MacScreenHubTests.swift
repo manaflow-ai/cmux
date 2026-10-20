@@ -431,6 +431,18 @@ struct MacScreenHubViewerTests {
         #expect(ends.items == ["s3 viewer_disconnected"])
     }
 
+    /// The hub lists the host offline while its stream runs (a stalled or dead stream): end it now.
+    @Test func aHostTheHubSeesOfflineEndsItsStream() {
+        let viewer = MacScreenHubViewer(deviceID: hostID) { nil }
+        let stops = CallLog()
+        viewer.stopStream = { stops.items.append("stop") }
+        viewer.phase = .streaming(sessionID: "s1", scope: .full)
+        viewer.hostOnlineChanged(true)
+        #expect(viewer.phase == .streaming(sessionID: "s1", scope: .full))
+        viewer.hostOnlineChanged(false)
+        #expect(viewer.phase == .ended(reason: "peer_offline") && stops.items == ["stop"])
+    }
+
     /// The viewer gives up with the hub: a request nobody answers ends at the five-minute expiry.
     @Test func anUnansweredRequestExpires() async {
         let hub = testHub()
