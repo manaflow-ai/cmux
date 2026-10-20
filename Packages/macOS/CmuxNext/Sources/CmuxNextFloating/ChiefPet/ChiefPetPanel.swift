@@ -29,7 +29,8 @@ public final class ChiefPetPanel: NSPanel, NSWindowDelegate {
     /// The didChangeScreenParameters observer's token, kept for the panel's life.
     private var screenObserver: (any NSObjectProtocol)?
 
-    public init(mascot: ChiefPetMascot = .initial, defaults: UserDefaults = .standard) {
+    /// `notifications`: where screen-parameter changes are posted (AppKit posts to `.default`); tests give their own.
+    public init(mascot: ChiefPetMascot = .initial, defaults: UserDefaults = .standard, notifications: NotificationCenter = .default) {
         placement = ChiefPetPlacement(defaults: defaults)
         pet = ChiefPetView(image: mascot.image)
         super.init(
@@ -64,8 +65,8 @@ public final class ChiefPetPanel: NSPanel, NSWindowDelegate {
         visibleFrame = { [weak self] in self?.screen?.visibleFrame }
         // A resolution change, or the Dock or menu bar resizing, keeps the screen, so AppKit sends no
         // didChangeScreen; the visible frame still changes under the pet.
-        screenObserver = NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification,
-                                                                object: nil, queue: .main) { [weak self] _ in
+        screenObserver = notifications.addObserver(forName: NSApplication.didChangeScreenParametersNotification,
+                                                   object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.keepOnScreen() } // main-proof: observer on queue: .main
         }
     }

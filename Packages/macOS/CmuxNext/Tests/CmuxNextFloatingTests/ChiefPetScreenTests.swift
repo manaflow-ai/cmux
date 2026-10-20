@@ -16,9 +16,11 @@ import Testing
 
     /// A 400 pt screen: the pet (136 pt wide) fits fully at x 264 at most.
     static let visible = CGRect(x: 0, y: 0, width: 400, height: 400)
+    /// The panels' own center: a post here reaches no other suite's pet.
+    static let notifications = NotificationCenter()
 
     static func panel() -> ChiefPetPanel {
-        let panel = ChiefPetPanel(defaults: defaults())
+        let panel = ChiefPetPanel(defaults: defaults(), notifications: Self.notifications)
         panel.visibleFrame = { Self.visible }
         panel.setFrameOrigin(CGPoint(x: 200, y: 200))
         return panel
@@ -47,7 +49,7 @@ import Testing
         #expect(panel.frame.origin == CGPoint(x: 350, y: 200))
         panel.windowDidChangeScreen(Notification(name: NSWindow.didChangeScreenNotification, object: panel))
         #expect(panel.frame.origin == CGPoint(x: 350, y: 200), "mid-drag the pet stays under the pointer")
-        NotificationCenter.default.post(name: NSApplication.didChangeScreenParametersNotification, object: nil)
+        Self.notifications.post(name: NSApplication.didChangeScreenParametersNotification, object: nil)
         #expect(panel.frame.origin == CGPoint(x: 350, y: 200), "mid-drag the pet stays under the pointer")
         let up = NSEvent.mouseEvent(with: .leftMouseUp, location: .zero, modifierFlags: [], timestamp: 0,
                                     windowNumber: panel.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!
@@ -66,7 +68,7 @@ import Testing
         // The screen stays the same, so AppKit sends no didChangeScreen: only the screen parameters change.
         let panel = Self.panel()
         panel.setFrameOrigin(CGPoint(x: 350, y: 380))
-        NotificationCenter.default.post(name: NSApplication.didChangeScreenParametersNotification, object: nil)
+        Self.notifications.post(name: NSApplication.didChangeScreenParametersNotification, object: nil)
         #expect(panel.frame.origin == CGPoint(x: 264, y: 400 - ChiefPetPanel.petSize.height))
     }
 
