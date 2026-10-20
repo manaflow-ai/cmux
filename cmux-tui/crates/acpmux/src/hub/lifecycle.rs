@@ -375,8 +375,21 @@ impl Hub {
         // runs with the harness initialized and its session created.
         if let Some(pooled) = self.pool_take_claimed(&session.id) {
             match self.adopt_pooled(session, pooled).await {
-                // A harness whose own settings started it in full access: capped like a cold start.
-                Ok(child) => return self.cap_full_access(session, &child).await.map(|()| child),
+                // A harness whose own settings started it in full access: capped like a cold
+                // start, under the same budget. Its `session/set_mode` would otherwise wait
+                // forever on a harness that stays alive but never answers, holding `spawn_lock`.
+                Ok(child) => {
+                    let budget = self.config.read().await.agent_start_timeout();
+                    return match tokio::time::timeout(budget, self.cap_full_access(session, &child))
+                        .await
+                    {
+                        Ok(result) => result.map(|()| child),
+                        Err(_) => {
+                            self.abandon_cold_start(session, budget).await;
+                            Err(RpcError::deadline_exceeded("agent_start", budget))
+                        }
+                    };
+                }
                 // Not promotable: it was ended; start cold below.
                 Err(e) => tracing::warn!(session = %session.id, "pooled session not taken: {e:#}"),
             }

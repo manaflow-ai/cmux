@@ -710,6 +710,9 @@ def main():
         m = msg["method"]
         rid = msg.get("id")
         params = msg.get("params") or {}
+        # FAKE_SET_MODE_SILENT=1: never answer session/set_mode, while staying alive.
+        if m == "session/set_mode" and os.environ.get("FAKE_SET_MODE_SILENT") == "1":
+            continue
         if m == "initialize" and os.environ.get("FAKE_DIE_AT_START"):
             sys.stderr.write(os.environ["FAKE_DIE_AT_START"] + "\n")
             sys.stderr.flush()

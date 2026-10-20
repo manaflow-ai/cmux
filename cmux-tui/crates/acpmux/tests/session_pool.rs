@@ -608,6 +608,46 @@ async fn a_pooled_chat_that_started_in_full_access_leaves_it_when_off() {
     assert_eq!(info["modes"]["currentModeId"], "normal", "{info}");
 }
 
+/// `sessions.allowFullAccess` off and a pooled chat in full access whose harness never answers
+/// the switch to a mode that asks: taking it is bounded by the start budget like a cold start,
+/// so `session/new` fails with a deadline and ends the host instead of hanging on `spawn_lock`.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_pooled_chat_whose_harness_never_leaves_full_access_fails_with_a_deadline() {
+    let mut fakeb = profile("b");
+    fakeb["env"]["FAKE_FULL_ACCESS"] = json!("1");
+    fakeb["env"]["FAKE_NEW_MODE"] = json!("full-access");
+    fakeb["env"]["FAKE_SET_MODE_SILENT"] = json!("1");
+    let off = json!({"sessions": {"allowFullAccess": false}});
+    let daemon = Daemon::with_settings("fahang", 0, &fakeb, Some(off));
+    let mut rpc = daemon.rpc().await;
+    let home = daemon.home.clone();
+    let config = home.join("config.json");
+    let mut cfg: Value = serde_json::from_str(&std::fs::read_to_string(&config).unwrap()).unwrap();
+    cfg["agentStartTimeoutMs"] = json!(2_000);
+    std::fs::write(&config, cfg.to_string()).unwrap();
+    rpc.call("_acpmux/reload_config", json!({})).await;
+    let warmed =
+        rpc.call("_acpmux/prewarm", json!({"harness": "fakeb", "cwd": home, "wait": true})).await;
+    assert_eq!(warmed["accepted"], true, "{warmed}");
+    wait_pool_ready(&mut rpc, "fakeb").await;
+    let params = json!({"cwd": home, "mcpServers": [], "_meta": {"acpmux": {"harness": "fakeb"}}});
+    let refused =
+        tokio::time::timeout(Duration::from_secs(30), rpc.call_err("session/new", params))
+            .await
+            .expect("session/new hung on a harness that never left full access");
+    assert!(refused.contains("agent_start did not finish within"), "{refused}");
+    // The host still in full access was ended, so nothing re-adopts it.
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !daemon.host_records().is_empty() {
+        assert!(
+            Instant::now() < deadline,
+            "the full-access host runs: {:#?}",
+            daemon.host_records()
+        );
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+}
+
 /// LAUNCH-NO-TCC-PROMPTS: an agent nobody asked for (a prewarm, a warm) never
 /// starts without a folder or in `/`, and a session without a folder is
 /// refused instead of running in the home folder.
