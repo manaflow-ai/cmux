@@ -560,6 +560,8 @@ def main():
     parser.add_argument("--url", default="https://example.com")
     parser.add_argument("--tabs", help="browser-tab counts to sample, e.g. 1,10,20 (instead of --workspaces)")
     parser.add_argument("--urls", default="local", help="--tabs: local, real or a comma list of URLs")
+    parser.add_argument("--cef-switches", default="",
+                        help="launch, DEBUG builds: extra Chromium switches, colon-separated (CMUX_NEXT_CEF_EXTRA_SWITCHES)")
     parser.add_argument("--top", type=int, default=15)
     parser.add_argument("--config", default="{}",
                         help='launch: cmux.json settings as JSON, e.g. \'{"browser": {"hibernation": 1}}\'')
@@ -580,13 +582,14 @@ def main():
             raise SystemExit("bench-memory: --socket needs --app-pid")
         socket_path, app_pid = args.socket, args.app_pid
     else:
-        launched, socket_path, scratch = launch(bundle, json.loads(args.config))
+        extra = {"CMUX_NEXT_CEF_EXTRA_SWITCHES": args.cef_switches} if args.cef_switches else {}
+        launched, socket_path, scratch = launch(bundle, json.loads(args.config), extra)
         app_pid = launched
     app = App(bundle, socket_path)
     chats = None
     recipes = args.mix.split(",")
     counts = sorted(int(n) for n in args.workspaces.split(",") if n)
-    report = {"app": bundle, "mix": recipes, "settle_s": args.settle, "samples": [],
+    report = {"app": bundle, "mix": recipes, "settle_s": args.settle, "samples": [], "cef_switches": args.cef_switches,
               "webkit_attributed": _responsible is not None}
     opened = []
 
