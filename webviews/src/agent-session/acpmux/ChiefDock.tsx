@@ -120,14 +120,24 @@ export function ChiefDock({
   const cards = ranked.slice(0, MAX_CARDS);
   // Every chat that waits counts, also one past the four cards drawn.
   const attention = ranked.filter((session) => urgency(session, session.sessionId === currentId) >= 4).length;
-  // Escape folds an open dock and hands focus back to the mascot, so it never lands on a card that
-  // just went inert; a folded dock leaves Escape to the window (the Quick Composer closes on it).
+  const cardsRef = useRef<HTMLDivElement>(null);
+  // Folding makes the cards inert: focus on one of them (a card's close, Escape) moves to the
+  // mascot instead of dropping to the page.
+  const fold = () => {
+    const active = cardsRef.current?.ownerDocument.activeElement;
+    setExpanded(false);
+    if (active && cardsRef.current?.contains(active)) mascotButton.current?.focus();
+  };
+  // Escape folds an open dock; a folded one leaves Escape to the window (the Quick Composer closes
+  // on it). Like useEscapeToDismiss, a modified Escape or one that ends an IME composition is not it.
   const foldOnEscape = (event: KeyboardEvent) => {
+    if (event.key !== "Escape" || !expanded) return;
+    if (event.shiftKey || event.altKey || event.metaKey || event.ctrlKey || event.nativeEvent.isComposing) return;
     // A card's context menu is a portal: its Escape closes the menu, not the dock.
-    if (event.key !== "Escape" || !expanded || !event.currentTarget.contains(event.target as Node)) return;
+    if (!event.currentTarget.contains(event.target as Node)) return;
     event.preventDefault();
     event.stopPropagation();
-    setExpanded(false);
+    fold();
     mascotButton.current?.focus();
   };
   return (
@@ -141,7 +151,7 @@ export function ChiefDock({
       onKeyDown={foldOnEscape}
     >
       {/* Folded, the deck is a picture of the chats: inert, so none of its buttons is a Tab stop. */}
-      <div className="acpmux-chief-dock-cards" aria-hidden={!expanded} inert={!expanded}>
+      <div ref={cardsRef} className="acpmux-chief-dock-cards" aria-hidden={!expanded} inert={!expanded}>
         <div className="acpmux-chief-dock-stack">
           {cards.length === 0 && <p className="acpmux-chief-dock-empty">{t("sidebar.noSessions")}</p>}
           {cards.map((session, index) => {
@@ -213,7 +223,7 @@ export function ChiefDock({
                     type="button"
                     className="acpmux-chief-card-dismiss"
                     aria-label={t("render.collapse")}
-                    onClick={() => setExpanded(false)}
+                    onClick={fold}
                   >
                     <span aria-hidden="true">×</span>
                   </button>

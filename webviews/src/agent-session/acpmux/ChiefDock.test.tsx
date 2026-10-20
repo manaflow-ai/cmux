@@ -145,6 +145,26 @@ test("Escape folds the open dock and leaves focus on the mascot", async () => {
   expect(dock.ownerDocument.activeElement).toBe(dock.querySelector(".acpmux-chief-dock-mascot"));
 });
 
+test("a card's close pressed from the keyboard leaves focus on the mascot, not the page", async () => {
+  const dock = await render([chat("a")], true);
+  const close = dock.querySelector<HTMLButtonElement>(".acpmux-chief-card-dismiss")!;
+  close.focus();
+  await act(async () => close.click());
+  expect(dock.dataset.expanded).toBe("false");
+  expect(dock.ownerDocument.activeElement).toBe(dock.querySelector(".acpmux-chief-dock-mascot"));
+});
+
+test("a modified Escape does not fold the dock", async () => {
+  const dock = await render([chat("a")], true);
+  const card = dock.querySelector<HTMLButtonElement>(".acpmux-chief-card-main")!;
+  const event = new KeyboardEvent("keydown", { key: "Escape", metaKey: true, bubbles: true, cancelable: true });
+  await act(async () => {
+    card.dispatchEvent(event);
+  });
+  expect(dock.dataset.expanded).toBe("true");
+  expect(event.defaultPrevented).toBe(false);
+});
+
 test("Escape on a folded dock is left for the window", async () => {
   const dock = await render([chat("a")]);
   const mascot = dock.querySelector<HTMLButtonElement>(".acpmux-chief-dock-mascot")!;
