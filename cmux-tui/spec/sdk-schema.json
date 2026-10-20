@@ -1917,6 +1917,17 @@
      "presence": "required",
      "nullable": false
     },
+    "crate_version": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "constraints": [
+      "The cmux-tui crate version; `version` is the npm/PyPI release (equal in app and local builds)."
+     ]
+    },
     "build_commit": {
      "type": {
       "kind": "scalar",
@@ -1961,6 +1972,28 @@
      "nullable": true,
      "constraints": [
       "The oldest API revision this daemon translates to and from for a client that declares it with set-client-info."
+     ]
+    },
+    "install": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "constraints": [
+      "How this daemon's binary was installed: npm, pypi, app or other."
+     ]
+    },
+    "update_command": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "constraints": [
+      "The command that updates this daemon's install (npm and PyPI only), for a client's version-skew refusal."
      ]
     },
     "capabilities": {
@@ -9333,6 +9366,32 @@
       "since": 12,
       "constraints": [
        "The API revision the client reads and writes. An older revision within the daemon's range is translated both ways by the daemon; a newer client translates for itself; an older one than min_api_revision is refused. Absent: revision 12."
+      ]
+     },
+     "version": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "constraints": [
+       "The client's release (`cmux --version`), named in refusals and logs."
+      ]
+     },
+     "install": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "constraints": [
+       "How the client was installed (npm, pypi, app, other), so a refusal names its exact update command."
       ]
      }
     },
@@ -22474,22 +22533,22 @@
    ]
   },
   "cloud-requests-list": {
-    "authority": "local-admin",
-    "since": 12,
-    "capability": "cloud-conversations-v1",
-    "request": {
-      "kind": "object",
-      "fields": {},
-      "additional_properties": false
-    },
-    "result": {
-      "kind": "ref",
-      "name": "JsonValue"
-    },
-    "stream": null,
-    "constraints": [
-      "Trusted local connections only. Reads the lease person's open message requests (POST /v1/read home.requests.list); no fields are accepted. Returns {requests} with rows whose conversation is not a conversation id dropped. Calls the cloud; errors carry error_code, reason and retryable. See spec/commands.md."
-    ]
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "cloud-conversations-v1",
+   "request": {
+    "kind": "object",
+    "fields": {},
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "Trusted local connections only. Reads the lease person's open message requests (POST /v1/read home.requests.list); no fields are accepted. Returns {requests} with rows whose conversation is not a conversation id dropped. Calls the cloud; errors carry error_code, reason and retryable. See spec/commands.md."
+   ]
   },
   "cloud-conversation-snapshot": {
    "authority": "local-admin",

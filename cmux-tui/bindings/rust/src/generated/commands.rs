@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 6843b0cfd4e966719acde1c323621e6a5b049829b422229956fb3c194436dc06.
+// cmux-tui mux protocol 12, IR 4633825b44cf1cd8d82b476aadb9d938af82ebe6107c28580c40a44dd11d363b.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -3222,11 +3222,15 @@ pub struct SetClientInfoRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub display_name: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub install: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub kind: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub name: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub user_id: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub version: Optional<String>,
 }
 
 #[rustfmt::skip]
@@ -5249,9 +5253,15 @@ impl CmuxClient {
             self.require_protocol_field("set-client-info", 12)?;
             self.require_capability_field("set-client-info", "shared-sizing-v1")?;
         }
+        if !request.install.is_missing() {
+            self.require_protocol_field("set-client-info", 12)?;
+        }
         if !request.user_id.is_missing() {
             self.require_protocol_field("set-client-info", 12)?;
             self.require_capability_field("set-client-info", "shared-sizing-v1")?;
+        }
+        if !request.version.is_missing() {
+            self.require_protocol_field("set-client-info", 12)?;
         }
         self.execute(&SET_CLIENT_INFO_METADATA, &request)
     }

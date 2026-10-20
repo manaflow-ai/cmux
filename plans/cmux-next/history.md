@@ -185,6 +185,7 @@ same split, page history over a page and location history elsewhere. The side
 buttons are built (`MouseSideButtons`): over a browser tab they walk its
 history (`browserBack`'s command), anywhere else they run `focusHistoryBack` /
 `focusHistoryForward`; a remote desktop in control mode keeps them for its
+<<<<<<< HEAD
 host. Debug Settings `navigation.mouseSideButtons` (on) turns them off.
 
 The swipe is built over Chromium pages (`CEFSwipeNavigation`): a two-finger
@@ -198,6 +199,10 @@ with no page that way it rubber-bands and nothing happens. It needs macOS's
 off. Not built: the swipe over agent chats and internal pages (no horizontal
 scroll answer from them yet; the side buttons cover their Back), and over
 WebKit pages.
+=======
+host. Debug Settings `navigation.mouseSideButtons` (on) turns them off. The
+swipe is a follow-up.
+>>>>>>> origin/feat-cmux-next
 
 ### 4.2b One Back: page history first, then the trail (Leo 2026-10-06)
 
@@ -412,5 +417,9 @@ export-and-forget policy removes them. The `cmux-history` crate's
 (H3) must read the `terminal_commands` rows (`list-terminal-commands`) instead
 when it wires commands into the merged read model.
 
+<<<<<<< HEAD
 Not built: the swipe outside Chromium pages; a daemon list of
+=======
+Not built: the swipe for either axis; a daemon list of
+>>>>>>> origin/feat-cmux-next
 closed workspaces (`closed-history-v1`; the app lists what it saw close).
