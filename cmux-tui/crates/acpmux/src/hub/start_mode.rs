@@ -2,11 +2,17 @@
 //! in (cx-wx93i; Lawrence 2026-10-14: "by default all chats should be in
 //! skip permission mode, that user can switch back"):
 //!
+//! 0. the value MDM or the team policy forces for the cmux setting
+//!    `agents.defaultPermissionMode`, which the app pushes
+//!    (`start_mode_state.rs`): an administrator's choice beats everything
+//!    below, picks included. A forced value this build does not know is
+//!    `standard`, never full access;
 //! 1. the person's latest mode pick in any chat (config.json
 //!    `lastPermissionMode`: `fullAccess`, `standard` or `ask`, written by
-//!    `note_mode_pick` from the app pane only), while the cmux setting is
-//!    what it was at the pick (`lastPermissionModeSetting`): a change to the
-//!    setting after the pick is the person's latest choice, so it wins
+//!    `note_mode_pick` from the app pane only), while no change to the cmux
+//!    setting has been counted since the pick (`lastPermissionModeChange`,
+//!    `start_mode_state.rs`): a change to the setting after the pick is the
+//!    person's latest choice, so it wins, also when it is changed back
 //!    (Leo 2026-10-18: users set their own default). One pick for every harness
 //!    and model (Lawrence 2026-10-14: "should just apply to the ones going
 //!    forward, all harnesses/models, should always use the latest user
@@ -34,6 +40,7 @@
 //! as its level, so it maps onto every harness's own mode ids.
 
 use super::*;
+use crate::config::PermissionModeChange;
 
 /// The mark on a watchers' harness-feed payload that is a start-mode notice.
 pub(crate) const START_MODE_NOTE: &str = "startModeChanged";
@@ -74,11 +81,13 @@ impl DefaultMode {
 
     /// acpmux config.json's `defaultPermissionMode` when it names one, else
     /// the setting as the settings file holds it now, and which of them
-    /// chose. No file or no key is full access (Lawrence's default). A file
+    /// chose. No file or no key is the value the app pushed for it (a team
+    /// default or an MDM recommended value, `pushed`), else full access
+    /// (Lawrence's default). A file
     /// that does not parse, or a value this build does not know, is
     /// `Standard`: a person's opt-out that acpmux cannot read never becomes
     /// full access.
-    pub(crate) fn resolve(configured: Option<&str>) -> (Self, Source) {
+    pub(crate) fn resolve(configured: Option<&str>, pushed: Option<&str>) -> (Self, Source) {
         if let Some(value) = configured {
             let level = Self::parse(value).unwrap_or_else(|| {
                 tracing::warn!(value, "config.json defaultPermissionMode: unknown value; new chats keep the harness's own mode");
@@ -86,8 +95,18 @@ impl DefaultMode {
             });
             return (level, Source::Config);
         }
+        let unset = || match pushed {
+            None => (Self::FullAccess, Source::Default),
+            Some(value) => {
+                let level = Self::parse(value).unwrap_or_else(|| {
+                    tracing::warn!(value, "{SETTING}: unknown pushed value; new chats keep the harness's own mode");
+                    Self::Standard
+                });
+                (level, Source::Settings)
+            }
+        };
         match crate::user_settings::read() {
-            crate::user_settings::Settings::Missing => (Self::FullAccess, Source::Default),
+            crate::user_settings::Settings::Missing => unset(),
             crate::user_settings::Settings::Unreadable(why) => {
                 tracing::warn!(
                     "{SETTING}: the settings file cannot be read ({why}); new chats keep the harness's own mode"
@@ -96,7 +115,7 @@ impl DefaultMode {
             }
             crate::user_settings::Settings::Parsed(doc) => {
                 match crate::user_settings::value(&doc, SETTING) {
-                    None | Some(Value::Null) => (Self::FullAccess, Source::Default),
+                    None | Some(Value::Null) => unset(),
                     Some(v) => {
                         let level = v.as_str().and_then(Self::parse).unwrap_or_else(|| {
                             tracing::warn!(
@@ -112,10 +131,11 @@ impl DefaultMode {
     }
 }
 
-/// What chose a start level: the person's latest pick, config.json, the
-/// cmux setting, or nothing (full access).
+/// What chose a start level: a value policy forces, the person's latest
+/// pick, config.json, the cmux setting, or nothing (full access).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Source {
+    Managed,
     Pick,
     Config,
     Settings,
@@ -125,6 +145,7 @@ pub(crate) enum Source {
 impl Source {
     fn as_str(self) -> &'static str {
         match self {
+            Self::Managed => "managed",
             Self::Pick => "pick",
             Self::Config => "config",
             Self::Settings => "settings",
@@ -133,8 +154,8 @@ impl Source {
     }
 }
 
-/// The cmux setting as the settings file holds it now, to compare with the
-/// one saved beside a pick: its value as compact JSON, `None` with no file or
+/// The cmux setting as the settings file holds it now, to see a change
+/// (`start_mode_state.rs`): its value as compact JSON, `None` with no file or
 /// no key, and a marker for a file that cannot be read.
 pub(crate) fn setting_snapshot() -> Option<String> {
     match crate::user_settings::read() {
@@ -149,25 +170,33 @@ pub(crate) fn setting_snapshot() -> Option<String> {
     }
 }
 
-/// The level a new chat starts at: the latest pick (config.json
-/// `lastPermissionMode`) while the cmux setting is what it was at the pick
-/// (`picked_under`, `""` for no setting), else `DefaultMode::resolve`. The
+/// The level a new chat starts at (module docs): the forced value
+/// (`managed`), else the latest pick (config.json `lastPermissionMode`)
+/// while the setting's change count is the one recorded with it
+/// (`picked_at`, `now`), else `DefaultMode::resolve` (with `pushed`). The
 /// person's latest choice wins, whether it is a pick in a chat or a change to
-/// the setting. A pick saved before acpmux recorded the setting beside it
-/// (`picked_under` absent) wins; `Hub::start_level` records the setting then.
+/// the setting.
 fn start_level(
+    managed: Option<&str>,
     picked: Option<&str>,
-    picked_under: Option<&str>,
+    picked_at: Option<&PermissionModeChange>,
+    now: &PermissionModeChange,
     configured: Option<&str>,
+    pushed: Option<&str>,
 ) -> (DefaultMode, Source) {
-    let current = setting_snapshot().unwrap_or_default();
+    if let Some(value) = managed {
+        let level = DefaultMode::parse(value).unwrap_or_else(|| {
+            tracing::warn!(
+                value,
+                "{SETTING}: unknown managed value; new chats keep the harness's own mode"
+            );
+            DefaultMode::Standard
+        });
+        return (level, Source::Managed);
+    }
     match picked.and_then(DefaultMode::parse) {
-        Some(level)
-            if configured.is_some() || picked_under.is_none_or(|under| under == current) =>
-        {
-            (level, Source::Pick)
-        }
-        _ => DefaultMode::resolve(configured),
+        Some(level) if configured.is_some() || picked_at == Some(now) => (level, Source::Pick),
+        _ => DefaultMode::resolve(configured, pushed),
     }
 }
 
@@ -308,28 +337,48 @@ impl Hub {
 
     /// The level new chats start at now, and what chose it.
     async fn start_level(&self) -> (DefaultMode, Source) {
-        let (picked, mut picked_under, configured) = {
+        let (mut state, mut picked, mut picked_at, legacy, configured) = {
             let cfg = self.config.read().await;
+            let path = super::start_mode_state::state_file(&cfg);
             (
+                self.update_start_mode_state(path.as_deref(), |_| {}).1,
                 cfg.last_permission_mode.clone(),
+                cfg.last_permission_mode_change.clone(),
                 cfg.last_permission_mode_setting.clone(),
                 cfg.default_permission_mode.clone(),
             )
         };
-        // A pick from before the setting was recorded beside it (an upgrade):
-        // record the setting as it is now, so a later change still wins.
-        if picked.is_some() && picked_under.is_none() {
-            let now = setting_snapshot().unwrap_or_default();
+        // A pick from before acpmux counted changes (an upgrade): it wins
+        // until the next change, so record the count now. An older build's
+        // record of the setting at the pick that is not the setting now means
+        // the setting changed after the pick: the pick is spent.
+        if picked.is_some() && picked_at.is_none() {
+            let spent = legacy.is_some_and(|then| then != setting_snapshot().unwrap_or_default());
             let mut cfg = self.config.write().await;
-            if cfg.last_permission_mode == picked && cfg.last_permission_mode_setting.is_none() {
-                cfg.last_permission_mode_setting = Some(now.clone());
+            let path = super::start_mode_state::state_file(&cfg);
+            state = self.update_start_mode_state(path.as_deref(), |_| {}).1;
+            if cfg.last_permission_mode == picked && cfg.last_permission_mode_change.is_none() {
+                if spent {
+                    cfg.last_permission_mode = None;
+                } else {
+                    cfg.last_permission_mode_change = Some(state.mark());
+                }
+                cfg.last_permission_mode_setting = None;
                 if let Err(e) = cfg.save() {
-                    tracing::warn!("permission pick's setting not saved to config.json: {e}");
+                    tracing::warn!("permission pick's change count not saved to config.json: {e}");
                 }
             }
-            picked_under = cfg.last_permission_mode_setting.clone();
+            picked = cfg.last_permission_mode.clone();
+            picked_at = cfg.last_permission_mode_change.clone();
         }
-        start_level(picked.as_deref(), picked_under.as_deref(), configured.as_deref())
+        start_level(
+            state.managed.as_deref(),
+            picked.as_deref(),
+            picked_at.as_ref(),
+            &state.mark(),
+            configured.as_deref(),
+            state.pushed.as_deref(),
+        )
     }
 
     /// `_acpmux/start_mode`: the mode a plain new chat on `harness` (or the
@@ -444,20 +493,22 @@ impl Hub {
         }
         let family = crate::web_modes::family_of(&meta);
         let level = level_of(mode, &family, self.web_modes().modes(&family)).as_str();
-        // The setting as it is now ("" for none), so a later change to it wins
-        // over this pick.
-        let setting = Some(setting_snapshot().unwrap_or_default());
         let mut cfg = self.config.write().await;
         if cfg.harnesses.get(&meta.harness).is_some_and(profile_sets_mode) {
             return;
         }
+        // The setting's change count now, read under the config lock so a
+        // push counted before this pick is saved never spends it.
+        let path = super::start_mode_state::state_file(&cfg);
+        let changes = Some(self.update_start_mode_state(path.as_deref(), |_| {}).1.mark());
         if cfg.last_permission_mode.as_deref() == Some(level)
-            && cfg.last_permission_mode_setting == setting
+            && cfg.last_permission_mode_change == changes
         {
             return;
         }
         cfg.last_permission_mode = Some(level.to_owned());
-        cfg.last_permission_mode_setting = setting;
+        cfg.last_permission_mode_change = changes;
+        cfg.last_permission_mode_setting = None;
         if let Err(e) = cfg.save() {
             tracing::warn!("mode pick not saved to config.json: {e}");
         }

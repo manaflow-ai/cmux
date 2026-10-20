@@ -3,7 +3,9 @@ import CmuxNextDesign
 /// The defaults a new agent chat starts with (Agents > Agent Chat). acpmux
 /// reads `agents.defaultPermissionMode` at each new chat
 /// (`cmux-tui/crates/acpmux/src/hub/start_mode.rs`): a mode picked in a chat
-/// wins until this setting changes again.
+/// wins until this setting changes again. A value MDM or the team policy
+/// forces reaches acpmux through the app's settings push (`ChatSettings`)
+/// and wins over every pick.
 nonisolated enum AgentDefaultsSettingsSchema {
     static let permissionModePath = ["agents", "defaultPermissionMode"]
 
