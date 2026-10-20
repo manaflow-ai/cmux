@@ -722,10 +722,15 @@ final class ComposeView: UIView {
     var onAttachmentsChanged: (() -> Void)?
     /// The send's field opacity pulse (begin), for the live glass view.
     var onSendPulse: ((CFTimeInterval) -> Void)?
+    /// cmux: the field was placed or the draft changed (the send button, ComposeSendSlot).
+    var onSlotChange: (() -> Void)?
+    /// cmux: the attachments in the field (the send button shows for them too).
+    var attachmentCount: Int { chips.count }
 
     static func height(lines: Int, chips: Bool) -> CGFloat { ComposeMetrics.height(lines: lines, chips: chips) }
     /// per view (several Home tabs), from this compose bar's width.
-    var textWidth: CGFloat { ComposeView.fieldWidth(bounds.width) - 24 }
+    // cmux: the text always leaves the trailing slot (the waveform's, then the send button's).
+    var textWidth: CGFloat { ComposeView.fieldWidth(bounds.width) - 24 - ComposeSendSlot.trailingReserve }
     static func fieldWidth(_ windowWidth: CGFloat) -> CGFloat { 526 + windowWidth - Fixture.windowWidth }
     static let font = Fixture.bodyFont
     /// `writingTools`' raw value for reports: -1 on macOS 14 (no Writing Tools).
@@ -748,7 +753,7 @@ final class ComposeView: UIView {
     /// its text scrolls past it).
     func lines(_ text: String, windowWidth: CGFloat) -> Int {
         // One-entry memo: every compose update asks again for the same draft (a send asks for "").
-        let w = ComposeView.fieldWidth(windowWidth) - 24
+        let w = ComposeView.fieldWidth(windowWidth) - 24 - ComposeSendSlot.trailingReserve  // cmux: the send button's slot
         // The empty field (every send and every commit after it) has its own entry: the one-entry
         // memo held the last typed draft, so each send typeset " " again.
         // Its one line (a space) does not depend on the width: a live resize's every width
@@ -770,7 +775,7 @@ final class ComposeView: UIView {
         if emptyAfterSend && text.isEmpty && chips.isEmpty { return ComposeMetrics.emptyAfterSend }
         // cmux: attachments in the text: the lines that hold them are as tall as their thumbnails.
         if !chips.isEmpty, let storage = textView.view.textStorage, storage.string == text {
-            let extra = ComposeInlineText.extraHeight(storage, width: ComposeView.fieldWidth(width) - 24)
+            let extra = ComposeInlineText.extraHeight(storage, width: ComposeView.fieldWidth(width) - 24 - ComposeSendSlot.trailingReserve)
             return min(ComposeView.height(lines: 1, chips: false) + extra, ComposeView.maxHeight) + strip.height
         }
         return min(ComposeView.height(lines: lines(text, windowWidth: width), chips: false), ComposeView.maxHeight) + strip.height
@@ -862,7 +867,7 @@ final class ComposeView: UIView {
         // tracking (which lagged through a live resize).
         tv.textContainer?.widthTracksTextView = false
         tv.textContainer?.heightTracksTextView = false
-        tv.textContainer?.containerSize = NSSize(width: ComposeView.fieldWidth(Metrics.current.width) - 24, height: CGFloat.greatestFiniteMagnitude)
+        tv.textContainer?.containerSize = NSSize(width: ComposeView.fieldWidth(Metrics.current.width) - 24 - ComposeSendSlot.trailingReserve, height: CGFloat.greatestFiniteMagnitude)
         tv.layerContentsPlacement = .topLeft
         tv.layer?.masksToBounds = true
         tv.layer?.contentsGravity = .topLeft
@@ -947,7 +952,8 @@ final class ComposeView: UIView {
     private func textFrame(height h: CGFloat) -> CGRect {
         let f = rect(height: h)
         let chipH: CGFloat = strip.height
-        return CGRect(x: f.minX + 12, y: f.minY + chipH, width: f.width - 24 - (text.isEmpty ? 30 : 0), height: f.height - chipH)
+        // cmux: the trailing slot stays free with text too (the send button), so the first character does not rewrap.
+        return CGRect(x: f.minX + 12, y: f.minY + chipH, width: f.width - 24 - ComposeSendSlot.trailingReserve, height: f.height - chipH)
     }
 
     /// What the last `place` laid out (field height, empty text, chip row height, size): a commit
@@ -969,6 +975,7 @@ final class ComposeView: UIView {
         textSnapshot.frame = textFrame(height: h)
         CATransaction.commit()
         textView.place(textFrame(height: h))
+        onSlotChange?()  // cmux: the send button follows the field
     }
 
     /// The audio glyph's layer top for the field F: centred in the field, as Messages' (its glyph
@@ -1193,6 +1200,7 @@ final class ComposeView: UIView {
             Animate.sampledUntilMinimum(veil, "opacity", Springs.fieldOpacity, base: 1, begin: begin)
             onSendPulse?(begin)
         }
+        onSlotChange?()  // cmux: the send button follows the draft
     }
 
     /// The glass over a bubble still inside the field after the fill has
