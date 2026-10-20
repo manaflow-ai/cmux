@@ -369,6 +369,7 @@ final class CloudService {
 
     func signOut() async {
         guard !isSigningOut else { return }
+        let stackUser = auth.user?.id, generation = auth.coordinator.authSessionGeneration
         isSigningOut = true
         defer { isSigningOut = false }
         dropAllMachines()
@@ -376,11 +377,16 @@ final class CloudService {
         await nativeLink?.end()
         if let hub { await hub.revoke() }
         // Revoke the install while the Stack session still exists.
-        if let stackUser = auth.user?.id {
+        if let stackUser {
             let auth = auth
-            await installIdentity.signOut(stackUser: stackUser, session: { try await auth.tokens().access })
+            await installIdentity.signOut(stackUser: stackUser, session: {
+                guard await auth.coordinator.authSessionGeneration == generation else { throw CancellationError() }
+                let token = try await auth.tokens().access
+                guard await auth.coordinator.authSessionGeneration == generation else { throw CancellationError() }
+                return token
+            })
         }
-        await auth.signOut()
+        await auth.signOut(ifGeneration: generation)
     }
 
     /// Ensures the selected team's owned child before a scoped connect.
