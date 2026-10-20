@@ -63,6 +63,12 @@ extension SidebarModel {
         return self.group(item) != nil ? item : own
     }
 
+    /// `groupID(personal:)` when the sidebar lists that group, else nil (a group of another room).
+    public func listedGroupID(personal group: String) -> GroupID? {
+        let shown = groupID(personal: group)
+        return self.group(shown) != nil ? shown : nil
+    }
+
     /// The personal group id of the group the active workspace is in (its own id, or its document item's
     /// group id on the sidebar document); nil when the active workspace is in no group.
     public var activeGroupPersonalID: String? {

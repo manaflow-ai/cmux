@@ -59,6 +59,11 @@ public enum WorkspaceSlot: Hashable, Sendable {
         }
     }
 
+    /// Whether this slot names a place for new workspace `id` of `machine` in `sections` (placeholder rows left out).
+    public func resolves(_ id: String, machine: MachineID, in sections: [SidebarRowSection]) -> Bool {
+        position(moving: [id], section: .machine(machine), in: SidebarRowSection.withoutPlaceholders(sections)) != nil
+    }
+
     private var isTop: Bool {
         if case .top = self { return true }
         return false

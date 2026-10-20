@@ -84,9 +84,8 @@ enum SidebarDocWiring {
     /// document is not active (the older path handles it).
     static func handle(_ intent: SidebarIntent, bridge: SidebarBridge, undoable: Bool = true) -> Bool {
         let machines = bridge.services.machines
-        guard docMachines(machines).handle(intent, model: bridge.model, pinTitle: PinStrings.pinWorkspace, unpinTitle: PinStrings.unpinWorkspace,
-                                           undoable: undoable)
-        else { return false }
+        guard docMachines(machines).handle(intent, model: bridge.model, pinTitle: PinStrings.pinWorkspace,
+                                           unpinTitle: PinStrings.unpinWorkspace, undoable: undoable) else { return false }
         // A pin is the home daemon's document; the workspace's own daemon (any session) gets the flag too.
         if case let .setPinned(ids, pinned) = intent { WorkspacePinFlags.live(machines).mirror(ids.map(\.rawValue), pinned: pinned) }
         return true
