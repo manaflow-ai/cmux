@@ -1,3 +1,5 @@
+import CmuxNextBridge
+
 // Neighbor tabs (`browser.keepNeighborTabsAwake`, plans/cmux-next/neighbor-tabs-DESIGN.md):
 // each pane tells hibernation its strip order and shown tab, so the tabs
 // beside it stay awake and a nearby switch shows a live page.
