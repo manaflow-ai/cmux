@@ -689,6 +689,19 @@ export class MonacoView implements CodeView {
     if (action?.isSupported()) await action.run();
   }
 
+  /** The selection's text and lines (viewer comments, viewer-comments-DESIGN.md), null with nothing
+   * selected. A selection that ends at the start of a line does not count that line. */
+  selectionQuote(): { text: string; startLine: number; endLine: number } | null {
+    const selection = this.editor.getSelection();
+    const model = this.editor.getModel();
+    if (!selection || !model || selection.isEmpty()) return null;
+    const text = model.getValueInRange(selection);
+    if (!text.trim()) return null;
+    let endLine = selection.endLineNumber;
+    if (selection.endColumn === 1 && endLine > selection.startLineNumber) endLine--;
+    return { text, startLine: selection.startLineNumber, endLine };
+  }
+
   focus(): void {
     this.editor.focus();
   }
@@ -699,7 +712,10 @@ export class MonacoView implements CodeView {
     return {
       findMatches: (query, matchCase) =>
         this.model?.findMatches(query, false, false, matchCase, null, false).map((match) => match.range) ?? [],
-      caret: () => this.editor.getPosition() ?? { lineNumber: 1, column: 1 },
+      // The selection's start, not the cursor: a selected match leaves the cursor at its end, and
+      // the next letter typed would skip to the match after it.
+      caret: () =>
+        this.editor.getSelection()?.getStartPosition() ?? this.editor.getPosition() ?? { lineNumber: 1, column: 1 },
       selectedText: () => {
         const selection = this.editor.getSelection();
         if (!selection || !this.model || selection.isEmpty()) return "";

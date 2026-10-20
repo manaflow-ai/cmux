@@ -356,6 +356,11 @@ let package = Package(
             dependencies: ["CmuxNextCompat", "CmuxNextCloud"],
             swiftSettings: daemonSwiftSettings
         ),
+        .testTarget(
+            name: "CmuxNextCodeRouterTests",
+            dependencies: ["CmuxNextCodeRouter"],
+            swiftSettings: daemonSwiftSettings
+        ),
         // The Accounts screen (Settings > Accounts, onboarding step). The App
         // supplies `AccountsServices`.
         .target(
@@ -1160,7 +1165,8 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxNextPaletteTests",
-            dependencies: ["CmuxNextPalette"],
+            // CmuxTheme: PaletteScopeChipContrastTests derives theme tokens.
+            dependencies: ["CmuxNextPalette", .product(name: "CmuxTheme", package: "CmuxTheme")],
             swiftSettings: uiSwiftSettings
         ),
         .target(

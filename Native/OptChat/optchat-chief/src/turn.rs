@@ -826,9 +826,15 @@ pub fn run_with_drafts(
     }
     // The run's end: what is left of its steps, its use and cost.
     send_run(
+        // A turn cut by a lost acpmux link (an update relaunch) runs again
+        // on the resume note: its run ends stopped, never "failed" with the
+        // link's error (user 2026-10-20 "every time i update cmux").
         crate::run::ended(
-            error.as_deref().or(moved.as_deref()),
-            cancelled,
+            error
+                .as_deref()
+                .filter(|_| orphan.is_none())
+                .or(moved.as_deref()),
+            cancelled || orphan.is_some(),
             totals.map(|(u, _)| u),
             cost,
             requests.last().and_then(|r| r.model.as_deref()),

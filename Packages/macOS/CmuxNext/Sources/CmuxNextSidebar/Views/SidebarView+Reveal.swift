@@ -23,7 +23,7 @@ extension SidebarViewComponents {
         let hidden = (top: above == 0, bottom: below == 0)
         guard changed || hidden != minimalHiddenBands else { return }
         minimalHiddenBands = hidden
-        Motion.animate(.hover, in: self) {
+        Motion.feedback.animate(.hover, in: self) {
             if changed {
                 newButton.animator().alphaValue = alpha
                 profileBar.animator().alphaValue = spacesAlpha(revealed: revealed)
@@ -31,6 +31,7 @@ extension SidebarViewComponents {
             aboveFade.animator().alphaValue = above
             belowFade.animator().alphaValue = belowRegion.restAlpha(hiddenByMode: below == 0)
             footerRegion.animator().alphaValue = below
+            searchButton.animator().alphaValue = below
         }
         fadeLine(aboveLine, to: above)
     }
@@ -47,9 +48,9 @@ extension SidebarViewComponents {
         let opacity = Float(alpha)
         guard line.opacity != opacity else { return }
         if Motion.canAnimate(in: self) {
-            Motion.set(line, "opacity", to: opacity, fade: .hover)
+            Motion.sidebar.set(line, "opacity", to: opacity, fade: .hover)
         } else {
-            Motion.transaction(nil) { line.opacity = opacity }
+            Motion.sidebar.transaction(nil) { line.opacity = opacity }
         }
     }
 }
