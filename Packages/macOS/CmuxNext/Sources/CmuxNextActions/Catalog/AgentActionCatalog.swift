@@ -341,6 +341,30 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 category: .agents, symbol: "brain", surfaces: [.palette], cliName: "chief memory",
                 surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
             ),
+            // Chief Usage (chief-usage-analytics-DESIGN.md): tokens, cost, cache hit and turn
+            // time of this Mac's Chiefs, as a page tab (Home's right column in Home). The
+            // Chief's row menu in Home runs it too. `cmux chief usage` prints the same summary.
+            // Move Chief to… (remote-groups-DESIGN.md slice 6, chief-migration-DESIGN.md 8a): This Mac, a
+            // remote group or cmux Cloud; a dry run's report first, then the move and `move reach`.
+            // `cmux action run chief.moveTo --arg target=…` reaches it by id.
+            ActionDescriptor(
+                id: "chief.moveTo",
+                title: String(localized: "action.chief.moveTo", defaultValue: "Move Chief to…", bundle: .module),
+                keywords: ["chief", "move", "migrate", "host", "remote", "mac mini", "linux", "vm", "cloud"],
+                category: .agents, symbol: "arrow.right.circle", surfaces: [.palette],
+                arguments: [ActionArgument(name: "target", title: String(localized: "argument.chiefMoveTarget", defaultValue: "Target", table: "RemoteActions", bundle: .module),
+                                           kind: .string, isRequired: false)],
+                destructive: true,
+                // `cmux chief move --to` and the Chief's MCP `move` tool run the same move (one implementation).
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.familyMember), contextMenuExemption: .noObject)
+            ),
+            ActionDescriptor(
+                id: "chief.openUsage",
+                title: String(localized: "action.chief.openUsage", defaultValue: "Chief Usage", bundle: .module),
+                keywords: ["chief", "usage", "cost", "tokens", "cache", "spend", "stats", "analytics"],
+                category: .agents, symbol: "dollarsign.circle", surfaces: [.palette],
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
+            ),
             ActionDescriptor(
                 id: "agentActivity.open",
                 title: String(localized: "action.agentActivity.open", defaultValue: "Agent Activity", bundle: .module),

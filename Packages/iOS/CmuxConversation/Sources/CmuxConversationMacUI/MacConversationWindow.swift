@@ -1638,6 +1638,7 @@ final class MacConversationListRowView: NSTableRowView {
 
 /// Opens the conversation lab window (DEBUG hosts and the dev runner).
 @MainActor
+// lint:allow namespace-type -- vendored CmuxConversation snapshot
 public enum MacConversationLab {
     private static var windows: [NSWindowController] = []
     /// Total unread across the lab's conversations changed (a host's Dock badge).

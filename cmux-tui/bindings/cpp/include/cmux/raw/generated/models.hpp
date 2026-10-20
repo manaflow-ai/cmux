@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "799b8337576dcd8bee3b1fe1fd6fd45ca0838886c6e828df95369ebbfa1dd913";
+inline constexpr std::string_view kProtocolIrSha256 = "618580395ad650b750fb7be122cdc20524f93ba299cc62b7afebb68b22ff6b12";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -218,6 +218,7 @@ struct TerminalResourceHost;
 struct TerminalResourceProcess;
 struct TerminalResources;
 struct TerminalResourcesResult;
+struct TerminalResumeCommandResult;
 struct Tree;
 enum class ViewAttachmentOutcome;
 struct ViewportPaneWidthResult;
@@ -442,6 +443,7 @@ struct NotifyRequest;
 struct PageCredentialRequest;
 struct PairingResponseRequest;
 struct PaneNeighborRequest;
+struct ParkTabsRequest;
 struct PasteImageRequest;
 struct PasteImageResult;
 struct PinWorkspaceRequest;
@@ -524,6 +526,7 @@ struct TerminalEventsRequest;
 struct TerminalHistoryRequest;
 struct TerminalReadRangeRequest;
 struct TerminalResourcesRequest;
+struct TerminalResumeCommandRequest;
 struct UndoLayoutRequest;
 struct UngroupScreenGroupRequest;
 struct UngroupTabGroupRequest;
@@ -4122,6 +4125,11 @@ struct PaneSurfaceResult {
     friend bool operator==(const PaneSurfaceResult&, const PaneSurfaceResult&) = default;
 };
 
+struct ParkTabsRequest {
+    std::vector<TabRef> surfaces{};
+    friend bool operator==(const ParkTabsRequest&, const ParkTabsRequest&) = default;
+};
+
 struct ParticipantAvatarChangedEvent {
     std::optional<JsonValue> avatar{};
     std::string participant{};
@@ -5526,6 +5534,19 @@ struct TerminalResourcesResult {
     std::uint64_t sampled_at_ns{};
     std::vector<TerminalResources> terminals{};
     friend bool operator==(const TerminalResourcesResult&, const TerminalResourcesResult&) = default;
+};
+
+struct TerminalResumeCommandRequest {
+    Field<std::string> command{};
+    Field<Id> surface{};
+    Field<std::string> terminal_id{};
+    friend bool operator==(const TerminalResumeCommandRequest&, const TerminalResumeCommandRequest&) = default;
+};
+
+struct TerminalResumeCommandResult {
+    std::optional<std::string> command{};
+    std::string terminal_id{};
+    friend bool operator==(const TerminalResumeCommandResult&, const TerminalResumeCommandResult&) = default;
 };
 
 struct TitleChangedEvent {
@@ -7083,6 +7104,12 @@ struct Codec<TerminalResourcesResult> {
 };
 
 template <>
+struct Codec<TerminalResumeCommandResult> {
+    static Result<Json> encode(const TerminalResumeCommandResult& value);
+    static Result<TerminalResumeCommandResult> decode(const Json& value);
+};
+
+template <>
 struct Codec<Tree> {
     static Result<Json> encode(const Tree& value);
     static Result<Tree> decode(const Json& value);
@@ -8427,6 +8454,12 @@ struct Codec<PaneNeighborRequest> {
 };
 
 template <>
+struct Codec<ParkTabsRequest> {
+    static Result<Json> encode(const ParkTabsRequest& value);
+    static Result<ParkTabsRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<PasteImageRequest> {
     static Result<Json> encode(const PasteImageRequest& value);
     static Result<PasteImageRequest> decode(const Json& value);
@@ -8916,6 +8949,12 @@ template <>
 struct Codec<TerminalResourcesRequest> {
     static Result<Json> encode(const TerminalResourcesRequest& value);
     static Result<TerminalResourcesRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<TerminalResumeCommandRequest> {
+    static Result<Json> encode(const TerminalResumeCommandRequest& value);
+    static Result<TerminalResumeCommandRequest> decode(const Json& value);
 };
 
 template <>

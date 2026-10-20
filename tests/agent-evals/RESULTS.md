@@ -49,6 +49,40 @@ cursor-agent's 3 `agent_error` runs are its server dropping the connection.
 | read-only-answer | pass | pass | pass | pass | pass | left_session (0.80) | agent_error (0.80) |
 | new-workspace-background | pass | pass | pass | focus_stolen (0.80) | focus_stolen (0.80) | pass | pass |
 | organize-end-to-end | pass | pass | pass | pass | pass | pass | pass |
+## Run codemode-vs-all (2026-10-20)
+
+cmux's code mode (`cmux mcp serve`: two tools, `cmux_docs` and `cmux_exec`) against every
+tool (`cmux mcp serve --all-tools`, Claude Code with `ENABLE_TOOL_SEARCH=true`), the two ways
+acpmux can give a chat the cmux tools. Six headless tasks, two rounds each (12 runs per row),
+this Mac, Claude Code 2.1.303 and Codex 0.163.0 on the subrouter. New surface: `mcp-all`.
+
+```sh
+bun tests/agent-evals/run.mjs --run codemode-vs-all-r1 \
+  --tasks terminal-right,group-workspaces,group-tabs,read-only-answer,new-workspace-background,reuse-right \
+  --agents claude:mcp,claude:mcp-all,codex:mcp,codex:mcp-all --parallel 4
+```
+
+| Agent | Tools | Passed | Mean score | Median input tokens | Median cost | Median time (s) | Failures |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| claude | code mode | 6/12 | 0.89 | 202,686 | $0.211 | 33 | focus_stolen 4, wrong_place 2 |
+| claude | all tools | 8/12 | 0.95 | 162,308 | $0.114 | 25 | focus_stolen 4 |
+| codex | code mode | 10/12 | 0.96 | 216,492 | | 134 | wrong_place 1, focus_stolen 1 |
+| codex | all tools | 10/12 | 0.94 | 204,853 | | 126 | wrong_place 2 |
+
+| Task | claude code mode | claude all tools | codex code mode | codex all tools |
+| --- | --- | --- | --- | --- |
+| group-tabs | 2/2 | 2/2 | 2/2 | 2/2 |
+| group-workspaces | 2/2 | 2/2 | 2/2 | 2/2 |
+| read-only-answer | 2/2 | 2/2 | 2/2 | 2/2 |
+| new-workspace-background | 0/2 focus_stolen | 0/2 focus_stolen | 2/2 | 2/2 |
+| terminal-right | 0/2 focus_stolen | 0/2 focus_stolen | 1/2 | 2/2 |
+| reuse-right | 0/2 wrong_place | 2/2 | 1/2 | 0/2 wrong_place |
+
+Result: code mode passes fewer Claude tasks (reuse-right) and costs more per task; for Codex
+the pass rate is equal and the input tokens are slightly higher. The ~23 KB of tool names that
+all tools adds to each request is less than the discovery calls code mode makes. acpmux keeps
+every tool for Claude Code and Codex; `CMUX_MCP_CODE_MODE=1` in a profile's env opts in to code
+mode.
 
 ## Run baseline-2026-10-20 (2026-10-20)
 

@@ -41,8 +41,9 @@ walks more than the rows on screen.
    ~165 of ~1,140 frame samples), the layout pass searches the subtree for views that need the
    layout engine (`_findAnySubviewNeedingAutoLayoutEngine`, ~115), and the commit collects
    layers (~40). At 100 workspaces the pool never filled, hence the growth with count.
-   Fix: overscan 3 rows a side, park one row past the realization rect, pool sized to one
-   realization rect of rows (`SidebarRowViewPool.limit(forHeight:rowHeight:)`).
+   Fix: overscan 3 rows a side, park one row past the realization rect, a
+   pool of two realization rects of rows (`SidebarRowViewPool.limit(forHeight:rowHeight:)`): a
+   space switch parks the page it leaves and takes the other back.
 2. **Status ticks while scrolling.** Each patched row is configured, laid out and redrawn
    (glyph images) in the frame: ~0.3 ms a row. Bounded by rows on screen; not changed here.
 3. **Move-to-top while scrolling.** A notification that moves a workspace is a structural

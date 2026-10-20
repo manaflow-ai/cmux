@@ -63,12 +63,18 @@ frame slower until input lags.
 
 ## Design
 
-What landed on feat-cmux-next is the renderer side only (sections 3 and the
-width pass below). Sections 1 and 2 (the per-frame pacer `HomeStreamPacer` and
-the incremental mapping `HomeStreamMapper`) change the projection, which the
-Home chat pipeline model owns (plans/cmux-next/home-chat-pipeline-DESIGN.md,
-2.3-2.4). They are on `scratch/home-streaming-land` (commit 41539a2d5b6) and
-port onto that model's stream rows once it lands.
+Since 0c0b107df48 (user, Oct 20: "drop per-token streaming") Home shows each
+reply as whole messages with typing dots by default; the growing stream bubble
+is `HomeReplyDisplay.streaming`, which the stream tests opt into. Everything
+here applies to that mode, and the renderer parts (sections 3, the long-text
+index, the width pass) apply to any long message.
+
+All five sections are on feat-cmux-next. The projection side (the per-frame
+pacer `HomeStreamPacer`, flushed before a send, and the incremental mapping
+`HomeStreamMapper`) sits inside the Home chat pipeline model's projection
+(plans/cmux-next/home-chat-pipeline-DESIGN.md, 2.3-2.4) and does not change its
+ordering: it only decides when a stream-only pass commits and how the stream
+bubble's parts are mapped.
 
 ### 1. One stream update per display frame (glue)
 
@@ -152,9 +158,10 @@ With the incremental mapping the frame cost no longer grows with the reply
 (frames 2000-2192: p50 4.0 ms at 54 KB; the profile's mean frame stays 3.3-4.1
 ms from 5 KB to 54 KB; mapping the stream bubble 0.11 ms, was 2.3 ms). Open:
 p95 8.6 ms against an idle 1.4 ms, and single frames up to 38 ms in the first
-8 KB (the short-text path: `deriveRows` and `refreshVisibleCells`). Until
-those pass, `HomeStreamingPerfTests` stays on the scratch branch
-(`scratch/home-streaming-perf`), not on feat-cmux-next.
+8 KB (the short-text path: `deriveRows` and `refreshVisibleCells`). `HomeStreamingPerfTests` is on feat-cmux-next with a looser
+budget than the target above (p95 < 12 ms, p99 < 20 ms, worst < 60 ms; the
+keystroke, scroll and growth rules unchanged), to be tightened as that path
+gets cheaper.
 
 ### Width pass while a reply streams
 

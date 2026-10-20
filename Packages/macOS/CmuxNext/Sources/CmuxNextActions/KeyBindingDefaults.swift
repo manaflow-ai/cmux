@@ -87,6 +87,8 @@ public nonisolated struct KeyBindingDefaults {
     public static let scopedDefaults: [KeyBinding] = [
         KeyBinding(keys: [Shortcut("k", modifiers: [.command])], command: "agentPane.searchChats",
                    when: .and([notTerminal, .not(.has(KeyContext.codeEditorFocusedKey))])),
+        // Cmd-Shift-R on Home: Reply to Selection (free in the defaults; Cmd-R is Rename Tab and Reload).
+        KeyBinding(keys: [Shortcut("r", modifiers: [.command, .shift])], command: "home.replyToSelection", when: onHome),
     ]
 
     /// Home has the keyboard: its top page, its conversation view, or the docked Home's page.

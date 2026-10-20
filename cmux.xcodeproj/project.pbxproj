@@ -640,6 +640,8 @@
 					UniformTypeIdentifiers,
 					"-framework",
 					Carbon,
+					"-Xlinker",
+					"-objc_stubs_small",
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.cmuxterm.app.debug;
 				PRODUCT_NAME = "cmux DEV";
@@ -692,6 +694,8 @@
 					UniformTypeIdentifiers,
 					"-framework",
 					Carbon,
+					"-Xlinker",
+					"-objc_stubs_small",
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.cmuxterm.app;
 				PRODUCT_NAME = cmux;

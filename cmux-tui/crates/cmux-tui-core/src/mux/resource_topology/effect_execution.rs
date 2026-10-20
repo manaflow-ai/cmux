@@ -2,6 +2,7 @@
 
 use super::client_ids::{
     requested_client_pane_id, requested_client_split_id, requested_client_tab_id,
+    requested_reopen_tab_id,
 };
 use super::*;
 use crate::state::app_workspaces::{APP_WORKSPACE_FIELD, APP_WORKSPACE_NAME_FIELD};
@@ -63,7 +64,11 @@ impl Mux {
                 "mutation_origin":mutation.origin,
                 "mutation_actor":mutation.actor.wire(),
             });
-            if let Some(tab_id) = requested_client_tab_id(fields, state, registry)? {
+            let tab_id = match requested_client_tab_id(fields, state, registry)? {
+                Some(tab_id) => Some(tab_id),
+                None => requested_reopen_tab_id(fields, state, registry)?,
+            };
+            if let Some(tab_id) = tab_id {
                 intent["terminal_reservation"]["tab_id"] = json!(tab_id);
             }
         }
@@ -110,8 +115,12 @@ impl Mux {
                 Some(id) => Mux::unbound_frontend_browser_id(&registry.connection.get(), id)?,
                 None => BrowserPublicId::random()?,
             };
+            let tab_id = match requested_reopen_tab_id(fields, state, registry)? {
+                Some(tab_id) => tab_id,
+                None => TabPublicId::random()?,
+            };
             intent["browser_reservation"] = json!({
-                "tab_id":TabPublicId::random()?,
+                "tab_id":tab_id,
                 "browser_id":browser_id,
             });
         }
@@ -650,13 +659,17 @@ impl Mux {
         // `workspace.create {ephemeral: true}` stages the flag with the
         // workspace row; the request's fields are part of its fingerprint.
         let ephemeral = intent["fields"]["ephemeral"].as_bool().unwrap_or(false);
+        // `workspace.create` from a caller: the resource router sends
+        // `focus: false` unless it asked. Other creations focus.
+        let focus = intent["fields"][WORKSPACE_CREATE_FOCUS_FIELD].as_bool().unwrap_or(true);
         crate::debug_spans::mark("effect.workspace_reserved");
-        let placement = self.create_empty_workspace_for_resource_effect(
+        let placement = self.create_empty_workspace_for_resource_effect_focus(
             workspace_name,
             Some(workspace_key),
             workspace_public_id,
             &workspace_mutation,
             crate::state::home_store::EmptyWorkspaceMark::ephemeral(ephemeral),
+            focus,
         )?;
         crate::debug_spans::mark("effect.workspace_created");
         self.effect_create_terminal_in_workspace(intent, placement.workspace, options)

@@ -1,6 +1,268 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "settingsWindow.harnesses.dismissUpdate": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dismiss"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تجاهل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Odbaci"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afvis"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwerfen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Descartar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ignorer"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ignora"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無視"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បោះបង់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "무시"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avvis"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Odrzuć"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Descartar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скрыть"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ปิด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kapat"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Приховати"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bỏ qua"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "忽略"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "忽略"
+          }
+        }
+      }
+    },
+    "settingsWindow.harnesses.resumeUpdate": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resume original update"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "استئناف التحديث الأصلي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nastavi prvobitno ažuriranje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Genoptag oprindelig opdatering"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ursprüngliches Update fortsetzen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reanudar la actualización original"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reprendre la mise à jour initiale"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Riprendi l’aggiornamento originale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "元の更新を再開"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បន្តការធ្វើបច្ចុប្បន្នភាពដើម"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "원래 업데이트 재개"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gjenoppta opprinnelig oppdatering"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wznów pierwotną aktualizację"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retomar a atualização original"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Возобновить исходное обновление"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ดำเนินการอัปเดตเดิมต่อ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Özgün güncellemeyi sürdür"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Відновити початкове оновлення"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tiếp tục bản cập nhật ban đầu"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "继续原始更新"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "繼續原始更新"
+          }
+        }
+      }
+    },
     "settingsPage.theme.edit.ansi": {
       "comment": "ANSI color %@ in the theme editor; %@ is 0-15.",
       "extractionState": "manual",
@@ -39625,395 +39887,1050 @@
         }
       }
     },
-    "settingsWindow.backdropPicker.workspaceOpacityHelp": {
+    "settingsWindow.backdropPicker.workspaceOpacityCovers": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "How much glass covers the art. Text stays readable."
+            "value": "How much of the theme color covers the picture."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Wie stark Glas das Bild bedeckt. Text bleibt lesbar."
+            "value": "Wie stark die Themenfarbe das Bild bedeckt."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Part de verre sur l'œuvre. Le texte reste lisible."
+            "value": "La part de la couleur du thème qui couvre l’image."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "مقدار الزجاج فوق اللوحة. يبقى النص مقروءًا."
+            "value": "مقدار ما يغطيه لون السمة من الصورة."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cuánto vidrio cubre la obra. El texto sigue legible."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Quanto vetro copre l'opera. Il testo resta leggibile."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "アートを覆うガラスの量。文字は読みやすいままです。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "작품을 덮는 유리의 양. 텍스트는 읽기 쉽게 유지됩니다."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Quanto vidro cobre a obra. O texto segue legível."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Сколько стекла над картиной. Текст читаем."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "玻璃覆盖作品的程度。文字依然清晰可读。"
+            "value": "Cuánto cubre el color del tema la imagen."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "玻璃覆蓋作品的程度。文字依然清晰可讀。"
+            "value": "主題顏色覆蓋圖片的程度。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "主题颜色覆盖图片的程度。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "테마 색상이 사진을 덮는 정도입니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "テーマの色が画像を覆う度合い。"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Koliko stakla prekriva sliku. Tekst ostaje čitljiv."
+            "value": "Koliko boja teme prekriva sliku."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hvor meget glas dækker billedet. Teksten er læsbar."
+            "value": "Hvor meget temafarven dækker billedet."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quanto il colore del tema copre l’immagine."
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "កម្រិតកញ្ចក់លើរូបភាព។ អក្សរនៅតែអានបាន។"
+            "value": "កម្រិតដែលពណ៌រូបរាងគ្របលើរូបភាព។"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hvor mye glass dekker bildet. Teksten er lesbar."
+            "value": "Hvor mye temafargen dekker bildet."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ile szkła zakrywa obraz. Tekst pozostaje czytelny."
+            "value": "Jak mocno kolor motywu przykrywa obraz."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quanto a cor do tema cobre a imagem."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Насколько цвет темы закрывает изображение."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ปริมาณกระจกที่ปิดภาพ ข้อความยังอ่านง่าย"
+            "value": "ปริมาณที่สีธีมปิดทับรูปภาพ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Camın eseri ne kadar örttüğü. Metin okunur kalır."
+            "value": "Tema renginin resmi ne kadar örttüğü."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Скільки скла над картиною. Текст читабельний."
+            "value": "Наскільки колір теми закриває зображення."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mức kính phủ lên tranh. Chữ vẫn dễ đọc."
+            "value": "Mức màu chủ đề phủ lên hình ảnh."
           }
         }
       }
     },
-    "settingsWindow.backdropPicker.workspaceOpacityFollows": {
+    "settingsWindow.backdropPicker.workspaceOpacityUseAll": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Follows the work's own tint"
+            "value": "Use All Workspaces"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Folgt der Tönung des Werks"
+            "value": "„Alle Workspaces“ verwenden"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Suit la teinte propre à l'œuvre"
+            "value": "Utiliser Tous les espaces de travail"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يتبع درجة اللوحة نفسها"
+            "value": "استخدام كل مساحات العمل"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sigue el tinte propio de la obra"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Segue la tinta propria dell'opera"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "作品自体の色合いに従います"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "작품 고유의 색조를 따릅니다"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Segue a tonalidade própria da obra"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Следует собственному оттенку картины"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "跟随作品自身的色调"
+            "value": "Usar Todos los espacios de trabajo"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "跟隨作品自身的色調"
+            "value": "使用所有工作區的設定"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用所有工作区的设置"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모든 워크스페이스 설정 사용"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべてのワークスペースの設定を使う"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Prati vlastitu nijansu djela"
+            "value": "Koristi Sve radne prostore"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Følger værkets egen toning"
+            "value": "Brug Alle arbejdsområder"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usa Tutte le aree di lavoro"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ធ្វើតាមពណ៌ផ្ទាល់របស់ស្នាដៃ"
+            "value": "ប្រើកន្លែងធ្វើការទាំងអស់"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Følger verkets egen toning"
+            "value": "Bruk Alle arbeidsområder"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Używa własnego odcienia dzieła"
+            "value": "Użyj ustawienia wszystkich obszarów"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usar Todos os espaços de trabalho"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Как во всех пространствах"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ใช้โทนสีของผลงานเอง"
+            "value": "ใช้ค่าของพื้นที่ทำงานทั้งหมด"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Eserin kendi tonunu izler"
+            "value": "Tüm Çalışma Alanlarını kullan"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Використовує власний відтінок твору"
+            "value": "Як в усіх просторах"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Theo sắc độ riêng của tác phẩm"
+            "value": "Dùng Tất cả không gian làm việc"
           }
         }
       }
     },
-    "settingsWindow.backdropPicker.workspaceOpacityReset": {
+    "settingsWindow.backdropPicker.workspaceOpacityFollowsAll": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Use the Work's Own"
+            "value": "Follows All Workspaces"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Werkeigene verwenden"
+            "value": "Folgt „Alle Workspaces“"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Utiliser celle de l'œuvre"
+            "value": "Suit Tous les espaces de travail"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "استخدام درجة اللوحة"
+            "value": "يتبع كل مساحات العمل"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usar la de la obra"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Usa quella dell'opera"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "作品の設定を使用"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "작품 고유값 사용"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Usar a da obra"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Как у картины"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "使用作品自身的"
+            "value": "Sigue a Todos los espacios de trabajo"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "使用作品自身的"
+            "value": "跟隨所有工作區"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "跟随所有工作区"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모든 워크스페이스를 따름"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべてのワークスペースに従う"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Koristi vlastitu djela"
+            "value": "Prati Sve radne prostore"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Brug værkets egen"
+            "value": "Følger Alle arbejdsområder"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Segue Tutte le aree di lavoro"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ប្រើរបស់ស្នាដៃ"
+            "value": "ធ្វើតាមកន្លែងធ្វើការទាំងអស់"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bruk verkets egen"
+            "value": "Følger Alle arbeidsområder"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Użyj własnego dzieła"
+            "value": "Jak we wszystkich obszarach roboczych"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Segue Todos os espaços de trabalho"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Как во всех рабочих пространствах"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ใช้ค่าของผลงาน"
+            "value": "ตามพื้นที่ทำงานทั้งหมด"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Eserinkini Kullan"
+            "value": "Tüm Çalışma Alanlarını izler"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Як у твору"
+            "value": "Як в усіх робочих просторах"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dùng của tác phẩm"
+            "value": "Theo Tất cả không gian làm việc"
+          }
+        }
+      }
+    },
+    "settingsWindow.harnesses.jobCreated": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update terminal created"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم إنشاء طرفية التحديث"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal za ažuriranje je kreiran"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opdateringsterminal oprettet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update-Terminal erstellt"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal de actualización creado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal de mise à jour créé"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminale di aggiornamento creato"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新用ターミナルを作成しました"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បានបង្កើតស្ថានីយសម្រាប់ធ្វើបច្ចុប្បន្នភាព"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "업데이트 터미널이 생성되었습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oppdateringsterminal opprettet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utworzono terminal aktualizacji"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal de atualização criado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Терминал обновления создан"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สร้างเทอร์มินัลสำหรับอัปเดตแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Güncelleme terminali oluşturuldu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Термінал оновлення створено"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đã tạo cửa sổ dòng lệnh cập nhật"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已创建更新终端"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已建立更新終端機"
+          }
+        }
+      }
+    },
+    "settingsWindow.harnesses.jobPending": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting for update to finish"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "بانتظار انتهاء التحديث"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Čekanje završetka ažuriranja"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Venter på, at opdateringen afsluttes"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Warten auf den Abschluss des Updates"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esperando a que termine la actualización"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En attente de la fin de la mise à jour"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In attesa del completamento dell’aggiornamento"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新の完了を待っています"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កំពុងរង់ចាំការធ្វើបច្ចុប្បន្នភាពបញ្ចប់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "업데이트가 완료되기를 기다리는 중"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Venter på at oppdateringen skal fullføres"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oczekiwanie na zakończenie aktualizacji"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aguardando a conclusão da atualização"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ожидание завершения обновления"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "กำลังรอให้การอัปเดตเสร็จสิ้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Güncellemenin bitmesi bekleniyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Очікування завершення оновлення"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đang chờ cập nhật hoàn tất"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在等待更新完成"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在等待更新完成"
+          }
+        }
+      }
+    },
+    "settingsWindow.harnesses.jobExit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Exit code: %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "رمز الخروج: %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Izlazni kod: %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afslutningskode: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Exit-Code: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Código de salida: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Code de sortie : %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codice di uscita: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "終了コード: %@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កូដចាកចេញ៖ %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "종료 코드: %@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avslutningskode: %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kod zakończenia: %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Código de saída: %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Код выхода: %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "รหัสออก: %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Çıkış kodu: %@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Код виходу: %@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mã thoát: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "退出代码：%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "結束代碼：%@"
+          }
+        }
+      }
+    },
+    "settingsWindow.harnesses.jobSignal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Signal: %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الإشارة: %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Broj signala: %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Signalnummer: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Signalnummer: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Señal: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Signal reçu : %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Segnale: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "シグナル: %@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សញ្ញា៖ %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시그널: %@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Signalnummer: %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sygnał: %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sinal: %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сигнал: %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สัญญาณ: %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sinyal: %@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сигнал: %@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tín hiệu: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "信号：%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "訊號：%@"
+          }
+        }
+      }
+    },
+    "settingsWindow.harnesses.jobUnknown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Outcome unknown; do not start another update."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "النتيجة غير معروفة؛ لا تبدأ تحديثًا آخر."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ishod je nepoznat; nemojte pokretati drugo ažuriranje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resultatet er ukendt; start ikke en ny opdatering."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ergebnis unbekannt; kein weiteres Update starten."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resultado desconocido; no inicies otra actualización."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Résultat inconnu ; ne lancez pas une autre mise à jour."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esito sconosciuto; non avviare un altro aggiornamento."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "結果が不明です。別の更新を開始しないでください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនស្គាល់លទ្ធផលទេ។ កុំចាប់ផ្តើមធ្វើបច្ចុប្បន្នភាពផ្សេងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "결과를 알 수 없습니다. 다른 업데이트를 시작하지 마세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resultatet er ukjent; ikke start en ny oppdatering."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wynik jest nieznany; nie uruchamiaj kolejnej aktualizacji."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resultado desconhecido; não inicie outra atualização."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Результат неизвестен; не запускайте другое обновление."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่ทราบผลลัพธ์ อย่าเริ่มการอัปเดตอื่น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sonuç bilinmiyor; başka bir güncelleme başlatmayın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Результат невідомий; не запускайте інше оновлення."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chưa rõ kết quả; đừng bắt đầu bản cập nhật khác."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "结果未知；请勿开始另一次更新。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "結果未知；請勿開始另一次更新。"
           }
         }
       }
@@ -41334,6 +42251,137 @@
           "stringUnit": {
             "state": "translated",
             "value": "你的圖片佔用 %@。"
+          }
+        }
+      }
+    },
+    "settingsWindow.backdropPicker.video": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Video"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Video"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vidéo"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فيديو"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vídeo"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "影片"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "视频"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "동영상"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ビデオ"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Video"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Video"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Video"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "វីដេអូ"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Video"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wideo"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vídeo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Видео"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "วิดีโอ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Video"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Відео"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Video"
           }
         }
       }

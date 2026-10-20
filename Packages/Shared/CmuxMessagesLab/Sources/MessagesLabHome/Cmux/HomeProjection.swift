@@ -96,6 +96,8 @@ final class HomeProjection: @preconcurrency ChatIntents {
     var pendingReveal: MessageID?
     /// Tree threads: permalink paging, the thread header, Copy Link (HomeProjection+ThreadHeader.swift).
     let tree = HomeTreeState()
+    /// One streamed-text commit per display frame (HomeStreamPacer).
+    let streamPacer = HomeStreamPacer()
     /// Rebuilds and applied (changed) updates, for tests.
     private(set) var rebuilds = 0
     private(set) var appliedUpdates = 0
@@ -112,13 +114,14 @@ final class HomeProjection: @preconcurrency ChatIntents {
     let linkPreviews: HomeLinkPreviews?
 
     init(store: HomeStore, conversation: ConversationID, me: ParticipantID, controller: ChatController,
-         linkPreviews: HomeLinkPreviews? = nil) {
+         linkPreviews: HomeLinkPreviews? = nil, replies: HomeReplyDisplay = .wholeMessages) {
         homeStore = store
         self.linkPreviews = linkPreviews
         self.conversation = conversation
         self.me = me
         self.controller = controller
         core = ProjectionCore(me: me)
+        core.replies = replies
         let media = self.media
         core.media = { [weak media] in media?.asset($0) }
         if let linkPreviews { core.links = { [weak linkPreviews] in linkPreviews?.cached($0) } }
@@ -169,8 +172,9 @@ final class HomeProjection: @preconcurrency ChatIntents {
     /// The whole current value; unchanged values return before any work.
     func apply(items: [TranscriptItem], summary: ConversationSummary?, typing wantedTyping: Set<ParticipantID>,
                hasOlder newHasOlder: Bool, streams: [HomeStreamRow] = []) {
-        // MessagesLab hides a sender's typing dots while its stream has text (ask 11).
-        let typing = wantedTyping
+        // MessagesLab hides a sender's typing dots while its stream has text (ask 11). Whole
+        // messages: each running reply is its author's typing dots until its messages post.
+        let typing = wantedTyping.union(core.replyTypists(streams))
         guard let store = controller.store else {
             install(items: items, summary: summary, typing: typing, hasOlder: newHasOlder)
             restoreDraft()
@@ -179,8 +183,13 @@ final class HomeProjection: @preconcurrency ChatIntents {
             return
         }
         let typingChanged = Set(store.state.ui.typing) != Set(typing.filter { $0 != me }.map(\.rawValue))
-        guard items != shown || summary != shownSummary || typingChanged || newHasOlder != hasOlder
-                || core.streamsDiffer(streams) else { return }
+        // Only the running replies' text changed (a token): at most one such commit per display frame,
+        // never ahead of a keystroke (HomeStreamPacer; home-streaming-perf-DESIGN.md). Any other
+        // change commits now, with the newest stream text.
+        let streamOnly = items == shown && summary == shownSummary && !typingChanged && newHasOlder == hasOlder
+        guard !streamOnly || core.streamsDiffer(streams) else { return }
+        if streamOnly, !streamPacer.admit(inputFrame: controller.inKeystrokeFrame, nextFrame: controller.nextFrame,
+                                          refresh: { [weak self] in if let self, !self.stopped { self.refresh() } }) { return }
         appliedUpdates += 1
         // A new oldest message is the page asked for, however it arrives: a
         // `.prependPage`, or a whole-window rebuild (that one carries no
@@ -223,9 +232,12 @@ final class HomeProjection: @preconcurrency ChatIntents {
             if diff.rebuild || !orderMatchesStore() { rebuild() }
             for a in core.typing(store.state, wanted: typing) { controller.dispatch(a) }
         }
+        // A token moves rows (the inline videos follow) and changes nothing else this side tracks:
+        // no attachment, title, summary, read cursor or older page work per token.
+        video.place()
+        if streamOnly { return }
         if titleChanged { applyHeader() }
         refreshAttachments()
-        video.place()
         if summaryChanged { onSummaryChange(summary) }
         onRowsChange()
         askForOlderIfNeeded()
@@ -323,12 +335,14 @@ final class HomeProjection: @preconcurrency ChatIntents {
     /// `deferred`: the thread (root, parent) a held send was made in (`refresh`); nil reads the open view.
     private func send(thread deferred: (root: MessageID?, parent: MessageID?)?) -> String? {
         guard let store = controller.store else { return noteSend("refused: transcript_not_ready") }
+        // A stream update held for the next frame (HomeStreamPacer) shows first: the send lands after the reply's newest text.
+        if !stopped { streamPacer.flush { refresh() } }
         let draft = store.state.ui.draft
-        let text = draft.plainText.trimmingCharacters(in: .whitespacesAndNewlines)  // without the attachment marks
+        let typed = draft.plainText.trimmingCharacters(in: .whitespacesAndNewlines)  // without the attachment marks
         let attachments = draft.attachments.compactMap { drafts[$0.id] }
         // MessagesLab d0017ba: the reducer's own rule first (Return with nothing to send does nothing:
         // no .send, no flash, no jump, nothing to HomeStore); then a chip whose attachment is not prepared.
-        guard Reducer.canSend(draft), !text.isEmpty || !attachments.isEmpty else { return noteSend("refused: empty_draft") }
+        guard Reducer.canSend(draft), !typed.isEmpty || !attachments.isEmpty else { return noteSend("refused: empty_draft") }
         // The open thread or reply view: the send is a reply in that thread (HomeStore's root id).
         let threadRoot: MessageID?, parent: MessageID?
         if let deferred {
@@ -355,6 +369,11 @@ final class HomeProjection: @preconcurrency ChatIntents {
         }
         sendNotice = nil
         let key = IdempotencyKey.make()
+        // Reply to Selection: the quote goes out as a Markdown blockquote above the reply
+        // (ReplyQuote.quoted); the local bubble shows it as HomeMapping shows the stored reply.
+        let text = controller.quotedForSend(typed)
+        let shownDraft = controller.shownDraftForSend(draft.text)
+        controller.replyQuote = nil
         linkPreviews?.allowSend(text)
         // The paths that used to drop a send without a word (cx-ebm.55), one line each,
         // so a lost send in dogfood says which one it took.
@@ -364,6 +383,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
         if store.state.atNewest {
             // A reply still streaming stays one bubble, the newest row, below this send: the owner posts it
             // after the send, so it lands in the bubble's place (HomeProjection+Draft, send order).
+            if let shownDraft { controller.dispatch(.setDraft(shownDraft)) }
             controller.dispatch(.send)
             // The local bubble morphs into HomeStore's item; without it the item shows on its own.
             _ = core.recordSend(key, in: store.state)
@@ -742,6 +762,10 @@ struct ProjectionCore {
     var links: HomeMapping.Links = { _ in nil }
     /// The running replies on screen, in begin order (`streams(_:state:)`, MessagesLab ask 11).
     var shownStreams: [ShownStream] = []
+    /// Whole messages (default) or the growing stream bubbles (`HomeReplyDisplay`).
+    var replies: HomeReplyDisplay = .wholeMessages
+    /// Each running reply's parts between tokens, by turn (a cache: copies of the core share it).
+    let streamMappers = HomeStreamMappers()
 
     init(me: ParticipantID) { self.me = me }
 
