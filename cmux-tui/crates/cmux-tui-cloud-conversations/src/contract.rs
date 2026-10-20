@@ -14,6 +14,11 @@ pub const CLOUD_OP_KINDS: &[&str] = &[
     "conversation.create",
     "participants.add",
     "participants.remove",
+    "participants.set_role",
+    "participants.unban",
+    "ownership.transfer",
+    "grant.create",
+    "grant.revoke",
     "message.send",
     "message.edit",
     "message.retract",
@@ -212,9 +217,10 @@ pub(crate) fn op_body(request: &OpRequest) -> Result<Value, CloudError> {
 }
 
 /// Op kinds `cloud-inbox-op` forwards to the person's UserDO inbox (the
-/// person's own list state: home-core `inbox.pin`, `inbox.mark_unread`).
-/// Every other kind is refused before any network call (default deny).
-pub const CLOUD_INBOX_OP_KINDS: &[&str] = &["inbox.pin", "inbox.mark_unread"];
+/// person's own list state: home-core `inbox.pin`, `inbox.mark_unread`,
+/// `inbox.mute`). Every other kind is refused before any network call
+/// (default deny).
+pub const CLOUD_INBOX_OP_KINDS: &[&str] = &["inbox.pin", "inbox.mark_unread", "inbox.mute"];
 
 /// `cloud-inbox-op` params: one inbox op on one conversation's entry.
 #[derive(Debug, Clone, Deserialize)]
