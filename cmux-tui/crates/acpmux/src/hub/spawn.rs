@@ -42,9 +42,11 @@ impl Hub {
         profile: &HarnessProfile,
         defaults_env: &std::collections::BTreeMap<String, String>,
     ) -> Result<Spawn, RpcError> {
-        let (profile, preset_digest) =
-            self.spawn_profile_read(&session.meta(), profile, defaults_env).await?;
-        Ok(Spawn { profile, preset_digest })
+        // A fork resumes its parent's conversation: it runs in the parent's folder.
+        let forking = session.fork_from.lock().unwrap_or_else(|e| e.into_inner()).is_some();
+        let (profile, preset_digest, account_home) =
+            self.spawn_profile_read(&session.meta(), forking, profile, defaults_env).await?;
+        Ok(Spawn { profile, preset_digest, account_home })
     }
 
     /// `spawn_profile` for a session's meta, also before the session exists
@@ -55,7 +57,7 @@ impl Hub {
         profile: &HarnessProfile,
         defaults_env: &std::collections::BTreeMap<String, String>,
     ) -> Result<HarnessProfile, RpcError> {
-        self.spawn_profile_read(meta, profile, defaults_env).await.map(|(p, _)| p)
+        self.spawn_profile_read(meta, false, profile, defaults_env).await.map(|(p, ..)| p)
     }
 
     /// `spawn_profile_for`, and the approval digest of the preset contents
@@ -63,9 +65,10 @@ impl Hub {
     async fn spawn_profile_read(
         &self,
         meta: &SessionMeta,
+        forking: bool,
         profile: &HarnessProfile,
         defaults_env: &std::collections::BTreeMap<String, String>,
-    ) -> Result<(HarnessProfile, Option<String>), RpcError> {
+    ) -> Result<(HarnessProfile, Option<String>, Option<std::path::PathBuf>), RpcError> {
         let mut p = profile.clone();
         let mut digest = None;
         for (k, v) in defaults_env {
@@ -125,7 +128,7 @@ impl Hub {
         // `agent/command.rs` removes the key before the harness starts.
         crate::agent_displays::mark(&mut p.env, meta.workspace_id.as_deref());
         // The bound route last: it owns the provider variables (routes.rs).
-        self.apply_route(meta, profile, &mut p.env).await?;
+        let account_home = self.apply_route(meta, forking, profile, &mut p.env).await?;
         p.argv = self.resolved_launcher_argv(p.argv);
         // After expansion: the path is acpmux's own, never expanded.
         if let Some(file) = prompt_file {
@@ -146,7 +149,7 @@ impl Hub {
         if profile.kind == crate::config::HarnessKind::ClaudeStdio {
             p.argv.extend(super::tools::disallowed_args(&meta.tools));
         }
-        Ok((p, digest))
+        Ok((p, digest, account_home))
     }
 }
 
@@ -155,6 +158,8 @@ impl Hub {
 pub(super) struct Spawn {
     pub profile: HarnessProfile,
     pub preset_digest: Option<String>,
+    /// The account home a new chat starts in (route_account.rs `record`).
+    pub account_home: Option<std::path::PathBuf>,
 }
 
 impl std::ops::Deref for Spawn {
