@@ -79,8 +79,24 @@ impl Prefill {
                 Err(_) => return,
             }
         }
-        let shell_foreground =
-            surface.process_id().is_some_and(crate::platform::shell_holds_foreground);
+        if self.run {
+            // What the person typed while the shell started is echoed only
+            // after the prompt is drawn: the prompt settles (one quiet
+            // interval) before it is checked for input.
+            let settle = Instant::now() + PROMPT_WAIT;
+            while let Ok(Some(revision)) = surface
+                .wait_for_terminal_stream_change(seen, Some((Instant::now() + QUIET).min(settle)))
+            {
+                seen = revision;
+            }
+        }
+        // The shell itself holds the terminal: not a job its startup files
+        // started, nor a program one of them `exec`ed in its place (`exec ssh`).
+        let shell_foreground = surface.process_id().is_some_and(|pid| {
+            crate::platform::shell_holds_foreground(pid)
+                && crate::platform::foreground_process_name(pid)
+                    .is_some_and(|name| posix_shell(&name))
+        });
         let Ok(text) = surface.try_with_terminal(|term| self.input(term, shell_foreground)) else {
             return;
         };
@@ -98,11 +114,11 @@ impl Prefill {
     /// integration, the shell in the foreground (`shell_foreground`), and no
     /// input on it (the person typed during the shell's startup).
     fn input(&self, term: &mut ghostty_vt::Terminal, shell_foreground: bool) -> String {
-        let at_empty_prompt = || {
-            term.prompt_is_marked()
-                && term.latest_input_text(0).is_none_or(|input| input.trim().is_empty())
-        };
-        if self.run && shell_foreground && at_empty_prompt() {
+        if self.run
+            && shell_foreground
+            && term.prompt_is_marked()
+            && term.latest_input_text(0).is_none_or(|input| input.trim().is_empty())
+        {
             format!("{}\r", self.text)
         } else {
             self.text.clone()

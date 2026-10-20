@@ -1088,10 +1088,26 @@ def daemon_binary():
     return None
 
 
+def process_env(pid, keys):
+    """The values of `keys` in process `pid`'s environment (`ps eww`, same user)."""
+    out = subprocess.run(["ps", "eww", "-o", "command=", "-p", str(pid)], capture_output=True, text=True).stdout
+    found = {}
+    for word in out.split():
+        key, sep, value = word.partition("=")
+        if sep and key in keys:
+            found[key] = value
+    return found
+
+
 def daemon_config_path():
-    """The cmux-tui.json the app's daemon reads: the app does not name one, so the daemon reads its
-    default under the app's own XDG_CONFIG_HOME or HOME (mux.json when only that legacy file exists)."""
-    env = APP.env
+    """The cmux-tui.json the app's daemon reads, from the running daemon's own environment (the
+    app may hand it CMUX_TUI_CONFIG), else the app's: CMUX_TUI_CONFIG, else cmux/cmux-tui.json under
+    XDG_CONFIG_HOME or HOME/.config (mux.json when only that legacy file exists)."""
+    keys = ("CMUX_TUI_CONFIG", "CMUX_MUX_CONFIG", "XDG_CONFIG_HOME", "HOME")
+    pids = APP.daemon_pids()
+    env = process_env(pids[0], keys) if pids else {}
+    if "HOME" not in env:
+        env = {**process_env(APP.pid, keys), **APP.env}
     if env.get("CMUX_TUI_CONFIG") or env.get("CMUX_MUX_CONFIG"):
         return env.get("CMUX_TUI_CONFIG") or env.get("CMUX_MUX_CONFIG")
     base = env.get("XDG_CONFIG_HOME") or os.path.join(env.get("HOME", os.environ["HOME"]), ".config")
@@ -1129,7 +1145,8 @@ def seed_tagents():
     ws = new_workspace("rj-tagents")
     if not ws.get("terminal_id"):
         return
-    opt_in_agent_resume()
+    RESULTS.append(("seed tagents: the daemon's config runs a restored agent's resume (agents.resume)",
+                    opt_in_agent_resume(), daemon_config_path(), "seed"))
     here = os.path.dirname(os.path.abspath(__file__))
     bindir = os.path.join(opts.out, "rj-bin")
     os.makedirs(bindir, exist_ok=True)

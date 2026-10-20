@@ -434,10 +434,9 @@ impl WorkspaceRegistry {
             Some((harness, session_id)) if resumable_session_id(session_id) => {
                 // A failed lookup costs only what was stored, never the agent record.
                 let stored = match start {
-                    AgentStart::Unknown => self
-                        .stored_agent_of(terminal_public_id, harness, session_id)
-                        .ok()
-                        .flatten(),
+                    AgentStart::Unknown => {
+                        self.stored_agent_of(terminal_public_id, harness, session_id).ok().flatten()
+                    }
                     _ => None,
                 };
                 let non_interactive = matches!(start, AgentStart::NonInteractive)
