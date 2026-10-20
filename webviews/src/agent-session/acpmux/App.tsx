@@ -116,7 +116,7 @@ import { pendingToolCalls, waitingSubagents } from "./summary/SubagentStatusList
 import { AgentsPill } from "./subagents/AgentsPill";
 import { AgentTonesContext, agentTones } from "./subagents/agentTones";
 import { useSummaryCard, useSummaryColumn } from "./summary/cardState";
-import { chatGallery } from "./summary/chatGallery";
+import { chatHasSummaryContent } from "./summary/summaryContent";
 import {
   openSubagentPane,
   revealedSubagent,
@@ -3161,27 +3161,7 @@ function AcpmuxPane() {
   // A wide pane reserves a right-side summary column; a narrow pane keeps the summary as a
   // popover under the header button so it never covers the composer controls.
   const shownSessionId = snapshot.sessionId ?? snapshot.summary?.sessionId;
-  const summaryHasContent = useMemo(() => {
-    if (chatGallery(snapshot.rows).length > 0) return true;
-    return snapshot.rows.some(
-      (row) =>
-        row.subagents?.length ||
-        row.backgroundTask ||
-        (row.kind === "activity" &&
-          row.items?.some((item) => {
-            const tool = item.tool;
-            if (!tool) return false;
-            if (tool.diffs?.length || tool.kind === "fetch" || tool.kind === "think") return true;
-            // Wakeups and cron jobs arrive as kind "other", named by their title (the summary's
-            // scheduled() list reads them the same way).
-            if (/^(?:ScheduleWakeup|CronCreate)\b/.test(tool.title) && tool.status !== "failed") return true;
-            if (tool.kind !== "execute") return false;
-            // Claude's raw input arrives as JSON (`"run_in_background":true`).
-            const command = `${tool.command ?? ""} ${tool.inputSummary ?? ""}`;
-            return /run_in_background["']?\s*[=:]\s*true|gh\s+pr\s+(?:create|merge|close)/.test(command);
-          })),
-    );
-  }, [snapshot.rows]);
+  const summaryHasContent = useMemo(() => chatHasSummaryContent(snapshot.rows), [snapshot.rows]);
   const [shell, setShell] = useState<HTMLElement | null>(null);
   /// The chat's bottom stack (bottomStack.css): the transcript runs under it and keeps its end above it.
   const [dock, setDock] = useState<HTMLElement | null>(null);
@@ -3716,9 +3696,10 @@ function AcpmuxPane() {
   // background shells that have not ended. A count of one opens its subagent or the shell's row;
   // of several, the summary card, which lists them all.
   const [revealRow, setRevealRow] = useState<{ rowId: string; key: number; toolId: string }>();
+  // chatAgents already lists every subagent and changes when one's state does.
   const runningAgents = useMemo(
-    () => (snapshot.isWorking ? [...subagentsIn(snapshot.rows, snapshot.subagentViews).values()].filter(running) : []),
-    [snapshot.isWorking, snapshot.rows, snapshot.subagentViews],
+    () => (snapshot.isWorking ? chatAgents.filter(running) : []),
+    [snapshot.isWorking, chatAgents],
   );
   const runningCommands = useMemo(
     () => (snapshot.isWorking ? runningBackgroundTasks(snapshot.rows) : []),
