@@ -13,13 +13,14 @@ import CmuxMemoryPressure
 /// the dominant pane's tty, then SIGKILL to the groups still on that tty after
 /// a bounded grace deadline. The pane's session root and login shell are never
 /// signalled. It runs after idle-agent hibernation, which is cheaper and less
-/// destructive.
+/// destructive, and only while the Runaway Memory Guardrail setting is on.
 @MainActor
 final class RunawayPaneTreeMemoryPressureResponder: MemoryPressureResponder {
     typealias SnapshotProvider = @Sendable () async -> CmuxTopProcessSnapshot
     typealias AggregateProvider = @Sendable (Date) async -> MemoryPressureAggregateSnapshot
     typealias ProcessGroupSignaller = @Sendable (_ processGroupID: Int, _ signal: Int32) -> Void
     typealias GraceDeadline = @Sendable () async -> Bool
+    typealias TTYDeviceResolver = @Sendable (String) -> Int64?
 
     private static let logger = Logger(
         subsystem: "com.cmuxterm.app",
@@ -31,17 +32,20 @@ final class RunawayPaneTreeMemoryPressureResponder: MemoryPressureResponder {
     let memoryPressurePriority = 70
     let memoryPressureResponderScope: MemoryPressureResponderScope = .all
 
+    private let isEnabled: @MainActor () -> Bool
     private let paneProvider: @MainActor () -> [PaneMemoryDescriptor]
     private let thresholdBytes: @MainActor () -> Int64
     private let snapshotProvider: SnapshotProvider
     private let aggregateProvider: AggregateProvider
     private let signalProcessGroup: ProcessGroupSignaller
     private let waitForGraceDeadline: GraceDeadline
-    private let app: RunawayPaneTreeAppIdentity
-    private let ttyDevice: RunawayPaneTreeSelection.TTYDeviceResolver
-    private var evaluationTask: Task<Void, Never>?
+    private let ttyDevice: TTYDeviceResolver
+    private let appProcessID: Int
+    private let appProcessGroupID: Int
+    private(set) var evaluationTask: Task<Void, Never>?
 
     init(
+        isEnabled: @escaping @MainActor () -> Bool = { PaneMemoryGuardrail.isConfiguredEnabled() },
         paneProvider: @escaping @MainActor () -> [PaneMemoryDescriptor],
         thresholdBytes: @escaping @MainActor () -> Int64 = { PaneMemoryGuardrail.configuredThresholdBytes() },
         snapshotProvider: @escaping SnapshotProvider = {
@@ -70,25 +74,28 @@ final class RunawayPaneTreeMemoryPressureResponder: MemoryPressureResponder {
                 return false
             }
         },
-        app: RunawayPaneTreeAppIdentity = .current,
-        ttyDevice: @escaping RunawayPaneTreeSelection.TTYDeviceResolver = {
+        ttyDevice: @escaping TTYDeviceResolver = {
             CmuxTopProcessSnapshot.deviceIdentifier(forTTYName: $0)
-        }
+        },
+        appProcessID: Int = Int(getpid()),
+        appProcessGroupID: Int = Int(getpgrp())
     ) {
+        self.isEnabled = isEnabled
         self.paneProvider = paneProvider
         self.thresholdBytes = thresholdBytes
         self.snapshotProvider = snapshotProvider
         self.aggregateProvider = aggregateProvider
         self.signalProcessGroup = signalProcessGroup
         self.waitForGraceDeadline = waitForGraceDeadline
-        self.app = app
         self.ttyDevice = ttyDevice
+        self.appProcessID = appProcessID
+        self.appProcessGroupID = appProcessGroupID
     }
 
-    /// The in-flight evaluation, if one is running.
-    var pendingEvaluation: Task<Void, Never>? { evaluationTask }
-
     func shedMemory(for snapshot: MemoryPressureSnapshot) -> MemoryPressureShedResult {
+        guard isEnabled() else {
+            return MemoryPressureShedResult(reclaimedItemCount: 0, detail: "runaway-guardrail-disabled")
+        }
         guard evaluationTask == nil else {
             return MemoryPressureShedResult(reclaimedItemCount: 0, detail: "runaway-pane-evaluation-in-flight")
         }
@@ -103,33 +110,39 @@ final class RunawayPaneTreeMemoryPressureResponder: MemoryPressureResponder {
 
         let responderID = memoryPressureResponderID
         let severity = snapshot.severity
-        let threshold = thresholdBytes()
+        let selector = RunawaySessionSelector(
+            appProcessID: appProcessID,
+            appProcessGroupID: appProcessGroupID,
+            thresholdBytes: thresholdBytes(),
+            clearFraction: PaneMemoryGuardrailEngine.clearFraction
+        )
         let sampledAt = snapshot.sampledAt
         let snapshotProvider = snapshotProvider
         let aggregateProvider = aggregateProvider
         let signalProcessGroup = signalProcessGroup
         let waitForGraceDeadline = waitForGraceDeadline
-        let app = app
         let ttyDevice = ttyDevice
         evaluationTask = Task { @MainActor [weak self] in
             let targets = await Self.evaluate(
                 descriptors: descriptors,
-                thresholdBytes: threshold,
+                selector: selector,
                 knownAggregate: knownAggregate,
                 sampledAt: sampledAt,
                 snapshotProvider: snapshotProvider,
                 aggregateProvider: aggregateProvider,
                 signalProcessGroup: signalProcessGroup,
                 waitForGraceDeadline: waitForGraceDeadline,
-                app: app,
                 ttyDevice: ttyDevice
             )
             self?.evaluationTask = nil
             guard !targets.isEmpty else { return }
-            let bytes = targets.reduce(Int64(0)) { CmuxTopProcessSnapshot.clampedAdd($0, $1.memoryBytes) }
-            let processCount = targets.reduce(0) { $0 + $1.processCount }
+            let bytes = targets.reduce(Int64(0)) {
+                CmuxTopProcessSnapshot.clampedAdd($0, $1.selection.memoryBytes)
+            }
+            let processCount = targets.reduce(0) { $0 + $1.selection.processCount }
+            let processGroupCount = targets.reduce(0) { $0 + $1.selection.processGroupIDs.count }
             Self.logger.notice(
-                "memoryPressure.runawayPaneTree panes=\(targets.count, privacy: .public) processGroups=\(targets.flatMap(\.processGroupIDs).count, privacy: .public) processes=\(processCount, privacy: .public) bytes=\(bytes, privacy: .public)"
+                "memoryPressure.runawayPaneTree panes=\(targets.count, privacy: .public) processGroups=\(processGroupCount, privacy: .public) processes=\(processCount, privacy: .public) bytes=\(bytes, privacy: .public)"
             )
             MemoryPressureResponderRegistry.logShedAction(
                 MemoryPressureShedAction(
@@ -161,17 +174,14 @@ final class RunawayPaneTreeMemoryPressureResponder: MemoryPressureResponder {
     #endif
     nonisolated static func evaluate(
         descriptors: [PaneMemoryDescriptor],
-        thresholdBytes: Int64,
+        selector: RunawaySessionSelector,
         knownAggregate: MemoryPressureAggregateSnapshot?,
         sampledAt: Date,
         snapshotProvider: SnapshotProvider,
         aggregateProvider: AggregateProvider,
         signalProcessGroup: ProcessGroupSignaller,
         waitForGraceDeadline: GraceDeadline,
-        app: RunawayPaneTreeAppIdentity = .current,
-        ttyDevice: RunawayPaneTreeSelection.TTYDeviceResolver = {
-            CmuxTopProcessSnapshot.deviceIdentifier(forTTYName: $0)
-        }
+        ttyDevice: TTYDeviceResolver
     ) async -> [RunawayPaneTreeTarget] {
         let aggregate: MemoryPressureAggregateSnapshot
         if let knownAggregate {
@@ -180,37 +190,35 @@ final class RunawayPaneTreeMemoryPressureResponder: MemoryPressureResponder {
             aggregate = await aggregateProvider(sampledAt)
         }
         guard authorizesTermination(aggregate),
-              let aggregateBytes = aggregate.aggregateBytes else { return [] }
+              let aggregateBytes = aggregate.aggregateBytes,
+              let census = await snapshotProvider().runawaySessionCensus() else { return [] }
 
-        let snapshot = await snapshotProvider()
-        let targets = RunawayPaneTreeSelection.targets(
-            descriptors: descriptors,
-            snapshot: snapshot,
-            aggregateBytes: aggregateBytes,
-            thresholdBytes: thresholdBytes,
-            app: app,
-            ttyDevice: ttyDevice
-        )
+        let targets: [RunawayPaneTreeTarget] = descriptors.compactMap { descriptor in
+            guard let ttyName = descriptor.ttyName,
+                  let device = ttyDevice(ttyName),
+                  let selection = selector.selection(
+                    ttyDevice: device,
+                    in: census,
+                    aggregateBytes: aggregateBytes
+                  ) else { return nil }
+            return RunawayPaneTreeTarget(key: descriptor.key, selection: selection)
+        }
         guard !targets.isEmpty else { return [] }
         for target in targets {
-            for processGroupID in target.processGroupIDs {
+            for processGroupID in target.selection.processGroupIDs {
                 signalProcessGroup(processGroupID, SIGTERM)
             }
         }
 
-        guard await waitForGraceDeadline() else { return targets }
-        let freshSnapshot = await snapshotProvider()
-        guard freshSnapshot.captureIsAvailable, freshSnapshot.enumerationIsComplete else {
-            // Without a complete census a reused group ID cannot be ruled out.
-            return targets
-        }
+        // Without a complete census a reused group ID can't be ruled out.
+        guard await waitForGraceDeadline(),
+              let freshCensus = await snapshotProvider().runawaySessionCensus() else { return targets }
         for target in targets {
-            let liveGroups = RunawayPaneTreeSelection.signallableProcessGroupIDs(
-                ttyDevice: target.ttyDevice,
-                in: freshSnapshot,
-                app: app
+            let liveGroups = selector.signallableProcessGroupIDs(
+                ttyDevice: target.selection.ttyDevice,
+                in: freshCensus
             ) ?? []
-            for processGroupID in target.processGroupIDs where liveGroups.contains(processGroupID) {
+            for processGroupID in target.selection.processGroupIDs where liveGroups.contains(processGroupID) {
                 signalProcessGroup(processGroupID, SIGKILL)
             }
         }
