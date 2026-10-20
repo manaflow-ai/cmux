@@ -21,18 +21,17 @@ enum WorkspaceGroupUndo {
     /// a toast when `toast`, else a step on the window's undo stack only.
     static func remove(_ invocation: ActionInvocation, _ context: AppActionContext, message: (String) -> String,
                        toast: Bool = true) throws {
-        let group = try context.group(invocation)
-        let sidebar = try context.sidebar()
-        let id = WorkspaceGroupHandlers.sidebarID(group)
-        let restore = SidebarGroupRestore.capture(id, in: sidebar.model.sections)
+        let group = try context.group(invocation), sidebar = try context.sidebar(), prior = ToastUndoStep.latest
+        let id = WorkspaceGroupHandlers.sidebarID(group), restore = SidebarGroupRestore.capture(id, in: sidebar.model.sections)
         sidebar.handle(.ungroup(id))
+        // On the sidebar document the ungroup puts its own undo step now (the daemon's inverse keeps the pin, icon and
+        // every member): the toast shares that step, and no client restore is added beside it.
+        let onDoc = SidebarDocStore.activeRecords != nil, docStep = onDoc ? ToastUndoStep.latest.flatMap { $0 === prior ? nil : $0 } : nil
         guard invocation.origin == .user, let restore, let window = context.activeWindow?.window else { return }
         let name = group.name.isEmpty ? ConfirmationStrings.unnamedGroup : group.name
-        // On the sidebar document the ungroup is already its own undo step (the daemon's inverse keeps the pin, icon
-        // and every member): the toast runs that step, and no client restore is added beside it.
-        let services = context.services, groupID = group.id.rawValue, onDoc = SidebarDocStore.activeRecords != nil
-        let undo: @MainActor () -> Void = { [weak sidebar, weak window] in
-            if onDoc { window?.undoManager?.undo() } else if let entry = DaemonClosedHistory.groupEntry(groupID, in: services) {
+        let services = context.services, groupID = group.id.rawValue
+        let undo: @MainActor () -> Void = { [weak sidebar] in
+            if let entry = DaemonClosedHistory.groupEntry(groupID, in: services) {
                 DaemonClosedHistory.reopen(entry, services: services)
             } else {
                 sidebar?.handle(restore.intent(newID: .make()))
@@ -43,7 +42,7 @@ enum WorkspaceGroupUndo {
             return
         }
         let handle = CmuxToastCenter.shared.show(CmuxToast(id: toastID, message: message(name), action: .undo()), in: window)
-        handle.onAction = undo
+        if let docStep { docStep.share(with: handle) } else if !onDoc { handle.onAction = undo }
     }
 
     /// The title History gives a deleted group's closed-history item.
