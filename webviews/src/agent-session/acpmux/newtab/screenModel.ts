@@ -4,7 +4,7 @@
 import type { AcpmuxSnapshot } from "../model";
 import { ageLabel, recentSessions } from "../NewTabPage";
 import { EMPTY_OMNIBAR, omnibarRows, type OmnibarContext, type OmnibarRow } from "../omnibar";
-import { listed, normalizedSessionEntry, sessionMark, type AcpmuxSessionEntry } from "../sessionList";
+import { activityTime, listed, normalizedSessionEntry, sessionMark, type AcpmuxSessionEntry } from "../sessionList";
 import { classifyNewTabInput, TERMINAL_PREFIX } from "../newTabIntent";
 import { type Translate, translate } from "../i18n";
 import type { DeviceChat } from "./deviceChats";
@@ -430,7 +430,7 @@ function sessionCard(session: AcpmuxSessionEntry, now: number, t: Translate): Ch
     title: session.displayTitle ?? session.sessionId,
     ...(session.agentSessionId ? { chatId: session.agentSessionId } : {}),
     ...(session.harness ? { harness: session.harness } : {}),
-    age: ageLabel(session.updatedAt, now, t),
+    age: ageLabel(activityTime(session), now, t),
     ...(session.preview ? { message: session.preview } : {}),
     state: session.indicator === "failed" ? "failed" : (sessionMark(session, false) ?? "idle"),
   };
@@ -449,7 +449,7 @@ function indexChildren(
   for (const raw of sessions) {
     const session = normalizedSessionEntry(raw as Parameters<typeof normalizedSessionEntry>[0]);
     if (!session.spawnedBy || !listed(session) || sessionMark(session, false) === "input") continue;
-    const child = { parent: session.spawnedBy, at: session.updatedAt ?? 0, card: sessionCard(session, now, t) };
+    const child = { parent: session.spawnedBy, at: activityTime(session) ?? 0, card: sessionCard(session, now, t) };
     indexed.set(session.spawnedBy, [...(indexed.get(session.spawnedBy) ?? []), child]);
   }
   for (const chat of device) {

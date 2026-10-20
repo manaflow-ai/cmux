@@ -3,6 +3,7 @@ import { Icon } from "./icons/Icon";
 import { type StringKey, useT } from "./i18n";
 import { ContextMenu, type ContextMenuItem } from "../../ui/ContextMenu";
 import {
+  activityTime,
   listed,
   sessionTitle,
   sessionMark,
@@ -113,7 +114,7 @@ export function ChiefDock({
         .sort(
           (left, right) =>
             urgency(right, right.sessionId === currentId) - urgency(left, left.sessionId === currentId) ||
-            (right.updatedAt ?? 0) - (left.updatedAt ?? 0),
+            (activityTime(right) ?? 0) - (activityTime(left) ?? 0),
         )
         .slice(0, MAX_CARDS),
     [currentId, sessions],
