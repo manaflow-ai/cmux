@@ -23,8 +23,11 @@
   --cmux-md-h5-size: 1em;
   --cmux-md-h6-size: 0.9em;
   --cmux-md-code-font-family: var(--cmux-diff-code-font-family, ui-monospace, SFMono-Regular, Menlo, monospace);
-  --cmux-md-code-inline-size: 0.88em;
-  --cmux-md-code-block-size: 14px;
+  /* Code is a share of the body text size (GitHub uses 85%): a monospaced font looks bigger than the
+     body font at the same size, so code stays a little smaller whatever the text size is. */
+  --cmux-md-code-scale: 0.875;
+  --cmux-md-code-inline-size: calc(var(--cmux-md-code-scale) * 1em);
+  --cmux-md-code-block-size: calc(var(--cmux-md-font-size) * var(--cmux-md-code-scale));
   --cmux-md-code-line-height: 1.55;
   --cmux-md-code-background: color-mix(in srgb, var(--page-text) 5%, transparent);
   --cmux-md-code-radius: 6px;
@@ -193,7 +196,10 @@ body {
 .md-scroll {
   flex: 1 1 auto;
   min-height: 0;
-  overflow: auto;
+  /* The page scrolls only up and down. A wide table or code block scrolls sideways in its own box
+     (below), so a sideways swipe never drags the whole page, and nothing wider than the pane
+     pushes the column off screen. */
+  overflow: hidden auto;
 }
 
 /* The reading column: `ch` is measured in the body font at its size. */
@@ -345,22 +351,123 @@ body {
   max-width: 100%;
 }
 
+/* Wide tables (MARKDOWN-TABLE-SCROLL, user 2026-10-19). The editor draws every table inside a
+   `.tableWrapper` (prosemirror-tables TableView) and gives the table an inline `min-width` of
+   100px a column. That wrapper is the table's horizontal scroller: the table keeps its natural
+   width inside it, the wrapper clips to the column and scrolls sideways (trackpad, Shift-wheel,
+   its scrollbar), and `overscroll-behavior-x: contain` keeps the swipe from chaining to the page
+   or the back gesture at either end. A vertical wheel over it has no vertical overflow to take,
+   so it goes on to the page. Before, the table itself was the scroller (`display: block`) but
+   its inline min-width made it as wide as its content, so it never overflowed itself: it spilled
+   out of the column and the whole page scrolled sideways instead. */
+.md-prose .tableWrapper,
+.md-prose > table {
+  max-width: 100%;
+  overflow: auto hidden;
+  overscroll-behavior-x: contain;
+}
+
+/* Table borders (MARKDOWN-OBSIDIAN-PARITY, user 2026-10-19: in transparency mode "when the border
+   and the tables intersect with each other, the color looks kind of different"). The separator is
+   translucent there, and the collapsed border model paints each cell's border, so two strokes
+   meet at every crossing and their alpha adds up into a darker dot; the header's fill under its
+   border tinted that border too. Now every border pixel is painted exactly once: the table draws
+   the top and left edges, each cell only its right and bottom edges (separate borders, no
+   spacing), and fills stop at the border (`background-clip: padding-box`), so the grid is one
+   color over any wallpaper, light or dark. */
 .md-prose table {
-  border-collapse: collapse;
-  display: block;
-  overflow-x: auto;
+  border-collapse: separate;
+  border-spacing: 0;
+  border-top: var(--cmux-md-table-border);
+  border-left: var(--cmux-md-table-border);
   white-space: normal;
+}
+
+/* `markdown.tables: "wrap"`: tables fit the column and their cells wrap instead. */
+:root[data-cmux-md-tables="wrap"] .md-prose table {
+  width: 100%;
+  min-width: 0 !important;
+  table-layout: auto;
+}
+
+:root[data-cmux-md-tables="wrap"] .md-prose :is(th, td) {
+  overflow-wrap: anywhere;
 }
 
 .md-prose th,
 .md-prose td {
+  position: relative;
   padding: 0.3em 0.7em;
-  border: var(--cmux-md-table-border);
+  border: 0;
+  border-right: var(--cmux-md-table-border);
+  border-bottom: var(--cmux-md-table-border);
+  background-clip: padding-box;
 }
 
 .md-prose th {
   font-weight: var(--cmux-md-heading-weight);
   background: var(--cmux-md-table-header-background);
+  background-clip: padding-box;
+}
+
+/* Cell selection (a drag across cells, Shift-click, Shift-arrows, Cmd-A twice): whole cells, as in
+   Obsidian. prosemirror-tables marks the cells `selectedCell` and the editor
+   `ProseMirror-hideselection`; without these rules the selected cells showed nothing and the
+   browser's own text highlight painted stray spans across them. One even fill on each cell, inside
+   its border, with no text highlight on top. */
+.md-prose.ProseMirror-hideselection *::selection {
+  background: transparent;
+}
+
+.md-prose.ProseMirror-hideselection {
+  caret-color: transparent;
+}
+
+.md-prose :is(td, th).selectedCell::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: var(--cmux-md-selection-color);
+  pointer-events: none;
+}
+
+/* Column resizing (tables.ts ResizableTableView): a handle on the hovered column's right edge. */
+.md-prose .tableWrapper {
+  position: relative;
+}
+
+.md-prose .md-col-resize {
+  position: absolute;
+  z-index: var(--layer-raised);
+  width: 9px;
+  margin-left: -5px;
+  cursor: col-resize;
+  user-select: none;
+}
+
+.md-prose .md-col-resize[hidden] {
+  display: none;
+}
+
+.md-prose .md-col-resize::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 3px;
+  width: 3px;
+  border-radius: 2px;
+  background: var(--cmux-md-link-color);
+  opacity: 0.6;
+}
+
+.md-prose .md-col-resizing,
+.md-prose .md-col-resizing * {
+  cursor: col-resize !important;
+}
+
+.md-prose .md-col-resizing .md-col-resize::after {
+  opacity: 1;
 }
 
 .md-prose th p,
@@ -386,10 +493,16 @@ body {
   background: var(--cmux-md-code-background);
 }
 
+.md-code {
+  max-width: 100%;
+}
+
+/* A long code line scrolls inside its block, as a wide table does. */
 .md-code pre {
   margin: 0;
   padding: 0.2em 1em 0.8em;
-  overflow-x: auto;
+  overflow: auto hidden;
+  overscroll-behavior-x: contain;
   white-space: pre;
 }
 
@@ -437,6 +550,16 @@ body {
 .md-code-diagram .md-diagram svg {
   max-width: 100%;
   height: auto;
+}
+
+/* Ondine's monochrome diagrams take the page's colors (its defaults are black on white). */
+.md-diagram svg.ondine {
+  --ondine-fg: var(--page-text);
+  --ondine-bg: var(--page-elevated);
+  --ondine-muted: var(--page-text-2);
+  --ondine-line: var(--page-text-2);
+  --ondine-border: var(--page-text-2);
+  --ondine-surface-alt: color-mix(in srgb, var(--page-text) 8%, var(--page-elevated));
 }
 
 .md-code-diagram pre {
@@ -581,7 +704,8 @@ body {
   text-decoration-color: var(--cmux-md-link-broken-color);
 }
 
-.md-link-card,
+/* The link bubble (Google Docs' model): under the link at the caret, never on hover. */
+.md-link-bubble,
 .md-link-popover {
   position: fixed;
   z-index: 20;
@@ -596,31 +720,104 @@ body {
   font-size: var(--cmux-md-popover-font-size);
 }
 
-.md-link-card {
-  pointer-events: none;
+.md-link-bubble {
+  min-width: 220px;
+  padding: 4px 4px 6px 8px;
+  pointer-events: auto;
 }
 
-.md-link-card[hidden] {
-  display: none;
+.md-link-bubble-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
-.md-link-card-target {
+.md-link-bubble-target {
+  display: inline-flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 2px 0;
+  border: 0;
+  background: none;
+  color: var(--cmux-md-link-color);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+.md-link-bubble-target:hover .md-link-bubble-url {
+  text-decoration: underline;
+}
+
+.md-link-bubble-url {
+  overflow: hidden;
   font-family: var(--cmux-md-code-font-family);
-  overflow-wrap: anywhere;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.md-link-card-detail {
-  margin-top: 2px;
+.md-link-bubble-actions {
+  display: inline-flex;
+  flex: 0 0 auto;
+  gap: 2px;
+}
+
+.md-link-glyph {
+  flex: 0 0 auto;
+}
+
+.md-link-bubble-detail {
+  margin-top: 1px;
   color: var(--cmux-md-muted-color);
 }
 
-.md-link-card[data-state="broken"] .md-link-card-detail {
+.md-link-bubble[data-state="broken"] .md-link-bubble-detail,
+.md-link-bubble[data-state="broken"] .md-link-bubble-target {
   color: var(--cmux-md-link-broken-color);
 }
 
 .md-link-popover {
   width: 360px;
-  padding: 6px;
+  padding: 8px;
+}
+
+.md-link-form {
+  display: grid;
+  gap: 6px;
+}
+
+.md-link-field {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  align-items: start;
+  gap: 8px;
+}
+
+.md-link-field-label {
+  min-width: 3em;
+  padding-top: 5px;
+  color: var(--cmux-md-muted-color);
+}
+
+.md-link-form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.md-link-text {
+  font-family: var(--cmux-md-font-family);
+}
+
+.md-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 .md-link-input {
@@ -681,4 +878,406 @@ body {
 .md-page[data-navigating] .md-doc {
   opacity: 0.55;
   transition: opacity 120ms ease-out 80ms;
+}
+
+/* The Reading Settings popover (ReadingSettings.tsx), opened by the toolbar's Aa button. */
+.md-reading-anchor {
+  display: inline-flex;
+}
+
+.md-reading-button {
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.md-reading {
+  width: 280px;
+  max-width: calc(100vw - 16px);
+}
+
+.md-reading-body {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  font-size: var(--cmux-md-ui-font-size);
+}
+
+.md-reading-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 4px 8px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+
+.md-reading-label {
+  padding: 0;
+  color: var(--page-text);
+}
+
+.md-reading-value {
+  color: var(--page-text-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.md-reading-slider {
+  grid-column: 1 / -1;
+  width: 100%;
+  margin: 0;
+  accent-color: var(--page-text-2);
+}
+
+/* The text width row (WidthField.tsx): a typed number field with a unit and a small stepper, the
+   preset menu beside it, and the label that scrubs the value when dragged (as in Figma). */
+.md-width-scrub {
+  cursor: ew-resize;
+  user-select: none;
+  touch-action: none;
+}
+
+.md-width-controls {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  min-width: 0;
+}
+
+.md-width-field {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  height: 22px;
+  padding-left: 6px;
+  border-radius: 5px;
+  background: var(--page-hover);
+  box-shadow: inset 0 0 0 0.5px var(--page-separator);
+}
+
+.md-width-field:focus-within {
+  box-shadow: inset 0 0 0 1.5px var(--cmux-accent, var(--page-text-2));
+}
+
+.md-width-field[data-invalid] {
+  box-shadow: inset 0 0 0 1.5px var(--cmux-md-error-color);
+}
+
+.md-width-field[data-dimmed] .md-width-input,
+.md-width-field[data-dimmed] .md-width-unit {
+  color: var(--page-text-3);
+}
+
+.md-width-input {
+  flex: 1 1 auto;
+  width: 0;
+  min-width: 3ch;
+  padding: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--page-text);
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.md-width-unit {
+  padding: 0 4px 0 3px;
+  color: var(--page-text-2);
+}
+
+.md-width-stepper {
+  display: flex;
+  flex-direction: column;
+  align-self: stretch;
+  border-left: 0.5px solid var(--page-separator);
+}
+
+.md-width-stepper button {
+  flex: 1 1 0;
+  display: grid;
+  place-items: center;
+  width: 16px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--page-text-2);
+  font-size: var(--text-caption);
+  line-height: 1;
+  cursor: default;
+}
+
+.md-width-stepper button:hover {
+  background: var(--page-hover);
+  color: var(--page-text);
+}
+
+.md-width-presets {
+  flex: 0 0 auto;
+}
+
+.md-width-approx {
+  grid-column: 1 / -1;
+  color: var(--page-text-3);
+  font-size: var(--text-caption);
+  font-variant-numeric: tabular-nums;
+}
+
+.md-reading-check {
+  display: flex;
+  gap: 6px;
+}
+
+.md-reading-check input {
+  margin: 0;
+  accent-color: var(--page-text-2);
+}
+
+.md-reading-choice legend {
+  float: left;
+}
+
+.md-reading-segments {
+  grid-column: 1 / -1;
+  display: flex;
+  border-radius: 6px;
+  background: var(--page-hover);
+  padding: 2px;
+}
+
+.md-reading-segment {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 3px 6px;
+  border-radius: 4px;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: default;
+}
+
+.md-reading-segment input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.md-reading-segment[data-checked] {
+  background: var(--page-elevated);
+  box-shadow: 0 0 0 var(--cmux-hairline, 0.5px) var(--page-separator);
+}
+
+.md-reading-segment:has(input:focus-visible) {
+  outline: 2px solid var(--page-text-2);
+  outline-offset: -2px;
+}
+
+.md-reading-footer {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 2px;
+  border-top: 1px solid var(--page-separator);
+}
+
+.md-reading-footer .md-button {
+  margin-top: 8px;
+}
+
+/* `markdown.theme`: light or dark paper whatever the app's theme. The page's base colors
+   (pageBase.css `--page-*`, which every `--cmux-md-*` color derives from) are set again on the root,
+   so the `markdown` color settings still win over them. */
+:root[data-cmux-md-theme="light"] {
+  color-scheme: light;
+  --page-text: #1d1d1f; /* theme-fixed: markdown.theme paper, the same whatever the app theme */
+  --page-text-2: #6e6e73; /* theme-fixed: markdown.theme paper, the same whatever the app theme */
+  --page-text-3: #8e8e93; /* theme-fixed: markdown.theme paper, the same whatever the app theme */
+  --page-text-disabled: #8e8e93; /* theme-fixed: markdown.theme paper, the same whatever the app theme */
+  --page-separator: #d2d2d7; /* theme-fixed: markdown.theme paper, the same whatever the app theme */
+  --page-hover: rgb(0 0 0 / 0.05); /* theme-fixed: markdown.theme paper, the same whatever the app theme */
+  --page-selection: rgb(0 0 0 / 0.08); /* theme-fixed: markdown.theme paper, the same whatever the app theme */
+  --page-elevated: #ffffff; /* theme-fixed: markdown.theme paper, the same whatever the app theme */
+  background: #ffffff; /* theme-fixed: markdown.theme paper, the same whatever the app theme */
+}
+
+:root[data-cmux-md-theme="dark"] {
+  color-scheme: dark;
+  --page-text: #e6e6e6; /* theme-fixed: markdown.theme paper, the same whatever the app theme */
+  --page-text-2: #a8a8a8; /* theme-fixed: markdown.theme paper, the same whatever the app theme */
+  --page-text-3: #808080; /* theme-fixed: markdown.theme paper, the same whatever the app theme */
+  --page-text-disabled: #808080; /* theme-fixed: markdown.theme paper, the same whatever the app theme */
+  --page-separator: #3a3a3a; /* theme-fixed: markdown.theme paper, the same whatever the app theme */
+  --page-hover: rgb(255 255 255 / 0.06); /* theme-fixed: markdown.theme paper, the same whatever the app theme */
+  --page-selection: rgb(255 255 255 / 0.1); /* theme-fixed: markdown.theme paper, the same whatever the app theme */
+  --page-elevated: #2a2a2a; /* theme-fixed: markdown.theme paper, the same whatever the app theme */
+  background: #1c1c1e; /* theme-fixed: markdown.theme paper, the same whatever the app theme */
+}
+
+/* Obsidian syntax (obsidian.ts, MARKDOWN-OBSIDIAN-PARITY): Live Preview style. The file keeps the
+   syntax as written; markers hide while the caret is outside them and show, faint, inside. */
+.md-prose .md-syntax-hidden {
+  display: none;
+}
+
+.md-prose .md-syntax {
+  color: var(--cmux-md-faint-color);
+}
+
+.md-prose .md-highlight {
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--cmux-app-warning, #e6b800) 32%, transparent);
+  color: inherit;
+}
+
+.md-prose .md-comment {
+  color: var(--cmux-md-faint-color);
+}
+
+.md-prose .md-tag {
+  padding: 0 0.35em;
+  border-radius: 1em;
+  background: var(--cmux-md-accent-background);
+  color: var(--cmux-md-link-color);
+  font-size: 0.9em;
+}
+
+.md-prose .md-wikilink {
+  color: var(--cmux-md-link-color);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--cmux-md-link-color) 40%, transparent);
+  cursor: text;
+}
+
+.md-prose .md-embed-image {
+  max-width: 100%;
+  vertical-align: bottom;
+}
+
+/* Math ($…$, $$…$$): KaTeX output while the caret is outside, the source inside. */
+.md-prose .md-math-inline {
+  padding: 0 0.1em;
+}
+
+.md-prose .md-math-block {
+  margin: var(--cmux-md-paragraph-spacing) 0;
+  overflow: auto hidden;
+  text-align: center;
+}
+
+.md-prose .md-math-source-hidden {
+  display: none;
+}
+
+.md-prose .md-math-error {
+  color: var(--cmux-md-error-color);
+  font-family: var(--cmux-md-code-font-family);
+}
+
+/* Callouts: `> [!type] Title` (Obsidian and GitHub alerts). Each type has one color; the box is
+   that color at low alpha with a left rule, the title in the color. `[!type]-` starts folded and
+   the chevron at the title's end folds and unfolds it. */
+.md-prose blockquote.md-callout {
+  --md-callout-color: var(--cmux-md-link-color);
+  margin-inline: 0;
+  padding: 0.6em 0.9em;
+  border-left: 3px solid var(--md-callout-color);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--md-callout-color) 9%, transparent);
+  color: var(--cmux-md-text-color);
+}
+
+.md-prose blockquote.md-callout:is([data-callout="abstract"], [data-callout="question"]) {
+  --md-callout-color: light-dark(#0f8a8a, #3cc6c6);
+}
+
+.md-prose blockquote.md-callout:is([data-callout="tip"], [data-callout="success"]) {
+  --md-callout-color: light-dark(#1a7f37, #3fb950);
+}
+
+.md-prose blockquote.md-callout:is([data-callout="warning"]) {
+  --md-callout-color: light-dark(#b35900, #f0883e);
+}
+
+.md-prose blockquote.md-callout:is([data-callout="failure"], [data-callout="danger"], [data-callout="bug"]) {
+  --md-callout-color: var(--cmux-md-error-color);
+}
+
+.md-prose blockquote.md-callout:is([data-callout="example"]) {
+  --md-callout-color: light-dark(#7c3aed, #a78bfa);
+}
+
+.md-prose blockquote.md-callout:is([data-callout="quote"]) {
+  --md-callout-color: var(--cmux-md-muted-color);
+}
+
+.md-prose .md-callout > :first-child {
+  margin-top: 0;
+}
+
+.md-prose .md-callout > :last-child {
+  margin-bottom: 0;
+}
+
+.md-prose .md-callout-title {
+  color: var(--md-callout-color);
+  font-weight: var(--cmux-md-heading-weight);
+}
+
+/* The title is the callout's first line: the line break after it (a soft break, which the editor
+   draws as a space) breaks the line here. */
+.md-prose .md-callout-title [data-type="hardbreak"].md-callout-body {
+  display: block;
+  height: 0.35em;
+  overflow: hidden;
+}
+
+.md-prose .md-callout-title .md-callout-body {
+  color: var(--cmux-md-text-color);
+  font-weight: normal;
+}
+
+.md-prose .md-callout-icon {
+  display: inline-block;
+  width: 0.55em;
+  height: 0.55em;
+  margin-right: 0.45em;
+  border-radius: 50%;
+  background: var(--md-callout-color);
+  vertical-align: 0.1em;
+}
+
+.md-prose .md-callout-fold {
+  display: inline-block;
+  width: 1.2em;
+  height: 1em;
+  margin-left: 0.3em;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--md-callout-color);
+  vertical-align: -0.1em;
+  cursor: default;
+}
+
+.md-prose .md-callout-fold::before {
+  content: "";
+  display: inline-block;
+  width: 0.4em;
+  height: 0.4em;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(45deg);
+}
+
+.md-prose .md-callout-folded .md-callout-fold::before {
+  transform: rotate(-45deg);
+}
+
+.md-prose .md-callout-folded > :not(:first-child),
+.md-prose .md-callout-folded .md-callout-body {
+  display: none;
 }

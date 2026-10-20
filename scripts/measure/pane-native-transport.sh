@@ -32,7 +32,11 @@ bench() {
 }
 status=0
 if [ -n "$against" ]; then
-  git cat-file -e "$against^{commit}" 2>/dev/null || git fetch --quiet --depth=1 origin "$against"
+  # Depth 1 only in a shallow checkout: in a full clone --depth writes
+  # .git/shallow and truncates history for every worktree sharing it.
+  depth=()
+  [ "$(git rev-parse --is-shallow-repository)" = true ] && depth=(--depth=1)
+  git cat-file -e "$against^{commit}" 2>/dev/null || git fetch --quiet ${depth[@]+"${depth[@]}"} origin "$against"
   here="$(git rev-parse HEAD)"
   rm -rf "${paths[@]}"
   git checkout "$against" -- "${paths[@]}"

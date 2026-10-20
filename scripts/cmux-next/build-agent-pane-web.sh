@@ -68,7 +68,7 @@ grep -v '^@import ' "$SRC/shared/styles.css" >> "$WORK/styles.css"
 cat "$ROOT/webviews/src/ui/popupSurface.css" >> "$WORK/styles.css"
 # The shared icon+label button (New Tab's tools, the composer footer), imported by main.tsx.
 cat "$ROOT/webviews/src/ui/ghost.css" >> "$WORK/styles.css"
-cat "$SRC/acpmux/styles.css" "$SRC/acpmux/conversation/conversation.css" "$SRC/acpmux/chips/chips.css" "$SRC/acpmux/previewCard/previewCard.css" >> "$WORK/styles.css"
+cat "$ROOT/webviews/src/theme/messages.css" "$SRC/acpmux/styles.css" "$SRC/acpmux/conversation/conversation.css" "$SRC/acpmux/chips/chips.css" "$SRC/acpmux/previewCard/previewCard.css" >> "$WORK/styles.css"
 # changes.css @imports git.css; an @import never loads here (mid-sheet, and the CSP loads no
 # style file), so inline it where the import stood.
 cat "$SRC/acpmux/changes/git.css" >> "$WORK/styles.css"
@@ -92,12 +92,12 @@ fi
 # Tailwind utilities last (acpmux/tailwind.css): compiled over the classes the pane's sources use.
 bun scripts/agent-pane/tailwind-css.mjs "$SRC/acpmux/tailwind.css" >> "$WORK/styles.css"
 
-# Same-origin script files only (no inline script, no eval) and inline style. No connection of its own: the
+# Same-origin script files only (no inline script, no eval; WebAssembly compiles for Ondine's Mermaid diagrams) and inline style. No connection of its own: the
 # host's native transport (AgentPaneTransport) carries acpmux. No remote loads. Frames show only loopback web
 # pages (a turn's preview card; URL+AgentPanePreview.swift keeps the same hosts) and the render frame
 # (a render card; AgentPaneRenderFrame.swift). The page host sends the same
 # script-src (PageDescriptor.agent, test/fixtures/agent-page-csp.txt).
-CSP="default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; img-src data:; media-src 'self'; font-src data:; connect-src 'none'; frame-src cmux-agent://render http://localhost:* http://127.0.0.1:* https://localhost:* https://127.0.0.1:*"
+CSP="default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; style-src 'unsafe-inline'; img-src data:; media-src 'self'; font-src data:; connect-src 'none'; frame-src cmux-agent://render http://localhost:* http://127.0.0.1:* https://localhost:* https://127.0.0.1:*"
 
 {
   printf '<!doctype html>\n<html lang="en">\n<head>\n'

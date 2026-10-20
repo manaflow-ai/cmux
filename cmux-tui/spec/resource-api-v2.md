@@ -87,7 +87,7 @@ lowercase hexadecimal digits. Older records keep the IDs they already have
 | App workspaces (`app-screens-v1`, one per installed app), app tabs | shared | `workspace.ensure_app` |
 | Workspace agent folder (where new agent chats start; set only by the user) | shared | `workspace.agent_folder.set` |
 | Web links of a workspace (open on its right side, reuse its browser tab) | shared | `workspace.open_url` |
-| Tab pin, zoom, user icon, browser back/forward, browser owner | shared | `tab.pin`, `tab.unpin`, `tab.update` |
+| Tab pin, zoom, user icon, manual unread mark, browser back/forward, browser owner | shared | `tab.pin`, `tab.unpin`, `tab.update` |
 | Tab groups | shared | `tab_group.*` |
 | Screen pin, color, icon, order; screen groups | shared | `screen.update`, `screen.move`, `screen_group.*` |
 | Closed history (one group per close gesture, kept until deleted) | shared | `closed.list`, `closed.reopen`, `closed.delete` |
@@ -118,7 +118,8 @@ Fields that belong to an existing snapshot travel in its `extra` map, so a
 restated workspace, screen, tab, or terminal from any operation carries them:
 workspace `title`, `color`, `icon`, `ephemeral`, `kind` (`home` for the home
 workspace, absent for a normal one), `agent_folder` (absent until set); tab `pinned`,
-`tab_group_id`, `zoom`, `icon` (the user icon, absent until set), `back`, `forward`, `owner` (the install id of the app
+`tab_group_id`, `zoom`, `icon` (the user icon, absent until set), `marked_unread`
+(`true` while the person marked the tab unread by hand, `tab-mark-unread-v1`; absent otherwise), `back`, `forward`, `owner` (the install id of the app
 that hosts a frontend-rendered browser, its record's only writer), `relaunch`
 (`{cwd}` for a tab kept by `shutdown-daemon {end_terminals, keep_layout}`,
 absent otherwise); screen `pinned`, `color`, `icon`,
@@ -492,7 +493,9 @@ members by those ids, and an id the stash no longer holds is
 target?, pane?}` reopens them like `closed.reopen` (`here`; a member whose
 own pane is gone opens in `pane`, the pane the user acted from) or in one
 new workspace (`new_workspace`); restored members leave the stash in the
-same commit. App tabs and pages that are not http(s) are never stashed.
+same commit. A restore is all or nothing: when one member cannot reopen,
+the pages it opened close again and every member stays, so a retry opens
+each page once. App tabs and pages that are not http(s) are never stashed.
 `stash.delete` drops members or a stash, `stash.import {source: onetab,
 groups}` stores OneTab groups (http(s) pages only), and `stash.list` never
 shows back/forward history. Changes are `state_upsert`/`state_delete` of

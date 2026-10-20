@@ -41,11 +41,11 @@ public struct DaemonCapabilities: Sendable {
     public let workspaceNameSource = "workspace-name-source-v1"
     public let tabMetadata = "tab-metadata-v1"
     public let frontendBrowserTabs = "frontend-browser-tabs-v1"
+    public let frontendBrowserTabKeys = "frontend-browser-tab-keys-v1" // idempotency_key on new-frontend-browser-tab
     /// A frontend browser tab's back/forward entries and scroll positions,
     /// stored opaque and outside the journal (`set-`/`get-frontend-browser-history`).
     public let frontendBrowserHistory = "frontend-browser-history-v1"
-    /// `profile_id` on `update-frontend-browser-tab`: a browser tab moves to
-    /// another browser profile in place (same tab id and position).
+    /// `profile_id` on `update-frontend-browser-tab`: the tab moves to another browser profile in place.
     public let frontendBrowserTabProfile = "frontend-browser-tab-profile-v1"
     public let tabDrag = "tab-drag-v1"
     /// `set-size-counts` (protocol 12): a hidden view keeps its lease and stops counting toward
@@ -68,6 +68,9 @@ public struct DaemonCapabilities: Sendable {
     /// The manual workspace unread mark: `marked_unread` on
     /// `set-workspace-metadata` and workspaces.
     public let notificationMarkUnread = "notification-mark-unread-v1"
+    /// The manual tab unread mark (Mark Tab Unread): `marked_unread` on
+    /// `tab.update` and the tab's `extra.marked_unread`; no notification needed.
+    public let tabMarkUnread = "tab-mark-unread-v1"
     /// Screen color, icon, pin, and order (`set-screen-metadata`,
     /// `set-screen-pinned`, `move-screen`; `screen.update` and `screen.move`
     /// with `stateResources`, over the same storage).
@@ -116,6 +119,9 @@ public struct DaemonCapabilities: Sendable {
     /// `close-tabs` and `end_terminals` on the container closes: many tabs and
     /// the terminals they end close in one daemon commit.
     public let batchClose = "batch-close-v1"
+    /// `expect_foreground` on `send`: the daemon writes only while that program is still the
+    /// terminal's foreground (the Chief pet's typed reply).
+    public let sendExpectForeground = "send-expect-foreground-v1"
     /// `reason` on `close-tabs` (`session_end`: not recorded in closed history).
     public let closeReason = "close-reason-v1"
     /// `if_empty` on `close-workspace`: the daemon closes the workspace only
@@ -268,10 +274,10 @@ public struct DaemonCapabilities: Sendable {
     public let conversationInboxState = "conversation-inbox-state-v1"
     public let homeInbox = "home-inbox-v1"
     public let chiefEvents = "chief-events-v1"
-    /// Cloud conversations through the daemon (plans/cmux-next/home-cloud-proxy.md): the `cloud-session-*`,
-    /// `cloud-inbox-*` and `cloud-conversation-*` commands and their `cloud-*` events. Advertised only when
-    /// the daemon has the cloud transport installed.
+    /// Cloud conversations through the daemon (plans/cmux-next/home-cloud-proxy.md): `cloud-session-*`, `cloud-inbox-*`, `cloud-conversation-*`
+    /// and their `cloud-*` events, only with the cloud transport installed. `cloudHostReplica`: object-sync DESIGN.md phase 3, verified app only.
     public let cloudConversations = "cloud-conversations-v1"
+    public let cloudHostReplica = "cloud-host-replica-v1"
     /// `page-credential`: the verified app gets a credential for its own page, which then gets
     /// the person's Cloud lease (`ws-cloud-conversations-v1`, cx-hnmbt.4).
     public let pageCredential = "page-credential-v1"
@@ -418,18 +424,18 @@ public struct DaemonCapabilities: Sendable {
     /// with `DaemonIdentity.supports`, for remote and older daemons.
     public var optional: [String] { [workspaceGroups, workspaceMetadata, workspaceNameSource, tabMetadata, frontendBrowserTabs, tabDrag,
                                             notificationAck, tabGroups, savedTabGroups, terminalEnv, terminalPlacementEnv,
-                                            terminalReap, terminalReaperActive, batchClose, closeReason, closeWorkspaceIfEmpty, browserHostProvider, frontendBrowserActivate, frontendBrowserInsertAfter, loopbackForward, browserRuntime, screenMetadata, screenGroups, profiles, personalRemoteLocalhost,
+                                            terminalReap, terminalReaperActive, batchClose, closeReason, closeWorkspaceIfEmpty, browserHostProvider, frontendBrowserActivate, frontendBrowserInsertAfter, frontendBrowserTabKeys, loopbackForward, browserRuntime, screenMetadata, screenGroups, profiles, personalRemoteLocalhost,
                                             terminalPendingSequence, personalTerminals, browserProfiles, notificationSource,
-                                            terminalShellArgs, terminalFrontendShellIntegration, launchSnapshot, bookmarks, bookmarkIcon, history, workspacePin, notificationMarkUnread,
+                                            terminalShellArgs, terminalFrontendShellIntegration, launchSnapshot, bookmarks, bookmarkIcon, history, workspacePin, notificationMarkUnread, tabMarkUnread,
                                             terminalCommandHistory, dockColumns, edgeDocks, dockColumnRole, pinnedDock, rows, tabColumnRespawn, endTerminalsKeepLayout, stateResources,
                                             sessionIdentity, localConversations, conversationDraftEvents, chiefLive, cloudChiefLive, conversationRuns, cloudConversationRuns, tabSplitRespawn, tabSplitKeepFocus, frontendBrowserHistory, frontendBrowserTabProfile,
                                             attachIdentity, creationReceipts, creationAttemptKeys, terminalColorOverrides,
-                                            workspaceKind, workspaceAgentFolder, workspaceAgentStart, conversationTabs, agentSessionTabs, agentSessionAttach, agentSessionStart, agentSessionStartKeyedReason, agentSessionTrust, pageTabs, pageTabRoute, windowRecords, appScreens, conversationSearch, conversationThreads, conversationThread, conversationInboxState, homeInbox, chiefEvents, cloudConversations, pageCredential, scopedPageCredential, wsListen, wsListenOrigins, localAttachments,
+                                            workspaceKind, workspaceAgentFolder, workspaceAgentStart, conversationTabs, agentSessionTabs, agentSessionAttach, agentSessionStart, agentSessionStartKeyedReason, agentSessionTrust, pageTabs, pageTabRoute, windowRecords, appScreens, conversationSearch, conversationThreads, conversationThread, conversationInboxState, homeInbox, chiefEvents, cloudConversations, cloudHostReplica, pageCredential, scopedPageCredential, wsListen, wsListenOrigins, localAttachments,
                                             tabWorkspaceName, terminalSnapshotHistory, terminalSnapshotLocalHistory, terminalSnapshotImages,
                                             terminalClipboardRead, personalMixedOrder, sidebarLayout, sidebarDoc, placementShift, paletteUsage, browserDevices, browserFit, browserFitWidth, projectList, splitClientKeys, splitClientSplitID, conversationTabSplit, terminalInputWhileCreating,
                                             workspaceGroupIcon, workspaceGroupPin, screenGroupIcon, tabGroupIcon, sessionIcon, chiefInspect, feedLocalOwner, remoteTerminalTabs, detachedTerminals, tabRestart, tabRestartKeptLayout,
                                             originClaim, pageRouter, sessionJournal, terminalResources, keybindings, iconAssets, linkPreview, sharedSizing,
-                                            machineIdentity, agentCLIAppProvider, agentCLIAppInvalidation, agentInventoryWatchAdmission] }
+                                            machineIdentity, agentCLIAppProvider, agentCLIAppInvalidation, agentInventoryWatchAdmission, sendExpectForeground] }
 
     /// App code waiting for a daemon half that no branch has yet. Each
     /// feature shows disabled with its reason (or refuses with it) while the
@@ -448,7 +454,8 @@ public struct DaemonCapabilities: Sendable {
     /// Echoed through `set-client-info` so the daemon enables additive shapes.
     /// `terminalFrontendShellIntegration` is not in it: only a connection
     /// that resolves the integration echoes it (`handshakeCapabilities`).
-    /// `sharedSizing` is not either: the GUI only reads it from `identify`.
+    /// `sharedSizing` is not either: a terminal attachment that names its device adds it
+    /// (`TerminalAttachment.attach(device:)`); other connections only read it from `identify`.
     public var advertised: [String] {
         // `placementShift` only with the sidebar document (`handshakeCapabilities`).
         (required + optional + unservedByBundledDaemon).filter { $0 != terminalFrontendShellIntegration && $0 != placementShift && $0 != sharedSizing }

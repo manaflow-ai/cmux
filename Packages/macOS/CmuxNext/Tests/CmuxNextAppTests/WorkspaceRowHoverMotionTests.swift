@@ -79,6 +79,34 @@ struct WorkspaceRowHoverMotionTests {
         #expect(row.frame == rest.row && row.title.frame == rest.title, "hover moved or resized the row")
     }
 
+    /// Leo 2026-10-18 (NEXT nightly): a row kept its x after the pointer left it. A list reload
+    /// (any model change, a workspace switch) clears hover while hover effects are suppressed, and
+    /// the row's controls only show or hide in `layout()`, which that path no longer requested.
+    @Test func hoverClearedDuringAReloadHidesTheRowsControls() throws {
+        let workspaces = [
+            SidebarWorkspace(id: WorkspaceID("workspace-1"), title: "Workspace 1"),
+            SidebarWorkspace(id: WorkspaceID("workspace-2"), title: "Workspace 2"),
+        ]
+        let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
+        let model = SidebarModel(sections: [SidebarSection(kind: .machine(machine), nodes: workspaces.map { .workspace($0) })])
+        let list = SidebarListView(model: model)
+        list.frame = NSRect(x: 0, y: 0, width: 240, height: 300)
+        list.reload(animated: false)
+        let key = SidebarRowKey.workspace(workspaces[0].id)
+        let row = try #require(list.rowViews[key] as? WorkspaceRowView)
+        list.setHovered(key)
+        row.layoutSubtreeIfNeeded()
+        #expect(!row.closeButton.isHidden && row.closeButton.alphaValue > 0, "the x shows on hover")
+
+        // No window, so the reload finds no pointer over the list and clears hover while applying.
+        list.reload(animated: false)
+        row.layoutSubtreeIfNeeded()
+
+        #expect(list.hoveredKey == nil)
+        #expect(!row.isHovered)
+        #expect(row.closeButton.isHidden || row.closeButton.alphaValue == 0, "the x stayed after hover cleared")
+    }
+
     @Test func removingTheHoveredRowClearsItsTransientState() throws {
         let workspaces = [
             SidebarWorkspace(id: WorkspaceID("workspace-1"), title: "Workspace 1"),

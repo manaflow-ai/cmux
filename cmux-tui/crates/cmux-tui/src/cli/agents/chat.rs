@@ -357,12 +357,13 @@ impl Item {
         let mut value = Map::new();
         value.insert("id".into(), json!(self.id));
         value.insert("role".into(), json!(self.role));
-        let mut end = self.text.len().min(MAX_ITEM_TEXT_BYTES);
-        while !self.text.is_char_boundary(end) {
+        let text = visible_text(&self.text, partial);
+        let mut end = text.len().min(MAX_ITEM_TEXT_BYTES);
+        while !text.is_char_boundary(end) {
             end -= 1;
         }
-        value.insert("text".into(), json!(&self.text[..end]));
-        if end < self.text.len() {
+        value.insert("text".into(), json!(&text[..end]));
+        if end < text.len() {
             value.insert("truncated".into(), json!(true));
         }
         value.extend(self.extra.clone());
@@ -371,6 +372,21 @@ impl Item {
         }
         Value::Object(value)
     }
+}
+
+/// An item's text as another chat's agent may see it: every secret
+/// `secret_scan` finds masked (as `cmux-sessions` masks `read_session`), so
+/// a key pasted into one chat does not reach another chat's agent. Masked
+/// whole, before the cut, so the cut cannot split a secret past the masker.
+/// An unfinished answer drops its last word, which may be a secret only
+/// partly written; it comes back whole on the next read.
+fn visible_text(text: &str, partial: bool) -> String {
+    let masked = acpmux::secret_scan::mask(text);
+    if !partial {
+        return masked;
+    }
+    let end = masked.rfind(char::is_whitespace).unwrap_or(0);
+    masked[..end].to_owned()
 }
 
 /// A chat's acpmux events as plain items: the person's or another agent's
@@ -411,7 +427,7 @@ impl Transcript {
                             [("from", "from"), ("fromName", "from_name"), ("msgId", "message_id")]
                         {
                             if let Some(value) = provenance[from].as_str() {
-                                extra.insert(to.into(), json!(value));
+                                extra.insert(to.into(), json!(acpmux::secret_scan::mask(value)));
                             }
                         }
                     }
@@ -506,7 +522,9 @@ impl Transcript {
     }
 
     /// The indices of the items a read after `after` returns: at most
-    /// `limit`, and no more once their text passes `MAX_READ_TEXT_BYTES`.
+    /// `limit`, and no more once they pass `MAX_READ_TEXT_BYTES`. Counted
+    /// as JSON, escapes included, so the page stays under the MCP result cap
+    /// and `fit` never drops items `next_after` passed.
     fn returned(&self, after: u64, limit: usize) -> Vec<usize> {
         let mut indices = Vec::new();
         let mut bytes = 0;
@@ -514,7 +532,7 @@ impl Transcript {
             if indices.len() == limit || (!indices.is_empty() && bytes > MAX_READ_TEXT_BYTES) {
                 break;
             }
-            bytes += item.text.len().min(MAX_ITEM_TEXT_BYTES);
+            bytes += item.json(!self.complete(index)).to_string().len();
             indices.push(index);
         }
         indices
@@ -778,5 +796,35 @@ mod tests {
             assert_eq!(item["origin"], Value::Null, "{item}");
             assert_eq!(item["from"], Value::Null, "{item}");
         }
+    }
+
+    #[test]
+    fn a_read_masks_a_secret_split_across_chunks_and_holds_back_a_half_written_one() {
+        let key = format!("AKIA{}", "Q7ZJ4XK2MD5P3WRT");
+        let (head, tail) = key.split_at(9);
+        let chunk = |seq, text: &str| {
+            update(seq, json!({"sessionUpdate": "agent_message_chunk", "content": {"text": text}}))
+        };
+        let mut events = vec![
+            mux(
+                1,
+                "user_message",
+                json!({"text": format!("use {key} now"),
+                "_meta": {"provenance": {"kind": "agent_message", "from": "c1",
+                                         "fromName": format!("bot {key}"), "msgId": "m1"}}}),
+            ),
+            chunk(2, &format!("set {head}")),
+        ];
+        // Still being written: the half of the key is not shown.
+        let page = transcript(&events).page("c", 0, 10, false, 2);
+        assert_eq!(page["items"][1]["partial"], true, "{page}");
+        assert_eq!(page["items"][1]["text"], "set", "{page}");
+        events.push(chunk(3, &format!("{tail} done")));
+        events.push(mux(4, "turn_result", json!({"status": "completed"})));
+        let page = transcript(&events).page("c", 0, 10, false, 4);
+        assert!(!page.to_string().contains(head), "{page}");
+        assert_eq!(page["items"][0]["text"], "use [AWS access key] now", "{page}");
+        assert_eq!(page["items"][0]["from_name"], "bot [AWS access key]", "{page}");
+        assert_eq!(page["items"][1]["text"], "set [AWS access key] done", "{page}");
     }
 }

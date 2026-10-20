@@ -154,11 +154,11 @@ final class BrowserTabService {
             return cef.unavailableReason
         }
         keepsState = { [weak self] tab in self?.daemonForTab(tab).store.servesStateResources ?? false }
+        // Each store's tab index: called per tab and per sidebar row (favicons, profiles), so a scan of
+        // every tab here made those passes quadratic in the tabs (space-switch-fast).
         tabModel = { [weak self] id in
             for daemon in self?.daemons() ?? [] {
-                if let tab = daemon.store.workspaces.lazy.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).first(where: { $0.id == id }) {
-                    return tab
-                }
+                if let tab = daemon.store.tab(id: id) { return tab }
             }
             return nil
         }

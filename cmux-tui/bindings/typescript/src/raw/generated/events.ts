@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR bba09f656c8f685a9e551fa2b11106871b9f155b1f04c0b23e0dadf5e395d1fb. */
+/* cmux-tui mux protocol 12, IR 4633825b44cf1cd8d82b476aadb9d938af82ebe6107c28580c40a44dd11d363b. */
 
 
 import type * as T from "./types.js";
@@ -145,6 +145,20 @@ export type CloudConversationRunChangedEvent = { event: "cloud-conversation-run-
   "conversation": string;
   "run": (T.JsonValue) | null;
   "steps": Array<T.JsonValue>;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type CloudConversationTypingEvent = { event: "cloud-conversation-typing" } & {
+  "account"?: string;
+  "conversation": string;
+  "on": boolean;
+  "participant": string;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type CloudHostReplicaNeededEvent = { event: "cloud-host-replica-needed" } & {
+  "expires_at"?: (bigint) | null;
+  "reason": string;
 };
 
 /** Protocol v12; emission: emitted; streams: subscribe. */
@@ -717,6 +731,8 @@ export type KnownCmuxEvent =
   | CloudConversationLiveEvent
   | CloudConversationResyncedEvent
   | CloudConversationRunChangedEvent
+  | CloudConversationTypingEvent
+  | CloudHostReplicaNeededEvent
   | CloudInboxChangedEvent
   | CloudInboxResetEvent
   | CloudMuxResyncedEvent
@@ -804,6 +820,8 @@ export type KnownSubscribeEvent =
   | CloudConversationLiveEvent
   | CloudConversationResyncedEvent
   | CloudConversationRunChangedEvent
+  | CloudConversationTypingEvent
+  | CloudHostReplicaNeededEvent
   | CloudInboxChangedEvent
   | CloudInboxResetEvent
   | CloudMuxResyncedEvent

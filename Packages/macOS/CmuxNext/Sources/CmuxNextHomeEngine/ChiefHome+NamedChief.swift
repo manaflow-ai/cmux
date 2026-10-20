@@ -5,7 +5,7 @@ extension ChiefHome {
     /// The mux home of Chief `chief`'s brain under the default Chief's mux
     /// home `muxHome`: `<home>/c/<last 8 of its id, lowercased>` (cmux-tui
     /// chief_brains.rs `brain_home`); nil: the default Chief's `muxHome`.
-    public static func brainHome(muxHome: URL, chief: String?) -> URL {
+    nonisolated public static func brainHome(muxHome: URL, chief: String?) -> URL {
         guard let chief else { return muxHome }
         return muxHome.appendingPathComponent("c", isDirectory: true)
             .appendingPathComponent(String(chief.suffix(8)).lowercased(), isDirectory: true)

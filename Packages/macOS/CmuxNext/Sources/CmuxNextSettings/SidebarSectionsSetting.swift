@@ -22,6 +22,7 @@ public nonisolated enum SidebarSectionsSetting {
     public static let showSpacesPath = ["sidebar", "showSpaces"]
     public static let showProfileControlPath = ["sidebar", "showProfileControl"]
     public static let tipsPath = ["sidebar", "cards", "tips"]
+    public static let detailedStatusIconsPath = ["sidebar", "detailedStatusIcons"]
 
     static func tipsDescriptor(group: SettingText) -> SettingDescriptor {
         SettingDescriptor(tipsPath, section: .appearance, group: group,
@@ -41,6 +42,15 @@ public nonisolated enum SidebarSectionsSetting {
                           summary: SettingsText.keyed("settings.sidebar.minimal.summary", "Rows show only icon, name and unread mark"),
                           kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.minimal),
                           keywords: ["sidebar", "minimal", "compact", "dense", "rows", "simple", "clean"])
+    }
+
+    static func detailedStatusIconsDescriptor(group: SettingText) -> SettingDescriptor {
+        SettingDescriptor(detailedStatusIconsPath, section: .appearance, group: group,
+                          title: SettingsText.keyed("settings.sidebar.detailedStatusIcons", "Detailed Status Icons"),
+                          help: SettingsText.keyed("settings.sidebar.detailedStatusIcons.help",
+                                                   "Workspace rows show a separate icon for working, waiting for input, error and done. Off, a row shows a spinner while it works and a blue dot when it is ready for you."),
+                          kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.detailedStatusIcons),
+                          keywords: ["sidebar", "status", "icons", "badge", "working", "waiting", "input", "error", "done", "agent", "osc 7501"])
     }
 
     static func densityDescriptor(group: SettingText) -> SettingDescriptor {
@@ -180,6 +190,7 @@ public nonisolated enum SidebarSectionsSetting {
         result.showSpaces = flag(root, showSpacesPath, fallback: result.showSpaces, &diagnostics)
         result.showProfileControl = flag(root, showProfileControlPath, fallback: result.showProfileControl, &diagnostics)
         result.minimal = flag(root, minimalPath, fallback: result.minimal, &diagnostics)
+        result.detailedStatusIcons = flag(root, detailedStatusIconsPath, fallback: result.detailedStatusIcons, &diagnostics)
         if let value = root.value(at: groupByPath) {
             if let text = value.stringValue, let groupBy = SidebarGroupBy(rawValue: text) {
                 result.groupBy = groupBy
