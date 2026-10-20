@@ -149,9 +149,6 @@ enum RemoteStrings {
                               table: "Remote", bundle: .module), machine)
     }
 
-    /// The refusal of Close Workspace for a workspace of a machine that is not connected (a paused Cloud VM).
-    static func closeMachineNotConnected(_ machine: String) -> String { String(format: String(localized: "remote.workspace.closeNotConnected", defaultValue: "%@ is not connected. Resume or reconnect it to close its workspace.", table: "Remote", bundle: .module), machine) }
-
     /// The refusal of Copy SSH Error for a machine without a failure.
     static func noSSHError(_ machine: String) -> String { String(format: String(localized: "remote.copyError.none", defaultValue: "%@ has no SSH error to copy.", table: "Remote", bundle: .module), machine) }
 

@@ -145,14 +145,13 @@ extension AppActions {
         // A person's close of one of several selected rows closes them all, as the sidebar's Delete does.
         if invocation.origin == .user, !invocation.closesRowOnly, let sidebar = services.windows.registry.value.owner(of: workspace.id).flatMap(services.windows.controller(for:))?.sidebar.model,
            case let ids = sidebar.closeTargets(for: SidebarWorkspaceID(workspace.id)), ids.count > 1 { return sidebar.send(.close(ids)) }
-        let daemon = services.activeDaemon
-        // A workspace of a machine that is not connected (a paused Cloud VM) leaves now and closes when the machine connects.
-        guard daemon.connection != nil else { return WorkspaceCloseWhenConnected.close(workspace, key: key, on: daemon, services: services) }
-        let terminals = WorkspaceClose.closing(workspace, on: daemon), id = workspace.id, owner = services.windows.registry.value.owner(of: id)
+        // `offline`: a machine that is not connected (a paused Cloud VM). Its row leaves as any other, and the close waits for
+        // the machine outside the window's lane (later creates and closes never wait for it); a row that cannot hide says why.
+        let daemon = services.activeDaemon, offline = daemon.connection == nil, terminals = WorkspaceClose.closing(workspace, on: daemon), id = workspace.id, owner = services.windows.registry.value.owner(of: id)
         // Instant (ClosingWorkspaces): the row starts closing and the selection moves now, in one sidebar pass; the daemon request runs behind.
-        let hidden = InstantClose.begin(id, in: owner, windows: services.windows)
-        services.registry.track(lanes.run(in: window) {
-            let failure = await daemon.failure("close-workspace") { connection in
+        guard case let hidden = InstantClose.begin(id, in: owner, windows: services.windows), hidden || !offline else { return services.registry.refuse(CloudStrings.closeNotConnected(services.machines.machineName(daemon.machineID) ?? daemon.machineID)) }
+        let close: @MainActor () async -> ActionWorkFailure? = {
+            let failure = await daemon.failureOnceConnected("close-workspace", waits: offline) { connection in
                 try await ClosingWorkspaces.shared.refusal()
                 try await WorkspaceClose.close(key, terminals: terminals, on: connection)
             }
@@ -161,7 +160,8 @@ extension AppActions {
             if failure == nil, let connection = daemon.connection { await daemon.store.applied(through: await connection.eventSequence()) }
             ClosingWorkspaces.shared.end(id, refused: failure != nil, in: owner.flatMap { services.windows.controller(for: $0)?.window })
             return failure
-        })
+        }
+        services.registry.track(offline ? Task { await close() } : lanes.run(in: window, close))
     }
 
     /// Makes window `id` key and activates the app. A new window still
