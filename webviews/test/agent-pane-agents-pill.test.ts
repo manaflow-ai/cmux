@@ -147,7 +147,8 @@ await requireBrowserLane("agent-pane-agents-pill.test.ts", async () => {
     sockets.clear();
     const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
     await page.goto(url(session));
-    await page.getByText(shown).waitFor({ timeout: 25_000 });
+    // The running line names the call in flight too (WorkingFor.tsx): wait for either.
+    await page.getByText(shown).first().waitFor({ timeout: 25_000 });
     return page;
   };
   const pill = (page: Page) => page.locator(".acpmux-agents-pill");
@@ -222,7 +223,8 @@ await requireBrowserLane("agent-pane-agents-pill.test.ts", async () => {
     // taken in the height the pill took.
     const clearance = async () => {
       const [latest, box] = await Promise.all([
-        page.getByText("Read src/app.ts").boundingBox(),
+        // The running line over the work names the same call: the tool row is the last match.
+        page.getByText("Read src/app.ts").last().boundingBox(),
         pill(page).boundingBox(),
       ]);
       return box!.y - (latest!.y + latest!.height);
