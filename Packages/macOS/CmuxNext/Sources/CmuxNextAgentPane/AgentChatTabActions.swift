@@ -1,27 +1,39 @@
 import AppKit
-import CmuxNextActions
+package import CmuxNextActions
 
 /// App actions on an agent chat's own tab: the header's tools and "..." menu
 /// (acpmux header/ChatHeaderTools.tsx), the empty-space right-click menu (`agentChat`
 /// placements) and Search the Web on selected text. Kept off `AgentTabStore`, whose wiring is
 /// at its type budget.
 @MainActor
-struct AgentChatTabActions {
+package struct AgentChatTabActions {
     /// The chat's tab now (a provisional id becomes the store's).
-    let tab: @MainActor () -> String
-    let registry: @MainActor () -> ActionRegistry?
+    package let tab: @MainActor () -> String
+    package let registry: @MainActor () -> ActionRegistry?
     /// Opens the Files tree of a folder beside the chat (AgentTabStore.openFiles), on tab `target` or in a new column.
-    var files: @MainActor (_ folder: String, _ target: String?) -> Void = { _, _ in }
+    package var files: @MainActor (_ folder: String, _ target: String?) -> Void = { _, _ in }
     /// The empty-space menu's rows that don't apply to this chat now (Move to Cloud on a chat of another machine).
-    var hidden: @MainActor () -> Set<ActionID> = { [] }
+    package var hidden: @MainActor () -> Set<ActionID> = { [] }
     /// Ghostty's `split-inherit-working-directory` (NewTerminalStart, cx-zld.1).
-    var splitInherits: @MainActor () -> Bool = { NewTerminalStart.inherits(.split) }
+    package var splitInherits: @MainActor () -> Bool = { true }
     /// The chat's folder is on this Mac: the inherit keys apply only here (NewTerminalStart).
-    var local: @MainActor () -> Bool = { true }
+    package var local: @MainActor () -> Bool = { true }
+
+    package init(tab: @escaping @MainActor () -> String, registry: @escaping @MainActor () -> ActionRegistry?,
+                 files: @escaping @MainActor (String, String?) -> Void = { _, _ in },
+                 hidden: @escaping @MainActor () -> Set<ActionID> = { [] },
+                 splitInherits: @escaping @MainActor () -> Bool = { true }, local: @escaping @MainActor () -> Bool = { true }) {
+        self.tab = tab
+        self.registry = registry
+        self.files = files
+        self.hidden = hidden
+        self.splitInherits = splitInherits
+        self.local = local
+    }
 
     /// A header action, with the folder it names when it names one, on the chat's tab or on tab
     /// `target` (a header split opening right of the one before it, AgentChatSplitToggles).
-    func run(_ id: String, cwd: String?, on target: String? = nil) {
+    package func run(_ id: String, cwd: String?, on target: String? = nil) {
         // The header's Terminal names the chat's folder, the one a split inherits: with Ghostty's
         // `split-inherit-working-directory = false` it names none, and the split starts in the home
         // folder as any split does (PaneHandlers.split, NewTerminalStart). Only for a chat on this Mac:
@@ -38,7 +50,7 @@ struct AgentChatTabActions {
     /// Runs `id` (Changes' diff viewer, Preview's browser) as an agent's beside_caller run, keeping
     /// focus in the chat: its tab opens selected in tab `target`'s column, or with no target in a new
     /// column right of the chat.
-    func runBeside(_ id: String, arguments: [String: ActionValue], on target: String?) {
+    package func runBeside(_ id: String, arguments: [String: ActionValue], on target: String?) {
         var invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: target ?? tab()), arguments: arguments, origin: .user)
         invocation.besideCaller = true
         invocation.newColumnBeside = target == nil
@@ -46,18 +58,18 @@ struct AgentChatTabActions {
     }
 
     /// The header's Files (cx-p4rt): the tree of `folder` beside the chat, as ``runBeside(_:arguments:on:)`` places a diff.
-    func openFiles(_ folder: String?, on target: String?) {
+    package func openFiles(_ folder: String?, on target: String?) {
         if let folder, !folder.isEmpty { files(folder, target) }
     }
 
     /// Closes tab `id` (a quick action's split, AgentChatSplitToggles) as its own Close Tab does.
-    func close(tab id: String) {
+    package func close(tab id: String) {
         _ = registry()?.perform("closeTab", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: id), origin: .user))
     }
 
     /// The "..." menu's Move to Floating Chat: once `float` put session `id` in Start Agent's
     /// panel, the chat's tab closes as its own Close Tab does.
-    func moveToFloatingChat(_ id: String, via float: (@MainActor (String) -> Bool)?) -> Bool {
+    package func moveToFloatingChat(_ id: String, via float: (@MainActor (String) -> Bool)?) -> Bool {
         guard float?(id) == true else { return false }
         close(tab: tab())
         return true
@@ -65,13 +77,13 @@ struct AgentChatTabActions {
 
     /// Search the Web on selected chat text: a browser tab beside the chat, with the omnibar's
     /// search engine.
-    func searchWeb(_ text: String) {
+    package func searchWeb(_ text: String) {
         let invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab()), arguments: ["text": .string(text)], origin: .user)
         _ = registry()?.perform("browser.selection.search", invocation: invocation)
     }
 
     /// The empty-space menu's items, detached for the pane's menu to take.
-    func menuItems() -> [NSMenuItem] {
+    package func menuItems() -> [NSMenuItem] {
         guard let registry = registry() else { return [] }
         let menu = registry.makeContextMenu(for: .agentChat, target: ActionTargetRef(kind: .tab, id: tab()),
                                             entries: ContextMenuCatalog.shared.entries(for: .agentChat, removing: hidden()))

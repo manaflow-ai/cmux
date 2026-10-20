@@ -1,11 +1,12 @@
 // Link and path chips in replies (decision D4): an icon, the name with a dotted underline, and
 // the full address in the tooltip. A path chip asks the host where its path is (`link.inspect`)
-// and opens through the host (`link.openPath`: the deny list and the session's folders after
+// and opens through the host (`link.openPath`, or `link.readPath` into the chat's viewer with
+// labs `chatViewer`: the deny list and the session's folders after
 // symlinks, then a user gesture; outside the folders, `agentPane.links.outsideRoots` decides and
 // the host's own sheet asks). A web chip is an ordinary link, which the host opens outside the
 // pane after a real click; its icon is the site's favicon when cmux already has one.
 import { useEffect, useRef, useState, type PointerEvent, type ReactNode } from "react";
-import { callChipHost } from "./host";
+import { callChipHost, openPathChip } from "./host";
 import { FileDoc, Folder, Globe, Lock } from "../conversation/icons";
 import { usePathInfo, useSiteInfo } from "./linkStore";
 import { isDeniedPath, pathName, textLinks } from "./paths";
@@ -34,7 +35,7 @@ function HostPathChip({ path, label, written }: { path: string; label?: ReactNod
       type="button"
       className={`cv-chip is-path${outside ? " is-outside" : ""}`}
       data-path={path}
-      onClick={() => void callChipHost("link.openPath", { path })}
+      onClick={(event) => openPathChip(path, event.currentTarget)}
     >
       {folder ? <Folder size={15} className="cv-chip__icon" /> : <FileDoc size={15} className="cv-chip__icon" />}
       <span className="cv-chip__label">{label ?? pathName(path)}</span>

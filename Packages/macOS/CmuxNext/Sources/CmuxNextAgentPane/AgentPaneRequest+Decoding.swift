@@ -245,6 +245,13 @@ extension AgentPaneRequest {
             if let id = params?["subagent"] as? String, !id.isEmpty, id.count <= 256 {
                 self = .subagentPane(id, focus: params?["focus"] as? Bool == true)
             } else { self = .unsupported(method) }
+        case "pane.rename":
+            if let name = (params?["name"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty, name.count <= 256 {
+                self = .renameChat(name)
+            } else { self = .unsupported(method) }
+        case "folder.openIn":
+            let app = params?["app"] as? String
+            if let app, app.isEmpty || app.count > 32 { self = .unsupported(method) } else { self = .openFolderIn(app) }
         case "chat.processTerminal":
             if let id = params?["toolCallId"] as? String, AgentPaneProcessViewer.isToken(id) { self = .processTerminal(toolCall: id) } else { self = .unsupported(method) }
         case "chat.newHere":
@@ -304,7 +311,7 @@ extension AgentPaneRequest {
             } else {
                 self = .invalidGit(method)
             }
-        case "git.diff", "git.status", "file.search", "git.checkpoint.diff":
+        case "git.diff", "git.status", "file.search", "file.list", "git.checkpoint.diff":
             if let git = AgentPaneGitRequest(method: method, params: params) {
                 self = .git(git)
             } else {

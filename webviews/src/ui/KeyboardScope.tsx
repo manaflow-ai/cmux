@@ -8,13 +8,26 @@ export function KeyboardScope({
   children,
   handleKeyDown,
   className,
+  label,
+  bubble = false,
 }: {
   children: ReactNode;
   handleKeyDown(event: KeyboardEvent<HTMLDivElement>): void;
   className?: string;
+  /** Names a region without adding a wrapper around the composite surface. */
+  label?: string;
+  /** Let controls consume a key before the surface handles it. */
+  bubble?: boolean;
 }) {
   return (
-    <div className={className} onKeyDownCapture={handleKeyDown}>
+    // oxlint-disable-next-line jsx-a11y/no-static-element-interactions -- The scope delegates descendant keys; the container itself is not an interactive control.
+    <div
+      className={className}
+      role={label ? "region" : undefined}
+      aria-label={label}
+      onKeyDownCapture={bubble ? undefined : handleKeyDown}
+      onKeyDown={bubble ? handleKeyDown : undefined}
+    >
       {children}
     </div>
   );

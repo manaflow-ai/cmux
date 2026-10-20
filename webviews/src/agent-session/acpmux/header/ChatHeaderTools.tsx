@@ -86,6 +86,7 @@ export function ChatHeaderTools({
   hasChanges = false,
   onChanges,
   onFiles,
+  viewing,
   previewUrl,
   onPreview,
   sideTabs = false,
@@ -117,7 +118,9 @@ export function ChatHeaderTools({
   /// Changes runs the diff viewer with the quick action's mode, as Terminal and Browser run their split.
   onChanges?: (mode: QuickActionMode) => void;
   /// Files runs the tree of the chat's folder with the quick action's mode; without it (a remote chat) Files hides.
-  onFiles?: (mode: QuickActionMode) => void;
+  onFiles?: (mode: QuickActionMode, opener?: HTMLElement) => void;
+  /// The panel open inside the chat viewer.
+  viewing?: readonly string[];
   /// The local page the chat's last turn started or mentioned: Preview shows then, and while its page is open.
   previewUrl?: string;
   /// Preview opens `url` beside the chat with the quick action's mode; a click that closes it may name none.
@@ -162,7 +165,9 @@ export function ChatHeaderTools({
   const { lit, pullRequest } = useHeaderState();
   const worktree = useWorktree(folder, readStatus, statusKey);
   // A toggle is on while the split it opened is open; in open mode each click makes another, so none is.
-  const on = (action: string, mode: QuickActionMode) => (mode === "toggle" ? lit.includes(action) : undefined);
+  const on = (action: string, mode: QuickActionMode) =>
+    (action === HEADER_ACTIONS.files && viewing?.includes(action)) ||
+    (mode === "toggle" ? lit.includes(action) : undefined);
   // The right-clicked button, read as the menu opens.
   const target = useRef<QuickActionId>(undefined);
   const [menuTarget, setMenuTarget] = useState<QuickActionId>();
@@ -293,7 +298,7 @@ export function ChatHeaderTools({
               aria-label={t("header.files")}
               aria-pressed={on(HEADER_ACTIONS.files, mode)}
               title={t("header.files")}
-              onClick={() => onFiles(mode)}
+              onClick={(event) => onFiles(mode, event.currentTarget)}
             >
               <Icon name="folder" size={15} />
             </button>

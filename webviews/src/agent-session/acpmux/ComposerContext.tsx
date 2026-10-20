@@ -436,7 +436,8 @@ function FolderIcon() {
   );
 }
 
-function ComputerIcon() {
+/// The shared machine glyph for the composer and Thread details.
+export function ComputerIcon() {
   return (
     <svg
       className="acpmux-icon acpmux-location-icon ui-ghost-icon"

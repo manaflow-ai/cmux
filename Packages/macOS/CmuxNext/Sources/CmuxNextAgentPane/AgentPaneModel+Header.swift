@@ -39,6 +39,11 @@ public struct AgentPaneHeaderHooks {
     /// end, cx-ncc.77.1); the answer is pushed with the header state.
     public var refreshPullRequest: (@MainActor () -> Void)?
 
+    /// Renames the chat through the existing Rename Tab action.
+    public var rename: (@MainActor (String) -> Bool)?
+    /// Lists local folder apps or opens the chat folder in the chosen app.
+    public var openIn: (@MainActor (String?) -> [[String: String]])?
+
     public init(run: @escaping @MainActor (String, String?) -> Void,
                 toggle: (@MainActor (String, String?) -> Void)? = nil,
                 tabState: @escaping @MainActor () -> AgentPaneHeaderState,
@@ -164,6 +169,18 @@ extension AgentPaneModel {
                 return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: chat.newHere")
             }
             return AgentPaneReply.success()
+        case .renameChat(let name):
+            // A refusal (a tab that can't take a name) answers so: the page puts the old name back.
+            guard newTab == nil, let rename = header?.rename, rename(name) else {
+                return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: pane.rename")
+            }
+            return AgentPaneReply.success()
+        case .openFolderIn(let app):
+            // The chat's own folder, as its tab knows it, on this Mac only; the page names no path.
+            guard newTab == nil, !remoteChat, let openIn = header?.openIn else {
+                return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: folder.openIn")
+            }
+            return AgentPaneReply.success(["apps": openIn(app)])
         default:
             return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request")
         }

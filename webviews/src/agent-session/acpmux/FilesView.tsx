@@ -1,0 +1,201 @@
+// The chat's folder in the chat's viewer (labs `chatViewer`, Lucas 2026-10-19): the header's Files
+// opens here, beside the transcript, instead of a file tree in a new column that scrolls the chat and
+// its tabs out of view. A folder opens in place; a file opens in the viewer (FileViewer.tsx), whose
+// Back returns here. Listing is the session host's `git.files.list` (`file.list`), search its
+// `git.files.search` (`file.search`), so ignored files never show.
+import type { KeyboardEvent } from "react";
+import { useEffect, useRef, useState } from "react";
+import { KeyboardScope } from "../../ui/KeyboardScope";
+import { useT } from "./i18n";
+import { FileDoc, Folder } from "./conversation/icons";
+import { Icon } from "./icons/Icon";
+
+export type FilesEntry = { name: string; kind: string };
+
+/// The reads the view makes; the App answers them with `file.list` and `file.search`.
+export type FilesSource = {
+  list(folder: string): Promise<{ entries?: FilesEntry[]; truncated?: boolean } | null | undefined>;
+  search(
+    query: string,
+  ): Promise<{ results?: { path: string }[]; search_root?: string; root?: string } | null | undefined>;
+};
+
+type Shown =
+  | { kind: "loading" }
+  | { kind: "entries"; entries: FilesEntry[]; truncated: boolean }
+  | { kind: "outside" }
+  | { kind: "failed" };
+
+/// A read that failed because the folder is in no git repository (the session host's reason).
+const outsideRepository = (error: unknown) =>
+  /not[ _-]?(in )?a[ _-]?(git )?repository/i.test(String((error as Error)?.message ?? error));
+
+function FilesRow({ label, folder, onClick }: { label: string; folder?: boolean; onClick(): void }) {
+  return (
+    <li>
+      <button type="button" className="acpmux-files-row" onClick={onClick}>
+        {folder ? <Folder size={15} /> : <FileDoc size={15} />}
+        <span className="acpmux-files-name">{label}</span>
+      </button>
+    </li>
+  );
+}
+
+export function FilesView({
+  root,
+  folder,
+  source,
+  onFolder,
+  onOpen,
+  onClose,
+}: {
+  /// The chat's folder: the top the view never goes above.
+  root: string;
+  folder: string;
+  source: FilesSource;
+  onFolder(folder: string): void;
+  onOpen(path: string): void | Promise<void>;
+  onClose(): void;
+}) {
+  const t = useT();
+  const close = useRef<HTMLButtonElement>(null);
+  const [shown, setShown] = useState<Shown>({ kind: "loading" });
+  const [openFailed, setOpenFailed] = useState(false);
+  const latestOpen = useRef(0);
+  const latestList = useRef(0);
+  const latestSearch = useRef(0);
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState<{ base: string; paths: string[] } | "failed" | undefined>();
+  useEffect(() => close.current?.focus({ preventScroll: true }), []);
+  useEffect(() => {
+    const request = ++latestList.current;
+    const current = () => latestList.current === request;
+    setShown({ kind: "loading" });
+    source.list(folder).then(
+      (reply) =>
+        reply &&
+        current() &&
+        setShown({ kind: "entries", entries: reply?.entries ?? [], truncated: reply?.truncated === true }),
+      (error: unknown) => current() && setShown({ kind: outsideRepository(error) ? "outside" : "failed" }),
+    );
+    return () => {
+      latestList.current += 1;
+    };
+  }, [folder, source]);
+  useEffect(() => {
+    const text = query.trim();
+    if (!text) return setResults(undefined);
+    const request = ++latestSearch.current;
+    const current = () => latestSearch.current === request;
+    source.search(text).then(
+      (reply) =>
+        reply &&
+        current() &&
+        setResults({
+          base: reply?.search_root ?? reply?.root ?? root,
+          paths: (reply?.results ?? []).map((result) => result.path),
+        }),
+      () => current() && setResults("failed"),
+    );
+    return () => {
+      latestSearch.current += 1;
+    };
+  }, [query, root, source]);
+  useEffect(() => {
+    setOpenFailed(false);
+    return () => {
+      latestOpen.current += 1;
+    };
+  }, [folder, source, query]);
+  const openFile = (path: string) => {
+    const request = ++latestOpen.current;
+    setOpenFailed(false);
+    Promise.resolve()
+      .then(() => onOpen(path))
+      .catch(() => {
+        if (request === latestOpen.current) setOpenFailed(true);
+      });
+  };
+  const inside = folder.length > root.length ? folder.slice(root.length + 1) : "";
+  const name = root.split("/").pop() || root;
+  const parent = inside ? folder.slice(0, folder.lastIndexOf("/")) : undefined;
+  const onKeyDown = (event: KeyboardEvent) => {
+    if (event.key !== "Escape" || event.defaultPrevented) return;
+    event.preventDefault();
+    if (query) setQuery("");
+    else onClose();
+  };
+  return (
+    <KeyboardScope
+      className="acpmux-diff-panel acpmux-file-viewer acpmux-files"
+      label={t("header.files")}
+      handleKeyDown={onKeyDown}
+      bubble
+    >
+      <header className="acpmux-diff-header">
+        {/* tooltip-allow: the label shows the folder relative to the project; the tooltip reveals its full path, like FolderPopover */}
+        <span className="acpmux-file-viewer-name" title={folder}>
+          {inside ? `${name}/${inside}` : name}
+        </span>
+        <button
+          ref={close}
+          type="button"
+          className="acpmux-diff-tool"
+          aria-label={t("image.close")}
+          title={t("image.close")}
+          onClick={onClose}
+        >
+          <Icon name="action.close" size={12} />
+        </button>
+      </header>
+      <div className="acpmux-files-search">
+        <input
+          type="search"
+          value={query}
+          placeholder={t("files.search")}
+          aria-label={t("files.search")}
+          onChange={(event) => setQuery(event.currentTarget.value)}
+        />
+      </div>
+      <div className="acpmux-file-viewer-body">
+        {openFailed && <p className="acpmux-file-viewer-note">{t("files.failed")}</p>}
+        {results ? (
+          results === "failed" ? (
+            <p className="acpmux-file-viewer-note">{t("files.failed")}</p>
+          ) : results.paths.length === 0 ? (
+            <p className="acpmux-file-viewer-note">{t("files.none")}</p>
+          ) : (
+            <ul className="acpmux-files-list">
+              {results.paths.map((path) => (
+                <FilesRow key={path} label={path} onClick={() => openFile(`${results.base}/${path}`)} />
+              ))}
+            </ul>
+          )
+        ) : shown.kind === "entries" ? (
+          <>
+            <ul className="acpmux-files-list">
+              {parent !== undefined && <FilesRow key=".." label=".." folder onClick={() => onFolder(parent)} />}
+              {shown.entries.map((entry) => (
+                <FilesRow
+                  key={entry.name}
+                  label={entry.name}
+                  folder={entry.kind === "directory"}
+                  onClick={() =>
+                    entry.kind === "directory"
+                      ? onFolder(`${folder}/${entry.name}`)
+                      : openFile(`${folder}/${entry.name}`)
+                  }
+                />
+              ))}
+            </ul>
+            {shown.truncated && <p className="acpmux-file-viewer-note">{t("files.truncated")}</p>}
+          </>
+        ) : shown.kind === "outside" ? (
+          <p className="acpmux-file-viewer-note">{t("files.outside")}</p>
+        ) : shown.kind === "failed" ? (
+          <p className="acpmux-file-viewer-note">{t("files.failed")}</p>
+        ) : null}
+      </div>
+    </KeyboardScope>
+  );
+}

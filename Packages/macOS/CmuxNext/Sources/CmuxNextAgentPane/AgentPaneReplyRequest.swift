@@ -1,4 +1,6 @@
+import Darwin
 public import Foundation
+import UniformTypeIdentifiers
 
 /// The page's requests for what a reply links to (decisions D4, D5, D6). Every value comes from
 /// untrusted reply text, so each method has fixed param keys (any other key is refused, like
@@ -8,6 +10,8 @@ public import Foundation
 /// - `link.inspect {paths, urls}`: where each path is (``AgentPaneReplyPaths``) and the favicon
 ///   and title cmux already has for each URL (no fetch). Passive: no gesture, no effect.
 /// - `link.openPath {path}`: open a path chip. Spends a user gesture.
+/// - `link.readPath {path}`: a path chip's file as text for the chat's viewer (the same checks as
+///   `link.openPath`; a folder still opens in Finder). Spends a user gesture.
 /// - `image.load {src}`: a reply image, a file inside the roots or an https URL (host fetch).
 ///   A web image spends a gesture unless `agentPane.images.remote` is `always`.
 /// - `media.load {src}`: a video or audio file inside the roots, as a URL the pane plays
@@ -18,18 +22,20 @@ public import Foundation
 public nonisolated enum AgentPaneReplyRequest: Equatable, Sendable {
     case inspect(paths: [String], urls: [String])
     case openPath(String)
+    case readPath(String)
     case loadImage(String)
     case loadMedia(String)
     case listBrowsers
     case openIn(url: URL, browserId: String)
 
     /// The methods, for ``AgentPageOps`` and ``AgentPaneRequest``.
-    public static let methods: Set<String> = ["link.inspect", "link.openPath", "image.load", "media.load", "browser.list", "browser.openIn"]
+    public static let methods: Set<String> = ["link.inspect", "link.openPath", "link.readPath", "image.load", "media.load", "browser.list", "browser.openIn"]
 
     /// Each method's exact param keys (all required; `link.inspect` takes either list).
     static let knownParams: [String: Set<String>] = [
         "link.inspect": ["paths", "urls"],
         "link.openPath": ["path"],
+        "link.readPath": ["path"],
         "image.load": ["src"],
         "media.load": ["src"],
         "browser.list": [],
@@ -45,7 +51,7 @@ public nonisolated enum AgentPaneReplyRequest: Equatable, Sendable {
     var isPassive: Bool {
         switch self {
         case .inspect, .listBrowsers, .loadImage, .loadMedia: true
-        case .openPath, .openIn: false
+        case .openPath, .readPath, .openIn: false
         }
     }
 
@@ -75,6 +81,9 @@ public nonisolated enum AgentPaneReplyRequest: Equatable, Sendable {
         case "link.openPath":
             guard let path = text("path", AgentPaneReplyPaths.maximumLength) else { return nil }
             self = .openPath(path)
+        case "link.readPath":
+            guard let path = text("path", AgentPaneReplyPaths.maximumLength) else { return nil }
+            self = .readPath(path)
         case "image.load":
             guard let src = text("src", Self.maximumURL) else { return nil }
             self = .loadImage(src)
@@ -89,6 +98,52 @@ public nonisolated enum AgentPaneReplyRequest: Equatable, Sendable {
             self = .openIn(url: url, browserId: id)
         default:
             return nil
+        }
+    }
+
+    /// A file's text for `link.readPath`: at most ``maximumBytes`` (``truncated`` past that), and
+    /// no text for known non-text types or a NUL in the first 8 KiB. Those open in a tab instead.
+    struct FileText: Sendable {
+        static let maximumBytes = 1 << 20
+        let text: String?
+        let bytes: Int
+        let truncated: Bool
+
+        nonisolated init?(path: String, paths: AgentPaneReplyPaths, outsideRootsAllowed: Bool = false) {
+            // Opening a FIFO must not wait for a writer. Check the opened descriptor so a
+            // path replacement cannot turn a regular-file check into a device read.
+            let descriptor = open(path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)
+            guard descriptor >= 0 else { return nil }
+            let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
+            defer { try? handle.close() }
+            var info = stat()
+            guard fstat(descriptor, &info) == 0, (info.st_mode & S_IFMT) == S_IFREG else { return nil }
+            // O_NOFOLLOW protects the final component. Ancestor directories can also change:
+            // authorize the descriptor's real path before reading any bytes, and fail closed
+            // if it no longer names the canonical path the request checked.
+            var buffer = [CChar](repeating: 0, count: Int(MAXPATHLEN))
+            guard fcntl(descriptor, F_GETPATH, &buffer) == 0 else { return nil }
+            let openedPath = String(cString: buffer)
+            guard openedPath == path, paths.allowsRead(openedPath, outsideRootsAllowed: outsideRootsAllowed) else { return nil }
+            let size = Int(clamping: info.st_size)
+            let nonText: [UTType] = [.image, .pdf, .audiovisualContent, .archive, .executable, .font]
+            if let type = UTType(filenameExtension: URL(fileURLWithPath: path).pathExtension.lowercased()),
+               nonText.contains(where: { type.conforms(to: $0) }) {
+                text = nil
+                bytes = size
+                truncated = false
+                return
+            }
+            let body: Data
+            do {
+                body = try handle.read(upToCount: Self.maximumBytes + 1) ?? Data()
+            } catch {
+                return nil
+            }
+            bytes = max(size, body.count)
+            truncated = body.count > Self.maximumBytes
+            let kept = body.prefix(Self.maximumBytes)
+            text = kept.prefix(8192).contains(0) ? nil : String(decoding: kept, as: UTF8.self)
         }
     }
 
