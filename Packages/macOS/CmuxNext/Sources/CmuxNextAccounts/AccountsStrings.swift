@@ -21,7 +21,7 @@ enum AccountsStrings {
 
     static var teamTitle: String { text("accounts.team.title", "Active Team") }
     static var teamHelp: String {
-        text("accounts.team.help", "Cloud machines, CodeRouter accounts and phone access use this team.")
+        text("accounts.team.help", "Cloud machines, CodeRouter and phone access use this team.")
     }
     static var teamManaged: String { text("accounts.team.managed", "Your organization chose this device's team.") }
     static var teamSwitchFailed: String { text("accounts.team.switchFailed", "Could not switch teams. Try again.") }

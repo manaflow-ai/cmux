@@ -703,7 +703,7 @@ Object.assign(variants, {
       {
         teams: {
           title: "Active Team",
-          help: "Cloud machines, CodeRouter accounts and phone access use this team.",
+          help: "Cloud machines, CodeRouter and phone access use this team.",
           options: [
             { id: "sample-team-1", name: "Sample team", active: true },
             { id: "sample-team-2", name: "Another sample team", active: false },

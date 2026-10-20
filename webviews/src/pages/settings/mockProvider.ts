@@ -409,7 +409,7 @@ export class MockSettingsProvider {
   accounts: AccountsState = {
     teams: {
       title: "Active Team",
-      help: "Cloud machines, CodeRouter accounts and phone access use this team.",
+      help: "Cloud machines, CodeRouter and phone access use this team.",
       options: [
         { id: "team-personal", name: "Personal", active: true },
         { id: "team-acme", name: "Acme", active: false },
