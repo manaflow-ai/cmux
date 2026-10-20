@@ -179,10 +179,14 @@ job waits until that job ends, and if the watch ends first, it stays queued
 for the mini that frees up. A refused job, or one held in setup at the
 watch's end, is still acted on as described above, running siblings or not.
 
-A stuck or held job is not rescued either once another job of its attempt
-has failed on its own (a failure that is not a refusal): the run is already
-red, and a re-run repeats that failure while the stuck job loses its place
-in the queue. It stays queued for the minis. A refusal is still re-run.
+On a pull request run, a stuck or held job is not rescued either once
+another job of its attempt has failed on its own (decided_failures(): not a
+refusal, not a runner that ran no step): the run is already red, and a
+re-run repeats that failure while the stuck job loses its place in the
+queue. It stays queued for the minis, and a failure that was really a
+Blacksmith machine fault needs a person's re-run. A refusal is still re-run.
+Main, nightly and push runs keep the rescue, since a stuck one holds its
+concurrency group.
 
 A job's wait is measured from the later of its `created_at` and the first
 time the watcher saw it queued, so a job record created before its `needs`
@@ -577,6 +581,15 @@ class Look:
     waiting: bool = False  # a persistent-pool job has no runner yet
 
 
+def decided_failures(jobs: Sequence[Mapping[str, Any]], attempt_started: dt.datetime | None = None) -> list[str]:
+    """Names of this attempt's jobs that failed on their own: not a fleet refusal (refused()), not a
+    job whose runner never ran a step (a lost runner, owned or not) and not one carried from an
+    earlier attempt. Such a failure has already made the run red."""
+    return sorted(str(job.get("name") or job.get("id")) for job in jobs
+                  if job.get("status") == "completed" and job.get("conclusion") == "failure"
+                  and job.get("steps") and not refused(job) and not carried(job, attempt_started))
+
+
 def setup_budget(job: Mapping[str, Any], now: dt.datetime, budget_seconds: int,
                  deadline: dt.datetime | None) -> float:
     """SETUP_WAIT_SECONDS, cut so a job that entered setup late is still judged before the watch ends (as
@@ -589,8 +602,13 @@ def setup_budget(job: Mapping[str, Any], now: dt.datetime, budget_seconds: int,
 
 def assess(jobs: Sequence[Mapping[str, Any]], *, now: dt.datetime, budget_seconds: int,
            first_seen: Mapping[Any, dt.datetime] | None = None, deadline: dt.datetime | None = None,
-           floor_seconds: int | None = None, allow_running_rescue: bool = False) -> Look:
-    """One look at the jobs of a run on a persistent pool (each job's budget: job_budget())."""
+           floor_seconds: int | None = None, allow_running_rescue: bool = False,
+           leave_decided: bool = False, attempt_started_at: dt.datetime | None = None) -> Look:
+    """One look at the jobs of a run on a persistent pool (each job's budget: job_budget()).
+
+    With `leave_decided` (a pull request run), a stuck or held job is left queued once another job of
+    the attempt has failed on its own (decided_failures()).
+    """
     seen = first_seen or {}
     waiting = [job for job in jobs if job_pool(job) and waiting_for_runner(job)]
     budgets = {id(job): job_budget(job, budget_seconds, deadline=deadline, floor_seconds=floor_seconds,
@@ -608,8 +626,7 @@ def assess(jobs: Sequence[Mapping[str, Any]], *, now: dt.datetime, budget_second
     # and re-running it repeats that failure and puts the stuck job at the back of the same queue
     # (feat-cmux-next, 2026-10-20: 33 of 44 cmux-next pull request runs reached attempt 2 or 3, each
     # failing `checks` again), so the stuck job stays queued for the minis instead.
-    decided = sorted(str(job.get("name") or job.get("id")) for job in jobs
-                     if job.get("status") == "completed" and job.get("conclusion") == "failure" and not refused(job))
+    decided = decided_failures(jobs, attempt_started_at) if leave_decided else []
     if stuck and not decided and (allow_running_rescue or not on_mini):
         suffix = (" while another owned job is running; overflowing the queued side jobs"
                   if on_mini else " with no runner")
@@ -1039,7 +1056,12 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
                     first_seen.setdefault(job.get("id"), seen_at)
             look = assess(jobs, now=seen_at, budget_seconds=budget_seconds, first_seen=first_seen,
                           deadline=deadline, floor_seconds=floor_seconds,
-                          allow_running_rescue=target.path == CMUX_NEXT_WORKFLOW_PATH)
+                          allow_running_rescue=target.path == CMUX_NEXT_WORKFLOW_PATH,
+                          # Main, nightly and push runs keep the rescue: a stuck one holds its
+                          # concurrency group, and rescue() cancels it once its head has moved.
+                          leave_decided=bool(target.pr_number) and not (
+                              target.main or target.nightly or target.push_branch),
+                          attempt_started_at=target.attempt_started_at)
             if look.action == "refused" and not finished and seen_at < deadline and not target.main:
                 # GitHub re-runs no job of a run still in progress (403 "already
                 # running", for one job or the failed ones), and cancelling
