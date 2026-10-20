@@ -73,7 +73,7 @@ final class RunawayPaneTreeMemoryPressureResponder: MemoryPressureResponder {
         self.waitForGraceDeadline = waitForGraceDeadline
     }
 
-    /// The in-flight evaluation, exposed so tests can await completion.
+    /// The in-flight evaluation, if one is running.
     var pendingEvaluation: Task<Void, Never>? { evaluationTask }
 
     func shedMemory(for snapshot: MemoryPressureSnapshot) -> MemoryPressureShedResult {
