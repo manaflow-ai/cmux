@@ -91,6 +91,12 @@ class PublisherTests(unittest.TestCase):
                                 capture_output=True, timeout=30)
         return result, [call for call in FakeGitHub.calls if call[0] == "POST"]
 
+    def test_refuses_to_turn_a_pull_request_merge_commit_into_a_push_event(self):
+        result, posts = self.publish()
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertEqual(posts, [])
+        self.assertIn("untrusted merge commit", result.stdout)
+
     def test_pins_the_merge_commit_with_the_app_token_and_its_push_publishes(self):
         result, posts = self.publish(mergeable=[None, None, True])
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
