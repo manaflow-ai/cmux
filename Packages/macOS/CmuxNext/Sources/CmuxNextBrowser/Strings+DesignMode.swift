@@ -4,7 +4,7 @@ import Foundation
 // the browser shows when a highlight cannot reach a chat.
 extension Strings {
     /// `Design: <tag> · <host>`, the chip an agent chat's composer shows for one highlight.
-    static func designModeCardName(tag: String, host: String) -> String {
+    nonisolated static func designModeCardName(tag: String, host: String) -> String {
         host.isEmpty
             ? String(localized: "browser.designMode.cardNameNoHost", defaultValue: "Design: \(tag)", bundle: .module)
             : String(localized: "browser.designMode.cardName", defaultValue: "Design: \(tag) · \(host)", bundle: .module)
