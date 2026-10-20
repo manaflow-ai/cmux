@@ -85,6 +85,11 @@ public nonisolated struct OmnibarState: Equatable, Sendable {
         /// The word under a single click on the elided, all-selected URL, in
         /// elided coordinates (Chromium `next_double_click_selection_*`).
         public var wordAtPress: NSRange?
+        /// The pointer moved past the drag threshold while pressed. What
+        /// AppKit selected during the press does not say it: on macOS 15 a
+        /// still click on the field, which grows when it takes focus, ends
+        /// with a few characters selected.
+        public var dragged = false
     }
 
     public var phase: Phase = .idle
