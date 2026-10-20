@@ -109,8 +109,6 @@ public struct RegistryKeyBindings {
                 claimed = entries.filter(isClaimed)
                 entries.removeAll(where: isClaimed)
                 entries += extra.ghostty.filter { $0.source == .ghostty && enabled($0) }
-                // The Chrome tab keys win over every focus and the Ghostty config; cmux.json still decides.
-                entries += KeyBindingDefaults.tabSwitching(registry: registry)
             case .user: entries += extra.user.filter(enabled)
             }
         }
