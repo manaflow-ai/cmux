@@ -29,11 +29,12 @@ extension ChiefPetController {
     }
 
     func closeReply() {
+        // Out of the pet's children first, shown or not: a hidden child would come back the next time
+        // the pet is ordered in.
+        if let replyPanel { replyPanel.parent?.removeChildWindow(replyPanel) }
         guard let replyPanel, replyPanel.isVisible, !closingReply else { return }
         closingReply = true
         defer { closingReply = false }
-        // Out of the pet's children first: a hidden child would come back the next time the pet is ordered in.
-        replyPanel.parent?.removeChildWindow(replyPanel)
         replyPanel.orderOut(nil)
         render(animated: false)
     }

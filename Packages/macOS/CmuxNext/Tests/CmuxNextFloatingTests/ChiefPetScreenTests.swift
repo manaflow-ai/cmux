@@ -84,9 +84,13 @@ import Testing
         #expect(reply.isVisible)
         #expect(reply.parent === panel, "a child of the pet, as the notices are")
         let before = reply.frame.origin
-        drag(panel.pet, from: CGPoint(x: 620, y: 230), path: [CGPoint(x: 660, y: 230), CGPoint(x: 700, y: 260)])
+        drag(panel.pet, from: CGPoint(x: 620, y: 230), path: [CGPoint(x: 660, y: 230), CGPoint(x: 700, y: 260)], release: false)
         #expect(panel.frame.origin == CGPoint(x: 680, y: 230))
-        #expect(reply.frame.origin == CGPoint(x: before.x + 80, y: before.y + 30), "the box stays over the pet")
+        #expect(reply.frame.origin == CGPoint(x: before.x + 80, y: before.y + 30), "mid-drag the box moves with the pet")
+        let up = NSEvent.mouseEvent(with: .leftMouseUp, location: .zero, modifierFlags: [], timestamp: 0,
+                                    windowNumber: panel.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!
+        panel.pet.mouseUp(with: up)
+        #expect(reply.frame.origin == CGPoint(x: before.x + 80, y: before.y + 30), "released, it stays over the pet")
         controller.closeReply()
         #expect(reply.parent == nil, "closed, it no longer comes back with the pet")
         #expect(!reply.isVisible)

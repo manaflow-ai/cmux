@@ -137,7 +137,7 @@ public final class ChiefPetController {
         let drew = bubble.bubble.show(feed.notices, expanded: expanded)
         let height = ChiefPetBubblePanel.height(count: feed.notices.count, expanded: expanded)
         // With no screen (a display being reconfigured) it still takes its size, over the pet.
-        let visible = panel.screen?.visibleFrame ?? ChiefPetPanel.screenUnderPointer()?.visibleFrame ?? panel.frame.insetBy(dx: -4000, dy: -4000)
+        let visible = panel.visibleFrame() ?? ChiefPetPanel.screenUnderPointer()?.visibleFrame ?? panel.frame.insetBy(dx: -4000, dy: -4000)
         bubble.setFrame(ChiefPetBubblePanel.frame(height: height, over: panel.frame, in: visible), display: drew)
         guard !bubble.isVisible else { return }
         bubble.alphaValue = animated && drew ? 0 : 1
