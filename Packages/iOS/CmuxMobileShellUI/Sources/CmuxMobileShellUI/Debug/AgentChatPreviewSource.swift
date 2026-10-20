@@ -162,8 +162,9 @@ actor AgentChatPreviewSource: AgentChatSessionSource {
     func interrupt(sessionID: String, hard: Bool) async throws {
         guard let index = descriptors.firstIndex(where: { $0.id == sessionID }) else { throw PreviewError.missingSession }
         let descriptor = descriptors[index]
-        descriptors[index] = descriptor.withState(.idle, version: bumpVersion(sessionID))
-        emit(sessionID: sessionID, event: .stateChanged(.idle))
+        let version = bumpVersion(sessionID)
+        descriptors[index] = descriptor.withState(.idle, version: version)
+        emit(sessionID: sessionID, event: .stateChanged(.idle), version: version)
         if let response = pendingResponses.removeValue(forKey: sessionID) {
             appendPreviewResponse(sessionID: sessionID, text: response)
         }
@@ -268,8 +269,8 @@ actor AgentChatPreviewSource: AgentChatSessionSource {
         continuations[id] = nil
     }
 
-    private func emit(sessionID: String, event: ChatSessionEvent) {
-        let version = bumpVersion(sessionID)
+    private func emit(sessionID: String, event: ChatSessionEvent, version: Int? = nil) {
+        let version = version ?? bumpVersion(sessionID)
         let frame = ChatSessionEventFrame(sessionID: sessionID, event: event, version: version)
         for continuation in continuations.values { continuation.yield(frame) }
     }
