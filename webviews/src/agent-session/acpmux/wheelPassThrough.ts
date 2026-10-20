@@ -36,19 +36,23 @@ export function wheelPixels(event: Pick<WheelEvent, "deltaY" | "deltaMode">, pag
   return event.deltaY;
 }
 
-/// Sends the wheel over `main`'s floating parts to `scroller`. `onReader` runs first, as the
-/// scroller's own wheel does, so the scroll counts as the reader's. Returns the remover.
-export function installWheelPassThrough(scroller: HTMLElement, main: HTMLElement, onReader: () => void): () => void {
+/// Sends the wheel over `main`'s floating parts to `scroller`. The scroller first gets a copy of
+/// the event, so its own wheel listeners run as for a wheel over it (the scroll counts as the
+/// reader's, a glide or a Jump to latest in flight ends). The listener is passive: a wheel over the
+/// transcript itself never waits on it, and a part that cannot scroll has no native scroll to stop.
+/// Returns the remover.
+export function installWheelPassThrough(scroller: HTMLElement, main: HTMLElement): () => void {
   const onWheel = (event: WheelEvent) => {
     if (event.defaultPrevented || event.ctrlKey) return;
     if (Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return;
     const target = event.target instanceof Element ? event.target : null;
     if (!target || scroller.contains(target) || !passesWheelToTranscript(target, main)) return;
     if (scrollsItself(target, main, event.deltaY)) return;
-    event.preventDefault();
-    onReader();
+    scroller.dispatchEvent(
+      new WheelEvent("wheel", { deltaX: 0, deltaY: event.deltaY, deltaMode: event.deltaMode, bubbles: false }),
+    );
     scroller.scrollTop += wheelPixels(event, scroller.clientHeight);
   };
-  main.addEventListener("wheel", onWheel, { passive: false });
+  main.addEventListener("wheel", onWheel, { passive: true });
   return () => main.removeEventListener("wheel", onWheel);
 }

@@ -2259,7 +2259,7 @@ export function VirtualTranscript({
     // The wheel over Jump to latest and the bottom stack scrolls the transcript (wheelPassThrough.ts).
     // The chat's own transcript only (a replay's sits in its own screen).
     const main = node?.closest(".acpmux-stage")?.parentElement?.closest<HTMLElement>(".acpmux-main");
-    const removeWheel = node && main ? installWheelPassThrough(node, main, reader) : undefined;
+    const removeWheel = node && main ? installWheelPassThrough(node, main) : undefined;
     return () => {
       clearTimeout(settle.current);
       for (const name of inputs) node?.removeEventListener(name, reader);
