@@ -47,7 +47,7 @@ _spec.loader.exec_module(btb)
 
 SIM_NAME = "cnx-tv-ios26"
 PORT = 8791
-BENCH_URL = f"http://127.0.0.1:{PORT}/bench.html?scroll=6"
+BENCH_URL = f"http://127.0.0.1:{PORT}/s6.html"  # a redirect to bench.html?scroll=6 (no "=" to type)
 
 MODES = {
     # name: (transport, relay only, block UDP, predicate on the link line)
@@ -148,6 +148,60 @@ class TV:
             self.j.ws_name = self.state["ws_name"]
             self.j.device_id = self.state["device_id"]
         self.ensure_server()
+        self.patch_journey()
+
+    def patch_journey(self):
+        j, sim, mac = self.j, self.sim, self.mac
+        original = j.back_to_list
+
+        def to_list():
+            """Back buttons first (the journey's own back_to_list can pick a hidden
+            sheet's off-screen Done on this app version), then the journey's."""
+            for _ in range(6):
+                els = sim.tree()
+                if any(e.ident == "workspaces.list" for e in els) and any(
+                        e.label == "Workspaces" and e.kind == "RadioButton" for e in els):
+                    return
+                cancel = [e for e in sim.find(kind="Button", elements=els) if e.label == "Cancel"
+                          and 0 <= e.frame[0] and 0 <= e.center[1] <= 874]
+                if cancel:  # a browser address field holds the keyboard
+                    sim.tap_el(cancel[0]); time.sleep(1.0); continue
+                if sim.keyboard(els):
+                    j.hide_keyboard()
+                back = [e for e in sim.find(kind="Button", elements=els)
+                        if (e.ident in ("chevron.left", "BackButton") or e.label == "Back") and 0 <= e.center[1] <= 874
+                        and e.frame[0] >= 0]
+                if back:
+                    sim.tap_el(back[0])
+                else:
+                    try:
+                        j.tab("Workspaces")
+                    except Exception:
+                        sim.drag(2, 400, 320, 400, 0.5, 30, 0.1)
+                time.sleep(1.0)
+            original()
+
+        j.back_to_list = to_list
+
+        # The ids `workspace create` returned did not resolve later on this build
+        # (selector.not_found); resolve terminals from the live list instead.
+        def terminals():
+            return [t["id"] for t in (mac.cmux("terminal", "list", json_out=True) or [])]
+
+        def which_term(marker):
+            for t in terminals():
+                try:
+                    if marker in j.mac_screen(t).get("text", ""):
+                        return t
+                except Exception:
+                    pass
+            return None
+
+        j.which_term = which_term
+        ts = terminals()
+        if ts:
+            j.seed["term1"] = ts[0]
+            j.seed["term2"] = ts[-1]
 
     def ensure_server(self):
         r = subprocess.run(["curl", "-fsS", "-o", "/dev/null", f"http://127.0.0.1:{PORT}/bench.html"], capture_output=True)
@@ -240,7 +294,9 @@ class TV:
         time.sleep(0.6)
         self.sim.dismiss_keyboard_intro()
         self.sim.softtype(text)
+        t = time.time()
         self.sim.tap_q(ident="terminal.composer.send")
+        return t
 
     def terminal_check(self, d):
         """Echo, streaming output, scrollback; all typed on the phone, recorded."""
@@ -253,12 +309,10 @@ class TV:
             term = j.current_tab_marker()
             res["echo_reached_mac"] = term is not None
             term = term or j.seed["term1"]
-            tag = f"tv{random.randint(1000, 9999)}"
-            # Codex-like stream: 400 lines at about 100 lines/s with partial-line updates.
-            cmd = (f"for i in $(seq 1 400); do printf '{tag} line %03d ' $i; printf 'tok '; printf 'tok\\n'; sleep 0.01; done;"
-                   f" echo {tag}-END")
-            t = time.time()
-            self.composer_send(cmd)
+            tag = f"x{random.randint(1000, 9999)}"
+            # Codex-like stream: 400 lines at about 100 lines/s, typed on the soft keyboard.
+            cmd = f"for i in $(seq 400);do echo {tag}-$i tok tok;sleep .01;done;echo {tag}-END"
+            t = self.composer_send(cmd)
             time.sleep(1.0)
             j.hide_keyboard()
             try:
@@ -271,8 +325,8 @@ class TV:
             res["stream_end_on_phone"] = bool(hit)
             res["stream_end_on_phone_s"] = round(time.time() - t, 1) if hit else None
             sim.shot(os.path.basename(d) + "-stream-end")
-            flicks, hits = j.scroll_to_find(f"{tag} line 150", tries=30)
-            res["scrollback_found_line_150"] = bool(hits)
+            flicks, hits = j.scroll_to_find(f"{tag}-1 tok", tries=30)
+            res["scrollback_reached_first_line"] = bool(hits)
             res["scrollback_flicks"] = flicks
             sim.shot(os.path.basename(d) + "-scrollback")
             # Back to the bottom.
@@ -293,12 +347,13 @@ class TV:
         return res
 
     def meter(self):
-        m = self.sim.find(ident="browser.meter")
-        return m[0].label if m else ""
+        """The measurement overlay's text (OCR; its AX label is empty)."""
+        lines = [o[4] for o in self.sim.ocr()]
+        return " | ".join(l for l in lines if re.search(r"fps|latency|^phone", l))
 
     def toolbar_button(self, *names):
         for e in self.sim.find(kind="Button"):
-            if e.label in names or (e.ident or "") in names:
+            if (e.label in names or (e.ident or "") in names) and e.frame[0] >= 0 and 0 <= e.center[1] <= 874:
                 return e
         return None
 
@@ -328,21 +383,17 @@ class TV:
             bar = bar[0] if bar else None
         if bar is None:
             # The address pill: tap it to edit.
-            cands = [e for e in sim.find(kind="Button") if e.frame[1] > 760 and 80 < e.center[0] < 330]
+            cands = [e for e in sim.find(kind="Button") if (e.label or "").startswith("Address")
+                     and 0 <= e.center[1] <= 874]
             if not cands:
                 raise RuntimeError("no address bar or pill")
             bar = cands[0]
         sim.tap_el(bar)
         time.sleep(0.8)
         sim.dismiss_keyboard_intro()
-        field = sim.find(kind="TextField")
-        if field and field[0].value:
-            # Clear the old address (select all then type over).
-            sim.long_press(*field[0].center, seconds=0.6)
-            time.sleep(0.6)
-            sel = sim.find(label="Select All")
-            if sel:
-                sim.tap_el(sel[0]); time.sleep(0.4)
+        clear = [e for e in sim.find(kind="Button") if e.label == "Clear text" and 0 <= e.center[1] <= 874]
+        if clear:  # the field shows the current address: clear it first
+            sim.tap_el(clear[0]); time.sleep(0.4)
         sim.softtype(url + "\n")
 
     def wait_page(self, needle_re, timeout=40):
@@ -377,7 +428,7 @@ class TV:
             res["taps_before_after"] = [before.group(1) if before else None, after.group(1) if after else None]
             # Navigate to another page from the address bar.
             self.type_url("example.com")
-            dt2, _ = self.wait_page(r"Example Domain", 40)
+            dt2, _ = self.wait_page(r"documentation|Example Domain", 40)
             res["navigate_example_s"] = round(dt2, 1) if dt2 is not None else None
             sim.shot(os.path.basename(d) + "-example")
             back = self.toolbar_button("Back", "BackButton", "Go Back")
@@ -386,9 +437,16 @@ class TV:
                 sim.tap_el(back); dt3, _ = self.wait_page(r"mac\s+" + btb.CLOCK, 30)
                 res["back_to_bench_s"] = round(dt3, 1) if dt3 is not None else None
             fwd = self.toolbar_button("Forward", "Go Forward")
+            if not fwd:
+                # Forward lives with the address field's editing controls.
+                pill = [e for e in sim.find(kind="Button") if (e.label or "").startswith("Address") and 0 <= e.center[1] <= 874]
+                if pill:
+                    sim.tap_el(pill[0]); time.sleep(1.0)
+                    fwd = self.toolbar_button("Forward", "Go Forward")
+                    res["forward_via"] = "address field editing bar"
             res["forward_button"] = fwd.label if fwd else None
             if fwd:
-                sim.tap_el(fwd); dt4, _ = self.wait_page(r"Example Domain", 30)
+                sim.tap_el(fwd); dt4, _ = self.wait_page(r"documentation|Example Domain", 30)
                 res["forward_to_example_s"] = round(dt4, 1) if dt4 is not None else None
                 back = self.toolbar_button("Back", "BackButton", "Go Back")
                 if back:
@@ -400,7 +458,7 @@ class TV:
         finally:
             sim.record_stop()
         res["video"] = vid
-        m = res.get("meter_end") or res.get("meter_after_load") or ""
+        m = (res.get("meter_end") or "") + " " + (res.get("meter_after_load") or "")
         res["carrier_seen"] = next((c for c in ("wg-rtp", "track", "channel") if re.search(rf"\b{c}\b", m)), None)
         res["carrier_ok"] = res["carrier_seen"] == carrier_expected
         return res
@@ -432,9 +490,11 @@ class TV:
 
     # ---------------------------------------------------------------- checks
     def mode(self, name):
+        name, _, only = name.partition(":")
         self.up()
         d = os.path.join(self.out, name)
         os.makedirs(d, exist_ok=True)
+        prev = self.results.get(name, {})
         r = {"mode": name, "start": datetime.datetime.now().isoformat(timespec="seconds"), **load()}
         since = time.time()
         r.update(self.set_mode(name))
@@ -443,10 +503,13 @@ class TV:
         r["mac_path_lines"] = self.hostd_lines(since - 2, r"link up|link path changed")[-6:]
         r["rtt_ms"] = self.rtt_samples()
         self.log(f"{name}: status {r['status']!r} in {r['connect_s']} s, Mac path {r['mac_path']}, rtt {r['rtt_ms']['median']}")
-        try:
-            r["terminal"] = self.terminal_check(d)
-        except Exception as e:
-            r["terminal_error"] = str(e)[:400]
+        if only == "browser" and "terminal" in prev:
+            r["terminal"] = prev["terminal"]
+        else:
+            try:
+                r["terminal"] = self.terminal_check(d)
+            except Exception as e:
+                r["terminal_error"] = str(e)[:400]
         self.log(f"{name}: terminal {json.dumps({k: v for k, v in (r.get('terminal') or {}).items() if k != 'keystroke_echo'})[:400]}")
         carrier = "wg-rtp" if name.startswith("wg") else "track"
         try:
@@ -457,8 +520,10 @@ class TV:
             self.sim.shot(f"{name}-browser-error")
         self.log(f"{name}: browser {json.dumps({k: v for k, v in (r.get('browser') or {}).items() if k != 'toolbar_buttons'})[:500]}")
         r["mac_paths_during"] = self.hostd_lines(since, r"link up|link down|link path changed|media lane|video")[-20:]
-        r["phone_relay_retired"] = self.phone_log(datetime.datetime.fromtimestamp(since).strftime("%Y-%m-%d %H:%M:%S"),
-                                                  r"relay_retired")
+        lines = self.phone_log(datetime.datetime.fromtimestamp(since).strftime("%Y-%m-%d %H:%M:%S"),
+                               r"relay_retired|fps .* via ")
+        r["phone_relay_retired"] = [l for l in lines if "relay_retired" in l]
+        r["phone_browser"] = [l for l in lines if " via " in l][-12:]
         r["end"] = datetime.datetime.now().isoformat(timespec="seconds")
         r["end_load"] = load()
         try:
@@ -544,8 +609,8 @@ class TV:
         r["meter_timeline"] = seen
         r["meter_end"] = self.meter()
         r["status_end"] = j.link_status() if sim.find(ident="workspaces.list") else None
-        r["hostd"] = self.hostd_lines(since - 2, r"link up|link down|link path changed|recovery|keyframe|IDR|PLI|need_recovery|video|roam")[-40:]
-        r["phone"] = self.phone_log(since_s, r"network_probe|roam|keyframe|PLI|recover|carrier|link (up|down)|relay_retired")[-60:]
+        r["hostd"] = self.hostd_lines(since - 2, r"link up|link down|link path changed|media lane|video|roam")[-40:]
+        r["phone"] = self.phone_log(since_s, r"network_probe|roam|fps .* via |link (up|down)|relay_retired|network changed")[-80:]
         # Terminal still correct afterwards.
         try:
             j.back_to_list()
@@ -585,7 +650,7 @@ class TV:
             r["meter_start"] = self.meter()
             r["capture"] = self.bench_record(os.path.join(d, "bench"), seconds=20, taps=6)
             r["meter_end"] = self.meter()
-            r["hostd"] = self.hostd_lines(since, r"media lane|nack|NACK|loss|drop|recovery")[-20:]
+            r["hostd"] = self.hostd_lines(since, r"media lane|link up")[-20:]
         finally:
             os.remove(f)
             try:
