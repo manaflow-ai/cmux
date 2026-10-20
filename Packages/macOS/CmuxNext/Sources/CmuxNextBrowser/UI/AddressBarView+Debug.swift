@@ -136,3 +136,21 @@ extension AddressBarView {
         return field.convert(NSPoint(x: origin + prefix + 2 + 0.5, y: field.bounds.midY), to: nil)
     }
 }
+
+extension AddressBarView {
+    /// The field's frame in window coordinates (`debug.omnibar_bench` clicks its middle).
+    public var debugFieldFrameInWindow: NSRect { field.convert(field.bounds, to: nil) }
+
+    /// The bar shows editing now: the field editor is attached and the pill
+    /// wears the editing look (ring, or the card top), with no fade left to run.
+    public var debugShowsEditing: Bool {
+        controller.state.hasFocus && field.isFieldEditorActive && pill.state != .idle && !pill.debugIsFading
+    }
+
+    /// The field editor holds its whole text selected (Chrome's focusing click).
+    public var debugAllSelected: Bool {
+        guard let editor = field.currentEditor() as? NSTextView else { return false }
+        let length = (editor.string as NSString).length
+        return length > 0 && editor.selectedRange() == NSRange(location: 0, length: length)
+    }
+}

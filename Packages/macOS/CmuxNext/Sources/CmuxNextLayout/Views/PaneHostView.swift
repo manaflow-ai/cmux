@@ -61,6 +61,20 @@ final class PaneHostView: NSView, RestingPlacement {
         didSet { if restOffset == .zero, oldValue != .zero, window != nil { reporter?.paneFrameInWindowDidChange() } }
     }
 
+    /// Whether the host's frame is on a layout spring (`RestingPlacement`): set before the frame of
+    /// each moving display frame and cleared after the frame it lands at, so content resized on the
+    /// landing frame still sees the motion, then hears it end once (`PaneMotionSettling`): a
+    /// terminal reports its grid there, one PTY resize per zoom instead of one per frame.
+    var isOnLayoutSpring = false {
+        didSet { if oldValue, !isOnLayoutSpring { content.notifyPaneMotionSettled() } }
+    }
+
+    /// A host taken out of the layout mid-spring is at rest: its content reports what it holds.
+    override func viewDidMoveToSuperview() {
+        super.viewDidMoveToSuperview()
+        if superview == nil { isOnLayoutSpring = false }
+    }
+
     /// Whether the pane sits in a docked column: it then shows the
     /// user's docks background under its content (`appearance.surfaces.docks`).
     var isDocked = false {

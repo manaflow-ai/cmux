@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextLayout
 import Observation
 
 // Window membership transitions. Every change goes through `transition`,
@@ -222,6 +223,19 @@ extension WindowManager {
         guard let controller = controller(for: id) else { return nil }
         if let frame { controller.window?.setFrame(frame, display: true) }
         return controller
+    }
+
+    /// Move to New Window's one landing, for every kind of content (tabs, tab groups, panes,
+    /// screens, workspaces, workspace groups): `ids` in a new window beside the window they
+    /// left (`MovedWindowPlacement`), which takes the focus when `select`. When they are all of
+    /// that window's workspaces, the window itself moves there: none opens, none is left empty.
+    func openMovedWindow(_ ids: [String], from origin: MoveOrigin, select: Bool) {
+        let source = origin.window.flatMap(controller(for:))
+        let frame = source?.window.map { MovedWindowPlacement().frame(beside: $0.frame, on: ($0.screen ?? NSScreen.main)?.visibleFrame ?? .infinite) }
+        let whole = source.map { Set(ids) == Set(registry.members(of: $0.state.id)) } == true
+        if whole, let source, let frame { source.window?.setFrame(frame, display: true); recordSaver.stateDidChange(source.state) }
+        guard let moved = whole ? source : openWindow(workspaces: ids, frame: frame, incognito: origin.incognito, behind: !select) else { return }
+        if select { bringToFront(moved) }
     }
 
     /// The user closed window `id`: it stays registered, closed, with its

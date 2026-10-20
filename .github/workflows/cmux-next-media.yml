@@ -148,10 +148,10 @@ jobs:
     needs: route
     if: ${{ needs.route.outputs.runs_on != '' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.route.outputs.runs_on }}
-    # Cold, one PR's first tour builds base and head from scratch: the base
-    # alone took 35 min to reach its web bundles (job 115856352658). Later
-    # tours of the PR reuse its per-tag DerivedData while it is among the
-    # most recently used on that Mac (scripts/ci/prune_media_derived_data.py).
+    # Cold, a tour builds base and head from scratch: the base alone took
+    # 35 min to reach its web bundles (job 115856352658). A tour builds in the
+    # slot it claims on the Mac, so it reuses that slot's warm DerivedData
+    # whichever pull request toured there last (scripts/ci/media_tag_lock.py).
     timeout-minutes: 120
     # actions: read finds and downloads another run's base app artifact.
     permissions:
@@ -167,10 +167,11 @@ jobs:
       # GhosttyKit comes prebuilt; the ghostty CLI helper zig build is skipped.
       CMUX_SKIP_ZIG_BUILD: "1"
       CMUX_GHOSTTYKIT_PREPROVISIONED: "1"
-      # One tag per PR (one for all merges) keeps its DerivedData warm across
-      # updates; base and head use separate tags so the two apps never share
-      # state or sockets.
-      TOUR_TAG: ci-media-${{ github.event.pull_request.number && format('pr-{0}', github.event.pull_request.number) || github.event_name == 'workflow_dispatch' && 'batch' || 'feat-cmux-next' }}
+      # Warm tour slots per Mac. The claim step sets TOUR_TAG to the slot's
+      # tag; base and head build as ${TOUR_TAG}-base and -head, so the two
+      # apps never share state or sockets. A tour past K takes an overflow
+      # slot (cold, pruned once idle) rather than wait.
+      CMUX_MEDIA_TOUR_SLOTS: ${{ vars.CMUX_MEDIA_TOUR_SLOTS || '2' }}
       # A merge tour compares the previous feat-cmux-next head with the merge.
       BASE_SHA: ${{ github.event.pull_request.base.sha || inputs.base_sha || github.event.before || github.sha }}
       HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
@@ -261,24 +262,20 @@ jobs:
           node-version: "24.11.1"
 
       # Tours run side by side on a Mac's session runners, each capturing only
-      # its own app's window. One tag's DerivedData, sockets and daemon session
-      # take one tour at a time: a cancelled run still stopping, a dispatch, or
-      # a merge tour beside a dispatch could otherwise build into the same
-      # DerivedData at once. Other tags never wait.
-      # A pull request branched before the lock existed checks out a head
-      # without the lock script, and with a prune that ignores held tags; this
-      # step comes from the merge ref, so it takes both from that commit and
-      # hands the prune step their dir (MEDIA_CI_SCRIPTS).
-      # A tour waits an hour for its tag: longer than a warm merge tour holds
-      # feat-cmux-next (54 min seen), and short enough that the waiter keeps
-      # 45+ min of its own job timeout for a cold build and the tour. A
-      # longer wait would end in a job-timeout cancel, not the "held" error.
-      - name: Hold this tour's tag
+      # its own app's window. Each claims a slot of its own: its tag's
+      # DerivedData, sockets and daemon session take one tour at a time, and
+      # the slot's lock is held until the job's Runner.Worker exits.
+      # A pull request branched before slots checks out a head whose lock
+      # script cannot claim, and whose prune knows no slots; this step comes
+      # from the merge ref, so it takes both from that commit and hands the
+      # prune step their dir (MEDIA_CI_SCRIPTS).
+      - name: Claim a tour slot on this Mac
         if: steps.scope.outputs.is_ui == 'true'
         run: |
           set -euo pipefail
           ci=scripts/ci
-          if [ ! -f "$ci/media_tag_lock.py" ] || ! grep -q -- '--lock-dir' "$ci/prune_media_derived_data.py"; then
+          if ! grep -q -- '--slots' "$ci/media_tag_lock.py" 2>/dev/null \
+            || ! grep -q -- '--slots' "$ci/prune_media_derived_data.py" 2>/dev/null; then
             git fetch --no-tags origin "$GITHUB_SHA"
             ci="$RUNNER_TEMP/media-ci"
             mkdir -p "$ci"
@@ -287,18 +284,20 @@ jobs:
             done
           fi
           echo "MEDIA_CI_SCRIPTS=$ci" >> "$GITHUB_ENV"
-          python3 "$ci/media_tag_lock.py" hold --tag "$TOUR_TAG" --wait 3600
+          python3 "$ci/media_tag_lock.py" claim --slots "$CMUX_MEDIA_TOUR_SLOTS" --github-env "$GITHUB_ENV"
 
-      # Each tag's DerivedData is about 9 GiB and nothing else removes it: a
-      # mini holding 8 failed reload.sh's 40 GiB floor (run 38614931315).
-      # Keep this run's pair and the most recently used other pair; a dir
-      # that is open or was built within the tour timeout is never removed.
+      # Each side's DerivedData is about 9.5 GiB: a mini holding 8 per-PR dirs
+      # failed reload.sh's 40 GiB floor (run 38614931315). Keep the K warm
+      # slots' pairs and remove the rest (old per-PR dirs, idle overflow
+      # slots); a dir that is open, was built within the tour timeout, or
+      # whose slot a tour holds is never removed.
       - name: Bound the tour DerivedData on this Mac
         if: steps.scope.outputs.is_ui == 'true'
         continue-on-error: true
         run: |
           python3 "${MEDIA_CI_SCRIPTS:-scripts/ci}/prune_media_derived_data.py" \
-            --keep-tag "${TOUR_TAG}-base" --keep-tag "${TOUR_TAG}-head" --keep-others 2
+            --keep-tag "${TOUR_TAG}-base" --keep-tag "${TOUR_TAG}-head" \
+            --slots "${CMUX_MEDIA_TOUR_SLOTS:-2}" --keep-others 0
 
       # A pull request branched before these scripts checks out a head
       # without them; this step takes them from the merge ref instead.

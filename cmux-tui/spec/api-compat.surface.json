@@ -8974,6 +8974,9 @@
     "request:identify": {
       "/machine_metadata": {
         "ty": "boolean"
+      },
+      "/revisions": {
+        "ty": "boolean"
       }
     },
     "request:ids": {
@@ -9249,6 +9252,20 @@
         "required": true
       },
       "/index": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
+    "request:move-column": {
+      "/direction": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "left",
+          "right"
+        ]
+      },
+      "/pane": {
         "ty": "uint64",
         "required": true
       }
@@ -17389,6 +17406,12 @@
       }
     },
     "response:move-browser-profile": {
+      "/data": {
+        "ty": "json",
+        "required": true
+      }
+    },
+    "response:move-column": {
       "/data": {
         "ty": "json",
         "required": true

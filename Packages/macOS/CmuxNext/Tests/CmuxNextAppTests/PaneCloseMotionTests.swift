@@ -1,0 +1,281 @@
+import AppKit
+import CmuxNextBridge
+// Only the grid size: CmuxNextDaemon has its own PaneID and SplitID (the daemon's handles).
+import struct CmuxNextDaemon.CellSize
+import CmuxNextDesign
+@testable import CmuxNextApp
+@testable import CmuxNextLayout
+import Testing
+
+/// Closing a pane's last tab (or the pane) and closing a window
+/// (plans/cmux-next/close-animation/DESIGN.md). The pane leaves its window in the key's turn with
+/// the even sizes the close leaves, so its neighbours spring into its space on one spring (the
+/// split's) from the key's frame; the daemon's echoes change nothing on screen; their terminals
+/// resize their PTYs once, at rest. A window fades out as a whole, then closes once. Reduce Motion
+/// closes at once. Frames step at a fixed 120 Hz dt.
+@MainActor
+struct PaneCloseMotionTests {
+    final class Panes: LayoutPaneContentProvider {
+        func makeContentView(for pane: PaneID) -> NSView { NSView() }
+    }
+
+    static let dt = 1.0 / 120
+    /// The token's time scale (`ui.animationSpeed`), so budgets hold at any speed.
+    static var scale: Double { Motion.spring(.move).response / MotionSpring.move.base.response }
+
+    final class Screen {
+        let provider = Panes()
+        let model: LayoutModel
+        let root: LayoutRootView
+        let window: NSWindow
+        var intents: [LayoutIntent] = []
+        var holds: [Bool] = []
+
+        init(_ layout: ScreenLayout, focused: PaneID? = nil, reduceMotion: Bool = false) {
+            model = LayoutModel(screens: [LayoutScreen(id: "s", name: "s", layout: layout)], activeScreenID: "s",
+                                focusedPane: focused ?? layout.panes.first)
+            model.splitSizingOverride = .even
+            root = LayoutRootView(model: model, contentProvider: provider)
+            // Pins the pane springs on (or off): the shared settings stay untouched.
+            root.context.reduceMotionOverride = reduceMotion
+            window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800), styleMask: [.borderless],
+                              backing: .buffered, defer: true)
+            window.contentView = root
+            root.layoutSubtreeIfNeeded()
+            // The test is the clock: the display link never ticks.
+            root.driver.isManual = true
+            model.intentHandler = { [weak self] in self?.intents.append($0) }
+            root.onTerminalGridHold = { [weak self] in self?.holds.append($0) }
+        }
+
+        var screen: ScreenContentView? { root.screenViews["s"] }
+
+        /// The daemon's tree, as the store's mirror shows it.
+        func show(_ tree: SplitNode) {
+            model.apply(screens: [LayoutScreen(id: "s", name: "s", layout: .splits(tree))])
+            root.syncWithModel()
+        }
+
+        /// Cmd-W on `pane`'s last tab: the key's turn.
+        func close(_ pane: PaneID) -> PendingPaneClose? {
+            let close = model.showPaneClose(pane)
+            root.syncWithModel()
+            return close
+        }
+
+        func rect(_ pane: PaneID) -> CGRect? { screen?.paneFrames[pane]?.rect }
+        func target(_ pane: PaneID) -> CGRect? { screen?.paneFrames[pane]?.targetRect }
+
+        @discardableResult
+        func step() -> Bool { root.advanceFrame(PaneCloseMotionTests.dt) }
+
+        /// Steps until nothing moves (at most 2 s); the frame count.
+        @discardableResult
+        func settle() -> Int {
+            for frame in 1...240 where !step() { return frame }
+            return 240
+        }
+
+        var ratioIntents: [(SplitID, Double)] {
+            intents.compactMap { intent in
+                guard case let .setSplitRatio(split, ratio, _, .ended) = intent else { return nil }
+                return (split, ratio)
+            }
+        }
+    }
+
+    /// p1 | p2 | p3, even.
+    static let row: SplitNode = .split("r1", axis: .horizontal, ratio: 1.0 / 3, a: .leaf("p1"),
+                                       b: .split("r2", axis: .horizontal, ratio: 0.5, a: .leaf("p2"), b: .leaf("p3")))
+    /// `row` after the daemon closed p2 (its sibling p3 takes r2's place), before the close sizing.
+    static let rowClosed: SplitNode = .split("r1", axis: .horizontal, ratio: 1.0 / 3, a: .leaf("p1"), b: .leaf("p3"))
+    /// `row` while p2 is empty (the daemon's echo of the tab close, before the pane goes).
+    static let rowEmptied = row
+
+    // MARK: One motion from the key's frame
+
+    @Test func aLastTabCloseMovesEveryNeighbourFromTheKeysFirstFrame() throws {
+        let screen = Screen(.splits(Self.row))
+        let p1 = try #require(screen.rect("p1")), p3 = try #require(screen.rect("p3"))
+        let close = try #require(screen.close("p2"), "a pane with a sibling did not close in the key's turn")
+        #expect(close.successor == "p3")
+        #expect(screen.model.screens.first?.layout.contains("p2") == false, "the closed pane is still shown")
+        #expect(screen.model.screens.first?.layout.ratio(of: "r1") == 0.5, "the chain did not take its even sizes with the close")
+        screen.step()
+        let first1 = try #require(screen.rect("p1")), first3 = try #require(screen.rect("p3"))
+        #expect(first1.width > p1.width + 1, "p1 did not grow in the key's first frame")
+        #expect(first3.minX < p3.minX - 1, "p3 did not move in the key's first frame")
+        screen.settle()
+        let widths = try ["p1", "p3"].map { try #require(screen.rect($0)).width }
+        #expect(abs(widths[0] - widths[1]) <= 1.5, "the chain did not end even: \(widths)")
+        #expect(screen.intents.isEmpty, "a ratio intent went before the daemon closed the pane")
+    }
+
+    /// The daemon's echoes land mid-spring: the tab close (the pane still in its tree, empty), then
+    /// the pane close with its old ratios. Nothing on screen changes course, and the close sizing
+    /// goes to the daemon once its tree lost the pane.
+    @Test func theDaemonsEchoesOfTheCloseChangeNothingOnScreen() throws {
+        let screen = Screen(.splits(Self.row))
+        _ = try #require(screen.close("p2"))
+        for _ in 1...6 { screen.step() }
+        let targets = try ["p1", "p3"].map { try #require(screen.target($0)) }
+        screen.show(Self.rowEmptied)
+        #expect(screen.rect("p2") == nil, "the tab close's echo showed the closed pane again")
+        #expect(try ["p1", "p3"].map { try #require(screen.target($0)) } == targets)
+        for _ in 1...6 { screen.step() }
+        screen.show(Self.rowClosed)
+        #expect(try ["p1", "p3"].map { try #require(screen.target($0)) } == targets, "the pane close's echo retargeted the panes")
+        let sent = screen.ratioIntents
+        #expect(sent.count == 1 && sent.first?.0 == "r1" && abs((sent.first?.1 ?? 0) - 0.5) < 1e-6, "sent \(sent)")
+        #expect(!screen.model.isClosing("p2"))
+    }
+
+    @Test func aRefusedCloseBringsThePaneBackWithItsSizes() throws {
+        let screen = Screen(.splits(Self.row))
+        let before = try ["p1", "p2", "p3"].map { try #require(screen.rect($0)) }
+        let close = try #require(screen.close("p2"))
+        for _ in 1...4 { screen.step() }
+        screen.model.cancelPaneClose(close)
+        screen.root.syncWithModel()
+        screen.settle()
+        #expect(try ["p1", "p2", "p3"].map { try #require(screen.rect($0)) } == before, "the panes did not go back")
+        #expect(screen.model.screens.first?.layout.ratio(of: "r1") == 1.0 / 3)
+        #expect(screen.intents.isEmpty)
+    }
+
+    /// An accepted close yields to the next snapshot (asked after the close committed): a daemon
+    /// that kept the pane shows it again instead of hiding it for good.
+    @Test func aSettledCloseYieldsToTheNextSnapshot() throws {
+        let screen = Screen(.splits(Self.row))
+        let close = try #require(screen.close("p2"))
+        screen.model.settlePaneClose(close)
+        screen.show(Self.row)
+        #expect(screen.model.screens.first?.layout.contains("p2") == true)
+    }
+
+    @Test func theFocusLeavesTheClosedPaneForThePaneTakingItsSpace() throws {
+        let screen = Screen(.splits(Self.row), focused: "p2")
+        _ = try #require(screen.close("p2"))
+        #expect(screen.model.focusedPane == "p3")
+    }
+
+    /// The screen's last pane and a column's only pane leave with the daemon's tree.
+    @Test func aPaneWithNoSiblingLeavesWithTheDaemonsTree() {
+        let lone = Screen(.splits(.leaf("p1")))
+        #expect(lone.close("p1") == nil)
+        let strip = Screen(.columns([LayoutColumn(id: "c1", width: 0.5, root: .leaf("p1")),
+                                     LayoutColumn(id: "c2", width: 0.5, root: .split("v", axis: .vertical, ratio: 0.5, a: .leaf("p2"), b: .leaf("p3")))]))
+        #expect(strip.close("p1") == nil)
+        #expect(strip.close("p2")?.successor == "p3", "a pane with a sibling in its column did not close in the key's turn")
+    }
+
+    // MARK: The spring
+
+    /// A close is a split run backwards: the same spring (`split`, 0.28 s, damping 0.95), about a
+    /// third of the way at 50 ms, no visible overshoot, exactly at rest within 0.75 s.
+    @Test(arguments: [SplitAxis.horizontal, .vertical])
+    func aCloseRunsOnTheSplitSpringWithoutOvershootAndLandsExactly(axis: SplitAxis) throws {
+        let screen = Screen(.splits(.split("v", axis: axis, ratio: 0.5, a: .leaf("p1"), b: .leaf("p2"))))
+        let extent: (CGRect) -> CGFloat = { axis == .horizontal ? $0.width : $0.height }
+        let start = extent(try #require(screen.rect("p1")))
+        _ = try #require(screen.close("p2"))
+        let target = try #require(screen.target("p1"))
+        var sizes: [CGFloat] = [], rest: Int?
+        for frame in 1...180 {
+            let moving = screen.step()
+            sizes.append(extent(try #require(screen.rect("p1"))))
+            if rest == nil, !moving { rest = frame }
+        }
+        let travel = extent(target) - start
+        let early = (sizes[Int((0.05 * Self.scale / Self.dt).rounded()) - 1] - start) / travel
+        #expect(early > 0.2 && early < 0.45, "at 50 ms the close is at \(early) of its travel")
+        #expect(zip(sizes, sizes.dropFirst()).allSatisfy { $1 >= $0 - 0.1 }, "the growing pane shrank on its way")
+        #expect(sizes.allSatisfy { $0 <= extent(target) + 0.25 }, "the growing pane overshot: \(sizes.max() ?? 0) > \(extent(target))")
+        #expect(screen.rect("p1") == target)
+        #expect((rest ?? .max) <= Int((0.75 * Self.scale / Self.dt).rounded(.up)), "at rest at frame \(rest.map(String.init) ?? "never")")
+    }
+
+    // MARK: Terminals
+
+    /// The neighbours' grids wait while they spring into the closed pane's space and go at rest.
+    @Test func aCloseHoldsTheTerminalGridsUntilItsPanesLand() throws {
+        let screen = Screen(.splits(Self.row))
+        _ = try #require(screen.close("p2"))
+        #expect(screen.root.holdsTerminalGrids, "the close's first frame does not hold the grids")
+        var heldFrames = 0
+        for _ in 1...240 {
+            let moving = screen.step()
+            if screen.root.holdsTerminalGrids { heldFrames += 1 }
+            if !moving { break }
+        }
+        #expect(!screen.root.holdsTerminalGrids, "the grids are still held at rest")
+        #expect(heldFrames > 5, "the grids were held for \(heldFrames) frames only")
+        #expect(screen.holds == [true, false], "hold changes: \(screen.holds)")
+    }
+
+    /// While held, a terminal's PTY gets nothing; once let go, its newest grid goes once.
+    @Test func aHeldTerminalResizesItsPTYOnceWhenLetGo() {
+        final class Terminal: ResizeTarget {
+            var applied: [CellSize] = []
+            var awaitsEcho: Bool { false }
+            func applySettled(_ size: CellSize) { applied.append(size) }
+        }
+        final class Holder {}
+        let coordinator = ResizeCoordinator()
+        let terminal = Terminal(), holder = Holder()
+        coordinator.setHeld(true, by: holder)
+        for frame in 0..<45 {
+            coordinator.submit(terminal, size: CellSize(cols: 160 - frame, rows: 48))
+            _ = coordinator.tick()
+        }
+        #expect(terminal.applied.isEmpty, "\(terminal.applied.count) PTY resizes during the close")
+        coordinator.setHeld(false, by: holder)
+        for _ in 0..<5 { _ = coordinator.tick() }
+        #expect(terminal.applied == [CellSize(cols: 116, rows: 48)], "applied \(terminal.applied)")
+    }
+
+    @Test func reduceMotionClosesInOneFrameAndHoldsNoGrid() throws {
+        let screen = Screen(.splits(Self.row), reduceMotion: true)
+        _ = try #require(screen.close("p2"))
+        for pane: PaneID in ["p1", "p3"] {
+            #expect(screen.rect(pane) == screen.target(pane), "\(pane) animates under Reduce Motion")
+        }
+        #expect(!screen.root.holdsTerminalGrids)
+        #expect(screen.holds.isEmpty)
+        #expect(!screen.step())
+    }
+
+    // MARK: Windows
+
+    /// A window the person closes fades out as a whole from the key's frame, takes no click while
+    /// it fades, and closes once at the end of the fade; it shows whole if it opens again.
+    @Test func aClosedWindowFadesOutAndClosesOnceAtTheEnd() {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 600), styleMask: [.titled, .closable],
+                              backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        var closes = 0
+        let motion = WindowCloseMotion(window: window) { closes += 1 }
+        motion.start(handingKeysTo: nil, driven: false)
+        #expect(window.ignoresMouseEvents, "a fading window takes clicks")
+        var alphas: [CGFloat] = []
+        var frames = 0
+        while motion.step(Self.dt), frames < 240 {
+            frames += 1
+            alphas.append(window.alphaValue)
+            #expect(closes == 0, "the window closed before its fade ended")
+        }
+        #expect((alphas.first ?? 1) < 1, "the fade did not start in the first frame")
+        #expect(zip(alphas, alphas.dropFirst()).allSatisfy { $1 <= $0 }, "the window came back up while fading")
+        #expect(frames <= Int((0.35 * Self.scale / Self.dt).rounded(.up)), "the fade took \(frames) frames")
+        #expect(closes == 1)
+        motion.finish()
+        #expect(closes == 1, "a second close closed the window twice")
+        #expect(window.alphaValue == 1 && !window.ignoresMouseEvents, "a closed window does not show whole again")
+    }
+
+    @Test func aWindowCloseUnderReduceMotionDoesNotFade() {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 600), styleMask: [.titled, .closable],
+                              backing: .buffered, defer: true)
+        #expect(!WindowCloseMotion.fades(window, animates: false))
+    }
+}

@@ -663,7 +663,15 @@ impl ProfileClient {
     pub fn apply(&self, args: &Value) -> Result<String, String> {
         let args = args.as_object().cloned().unwrap_or_default();
         let mut text = Map::new();
-        for key in ["display_name", "role", "personality", "instructions"] {
+        for key in [
+            "display_name",
+            "role",
+            "personality",
+            "instructions",
+            "harness",
+            "model",
+            "effort",
+        ] {
             if let Some(v) = args.get(key) {
                 let s = v
                     .as_str()
@@ -686,11 +694,33 @@ impl ProfileClient {
                     | "role"
                     | "personality"
                     | "instructions"
+                    | "harness"
+                    | "model"
+                    | "effort"
                     | "avatar_path"
                     | "clear_avatar"
+                    | "history"
+                    | "undo"
+                    | "to_rev"
             )
         }) {
             return Err(format!("profile: no field {unknown}"));
+        }
+        let flag = |key: &str| args.get(key).and_then(Value::as_bool).unwrap_or(false);
+        if flag("history") {
+            let v = self
+                .v2("chief.profile.history", Map::new(), false)
+                .map_err(denied)?;
+            return Ok(serde_json::to_string_pretty(&v).unwrap_or_default());
+        }
+        if flag("undo") {
+            let mut p = Map::new();
+            if let Some(rev) = args.get("to_rev").and_then(Value::as_u64) {
+                p.insert("to_rev".into(), json!(rev));
+            }
+            let v = self.v2("chief.profile.undo", p, true).map_err(denied)?;
+            let record = v.get("value").cloned().unwrap_or(v);
+            return Ok(serde_json::to_string_pretty(&record).unwrap_or_default());
         }
         if clear && path.is_some() {
             return Err("profile: give avatar_path or clear_avatar, not both".to_owned());
@@ -739,8 +769,9 @@ impl ProfileClient {
         }
         let record = last.get("value").cloned().unwrap_or(last);
         Ok(format!(
-            "{}\nYour picture shows at once. A changed name, role, personality or instructions \
-reach your system prompt when your brain next starts.",
+            "{}\nYour picture shows at once and a changed backend (harness, model, effort) \
+from your next turn. A changed name, role, personality or instructions reach your system \
+prompt when your brain next starts.",
             serde_json::to_string_pretty(&record).unwrap_or_default()
         ))
     }
@@ -768,7 +799,7 @@ impl ProfileClient {
             !MANAGE_FIELDS.contains(&k.as_str())
                 && !matches!(
                     k.as_str(),
-                    "action" | "chief" | "avatar_path" | "clear_avatar"
+                    "action" | "chief" | "avatar_path" | "clear_avatar" | "to_rev"
                 )
         }) {
             return Err(format!("chiefs: no field {unknown}"));
@@ -835,6 +866,24 @@ impl ProfileClient {
                     .v2_raw("chief.profile.get", p, false, None)
                     .map_err(manage_denied)?;
                 Ok(pretty(&v))
+            }
+            "history" | "undo" => {
+                let id = resolve(&listed()?)?;
+                let mut p = Map::new();
+                p.insert("chief".into(), json!(id));
+                if action == "history" {
+                    let v = self
+                        .v2_raw("chief.profile.history", p, false, None)
+                        .map_err(manage_denied)?;
+                    return Ok(pretty(&v));
+                }
+                if let Some(rev) = args.get("to_rev").and_then(Value::as_u64) {
+                    p.insert("to_rev".into(), json!(rev));
+                }
+                let v = self
+                    .v2_raw("chief.profile.undo", p, true, None)
+                    .map_err(manage_denied)?;
+                Ok(pretty(&v.get("value").cloned().unwrap_or(v)))
             }
             "create" | "update" => {
                 let picture = match path {
@@ -912,7 +961,7 @@ system prompt when its brain next starts."
                 Ok(format!("{}\n{note}", pretty(&record)))
             }
             other => Err(format!(
-                "chiefs: no action {other}; one of list, get, create, update"
+                "chiefs: no action {other}; one of list, get, create, update, history, undo"
             )),
         }
     }
