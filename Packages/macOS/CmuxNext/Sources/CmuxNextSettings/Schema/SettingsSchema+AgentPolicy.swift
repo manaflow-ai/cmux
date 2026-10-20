@@ -29,6 +29,7 @@ extension SettingsSchema {
         // The diff page's display keys (looks only, diff-host S4).
         .union(DiffViewerSettingsSchema.keys)
         .union(MarkdownViewerSettingsSchema.keys) // the markdown viewer's text size (looks only)
+        .union(AgentPaneDisplaySettingsSchema.keys) // the agent chat's fonts, sizes and width (looks only)
         // The code editor's looks and editing behavior (diff-host S7); `editor.importFrom` is the person's.
         .union(EditorSettingsSchema.agentSettableKeys)
         .union(PanePlacementSettingsSchema.agentSettableKeys) // where new panes open (layout choices, like layout.dockColumnMode)
