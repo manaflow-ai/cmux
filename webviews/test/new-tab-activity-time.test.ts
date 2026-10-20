@@ -85,3 +85,19 @@ test("a later real turn moves a chat up again", () => {
   );
   expect(rows(sessions)[0]).toBe("hello>? now");
 });
+
+test("a chat paused on a permission inside its turn dates from the pause, not a draft saved later", () => {
+  const waiting = (updatedAt: number) =>
+    sessionEntry(
+      summary("ask", "asks first", "claude", ago(90), updatedAt, {
+        status: "waiting",
+        pendingPermissions: 1,
+        inputSince: ago(20),
+        turn: { startedAt: ago(25), prompt: "go", promptId: "p", turnId: "t", turnSeq: 9, client: "c" },
+      }),
+    );
+  const age = (entry: ReturnType<typeof waiting>) =>
+    recentChatCards([entry], T0, undefined, [], 10).map((card) => card.age);
+  expect(age(waiting(ago(0)))).toEqual(age(waiting(ago(20))));
+  expect(age(waiting(ago(0)))).toEqual(["20m"]);
+});
