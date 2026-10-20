@@ -921,7 +921,9 @@
       "targets": [
         "CmuxNextPalette"
       ],
-      "packages": [],
+      "packages": [
+        "CmuxTheme"
+      ],
       "reads": []
     },
     "CmuxNextPhone": {
