@@ -937,12 +937,16 @@ export function Composer({
   // The hint lasts the double press's window, and only while there is a turn to stop. Any other
   // key disarms it at once, in keyDown.
   const escapeHint = escapeArmed !== undefined && stop;
-  // A turn that ends (or a prompt typed) takes the arm with it, so the next turn starts unarmed.
+  // A turn that ends (or a prompt typed) takes the arm with it, and so does a switch to another
+  // chat (the composer stays mounted across sessions): the next turn, or chat, starts unarmed.
+  const escapeArmedSession = useRef(sessionId);
   useEffect(() => {
-    if (stop || escapeArmedAt.current === undefined) return;
+    const switched = escapeArmedSession.current !== sessionId;
+    escapeArmedSession.current = sessionId;
+    if ((stop && !switched) || escapeArmedAt.current === undefined) return;
     escapeArmedAt.current = undefined;
     setEscapeArmed(undefined);
-  }, [stop]);
+  }, [stop, sessionId]);
   useEffect(() => {
     if (escapeArmed === undefined) return;
     const timer = window.setTimeout(() => {
