@@ -181,12 +181,7 @@ test("later prompts and a reselected session do not repeat the guide", async () 
   await client.send("Other session");
   await client.select("chat-1");
   await client.send("Back");
-  expect(prompts.map((prompt) => context(prompt)?.includes(TAG) ?? false)).toEqual([
-    true,
-    false,
-    true,
-    false,
-  ]);
+  expect(prompts.map((prompt) => context(prompt)?.includes(TAG) ?? false)).toEqual([true, false, true, false]);
 });
 
 test("workspace context and the guide share the existing hidden channel", async () => {
@@ -228,12 +223,7 @@ test("a changed harness or agent gets the guide again, but learning its initial 
   sessions[0]!.harness = "codex";
   await client.select("chat-1");
   await client.send("New harness");
-  expect(prompts.map((prompt) => context(prompt)?.includes(TAG) ?? false)).toEqual([
-    true,
-    false,
-    true,
-    true,
-  ]);
+  expect(prompts.map((prompt) => context(prompt)?.includes(TAG) ?? false)).toEqual([true, false, true, true]);
 });
 
 test("a prompt in flight reserves the guide until accepted", async () => {
@@ -273,11 +263,7 @@ test("a guide-only origin refusal retries once without context and disables late
   await send;
   await daemon.client.select("chat-2");
   await daemon.client.send("Other chat");
-  expect(daemon.prompts.map((prompt) => context(prompt)?.includes(TAG) ?? false)).toEqual([
-    true,
-    false,
-    false,
-  ]);
+  expect(daemon.prompts.map((prompt) => context(prompt)?.includes(TAG) ?? false)).toEqual([true, false, false]);
   expect(daemon.prompts[1].prompt).toEqual(daemon.prompts[0].prompt);
   expect(daemon.prompts[1]._meta.acpmux.promptId).toBe(daemon.prompts[0]._meta.acpmux.promptId);
 });
@@ -343,14 +329,7 @@ test("the guide advertises kit APIs only while available and keeps its compact c
   expect(context(daemon.prompts[1])).not.toContain("cmux.chart");
   expect(context(daemon.prompts[1])).not.toContain("data-cmux-prompt");
   expect(context(daemon.prompts[1])).toContain("prefill(text)");
-  for (const token of [
-    "--cmux-text",
-    "--cmux-muted",
-    "--cmux-card",
-    "--cmux-border",
-    "--cmux-accent",
-    "--cmux-font",
-  ])
+  for (const token of ["--cmux-text", "--cmux-muted", "--cmux-card", "--cmux-border", "--cmux-accent", "--cmux-font"])
     expect(context(daemon.prompts[1])).toContain(token);
 });
 
