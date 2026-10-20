@@ -54,12 +54,7 @@ enum SettingsHandlers {
             guard let services else { return }
             try FeatureFlagsPage(services: services).open(invocation)
         })
-        let unbuilt: [(ActionID, String)] = [
-            ("palette.pro.upgrade", "account-billing"),
-        ]
-        for (id, feature) in unbuilt {
-            registry.bindUnavailable([id], ActionFailure.needsAppCapability(feature))
-        }
+        UpgradeToPro.bind(into: registry, context: context)
     }
 
     static func requireSettings(_ context: AppActionContext) throws -> SettingsController {
