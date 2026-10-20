@@ -251,6 +251,18 @@ pub(super) fn edit_distance(left: &str, right: &str) -> usize {
     previous[right.len()]
 }
 
+pub(super) const SEARCH_HELP: &str = "\
+USAGE
+  cmux search <words>... [--scope <scope>[,<scope>...]] [--limit <1..200>]
+  cmux search --stats
+
+One ranked list over everything this session has seen: terminal scrollback,
+full-screen program frames, finished commands, agent chats, Chief messages,
+and workspace, tab and pane names. Scopes: chat, chief, terminal, file,
+workspace, page. Quote words (\"cargo test\") to match them as a phrase.
+--stats prints the index size and counters.
+";
+
 pub(super) const CONVERSATION_HELP: &str = "\
 USAGE
   cmux conversation list

@@ -25,6 +25,8 @@ mod pty_surface;
 mod render_tap;
 mod render_view;
 mod scrolling;
+mod search_capture;
+pub(crate) use search_capture::{ScrollbackCursor, TerminalCapture};
 mod shutdown;
 pub(crate) mod spawn;
 mod stream_progress;

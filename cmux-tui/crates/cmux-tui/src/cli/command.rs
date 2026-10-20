@@ -28,6 +28,7 @@ mod name_flags;
 pub(super) use history::DAEMON_VERBS as HISTORY_DAEMON_VERBS;
 mod plan;
 mod screen;
+mod search;
 mod server_ensure;
 mod sidebar_doc;
 mod state;

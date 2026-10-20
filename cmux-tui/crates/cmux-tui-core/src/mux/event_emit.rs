@@ -69,6 +69,12 @@ impl Mux {
 
     pub fn emit(&self, event: MuxEvent) {
         self.activity.observe(&event);
+        if matches!(
+            event,
+            MuxEvent::TreeDelta(_) | MuxEvent::TreeChanged | MuxEvent::TreeSelectionChanged
+        ) {
+            self.note_search_tree();
+        }
         if let MuxEvent::Conversation(conversation) = &event {
             self.chiefs().brains.observe(conversation);
         }

@@ -40,6 +40,7 @@ pub mod fs_ops;
 mod git_ops;
 mod history_ops;
 pub mod history_search;
+pub mod search_everything;
 /// The image paste spool; the cmux-tui-image-paste crate, re-exported at the old path.
 #[cfg(unix)]
 use cmux_tui_image_paste::image_paste;

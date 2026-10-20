@@ -8,6 +8,8 @@
 /// cmux's custom forwarding and error text.
 pub(super) const BOOLEAN_FLAGS: &[&str] = &[
     "ack",
+    // `search --stats`: the index counters instead of a query.
+    "stats",
     // `agent list`: only the agents waiting on the person.
     "needs-me",
     // `agent list --json`: the agents and their counts by state.
