@@ -584,6 +584,12 @@ struct MacScreenDevicesSettingsTests {
         #expect(MacScreenDevicesSettings.historyRow(removed, names: names, me: hostID).detail.contains("Laptop"))
         let disconnected = AuditEntry(id: "e5", event: "ended", viewerId: "v1", hostId: hostID, detail: "viewer_disconnected")
         #expect(MacScreenDevicesSettings.historyRow(disconnected, names: names, me: hostID).detail.contains("Laptop"))
+        // Devices joining and leaving (the backend's per-device audit): the detail names the device.
+        let added = AuditEntry(id: "e7", event: "device_added", viewerId: nil, hostId: "v1")
+        let addedRow = MacScreenDevicesSettings.historyRow(added, names: names, me: hostID)
+        #expect(addedRow.detail.contains("Laptop") && !addedRow.eventText.isEmpty && addedRow.tone == "success")
+        let left = AuditEntry(id: "e8", event: "device_removed", viewerId: "v1", hostId: nil)
+        #expect(MacScreenDevicesSettings.historyRow(left, names: names, me: hostID).detail.contains("Laptop"))
         #expect(MacScreenDevicesSettings.durationText(8) == "8s")
         #expect(MacScreenDevicesSettings.durationText(3840) == "1h 4m")
     }
