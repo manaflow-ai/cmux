@@ -1,5 +1,5 @@
 import AppKit
-import CmuxNextDesign
+public import CmuxNextDesign
 
 /// The pane's layout spring landed: the grid held while it moved goes to the owner now, once.
 extension TerminalSurfaceView: PaneMotionSettling {
