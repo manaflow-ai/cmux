@@ -12,9 +12,9 @@ import Testing
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
     }
 
-    /// A wrapper app shaped like a downloaded pack; returns its Frameworks folder.
+    /// A flat runtime folder shaped like a downloaded pack.
     func pack(helper: Bool = true) throws -> URL {
-        let frameworks = root.appending(path: "cmux TEST Chromium.app/Contents/Frameworks", directoryHint: .isDirectory)
+        let frameworks = root.appending(path: "packs/0123456789abcdef/cmux TEST Chromium", directoryHint: .isDirectory)
         let fileManager = FileManager.default
         try fileManager.createDirectory(at: frameworks.appending(path: CEFRuntimeLayout.frameworkName), withIntermediateDirectories: true)
         try Data("shim".utf8).write(to: frameworks.appending(path: CEFRuntimeLayout.shimName))
@@ -59,10 +59,11 @@ import Testing
         #expect(source.unavailableReason == nil)
     }
 
-    @Test func aPackLayoutUsesItsWrapperAppAsTheMainBundle() throws {
+    @Test func aFlatPackKeepsTheAppAsTheMainBundle() throws {
         let frameworks = try pack()
         let layout = try #require(CEFRuntimeLayout.at(frameworks, fallbackMainBundle: URL(filePath: "/Applications/cmux.app")))
-        #expect(layout.mainBundle.lastPathComponent == "cmux TEST Chromium.app")
+        #expect(layout.mainBundle.path == "/Applications/cmux.app")
+        #expect(layout.frameworksDirectory.lastPathComponent == "cmux TEST Chromium")
         #expect(layout.helperApp.lastPathComponent == "cmux TEST Helper.app")
         #expect(layout.helperExecutable.path.hasSuffix("cmux TEST Helper.app/Contents/MacOS/cmux TEST Helper"))
     }

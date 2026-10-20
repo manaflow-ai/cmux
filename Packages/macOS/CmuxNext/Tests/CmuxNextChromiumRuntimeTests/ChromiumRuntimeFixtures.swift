@@ -15,9 +15,9 @@ final class TemporaryFolder {
 }
 
 /// Builds small runtime packs with the real `tar`, shaped like the release
-/// ones (wrapper app, framework, shim, helpers).
+/// ones (one flat runtime folder: framework, shim, helpers).
 struct PackFixture {
-    static let wrapper = "cmux TEST Chromium.app"
+    static let runtimeFolder = "cmux TEST Chromium"
 
     enum Shape {
         case complete
@@ -29,7 +29,7 @@ struct PackFixture {
     static func make(in folder: URL, shape: Shape = .complete, key: String = "0123456789abcdef",
                      shimABI: String = "abi-1", teamID: String? = nil) throws -> (data: Data, pin: ChromiumRuntimePin) {
         let tree = folder.appending(path: "tree-\(UUID().uuidString)", directoryHint: .isDirectory)
-        let frameworks = tree.appending(path: "\(wrapper)/Contents/Frameworks", directoryHint: .isDirectory)
+        let frameworks = tree.appending(path: runtimeFolder, directoryHint: .isDirectory)
         let framework = frameworks.appending(path: "Chromium Embedded Framework.framework/Versions/A", directoryHint: .isDirectory)
         let fileManager = FileManager.default
         try fileManager.createDirectory(at: framework, withIntermediateDirectories: true)
@@ -51,14 +51,14 @@ struct PackFixture {
         let archive = folder.appending(path: "pack-\(UUID().uuidString).tar.xz")
         let process = Process()
         process.executableURL = URL(filePath: "/usr/bin/tar")
-        process.arguments = ["-cJf", archive.path, "-C", tree.path, wrapper, ChromiumRuntimePin.resourceName]
+        process.arguments = ["-cJf", archive.path, "-C", tree.path, runtimeFolder, ChromiumRuntimePin.resourceName]
         try process.run()
         process.waitUntilExit()
         let data = try Data(contentsOf: archive)
         let pin = ChromiumRuntimePin(key: key, cef: "154.0.28", chromium: "154.0.8037.58", shimABI: shimABI,
                                      sha256: sha256(data), size: Int64(data.count),
                                      url: URL(string: "https://files.example.com/cef-runtime/\(key)/pack.tar.xz")!,
-                                     teamID: teamID, wrapper: wrapper)
+                                     teamID: teamID, folder: runtimeFolder)
         return (data, pin)
     }
 

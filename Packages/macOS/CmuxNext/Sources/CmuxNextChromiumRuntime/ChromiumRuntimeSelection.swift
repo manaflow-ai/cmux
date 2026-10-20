@@ -2,7 +2,7 @@
 public enum ChromiumRuntimeSelection: Sendable, Equatable {
     /// The pack the app is pinned to is installed.
     case exact(ChromiumRuntimeInstallation)
-    /// Another installed pack with the same shim ABI, wrapper and team: usable
+    /// Another installed pack with the same shim ABI, folder and team: usable
     /// now, while the pinned one downloads (it takes over at the next launch).
     case compatible(ChromiumRuntimeInstallation)
     /// No usable pack is installed.

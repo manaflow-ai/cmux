@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # cef-runtime-pack.sh split (Chromium on demand, bundle-size-DESIGN.md 6.6):
-# moves the engine out of the app into "<Product> Chromium.app" inside a
-# tar.xz with only safe entries, writes a pin whose sha256, size and URL match
+# moves the engine out of the app into the flat folder "<Product> Chromium"
+# inside a tar.xz with only safe entries, writes a pin whose sha256, size and URL match
 # the pack, puts the pin in the app, keeps the key stable for the same inputs
 # and changes it with the bundle id, reuses a published pin for the same key,
 # and refuses an app without the base helper.
@@ -53,24 +53,23 @@ asset="$work/out/cef-runtime-$key.tar.xz"
 [[ "$(field "$pin" sha256)" == "$(shasum -a 256 "$asset" | awk '{print $1}')" ]] || fail "pin sha256"
 [[ "$(field "$pin" size)" == "$(stat -f %z "$asset")" ]] || fail "pin size"
 [[ "$(field "$pin" url)" == "https://files.example.com/cef-runtime/$key/cef-runtime-$key.tar.xz" ]] || fail "pin url $(field "$pin" url)"
-[[ "$(field "$pin" wrapper)" == "cmux TEST Chromium.app" ]] || fail "pin wrapper"
+[[ "$(field "$pin" folder)" == "cmux TEST Chromium" ]] || fail "pin folder"
 [[ -z "$(field "$pin" team_id)" ]] || fail "an unsigned pack has no team"
 [[ "$(field "$pin" schema)" == 1 && -n "$(field "$pin" shim_abi)" && -n "$(field "$pin" cef)" ]] || fail "pin fields"
 cmp -s "$pin" "$app/Contents/Resources/cef-runtime.json" || fail "the app's pin differs"
 # A file, not a here-string: grep reads it directly.
 tar -tf "$asset" > "$work/entries"
-if grep -vE '^(cmux TEST Chromium\.app/|cef-runtime\.json$)' "$work/entries" > "$work/unexpected"; then
+if grep -vE '^(cmux TEST Chromium/|cef-runtime\.json$)' "$work/entries" > "$work/unexpected"; then
   fail "unexpected entries: $(head -3 "$work/unexpected")"
 fi
-for want in "Contents/Frameworks/Chromium Embedded Framework.framework/Versions/A/Chromium Embedded Framework" \
-            "Contents/Frameworks/libcmux_cef_shim.dylib" "Contents/Frameworks/cmux TEST Helper.app/Contents/MacOS/cmux TEST Helper" \
-            "Contents/Frameworks/cmux TEST Helper (GPU).app/" "Contents/Info.plist"; do
-  grep -qF "cmux TEST Chromium.app/$want" "$work/entries" || fail "missing $want"
+for want in "Chromium Embedded Framework.framework/Versions/A/Chromium Embedded Framework" \
+            "libcmux_cef_shim.dylib" "cmux TEST Helper.app/Contents/MacOS/cmux TEST Helper" \
+            "cmux TEST Helper (GPU).app/"; do
+  grep -qF "cmux TEST Chromium/$want" "$work/entries" || fail "missing $want"
 done
+grep -q 'Info.plist$' "$work/entries" && grep -v 'Helper' "$work/entries" | grep -q 'Info.plist$' && fail "the pack is a bundle, not a flat folder"
 mkdir "$work/x" && tar -xf "$asset" -C "$work/x"
-[[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$work/x/cmux TEST Chromium.app/Contents/Info.plist")" == com.cmuxterm.app.test ]] \
-  || fail "the wrapper's bundle id is not the app's"
-[[ -L "$work/x/cmux TEST Chromium.app/Contents/Frameworks/Chromium Embedded Framework.framework/Versions/Current" ]] || fail "framework symlinks"
+[[ -L "$work/x/cmux TEST Chromium/Chromium Embedded Framework.framework/Versions/Current" ]] || fail "framework symlinks"
 
 # 2. Same inputs, same key; another bundle id, another key.
 app2="$(make_app "$work/b" com.cmuxterm.app.test)"

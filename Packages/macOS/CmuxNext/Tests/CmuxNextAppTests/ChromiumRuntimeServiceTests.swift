@@ -21,14 +21,14 @@ import Testing
     func pin(_ key: String) -> ChromiumRuntimePin {
         ChromiumRuntimePin(key: key, cef: "154.0.28", chromium: "154.0.8037.58", shimABI: "abi-1", sha256: String(repeating: "0", count: 64),
                            size: 1, url: URL(string: "https://files.example.com/cef-runtime/\(key)/pack.tar.xz")!, teamID: nil,
-                           wrapper: "cmux TEST Chromium.app")
+                           folder: "cmux TEST Chromium")
     }
 
     /// Installs a pack with the runtime layout (framework, shim, base helper) the way the installer does.
     @discardableResult
     func install(_ pin: ChromiumRuntimePin) throws -> ChromiumRuntimeInstallation {
         let staging = try store.makeStagingDirectory()
-        let frameworks = staging.appending(path: "\(pin.wrapper)/Contents/Frameworks", directoryHint: .isDirectory)
+        let frameworks = staging.appending(path: pin.folder, directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: frameworks.appending(path: CEFRuntimeLayout.frameworkName), withIntermediateDirectories: true)
         try Data("shim".utf8).write(to: frameworks.appending(path: CEFRuntimeLayout.shimName))
         try FileManager.default.createDirectory(at: frameworks.appending(path: "cmux TEST Helper.app"), withIntermediateDirectories: true)
@@ -59,7 +59,8 @@ import Testing
         let (service, inUse) = launch(pin("aaaaaaaaaaaaaaaa"))
         #expect(service.origin == .installed)
         #expect(service.source.layout?.frameworksDirectory.path == installation.frameworksDirectory.path)
-        #expect(service.source.layout?.mainBundle.path == installation.wrapperApp.path)
+        // A flat pack is not an app: the app stays Chromium's main bundle (the helper sandbox reads only the pack folder).
+        #expect(service.source.layout?.mainBundle.path == app.path)
         #expect(inUse == ["aaaaaaaaaaaaaaaa"])
     }
 
@@ -90,7 +91,7 @@ import Testing
     @Test func anInstallWithoutTheRuntimeLayoutStaysAFailure() throws {
         let (service, _) = launch(pin("aaaaaaaaaaaaaaaa"))
         let staging = try store.makeStagingDirectory()
-        try FileManager.default.createDirectory(at: staging.appending(path: "cmux TEST Chromium.app/Contents/Frameworks"), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: staging.appending(path: "cmux TEST Chromium"), withIntermediateDirectories: true)
         service.apply(.installed(try store.activate(staging: staging, pin: pin("aaaaaaaaaaaaaaaa"))))
         #expect(service.source.layout == nil)
         #expect(service.source.unavailableReason?.code == "downloadFailed")

@@ -17,13 +17,13 @@ struct ChromiumRuntimeStoreTests {
     func install(_ pin: ChromiumRuntimePin) throws -> ChromiumRuntimeInstallation {
         let staging = try store.makeStagingDirectory()
         try FileManager.default.createDirectory(
-            at: staging.appending(path: "\(pin.wrapper)/Contents/Frameworks"), withIntermediateDirectories: true)
+            at: staging.appending(path: pin.folder), withIntermediateDirectories: true)
         return try store.activate(staging: staging, pin: pin)
     }
 
     func pin(key: String, shimABI: String = "abi-1", teamID: String? = "ABCDE12345") -> ChromiumRuntimePin {
         ChromiumRuntimePin(key: key, cef: "154", chromium: "154", shimABI: shimABI, sha256: String(repeating: "0", count: 64),
-                           size: 1, url: URL(string: "https://example.com/p")!, teamID: teamID, wrapper: "cmux Chromium.app")
+                           size: 1, url: URL(string: "https://example.com/p")!, teamID: teamID, folder: "cmux Chromium")
     }
 
     @Test func defaultRootIsPerBundleID() {
@@ -43,7 +43,7 @@ struct ChromiumRuntimeStoreTests {
         let selection = store.select(for: pin(key: "aaaaaaaaaaaaaaaa"))
         #expect(selection == .exact(pinned))
         #expect(!selection.needsDownload)
-        #expect(selection.installation?.frameworksDirectory.path.hasSuffix("aaaaaaaaaaaaaaaa/cmux Chromium.app/Contents/Frameworks") == true)
+        #expect(selection.installation?.frameworksDirectory.path.hasSuffix("aaaaaaaaaaaaaaaa/cmux Chromium") == true)
     }
 
     @Test func aCompatiblePackBridgesAnUpdate() throws {
@@ -60,7 +60,7 @@ struct ChromiumRuntimeStoreTests {
     }
 
     @Test func aFolderWithoutItsRecordIsNotInstalled() throws {
-        let unfinished = store.root.appending(path: "aaaaaaaaaaaaaaaa/cmux Chromium.app/Contents/Frameworks")
+        let unfinished = store.root.appending(path: "aaaaaaaaaaaaaaaa/cmux Chromium")
         try FileManager.default.createDirectory(at: unfinished, withIntermediateDirectories: true)
         #expect(store.installation(key: "aaaaaaaaaaaaaaaa") == nil)
         #expect(store.select(for: pin(key: "aaaaaaaaaaaaaaaa")) == .none)

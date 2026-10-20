@@ -13,12 +13,14 @@
 #      (cef-manifest.json), the embed layout, the shim sources and ABI, the
 #      product, the bundle id, the signing team and the architectures. The key
 #      changes when the engine changes, not on every nightly;
-#   2. moves the framework, the shim and the helper apps into
-#      "<Product> Chromium.app/Contents/Frameworks" (a wrapper with the app's
-#      bundle id: Chromium's main bundle for a runtime outside the app);
-#   3. writes <out-dir>/cef-runtime-<key>.tar.xz (the wrapper plus
+#   2. moves the framework, the shim and the helper apps into one flat folder
+#      "<Product> Chromium" (side by side, as the helpers expect; not an app
+#      bundle: the helper sandbox can read only this folder, through the
+#      cmux_runtime_outside_bundle CEF patch, so the app stays Chromium's main
+#      bundle);
+#   3. writes <out-dir>/cef-runtime-<key>.tar.xz (the folder plus
 #      cef-runtime.json) and the pin <out-dir>/cef-runtime.json:
-#      {schema, key, cef, chromium, shim_abi, sha256, size, url, team_id, wrapper};
+#      {schema, key, cef, chromium, shim_abi, sha256, size, url, team_id, folder};
 #   4. copies the pin to <app>/Contents/Resources/cef-runtime.json.
 # With --reuse-published, a pin already published for the key
 # (<base-url>/cef-runtime/<key>/cef-runtime.json) is used instead and no pack
@@ -64,7 +66,7 @@ for helper in "${helpers[@]}"; do
 done
 [[ -n "$base_helper" ]] || die "no base helper (<Product> Helper.app) in $frameworks"
 product="${base_helper% Helper.app}"
-wrapper="$product Chromium.app"
+folder="$product Chromium"
 
 plist() { /usr/libexec/PlistBuddy -c "Print :$2" "$1" 2>/dev/null || true; }
 bundle_id="$(plist "$app/Contents/Info.plist" CFBundleIdentifier)"
@@ -106,11 +108,11 @@ remove_engine() {
 }
 
 write_pin() { # <sha256> <size> <url> <file>
-  /usr/bin/python3 - "$4" "$key" "$cef_version" "$chromium_version" "$shim_abi" "$1" "$2" "$3" "$team" "$wrapper" <<'PY'
+  /usr/bin/python3 - "$4" "$key" "$cef_version" "$chromium_version" "$shim_abi" "$1" "$2" "$3" "$team" "$folder" <<'PY'
 import json, sys
-path, key, cef, chromium, abi, sha, size, url, team, wrapper = sys.argv[1:]
+path, key, cef, chromium, abi, sha, size, url, team, folder = sys.argv[1:]
 pin = {"schema": 1, "key": key, "cef": cef, "chromium": chromium, "shim_abi": abi,
-       "sha256": sha, "size": int(size), "url": url, "wrapper": wrapper}
+       "sha256": sha, "size": int(size), "url": url, "folder": folder}
 if team:
     pin["team_id"] = team
 with open(path, "w") as f:
@@ -127,11 +129,11 @@ install_pin() {
 if (( reuse )); then
   published="$out/.published-pin.json"
   if curl -fsSL --retry 3 -o "$published" "$base_url/cef-runtime/$key/cef-runtime.json" 2>/dev/null; then
-    if /usr/bin/python3 - "$published" "$key" "$shim_abi" "$wrapper" "$team" <<'PY'
+    if /usr/bin/python3 - "$published" "$key" "$shim_abi" "$folder" "$team" <<'PY'
 import json, sys
 p = json.load(open(sys.argv[1]))
-key, abi, wrapper, team = sys.argv[2:]
-ok = p.get("key") == key and p.get("shim_abi") == abi and p.get("wrapper") == wrapper and (p.get("team_id") or "") == team
+key, abi, folder, team = sys.argv[2:]
+ok = p.get("key") == key and p.get("shim_abi") == abi and p.get("folder") == folder and (p.get("team_id") or "") == team
 sys.exit(0 if ok else 1)
 PY
     then
@@ -149,22 +151,15 @@ fi
 
 stage="$(mktemp -d "${TMPDIR:-/tmp}/cef-runtime-pack.XXXXXX")"
 trap 'rm -rf "$stage"' EXIT
-contents="$stage/$wrapper/Contents"
-mkdir -p "$contents/Frameworks"
-/usr/bin/python3 - "$contents/Info.plist" "$bundle_id" "$product Chromium" "$cef_version" <<'PY'
-import plistlib, sys
-path, bundle_id, name, version = sys.argv[1:]
-with open(path, "wb") as f:
-    plistlib.dump({"CFBundleIdentifier": bundle_id, "CFBundleName": name, "CFBundlePackageType": "APPL",
-                   "CFBundleShortVersionString": version, "CFBundleVersion": version, "LSUIElement": True}, f)
-PY
+runtime="$stage/$folder"
+mkdir -p "$runtime"
 # mv keeps the signatures (and their extended attributes) as sign-cef.sh wrote them.
-mv "$frameworks/$FRAMEWORK" "$frameworks/$SHIM" "$contents/Frameworks/"
-for helper in "${helpers[@]}"; do mv "$helper" "$contents/Frameworks/"; done
+mv "$frameworks/$FRAMEWORK" "$frameworks/$SHIM" "$runtime/"
+for helper in "${helpers[@]}"; do mv "$helper" "$runtime/"; done
 echo '{"schema": 1, "key": "'"$key"'"}' > "$stage/cef-runtime.json"
 
 asset="cef-runtime-$key.tar.xz"
-COPYFILE_DISABLE=1 /usr/bin/tar --options xz:compression-level=9 -cJf "$out/$asset" -C "$stage" "$wrapper" cef-runtime.json
+COPYFILE_DISABLE=1 /usr/bin/tar --options xz:compression-level=9 -cJf "$out/$asset" -C "$stage" "$folder" cef-runtime.json
 sha="$(shasum -a 256 "$out/$asset" | awk '{print $1}')"
 size="$(stat -f %z "$out/$asset")"
 write_pin "$sha" "$size" "$base_url/cef-runtime/$key/$asset" "$pin"

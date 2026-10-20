@@ -13,7 +13,7 @@ public enum ChromiumRuntimeInstallError: Error, Equatable, Sendable {
     case unsafeEntry(String)
     /// `tar` failed; the message is its output.
     case unpack(String)
-    /// The pack lacks a required item (the wrapper, the framework, the shim
+    /// The pack lacks a required item (the runtime folder, the framework, the shim
     /// or a helper).
     case missing(String)
     /// A code signature check failed for this item.

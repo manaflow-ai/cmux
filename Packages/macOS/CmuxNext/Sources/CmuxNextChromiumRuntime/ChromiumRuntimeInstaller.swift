@@ -205,7 +205,7 @@ public actor ChromiumRuntimeInstaller {
             throw ChromiumRuntimeInstallError.checksumMismatch
         }
         publish(.installing)
-        try Self.checkEntries(try await unpacker.entries(of: file), wrapper: pin.wrapper)
+        try Self.checkEntries(try await unpacker.entries(of: file), folder: pin.folder)
         let staging: URL
         do { staging = try store.makeStagingDirectory() } catch { throw ChromiumRuntimeInstallError.filesystem(error.localizedDescription) }
         do {
@@ -263,16 +263,16 @@ public actor ChromiumRuntimeInstaller {
     }
 
     /// Refuses absolute names, `..` components and anything outside the
-    /// wrapper (besides the pack's `cef-runtime.json`).
-    static func checkEntries(_ names: [String], wrapper: String) throws(ChromiumRuntimeInstallError) {
-        guard !names.isEmpty else { throw .missing(wrapper) }
+    /// runtime folder (besides the pack's `cef-runtime.json`).
+    static func checkEntries(_ names: [String], folder: String) throws(ChromiumRuntimeInstallError) {
+        guard !names.isEmpty else { throw .missing(folder) }
         for raw in names {
             var name = raw
             while name.hasPrefix("./") { name.removeFirst(2) }
             if name.isEmpty || name == "." { continue }
             let components = name.split(separator: "/", omittingEmptySubsequences: false)
             guard !name.hasPrefix("/"), !components.contains(".."),
-                  components.first.map(String.init) == wrapper || name == ChromiumRuntimePin.resourceName else {
+                  components.first.map(String.init) == folder || name == ChromiumRuntimePin.resourceName else {
                 throw .unsafeEntry(raw)
             }
         }
@@ -298,7 +298,7 @@ public actor ChromiumRuntimeInstaller {
     static func requiredItems(of installation: ChromiumRuntimeInstallation) throws(ChromiumRuntimeInstallError) -> [URL] {
         let frameworks = installation.frameworksDirectory
         let entries = (try? FileManager.default.contentsOfDirectory(atPath: frameworks.path)) ?? []
-        guard !entries.isEmpty else { throw .missing(installation.pin.wrapper) }
+        guard !entries.isEmpty else { throw .missing(installation.pin.folder) }
         guard entries.contains(ChromiumRuntimeLayoutNames.framework) else { throw .missing(ChromiumRuntimeLayoutNames.framework) }
         guard entries.contains(ChromiumRuntimeLayoutNames.shim) else { throw .missing(ChromiumRuntimeLayoutNames.shim) }
         let helpers = entries.filter { $0.hasSuffix(".app") && $0.contains(" Helper") }.sorted()

@@ -106,12 +106,12 @@ struct ChromiumRuntimeInstallerTests {
 
     @Test(arguments: [
         "/etc/passwd",
-        "cmux TEST Chromium.app/../../evil",
-        "other.app/Contents/x",
+        "cmux TEST Chromium/../../evil",
+        "other/x",
     ])
     func anUnsafeArchiveEntryIsRefusedBeforeUnpacking(entry: String) async throws {
         let (data, pin) = try PackFixture.make(in: folder.url)
-        let unpacker = FixedEntriesUnpacker(names: ["cmux TEST Chromium.app/Contents/", entry])
+        let unpacker = FixedEntriesUnpacker(names: ["cmux TEST Chromium/", entry])
         let state = await installer(pin, downloader: MemoryDownloader(bytes: data), unpacker: unpacker).run(.user)
         #expect(state == .failed(.unsafeEntry(entry), attempt: 1))
     }

@@ -2,7 +2,7 @@ public import Foundation
 
 /// The on-disk home of downloaded Chromium runtime packs:
 ///
-///     <root>/<key>/<wrapper>.app        an installed pack
+///     <root>/<key>/<folder>/            an installed pack (framework, shim, helpers)
 ///     <root>/<key>/installed.json       written last: the install is complete
 ///     <root>/.downloads/<key>.tar.xz.partial
 ///     <root>/.staging-<uuid>/           an unpack in progress
@@ -51,12 +51,12 @@ public struct ChromiumRuntimeStore: Sendable, Equatable {
     }
 
     /// The runtime this launch uses for an app pinned to `pin`: the pinned
-    /// pack, else the newest compatible one (same shim ABI, wrapper and
+    /// pack, else the newest compatible one (same shim ABI, folder and
     /// team), else none.
     public func select(for pin: ChromiumRuntimePin) -> ChromiumRuntimeSelection {
         if let exact = installation(key: pin.key) { return .exact(exact) }
         let compatible = installations().first {
-            $0.pin.shimABI == pin.shimABI && $0.pin.wrapper == pin.wrapper && $0.pin.teamID == pin.teamID
+            $0.pin.shimABI == pin.shimABI && $0.pin.folder == pin.folder && $0.pin.teamID == pin.teamID
         }
         return compatible.map(ChromiumRuntimeSelection.compatible) ?? .none
     }
@@ -77,7 +77,7 @@ public struct ChromiumRuntimeStore: Sendable, Equatable {
     /// last, so a crash leaves either nothing or a complete install.
     ///
     /// - Parameters:
-    ///   - staging: The folder ``makeStagingDirectory()`` made, holding the wrapper.
+    ///   - staging: The folder ``makeStagingDirectory()`` made, holding the runtime folder.
     ///   - pin: The pin the pack was verified against.
     /// - Returns: The new installation.
     public func activate(staging: URL, pin: ChromiumRuntimePin) throws -> ChromiumRuntimeInstallation {

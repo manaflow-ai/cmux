@@ -13,7 +13,7 @@ public import Foundation
 /// {"schema": 1, "key": "0123456789abcdef", "cef": "154.0.28",
 ///  "chromium": "154.0.8037.58", "shim_abi": "…", "sha256": "…",
 ///  "size": 107000000, "url": "https://files-next.cmux.com/cef-runtime/…",
-///  "team_id": "ABCDE12345", "wrapper": "cmux NIGHTLY Chromium.app"}
+///  "team_id": "ABCDE12345", "folder": "cmux NIGHTLY Chromium"}
 /// ```
 public struct ChromiumRuntimePin: Codable, Sendable, Equatable {
     /// The file name of the pin in the app's resources.
@@ -27,7 +27,7 @@ public struct ChromiumRuntimePin: Codable, Sendable, Equatable {
     public var cef: String
     /// The Chromium version in the pack, for diagnostics.
     public var chromium: String
-    /// The shim ABI identity. Two packs with the same ABI, wrapper and team
+    /// The shim ABI identity. Two packs with the same ABI, folder and team
     /// are interchangeable for one launch (``ChromiumRuntimeStore/select(for:)``).
     public var shimABI: String
     /// The sha256 of the whole pack file, 64 lowercase hex characters.
@@ -39,19 +39,19 @@ public struct ChromiumRuntimePin: Codable, Sendable, Equatable {
     /// The Developer ID team that signed the pack's code, nil for ad hoc
     /// (dev) packs, which are checked by hash only.
     public var teamID: String?
-    /// The wrapper app's folder name inside the pack, for example
-    /// `cmux NIGHTLY Chromium.app`.
-    public var wrapper: String
+    /// The runtime folder's name inside the pack, for example
+    /// `cmux NIGHTLY Chromium` (a plain folder, never an `.app`).
+    public var folder: String
 
     enum CodingKeys: String, CodingKey {
-        case schema, key, cef, chromium, sha256, size, url, wrapper
+        case schema, key, cef, chromium, sha256, size, url, folder
         case shimABI = "shim_abi"
         case teamID = "team_id"
     }
 
     /// Creates a pin; ``validated()`` checks it.
     public init(schema: Int = 1, key: String, cef: String, chromium: String, shimABI: String, sha256: String,
-                size: Int64, url: URL, teamID: String?, wrapper: String) {
+                size: Int64, url: URL, teamID: String?, folder: String) {
         self.schema = schema
         self.key = key
         self.cef = cef
@@ -61,7 +61,7 @@ public struct ChromiumRuntimePin: Codable, Sendable, Equatable {
         self.size = size
         self.url = url
         self.teamID = teamID
-        self.wrapper = wrapper
+        self.folder = folder
     }
 
     /// Why a pin cannot be used.
@@ -71,7 +71,7 @@ public struct ChromiumRuntimePin: Codable, Sendable, Equatable {
         case sha256
         case size
         case url
-        case wrapper
+        case folder
         case teamID
     }
 
@@ -101,7 +101,9 @@ public struct ChromiumRuntimePin: Codable, Sendable, Equatable {
         guard sha256.count == 64, sha256.allSatisfy(\.isLowercaseHex) else { throw .sha256 }
         guard size > 0 else { throw .size }
         guard Self.isAllowedURL(url) else { throw .url }
-        guard wrapper.hasSuffix(".app"), wrapper.count > 4, !wrapper.contains("/"), !wrapper.hasPrefix(".") else { throw .wrapper }
+        guard !folder.isEmpty, folder.count <= 128, !folder.contains("/"), !folder.hasPrefix("."), !folder.hasSuffix(".app") else {
+            throw .folder
+        }
         if let teamID, teamID.isEmpty || !teamID.allSatisfy({ $0.isASCII && ($0.isUppercase || $0.isNumber) }) {
             throw .teamID
         }
