@@ -31,7 +31,7 @@ export default agentPaneEntry({
         summary(8, { seq: 3, status: "completed" }),
       ]),
     },
-    followUp: {
+    "follow-up": {
       note: "A short follow-up the Chief told it, under a prompt typed in the pane.",
       snapshot: chat([
         user("Check the reload case too", 9, { seq: 1 }),
