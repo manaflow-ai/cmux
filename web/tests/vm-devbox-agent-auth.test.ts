@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { GUEST_CMUX_SHIM } from "../services/vms/guestCli";
 import { VM_PLACEHOLDER_API_KEY } from "../services/coderouter/vmGuestEnv";
+import { resolveVmGuestKind } from "../services/vms/vmKind";
 import { runChild } from "./helpers/run-child";
 
 // Each coding agent on a Cloud machine signs in one of two ways: the team's
@@ -62,6 +63,7 @@ function machine(): Machine {
       "#!/bin/sh",
       `printf '%s\\n' "$*" >> ${JSON.stringify(calls)}`,
       'case "$*" in',
+      '  */api/vm/reflection/kind*) printf \'{"kind":"%s"}\' "${FAKE_VM_KIND:-team}" ;;',
       // The catalog fetch asks for the status line (curl -w '\n%{http_code}').
       `  */opencode/config*) printf '%s\\n200' ${JSON.stringify(OPENCODE_CATALOG)} ;;`,
       // No answer is an HTTP error (curl -f: 22) unless a test names another exit.
@@ -78,7 +80,7 @@ function machine(): Machine {
       real,
       [
         "#!/bin/sh",
-        ...["ANTHROPIC_BASE_URL", "ANTHROPIC_API_KEY", "ANTHROPIC_CUSTOM_HEADERS", "OPENAI_BASE_URL", "OPENAI_API_KEY", "OPENCODE_CONFIG"]
+        ...["ANTHROPIC_BASE_URL", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_CUSTOM_HEADERS", "CLAUDE_CONFIG_DIR", "OPENAI_BASE_URL", "OPENAI_API_KEY", "CODEX_HOME", "OPENCODE_CONFIG", "XDG_DATA_HOME"]
           .map((name) => `printf "${name}=%s\\n" "\${${name}-<unset>}"`),
         'printf "args=%s\\n" "$*"',
         "",
@@ -589,7 +591,23 @@ describe("cr use", () => {
 
   test("a shared-team machine never selects a personal agent login", async () => {
     const m = machine();
-    writeFileSync(m.kind, "team\n");
+    const kind = await resolveVmGuestKind(
+      { userId: "user-owner", ownerTeamId: "team-shared" },
+      { listMembers: async () => ({ memberIds: ["user-owner", "user-teammate"] }) },
+    );
+    expect(kind).toBe("team");
+    const modelEnv = path.join(m.root, "model-plane.env");
+    writeFileSync(modelEnv, `export CMUX_CODEROUTER_URL='${ORIGIN}'\nexport OPENAI_API_KEY='${PLACEHOLDER}'\n`);
+    const synced = await runChild("/bin/sh", [path.join(templateDir, "cmux-vm-kind-sync")], {
+      env: {
+        PATH: `${m.bin}:${process.env.PATH ?? "/usr/bin:/bin"}`,
+        CMUX_VM_KIND_FILE: m.kind,
+        CMUX_VM_MODEL_ENV_FILE: modelEnv,
+        FAKE_VM_KIND: kind!,
+      },
+    });
+    expect(synced.status).toBe(0);
+    expect(readFileSync(m.kind, "utf8")).toBe("team\n");
     cmuxCodexConfig(m);
     for (const agent of AGENTS) {
       choose(m, "own", agent);
@@ -599,12 +617,15 @@ describe("cr use", () => {
     const claude = await launch(m, "claude", { FAKE_ACCESS: ALL });
     expect(claude.ANTHROPIC_BASE_URL).toBe(ORIGIN);
     expect(claude.ANTHROPIC_API_KEY).toBe(PLACEHOLDER);
+    expect(claude.CLAUDE_CONFIG_DIR).toBe(path.join(m.home, ".config/cmux/claude-team"));
     const codex = await launch(m, "codex", { FAKE_ACCESS: ALL });
     expect(codex.args).toBe("--resume x");
     expect(codex.OPENAI_API_KEY).toBe(PLACEHOLDER);
+    expect(codex.CODEX_HOME).toBe(path.join(m.home, ".config/cmux/codex-team"));
     const opencode = await launch(m, "opencode", { FAKE_ACCESS: ALL });
     expect(opencode.OPENCODE_CONFIG).toBe(path.join(m.home, ".config/cmux/opencode-team.json"));
     expect(opencode.OPENAI_API_KEY).toBe(PLACEHOLDER);
+    expect(opencode.XDG_DATA_HOME).toBe(path.join(m.home, ".local/share/cmux-team"));
 
     expect((await launch(m, "claude", { ANTHROPIC_API_KEY: "personal-claude", FAKE_ACCESS: ALL })).ANTHROPIC_API_KEY).toBe(PLACEHOLDER);
     expect((await launch(m, "codex", { OPENAI_API_KEY: "personal-codex", FAKE_ACCESS: ALL })).OPENAI_API_KEY).toBe(PLACEHOLDER);

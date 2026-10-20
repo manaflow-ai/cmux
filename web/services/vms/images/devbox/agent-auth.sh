@@ -217,10 +217,13 @@ cmux_claude_apply_auth_mode() {
   cmux_agent_auth_resolve claude
   if [ "$cmux_agent_auth_mode" = team ]; then
     if [ "$cmux_agent_auth_reason" = shared-machine ]; then
-      unset CLAUDE_CODE_OAUTH_TOKEN
+      unset CLAUDE_CODE_OAUTH_TOKEN ANTHROPIC_AUTH_TOKEN ANTHROPIC_CUSTOM_HEADERS
+      CLAUDE_CONFIG_DIR="${HOME:-/root}/.config/cmux/claude-team"
+      mkdir -p "$CLAUDE_CONFIG_DIR" 2>/dev/null || return 1
+      chmod 0700 "$CLAUDE_CONFIG_DIR" 2>/dev/null || return 1
       ANTHROPIC_BASE_URL=${CMUX_CODEROUTER_URL-}
       ANTHROPIC_API_KEY=$cmux_aa_placeholder
-      export ANTHROPIC_BASE_URL ANTHROPIC_API_KEY
+      export CLAUDE_CONFIG_DIR ANTHROPIC_BASE_URL ANTHROPIC_API_KEY
     elif [ -z "${ANTHROPIC_BASE_URL-}" ] && [ -z "${ANTHROPIC_API_KEY-}" ] && [ -n "${CMUX_CLAUDE_TEAM_BASE_URL-}" ]; then
       ANTHROPIC_BASE_URL=$CMUX_CLAUDE_TEAM_BASE_URL
       ANTHROPIC_API_KEY=${CMUX_CLAUDE_TEAM_API_KEY-}
@@ -242,8 +245,23 @@ cmux_codex_apply_auth_mode() {
   cmux_agent_auth_resolve codex
   if [ "$cmux_agent_auth_reason" = shared-machine ]; then
     unset CODEX_API_KEY OPENAI_BASE_URL
+    CODEX_HOME="${HOME:-/root}/.config/cmux/codex-team"
+    mkdir -p "$CODEX_HOME" 2>/dev/null || return 1
+    chmod 0700 "$CODEX_HOME" 2>/dev/null || return 1
+    {
+      echo 'model_provider = "cmux"'
+      echo '[model_providers.cmux]'
+      echo 'name = "cmux"'
+      printf 'base_url = "%s/v1"\n' "${CMUX_CODEROUTER_URL%/}"
+      echo 'env_key = "OPENAI_API_KEY"'
+      echo 'wire_api = "responses"'
+      echo 'requires_openai_auth = false'
+      echo 'supports_websockets = false'
+    } > "$CODEX_HOME/config.toml.tmp" 2>/dev/null || return 1
+    chmod 0600 "$CODEX_HOME/config.toml.tmp" 2>/dev/null || return 1
+    mv -f "$CODEX_HOME/config.toml.tmp" "$CODEX_HOME/config.toml" 2>/dev/null || return 1
     OPENAI_API_KEY=$cmux_aa_placeholder
-    export OPENAI_API_KEY
+    export CODEX_HOME OPENAI_API_KEY
     return 0
   fi
   [ "$cmux_agent_auth_mode" = own ] || return 0
@@ -264,7 +282,11 @@ cmux_opencode_apply_auth_mode() {
   cmux_agent_auth_resolve opencode
   if [ "$cmux_agent_auth_mode" = team ]; then
     if [ "$cmux_agent_auth_reason" = shared-machine ]; then
-      unset ANTHROPIC_API_KEY ANTHROPIC_BASE_URL OPENAI_BASE_URL
+      unset ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN ANTHROPIC_BASE_URL ANTHROPIC_CUSTOM_HEADERS OPENAI_BASE_URL OPENCODE_CONFIG
+      XDG_DATA_HOME="${HOME:-/root}/.local/share/cmux-team"
+      mkdir -p "$XDG_DATA_HOME" 2>/dev/null || return 1
+      chmod 0700 "$XDG_DATA_HOME" 2>/dev/null || return 1
+      export XDG_DATA_HOME
       cmux_ao_key=$cmux_aa_placeholder
     else
       cmux_ao_key=${OPENAI_API_KEY-}
