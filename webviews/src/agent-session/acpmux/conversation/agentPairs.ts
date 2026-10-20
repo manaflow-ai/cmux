@@ -4,8 +4,8 @@
 //   agent_pair_held    {from, fromName, to, promptId, text, provenance, prompt, ...}: a message
 //                      to this chat held while paused (only the receiver's transcript)
 //   agent_pair_resumed {peer, by: request|person, delivered}
-// A pause is one row (AgentPairNote.tsx) that counts the messages held for it and collapses once
-// the pair resumes. A held message is never a prompt row: it reaches the chat as a prompt only
+// A pause is one row (AgentPairNote.tsx) that counts the messages held for it, keeps their
+// previews for its Show held messages list, and collapses once the pair resumes. A held message is never a prompt row: it reaches the chat as a prompt only
 // when acpmux delivers it after the resume.
 import type { AcpmuxAgentPair, AcpmuxRow } from "../model";
 
@@ -47,6 +47,7 @@ export function reduceAgentPair(rows: Map<string, AcpmuxRow>, event: PairRecord)
         reason: msg.reason === "repeating" ? "repeating" : "alternating",
         count: typeof msg.count === "number" && Number.isFinite(msg.count) ? msg.count : 0,
         held: 0,
+        heldTexts: [],
       },
     });
     return true;
@@ -54,13 +55,23 @@ export function reduceAgentPair(rows: Map<string, AcpmuxRow>, event: PairRecord)
   if (event.kind === "agent_pair_held") {
     const from = str(msg.from);
     const row = from ? openPause(rows, from) : undefined;
-    if (row) update(rows, row, { held: row.agentPair!.held + 1 });
+    const text = str(msg.text);
+    if (row)
+      update(rows, row, {
+        held: row.agentPair!.held + 1,
+        heldTexts: text ? [...row.agentPair!.heldTexts, text] : row.agentPair!.heldTexts,
+      });
     return true;
   }
   if (event.kind === "agent_pair_resumed") {
     const peer = str(msg.peer);
     const row = peer ? openPause(rows, peer) : undefined;
-    if (row) update(rows, row, { resumed: true });
+    const delivered = msg.delivered;
+    if (row)
+      update(rows, row, {
+        resumed: true,
+        ...(typeof delivered === "number" && Number.isFinite(delivered) && delivered > 0 ? { delivered } : {}),
+      });
     return true;
   }
   return false;

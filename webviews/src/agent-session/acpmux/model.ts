@@ -45,7 +45,11 @@ export type AcpmuxAgentPair = {
   count: number;
   /// Messages to this chat held while paused (`agent_pair_held`).
   held: number;
+  /// Their previews (acpmux keeps the first 200 characters), in the order they were held.
+  heldTexts: string[];
   resumed?: boolean;
+  /// How many held messages acpmux delivered when the pair resumed (`agent_pair_resumed`).
+  delivered?: number;
 };
 
 /// What the chat's agent runs on, from its own start line (Claude Code's system/init, acpmux's

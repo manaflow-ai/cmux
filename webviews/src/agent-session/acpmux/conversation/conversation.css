@@ -2588,6 +2588,34 @@ pre.cv-math-source {
   font-size: var(--text-detail);
   color: var(--cv-text-dim);
 }
+.cv-agent-pair__toggle {
+  all: unset;
+  cursor: pointer;
+  color: var(--cv-text-dim);
+}
+.cv-agent-pair__toggle:hover {
+  color: var(--agent-text);
+}
+.cv-agent-pair__toggle:focus-visible {
+  outline: 2px solid var(--agent-accent, currentColor);
+  outline-offset: 1px;
+}
+/* The held previews, under the detail line: plain quoted text, one per line. */
+.cv-agent-pair__held {
+  margin: 2px 0 4px;
+  padding: 0 0 0 22.5px;
+  list-style: none;
+  font-size: var(--text-detail);
+  color: var(--cv-text-dim);
+}
+.cv-agent-pair__held li {
+  padding: 2px 0 2px 8px;
+  border-left: 2px solid var(--agent-border);
+  overflow-wrap: anywhere;
+}
+.cv-agent-pair__held li + li {
+  margin-top: 4px;
+}
 .cv-agent-pair__failed {
   color: var(--agent-danger);
 }

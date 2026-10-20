@@ -1,11 +1,15 @@
 // l10n-allow-file: gallery fixtures (sample prompts and chat names), not shipped UI.
 // A paused agent pair in the transcript (AgentPairNote.tsx): acpmux stopped two agent chats that
-// kept messaging each other without progress, holds the other chat's messages, and offers Resume;
-// once resumed, one quiet line.
+// kept messaging each other without progress, holds the other chat's messages, and offers Resume
+// and a Show held messages list; once resumed, one quiet line with how many it delivered.
 import { agentPaneEntry } from "../../../gallery/format";
 import { assistant, chat, row, summary, user } from "../../../gallery/fixtures/acpmux";
 
 const peer = "0190a000-0000-7000-8000-00000000beef";
+const heldTexts = [
+  "Following up: can you confirm the migration is safe to run on the replica first?",
+  "Checking in again on the replica question before I sign off.",
+];
 
 export default agentPaneEntry({
   id: "agent-pane.agent-pair-note",
@@ -21,21 +25,36 @@ export default agentPaneEntry({
         assistant("Sent the migration to the reviewer for sign-off.", 5),
         summary(5, { status: "completed", durationMs: 9_000, toolCount: 1 }),
         row("agentPair", 3, {
-          agentPair: { peer, peerName: "Migration reviewer", reason: "alternating", count: 10, held: 2 },
+          agentPair: { peer, peerName: "Migration reviewer", reason: "alternating", count: 10, held: 2, heldTexts },
         }),
       ]),
+    },
+    "held-list": {
+      note: "Show held messages opened: each held message's preview, in the order acpmux held it.",
+      snapshot: chat([
+        user("Ask the reviewer chat to sign off on the migration", 6),
+        assistant("Sent the migration to the reviewer for sign-off.", 5),
+        summary(5, { status: "completed", durationMs: 9_000, toolCount: 1 }),
+        row("agentPair", 3, {
+          agentPair: { peer, peerName: "Migration reviewer", reason: "alternating", count: 10, held: 2, heldTexts },
+        }),
+      ]),
+      play: async (ctx) => {
+        await ctx.click({ selector: ".cv-agent-pair__toggle" });
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-agent-pair__held"));
+      },
     },
     repeating: {
       note: "The other chat sent the same message again and again; nothing is held on this side.",
       snapshot: chat([
         user("Keep the release checklist in sync with the deploy chat", 4),
         row("agentPair", 2, {
-          agentPair: { peer, peerName: "Deploy", reason: "repeating", count: 4, held: 0 },
+          agentPair: { peer, peerName: "Deploy", reason: "repeating", count: 4, held: 0, heldTexts: [] },
         }),
       ]),
     },
     resumed: {
-      note: "After Resume (or the person's next prompt), the note collapses to one line.",
+      note: "After Resume (or the person's next prompt), the note collapses to one line that counts what acpmux delivered.",
       snapshot: chat([
         user("Ask the reviewer chat to sign off on the migration", 6),
         assistant("Sent the migration to the reviewer for sign-off.", 5),
@@ -47,7 +66,9 @@ export default agentPaneEntry({
             reason: "alternating",
             count: 10,
             held: 2,
+            heldTexts,
             resumed: true,
+            delivered: 2,
           },
         }),
       ]),
