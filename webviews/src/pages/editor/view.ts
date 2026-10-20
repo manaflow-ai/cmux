@@ -699,7 +699,10 @@ export class MonacoView implements CodeView {
     return {
       findMatches: (query, matchCase) =>
         this.model?.findMatches(query, false, false, matchCase, null, false).map((match) => match.range) ?? [],
-      caret: () => this.editor.getPosition() ?? { lineNumber: 1, column: 1 },
+      // The selection's start, not the cursor: a selected match leaves the cursor at its end, and
+      // the next letter typed would skip to the match after it.
+      caret: () =>
+        this.editor.getSelection()?.getStartPosition() ?? this.editor.getPosition() ?? { lineNumber: 1, column: 1 },
       selectedText: () => {
         const selection = this.editor.getSelection();
         if (!selection || !this.model || selection.isEmpty()) return "";

@@ -194,7 +194,8 @@ public final class LayoutModel {
     // MARK: Daemon input
 
     /// Replaces the tree with a daemon snapshot. Keeps client-local focus and
-    /// active screen when they still exist, else falls back to the first.
+    /// active screen when they still exist. A closed focused pane falls back to
+    /// its nearest surviving neighbor before it (else after it, else the first).
     public func apply(screens newScreens: [LayoutScreen]) {
         let previous = daemonScreens
         defer { applyCloseSizing(from: previous, to: newScreens) }
@@ -213,8 +214,21 @@ public final class LayoutModel {
         if let focusedPane, screens.contains(where: { $0.layout.contains(focusedPane) }) {
             return
         }
-        let first = activeScreen?.layout.panes.first
-        if focusedPane != first { focusedPane = first }
+        // The focused pane closed. The app's focus coordinator picks the successor right after
+        // (close-focus.md); until then the nearest surviving pane before it (after it at the
+        // start) stands in, not the screen's first: the close's first frame already moves the
+        // camera toward it (Lawrence 2026-10-20, closing the last column).
+        let fallback = focusedPane.flatMap { Self.neighbor(of: $0, in: previous, on: activeScreen) } ?? activeScreen?.layout.panes.first
+        if focusedPane != fallback { focusedPane = fallback }
+    }
+
+    /// The pane of `screen` nearest before `closed` in its old order (`old`), else the nearest
+    /// after it; nil when the old screen did not hold it.
+    private static func neighbor(of closed: PaneID, in old: [LayoutScreen], on screen: LayoutScreen?) -> PaneID? {
+        guard let screen, let order = old.first(where: { $0.id == screen.id })?.layout.panes,
+              let index = order.firstIndex(of: closed) else { return nil }
+        let live = Set(screen.layout.panes)
+        return order[..<index].last(where: live.contains) ?? order[(index + 1)...].first(where: live.contains)
     }
 
     /// The daemon accepted the command carrying `transaction`. An ended

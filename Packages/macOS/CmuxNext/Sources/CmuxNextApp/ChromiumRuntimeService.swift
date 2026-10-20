@@ -43,6 +43,9 @@ final class ChromiumRuntimeService {
     private(set) var state: ChromiumRuntimeInstallState = .idle
     private let installer: ChromiumRuntimeInstaller?
     private let mainBundle: URL
+    /// Load-time trust for an installed pack. Nil only for a bundled runtime
+    /// or a build without a runtime pin.
+    private let downloadedTrust: CEFRuntimeLayout.Trust?
     private let prefetchDelay: Duration
     private var tasks: [Task<Void, Never>] = []
     /// The background download's one-shot start after launch.
@@ -58,12 +61,14 @@ final class ChromiumRuntimeService {
     ///   - clock: Drives the prefetch delay; tests pass a clock they control.
     ///   - prefetchDelay: How long after ``start()`` the background download begins.
     init(source: CEFRuntimeSource, origin: Origin, installer: ChromiumRuntimeInstaller?, mainBundle: URL,
+         downloadedTrust: CEFRuntimeLayout.Trust? = nil,
          clock: any Clock<Duration> = ContinuousClock(), prefetchDelay: Duration = .seconds(20)) {
         self.source = source
         self.origin = origin
         self.installer = installer
         pinnedKey = installer?.pin.key
         self.mainBundle = mainBundle
+        self.downloadedTrust = downloadedTrust
         self.prefetchDelay = prefetchDelay
         prefetch = DemandTimer(owner: "chromium-runtime.prefetch", clock: clock)
     }
@@ -97,7 +102,10 @@ final class ChromiumRuntimeService {
                        clock: any Clock<Duration> = ContinuousClock(), prefetchDelay: Duration = .seconds(20),
                        makeInstaller: (Set<String>) -> ChromiumRuntimeInstaller) -> ChromiumRuntimeService {
         let selection = store.select(for: pin)
-        let layout = selection.installation.flatMap { CEFRuntimeLayout.at($0.frameworksDirectory, fallbackMainBundle: mainBundle) }
+        let trust = CEFRuntimeLayout.Trust.downloaded(teamID: pin.teamID)
+        let layout = selection.installation.flatMap {
+            CEFRuntimeLayout.at($0.frameworksDirectory, fallbackMainBundle: mainBundle, trust: trust)
+        }
         let origin: Origin
         switch selection {
         case .exact where layout != nil: origin = .installed
@@ -107,6 +115,7 @@ final class ChromiumRuntimeService {
         let inUse: Set<String> = layout == nil ? [] : Set(selection.installation.map { [$0.pin.key] } ?? [])
         let source = CEFRuntimeSource(layout: layout, pending: .downloading(fraction: nil))
         return ChromiumRuntimeService(source: source, origin: origin, installer: makeInstaller(inUse), mainBundle: mainBundle,
+                                      downloadedTrust: trust,
                                       clock: clock, prefetchDelay: prefetchDelay)
     }
 
@@ -150,7 +159,8 @@ final class ChromiumRuntimeService {
         case .failed(let error, _):
             source.update(pending: .downloadFailed("\(error.code): \(error.detail)"))
         case .installed(let installation):
-            if let layout = CEFRuntimeLayout.at(installation.frameworksDirectory, fallbackMainBundle: mainBundle) {
+            let trust = downloadedTrust ?? .downloaded(teamID: nil)
+            if let layout = CEFRuntimeLayout.at(installation.frameworksDirectory, fallbackMainBundle: mainBundle, trust: trust) {
                 source.install(layout)
             } else {
                 source.update(pending: .downloadFailed("missing: \(installation.frameworksDirectory.path)"))

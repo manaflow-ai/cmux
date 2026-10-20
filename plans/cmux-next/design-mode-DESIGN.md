@@ -102,8 +102,11 @@ remembers what was sent per tab, so a snapshot that only moved the scroll positi
    target becomes "the chat the user last typed in" across Home and agent tabs. Coordinate with
    a290 (Home attachments open in Files) and a285 (non-image files reach agents): both own the
    attachment intake; this work only adds a source.
-4. **Design variations** (first part landed: the gallery script and the pick card; still to do: a
-   CLI/action that opens the gallery right of the chat, design mode on by itself in the gallery). A `design.variations` tool result (or a fenced `cmux-variations` block)
+4. **Design variations** (landed): `design-variations.py DIR --open` writes the gallery and shows it
+   right of the Home chat (`cmux browser right navigate`). A pick (`BrowserDesignModeDelivery`) is
+   sent to the shown Home chat at once through a304's `home.sendMessage` ("Picked design variation
+   <n>: <title>"); other highlights wait in the composer. Still to do: design mode on by itself in
+   the gallery. A `design.variations` tool result (or a fenced `cmux-variations` block)
    with N HTML/URL variants opens a gallery in the right column (same placement as a272/a101's
    "open to the right"), each variant live in its own browser tab tile, one Recommended. Picking one
    sends `Picked variation <n>: <title>` (+ its chip) back to the chat that asked. Coordinate with

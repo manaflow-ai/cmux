@@ -106,7 +106,7 @@ public extension WindowOverlayHost {
     /// over a modal or dimming overlay's window, a modal region, or an
     /// overlay that does not pass clicks through.
     func acceptsMouse(at point: NSPoint) -> Bool {
-        interactiveRegions().contains { $0.contains(point) }
+        interactiveRegions().contains { $0.contains(point) } || agentCursorTag(atPanelPoint: point) != nil
     }
 
     /// Input-blocking rects, window coordinates (cached until something changes).
