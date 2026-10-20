@@ -41,6 +41,30 @@ fn vm_receiver_client_socket_refuses_unbound_and_caller_identity() {
     assert!(worker.live.is_none());
 }
 
+#[test]
+fn vm_receiver_client_socket_discards_reply_after_its_write_deadline() {
+    use std::io::Read;
+    let root = tempfile::tempdir().unwrap();
+    let (_control, theirs) = UnixStream::pair().unwrap();
+    let mut worker = Worker::new(Paths::new(root.path()), "vm-1".into(), None, theirs).unwrap();
+    let (mut caller, stream) = UnixStream::pair().unwrap();
+    stream.set_nonblocking(true).unwrap();
+    caller.set_read_timeout(Some(Duration::from_secs(1))).unwrap();
+    worker.clients.push(super::Client {
+        stream,
+        buf: Vec::new(),
+        output: b"stale authority must not arrive\n".to_vec(),
+        sent: 0,
+        eof: false,
+        write_deadline: Some(0),
+    });
+    assert!(!worker.read_clients(&[0]));
+    assert!(worker.clients.is_empty());
+    let mut bytes = Vec::new();
+    caller.read_to_end(&mut bytes).unwrap();
+    assert!(bytes.is_empty());
+}
+
 /// dev-e2e on sh-584ab926a57d (2026-10-08): the first client of the agent
 /// socket killed the worker (`index out of bounds` in the poll loop: a client
 /// accepted in this pass was read with the revents of the previous pass), so

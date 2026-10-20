@@ -588,8 +588,13 @@ impl Worker {
             }
             self.drive(reqs);
         }
+        let now = self.now();
         for &i in readable {
             let client = &mut self.clients[i];
+            if client.write_deadline.is_some_and(|deadline| deadline <= now) {
+                closed.push(i);
+                continue;
+            }
             while client.sent < client.output.len() {
                 match client.stream.write(&client.output[client.sent..]) {
                     Ok(0) => {
