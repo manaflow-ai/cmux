@@ -4,6 +4,7 @@
 //! subtree, closing the last workspace removes emptied ancestors, and view
 //! rows carry the depth.
 
+use super::accept;
 use super::reduce::{apply_in_place, check, repair};
 use super::view::{LiveWorkspace, ViewRequest, view};
 use super::*;
@@ -342,13 +343,13 @@ fn drag_does_not_nest_yet_and_a_dragged_tree_is_self() {
         LiveWorkspace { session_id: A.into(), workspace_id: "a2".into(), title: None },
     ];
     let rows = view(&doc, &ViewRequest { live, ..ViewRequest::default() });
-    let table = super::accept::drag_begin(&doc, &rows, &["g_solo".to_string()]);
+    let table = accept::drag_begin(&doc, &rows, &["g_solo".to_string()]);
     assert!(!table["g_project"].into, "the sidebar does not draw nested groups yet");
     assert!(table["g_project"].before, "a group still lands beside a top-level group");
-    let table = super::accept::drag_begin(&doc, &rows, &["g_project".to_string()]);
+    let table = accept::drag_begin(&doc, &rows, &["g_project".to_string()]);
     for key in ["g_branch", "g_leaf"] {
         assert_eq!(table[key].refusal.as_deref(), Some("self"), "{key} is under the dragged tree");
     }
-    let table = super::accept::drag_begin(&doc, &rows, &[ws(A, "a2")]);
+    let table = accept::drag_begin(&doc, &rows, &[ws(A, "a2")]);
     assert!(table["g_leaf"].into, "a workspace drops into a nested group");
 }
