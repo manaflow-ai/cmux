@@ -38,8 +38,7 @@ export function promptSuggestion(
         now - entry.updatedAt <= RECENT_MS,
     )
     .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))[0];
-  const pr =
-    source?.pullRequest ?? (live && (live.state === "open" || live.state === "draft") ? live : undefined);
+  const pr = source?.pullRequest ?? (live && (live.state === "open" || live.state === "draft") ? live : undefined);
   if (!pr) return undefined;
   // A chat already working on (or waiting about) this PR has it; a second agent would collide.
   const busy = sessions.some(

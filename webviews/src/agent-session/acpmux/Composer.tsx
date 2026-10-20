@@ -960,7 +960,12 @@ export function Composer({
   const suggestion = useMemo<PromptSuggestion | undefined>(
     () =>
       !shell && !snapshot.isWorking && snapshot.rows.length === 0 && remote.canSend && !blocked
-        ? promptSuggestion(snapshot.sessions, { sessionId: snapshot.sessionId, cwd, branch }, Date.now(), livePullRequest)
+        ? promptSuggestion(
+            snapshot.sessions,
+            { sessionId: snapshot.sessionId, cwd, branch },
+            Date.now(),
+            livePullRequest,
+          )
         : undefined,
     [
       shell,
