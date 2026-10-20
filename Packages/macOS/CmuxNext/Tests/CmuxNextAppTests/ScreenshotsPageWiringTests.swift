@@ -62,6 +62,4 @@ private nonisolated struct NoWatch: DirectoryWatching {
     func open(_ urls: [URL]) { opened += urls }
     func reveal(_ urls: [URL]) {}
     func recycle(_ urls: [URL]) async throws {}
-    func askName(title: String, initial: String, confirm: String, cancel: String, in window: NSWindow?) async -> String? { nil }
-    func report(_ message: String, detail: String?, in window: NSWindow?) {}
 }

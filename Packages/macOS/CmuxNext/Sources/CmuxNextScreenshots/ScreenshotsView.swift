@@ -16,8 +16,6 @@ public final class ScreenshotsView: NSView {
     private let search = NSSearchField()
     private let count = NSTextField(labelWithString: "")
     private let importer = FileGridDropImporter()
-    /// Opens, reveals and trashes files, and shows the pane's dialogs.
-    private let workspace: any FileGridWorkspace
     private var shownSources: [ScreenshotSource] = []
     private static let headerHeight: CGFloat = 36
 
@@ -31,12 +29,11 @@ public final class ScreenshotsView: NSView {
     /// - Parameters:
     ///   - model: the pane's state.
     ///   - cache: the app's thumbnail cache.
-    ///   - workspace: opens, reveals and trashes files, and shows the pane's dialogs.
+    ///   - workspace: opens, reveals and trashes files.
     ///   - appearance: grid colors and tile size.
     public init(model: ScreenshotsModel, cache: ThumbnailCache, workspace: any FileGridWorkspace,
                 appearance: FileGridAppearance = FileGridAppearance()) {
         self.model = model
-        self.workspace = workspace
         self.grid = FileGridView(cache: cache, appearance: appearance, workspace: workspace)
         super.init(frame: .zero)
         sourceMenu.target = self
@@ -150,7 +147,9 @@ public final class ScreenshotsView: NSView {
             }
             return true
         } catch {
-            if let window { workspace.report(ScreenshotsStrings.dropFailed, detail: error.localizedDescription, in: window) }
+            let alert = NSAlert(error: error)
+            alert.messageText = ScreenshotsStrings.dropFailed
+            if let window { alert.beginSheetModal(for: window) }
             return false
         }
     }

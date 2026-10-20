@@ -45,6 +45,8 @@ public nonisolated struct OsascriptRunner: VerificationScriptRunning {
         let (stdout, stderr) = await (out, err)
         var status: Int32 = -1
         for await code in exited.stream { status = code }
+        // The pipes own the descriptors `drain` read by number: keep them open until here.
+        withExtendedLifetime((output, errors)) {}
         guard status == 0 else {
             throw VerificationScriptFailure(status: status, message: String(decoding: stderr, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines))
         }

@@ -124,6 +124,8 @@ extension FileOperator {
         let message = String(decoding: await drain(errors.fileHandleForReading.fileDescriptor), as: UTF8.self)
         var status: Int32 = -1
         for await code in exited.stream { status = code }
+        // The pipe owns the descriptor `drain` read by number: keep it open until here.
+        withExtendedLifetime(errors) {}
         guard status == 0 else {
             throw FileBrowserError.failed(message.isEmpty ? "ditto exited with \(status)" : message)
         }

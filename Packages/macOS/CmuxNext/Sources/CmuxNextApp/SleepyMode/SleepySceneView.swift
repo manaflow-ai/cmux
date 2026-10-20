@@ -21,9 +21,7 @@ struct SleepySceneView: View {
             .onTapGesture { wake() }
             VStack(spacing: 18) {
                 Image(systemName: "moon.zzz.fill")
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: 96, height: 96)
+                    .font(.system(size: 96, weight: .regular))
                     .foregroundStyle(Color(red: 1.0, green: 0.92, blue: 0.62))
                 TimelineView(.periodic(from: .now, by: 1)) { context in
                     VStack(spacing: 8) {
