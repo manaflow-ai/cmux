@@ -342,6 +342,15 @@ final class TabCell {
         }
     }
 
+    /// The icon's leading x in a pill `pillWidth` wide for `form`: the content inset beside a title,
+    /// centered alone, or centered in the room left of the x.
+    private static func iconX(form: TabChromeVisibility, pillWidth: CGFloat, metrics m: TabStripMetrics) -> CGFloat {
+        guard form.centersContent, form.showsIcon else { return m.contentLeadingInset }
+        return form.showsClose
+            ? max(m.contentLeadingInset / 2, (pillWidth - m.closeButtonSize - m.contentTrailingInset - m.iconSize) / 2)
+            : (pillWidth - m.iconSize) / 2
+    }
+
     /// Lays the parts out for a slot `slotWidth` wide. `onPath`: one sample of a moving width
     /// (`retimeInner`): no part is removed (it hides), nothing fades, and the title's geometry is
     /// recorded in `pathTitle` instead of applied. `form`: the path's form at this sample
@@ -371,7 +380,6 @@ final class TabCell {
 
         let midY = bounds.height / 2
         let iconSide = m.iconSize
-        var iconX = m.contentLeadingInset
         var closeRect: CGRect?
         if visibility.showsClose {
             let side = m.closeButtonSize
@@ -380,10 +388,15 @@ final class TabCell {
                 : (bounds.width - side) / 2
             closeRect = CGRect(x: pixel(x), y: pixel(midY - side / 2), width: side, height: side)
         }
-        if visibility.centersContent, visibility.showsIcon {
-            iconX = visibility.showsClose
-                ? max(m.contentLeadingInset / 2, (bounds.width - m.closeButtonSize - m.contentTrailingInset - iconSide) / 2)
-                : (bounds.width - iconSide) / 2
+        var iconX = Self.iconX(form: visibility, pillWidth: bounds.width, metrics: m)
+        // Lawrence 2026-10-20: "i should not see layout shift here at all". Hover shows or hides the
+        // x and the title; the favicon stays where the unhovered form put it while it fits before the x.
+        if isHovered, visibility.showsIcon, let closeRect {
+            let rest = TabChromeVisibility.resolve(
+                width: slot.width, isPinned: item.isPinned, isSelected: isSelected, isHovered: false,
+                isClosable: item.isClosable, style: style, metrics: m)
+            let restX = Self.iconX(form: rest, pillWidth: bounds.width, metrics: m)
+            if rest.showsIcon, pixel(restX) + iconSide <= closeRect.minX + 0.5 { iconX = restX }
         }
         let iconFrame = CGRect(x: pixel(iconX), y: pixel(midY - iconSide / 2), width: iconSide, height: iconSide)
         // Lawrence 2026-10-19: nothing but the favicon (or the tab's icon) draws in the leading
