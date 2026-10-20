@@ -18,7 +18,7 @@ struct ProgramStatusHoverDetailTests {
         store.apply(snapshot: DaemonTree(workspaces: [WorkspaceSnapshot(id: 1, key: nil, name: "w", screens: [screen])]))
         let line = #"{"type":"stream_item","item":{"kind":"snapshot","snapshot":{"terminals":[{"id":"term_7","extra":{"program_status":\#(records)}}],"extra":{"state":{}}}}}"#
         let item = try #require(SessionStreamItem.decode(Data(line.utf8)))
-        store.session.apply(item, to: store.workspaces)
+        store.session.apply(item, in: store)
         let tab = try #require(store.workspaces.first?.screens.first?.panes.first?.tabs.first)
         let card = TabHoverCardView()
         card.configure(.tab(TabItemMapping.shared.item(tab, fallbackTitle: "zsh")))

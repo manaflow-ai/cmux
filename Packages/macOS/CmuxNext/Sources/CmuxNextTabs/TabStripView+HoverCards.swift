@@ -1,52 +1,13 @@
-public import AppKit
+import AppKit
 public import CmuxNextDesign
 
-// The strip's targets for the app's hover cards (TabHoverCardController,
-// HoverCardCoordinator): tabs and group chips, hit-tested by position.
+// The strip's side of the app's hover cards (HoverCardCoordinator); its targets
+// (tabs and group chips) are hit-tested in `TabHoverCardController+Targets.swift`.
 extension TabStripView {
     /// The coordinator this strip reports to (the App injects the app's one).
     public var hoverCards: HoverCardCoordinator {
         get { hoverCard.coordinator }
         set { hoverCard.coordinator = newValue }
-    }
-
-    /// The tab or chip under `point` (this view's coordinates) that may have
-    /// a card now: none during any drag, an open group editor or a rename.
-    func hoverCardTarget(at point: CGPoint) -> (id: TabID, width: CGFloat, anchor: CGRect)? {
-        // Hidden strips (inactive screens share the frame) and clipped
-        // parts never take a card.
-        guard visibleRect.contains(point), !isHiddenOrHasHiddenAncestor, !isDraggingAnything, !groupEditor.isVisible,
-              inlineRename.field == nil, let window else { return nil }
-        if let group = chipGroup(at: point), let chip = groups.chips[group] {
-            let anchor = window.convertToScreen(tabsClip.convert(chip.frame, to: nil))
-            return (.groupChip(group), metrics.minInactiveTabWidth, anchor)
-        }
-        // A New Tab page's card would only repeat its title (Leo 2026-10-11).
-        guard let id = tabID(at: point), let cell = cells[id], model.tab(id)?.isNewTabPage != true else { return nil }
-        return (id, cell.frame.width, window.convertToScreen(tabsClip.convert(cell.frame, to: nil)))
-    }
-
-    /// `id`'s frame on screen now, nil when it has no visible frame.
-    func hoverCardAnchor(for id: TabID) -> CGRect? {
-        guard let window else { return nil }
-        if let group = id.chipGroupID {
-            guard let chip = groups.chips[group], chip.frame.width > 0.5 else { return nil }
-            return window.convertToScreen(tabsClip.convert(chip.frame, to: nil))
-        }
-        guard let cell = cells[id], cell.frame.width > 0.5 else { return nil }
-        return window.convertToScreen(tabsClip.convert(cell.frame, to: nil))
-    }
-
-    /// What `id`'s card shows, nil when the strip no longer has it.
-    func hoverContent(for id: TabID) -> TabHoverCardContent? {
-        if let group = id.chipGroupID {
-            return groups.byID[group].map(groupHoverContent)
-        }
-        return model.tab(id).map(TabHoverCardContent.tab)
-    }
-
-    var isDraggingAnything: Bool {
-        drag != nil || detachedID != nil || dropPlaceholderIndex != nil || groups.drag != nil || groups.detachedGroupID != nil
     }
 
     /// Content moved under a possibly still pointer (layout, scroll,
@@ -57,9 +18,13 @@ extension TabStripView {
         guard let window else { return }
         let point = convert(window.convertPoint(fromScreen: hoverCards.currentPointer()), from: nil)
         let lit = buttonReveal.pointerInStrip || hoveredID != nil || groups.hoveredChip != nil
-        if bounds.intersection(visibleRect).contains(point), !isHiddenOrHasHiddenAncestor {
+        let inside = bounds.intersection(visibleRect).contains(point) && !isHiddenOrHasHiddenAncestor
+        if inside {
             if lit { updateHover(at: point, moved: false) }
         } else if lit || newTabButton.isHovered || closingModeWidth != nil { pointerLeft() }
+        // A strip away from the pointer, with no card of its own, changes no card: no window
+        // hit test for it (a tab switch or a strip animation elsewhere in the window).
+        guard inside || lit || hoverCard.isVisible else { return }
         hoverCards.geometryChanged(in: window)
     }
 

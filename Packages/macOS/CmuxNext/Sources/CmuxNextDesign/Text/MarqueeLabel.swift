@@ -66,7 +66,7 @@ public final class MarqueeLabel: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    public override var isFlipped: Bool { true }
+    nonisolated public override var isFlipped: Bool { true }
     public override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
     public override var intrinsicContentSize: NSSize {

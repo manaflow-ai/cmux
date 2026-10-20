@@ -1,7 +1,7 @@
 public import AppKit
 
-/// The profile the menu's "Profiles" section shows: today only the
-/// current one (real profiles are a later lane).
+/// The profile the menu's first row shows: today only the current one
+/// (real profiles are a later lane).
 public nonisolated struct ProfileMenuProfile: Sendable, Hashable {
     public var name: String
 
@@ -22,11 +22,11 @@ public nonisolated struct ProfileMenuProfile: Sendable, Hashable {
         self.registry = registry
     }
 
-    public func make(profile: ProfileMenuProfile, spec: ProfileMenuSpec = ProfileMenuSpec()) -> NSMenu {
+    /// `avatar` is drawn in the current-profile row's image column.
+    public func make(profile: ProfileMenuProfile, avatar: NSImage? = nil, spec: ProfileMenuSpec = ProfileMenuSpec()) -> NSMenu {
         let menu = NSMenu()
         menu.autoenablesItems = true
-        menu.addItem(.sectionHeader(title: spec.sectionTitle))
-        menu.addItem(profileRow(profile, actions: spec.profileActions))
+        menu.addItem(profileRow(profile, avatar: avatar, actions: spec.profileActions))
         menu.addItem(.separator())
         for submenu in spec.submenus {
             let rows = submenu.actions.compactMap(boundMenuItem)
@@ -49,14 +49,11 @@ public nonisolated struct ProfileMenuProfile: Sendable, Hashable {
         return menu
     }
 
-    /// The current profile and a "…" submenu with its options. No checkmark
-    /// and no avatar: a checked row reserves a state column, and an image
-    /// reserves an image column, for every row of the menu, which pushed
-    /// them all right of the menu's inset (the sidebar control the menu
-    /// opens from shows the avatar). With one profile a checkmark meant
-    /// nothing.
-    private func profileRow(_ profile: ProfileMenuProfile, actions: [ActionID]) -> NSMenuItem {
+    /// The current profile, its avatar and a submenu with its options. A
+    /// checkmark and section header are unnecessary with one current profile.
+    private func profileRow(_ profile: ProfileMenuProfile, avatar: NSImage?, actions: [ActionID]) -> NSMenuItem {
         let item = NSMenuItem(title: profile.name, action: nil, keyEquivalent: "")
+        item.image = avatar
         item.identifier = NSUserInterfaceItemIdentifier("profileMenu.currentProfile")
         let options = actions.compactMap(boundMenuItem)
         if !options.isEmpty {

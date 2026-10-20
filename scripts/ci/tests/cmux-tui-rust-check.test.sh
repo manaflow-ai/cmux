@@ -22,6 +22,8 @@ case "\$1 \$2" in
 esac
 STUB
 chmod +x "$TMP/bin/rustup"
+printf '#!/bin/bash\necho "rustc 1.95.0 (stub)"\n' > "$TMP/bin/rustc"
+chmod +x "$TMP/bin/rustc"
 cat > "$TMP/bin/git" <<STUB
 #!/bin/bash
 case " \$* " in

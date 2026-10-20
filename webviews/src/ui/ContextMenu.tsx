@@ -21,6 +21,7 @@ export interface ContextMenuProps {
   items: readonly ContextMenuItem[];
   children: ReactNode;
   className?: string;
+  popupClassName?: string;
   /**
    * "menu": a right-click over selected text opens this menu too (the surface offers its own
    * selected-text items, such as Cut and Copy). By default a selection keeps the host's menu.
@@ -64,7 +65,16 @@ const MENU_ICON = {
  * context-menu key on a focused control inside the host opens it at that control's bottom start
  * corner, so every surface with a right-click menu has a keyboard path.
  */
-export function ContextMenu({ items, children, className, selection, onOpen, ignore, targets }: ContextMenuProps) {
+export function ContextMenu({
+  items,
+  children,
+  className,
+  popupClassName,
+  selection,
+  onOpen,
+  ignore,
+  targets,
+}: ContextMenuProps) {
   const [point, setPoint] = useState<{ x: number; y: number } | null>(null);
   const [active, setActive] = useState(0);
   const returnFocus = useRef<HTMLElement | null>(null);
@@ -198,7 +208,7 @@ export function ContextMenu({ items, children, className, selection, onOpen, ign
             >
               <div
                 ref={attach}
-                className="ui-popup ui-context-menu"
+                className={cx("ui-popup ui-context-menu", popupClassName)}
                 role="menu"
                 data-focus-ring="rows"
                 tabIndex={-1}

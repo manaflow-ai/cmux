@@ -42,7 +42,7 @@ const ownerWithChief = async (sub: string) => {
 }
 
 const connect = async (id: string, token: string) => {
-  const res = await worker.fetch(`https://api.test/v1/wire/conv/${id}`, { headers: { Upgrade: "websocket", "Sec-WebSocket-Protocol": `cmux.wire.v1, bearer.${token}` } })
+  const res = await worker.fetch(`https://api.test/v1/wire/conv/${id}`, { headers: { Upgrade: "websocket", "Sec-WebSocket-Protocol": "cmux.wire.v1", authorization: `Bearer ${token}` } })
   expect(res.status).toBe(101)
   const ws = res.webSocket!
   const frames: Array<any> = []
@@ -106,7 +106,8 @@ describe("Live Chief frames on the conversation socket", { timeout: 120_000 }, (
     expect(step).toMatch(/^talk:/)
     expect(d.every((f) => f.step === step && f.kind === "talk" && f.run === d[0].run && f.author === chief.id && f.conversation === conversation)).toBe(true)
     expect(d.map((f) => f.seq)).toEqual(d.map((_, i) => i))
-    expect(d.map((f) => f.text).join("")).toBe(text)
+    // The posted reply is the streamed text, trimmed.
+    expect(d.map((f) => f.text).join("").trim()).toBe(text)
     expect(d.at(-1).final).toBe(true)
     expect(d.slice(0, -1).some((f) => f.final)).toBe(false)
     expect(d.every((f) => f.text.length >= 1 && f.text.length <= 4096)).toBe(true)
@@ -129,16 +130,21 @@ describe("Live Chief frames on the conversation socket", { timeout: 120_000 }, (
     expect(liveStep.text).toBe(d.slice(0, liveStep.seq + 1).map((f) => f.text).join(""))
     const after = deltasOf(late.frames).filter((f) => f.step === step)
     expect(after.map((f) => f.seq)).toEqual(after.map((_, i) => liveStep.seq + 1 + i))
-    expect(liveStep.text + after.map((f) => f.text).join("")).toBe(text)
+    expect((liveStep.text + after.map((f) => f.text).join("")).trim()).toBe(text)
     expect(liveRun.activity?.line).toBeTypeOf("string")
 
+    // Order (cx-zz30r): the final delta, then the run's end, then the reply message.
+    const replyAt = early.frames.findIndex((f) => f.t === "event" && JSON.stringify(f).includes(reply.id))
+    const endAt = early.frames.findIndex((f) => f.t === "conversation-run-changed" && f.run.id === d[0].run && f.run.status !== "running")
+    expect(early.frames.indexOf(d.at(-1))).toBeLessThan(endAt)
+    expect(endAt).toBeLessThan(replyAt)
     // After the run: nothing is live; the run's talk step holds the text.
     await drive(conversation, `${chief.id}/${conversation}`, () => early.frames.some((f) => f.t === "conversation-run-changed" && f.run.id === d[0].run && f.run.status !== "running"), "the run end")
     early.ws.send(JSON.stringify({ t: "run.live.get", conversation }))
     await drive(conversation, `${chief.id}/${conversation}`, () => early.frames.filter((f) => f.t === "run.live").length >= 2, "the run.live.get answer")
     expect(early.frames.filter((f) => f.t === "run.live").at(-1).runs).toEqual([])
     const run = await http("GET", `/v1/chiefs/${chief.id}/runs/${d[0].run}?conversation=${conversation}`, token)
-    expect(run.json.value.steps.find((s: any) => s.id === step)?.text).toBe(text)
+    expect(run.json.value.steps.find((s: any) => s.id === step)?.text?.trim()).toBe(text)
     console.log(JSON.stringify({ msg: "live.timing", first_delta_ms: firstDeltaMs, deltas: d.length, reply_chars: text.length, late_snapshot_seq: liveStep.seq }))
     early.ws.close()
     late.ws.close()

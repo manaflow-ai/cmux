@@ -12,14 +12,37 @@ import AppKit
 /// `Fixture.withRenderScale(_:_:)` and the process fallback outside one. Work sent to another queue takes the scale
 /// with it (a task local does not follow DispatchQueue blocks): RowBitmaps, Pager, TiledBody, MorphBubble.prepare.
 enum RenderScaleScope {
+    /// The scope's scale for work inside a Swift task or off the main thread.
     @TaskLocal static var scoped: CGFloat? = nil
+    /// cmux: the scope's scale on the main thread outside any task (a layer's draw, a window
+    /// move, a layout pass). A task local bound there lives in the thread's fallback storage, and an
+    /// isolated deinit run inline under it (every main-actor class of a main-actor-default target
+    /// has one) makes the macOS 15.4 to 15.x runtime free() a marker its task allocator made: cmux
+    /// trapped under Chromium's allocator when Cmd-1 left Home (CMUXTERM-MACOS-44XN, macOS 15.8.1).
+    // Read and written only on the main thread (`with` and `current` check it).
+    nonisolated(unsafe) static var mainThreadScoped: CGFloat? = nil
+
+    /// The scale of the scope that runs now, nil outside any scope.
+    static var current: CGFloat? { scoped ?? (Thread.isMainThread ? mainThreadScoped : nil) }
+
+    /// Runs `body` in a scope of scale `s`, binding no task local where no task runs.
+    static func with<T>(_ s: CGFloat, _ body: () throws -> T) rethrows -> T {
+        if Thread.isMainThread, !withUnsafeCurrentTask(body: { $0 != nil }) {
+            let outer = mainThreadScoped
+            mainThreadScoped = s
+            defer { mainThreadScoped = outer }
+            return try body()
+        }
+        // concurrency-allow: bound inside a task or off the main thread, never in fallback storage on main
+        return try $scoped.withValue(s, operation: body)
+    }
 }
 
 extension Fixture {
     /// Runs `body` with `Fixture.renderScale` = `s` on this thread (a scale of 0 or less: the current value).
     static func withRenderScale<T>(_ s: CGFloat, _ body: () throws -> T) rethrows -> T {
-        guard s > 0, RenderScaleScope.scoped != s else { return try body() }
-        return try RenderScaleScope.$scoped.withValue(s, operation: body)
+        guard s > 0, RenderScaleScope.current != s else { return try body() }
+        return try RenderScaleScope.with(s, body)
     }
 }
 
@@ -676,6 +699,9 @@ final class MeasureCache: @unchecked Sendable {
     struct PartKey: Hashable { var id: ID; var part: Int; var version: Int; var markdown: Bool; var scale: CGFloat }
     struct Value { var size: CGSize; var text: TextLayout?; var width: CGFloat = 0; var estimated = false; var markdown: MarkdownLayout? = nil }
     private var store: [Key: Value] = [:]
+    /// Streaming bubbles (ask 11): every chunk is a new text under one id; only their latest measurements are kept
+    /// (at most 16), never in `store` or `latest` (they grew by one text layout per chunk).
+    private var streamStore: [Key: Value] = [:]
     /// The latest exact measurement of each part at any width (estimates).
     private var latest: [PartKey: Value] = [:]
     private let lock = NSLock()
@@ -700,6 +726,15 @@ final class MeasureCache: @unchecked Sendable {
         return h.finalize()
     }
 
+    /// One exact measurement (Core Text or the markdown layout), no cache.
+    private static func measure(_ m: Message, _ part: Part, width: CGFloat, scale: CGFloat) -> Value {
+        if case let .text(t, _) = part, let md = Markdown.layout(t, message: m.id, format: m.format, width: width) {
+            return Value(size: md.size, text: md.proxy, width: width, markdown: md)
+        }
+        let (size, tl) = Sizing.size(of: part, width: width, scale: scale)
+        return Value(size: size, text: tl, width: width)
+    }
+
     static func version(_ m: Message) -> Int { ((m.edits?.count ?? 0) * 2 + (m.retractedAt == nil ? 0 : 1)) * 2 + (m.deletedAt == nil ? 0 : 1) }
 
     /// The part's size at `width`. With `estimate`, a miss does not run Core
@@ -720,8 +755,19 @@ final class MeasureCache: @unchecked Sendable {
         let version = MeasureCache.version(m) &+ MeasureCache.partVersion(part) &+ Markdown.versionSalt(m.id)
         let k = Key(id: m.id, part: pi, version: version, width: width, markdown: m.isMarkdown, scale: scale)
         let pk = PartKey(id: m.id, part: pi, version: version, markdown: m.isMarkdown, scale: scale)
+        let streaming = StreamBubble.isStream(m.id)
         lock.lock()
-        if let v = store[k] { hits += 1; lock.unlock(); return v }
+        if let v = streaming ? streamStore[k] : store[k] { hits += 1; lock.unlock(); return v }
+        if streaming {
+            misses += 1
+            lock.unlock()
+            let v = MeasureCache.measure(m, part, width: width, scale: scale)
+            lock.lock()
+            if streamStore.count >= 16 { streamStore.removeAll() }
+            streamStore.updateValue(v, forKey: k)
+            lock.unlock()
+            return v
+        }
         // Plain text that no width wrapped and that fits the new column: the same lines at the new
         // width, exact (no Core Text, no estimate). A divider drag or live resize changes most
         // short bubbles' widths only in this way.
@@ -738,13 +784,7 @@ final class MeasureCache: @unchecked Sendable {
         }
         misses += 1
         lock.unlock()
-        var v: Value
-        if case let .text(t, _) = part, let md = Markdown.layout(t, message: m.id, format: m.format, width: width) {
-            v = Value(size: md.size, text: md.proxy, width: width, markdown: md)
-        } else {
-            let (size, tl) = Sizing.size(of: part, width: width, scale: scale)
-            v = Value(size: size, text: tl, width: width)
-        }
+        let v = MeasureCache.measure(m, part, width: width, scale: scale)
         lock.lock()
         store.updateValue(v, forKey: k) // dictionary writes
         latest.updateValue(v, forKey: pk)
@@ -842,14 +882,21 @@ enum RowBuilder {
     /// `previousRow`: the kind of the row just above `range` (gaps depend on it).
     /// `width`: layout width (captured on main). `exact`: message indices to
     /// measure exactly; others may use estimates (nil: all exact).
-    static func rows(_ s: AppState, messages: [Message], now: Date, threadMode: Bool = false, range: Range<Int>? = nil,
+    static func rows(_ s: AppState, messages loaded: [Message], now: Date, threadMode: Bool = false, range: Range<Int>? = nil,
                      previousRow: RowSpec.Kind? = nil, width: CGFloat = Metrics.current.width, exact: Range<Int>? = nil,
-                     scale: CGFloat = Fixture.renderScale) -> [RowSpec] {
+                     scale: CGFloat = Fixture.renderScale, threadCounts: [ID: Int]? = nil) -> [RowSpec] {
         let me = s.me
         var rows: [RowSpec] = []
+        var span = (range ?? 0..<loaded.count).clamped(to: 0..<loaded.count) // a range from an older window stays inside
+        // The host's streaming bubbles with text (ask 11, HostHooks.swift) follow the newest message as the messages
+        // they will be: grouping, tails, gaps and receipts come out as they will with the final message. None: the
+        // loaded messages as they are (no copy).
+        let tail = !threadMode && span.upperBound == loaded.count && s.atNewest
+        let writing = tail ? s.ui.streams.filter { !$0.parts.isEmpty } : []
+        let messages = writing.isEmpty ? loaded : loaded + writing.map(\.message)
+        if !writing.isEmpty { span = span.lowerBound..<messages.count }
         let receipts = receiptTargets(messages, me: me)
         // Thread counts (roots with 2+ replies get a label).
-        let span = (range ?? 0..<messages.count).clamped(to: 0..<messages.count) // a range from an older window stays inside
         var replyCount: [ID: Int] = [:]
         if !threadMode {
             for m in messages.slice(span.lowerBound, span.upperBound) { // no index math
@@ -857,6 +904,13 @@ enum RowBuilder {
             }
             for m in s.conversation.messages {
                 if let r = m.replyTo, m.retractedAt == nil, let c = replyCount[r.messageId] { replyCount[r.messageId] = c + 1 }
+            }
+            // ThreadMode.tree: every reply of a tree stores its root in `replyTo`, so the count above
+            // is the root's whole subtree; the host's count wins when it gives one (Message.replyCount).
+            if s.ui.threadMode == .tree {
+                for m in s.conversation.messages where replyCount[m.id] != nil {
+                    if let n = m.replyCount { replyCount[m.id] = max(0, n) }
+                }
             }
         }
         // A message's thread: a reply's root, or the message itself when it has a reply that is not unsent or deleted
@@ -964,7 +1018,8 @@ enum RowBuilder {
                     || next.retractedAt != nil || next.replyTo != m.replyTo
                     || thread(next, at: idx + 1) != thread(m, at: idx) } ?? true
                 for (pi, part) in m.parts.enumerated() {
-                    let measured = MeasureCache.shared.size(m, pi, width: width, estimate: exact.map { !$0.contains(idx) } ?? false, scale: scale)
+                    // A streaming bubble (past the loaded messages) is always measured: it draws now.
+                    let measured = MeasureCache.shared.size(m, pi, width: width, estimate: idx < loaded.count && (exact.map { !$0.contains(idx) } ?? false), scale: scale)
                     let (size, tl) = (measured.size, measured.text)
                     let reactions = m.reactions.filter { $0.partIndex == pi }
                     var g = pi == 0 ? gap : 3
@@ -1005,6 +1060,12 @@ enum RowBuilder {
                     rows.append(RowSpec(key: "replies:\(m.id)", kind: .replies(count: n, root: PartRef(messageId: m.id, partIndex: 0),
                                                                                outgoing: outgoing), gap: 0, height: 22))
                 }
+                // ThreadMode.tree thread view: "N Replies" under a reply that has replies opens its
+                // branch (drill-in). `threadCounts` is nil in `.messages` mode and in the transcript.
+                if threadMode, let n = threadCounts?[m.id], n >= 1 {
+                    rows.append(RowSpec(key: "replies:\(m.id)", kind: .replies(count: n, root: PartRef(messageId: m.id, partIndex: 0),
+                                                                               outgoing: outgoing), gap: 0, height: 22))
+                }
                 if let r = receipts[m.id] {
                     rows.append(RowSpec(key: "receipt:\(m.id)", kind: .receipt(bold: r.0, rest: r.1), gap: 0, height: 16))
                 }
@@ -1016,13 +1077,17 @@ enum RowBuilder {
         if !threadMode, span.upperBound == messages.count, s.atNewest, s.ui.notice?.isEmpty ?? true, let notice = s.ui.cmuxNotice {
             rows.append(RowSpec(key: "notice", kind: .separator(bold: "", rest: notice), gap: 0, height: 35.5))
         }
-        if !threadMode, span.upperBound == messages.count, s.atNewest, s.ui.typing.contains(where: { $0 != me }) {
-            rows.append(RowSpec(key: "typing", kind: .typing, gap: 0, height: 35))
-        }
-        // The host's status line (ask 9), last, under the typing indicator: drawn like Messages' own notice in the
-        // transcript ("You unsent a message": 11 pt, secondary, centered) at the unsent row's gap and height.
+        // A stream with text is its sender's bubble (no typing indicator for them); one without text is the indicator.
+        let typists = s.ui.typing.contains { t in t != me && !writing.contains { $0.sender == t } }
+            || (tail && s.ui.streams.contains { $0.parts.isEmpty && $0.sender != me })
+        // cmux: the host's status line (ask 9) goes above the typing indicator, not under it (upstream: last,
+        // centered): the Chief's "working on" line reads as a caption of the bubble it heads (RowDraw `.notice`
+        // draws it at the bubble's left edge). Same gap and height as upstream's.
         if !threadMode, span.upperBound == messages.count, s.atNewest, let notice = s.ui.notice, !notice.isEmpty {
             rows.append(RowSpec(key: "notice", kind: .notice(notice), gap: 8, height: 16))
+        }
+        if !threadMode, span.upperBound == messages.count, s.atNewest, typists {
+            rows.append(RowSpec(key: "typing", kind: .typing, gap: 0, height: 35))
         }
         rows = rows.map { var r = $0; r.width = width; return r } // no index writes
         return rows
@@ -1066,6 +1131,12 @@ enum RowBuilder {
             out.append(row)
         }
         return out
+    }
+
+    /// Rows that belong after the newest loaded message, always derived again with it: the typing indicator, the
+    /// host's status line (ask 9) and the host's streaming bubbles (ask 11).
+    static func isTrailing(_ key: String) -> Bool {
+        key == "typing" || key == "notice" || owner(key).map(StreamBubble.isStream) == true
     }
 
     /// The message id of a row key ("kind:messageID[:part]"), without allocating.
@@ -1201,8 +1272,16 @@ enum Strings {
     static var unsentMine: String { MessagesLabLocalization.string("row.unsent.mine", "You unsent a message") }
     static var unsentTheirs: String { MessagesLabLocalization.string("row.unsent.theirs", "A message was unsent") }
     static func replies(_ n: Int) -> String {
-        String(format: MessagesLabLocalization.string("label.replies", "%lld Replies"), n)
+        // One reply: only a `.tree` thread view's drill-in label shows it (Messages labels 2 or more).
+        if n == 1 { return MessagesLabLocalization.string("label.replies.one", "1 Reply") }
+        return String(format: MessagesLabLocalization.string("label.replies", "%lld Replies"), n)
     }
+    /// The `.tree` thread view's back control (cmux only).
+    static var threadBack: String { MessagesLabLocalization.string("thread.back", "Back") }
+    /// The host thread header's status chip and owner placeholder (cmux only).
+    static var threadOpen: String { MessagesLabLocalization.string("thread.status.open", "Open") }
+    static var threadResolved: String { MessagesLabLocalization.string("thread.status.resolved", "Resolved") }
+    static var threadUnassigned: String { MessagesLabLocalization.string("thread.owner.none", "Unassigned") }
     static var location: String { MessagesLabLocalization.string("preview.location", "Location") }
     static func fileKind(_ a: Attachment) -> String {
         switch (a.fileName as NSString).pathExtension.lowercased() {

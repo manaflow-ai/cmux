@@ -110,6 +110,25 @@ protocol TranscriptCustomRowProvider: AnyObject {
     func handleKey(_ key: CustomRowKey, view: CustomRowPlatformView, part: CustomPart, context: CustomRowContext) -> Bool
     /// Copy, VoiceOver and preview text (nil: "[kind]").
     func plainText(_ part: CustomPart) -> String?
+    /// The provider draws the row into its row bitmap (`drawRow`), with no live view: a host
+    /// without a live-view host (cmux Home: an agent run card). Rows measure with the provider
+    /// then even where live views are off. Default false.
+    var drawsRow: Bool { get }
+    /// Draw `part` in `rect` (the body: the bubble, drawn first in the bubble modes, or the
+    /// column for full width rows). Any thread (row bitmaps draw off main); pure.
+    func drawRow(_ part: CustomPart, in ctx: CGContext, rect: CGRect, context: CustomRowDrawContext)
+    /// A click on the row (`MessagesWindowView.hostControl`; main thread). true: taken (the host
+    /// does nothing more with the click, e.g. it opens a sheet). Default false.
+    func tapped(_ part: CustomPart, ref: PartRef) -> Bool
+}
+
+/// What `drawRow` gets besides the part.
+struct CustomRowDrawContext {
+    var outgoing: Bool
+    /// The transcript draws dark (Fixture.lightAppearance false).
+    var isDark: Bool
+    /// A thread view copy (the elevated palette).
+    var elevated: Bool
 }
 
 extension TranscriptCustomRowProvider {
@@ -119,6 +138,45 @@ extension TranscriptCustomRowProvider {
     func prepareForReuse(_ view: CustomRowPlatformView) {}
     func handleKey(_ key: CustomRowKey, view: CustomRowPlatformView, part: CustomPart, context: CustomRowContext) -> Bool { false }
     func plainText(_ part: CustomPart) -> String? { nil }
+    var drawsRow: Bool { false }
+    func drawRow(_ part: CustomPart, in ctx: CGContext, rect: CGRect, context: CustomRowDrawContext) {}
+    func tapped(_ part: CustomPart, ref: PartRef) -> Bool { false }
+}
+
+/// A drawn custom row from closures (ask 7: cmux's agent run card). The host gives the kind, the
+/// height for a width, the drawing and the tap; register it with `CustomRows.register`. The
+/// closures `height`, `draw` and `text` run on any thread (measure on the loader queue, row
+/// bitmaps on their threads): keep them pure over the part's payload. `tap` runs on main.
+final class DrawnRowProvider: TranscriptCustomRowProvider {
+    let kind: String
+    let rowLayout: CustomRowLayout
+    private let height: (CustomPart, CGFloat) -> CGFloat
+    private let draw: (CustomPart, CGContext, CGRect, CustomRowDrawContext) -> Void
+    private let text: (CustomPart) -> String?
+    private let tap: ((CustomPart, PartRef) -> Bool)?
+
+    init(kind: String, layout: CustomRowLayout = .fullWidth,
+         height: @escaping (CustomPart, CGFloat) -> CGFloat,
+         draw: @escaping (CustomPart, CGContext, CGRect, CustomRowDrawContext) -> Void,
+         text: @escaping (CustomPart) -> String? = { _ in nil },
+         tap: ((CustomPart, PartRef) -> Bool)? = nil) {
+        self.kind = kind
+        self.rowLayout = layout
+        self.height = height
+        self.draw = draw
+        self.text = text
+        self.tap = tap
+    }
+
+    var measuresOffMain: Bool { true }
+    var drawsRow: Bool { true }
+    func layout(for part: CustomPart) -> CustomRowLayout { rowLayout }
+    func measure(_ part: CustomPart, maxWidth: CGFloat) -> CGSize { CGSize(width: maxWidth, height: max(1, height(part, maxWidth))) }
+    func makeView() -> CustomRowPlatformView { CustomRowPlatformView() }
+    func configure(_ view: CustomRowPlatformView, part: CustomPart, context: CustomRowContext) {}
+    func drawRow(_ part: CustomPart, in ctx: CGContext, rect: CGRect, context: CustomRowDrawContext) { draw(part, ctx, rect, context) }
+    func plainText(_ part: CustomPart) -> String? { text(part) }
+    func tapped(_ part: CustomPart, ref: PartRef) -> Bool { tap?(part, ref) ?? false }
 }
 
 /// The live-view side, implemented by a host (appkit-native CustomRowsHost). The shared
@@ -152,8 +210,16 @@ enum CustomRows {
     static func unregister(_ kind: String) { lock.lock(); providers[kind] = nil; lock.unlock(); cache.clear() }
     static func provider(_ kind: String) -> TranscriptCustomRowProvider? { lock.lock(); defer { lock.unlock() }; return providers[kind] }
 
-    /// The provider when its live view is shown here.
-    static func live(_ c: CustomPart) -> TranscriptCustomRowProvider? { liveViews ? provider(c.kind) : nil }
+    /// The provider when its live view is shown here, or when it draws the row itself (`drawsRow`).
+    static func live(_ c: CustomPart) -> TranscriptCustomRowProvider? {
+        guard let p = provider(c.kind) else { return nil }
+        return liveViews || p.drawsRow ? p : nil
+    }
+    /// The provider when a live-view host shows its view (a drawn row has none).
+    static func hosted(_ c: CustomPart) -> TranscriptCustomRowProvider? {
+        guard liveViews, let p = provider(c.kind), !p.drawsRow else { return nil }
+        return p
+    }
 
     static func plainText(_ c: CustomPart) -> String { provider(c.kind)?.plainText(c) ?? "[\(c.kind)]" }
 
@@ -236,8 +302,18 @@ enum CustomRows {
             if let tl = p.text { PartRenderer.drawText(ctx, tl, in: body, outgoing: p.outgoing) }
             return
         }
-        guard layout(c, outgoing: p.outgoing) != .fullWidth else { return }
-        BubbleView.drawBubble(ctx, body: body, lines: [], outgoing: p.outgoing, tail: p.tail, windowY: windowY)
+        guard let prov = live(c) else { return }
+        let full = layout(c, outgoing: p.outgoing) == .fullWidth
+        if !full { BubbleView.drawBubble(ctx, body: body, lines: [], outgoing: p.outgoing, tail: p.tail, windowY: windowY) }
+        guard prov.drawsRow else { return }
+        #if os(iOS) && !targetEnvironment(macCatalyst)
+        let elevated = false    // the iOS app's Fixture has no thread copy palette
+        #else
+        let elevated = Fixture.elevated
+        #endif
+        ctx.saveGState()
+        prov.drawRow(c, in: ctx, rect: body, context: CustomRowDrawContext(outgoing: p.outgoing, isDark: !Fixture.lightAppearance, elevated: elevated))
+        ctx.restoreGState()
     }
 
     /// The hosted view's rect in row (cell) coordinates.

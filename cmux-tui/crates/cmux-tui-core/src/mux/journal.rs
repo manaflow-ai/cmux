@@ -5,6 +5,10 @@ use super::*;
 impl Mux {
     pub(crate) fn publish_resource_event(&self) {
         self.publish_journal_event();
+        // A terminal's first cwd report can precede its registration, and its
+        // shell may then stay quiet. Each committed graph change is where such
+        // a terminal can join the graph, so publish whatever report waited.
+        self.publish_pending_terminal_directories();
     }
 
     pub(crate) fn publish_journal_event(&self) {
@@ -389,6 +393,24 @@ impl Mux {
         revision: u64,
     ) -> anyhow::Result<crate::workspace_registry::ResourceEventPage> {
         self.workspace_registry.lock().unwrap().resource_events_after(revision)
+    }
+
+    /// A read-only reader for a `session.events` stream's resource pages and
+    /// the registry generation its pages carry, or `None` for an in-memory
+    /// registry (then the stream reads through `resource_events_after`).
+    /// Takes the registry lock once, briefly, with no SQLite work.
+    pub(crate) fn resource_event_reader(
+        &self,
+    ) -> anyhow::Result<Option<(crate::workspace_registry::SessionJournalReader, String)>> {
+        let (database_path, generation) = {
+            let registry = self.workspace_registry.lock().unwrap();
+            (registry.session_journal_database_path(), registry.generation().to_owned())
+        };
+        database_path
+            .as_deref()
+            .map(crate::workspace_registry::SessionJournalReader::open)
+            .transpose()
+            .map(|reader| reader.map(|reader| (reader, generation)))
     }
 
     /// The journal head without decoding any record or sealed segment.

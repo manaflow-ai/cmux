@@ -117,8 +117,7 @@ def verify(path: str, artifact: dict) -> None:
         raise SystemExit(f"size {size} != recorded {artifact['size_in_bytes']}")
     digest = artifact.get("digest") or ""
     if not digest.startswith("sha256:"):
-        print("artifact has no recorded sha256 digest; verified size only")
-        return
+        raise SystemExit("artifact has no recorded sha256 digest; refusing unverified input")
     sha = hashlib.sha256()
     with open(path, "rb") as handle:
         for chunk in iter(lambda: handle.read(1 << 20), b""):

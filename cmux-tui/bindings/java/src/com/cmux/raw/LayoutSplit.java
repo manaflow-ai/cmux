@@ -17,6 +17,8 @@ public final class LayoutSplit implements WireValue, Layout {
     private final double ratio;
     /** Stable for the lifetime of this split node. */
     private final Field<UInt64> split;
+    /** The split's public id (split_ and 32 hex digits): stable across daemon restarts, and the caller-minted split_id of the split request that made it. */
+    private final Field<String> splitId;
 
     private LayoutSplit(Builder builder) {
         if (!builder.aSet) throw new IllegalArgumentException("a is required");
@@ -28,6 +30,7 @@ public final class LayoutSplit implements WireValue, Layout {
         if (!builder.ratioSet) throw new IllegalArgumentException("ratio is required");
         this.ratio = builder.ratio;
         this.split = builder.split;
+        this.splitId = builder.splitId;
     }
 
     public static Builder builder() { return new Builder(); }
@@ -37,6 +40,7 @@ public final class LayoutSplit implements WireValue, Layout {
     public SplitDirection dir() { return dir; }
     public double ratio() { return ratio; }
     public Field<UInt64> split() { return split; }
+    public Field<String> splitId() { return splitId; }
     public String type() { return "split"; }
 
     public static LayoutSplit fromWire(Object value) {
@@ -54,6 +58,10 @@ public final class LayoutSplit implements WireValue, Layout {
         if (!Wire.isMissing(rawSplit)) {
             builder.split(Wire.uint64(rawSplit, "LayoutSplit.split"));
         }
+        Object rawSplitId = Wire.optional(object, "split_id");
+        if (!Wire.isMissing(rawSplitId)) {
+            builder.splitId(Wire.string(rawSplitId, "LayoutSplit.split_id"));
+        }
         Object rawType = Wire.required(object, "type");
         ProtocolSupport.literal(rawType, "split", "LayoutSplit.type");
         return builder.build();
@@ -67,6 +75,7 @@ public final class LayoutSplit implements WireValue, Layout {
         Wire.put(object, "dir", dir);
         Wire.put(object, "ratio", ratio);
         Wire.put(object, "split", split);
+        Wire.put(object, "split_id", splitId);
         Wire.put(object, "type", "split");
         return Collections.unmodifiableMap(object);
     }
@@ -74,11 +83,11 @@ public final class LayoutSplit implements WireValue, Layout {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof LayoutSplit that)) return false;
-        return Objects.equals(a, that.a) && Objects.equals(b, that.b) && Objects.equals(dir, that.dir) && Objects.equals(ratio, that.ratio) && Objects.equals(split, that.split);
+        return Objects.equals(a, that.a) && Objects.equals(b, that.b) && Objects.equals(dir, that.dir) && Objects.equals(ratio, that.ratio) && Objects.equals(split, that.split) && Objects.equals(splitId, that.splitId);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(a, b, dir, ratio, split); }
+    public int hashCode() { return Objects.hash(a, b, dir, ratio, split, splitId); }
 
     @Override
     public String toString() { return "LayoutSplit" + toWire(); }
@@ -93,6 +102,7 @@ public final class LayoutSplit implements WireValue, Layout {
         private Double ratio;
         private boolean ratioSet;
         private Field<UInt64> split = Field.omitted();
+        private Field<String> splitId = Field.omitted();
 
         public Builder a(Layout value) {
             this.a = value;
@@ -116,6 +126,10 @@ public final class LayoutSplit implements WireValue, Layout {
         }
         public Builder split(UInt64 value) {
             this.split = Field.of(value);
+            return this;
+        }
+        public Builder splitId(String value) {
+            this.splitId = Field.of(value);
             return this;
         }
         public LayoutSplit build() { return new LayoutSplit(this); }
