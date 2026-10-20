@@ -1074,3 +1074,9 @@
 }
 /* The box's own row, with the chips gone: + on the left, the mic and Send or Stop on the right. */
 .acpmux-composer-inner { min-height: 48px; }
+/* The context ring ends the quiet row, as Claude Code's does: the row's soft pill on hover and
+   while its details are open, the row's outline under keyboard focus. */
+.acpmux-composer-foot .acpmux-context-ring { width: 24px; height: 24px; margin-inline-start: 4px; }
+.acpmux-composer-foot .acpmux-context-ring:hover,
+.acpmux-composer-foot .acpmux-context-ring[aria-expanded="true"] { background: var(--acpmux-pill-hover); }
+.acpmux-composer-foot .acpmux-context-ring:focus-visible { outline-offset: 0; }

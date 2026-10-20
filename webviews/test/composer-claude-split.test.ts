@@ -141,6 +141,11 @@ await requireBrowserLane("composer-claude-split.test.ts", async () => {
           model: text(root.querySelector(".acpmux-composer-foot .acpmux-model .acpmux-picker-button > span")),
           effort: text(root.querySelector(".acpmux-composer-foot .acpmux-effort [data-fit-part='effort']")),
           effortButton: rect(root.querySelector(".acpmux-composer-foot .acpmux-effort .acpmux-picker-button")),
+          ring: rect(root.querySelector(".acpmux-composer-foot .acpmux-context-ring")),
+          // The row's rightmost control: the context ring once the chat reports usage, else effort.
+          end: Math.max(
+            ...[...root.querySelectorAll(".acpmux-composer-foot button")].map((button) => button.getBoundingClientRect().right),
+          ),
           prompt: text(card.querySelector(".nt-field, .acpmux-md")?.closest(".nt-input, .acpmux-composer-prompt") ?? null),
           mic: rect(card.querySelector(".acpmux-mic")),
           send: rect(card.querySelector(".acpmux-send")),
@@ -170,7 +175,11 @@ await requireBrowserLane("composer-claude-split.test.ts", async () => {
         expect(at.model!.left, "the model is right of the mode").toBeGreaterThan(at.mode!.right + 40);
         expect(at.effort!.left - at.model!.right, "model and effort 8 px apart").toBeLessThanOrEqual(10);
         expect(at.effort!.left - at.model!.right, "model and effort 8 px apart").toBeGreaterThanOrEqual(6);
-        expect(at.box.right - at.effortButton!.right, "the row ends near the box's right side").toBeLessThanOrEqual(14);
+        expect(at.box.right - at.end, "the row ends near the box's right side").toBeLessThanOrEqual(14);
+        // Claude Code ends the row on the context ring, right of effort, once there is usage.
+        // The chat's fixture reports usage; the New Tab page has no chat yet, so no ring.
+        expect(Boolean(at.ring), "the context ring shows only with usage").toBe(stage.plus);
+        if (at.ring) expect(at.ring.left, "the ring follows effort").toBeGreaterThanOrEqual(at.effortButton!.right - 0.5);
       });
 
     for (const stage of COMPOSERS)

@@ -33,6 +33,7 @@ import {
   ArrowUpIcon,
   AtIcon,
   BuildIcon,
+  ContextRing,
   PaperclipIcon,
   Picker,
   PlusIcon,
@@ -369,7 +370,8 @@ export function Composer({
   // The session's speed option, which the chips hand up: the bolt left of the mic (FastToggle.tsx).
   const [speed, setSpeed] = useState<SpeedTiers | undefined>(undefined);
   // Debug Settings' plain footer look (composerSettings.ts plainFooter, composerLocation.css).
-  const { plainFooter } = useComposerSettings();
+  const { plainFooter, showContextUsage } = useComposerSettings();
+  const usage = snapshot.summary?.usage;
   /// Set while the host has not yet taken a prompt the composer still holds: Enter sends no copy.
   const sending = useRef(false);
   /// The newest submit, for the handle's `send` (rendered after the trust answer lands).
@@ -1431,6 +1433,11 @@ export function Composer({
               <Chips snapshot={snapshot} permissionAccess={permissionAccess} />
             </SpeedToggleHost.Provider>
             {speed && <FastToggle speed={speed} />}
+            {/* Claude Code ends the row on the context ring; it shows once the chat reports usage,
+                and the context-usage setting hides it (showContextUsage). */}
+            {showContextUsage && usage && usage.size > 0 && (
+              <ContextRing used={usage.used} size={usage.size} working={snapshot.isWorking} />
+            )}
           </ComposerFoot>
         </ChromeArea>
       )}
