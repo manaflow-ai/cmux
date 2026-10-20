@@ -19,7 +19,7 @@ public actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
     private static let accessTokenAccount = "cmux-auth-access-token"
     private static let refreshTokenAccount = "cmux-auth-refresh-token"
     #if canImport(Security)
-    static let keychainAccessibility = kSecAttrAccessibleAfterFirstUnlock as String
+    static let keychainAccessibility = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly as String
     #endif
     private let service: String
     private let accessGroup: String?
@@ -217,6 +217,14 @@ public actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
             if status != errSecItemNotFound {
                 log.log("keychain READ status=\(status) account=\(account)")
             }
+            return nil
+        }
+        let migrationStatus = SecItemUpdate(
+            baseQuery(account: account) as CFDictionary,
+            [kSecAttrAccessible as String: Self.keychainAccessibility] as CFDictionary
+        )
+        guard migrationStatus == errSecSuccess else {
+            log.log("keychain ACCESSIBILITY UPDATE status=\(migrationStatus) account=\(account)")
             return nil
         }
         return String(data: data, encoding: .utf8)
