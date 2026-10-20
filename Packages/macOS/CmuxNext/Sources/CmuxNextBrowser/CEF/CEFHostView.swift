@@ -21,6 +21,9 @@ final class CEFHostView: NSView {
         super.init(frame: frame)
         wantsLayer = true
         updateBackground()
+        #if DEBUG
+        Self.registerMotionSampler()
+        #endif
     }
 
     @available(*, unavailable)
