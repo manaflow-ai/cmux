@@ -16,6 +16,8 @@ public protocol CloudConversationCommands: Sendable {
     func requestLive(_ conversation: String) async throws
     /// `cloud-conversation-run`: the steps of a Cloud Chief's run (nil: no such read).
     func runRows(_ conversation: String, agent: String, run: String) async throws -> ConversationRunRows?
+    /// `cloud-conversation-typing`: the person's typing in a subscribed conversation.
+    func typing(_ conversation: String, on: Bool) async throws
 }
 
 /// Cloud conversations (`cloud-conversations-v1`, plans/cmux-next/home-cloud-proxy.md)
@@ -101,6 +103,11 @@ public struct CloudConversationClient: CloudConversationCommands {
         _ = try await local(CloudConversationLiveRequest(conversation: conversation))
     }
 
+    public func typing(_ conversation: String, on: Bool) async throws {
+        guard await connection.identity?.supports(DaemonCapabilities.shared.cloudConversationTyping) == true else { return }
+        _ = try await local(CloudConversationTypingRequest(conversation: conversation, on: on))
+    }
+
     public func runRows(_ conversation: String, agent: String, run: String) async throws -> ConversationRunRows? {
         guard await connection.identity?.supports(DaemonCapabilities.shared.cloudConversationRuns) == true else { return nil }
         var all = try await network(CloudConversationRunRequest(conversation: conversation, agent: agent, run: run))
@@ -118,6 +125,9 @@ public struct CloudConversationClient: CloudConversationCommands {
 extension CloudConversationCommands {
     /// Fakes and daemons without live frames: nothing to ask.
     public func requestLive(_ conversation: String) async throws {}
+
+    /// Fakes and daemons without typing: nothing to send.
+    public func typing(_ conversation: String, on: Bool) async throws {}
 
     /// Fakes and daemons without run reads.
     public func runRows(_ conversation: String, agent: String, run: String) async throws -> ConversationRunRows? { nil }
