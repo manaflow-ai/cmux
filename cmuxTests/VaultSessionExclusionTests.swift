@@ -111,10 +111,113 @@ struct VaultSessionExclusionTests {
 
         let registry = CmuxVaultAgentRegistry.load(homeDirectory: home.path, environment: [:])
 
-        #expect(registry.hasSessionExclusions)
+        #expect(registry.hasSessionExclusions(for: .claude))
         #expect(registry.excludes(makeEntry(agent: .claude, entrypoint: "sdk-ts")))
         #expect(registry.excludes(makeEntry(agent: .codex)))
         #expect(!registry.excludes(makeEntry(agent: .claude, entrypoint: "cli")))
+    }
+
+    @Test("A label pattern without re: is a wildcard, not a substring regex")
+    func labelPatternIsWildcardUnlessPrefixed() {
+        let wildcard = CmuxVaultSessionExclusion(labelPattern: "Draft*")
+        let regex = CmuxVaultSessionExclusion(labelPattern: "re:draft")
+
+        #expect(wildcard.matches(makeEntry(agent: .claude, title: "Draft notes")))
+        #expect(!wildcard.matches(makeEntry(agent: .claude, title: "Redrafting notes")))
+        #expect(regex.matches(makeEntry(agent: .claude, title: "Redrafting notes")))
+    }
+
+    @Test("A wildcard still spans a literal star in the label")
+    func wildcardSpansLiteralStar() {
+        let rule = CmuxVaultSessionExclusion(labelPattern: "*review*")
+
+        #expect(rule.matches(makeEntry(agent: .claude, title: "**Bold** review this")))
+    }
+
+    @Test("Exclusions only make an agent filter when a rule can match it")
+    func exclusionsAreScopedPerAgent() {
+        let sdkOnly = CmuxVaultAgentRegistry(registrations: [], hideClaudeSDKSessions: true)
+        let codexRule = CmuxVaultAgentRegistry(
+            registrations: [],
+            sessionExclusions: [CmuxVaultSessionExclusion(agent: "codex")]
+        )
+        let anyAgentRule = CmuxVaultAgentRegistry(
+            registrations: [],
+            sessionExclusions: [CmuxVaultSessionExclusion(folder: "/scratch/*")]
+        )
+
+        #expect(sdkOnly.hasSessionExclusions(for: .claude))
+        #expect(!sdkOnly.hasSessionExclusions(for: .codex))
+        #expect(codexRule.hasSessionExclusions(for: .codex))
+        #expect(!codexRule.hasSessionExclusions(for: .claude))
+        #expect(anyAgentRule.hasSessionExclusions(for: .claude))
+        #expect(anyAgentRule.hasSessionExclusions(for: .codex))
+    }
+
+    @Test("A filtered page grows its source read only until the page is full")
+    func filteredPageGrowsSourceRead() async {
+        let source = (0..<200).map { makeEntry(agent: .claude, title: "s\($0)") }
+        let hidden = Set(source.prefix(40).map(\.id))
+        let requests = LimitRecorder()
+
+        let page = await SessionIndexStore.filteredSourcePage(
+            offset: 5,
+            limit: 10,
+            ceiling: 1500,
+            load: { limit in
+                requests.append(limit)
+                return Array(source.prefix(limit))
+            },
+            isIncluded: { !hidden.contains($0.id) }
+        )
+
+        #expect(page.map(\.title) == (45..<55).map { "s\($0)" })
+        #expect(requests.values == [30, 60])
+    }
+
+    @Test("A filtered page stops when the source is exhausted or at the ceiling")
+    func filteredPageStopsAtSourceEnd() async {
+        let source = (0..<50).map { makeEntry(agent: .claude, title: "s\($0)") }
+        let exhausted = LimitRecorder()
+        let capped = LimitRecorder()
+
+        let short = await SessionIndexStore.filteredSourcePage(
+            offset: 0,
+            limit: 30,
+            ceiling: 1500,
+            load: { limit in
+                exhausted.append(limit)
+                return Array(source.prefix(limit))
+            },
+            isIncluded: { $0.title != "s0" }
+        )
+        _ = await SessionIndexStore.filteredSourcePage(
+            offset: 0,
+            limit: 100,
+            ceiling: 120,
+            load: { limit in
+                capped.append(limit)
+                return Array(repeating: source[0], count: limit)
+            },
+            isIncluded: { _ in false }
+        )
+
+        #expect(short.count == 30)
+        #expect(exhausted.values == [60])
+        #expect(capped.values == [120])
+    }
+
+    private final class LimitRecorder: @unchecked Sendable {
+        private let lock = NSLock()
+        private var recorded: [Int] = []
+        func append(_ value: Int) {
+            lock.lock(); defer { lock.unlock() }
+            recorded.append(value)
+        }
+        var values: [Int] {
+            lock.lock(); defer { lock.unlock() }
+            return recorded
+        }
     }
 
     private func makeEntry(
