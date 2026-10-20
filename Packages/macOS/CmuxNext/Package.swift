@@ -562,6 +562,20 @@ let package = Package(
             dependencies: ["CmuxNextWorkspaceNaming"],
             swiftSettings: uiSwiftSettings
         ),
+        // Phone tabs (plans/cmux-next/phone.md): simulators through simctl, real
+        // iPhones through devicectl, recordings and feedback clips. No daemon,
+        // no UI framework beyond AppKit; the App supplies the page and the sink.
+        .target(
+            name: "CmuxNextPhone",
+            dependencies: ["CmuxNextCompat", "CmuxNextWakeups"],
+            swiftSettings: daemonSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextPhoneTests",
+            dependencies: ["CmuxNextPhone", "CmuxNextCompat"],
+            resources: [.copy("Fixtures")],
+            swiftSettings: daemonSwiftSettings
+        ),
         // Keep awake (sessions.keepAwake): one idle-sleep hold for the Keep Mac Awake
         // action and working local agents, released on battery unless the user
         // chose Always. IOKit's power-source notification, no polling.
