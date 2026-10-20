@@ -7,8 +7,8 @@ extension ScreenContentView {
     /// `removing`: the pane the drag empties (frees room; the commit obeys).
     /// `previous` is the target hit the preview shows now (`hit`, before the
     /// room check): panes, docks and column gaps hold near their lines with
-    /// `dropZoneHysteresis`. Docks and gaps shrink for entry from another
-    /// target; dock, gap and pane priority stays the same.
+    /// `dropZoneHysteresis`. Docks and gaps shrink for entry from the split
+    /// zone that faces them; dock, gap and pane priority stays the same.
     /// `edgesArmed` false: a pane edge (a new split) joins the pane instead, until the drag has
     /// held that edge (`LayoutRootView.updateTabDrag`'s dwell); `hit` stays the edge.
     /// `joinsFrom`: a terminal tab's source pane (`DropZoneGeometry.joiningSharedEdge`).

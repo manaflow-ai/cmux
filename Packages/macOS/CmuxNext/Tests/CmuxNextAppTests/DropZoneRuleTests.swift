@@ -86,7 +86,8 @@ struct DropZoneRuleTests {
                                         style: style, previous: previous) == .pane("p", zone))
     }
 
-    /// Entering a dock needs half a band (up to 12 pt); a nil previous keeps the original band.
+    /// Entering a dock from the split zone facing it needs half a band (up to 12 pt); from any
+    /// other target, or none, the band keeps its depth.
     @Test(arguments: [
         (DockEdge.top, PaneDropZone.top, CGPoint(x: 600, y: 55), CGPoint(x: 600, y: 49)),
         (.bottom, .bottom, CGPoint(x: 600, y: 761), CGPoint(x: 600, y: 769)),
@@ -95,10 +96,12 @@ struct DropZoneRuleTests {
     ])
     func paneEdgeDoesNotFlipToDock(edge: DockEdge, zone: PaneDropZone, near: CGPoint, inside: CGPoint) {
         let dock = DropTarget.newDock(screen: "s", edge: edge)
-        for previous in [DropTarget.pane("p", zone), .newColumn(screen: "s", after: nil), .newDock(screen: "other", edge: edge)] {
+        #expect(DropZoneGeometry.dockTarget(atView: near, screen: "s", geometry: geometry, style: style,
+                                            topInset: 30, bottomInset: 20, previous: .pane("p", zone)) == nil)
+        #expect(DropZoneGeometry.dockTarget(atView: inside, screen: "s", geometry: geometry, style: style,
+                                            topInset: 30, bottomInset: 20, previous: .pane("p", zone)) == dock)
+        for previous in [DropTarget.pane("p", .center), .newColumn(screen: "s", after: nil), .newDock(screen: "other", edge: edge)] {
             #expect(DropZoneGeometry.dockTarget(atView: near, screen: "s", geometry: geometry, style: style,
-                                                topInset: 30, bottomInset: 20, previous: previous) == nil)
-            #expect(DropZoneGeometry.dockTarget(atView: inside, screen: "s", geometry: geometry, style: style,
                                                 topInset: 30, bottomInset: 20, previous: previous) == dock)
         }
         #expect(DropZoneGeometry.target(atView: near, offset: 0, screen: "s", geometry: geometry,
@@ -116,7 +119,8 @@ struct DropZoneRuleTests {
                                             topInset: 30, previous: .newDock(screen: "s", edge: .left)) == .newDock(screen: "s", edge: .top))
     }
 
-    /// Both coordinate paths hold a shown gap 12 pt horizontally, and shrink entry by width / 4.
+    /// Both coordinate paths hold a shown gap 12 pt horizontally, and shrink entry from a left or
+    /// right split zone by width / 4; entry from anything else keeps the frame.
     @Test(arguments: [CGFloat(0), CGFloat(75)])
     func columnGapHysteresis(offset: CGFloat) {
         var geometry = self.geometry
@@ -136,12 +140,16 @@ struct DropZoneRuleTests {
             }
             #expect(target(269, previous: gap, inView: inView) == .pane("p", .left))
             #expect(target(331, previous: gap, inView: inView) == .pane("p", .center))
-            for previous in [DropTarget.pane("p", .left), .newDock(screen: "s", edge: .left),
-                             .newColumn(screen: "s", after: nil), .newColumn(screen: "other", after: "c")] {
+            for previous in [DropTarget.pane("p", .left), .pane("p", .right)] {
                 #expect(target(286, previous: previous, inView: inView) == .pane("p", .left))
                 #expect(target(314, previous: previous, inView: inView) == .pane("p", .center))
                 #expect(target(292, previous: previous, inView: inView) == gap)
                 #expect(target(308, previous: previous, inView: inView) == gap)
+            }
+            for previous in [DropTarget.pane("p", .center), .newDock(screen: "s", edge: .left),
+                             .newColumn(screen: "s", after: nil), .newColumn(screen: "other", after: "c")] {
+                #expect(target(283, previous: previous, inView: inView) == gap)
+                #expect(target(317, previous: previous, inView: inView) == gap)
             }
             #expect(target(283, inView: inView) == gap)
             #expect(target(317, inView: inView) == gap)
