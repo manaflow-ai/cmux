@@ -139,14 +139,19 @@ function AttachmentChip({
   const t = useT();
   const openImage = useContext(ImageViewerContext);
   const [broken, setBroken] = useState(false);
-  const [thumb, setThumb] = useState<string>();
+  /// The picture the chip draws, once known: the small thumbnail, or the image itself when the
+  /// engine can't make one. Until then the chip shows its empty tile, never the full-size image:
+  /// WebKit decodes a large pasted image off the main thread and, inside the composer's blurred
+  /// box, did not repaint when that decode finished, so the chip stayed blank until a click.
+  const [picture, setPicture] = useState<string>();
   const image = attachment.kind === "image" && attachment.data && !broken;
   const source = image ? `data:${attachment.mimeType};base64,${attachment.data}` : undefined;
   useEffect(() => {
     if (!image || !attachment.data) return;
     let live = true;
+    const full = `data:${attachment.mimeType};base64,${attachment.data}`;
     void thumbnail({ mimeType: attachment.mimeType, data: attachment.data }).then((url) => {
-      if (live) setThumb(url);
+      if (live) setPicture(url ?? full);
     });
     return () => {
       live = false;
@@ -182,7 +187,11 @@ function AttachmentChip({
     </ContextMenu>
   );
   if (image && source) {
-    const img = <img alt={attachment.name} src={thumb ?? source} onError={() => setBroken(true)} />;
+    // `decoding="sync"`: the thumbnail is small, and decoding it in the paint that shows it is
+    // what keeps the chip from painting empty.
+    const img = picture ? (
+      <img alt={attachment.name} src={picture} decoding="sync" onError={() => setBroken(true)} />
+    ) : undefined;
     return menu(
       openImage ? () => openImage(source, attachment.name) : undefined,
       <div

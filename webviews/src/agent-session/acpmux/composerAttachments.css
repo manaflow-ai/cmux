@@ -49,6 +49,8 @@
 /* As tall as a few lines of text and as wide as the image's own shape (within bounds), so a wide
    screenshot shows as itself, not a sliver of its text (Leo, 2026-10-14). */
 .acpmux-attachment-image {
+  /* The empty tile while its thumbnail is made is as wide as the narrowest image. */
+  min-width: 48px;
   height: var(--acpmux-attach-height);
 }
 .acpmux-attachment-open {
