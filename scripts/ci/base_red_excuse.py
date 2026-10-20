@@ -21,13 +21,32 @@ were refused over "no base verdict" for reds the base had too):
    workflow and event counts, so a job that runs in a different workflow on
    push (`web / ...` in cmux-next web) is still found. The job is red on the
    base when either line's nearest verdict fails the same way.
-2. The newest completed non-pull_request runs of the head job's workflow on the
-   base branch.
+2. The newest completed non-pull_request runs on the base branch of the head
+   job's workflow, and of every workflow that runs a job of that name on the
+   base commits read in 1 (a skipped one included). A pull request runs the web
+   jobs in ci.yml, a feat-cmux-next push in cmux-next web, and react-apps-check
+   runs there only when the push touches webviews, so the base tip's is usually
+   skipped (2026-10-20: one push in five to ten ran it). The newest of the 20
+   runs that has a verdict for the job decides.
 A job the base never runs (the cmux-next checks job before it ran on
 feat-cmux-next pushes) has no base verdict; the refusal says so and lists each
 commit and run it read.
 Names match exactly first; failing that, ignoring a matrix suffix (`(1)`,
 `(Xcode 26)`) and a reusable-workflow caller prefix (`web / `).
+
+A sharded job (`react-apps-check (1)`, `Web tests (2/4)`) is compared with
+every shard of it on the base commit at once: shard placement differs between
+runs, so the same red test lands in shard 1 on one run and shard 4 on another
+(2026-10-20, twelve-wide web shards since #22237). The head shard is excused
+when its failing tests are among those of all the base's failed shards.
+
+A status job that only reports other jobs' results (`web / Web status`,
+`web / react-apps-check`: its failed steps print nothing but `<job>: failure`
+lines) has nothing of its own to compare. Every failed job of its run with
+the same caller prefix (every failed job of the run when it has none) is judged
+instead, so it is excused only when each of them is, and refused when there is
+none (2026-10-20: #22097 was refused with "no failing test or error line to
+match" for `web / Web status`).
 
 Every refusal names the job, the head SHA, and each base commit, run or pull
 request it was compared with, so a missing base verdict never blocks silently.
@@ -72,6 +91,7 @@ TESTS = (
     re.compile(r"^test (\S+) \.\.\. FAILED$"),  # cargo test
     re.compile(r"^(?:FAIL|ERROR): (\S+ \([^)]+\))"),  # unittest
     re.compile(r"^FAILED (\S+::\S+)"),  # pytest
+    re.compile(r"^\(fail\) (.+?)(?: \[[\d.]+m?s\])?$"),  # bun test
 )
 ERROR = re.compile(r"##\[error\]|\berror:")
 WARNING = re.compile(r"##\[warning\]|\bwarning:")
@@ -91,6 +111,10 @@ CRASH_LINE = re.compile(r"exited with unexpected signal code|the test helper die
                         r"no \"Test run with\" summary line")
 # A trailing matrix value: `(1)`, `(Xcode 26)`, `(${{ matrix.shard }})`.
 MATRIX = re.compile(r"\s*\((?:[^()]|\([^()]*\))*\)\s*$")
+# A shard index: `(1)`, `(2/4)`.
+SHARD = re.compile(r"\s*\(\d+(?:/\d+)?\)\s*$")
+# What a status job prints for each job it reports red.
+AGGREGATE_LINE = re.compile(r"^[A-Za-z0-9_.#-]+: failure$")
 UNKNOWN_STEP = "UNKNOWN STEP"
 
 
@@ -209,6 +233,44 @@ def matching(name: str, candidates: list[dict]) -> tuple[list[dict], str]:
     return [], ""
 
 
+def matching_shards(name: str, candidates: list[dict]) -> tuple[list[dict], str]:
+    """Every shard of a sharded `name` among the candidates; else `matching`."""
+    if SHARD.search(name):
+        stripped = SHARD.sub("", name)
+        shards = [candidate for candidate in candidates if SHARD.search(candidate.get("name") or "")]
+        wanted = name_tiers(stripped)
+        for tier in (0, 2):
+            found = [candidate for candidate in shards
+                     if name_tiers(SHARD.sub("", candidate["name"]))[tier] == wanted[tier]]
+            if found:
+                return found, " (every shard)" if tier == 0 else " (every shard, matched without its caller prefix)"
+    return matching(name, candidates)
+
+
+def pooled(jobs: list[dict]) -> dict:
+    """One job standing for several failed shards: their steps together; Base.log joins their logs."""
+    return dict(jobs[0], steps=[step for found in jobs for step in found.get("steps") or []],
+                name=f"{SHARD.sub('', jobs[0].get('name', ''))} ({len(jobs)} failed shards)",
+                _pooled=jobs)
+
+
+def aggregated(job: dict, log: str) -> list[str] | None:
+    """The jobs a status job reports red, when that is all its failed steps print; else None."""
+    if LINT.search(job.get("name") or ""):
+        return None
+    try:
+        found = printed(job, log)
+    except Refused:
+        return None
+    if found and all(AGGREGATE_LINE.match(line) for line in found):
+        return sorted(line.rsplit(":", 1)[0] for line in found)
+    return None
+
+
+def caller_prefix(name: str) -> str:
+    return name.rsplit(" / ", 1)[0] + " / " if " / " in name else ""
+
+
 def job_url(repo: str, job: dict) -> str:
     return job.get("html_url") or f"https://github.com/{repo}/actions/runs/{job.get('run_id')}/job/{job.get('id')}"
 
@@ -291,6 +353,7 @@ class Base:
         self._jobs: dict[int, dict] = {}
         self._run_jobs: dict[int, list[dict]] = {}
         self._workflow_runs: dict[int, list[dict]] = {}
+        self._run_workflow: dict[int, int | None] = {}
         self._logs: dict[int, str] = {}
         self.notes: list[str] = []
         self.tip_is_merge_base = False
@@ -343,12 +406,37 @@ class Base:
                 self._checks[commit] = {}
         return self._checks[commit]
 
-    def job(self, check: dict, commit: str) -> dict | None:
+    def job_url_ids(self, check: dict) -> tuple[int, int] | None:
         url = check.get("details_url", "")
         match = re.fullmatch(r"https://github\.com/" + re.escape(self.repo) + r"/actions/runs/(\d+)/job/(\d+)", url)
-        if not match:
+        return (int(match[1]), int(match[2])) if match else None
+
+    def workflows_running(self, name: str) -> list:
+        """The workflows whose runs on the base commits already read have a job `name`, skipped or not."""
+        found = []
+        for _, commits in self.lines():
+            for commit, _ in commits:
+                for check in matching(name, list(self._checks.get(commit, {}).values()))[0]:
+                    ids = self.job_url_ids(check)
+                    if not ids:
+                        continue
+                    if ids[0] not in self._run_workflow:
+                        try:
+                            run = self.github.json(f"repos/{self.repo}/actions/runs/{ids[0]}")
+                        except Refused as error:
+                            self.notes.append(f"could not read base run {ids[0]} ({error})")
+                            run = None
+                        self._run_workflow[ids[0]] = run.get("workflow_id") if isinstance(run, dict) else None
+                    workflow = self._run_workflow[ids[0]]
+                    if workflow is not None and workflow not in found:
+                        found.append(workflow)
+        return found
+
+    def job(self, check: dict, commit: str) -> dict | None:
+        ids = self.job_url_ids(check)
+        if not ids:
             return None
-        job_id = int(match[2])
+        job_id = ids[1]
         if job_id not in self._jobs:
             try:
                 self._jobs[job_id] = self.github.json(f"repos/{self.repo}/actions/jobs/{job_id}")
@@ -361,9 +449,20 @@ class Base:
         return job
 
     def log(self, job: dict) -> str:
+        if "_pooled" in job:
+            return "\n".join(self.log(shard) for shard in job["_pooled"])
         if job["id"] not in self._logs:
             self._logs[job["id"]] = self.github.log(self.repo, job)
         return self._logs[job["id"]]
+
+    def candidates(self, jobs: list[dict], how: str) -> list[dict]:
+        """The base jobs to compare one by one; a sharded job's failed shards count as one."""
+        if not how.startswith(" (every shard"):
+            return jobs
+        failed = [job for job in jobs if job.get("conclusion") == "failure"]
+        if not failed:
+            return jobs[:1]
+        return failed if len(failed) == 1 else [pooled(failed)]
 
     def run_jobs(self, run: int) -> list[dict]:
         if run not in self._run_jobs:
@@ -384,7 +483,7 @@ class Base:
 def verdict_at(head: Head, base: Base, commit: str) -> tuple[list[dict], str]:
     """The base jobs at `commit` with a verdict for the head job, and how the name matched."""
     checks = list(base.checks(commit).values())
-    found, how = matching(head.name, checks)
+    found, how = matching_shards(head.name, checks)
     jobs = []
     for check in found:
         job = base.job(check, commit)
@@ -403,7 +502,7 @@ def judge_on_commits(head: Head, base: Base) -> tuple[str | None, list[str], boo
                 continue
             had_verdict = True
             where = f"{label} {short(commit)}"
-            for job in jobs:
+            for job in base.candidates(jobs, how):
                 if job.get("conclusion") != "failure":
                     reasons.append(f"green on {where} ({job.get('name')}{how}: {job_url(base.repo, job)})")
                     continue
@@ -423,16 +522,28 @@ def judge_on_commits(head: Head, base: Base) -> tuple[str | None, list[str], boo
     return None, reasons, had_verdict
 
 
-def judge_on_base_runs(head: Head, base: Base, workflow) -> tuple[str | None, str | None, bool]:
-    """The newest base run of the head job's workflow that has a verdict for it decides."""
+def judge_on_base_runs(head: Head, base: Base, workflows: list) -> tuple[str | None, str | None, bool]:
+    """Per workflow, the newest base run that has a verdict for the head job decides; any excusing one excuses."""
+    reasons, had_verdict = [], False
+    for workflow in workflows:
+        excused, reason, verdict = judge_on_workflow_runs(head, base, workflow)
+        if excused:
+            return excused, None, True
+        reasons.append(reason)
+        had_verdict = had_verdict or verdict
+    return None, "; ".join(reason for reason in reasons if reason), had_verdict
+
+
+def judge_on_workflow_runs(head: Head, base: Base, workflow) -> tuple[str | None, str | None, bool]:
+    """The newest base run of `workflow` that has a verdict for the head job decides."""
     for candidate_run in base.workflow_runs(workflow):
-        found, how = matching(head.name, base.run_jobs(candidate_run["id"]))
+        found, how = matching_shards(head.name, base.run_jobs(candidate_run["id"]))
         found = [job for job in found if job.get("conclusion") in VERDICTS and not refused_at_setup(job)]
         if not found:
             continue
         where = f"{base.base} run {candidate_run['id']}"
         reasons = []
-        for job in found:
+        for job in base.candidates(found, how):
             if job.get("conclusion") != "failure":
                 reasons.append(f"'{head.name}' is not red on {where} ({job.get('conclusion')}{how}); fix it on this head")
                 continue
@@ -443,7 +554,7 @@ def judge_on_base_runs(head: Head, base: Base, workflow) -> tuple[str | None, st
             return f"excused '{head.name}': {where} fails the same way{how} ({url}): {head.what()}", None, True
         return None, "; ".join(reasons), True
     runs = base.workflow_runs(workflow)
-    return None, (f"no completed {base.base} run of its workflow has a verdict for it "
+    return None, (f"no completed {base.base} run of its workflow {workflow} has a verdict for it "
                   f"({len(runs)} non-pull_request {base.base} runs of workflow {workflow} read)"), False
 
 
@@ -457,7 +568,10 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
     if not jobs:
         # A red run or check with no failed job to show has nothing the base can excuse.
         raise Refused(f"no failed job found on the head {short(sha)} to compare with the base")
-    for job in jobs:
+    judged = {job["id"] for job in jobs}
+    # Status jobs: (job, the jobs it reports red, the failed jobs of its run judged in its place).
+    statuses: list[tuple[dict, list[str], list[dict]]] = []
+    for job in jobs:  # grows: a status job adds the failed jobs it reports
         name = job.get("name", "")
         if job.get("conclusion") != "failure":
             refusals.append(f"'{name}' is {job.get('conclusion')} at {short(sha)}: it has no verdict to compare "
@@ -479,6 +593,18 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
             refusals.append(f"'{name}' at {short(sha)} ({head.url}): its failed steps printed nothing to compare "
                             "with the base")
             continue
+        if (reported := aggregated(job, head_log)) is not None:
+            prefix = caller_prefix(name)
+            under = [found for found in head_jobs(repo, sha, [job["run_id"]], [], github)
+                     if found["id"] != job["id"] and (not prefix or caller_prefix(found.get("name", "")) == prefix)]
+            if not under:
+                refusals.append(f"'{name}' at {short(sha)} ({head.url}) reports {', '.join(reported)} red, but its run "
+                                f"has no failed job{f' under {prefix.strip()}' if prefix else ''} to compare with the base")
+                continue
+            jobs.extend(found for found in under if found["id"] not in judged)
+            judged.update(found["id"] for found in under)
+            statuses.append((job, reported, under))
+            continue
         if not head.lint and not head.tests and not head.errors and not head.crash and not head.soft:
             refusals.append(f"'{name}' at {short(sha)} ({head.url}): no failing test or error line to match; "
                             "nothing to compare with the base")
@@ -488,7 +614,8 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
             audit.append(excused)
             continue
         workflow = github.json(f"repos/{repo}/actions/runs/{job['run_id']}").get("workflow_id")
-        excused, run_reason, run_verdict = judge_on_base_runs(head, evidence, workflow)
+        workflows = [workflow] + [found for found in evidence.workflows_running(name) if found != workflow]
+        excused, run_reason, run_verdict = judge_on_base_runs(head, evidence, workflows)
         if excused:
             audit.append(excused)
             continue
@@ -503,6 +630,16 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
         else:
             refusals.append(f"'{name}' at {short(sha)} ({head.url}) is not red the same way on {base}: "
                             + " | ".join(tried))
+    status_ids = {job["id"] for job, _, _ in statuses}
+    for job, reported, under in statuses:
+        name = job.get("name", "")
+        # Two status jobs reporting each other excuse nothing: a job under them must have been judged.
+        if not (judged_under := [found for found in under if found["id"] not in status_ids]):
+            refusals.append(f"'{name}' at {short(sha)} ({job_url(repo, job)}) reports {', '.join(reported)} red, "
+                            "but every failed job of its run is a status job; nothing to compare with the base")
+            continue
+        audit.append(f"excused '{name}': it only reports {', '.join(reported)} red; its run's failed jobs "
+                     f"({', '.join(sorted(found.get('name', '') for found in judged_under))}) are judged on their own")
     if refusals:
         notes = f" [{'; '.join(dict.fromkeys(evidence.notes))}]" if evidence.notes else ""
         raise Refused("\n".join(refusals) + notes)
