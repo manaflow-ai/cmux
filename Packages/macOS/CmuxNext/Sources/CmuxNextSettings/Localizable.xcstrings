@@ -793,6 +793,270 @@
         }
       }
     },
+    "settings.tabs.newTabNowPlaying": {
+      "comment": "Settings: toggle that shows the Now Playing player (the music playing on this Mac) on the New Tab page.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إظهار قيد التشغيل الآن في علامة التبويب الجديدة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikaži Sada se reproducira na novoj kartici"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis Afspilles nu på ny fane"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "„Aktuelle Wiedergabe“ im neuen Tab anzeigen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Now Playing on New Tab"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar Reproduciendo ahora en la nueva pestaña"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher À l’écoute dans le nouvel onglet"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra In riproduzione nella nuova scheda"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新規タブに再生中を表示"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្ហាញ​អ្វី​ដែល​កំពុង​ចាក់​នៅ​លើ​ផ្ទាំង​ថ្មី"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 탭에 지금 재생 중 보기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis Spilles nå på ny fane"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokaż Teraz odtwarzane na nowej karcie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar Tocando Agora na nova aba"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показывать «Сейчас играет» в новой вкладке"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แสดงกำลังเล่นบนแท็บใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yeni Sekmede Şimdi Çalıyor’u Göster"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показувати «Зараз грає» в новій вкладці"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hiện Đang phát trên thẻ mới"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在新标签页上显示“正在播放”"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在新分頁上顯示「正在播放」"
+          }
+        }
+      }
+    },
+    "settings.tabs.newTabNowPlaying.help": {
+      "comment": "Settings: help under Show Now Playing on New Tab.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مشغّل لما يتم تشغيله، في صفحة علامة التبويب الجديدة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plejer za ono što se reproducira, na stranici nove kartice."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En afspiller til det, der afspilles, på siden for ny fane."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Player für die aktuelle Wiedergabe auf der Seite „Neuer Tab“."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A player for what is playing, on the New Tab page."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un reproductor de lo que está sonando, en la página de nueva pestaña."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un lecteur pour ce qui est en cours de lecture, sur la page du nouvel onglet."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un player per ciò che è in riproduzione, nella pagina della nuova scheda."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再生中のメディアのプレーヤー。新規タブのページに表示されます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កម្មវិធី​ចាក់​សម្រាប់​អ្វី​ដែល​កំពុង​ចាក់ នៅ​លើ​ទំព័រ​ផ្ទាំង​ថ្មី។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "재생 중인 항목의 플레이어로, 새 탭 페이지에 표시됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En spiller for det som spilles, på siden for ny fane."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Odtwarzacz tego, co gra, na stronie nowej karty."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Um player do que está tocando, na página da nova aba."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Плеер для того, что сейчас играет, на странице новой вкладки."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เครื่องเล่นสำหรับสิ่งที่กำลังเล่น บนหน้าแท็บใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Çalan içerik için bir oynatıcı; yeni sekme sayfasında."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Плеєр для того, що зараз грає, на сторінці нової вкладки."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trình phát cho nội dung đang phát, trên trang thẻ mới."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在播放内容的播放器，位于新标签页。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在播放內容的播放器，位於新分頁。"
+          }
+        }
+      }
+    },
     "settings.sidebar.nowPlaying.enabled": {
       "extractionState": "manual",
       "localizations": {
@@ -930,127 +1194,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "A player for what is playing, at the bottom of the sidebar and on the new chat page."
+            "value": "A player for what is playing, at the bottom of the sidebar."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "مشغّل لما يتم تشغيله الآن، أسفل الشريط الجانبي وفي صفحة الدردشة الجديدة."
+            "value": "مشغّل لما يتم تشغيله الآن، أسفل الشريط الجانبي."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Plejer za ono što se reproducira, na dnu bočne trake i na stranici novog chata."
+            "value": "Plejer za ono što se reproducira, na dnu bočne trake."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "En afspiller til det, der afspilles, nederst i sidepanelet og på siden til ny chat."
+            "value": "En afspiller til det, der afspilles, nederst i sidepanelet."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ein Player für die aktuelle Wiedergabe, unten in der Seitenleiste und auf der Seite für einen neuen Chat."
+            "value": "Ein Player für die aktuelle Wiedergabe, unten in der Seitenleiste."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Un reproductor de lo que está sonando, en la parte inferior de la barra lateral y en la página de chat nuevo."
+            "value": "Un reproductor de lo que está sonando, en la parte inferior de la barra lateral."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Un lecteur pour ce qui est en cours de lecture, en bas de la barre latérale et sur la page de nouvelle discussion."
+            "value": "Un lecteur pour ce qui est en cours de lecture, en bas de la barre latérale."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Un player per ciò che è in riproduzione, in fondo alla barra laterale e nella pagina della nuova chat."
+            "value": "Un player per ciò che è in riproduzione, in fondo alla barra laterale."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "再生中のメディアのプレーヤー。サイドバーの下部と新しいチャットのページに表示されます。"
+            "value": "再生中のメディアのプレーヤー。サイドバーの下部に表示されます。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "កម្មវិធី​ចាក់​សម្រាប់​អ្វី​ដែល​កំពុង​ចាក់ នៅ​ផ្នែក​ខាង​ក្រោម​របារ​ចំហៀង និង​នៅ​លើ​ទំព័រ​ជជែក​ថ្មី។"
+            "value": "កម្មវិធី​ចាក់​សម្រាប់​អ្វី​ដែល​កំពុង​ចាក់ នៅ​ផ្នែក​ខាង​ក្រោម​របារ​ចំហៀង។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "재생 중인 항목의 플레이어로, 사이드바 하단과 새 채팅 페이지에 표시됩니다."
+            "value": "재생 중인 항목의 플레이어로, 사이드바 하단에 표시됩니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "En spiller for det som spilles, nederst i sidepanelet og på siden for ny chat."
+            "value": "En spiller for det som spilles, nederst i sidepanelet."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Odtwarzacz tego, co gra, na dole paska bocznego i na stronie nowego czatu."
+            "value": "Odtwarzacz tego, co gra, na dole paska bocznego."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Um player do que está tocando, na parte inferior da barra lateral e na página de novo chat."
+            "value": "Um player do que está tocando, na parte inferior da barra lateral."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Плеер для того, что сейчас играет, внизу боковой панели и на странице нового чата."
+            "value": "Плеер для того, что сейчас играет, внизу боковой панели."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "เครื่องเล่นสำหรับสิ่งที่กำลังเล่น ที่ด้านล่างของแถบด้านข้างและในหน้าแชทใหม่"
+            "value": "เครื่องเล่นสำหรับสิ่งที่กำลังเล่น ที่ด้านล่างของแถบด้านข้าง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Çalan içerik için bir oynatıcı; kenar çubuğunun altında ve yeni sohbet sayfasında."
+            "value": "Çalan içerik için bir oynatıcı; kenar çubuğunun altında."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Плеєр для того, що зараз грає, унизу бічної панелі та на сторінці нового чату."
+            "value": "Плеєр для того, що зараз грає, унизу бічної панелі."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Trình phát cho nội dung đang phát, ở cuối thanh bên và trên trang trò chuyện mới."
+            "value": "Trình phát cho nội dung đang phát, ở cuối thanh bên."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "正在播放内容的播放器，位于边栏底部和新聊天页面。"
+            "value": "正在播放内容的播放器，位于边栏底部。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "正在播放內容的播放器，位於側邊欄底部和新聊天頁面。"
+            "value": "正在播放內容的播放器，位於側邊欄底部。"
           }
         }
       }
@@ -130117,6 +130381,661 @@
           "stringUnit": {
             "state": "translated",
             "value": "同一窗格中的分頁"
+          }
+        }
+      }
+    },
+    "settings.category.mobile": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mobile"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الجوال"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mobilni"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mobil"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mobil"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Móvil"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mobile"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mobile"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "モバイル"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ទូរសព្ទចល័ត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "모바일"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mobil"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Urządzenia mobilne"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Celular"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Мобильные"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "มือถือ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mobil"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Мобільні"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Di động"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "移动设备"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "行動裝置"
+          }
+        }
+      }
+    },
+    "settings.group.mobile": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iPhone"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone"
+          }
+        }
+      }
+    },
+    "settings.mobile.allowIPhoneConnections": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allow iPhone Connections"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "السماح باتصالات iPhone"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dozvoli iPhone veze"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tillad iPhone-forbindelser"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone-Verbindungen erlauben"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Permitir conexiones de iPhone"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Autoriser les connexions iPhone"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Consenti connessioni da iPhone"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone からの接続を許可"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "អនុញ្ញាតការតភ្ជាប់ iPhone"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone 연결 허용"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tillat iPhone-tilkoblinger"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zezwalaj na połączenia z iPhone’a"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Permitir conexões do iPhone"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Разрешить подключения iPhone"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "อนุญาตการเชื่อมต่อจาก iPhone"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone bağlantılarına izin ver"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Дозволити підключення iPhone"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cho phép kết nối từ iPhone"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "允许 iPhone 连接"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "允許 iPhone 連線"
+          }
+        }
+      }
+    },
+    "settings.mobile.allowIPhoneConnections.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lets the cmux app on your iPhone open this Mac's workspaces, terminals and agent chats while you are signed in with the same account."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يتيح لتطبيق cmux على جهاز iPhone فتح مساحات العمل والطرفيات ومحادثات الوكلاء على هذا الـ Mac أثناء تسجيل دخولك بالحساب نفسه."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dozvoljava aplikaciji cmux na vašem iPhoneu da otvara radne prostore, terminale i razgovore s agentima na ovom Macu dok ste prijavljeni istim računom."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lader cmux-appen på din iPhone åbne denne Macs arbejdsområder, terminaler og agentchats, mens du er logget ind med samme konto."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Erlaubt der App cmux auf deinem iPhone, die Arbeitsbereiche, Terminals und Agent-Chats dieses Macs zu öffnen, solange du mit demselben Konto angemeldet bist."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Permite que la app cmux de tu iPhone abra los espacios de trabajo, terminales y chats de agentes de este Mac mientras tengas la sesión iniciada con la misma cuenta."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Permet à l’app cmux de votre iPhone d’ouvrir les espaces de travail, terminaux et discussions d’agents de ce Mac tant que vous êtes connecté avec le même compte."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Consente all’app cmux sul tuo iPhone di aprire spazi di lavoro, terminali e chat degli agenti di questo Mac mentre hai effettuato l’accesso con lo stesso account."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "同じアカウントでサインインしている間、iPhone の cmux アプリからこの Mac のワークスペース、ターミナル、エージェントチャットを開けます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "អនុញ្ញាតឱ្យកម្មវិធី cmux នៅលើ iPhone របស់អ្នកបើកកន្លែងធ្វើការ ទែមីណាល់ និងការជជែកជាមួយភ្នាក់ងាររបស់ Mac នេះ ខណៈពេលអ្នកបានចូលដោយគណនីដូចគ្នា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "같은 계정으로 로그인한 동안 iPhone의 cmux 앱에서 이 Mac의 작업 공간, 터미널, 에이전트 채팅을 열 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lar cmux-appen på iPhonen din åpne denne Macens arbeidsområder, terminaler og agentchatter mens du er logget på med samme konto."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pozwala aplikacji cmux na iPhonie otwierać obszary robocze, terminale i czaty z agentami na tym Macu, gdy jesteś zalogowany tym samym kontem."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Permite que o app cmux no seu iPhone abra os espaços de trabalho, terminais e chats de agentes deste Mac enquanto você estiver conectado com a mesma conta."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Позволяет приложению cmux на iPhone открывать рабочие пространства, терминалы и чаты с агентами этого Mac, пока вы вошли в ту же учётную запись."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ให้แอป cmux บน iPhone ของคุณเปิดพื้นที่ทำงาน เทอร์มินัล และแชทกับเอเจนต์ของ Mac เครื่องนี้ได้ขณะที่คุณลงชื่อเข้าใช้ด้วยบัญชีเดียวกัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aynı hesapla oturum açtığınız sürece iPhone’unuzdaki cmux uygulamasının bu Mac’in çalışma alanlarını, terminallerini ve ajan sohbetlerini açmasına izin verir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Дозволяє застосунку cmux на iPhone відкривати робочі простори, термінали та чати з агентами цього Mac, поки ви в тому самому обліковому записі."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cho phép ứng dụng cmux trên iPhone mở không gian làm việc, terminal và cuộc trò chuyện với tác nhân của máy Mac này khi bạn đăng nhập cùng tài khoản."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "使用同一账户登录时，iPhone 上的 cmux 应用可以打开这台 Mac 的工作区、终端和智能体聊天。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "使用同一帳號登入時，iPhone 上的 cmux App 可以打開這台 Mac 的工作區、終端機和代理程式聊天。"
+          }
+        }
+      }
+    },
+    "settings.mobile.allowIPhoneConnections.summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lets your iPhone reach this Mac"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يتيح لجهاز iPhone الوصول إلى هذا الـ Mac"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Omogućava iPhoneu pristup ovom Macu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lader din iPhone nå denne Mac"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lässt dein iPhone diesen Mac erreichen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Permite que tu iPhone acceda a este Mac"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Permet à votre iPhone d’accéder à ce Mac"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Consente al tuo iPhone di raggiungere questo Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone からこの Mac に接続できます"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "អនុញ្ញាតឱ្យ iPhone របស់អ្នកចូលដល់ Mac នេះ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone에서 이 Mac에 연결할 수 있습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lar iPhonen nå denne Macen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pozwala iPhone’owi łączyć się z tym Makiem"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Permite que seu iPhone acesse este Mac"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Позволяет iPhone подключаться к этому Mac"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ให้ iPhone ของคุณเข้าถึง Mac เครื่องนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhone’unuzun bu Mac’e erişmesine izin verir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Дозволяє iPhone підключатися до цього Mac"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cho phép iPhone truy cập máy Mac này"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "允许 iPhone 访问这台 Mac"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "允許 iPhone 存取這台 Mac"
           }
         }
       }

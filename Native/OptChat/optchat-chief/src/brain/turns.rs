@@ -397,9 +397,19 @@ impl Brain {
         self.stop_wanted = false;
         let items_sources: Vec<&'static str> =
             items.iter().map(|i| source_name(&i.source)).collect();
-        // The strictest origin of the turn: a paired device's message (or
-        // a remote turn this one supersedes) makes it ask for every local
-        // effect, unless the user turned on remote.autoApprove on the Mac.
+        // Per-turn ambient state is read before choosing the policy: terminal
+        // screen text is untrusted even in a turn the owner started.
+        let home = self
+            .settings
+            .home_view
+            .as_ref()
+            .and_then(crate::home_view::HomeView::read);
+        let ambient_requires_approval = home
+            .as_deref()
+            .is_some_and(crate::home_view::contains_terminal_text);
+        // The strictest origin wins. Paired-device work asks unless the owner
+        // explicitly opted into auto-approval; another participant and
+        // ambient terminal text always ask.
         self.turn_remote = std::mem::take(&mut self.remote_taint)
             || items.iter().any(|i| {
                 matches!(
@@ -410,16 +420,30 @@ impl Brain {
                     } | Source::Resume { remote: true, .. }
                 )
             });
-        self.turn_ask = self.turn_remote && !self.chief.remote_auto_approve;
+        let participant_requires_approval = items.iter().any(|i| {
+            matches!(
+                i.source,
+                Source::Message {
+                    requires_approval: true,
+                    ..
+                } | Source::Resume {
+                    requires_approval: true,
+                    ..
+                }
+            )
+        });
+        self.turn_ask = participant_requires_approval
+            || ambient_requires_approval
+            || (self.turn_remote && !self.chief.remote_auto_approve);
         self.clear_turn_approvals();
         self.interrupt.set_gate(self.turn_ask);
         // The shared rule (cmux_chief::policy::turn_policy, the corpus's
         // `policy` cases).
-        let policy = cmux_chief::policy::turn_policy(
-            self.turn_remote,
-            self.chief.remote_auto_approve,
-            &self.settings.policy,
-        );
+        let policy = if self.turn_ask {
+            crate::approval::ASK.to_owned()
+        } else {
+            self.settings.policy.clone()
+        };
         let images: Vec<super::images::TurnImage> = items
             .iter()
             .flat_map(|i| i.images.iter().cloned())
@@ -458,12 +482,7 @@ impl Brain {
         // never before a cache mark: the subagents at work now (the reference
         // client's line). Never logged.
         let at_work = self.at_work_line();
-        // The person's Home workspace as it is now (home_view): after the view, never logged.
-        let home = self
-            .settings
-            .home_view
-            .as_ref()
-            .and_then(crate::home_view::HomeView::read);
+        // The person's Home workspace as it is now: after the view, never logged.
         let tail: Vec<String> = at_work
             .iter()
             .chain(home.iter())
@@ -762,7 +781,7 @@ impl Brain {
     /// batches, past the read cursor, with their images described like a
     /// turn's own. False: the write failed (the host stops).
     pub(super) fn log_delivered(&mut self, items: &[Queued]) -> bool {
-        self.taint_remote(items);
+        self.taint_approval(items);
         let at = self.chat.status().messages;
         let batch: Vec<Item> = items.iter().map(item).collect();
         let answers = self.answers_of(items);
@@ -1321,17 +1340,28 @@ fn source_name(source: &Source) -> &'static str {
 fn item(queued: &Queued) -> Item {
     let images = queued.images.iter().map(|i| i.source.clone()).collect();
     match &queued.source {
-        Source::Message { seq, id, remote } => Item {
+        Source::Message {
+            seq,
+            id,
+            remote,
+            requires_approval,
+        } => Item {
             seq: Some(*seq),
             images,
             conversation: queued.conversation.clone(),
             id: queued.conversation.as_ref().map(|_| id.clone()),
             remote: remote.is_some(),
+            requires_approval: *requires_approval,
             ..Item::default()
         },
-        Source::Resume { remote, cut } => Item {
+        Source::Resume {
+            remote,
+            requires_approval,
+            cut,
+        } => Item {
             conversation: queued.conversation.clone(),
             remote: *remote,
+            requires_approval: *requires_approval,
             resume: true,
             cut: cut.clone(),
             ..Item::default()
