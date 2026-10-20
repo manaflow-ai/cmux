@@ -11,7 +11,8 @@ import Observation
 extension SidebarBridge {
     func observeCards() {
         cardsObservation?.cancel()
-        let nowPlaying = model.followNowPlaying(services.cache.pageRequests.sidebarSources) { [weak services] in services?.settings?.snapshot.nowPlaying.enabled ?? NowPlayingSettings.enabledDefault }
+        let requests = services.cache.pageRequests
+        let nowPlaying = model.followNowPlaying(requests.sidebarSources, dismissal: requests.nowPlayingCard) { [weak services] in services?.settings?.snapshot.nowPlaying.enabled ?? NowPlayingSettings.enabledDefault }
         cardsObservation = SidebarCardFeed.start(model: model, updater: services.updater, window: state, registry: services.registry, settings: services.settings).cancelling(nowPlaying)
     }
 }
@@ -70,6 +71,8 @@ enum SidebarCardFeed {
             noticeAction(card, action, updater: services.updater, open: { openUpdateLink($0, services: services) })
         case .dismissNotice(let card): dismissNotice(card, updater: services.updater)
         case .openWhatsNew, .dismissUpdated: route(intent, registry: services.registry, updater: services.updater)
+        // The media card's x runs the menu's and the palette's Hide (one action, u2437).
+        case .hideNowPlayingCard: _ = services.registry.perform("nowPlaying.hideCard", invocation: ActionInvocation(origin: .user))
         default: break
         }
     }
