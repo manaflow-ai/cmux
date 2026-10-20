@@ -480,6 +480,7 @@ import Testing
         #expect(!ChiefToolPolicy.autoAllowsCommand("ls -la", home: Self.home))
         #expect(!ChiefToolPolicy.autoAllowsCommand("rg -l ChiefToolPolicy", home: Self.home))
         #expect(!ChiefToolPolicy.autoAllowsCommand("grep -r TODO", home: Self.home))
+        #expect(!ChiefToolPolicy.autoAllowsCommand("rg -R TODO /Users/tester/src/app", home: Self.home))
         #expect(ChiefToolPolicy.autoAllowsCommand("rg -l ChiefToolPolicy /Users/tester/src/app", home: Self.home))
         #expect(ChiefToolPolicy.autoAllowsCommand("grep -r TODO /Users/tester/src/app", home: Self.home))
         #expect(ChiefToolPolicy.autoAllowsCommand("cmux tree | grep -c workspace", home: Self.home))

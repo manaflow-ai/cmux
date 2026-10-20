@@ -317,8 +317,9 @@ enum ChiefToolPolicy {
                     break
                 }
                 guard shortFlags.contains(flag) else { return nil }
-                // ripgrep -L follows symlinks; grep -R dereferences them.
-                if (program == "rg" && flag == "L") || (program == "grep" && flag == "R") { return nil }
+                // ripgrep -L/-R follow symlinks; grep -R dereferences them.
+                if (program == "rg" && (flag == "L" || flag == "R"))
+                    || (program == "grep" && flag == "R") { return nil }
                 if !isListing, flag == "r" || flag == "R" { recursive = true }
             }
         }
