@@ -86,6 +86,9 @@ final class LinkOpener {
                 guard let self, let source else { return }
                 self.move(surface, from: source, to: .besideColumn, focus: !background)
             }
+        case .besideDock:
+            // The daemon makes a tab aimed at a lone pinned dock in a new column right of it.
+            return make(source, nil)
         }
     }
 
@@ -113,6 +116,8 @@ final class LinkOpener {
         switch target(from: source) {
         case .pane(let id):
             (source.workspace?.panes[id] ?? source).newTerminalTab(cwd: path)
+        case .besideDock:
+            source.workspace?.newColumn(after: source.layoutPaneID, options: SpawnOptions(cwd: path, workspace: source.workspace?.workspace.key))
         case .splitRight, .newColumn:
             var invocation = ActionInvocation(target: ActionTargetRef(kind: .pane, id: source.paneKey),
                                               arguments: ["cwd": .string(path)], origin: .user)
