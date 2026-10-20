@@ -14,8 +14,8 @@ gives us. Meanwhile the minis' side label queued at p90 29 minutes.
 
 The cascade places the jobs that idle minis did not take, in the placement's
 priority order, while each Blacksmith label has a free slot now:
-blacksmith-12vcpu-macos-26 first (CAPACITY 0 since 2026-10-20: it takes
-nothing), then blacksmith-6vcpu-macos-26 (CAPACITY 10), at most MAX_PER_RUN on each label. The rest stay queued on the
+blacksmith-12vcpu-macos-26 (CAPACITY 5) first, then blacksmith-6vcpu-macos-26
+(CAPACITY 10), at most MAX_PER_RUN on each label. The rest stay queued on the
 owned label as before, where the rescue still watches them.
 
 Only CASCADE_JOBS take part, and only those the workflow says run on this route
@@ -73,11 +73,16 @@ budget. Without the snapshot's waits nothing is stalled and nothing goes to
 hosted, which is the previous route.
 
 `retry_runner` is the Blacksmith label the bot's overflow attempt (3 or later)
-takes for these jobs: among labels with a free slot, the lowest (in flight +
-queued) / capacity, the larger label on a tie; with no free slot, 6 vCPU, whose
-slots turn over while other workflows hold 12 vCPU's (retry_label). It is
-computed with the same reads, at attempt 1, as classic's picker computes its
-retry_runner.
+takes for these jobs: among moving (not stalled) labels with a free slot, the
+lowest (in flight + queued) / capacity, the larger label on a tie
+(retry_label). With no free, moving slot it is empty, and the job takes the
+owned side label: waiting behind the fleet is acceptable, waiting in a
+Blacksmith queue is not (Leo, 2026-10-20: 5+ hour waits on 12 vCPU, about 95
+PRs behind 318 queued runs). It is written as `free_retry_runner`, a key a
+placement script that predates the rule never writes, so a pull request still
+running the old script from its base gets the owned fallback instead of a full
+label. It is computed with the same reads, at attempt 1, as classic's picker
+computes its retry_runner.
 """
 from __future__ import annotations
 
@@ -100,10 +105,7 @@ STALL_MINUTES = 25
 IDLE_STALL_MINUTES = 5
 # simple_pool_picker.CAPACITY's figures for these labels. 12 vCPU: at most six
 # at once, five whenever it had a queue (2026-10-19); 6 vCPU: ten online at 21:40Z.
-# 12 vCPU gets no cmux-next job (Leo, 2026-10-20): its ~5 runners are held by
-# other workflows' long jobs, with 5+ hour waits and about 318 runs queued
-# behind it. Capacity 0 means the cascade and retry_label never pick it.
-CAPACITY = {LARGE: 0, SMALL: 10}
+CAPACITY = {LARGE: 5, SMALL: 10}
 # Headless compile and test jobs. A job missing here never leaves the minis on attempt 1.
 CASCADE_JOBS = ("fast-tier", "swift-canary", "cmux-scheme-compile")
 MAX_PER_RUN = 2
@@ -220,8 +222,11 @@ def cascade(jobs: Sequence[str], live: Mapping[str, int], waiting: Mapping[str, 
     return {label: tuple(names) for label, names in placed.items()}
 
 
-def retry_label(live: Mapping[str, int], waiting: Mapping[str, int]) -> str:
-    """The overflow label: the lowest (in flight + queued) / capacity among labels with a free slot, else SMALL.
+def retry_label(live: Mapping[str, int], waiting: Mapping[str, int], stall: Sequence[str] = ()) -> str:
+    """The overflow label: the lowest (in flight + queued) / capacity among moving labels with a free slot, else "".
+
+    "" sends the bot's overflow to the owned side label: a job never falls back
+    to a Blacksmith label with no free slot, where it would queue for hours.
 
     With no free slot anywhere the load ratio misleads: other workflows' long jobs
     hold the 12 vCPU label's five slots for an hour or more. From 01:04Z to 02:35Z on
@@ -230,9 +235,9 @@ def retry_label(live: Mapping[str, int], waiting: Mapping[str, int]) -> str:
     over, started 69 at a median 2.5 minutes.
     """
     load = {label: live.get(label, 0) + waiting.get(label, 0) for label in LABELS}
-    free = [label for label in LABELS if load[label] < CAPACITY[label]]
+    free = [label for label in LABELS if load[label] < CAPACITY[label] and label not in stall]
     if not free:
-        return SMALL
+        return ""
     return min(free, key=lambda label: (load[label] / CAPACITY[label], LABELS.index(label)))
 
 
@@ -255,14 +260,11 @@ def place(env: Mapping[str, str], owned: Sequence[str], live: Mapping[str, int] 
     if live is None:
         return Placement(empty, "", "Blacksmith's runner groups could not be read; no job leaves the minis' queue")
     stall = stalled(live, waiting or {}, seen.waits, seen.age) if seen is not None else ()
-    # A label with no capacity is never the overflow, stalled or not.
-    moving = [label for label in LABELS if label not in stall and CAPACITY[label] > 0]
-    retry = retry_label(live, waiting or {})
-    if stall and moving:
-        retry = moving[0] if len(moving) == 1 else retry
     if waiting is None:
-        return Placement(empty, retry, f"no pool snapshot under {QUEUE_SNAPSHOT_MINUTES} min old to count "
-                                       "Blacksmith's queue; no job leaves the minis' queue")
+        # Without the queue count no slot is known free, so the overflow keeps the owned label too.
+        return Placement(empty, "", f"no pool snapshot under {QUEUE_SNAPSHOT_MINUTES} min old to count "
+                                    "Blacksmith's queue; no job leaves the minis' queue")
+    retry = retry_label(live, waiting, stall)
     runs = set((env.get("CASCADE_RUNS") or "").split())
     # idle_placement() hands the idle minis to the first JOBS, running or not, and
     # every side job takes the side label whatever owned_jobs says: so the idle
@@ -281,7 +283,8 @@ def place(env: Mapping[str, str], owned: Sequence[str], live: Mapping[str, int] 
         why += f"; `{HOSTED}` had {seen.hosted} of {HOSTED_CAPACITY} jobs"
     if left:
         why += f"; {', '.join(left)} stay queued on the owned label"
-    return Placement(placed, retry, why + f"; overflow goes to `{retry}`")
+    return Placement(placed, retry, why + (f"; overflow goes to `{retry}`" if retry
+                                           else "; no free Blacksmith slot, so overflow stays on the owned label"))
 
 
 class Api:
@@ -342,7 +345,7 @@ def delimited(jobs: Sequence[str]) -> str:
 
 def write(placement: Placement, env: Mapping[str, str]) -> None:
     """Outputs blacksmith_12_jobs, blacksmith_6_jobs, hosted_jobs (space-delimited, as owned_jobs),
-    hosted_runner (HOSTED when hosted_jobs names a job) and retry_runner."""
+    hosted_runner (HOSTED when hosted_jobs names a job) and free_retry_runner (also as retry_runner)."""
     output = env.get("GITHUB_OUTPUT")
     hosted = placement.jobs.get(HOSTED, ())
     if output:
@@ -351,7 +354,8 @@ def write(placement: Placement, env: Mapping[str, str]) -> None:
                          f"blacksmith_6_jobs={delimited(placement.jobs.get(SMALL, ()))}\n"
                          f"hosted_jobs={delimited(hosted)}\n"
                          f"hosted_runner={HOSTED if hosted else ''}\n"
-                         f"retry_runner={placement.retry_runner}\n")
+                         f"retry_runner={placement.retry_runner}\n"
+                         f"free_retry_runner={placement.retry_runner}\n")
     summary = env.get("GITHUB_STEP_SUMMARY")
     if summary:
         with open(summary, "a", encoding="utf-8") as handle:

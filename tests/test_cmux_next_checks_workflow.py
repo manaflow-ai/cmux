@@ -1334,9 +1334,11 @@ FAST_LANE_CLAUSE = (
 # The fast tier's runs-on before CI_FAST_LANE_RUNNER: with the variable unset it must route exactly so.
 FAST_TIER_RUNNER_WITHOUT_FAST_LANE = (
     "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || " + FAST_TIER_FORK_CLAUSE
-    # next_macos_cascade.py: a free Blacksmith 6 vCPU slot the placement found (never 12 vCPU,
-    # whose ~5 runners queued 5+ hours on 2026-10-20).
+    # next_macos_cascade.py: a free Blacksmith slot (12 vCPU, then 6) the placement found.
     + "(github.run_attempt == 1 || github.run_attempt == 2 && github.triggering_actor == 'github-actions[bot]') "
+    "&& contains(needs.macos-placement.outputs.blacksmith_12_jobs, ' fast-tier ') "
+    "&& 'blacksmith-12vcpu-macos-26' || "
+    "(github.run_attempt == 1 || github.run_attempt == 2 && github.triggering_actor == 'github-actions[bot]') "
     "&& contains(needs.macos-placement.outputs.blacksmith_6_jobs, ' fast-tier ') "
     "&& 'blacksmith-6vcpu-macos-26' || "
     # Hosted macos-26 takes the overflow while Blacksmith is full or stalled.
@@ -1347,7 +1349,10 @@ FAST_TIER_RUNNER_WITHOUT_FAST_LANE = (
     "github.repository_owner != 'manaflow-ai' && 'macos-26' || (" + FAST_TIER_FORK_CLAUSE
     + "vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('[\"pull_request\",\"push\",\"workflow_dispatch\"]'), github.event_name) "
     "&& (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && vars.CI_SIDE_LANE_RUNNER || "
-    "'blacksmith-6vcpu-macos-26') }}"
+    "needs.macos-placement.outputs.retry_runner || "
+    # No free Blacksmith slot: wait behind the fleet, never in a Blacksmith queue.
+    "vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('[\"pull_request\",\"push\",\"workflow_dispatch\"]'), github.event_name) "
+    "&& vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}"
 )
 
 
