@@ -48,14 +48,21 @@ function Rail() {
   );
 }
 
-export function ChiefPetCard() {
+/** A search result (`?focus=`) lands on its control: the Show/Hide button, or the selected choice. */
+function reveal(control: HTMLElement | null): void {
+  control?.scrollIntoView?.({ block: "center" });
+  control?.focus();
+}
+
+export function ChiefPetCard({ focus = null }: { focus?: string | null }) {
   const store = useStore();
   const shown = useRowState(CHIEF_PET_ENABLED);
   const character = useRowState(CHIEF_PET_MASCOT);
   // As SettingRow: no writes before the owner's values arrive, while disconnected, or to a managed key.
   const locked = (state: RowState) => !state.connected || !state.readable || state.managed !== null;
   const toggleLocked = locked(shown);
-  const gridLocked = toggleLocked || locked(character);
+  // A character pick also shows the pet when it is hidden, so only then does it need the toggle.
+  const gridLocked = locked(character) || (shown.value !== true && toggleLocked);
   const enabled = shown.value === true;
   const value = character.value;
   const mascot = CHIEF_PET_MASCOTS.find((entry) => entry.id === value) ?? CHIEF_PET_MASCOTS[0];
@@ -76,6 +83,7 @@ export function ChiefPetCard() {
           className="button"
           data-action="chief-pet-toggle"
           disabled={toggleLocked}
+          ref={focus === CHIEF_PET_ENABLED ? reveal : undefined}
           onClick={() => void store.set(CHIEF_PET_ENABLED, !enabled)}
         >
           {enabled ? t("settingsPage.chiefPet.hide") : t("settingsPage.chiefPet.show")}
@@ -95,6 +103,7 @@ export function ChiefPetCard() {
           className="chief-pet-choice"
           data-pet="none"
           disabled={toggleLocked}
+          ref={focus === CHIEF_PET_MASCOT && selected === "none" ? reveal : undefined}
           onClick={() => choose("none")}
         >
           <span className="chief-pet-choice-art chief-pet-none">
@@ -111,6 +120,7 @@ export function ChiefPetCard() {
             className="chief-pet-choice"
             data-pet={entry.id}
             disabled={gridLocked}
+            ref={focus === CHIEF_PET_MASCOT && selected === entry.id ? reveal : undefined}
             onClick={() => choose(entry.id)}
           >
             <span className="chief-pet-choice-art">
