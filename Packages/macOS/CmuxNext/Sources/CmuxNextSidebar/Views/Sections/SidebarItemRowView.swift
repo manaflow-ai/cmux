@@ -45,7 +45,8 @@ class SidebarItemRowView: NSView {
 
     private(set) var info = SidebarItemInfo(title: "", symbol: "circle")
     private(set) var style = Style.builtIn
-    private let pill = CALayer()
+    /// The row's fill (internal so tests can read its frame and radius).
+    let pill = CALayer()
     private let chip = CALayer()
     let icon = DecorativeImageView() // the row's label names the item
     let title = ChromeLabel(labelWithString: "")

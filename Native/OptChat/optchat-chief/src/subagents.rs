@@ -587,7 +587,7 @@ impl Spawner {
         self.send(Input::SubagentStarted {
             id: id.to_owned(),
             session_id: session.clone(),
-            policy: floor.map(str::to_owned),
+            policy: Some(spec.policy.clone()),
         })?;
         let (tx, rx) = channel();
         let prompt_id = format!("{PROMPT_PREFIX}sub:{id}:{}", now_ms());

@@ -856,10 +856,29 @@ class SameTreeIsAnEvent(unittest.TestCase):
         uploads = [step for step in route["steps"] if "upload-artifact" in str(step.get("uses", ""))]
         self.assertEqual(len(uploads), 1)
         self.assertTrue(uploads[0]["with"]["name"].startswith("cmux-next-tree-wait-"))
-        # The probe dispatches one cmux-tui artifacts run for a same-repository
-        # PR's unpublished merge tree: a pin ref (contents) and a dispatch (actions).
-        self.assertEqual(route["permissions"].get("actions"), "write")
-        self.assertEqual(route["permissions"].get("contents"), "write")
+        # This job executes checked-out PR scripts, so it can inspect but never
+        # mutate Actions or repository contents.
+        self.assertEqual(route["permissions"].get("actions"), "read")
+        self.assertEqual(route["permissions"].get("contents"), "read")
+
+    def test_untrusted_routing_jobs_have_no_write_token_or_dispatch_switch(self):
+        jobs = self.jobs()
+        route = jobs["path_route"]
+        self.assertEqual(route["permissions"].get("actions"), "read")
+        self.assertEqual(route["permissions"].get("contents"), "read")
+        probes = [step for step in route["steps"] if "pin-cmux-tui.sh probe" in step.get("run", "")]
+        self.assertTrue(probes)
+        self.assertTrue(all(step.get("env", {}).get("CMUX_TUI_TREE_DISPATCH") == "" for step in probes))
+
+        wait = jobs["dev-daily-tree-wait"]
+        self.assertEqual(wait["permissions"].get("actions"), "read")
+        self.assertEqual(wait["permissions"].get("contents"), "read")
+        dispatches = [
+            step.get("env", {}).get("CMUX_TUI_TREE_DISPATCH")
+            for step in wait["steps"]
+            if "wait-dev-daily-tree.sh" in step.get("run", "")
+        ]
+        self.assertEqual(dispatches, [""])
 
     def test_tree_jobs_need_a_ready_tree_and_no_waiter(self):
         jobs = self.jobs()
