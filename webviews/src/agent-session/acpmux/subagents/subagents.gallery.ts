@@ -184,10 +184,11 @@ const openChild = (name: string) => async (ctx: PlayContext) => {
   await ctx.waitFor(() => ctx.document.querySelector(".cv-subagent-of"));
 };
 
-/** Opens the first group and waits for its `count` subagent lines. */
+/** Opens the first group and waits for its `count` subagent lines. A group of running agents in a
+ * working turn is open already (App.tsx), and stays so. */
 const openGroup = (count: number) => async (ctx: PlayContext) => {
   await ctx.focus({ selector: ".cv-subagents" });
-  await ctx.press("Enter");
+  if (ctx.find({ selector: ".cv-subagents" }).getAttribute("aria-expanded") !== "true") await ctx.press("Enter");
   await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-subagent").length === count);
   const disclosure = ctx.find({ selector: ".cv-subagents" });
   const controls = disclosure.getAttribute("aria-controls")?.split(" ").filter(Boolean) ?? [];
@@ -330,7 +331,9 @@ export default agentPaneEntry({
       snapshot: NESTED_MIXED,
       play: async (ctx) => {
         await openChild("Test coverage")(ctx);
-        await ctx.click({ selector: ".cv-subagents" });
+        // The nested group of a running agent starts open in the working turn.
+        if (ctx.find({ selector: ".cv-subagents" }).getAttribute("aria-expanded") !== "true")
+          await ctx.click({ selector: ".cv-subagents" });
         await ctx.click({ role: "button", name: "Open Unit tests" });
         await ctx.waitFor(() => ctx.document.querySelector(".cv-subagent-of__parent")?.textContent === "Test coverage");
       },

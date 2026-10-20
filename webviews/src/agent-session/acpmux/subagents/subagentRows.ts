@@ -43,6 +43,16 @@ export function childView(
 
 export const isSubagentGroup = (row: AcpmuxRow) => row.kind === SUBAGENTS;
 
+/// The groups, nested views' included, with an agent still running: in a working turn they start
+/// open (App.tsx), after Codex and Claude Code.
+export function runningGroups(rows: readonly AcpmuxRow[], views: Record<string, AcpmuxRow[]> = {}): string[] {
+  const found: string[] = [];
+  for (const list of [rows, ...Object.values(views)])
+    for (const row of list)
+      if (row.kind === SUBAGENTS && row.subagents?.some((agent) => agent.state === "running")) found.push(row.id);
+  return found;
+}
+
 /// ``withSubagentRows`` with what it was drawn from, for the next snapshot to build on.
 export type SubagentRows = { source: readonly AcpmuxRow[]; grouped: boolean; rows: AcpmuxRow[] };
 

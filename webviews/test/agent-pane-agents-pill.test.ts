@@ -268,8 +268,8 @@ await requireBrowserLane("agent-pane-agents-pill.test.ts", async () => {
     await list(page).waitFor({ timeout: 5_000 });
     const before = await dots(page);
     await page.keyboard.press("Escape");
-    // The transcript's group, opened: each name in its agent's color.
-    await page.getByRole("button", { name: /3 subagents/ }).click();
+    // The transcript's group, open while its agents run: each name in its agent's color.
+    await page.locator(".cv-subagent__name").nth(2).waitFor({ timeout: 5_000 });
     const names = await page
       .locator(".cv-subagent__name")
       .evaluateAll((nodes) =>
