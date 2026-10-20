@@ -30,6 +30,28 @@ it("retains the generation across fresh writers and rolls back when audit fails"
   })
 })
 
+it("does not let a late request from an older scope reset a replacement", async () => {
+  await inDO(cloudStub("team_00000000000000952103"), async (owner) => {
+    const sql = Reflect.get(owner, "sqlStore") as SqlStore
+    const machine = "vm_00000000000000952103"
+    const call = (scope: string, request: ReceiverTransition) => new VmReceiverGenerations(sql).apply(machine, scope, request, () => {})
+    const oldScope = "c".repeat(64), nextScope = "d".repeat(64)
+    const oldInitial = call(oldScope, { phase: "read" })
+    if (!oldInitial.ok) throw new Error("missing original scope")
+    const oldRequest = { phase: "begin" as const, expected: oldInitial.value.generation, attempt: "c".repeat(32) }
+    const first = call(oldScope, oldRequest)
+    if (!first.ok) throw new Error("missing first incarnation")
+    const nextInitial = call(nextScope, { phase: "read" })
+    if (!nextInitial.ok) throw new Error("missing next scope")
+    const replacement = call(nextScope, { phase: "begin", expected: nextInitial.value.generation, attempt: "d".repeat(32) })
+    expect(replacement.ok).toBe(true)
+    for (const stale of [oldRequest, { phase: "ready" as const, expected: first.value.generation }, { phase: "end" as const, expected: first.value.generation }]) {
+      expect(call(oldScope, stale)).toMatchObject({ ok: false, code: "revision.conflict" })
+    }
+    expect(call(nextScope, { phase: "read" })).toEqual(replacement)
+  })
+})
+
 it("refuses corrupt persisted state instead of forgetting a previous attempt", async () => {
   await inDO(cloudStub("team_00000000000000952102"), async (owner) => {
     const sql = Reflect.get(owner, "sqlStore") as SqlStore
