@@ -337,8 +337,8 @@ CONTEXTS = """contexts(first: 100{after}) {{
   pageInfo {{ hasNextPage endCursor }}
   nodes {{
     __typename
-    ... on CheckRun {{ name status conclusion }}
-    ... on StatusContext {{ context state }}
+    ... on CheckRun {{ name status conclusion startedAt completedAt }}
+    ... on StatusContext {{ context state createdAt }}
   }}
 }}"""
 GRAPHQL_TOKEN = re.compile(r"^[A-Za-z0-9_=+/-]+$")
@@ -363,15 +363,41 @@ def detail_query(items: list[tuple[str, bool, str | None]]) -> str:
     return "query {\n" + "\n".join(parts) + "\n}"
 
 
-def parse_contexts(rollup: list[dict]) -> list[tuple[str, str, str]]:
+def parse_contexts(rollup: list[dict]) -> list[tuple[str, str, str, str, str]]:
+    """(name, status, conclusion, started, completed) per context; newest_checks reduces them."""
     checks = []
     for item in rollup:
         if item["__typename"] == "CheckRun":
-            checks.append((item["name"], (item["status"] or "").lower(), (item["conclusion"] or "").lower()))
+            checks.append((item["name"], (item["status"] or "").lower(), (item["conclusion"] or "").lower(),
+                           item.get("startedAt") or "", item.get("completedAt") or ""))
         else:
             state = (item["state"] or "").lower()
             status = "completed" if state not in {"pending", "expected"} else "in_progress"
-            checks.append((item["context"], status, state))
+            created = item.get("createdAt") or ""
+            checks.append((item["context"], status, state, created, created))
+    return checks
+
+
+def newest_checks(runs: list[tuple[str, str, str, str, str]]) -> list[tuple[str, str, str]]:
+    """One (name, status, conclusion) per check: its newest run, by start time.
+
+    A head keeps every run of a check (a rerun, a second workflow event, a
+    concurrency-cancelled one), and an old red would otherwise hold the PR after
+    a later run passed. A cancelled newest run says nothing about the code, so a
+    successful run of the same check on the same head stands instead (a
+    superseded run that was cancelled after the pass started)."""
+    by_name: dict[str, list[tuple[str, str, str, str, str]]] = {}
+    for run in runs:
+        by_name.setdefault(run[0], []).append(run)
+    checks = []
+    for name, items in by_name.items():
+        # Stable sort: among runs with the same (or no) start time, the later one in the rollup wins.
+        newest = sorted(items, key=lambda run: run[3])[-1]
+        if newest[1] == "completed" and newest[2] == "cancelled":
+            passed = [run for run in items if run[1] == "completed" and run[2] == "success"]
+            if passed:
+                newest = passed[-1]
+        checks.append((name, newest[1], newest[2]))
     return checks
 
 
@@ -401,7 +427,7 @@ def fetch_details(gh: GitHub, wanted: list[tuple[str, bool, bool]]) -> dict[str,
                 del todo[node_id]
             else:
                 todo[node_id] = (False, following)
-    return {node_id: (files[node_id], checks[node_id]) for node_id, _, _ in wanted}
+    return {node_id: (files[node_id], newest_checks(checks[node_id])) for node_id, _, _ in wanted}
 
 
 def rollup_failing(rollup: dict) -> bool:
@@ -484,7 +510,8 @@ def group_hold(pr: PullRequest) -> str | None:
     heavy tier and trusted `queue: known base red` included. Stricter than a
     single PR's bar on purpose: a member refused after the members before it
     landed would strand the group, so a group waits until every member is
-    clean, a red the base shares included."""
+    clean, a red the base shares included. Each check counts by its newest run
+    (newest_checks), so a rerun that passed clears it."""
     red = sorted({name for name, status, conclusion in pr.checks if status == "completed" and conclusion in RED})
     return "red check " + ", ".join(red) if red else None
 
