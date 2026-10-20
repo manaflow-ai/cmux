@@ -53,7 +53,12 @@ public final class HomeChiefSettingsPopover {
             }
         }
         let rect = window.convertToScreen(anchor.convert(CmuxPopoverAnchor.rect(in: anchor), to: nil))
-        return popup.show(size: size(), anchor: rect, in: window, preferred: .below, makeKey: true) != nil
+        guard popup.show(size: size(), anchor: rect, in: window, preferred: .below, makeKey: true) != nil else { return false }
+        // Like an NSPopover opened by a click: keys reach the card (Tab enters it, Escape closes
+        // it), but no control shows a focus ring until the keyboard moves there. A ring on the
+        // picture drew while open and vanished on the close's first frame (recording 2026-10-20).
+        popup.panel.makeFirstResponder(nil)
+        return true
     }
 
     /// Closes the card (fading toward the pill), keeping a name being edited.
