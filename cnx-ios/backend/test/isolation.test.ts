@@ -368,6 +368,39 @@ describe("migration from team hubs", () => {
     expect(await open()).toBe(0)
   })
 
+  it("a team hub still on the previous class (kept warm by traffic) has its parked sockets moved anyway", async () => {
+    const ns = (env as unknown as { TEAM_HUB: DurableObjectNamespace<TeamHub> }).TEAM_HUB
+    const legacy = ns.get(ns.idFromName("team-legacy-4"))
+    const uma = await token("uma")
+    const mac = await register(uma, "mac", "team-legacy-4", "Uma parked")
+    const codes: Array<number> = []
+    await runInDurableObject(legacy, (hub, state) => {
+      const pair = new WebSocketPair()
+      state.acceptWebSocket(pair[1], [mac])
+      pair[1].serializeAttachment({ userId: "uma", projectId: DEV_PROJECT, deviceId: mac, kind: "mac", name: "Uma parked" })
+      pair[0].accept()
+      pair[0].addEventListener("close", (e) => codes.push((e as CloseEvent).code))
+      // The previous class, as live after a deploy: no retireTeamHub, but its forgetMac (closes 4001 "moved").
+      // RPC only reaches prototype methods, so forgetMac goes on the prototype (as the previous class has it).
+      ;(hub as unknown as Record<string, unknown>).retireTeamHub = undefined
+      ;(Object.getPrototypeOf(hub) as Record<string, unknown>).forgetMac = async function (this: { ctx: DurableObjectState }, deviceId: string) {
+        for (const ws of this.ctx.getWebSockets(deviceId)) ws.close(4001, "moved")
+      }
+    })
+    const open = () => runInDurableObject(legacy, (_hub, state) => state.getWebSockets().filter((w) => w.readyState === WebSocket.OPEN).length)
+    const deadline = Date.now() + 3000
+    do {
+      expect((await call("GET", "/v1/me/macs", uma)).status).toBe(200)
+      await new Promise((r) => setTimeout(r, 50))
+    } while ((await open()) > 0 && Date.now() < deadline)
+    await runInDurableObject(legacy, (hub) => {
+      delete (Object.getPrototypeOf(hub) as Record<string, unknown>).forgetMac
+      delete (hub as unknown as Record<string, unknown>).retireTeamHub
+    })
+    expect(await open()).toBe(0)
+    expect(codes).toEqual([4001])
+  })
+
   it("the cron sweep retires every team's old hub without any request, in both projects' naming", async () => {
     const ns = (env as unknown as { TEAM_HUB: DurableObjectNamespace<TeamHub> }).TEAM_HUB
     const parkIn = async (name: string, device: string) => {
