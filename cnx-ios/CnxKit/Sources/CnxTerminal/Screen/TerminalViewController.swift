@@ -862,11 +862,13 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     private var output = TerminalOutputQueue()
     /// Runs while output is waiting; stopped when the queue is drained.
     private var outputLink: CADisplayLink?
-    /// A batch is with Ghostty; the next waits for its completion.
-    private var feedInFlight = false
-    /// The next feed outside the display link waits until this time: the
-    /// end of the display frame of the last feed.
-    private var nextFeedAllowed: CFTimeInterval = 0
+    /// One batch with Ghostty at a time, one started per display frame, and
+    /// never mid-burst (`TerminalFeedPacer`, r13 D1). `-CnxNoBurstHold` for A/B.
+    private var pacer = TerminalFeedPacer(holdsBursts: !CommandLine.arguments.contains("-CnxNoBurstHold"))
+    private var feedInFlight: Bool { pacer.inFlight }
+    /// Wakes the pump when output waits only for its burst to end.
+    private var burstWake: DispatchWorkItem?
+    private var burstWakeTime: CFTimeInterval = 0
     /// The session was asked to stop delivering output (the queue is over its high water).
     private var outputPaused = false
     /// The row shift's state; used only on the surface's output queue, in feed order.
@@ -893,6 +895,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
                 armReplayDeadline()
             }
             replayGate.received(data.count, isReset: isReset, at: CACurrentMediaTime())
+            pacer.arrived(at: CACurrentMediaTime())
             #if DEBUG
             if TerminalFrameLog.isEnabled { frameLog.outputArrived() }
             #endif
@@ -918,13 +921,15 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// not held back to the next frame); otherwise the display link feeds at
     /// the start of the next frame. Either way, at most one batch per frame.
     private func scheduleOutput() {
-        if !feedInFlight, CACurrentMediaTime() >= nextFeedAllowed {
+        if pacer.canFeed(at: CACurrentMediaTime()) {
             pumpOutput()
+        } else {
+            armBurstWake()
         }
         guard outputLink == nil, !output.isEmpty || feedInFlight else { return }
         let link = CADisplayLink(target: DisplayLinkProxy(owner: self) { [weak self] in
             // A new frame: one more batch may go.
-            self?.nextFeedAllowed = 0
+            self?.pacer.newFrame()
             self?.pumpOutput()
         }, selector: #selector(DisplayLinkProxy.step(_:)))
         link.add(to: .main, forMode: .common)
@@ -939,15 +944,35 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// One display frame: hands Ghostty the next batch (at most
     /// `TerminalOutputQueue.frameBudget` bytes) when the previous one is
     /// parsed, applying alternate screen switches in order on the way.
+    /// Output waits only for its burst to end (no display frame may come
+    /// first: the link stops when nothing is in flight): look again then.
+    private func armBurstWake() {
+        guard let wake = pacer.wakeTime(at: CACurrentMediaTime()) else { return }
+        if burstWake != nil, burstWakeTime <= wake { return }
+        burstWake?.cancel()
+        let item = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.burstWake = nil
+            self.pumpOutput()
+        }
+        burstWake = item
+        burstWakeTime = wake
+        DispatchQueue.main.asyncAfter(deadline: .now() + max(0, wake - CACurrentMediaTime()), execute: item)
+    }
+
     private func pumpOutput() {
+        guard pacer.canFeed(at: CACurrentMediaTime()) else {
+            armBurstWake()
+            return
+        }
         while !feedInFlight, let step = output.next(budget: TerminalOutputQueue.budget(interacting: scroll.isInteracting && !Self.legacyInteraction)) {
             switch step {
             case .alternateScreen(let on):
                 model.ingest(.alternateScreen(on))
                 applyMode(tui: on)
             case .bytes(let data):
-                feedInFlight = true
-                nextFeedAllowed = outputLink?.targetTimestamp ?? CACurrentMediaTime() + frameInterval
+                pacer.started(frameEnd: outputLink?.targetTimestamp ?? CACurrentMediaTime() + frameInterval,
+                              queueEmpty: output.isEmpty)
                 model.scanOutput(data)
                 let transform: (@Sendable (Data) -> Data)?
                 if let remote = model.session.remoteRows {
@@ -1107,7 +1132,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
 
     /// Ghostty parsed a batch (`raw` session bytes).
     private func outputProcessed(_ raw: Int) {
-        feedInFlight = false
+        pacer.finished()
         let replayDone = replayGate.parsed(raw)
         if replayGate.isReplaying {
             // A reset's replay is still being fed: no layout, no frame swap

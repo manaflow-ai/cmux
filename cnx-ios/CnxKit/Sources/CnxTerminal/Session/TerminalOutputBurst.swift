@@ -67,7 +67,7 @@ public struct TerminalFeedPacer: Sendable, Equatable {
     /// Off for A/B on the rig (`-CnxNoBurstHold`).
     public var holdsBursts: Bool
 
-    public init(holdsBursts: Bool = false) {
+    public init(holdsBursts: Bool = true) {
         self.holdsBursts = holdsBursts
     }
 
