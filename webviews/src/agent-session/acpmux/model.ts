@@ -245,6 +245,8 @@ export type AcpmuxSnapshot = {
   sessions: AcpmuxSessionEntry[];
   /** Connected peer names advertised by the acpmux daemon, including peers without chats yet. */
   peers?: string[];
+  /// Each peer's transport by name: `ssh` for an `ssh://` peer, `cloud` for any other (environments.ts).
+  peerKinds?: Record<string, "ssh" | "cloud">;
   /// The open chat is a fork: the seq of its `forked` event, where the copied history ends (cx-ncc.61).
   forkedAtSeq?: number;
   summary?: {
