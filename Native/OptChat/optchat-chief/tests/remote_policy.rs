@@ -20,6 +20,8 @@ use common::*;
 use optchat_chief::acpmux::AgentEvent;
 use optchat_chief::brain::Input;
 use optchat_chief::daemon::DaemonEvent;
+use optchat_chief::draft::Draft;
+use optchat_chief::run::RunUpdate;
 use optchat_chief::tools::SendCall;
 use serde_json::{Value, json};
 
@@ -548,6 +550,64 @@ fn security_a_private_subagent_report_is_withheld_after_membership_expands() {
             .to_string()
             .contains(PRIVATE_REPORT)),
         "a private-context child report reached the new shared turn: {prompts:?}"
+    );
+}
+
+#[test]
+fn security_a_private_turn_stops_live_output_after_membership_expands() {
+    const PRIVATE_LIVE: &str = "PRIVATE-LIVE-OUTPUT-7d2c";
+    let mut h = Harness::new(default_script());
+    h.agents.hold(true);
+    h.connect();
+    h.say("user_local", "work from private context");
+    h.step();
+    h.agents.wait_prompts(1);
+    let turn = h.brain.state().turn.as_ref().unwrap().key.clone();
+
+    let mut shared = h.owner.lock().unwrap().summary.clone().unwrap();
+    shared.participants.push(Participant {
+        id: "user_teammate".into(),
+        kind: ParticipantKind::Human,
+        display_name: "Teammate".into(),
+        agent_class: None,
+        acp_session: None,
+        person: None,
+    });
+    h.owner.lock().unwrap().summary = Some(shared.clone());
+    h.brain.step(Input::from(DaemonEvent::Changed {
+        conversation: CONV.into(),
+        change: Change::Conversation {
+            conversation: Box::new(shared),
+        },
+    }));
+
+    h.brain.step(Input::Draft(Box::new(Draft {
+        turn: turn.clone(),
+        segment: 0,
+        seq: 1,
+        kind: "talk",
+        text: PRIVATE_LIVE.into(),
+        fresh: true,
+        done: false,
+        truncated: false,
+        harness: Some("claude".into()),
+    })));
+    h.brain.step(Input::Run(Box::new(RunUpdate {
+        turn,
+        run: serde_json::Map::new(),
+        steps: vec![json!({"id": "talk:0", "kind": "talk", "text": PRIVATE_LIVE})],
+        images: Vec::new(),
+        live: vec![json!({"kind": "step.delta", "delta": PRIVATE_LIVE})],
+    })));
+
+    let owner = h.owner.lock().unwrap();
+    assert!(
+        owner.drafts.is_empty(),
+        "private draft reached the shared conversation"
+    );
+    assert!(
+        owner.runs.is_empty(),
+        "private run reached the shared conversation"
     );
 }
 
