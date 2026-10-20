@@ -905,6 +905,13 @@ public protocol BrowserStreamProtocol: AnyObject, Sendable {
      */
     func sendMessage(json: String) throws 
     
+    /**
+     * The tab is on screen (or not). A shown tab keeps the WebRTC media
+     * session beside a WireGuard link open; it closes a while after the
+     * last one is hidden. Streams start shown.
+     */
+    func setVisible(visible: Bool) 
+    
     func stats()  -> BrowserStats
     
 }
@@ -1025,6 +1032,19 @@ open func sendMessage(json: String)throws   {try rustCallWithError(FfiConverterT
     uniffi_cnx_ffi_fn_method_browserstream_send_message(
             self.uniffiCloneHandle(),
         FfiConverterString.lower(json),$0
+    )
+}
+}
+    
+    /**
+     * The tab is on screen (or not). A shown tab keeps the WebRTC media
+     * session beside a WireGuard link open; it closes a while after the
+     * last one is hidden. Streams start shown.
+     */
+open func setVisible(visible: Bool)  {try! rustCall() {
+    uniffi_cnx_ffi_fn_method_browserstream_set_visible(
+            self.uniffiCloneHandle(),
+        FfiConverterBool.lower(visible),$0
     )
 }
 }
@@ -1305,6 +1325,18 @@ public protocol LinkHandleProtocol: AnyObject, Sendable {
     func isClosed()  -> Bool
     
     /**
+     * Debug: close the media session's peer connection at once, as a dead
+     * path would; video falls back to the tunnel and the session is dialed
+     * again.
+     */
+    func killMedia() 
+    
+    /**
+     * The WebRTC media session's state (`Off` on links without one).
+     */
+    func mediaState()  -> MediaState
+    
+    /**
      * Open a streamed Mac browser tab (`browser` service, args JSON
      * `{"tab", "url"}`): frames and host messages go to `observer`.
      */
@@ -1347,6 +1379,12 @@ public protocol LinkHandleProtocol: AnyObject, Sendable {
     func timings()  -> [TimingMark]
     
     func transport()  -> Transport
+    
+    /**
+     * The shown workspace has browser tabs: open the WebRTC media session
+     * beside this WireGuard link ahead of the first tab (no-op without one).
+     */
+    func warmMedia() 
     
 }
 /**
@@ -1456,6 +1494,29 @@ open func hasInputLane() -> Bool  {
 open func isClosed() -> Bool  {
     return try!  FfiConverterBool.lift(try! rustCall() {
     uniffi_cnx_ffi_fn_method_linkhandle_is_closed(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * Debug: close the media session's peer connection at once, as a dead
+     * path would; video falls back to the tunnel and the session is dialed
+     * again.
+     */
+open func killMedia()  {try! rustCall() {
+    uniffi_cnx_ffi_fn_method_linkhandle_kill_media(
+            self.uniffiCloneHandle(),$0
+    )
+}
+}
+    
+    /**
+     * The WebRTC media session's state (`Off` on links without one).
+     */
+open func mediaState() -> MediaState  {
+    return try!  FfiConverterTypeMediaState_lift(try! rustCall() {
+    uniffi_cnx_ffi_fn_method_linkhandle_media_state(
             self.uniffiCloneHandle(),$0
     )
 })
@@ -1587,6 +1648,17 @@ open func transport() -> Transport  {
             self.uniffiCloneHandle(),$0
     )
 })
+}
+    
+    /**
+     * The shown workspace has browser tabs: open the WebRTC media session
+     * beside this WireGuard link ahead of the first tab (no-op without one).
+     */
+open func warmMedia()  {try! rustCall() {
+    uniffi_cnx_ffi_fn_method_linkhandle_warm_media(
+            self.uniffiCloneHandle(),$0
+    )
+}
 }
     
 
@@ -1971,6 +2043,12 @@ public struct BrowserStats: Equatable, Hashable {
      */
     public var trackFramesDropped: UInt64
     public var trackPacketsRecovered: UInt64
+    /**
+     * What carried the last frame: `webrtc-track` (a WebRTC video track:
+     * the link's own, or the media session beside a WireGuard link),
+     * `wireguard-udp` (RTP inside the tunnel) or `channel`.
+     */
+    public var videoCarrier: String
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
@@ -1985,7 +2063,12 @@ public struct BrowserStats: Equatable, Hashable {
         /**
          * Track frames: skipped to a keyframe after an unrecoverable loss, and
          * packets a NACK brought back.
-         */trackFramesDropped: UInt64, trackPacketsRecovered: UInt64) {
+         */trackFramesDropped: UInt64, trackPacketsRecovered: UInt64, 
+        /**
+         * What carried the last frame: `webrtc-track` (a WebRTC video track:
+         * the link's own, or the media session beside a WireGuard link),
+         * `wireguard-udp` (RTP inside the tunnel) or `channel`.
+         */videoCarrier: String) {
         self.frames = frames
         self.keyframes = keyframes
         self.bytes = bytes
@@ -1995,6 +2078,7 @@ public struct BrowserStats: Equatable, Hashable {
         self.videoTrack = videoTrack
         self.trackFramesDropped = trackFramesDropped
         self.trackPacketsRecovered = trackPacketsRecovered
+        self.videoCarrier = videoCarrier
     }
 
     
@@ -2021,7 +2105,8 @@ public struct FfiConverterTypeBrowserStats: FfiConverterRustBuffer {
                 clockRttUs: FfiConverterOptionUInt32.read(from: &buf), 
                 videoTrack: FfiConverterBool.read(from: &buf), 
                 trackFramesDropped: FfiConverterUInt64.read(from: &buf), 
-                trackPacketsRecovered: FfiConverterUInt64.read(from: &buf)
+                trackPacketsRecovered: FfiConverterUInt64.read(from: &buf), 
+                videoCarrier: FfiConverterString.read(from: &buf)
         )
     }
 
@@ -2035,6 +2120,7 @@ public struct FfiConverterTypeBrowserStats: FfiConverterRustBuffer {
         FfiConverterBool.write(value.videoTrack, into: &buf)
         FfiConverterUInt64.write(value.trackFramesDropped, into: &buf)
         FfiConverterUInt64.write(value.trackPacketsRecovered, into: &buf)
+        FfiConverterString.write(value.videoCarrier, into: &buf)
     }
 }
 
@@ -2077,6 +2163,11 @@ public struct ConnectOptions: Equatable, Hashable {
      * reliable channel on either transport (the comparison baseline).
      */
     public var noVideoLane: Bool
+    /**
+     * WireGuard: no WebRTC media session beside the link, so browser video
+     * rides RTP inside the tunnel (the "WireGuard only" comparison).
+     */
+    public var noWebrtcMedia: Bool
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
@@ -2095,10 +2186,15 @@ public struct ConnectOptions: Equatable, Hashable {
         /**
          * Debug: do not offer the media lane, so browser video rides its
          * reliable channel on either transport (the comparison baseline).
-         */noVideoLane: Bool = false) {
+         */noVideoLane: Bool = false, 
+        /**
+         * WireGuard: no WebRTC media session beside the link, so browser video
+         * rides RTP inside the tunnel (the "WireGuard only" comparison).
+         */noWebrtcMedia: Bool = false) {
         self.relayOnly = relayOnly
         self.blockUdp = blockUdp
         self.noVideoLane = noVideoLane
+        self.noWebrtcMedia = noWebrtcMedia
     }
 
     
@@ -2119,7 +2215,8 @@ public struct FfiConverterTypeConnectOptions: FfiConverterRustBuffer {
             try ConnectOptions(
                 relayOnly: FfiConverterBool.read(from: &buf), 
                 blockUdp: FfiConverterBool.read(from: &buf), 
-                noVideoLane: FfiConverterBool.read(from: &buf)
+                noVideoLane: FfiConverterBool.read(from: &buf), 
+                noWebrtcMedia: FfiConverterBool.read(from: &buf)
         )
     }
 
@@ -2127,6 +2224,7 @@ public struct FfiConverterTypeConnectOptions: FfiConverterRustBuffer {
         FfiConverterBool.write(value.relayOnly, into: &buf)
         FfiConverterBool.write(value.blockUdp, into: &buf)
         FfiConverterBool.write(value.noVideoLane, into: &buf)
+        FfiConverterBool.write(value.noWebrtcMedia, into: &buf)
     }
 }
 
@@ -2408,8 +2506,8 @@ public func FfiConverterTypeCnxError_lower(_ value: CnxError) -> RustBuffer {
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 /**
  * Link state events, in order: `Connecting`, then `Connected` (or
- * `Disconnected` when the dial fails), then any number of `PathChanged` and
- * `Rtt`, then one `Disconnected`.
+ * `Disconnected` when the dial fails), then any number of `PathChanged`,
+ * `Rtt` and `Media`, then one `Disconnected`.
  */
 
 public enum LinkEvent: Equatable, Hashable {
@@ -2421,6 +2519,11 @@ public enum LinkEvent: Equatable, Hashable {
     case pathChanged(path: LinkPath
     )
     case rtt(millis: UInt32
+    )
+    /**
+     * The WebRTC media session beside a WireGuard link changed.
+     */
+    case media(state: MediaState
     )
     case disconnected(reason: String
     )
@@ -2457,7 +2560,10 @@ public struct FfiConverterTypeLinkEvent: FfiConverterRustBuffer {
         case 4: return .rtt(millis: try FfiConverterUInt32.read(from: &buf)
         )
         
-        case 5: return .disconnected(reason: try FfiConverterString.read(from: &buf)
+        case 5: return .media(state: try FfiConverterTypeMediaState.read(from: &buf)
+        )
+        
+        case 6: return .disconnected(reason: try FfiConverterString.read(from: &buf)
         )
         
         default: throw UniffiInternalError.unexpectedEnumCase
@@ -2489,8 +2595,13 @@ public struct FfiConverterTypeLinkEvent: FfiConverterRustBuffer {
             FfiConverterUInt32.write(millis, into: &buf)
             
         
-        case let .disconnected(reason):
+        case let .media(state):
             writeInt(&buf, Int32(5))
+            FfiConverterTypeMediaState.write(state, into: &buf)
+            
+        
+        case let .disconnected(reason):
+            writeInt(&buf, Int32(6))
             FfiConverterString.write(reason, into: &buf)
             
         }
@@ -2603,6 +2714,109 @@ public func FfiConverterTypeLinkPath_lift(_ buf: RustBuffer) throws -> LinkPath 
 #endif
 public func FfiConverterTypeLinkPath_lower(_ value: LinkPath) -> RustBuffer {
     return FfiConverterTypeLinkPath.lower(value)
+}
+
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
+ * The WebRTC media session beside a WireGuard link (browser video).
+ */
+
+public enum MediaState: Equatable, Hashable {
+    
+    /**
+     * No session: nothing shows a browser tab, or this link has none
+     * (WebRTC transport, or a Mac without media sessions).
+     */
+    case off
+    case connecting
+    /**
+     * Connected over `path`; `rtt_millis` is its ICE pair's round trip.
+     */
+    case up(path: LinkPath, rttMillis: UInt32?
+    )
+    /**
+     * The last attempt failed or the session dropped: browser video rides
+     * the WireGuard tunnel until a retry in `retry_in_millis` works.
+     */
+    case failed(reason: String, retryInMillis: UInt32
+    )
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension MediaState: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeMediaState: FfiConverterRustBuffer {
+    typealias SwiftType = MediaState
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> MediaState {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .off
+        
+        case 2: return .connecting
+        
+        case 3: return .up(path: try FfiConverterTypeLinkPath.read(from: &buf), rttMillis: try FfiConverterOptionUInt32.read(from: &buf)
+        )
+        
+        case 4: return .failed(reason: try FfiConverterString.read(from: &buf), retryInMillis: try FfiConverterUInt32.read(from: &buf)
+        )
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: MediaState, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .off:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .connecting:
+            writeInt(&buf, Int32(2))
+        
+        
+        case let .up(path,rttMillis):
+            writeInt(&buf, Int32(3))
+            FfiConverterTypeLinkPath.write(path, into: &buf)
+            FfiConverterOptionUInt32.write(rttMillis, into: &buf)
+            
+        
+        case let .failed(reason,retryInMillis):
+            writeInt(&buf, Int32(4))
+            FfiConverterString.write(reason, into: &buf)
+            FfiConverterUInt32.write(retryInMillis, into: &buf)
+            
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMediaState_lift(_ buf: RustBuffer) throws -> MediaState {
+    return try FfiConverterTypeMediaState.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMediaState_lower(_ value: MediaState) -> RustBuffer {
+    return FfiConverterTypeMediaState.lower(value)
 }
 
 
@@ -2986,6 +3200,12 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cnx_ffi_checksum_method_linkhandle_is_closed() != 33391) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_cnx_ffi_checksum_method_linkhandle_kill_media() != 6522) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cnx_ffi_checksum_method_linkhandle_media_state() != 55151) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_cnx_ffi_checksum_method_linkhandle_open_browser() != 31507) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -3008,6 +3228,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cnx_ffi_checksum_method_linkhandle_transport() != 40852) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cnx_ffi_checksum_method_linkhandle_warm_media() != 36947) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cnx_ffi_checksum_method_linkobserver_on_event() != 49160) {
@@ -3038,6 +3261,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cnx_ffi_checksum_method_browserstream_send_message() != 49174) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cnx_ffi_checksum_method_browserstream_set_visible() != 4366) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cnx_ffi_checksum_method_browserstream_stats() != 2583) {

@@ -29,11 +29,17 @@ public struct CnxHostLaunch: Sendable, Equatable {
     /// acpmux and shows here as this Mac's own. Nil: phones cannot create agent tabs.
     public var agentTabHost: String?
     /// The Chief's conversation owner session (`ChiefHome.session`), served
-    /// to phones by hostd's scoped `chief` service; nil lets hostd derive it
-    /// from `~/.cmux/chief/default`, the home of every build that is not an
-    /// isolated launch. The app's wiring sets it with
-    /// `ChiefHome.resolve(tag:).session` (cnx-ios/verify/relay-security.md).
+    /// to phones by hostd's scoped `chief` service. The app always sets it from
+    /// its own Chief home (`IPhoneHostService.Dependencies.chief`): a DEV or
+    /// tagged build's Chief lives at `~/.cmux/chief/<bundle id>`, not the
+    /// `~/.cmux/chief/default` hostd derives when it is nil (only a hostd
+    /// started by hand relies on that).
     public var chiefSession: String?
+    /// The Chief owner's socket once the app is connected to it
+    /// (`ChiefConversationOwner.socketPath()`): hostd dials it as is
+    /// (`CNX_CHIEF_SOCKET`), so a socket outside the app daemon's folder
+    /// (cmux-tui's short-path fallback) is still found.
+    public var chiefSocket: String?
     /// This build streams the phone's browser tabs (a bundled remote browser host):
     /// hostd serves `browser` and says `browser-stream-v1` (`CNX_BROWSER_HOSTS=1`).
     /// Off, phones hide New Browser Tab for this Mac.
@@ -87,7 +93,8 @@ public struct CnxHostLaunch: Sendable, Equatable {
             "NO_COLOR": "1",
         ]) { $1 }
         if let agentTabHost, !agentTabHost.isEmpty { environment["CNX_AGENT_TAB_HOST"] = agentTabHost }
-        if let chiefSession { environment["CNX_CHIEF_SESSION"] = chiefSession }
+        if let chiefSession, !chiefSession.isEmpty { environment["CNX_CHIEF_SESSION"] = chiefSession }
+        if let chiefSocket, !chiefSocket.isEmpty { environment["CNX_CHIEF_SOCKET"] = chiefSocket }
         if browserHosts { environment["CNX_BROWSER_HOSTS"] = "1" }
         return environment
     }

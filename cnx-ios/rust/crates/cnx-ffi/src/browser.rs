@@ -68,6 +68,10 @@ pub struct BrowserStats {
     /// packets a NACK brought back.
     pub track_frames_dropped: u64,
     pub track_packets_recovered: u64,
+    /// What carried the last frame: `webrtc-track` (a WebRTC video track:
+    /// the link's own, or the media session beside a WireGuard link),
+    /// `wireguard-udp` (RTP inside the tunnel) or `channel`.
+    pub video_carrier: String,
 }
 
 /// Receives a browser stream's frames and messages on a library thread.
@@ -83,6 +87,7 @@ pub trait BrowserObserver: Send + Sync {
 }
 
 enum Command {
+    Visible(bool),
     Control(Value),
     Input { event: Vec<u8>, must_deliver: bool },
     Keyframe,
@@ -121,6 +126,13 @@ impl BrowserStream {
         let _: Value = serde_json::from_str(&json)
             .map_err(|e| CnxError::InvalidArgument { message: format!("input: {e}") })?;
         self.commands.send(Command::Input { event: json.into_bytes(), must_deliver }).map_err(|_| closed())
+    }
+
+    /// The tab is on screen (or not). A shown tab keeps the WebRTC media
+    /// session beside a WireGuard link open; it closes a while after the
+    /// last one is hidden. Streams start shown.
+    pub fn set_visible(&self, visible: bool) {
+        let _ = self.commands.send(Command::Visible(visible));
     }
 
     /// Asks the host for a keyframe (the decoder lost its state).
@@ -174,6 +186,7 @@ pub(crate) fn start(
     receiver: ChannelReceiver,
     observer: Arc<dyn BrowserObserver>,
     track: Option<Track>,
+    media: Option<cnx_link::hybrid::MediaManager>,
 ) -> Arc<BrowserStream> {
     let (commands, rx) = mpsc::unbounded_channel();
     let stats = Arc::new(Mutex::new(BrowserStats::default()));
@@ -188,6 +201,8 @@ pub(crate) fn start(
         track,
         track_frame: 0,
         track_synced: false,
+        demand: media.as_ref().map(cnx_link::hybrid::MediaManager::acquire),
+        media,
     };
     tokio::spawn(viewer.run(sender, receiver, rx));
     Arc::new(BrowserStream { commands, stats, epoch })
@@ -205,6 +220,10 @@ struct Viewer {
     track_frame: u32,
     /// A keyframe of this stream's own tag arrived: later frames decode.
     track_synced: bool,
+    /// The WebRTC media session beside a WireGuard link, and this shown
+    /// tab's hold on it.
+    media: Option<cnx_link::hybrid::MediaManager>,
+    demand: Option<cnx_link::hybrid::MediaDemand>,
 }
 
 impl Viewer {
@@ -238,6 +257,9 @@ impl Viewer {
                     None => break ("link_closed".to_owned(), String::new()),
                 },
                 command = commands.recv() => match command {
+                    Some(Command::Visible(visible)) => {
+                        self.demand = if visible { self.media.as_ref().map(cnx_link::hybrid::MediaManager::acquire) } else { None };
+                    }
                     Some(Command::Control(body)) => {
                         let control = serde_json::json!({"t": "service", "service": "rb/1", "body": body});
                         let _ = cmux_rd_proto::encode_stream_frame(
@@ -341,6 +363,7 @@ impl Viewer {
             stats.clock_rtt_us = clock.map(|c| c.rtt_us);
             stats.video_track = true;
             if let Some(track) = &self.track {
+                stats.video_carrier = track.lane.current_kind().name().to_owned();
                 let lane = track.lane.stats();
                 stats.track_frames_dropped = lane.frames_dropped;
                 stats.track_packets_recovered = lane.packets_recovered;
@@ -386,6 +409,12 @@ impl Viewer {
         let clock = self.session.clock();
         while let Some((stream, complete)) = self.session.pop_frame() {
             let keyframe = complete.flags & flags::KEYFRAME != 0;
+            if stream == 0 {
+                // The page's video is on the channel (another tab holds the
+                // lane): when this tab takes the lane back, its lane frames
+                // start again at a keyframe.
+                self.track_synced = false;
+            }
             let capture_us = complete.body.t_capture_us;
             let age_us = clock.map(|c| {
                 let host_now = i128::from(now) + i128::from(c.offset_us);
@@ -399,6 +428,7 @@ impl Viewer {
                 stats.clock_offset_us = clock.map(|c| c.offset_us);
                 stats.clock_rtt_us = clock.map(|c| c.rtt_us);
                 stats.video_track = false;
+                stats.video_carrier = "channel".to_owned();
                 if let Ok(s) = self.session.stats(stream) {
                     stats.frames_lost = s.frames_lost;
                 }

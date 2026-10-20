@@ -45,6 +45,12 @@ pub enum SignalPayload {
         /// "Lanes"); absent from older peers.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         lanes: Vec<String>,
+        /// A media session for the WireGuard link with this session id
+        /// (PROTOCOL.md "Media session"): a peer connection that carries
+        /// only the media lane, beside that link. Absent: the offer starts a
+        /// link of its own.
+        #[serde(rename = "mediaFor", default, skip_serializing_if = "Option::is_none")]
+        media_for: Option<String>,
     },
     #[serde(rename = "webrtc-answer")]
     WebrtcAnswer {

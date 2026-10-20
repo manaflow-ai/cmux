@@ -46,6 +46,12 @@ public protocol TerminalTabContent: AnyObject {
     /// place of its live page, so the active card shows the page's bottom
     /// like the others (VERIFY-round5 V5-6). True only with a snapshot.
     func showsStaticCard(for tab: WorkspaceTab) -> Bool
+    /// The grid became visible (true) or was covered by a page (false).
+    /// While visible, cards follow their terminals (full verify D6,
+    /// T-TABS-01); `tabs` reads the workspace's terminal tabs as they are now.
+    func overviewVisibilityChanged(_ visible: Bool, tabs: @escaping @MainActor () -> [WorkspaceTab])
+    /// The grid started or stopped scrolling: no card changes in a scroll frame.
+    func overviewScrollingChanged(_ scrolling: Bool)
     /// A new terminal tab or workspace: put the keyboard up on its composer.
     func focusInput(for tab: WorkspaceTab, in workspace: Workspace)
     /// Replaces the title pill's subtitle (the working directory) while the
@@ -61,6 +67,8 @@ extension TerminalTabContent {
     public func overviewWillAppear(active tab: WorkspaceTab) {}
     public func overviewWillAppear(inactive tabs: [WorkspaceTab]) {}
     public func showsStaticCard(for tab: WorkspaceTab) -> Bool { false }
+    public func overviewVisibilityChanged(_ visible: Bool, tabs: @escaping @MainActor () -> [WorkspaceTab]) {}
+    public func overviewScrollingChanged(_ scrolling: Bool) {}
     public func focusInput(for tab: WorkspaceTab, in workspace: Workspace) {}
     public func statusSubtitle(for tab: WorkspaceTab) -> String? { nil }
 }

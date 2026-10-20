@@ -399,7 +399,7 @@ struct TransportPage: View {
                     } label: {
                         HStack(spacing: 12) {
                             VStack(alignment: .leading, spacing: 2) {
-                                UnbrokenText(kind.title).foregroundStyle(theme.colors.label)
+                                UnbrokenText(kind.pickerTitle).foregroundStyle(theme.colors.label)
                                 UnbrokenText(Self.subtitle(kind), style: .footnote).foregroundStyle(theme.colors.label2)
                             }
                             Spacer(minLength: 8)
@@ -444,7 +444,7 @@ struct TransportPage: View {
             } footer: {
                 Text(relayAvailable == false
                      ? "Relay unavailable."
-                     : "Relay only: always through TURN, as from a distant network. Block UDP: as on a network that passes only TCP: WireGuard rides TURN over TLS on port 443. Both apply at once. Browser video on channel: streamed browser tabs skip the media lane (RTP on WebRTC or in the WireGuard tunnel). Applies at the next connection.")
+                     : "Relay only: always through TURN, as from a distant network. Block UDP (WireGuard; WebRTC ignores it): as on a network that passes only TCP: WireGuard rides TURN over TLS on port 443. Both apply at once. Browser video on channel: streamed browser tabs skip the media lane (RTP on WebRTC or in the WireGuard tunnel). Applies at the next connection.")
             }
             #endif
         }
@@ -453,8 +453,8 @@ struct TransportPage: View {
 
     static func subtitle(_ kind: TransportKind) -> String {
         switch kind {
-        case .webrtc: String(localized: "Direct when possible, relay otherwise. Recommended.")
-        case .wireguard: String(localized: "Encrypted tunnel to your Mac, relay when needed.")
+        case .wireguard: String(localized: "Encrypted tunnel to your Mac. Browser tabs stream over WebRTC when that is faster.")
+        case .webrtc: String(localized: "Everything over one WebRTC connection, direct when possible.")
         }
     }
 }

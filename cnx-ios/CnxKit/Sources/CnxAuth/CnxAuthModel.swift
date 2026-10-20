@@ -322,12 +322,22 @@ public final class CnxAuthModel {
         try? await coordinator?.selectTeam(id: id)
     }
 
-    /// Creates a team and selects it.
+    /// Creates a team and selects it. Stack refuses team creation from the
+    /// client (`client_team_creation_enabled` is off in both projects), so it
+    /// goes through the cmux service (`POST /v1/teams`), which creates it with
+    /// the project's server key; then the team list is read again from Stack.
     public func createTeam(named name: String) async throws -> AppStore.AccountTeam {
         if isMock { return AppStore.AccountTeam(id: "team-\(UUID().uuidString.prefix(8))", name: name) }
         guard let coordinator else { throw AuthError.unauthorized }
-        let team = try await coordinator.createTeam(displayName: name)
-        return AppStore.AccountTeam(id: team.id, name: team.displayName)
+        guard let apiBase else { throw ServiceTeamCreation.Failure.unavailable }
+        let creation = ServiceTeamCreation(apiBase: apiBase)
+        let tokens = try await coordinator.currentTokens()
+        let (data, response) = try await URLSession.shared.data(for: creation.request(accessToken: tokens.accessToken, name: name))
+        let team = try creation.team(from: data, status: (response as? HTTPURLResponse)?.statusCode ?? 0)
+        // The new membership, then the selection (best effort, as in Stack's own flow).
+        await coordinator.refreshTeams()
+        try? await coordinator.selectTeam(id: team.id)
+        return team
     }
 
     /// Joins a team from a Stack invitation link (`...?code=...`) and refreshes

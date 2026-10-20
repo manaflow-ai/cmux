@@ -64,4 +64,29 @@ import Testing
         store.apply(.retrying(attempt: 3, maxAttempts: 10, status: nil))
         #expect(store.turns.last?.retry == nil)
     }
+
+    /// Full verify D4: the account refusing the chat's model reads as a sentence, never raw JSON.
+    @Test func aModelTheAccountLacksIsPlain() {
+        let raw = #"{"type":"error","status":400,"error":{"type":"invalid_request_error","message":"The 'gpt-6.1-sol' model is not supported when using Codex with a ChatGPT account."}}"#
+        let copy = TurnFailureCopy(message: raw, harness: "codex", harnessName: "Codex")
+        #expect(copy.kind == .modelUnavailable)
+        #expect(copy.sentence == "Codex can't use this model with the Mac's account. Pick another model.")
+        #expect(copy.detail == raw)
+        #expect(!TurnFailureCopy.plain(raw, harness: "codex", harnessName: "Codex").contains("{"))
+        // A capacity error that mentions the model stays a capacity error.
+        #expect(TurnFailureCopy(message: "The model is currently not available (503)").kind == .rateLimited)
+        // Plain text stays as it is.
+        #expect(TurnFailureCopy.plain("Already answered.") == "Already answered.")
+    }
+}
+
+
+/// Full verify D13: a chat's preview is its newest agent message, not the turn's first.
+@Suite struct LastAnswerTests {
+    @Test func theLastMessageOfTheTurn() {
+        var turn = AgentTurn(id: "t", prompt: "update both files", promptAt: Date())
+        turn.items = [.message(id: "a", markdown: "I'll update both files"), .message(id: "b", markdown: "Done: both updated.")]
+        #expect(turn.lastAnswerMarkdown == "Done: both updated.")
+        #expect(AgentTurn(id: "u", prompt: "x", promptAt: Date()).lastAnswerMarkdown == nil)
+    }
 }

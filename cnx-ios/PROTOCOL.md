@@ -24,11 +24,11 @@ ffi) and the app. Change this file first, then the implementations.
   own token; a team, a personal space, device ownership and link admission
   never span projects. Stored rows record the project in the owner key
   (`<sub>` for the primary project, `<projectId>:<sub>` otherwise; Stack subs
-  are UUIDs and never contain `:`), and the TeamHub of a non-primary project's
-  team is named `<projectId>:<teamId>`. Every `userId`/`ownerUserId`/
+  are UUIDs and never contain `:`), and the caller's hub is named
+  `user:<owner key>` (below). Every `userId`/`ownerUserId`/
   `fromUserId` on the wire stays the bare `sub`.
-- Team membership is checked through Stack (cached 60 s, refusals 15 s, in the
-  TeamHub DO): the server API when the Worker has `STACK_SECRET_SERVER_KEY`,
+- Team membership is checked through Stack (cached 60 s, refusals 15 s, per
+  team in the caller's own hub): the server API when the Worker has `STACK_SECRET_SERVER_KEY`,
   otherwise the client API (`GET /teams?user_id=me`) with the caller's own
   access token. (Changed: no Stack server key is provisioned for cnx-ios, so the
   caller-token path is the default.) v1 admission rule for a link: phone and Mac must belong to the
@@ -62,60 +62,115 @@ message ends with the reason in parentheses, one of `malformed`,
 echoes the token),
 `bad_request` (400), `not_member` / `not_owner` / `wrong_team` (403), `not_found` (404),
 `rate_limited` (429, with `retry-after` seconds; 0.7.0 per-user limits: 300 requests a minute overall, 30 `GET /v1/ice`, 10 invites, 60 notifications per Mac),
-`membership_unavailable` / `invite_failed` (502).
+`membership_unavailable` / `invite_failed` / `hub_unavailable` (502; `hub_unavailable` since 0.10.0 when the caller's hub refuses a signaling socket for an internal reason).
 
 | Method + path | Body / result |
 | --- | --- |
 | `POST /v1/devices` | `{deviceId, kind, name, teamId, wgPublicKey?}` → `{device:{deviceId,ownerUserId,teamId,kind,name,wgPublicKey,createdAt,updatedAt,lastSeenAt}}` (upsert; caller must be a team member; a deviceId owned by another user is `403 not_owner`) |
-| `GET /v1/teams/:teamId/macs` | → `{macs:[{deviceId,name,online,lastSeenAt,ownerUserId}]}` |
-| `GET /v1/me/macs` | → `{macs:[{deviceId,name,teamId,online,lastSeenAt,ownerUserId}]}`: the caller's own Macs (registered by the caller, the only Macs v1 lets it dial) in every team the caller still belongs to and in its personal space, with presence from each team's hub. Added in 0.5.0 so a phone finds its Mac whichever team either side has selected; the app polls it (every 4 s while its active team has no online Mac, else every 30 s) and moves to the team of an online Mac. `502 membership_unavailable` when Stack cannot list the caller's teams |
+| `GET /v1/teams/:teamId/macs` | → `{macs:[{deviceId,name,online,lastSeenAt,ownerUserId}]}`: the caller's own Macs registered in `teamId` (caller must be a member). Changed in 0.10.0: a teammate's Macs are never listed (before, every Mac of the team was), so `ownerUserId` is always the caller |
+| `GET /v1/me/macs` | → `{macs:[{deviceId,name,teamId,online,lastSeenAt,ownerUserId}]}`: the caller's own Macs (registered by the caller, the only Macs v1 lets it dial) in every team the caller still belongs to and in its personal space, with presence from the caller's hub. Added in 0.5.0 so a phone finds its Mac whichever team either side has selected; the app polls it (every 4 s while its active team has no online Mac, else every 30 s) and moves to the team of an online Mac. `502 membership_unavailable` when Stack cannot list the caller's teams |
 | `GET /v1/teams/:teamId/prefs` | → `{color, emoji}` for the caller (per user per team) |
 | `PUT /v1/teams/:teamId/prefs` | `{color?: "#RRGGBB", emoji?: string\|null}`. `emoji` is the avatar glyph: `null` = automatic (team initial), `""` = none (color only), otherwise exactly one grapheme (letter, digit, symbol or emoji; not whitespace) |
+| `POST /v1/teams` | `{name}` (1 to 64 characters, trimmed, no control characters; 3 a minute per user) → `{team:{id,name}}`: creates a Stack team with the caller as creator and first member, using the project's server key (Stack refuses client-side team creation). `503 team_creation_unavailable` when the Worker has no server key for the caller's project; `403`/`502 team_create_failed` when Stack refuses. |
 | `POST /v1/teams/:teamId/invites` | `{email}` → `{url, sent:true}`: Stack emails a team invitation whose link opens `url` (the configured callback) with the code. Changed from a bare link: without a Stack server key the API can only send the invitation email, not mint a shareable link. Needs the caller's `$invite_members` team permission. |
 | `GET /v1/ice` | → `{iceServers:[{urls:[...],username?,credential?}], ttl, turn}` from the Cloudflare TURN key (generate-ice-servers), STUN `stun:stun.cloudflare.com:3478` always included (STUN only if TURN is unavailable). `turn` (0.7.0) is `false` when no TURN server could be included: clients must say so (off-LAN WebRTC may then fail) instead of failing silently. `ttl` is 1 h (was 4 h) |
 | `GET /v1/me/devices` | → `{devices:[{deviceId,kind,name,teamId,createdAt,updatedAt,lastSeenAt,online,push}]}` (0.7.0): every Mac and phone the caller registered, in any team or personal space. `online` is live presence for Macs and `null` for phones; `push` is whether the phone has an APNs token |
-| `DELETE /v1/devices/:deviceId` | → `{deleted:true, deviceId}` (0.7.0). Owner only (`403 not_owner`, `404 not_found`). Deletes the row and its push token; the device's team hub drops the Mac from presence (broadcasting `presence` with `removed:true`), closes the device's signaling socket with code 4002 `removed`, and ends its signaling sessions. A removed device that registers again is a new registration: removal tidies stale devices, it does not ban an id. Used by the phone (Settings → Connection → Macs / Phones) and by the Mac app ("Unpair this Mac") |
+| `DELETE /v1/devices/:deviceId` | → `{deleted:true, deviceId}` (0.7.0). Owner only (`403 not_owner`, `404 not_found`). Deletes the row and its push token; the owner's hub drops the Mac from presence (broadcasting `presence` with `removed:true`), closes the device's signaling socket with code 4002 `removed`, and ends its signaling sessions. A removed device that registers again is a new registration: removal tidies stale devices, it does not ban an id. Used by the phone (Settings → Connection → Macs / Phones) and by the Mac app ("Unpair this Mac") |
 | `PUT /v1/devices/:deviceId/push` | `{token, environment, topic, kinds?}` → `{push:{environment,topic,kinds,updatedAt}}` (0.7.0). Phone only, owner only. `token` is the APNs device token in hex (64 to 200 hex digits), `environment` `sandbox` or `production` (the app's `aps-environment`), `topic` its bundle id, which must be one of the Worker's `APNS_TOPICS`. `kinds` is which events to push (default all): `question`, `permission`, `completed`, `failed`, `chief` |
 | `DELETE /v1/devices/:deviceId/push` | → `{deleted:true}` (0.7.0): stop pushing to this phone (sign-out, notifications turned off) |
 | `POST /v1/devices/:deviceId/notify` | `{eventId, kind, agent?, place?, workspaceId?, tabId?, sessionId?}` → `{configured, sent, failed, dropped}` (0.7.0). `:deviceId` is a Mac the caller owns. Pushes one event to every phone of the same owner that registered a token and wants that `kind`. Content minimization: the Mac sends only a kind, a short agent name (≤ 40 characters) and a short place such as the workspace title (≤ 60); the Worker writes the text itself ("Claude has a question", "Claude needs permission", "Claude finished", "Claude stopped with an error", "Chief replied") with the place as the body, and never forwards agent output, prompts, tool arguments or paths. The payload's `cnx` object carries `{mac, kind, eventId, workspaceId, tabId, sessionId}` so a tap opens that tab. `eventId` (≤ 64) is the APNs collapse id. `configured:false` when the Worker has no APNs key. Tokens APNs reports as gone are deleted (`dropped`). Rate limited per Mac (`429 rate_limited`) |
-| `DELETE /v1/me` | → `{deleted:{devices:n}}` (0.7.0): purges everything the Worker stores for the caller (devices with their push tokens, team prefs) and evicts the caller's sockets. The app calls it first when the user deletes their account, then deletes the Stack account through cmux's account deletion (`DELETE <cmux API>/api/account`, as the main cmux app) |
+| `DELETE /v1/me` | → `{deleted:{devices:n}}` (0.7.0): purges everything the Worker stores for the caller (devices with their push tokens, team prefs) and evicts the caller's sockets: the caller's hub closes every socket with 4002 `removed` and forgets its devices and sessions. The app calls it first when the user deletes their account, then deletes the Stack account through cmux's account deletion (`DELETE <cmux API>/api/account`, as the main cmux app) |
 | `POST /v1/me/bootstrap` | `{teamId, devices:[{deviceId,kind,name}]}` (at most 4) → `{devices:[{device}\|{error}], macs:{macs}\|{error}, myMacs:{macs}\|{error}, ice:{iceServers,ttl,turn}\|{error}}`: the phone's launch in one round trip (added in 0.8.0). Each part is the response of its own route (`POST /v1/devices` with `teamId`, `GET /v1/teams/:teamId/macs`, `GET /v1/me/macs`, `GET /v1/ice`), run at once; a part's error does not fail the others. A 404 means an older service: make the separate calls |
 | `GET /v1/health` | → `{ok:true, version, stackProjects:[projectId], colo}` (accepted Stack projects, primary first; `colo` is the Cloudflare colo that received the request, added in 0.6.0) |
-| `GET /v1/teams/:teamId/hub` | → `{ingressColo, hubColo, locationHint}`: diagnostics added in 0.6.0. Where this request entered Cloudflare, where the team's `TeamHub` runs, and the region a hub created by this request would get (`null` when unknown) |
+| `GET /v1/teams/:teamId/hub` | → `{ingressColo, hubColo, locationHint}`: diagnostics added in 0.6.0. Where this request entered Cloudflare, where the caller's hub runs (since 0.10.0 the hub is the caller's, whatever `teamId` names; the caller must still be a member of it), and the region a hub created by this request would get (`null` when unknown) |
 
 Every response carries `Server-Timing` (0.8.0): the steps it waited on, for example
 `auth;dur=1, member;dur=0, db_connect;dur=5, db;dur=82, hub;dur=12, total;dur=101`
-(`auth` token check, `member` Stack membership, `db` the database, `hub` the team's Durable
+(`auth` token check, `member` Stack membership, `db` the database, `hub` the caller's Durable
 Object, `turn` Cloudflare TURN, `stack` the Stack API). A request slower than 250 ms is
 also logged with them.
 
 ## Signaling WebSocket `GET /v1/teams/:teamId/signal?deviceId=<id>`
 
-One `TeamHub` Durable Object per team (hibernating WebSockets). A hub stays
-where it is first created. Since 0.6.0 the Worker creates it with a
-`locationHint` from the caller's own location (Cloudflare's geolocation of
-the client: `wnam`, `enam`, `weur`, ...), not from the colo that received the
-request. Free-plan traffic is sometimes received far from the client (on
-2026-10-13 a California client was served from Paris), and a hub created then
-would stay across an ocean. Existing hubs keep their place. JSON text
+One hub per **user** (API 0.10.0; before, one per team): the `TeamHub`
+Durable Object class (hibernating WebSockets) reached by
+`idFromName("user:" + owner key)`, where the owner key is the caller's
+verified token `sub` (`<projectId>:<sub>` outside the primary project, as in
+stored rows). The name comes only from the verified token, never from the
+path, query or body. A hub holds one user's devices: the phone and the Macs
+signed in to the same account. It binds its owner on first use and refuses
+any call for another owner, so no presence, introduction, signal,
+`wg-endpoints` or device list can cross users, even teammates.
+
+What the team still scopes (a view, not a trust boundary):
+
+- The path's `teamId` is still checked: the caller must be a member, and
+  the socket's device must be registered in that team (else `403
+  wrong_team`). A Mac that re-registers into another team has its socket
+  closed with 4001 `moved` and reconnects under its new team. A phone's open
+  socket stays (as with team hubs), so its links keep signaling.
+- A socket hears about the user's Macs registered in the socket's own team
+  only: `hello.macs` and `presence` frames are filtered by team, as the team
+  hub did. A Mac that moves team is announced `removed:true` to its old
+  team's sockets and as present to its new team's.
+- Admission is by user only: a phone may signal any Mac of its own user,
+  whichever team either is registered in (`GET /v1/me/macs` finds them).
+  Teammates never can, whatever team they share.
+
+Migration from team hubs (0.10.0): the URL and frames are unchanged, so old
+phone and Mac builds need no update. Hibernated sockets survive a deploy
+(seen live: a Mac stayed connected to its team hub across it), so the
+Worker retires the old team hubs, which close their sockets with 1012
+`moved to the user hub` and delete their rows: a cron every minute walks
+every team id in the database (devices and team prefs, named as each
+project named its hubs), and requests retire lazily too, the first time an
+isolate serves a team after a membership check (`GET /v1/teams/:teamId/macs`,
+the signal socket, each team of `GET /v1/me/macs`). A retire that fails is
+retried. After a deploy a Durable Object keeps running the previous class
+until it is evicted, and traffic (these retries, a polling phone) can keep
+it warm for minutes; such a hub answers "does not implement the method".
+The Worker then calls the previous class's own `forgetMac` for each device
+the database has in that team, which closes that device's socket with 4001
+`moved` (clients reconnect, into their user hub), and retires the hub for
+good once it runs the new class. A retired hub remembers it, so later
+sweeps cost at most one wake per team. The fallback reaches the devices the
+database has in that team now; a socket of a device registered elsewhere
+since (a phone that switched team) stays until the hub runs the new class
+and is retired. The sweep and the lazy path are temporary: remove them once
+the sweep log shows every team retired across deploys. Clients reconnect as
+after any drop (hostd in under a second) and land in their user's hub.
+A user hub is never retired. A new hub is seeded once from the database
+with the user's Macs (offline until they connect), so `hello` lists a
+registered Mac that has not reconnected yet.
+
+A hub stays where it is first created. Since 0.6.0 the Worker creates it
+with a `locationHint` from the caller's own location (Cloudflare's
+geolocation of the client: `wnam`, `enam`, `weur`, ...), not from the colo
+that received the request. Free-plan traffic is sometimes received far from
+the client (on 2026-10-13 a California client was served from Paris), and a
+hub created then would stay across an ocean. JSON text
 frames:
 
 The socket is admitted only for a member of `teamId` whose `deviceId` is
-registered to the caller in that team (else HTTP 403). The server selects
+registered to the caller in that team (else HTTP 403), in the caller's own
+hub. The server selects
 subprotocol `cnx.v1` when offered (never the bearer entry). One socket per
 device: a newer connection closes the older with code 4000 `replaced` (no
-offline presence in between); a Mac re-registered into another team is closed
-with 4001 `moved`.
+offline presence in between); a Mac re-registered into another team is
+closed with 4001 `moved`.
 
-- server → client on connect: `{"type":"hello","you":deviceId,"macs":[{deviceId,name,online,lastSeenAt,ownerUserId}]}`
-- server → all: `{"type":"presence","mac":{deviceId,name,online,lastSeenAt}}`; a deleted Mac's last presence adds `"removed":true` (0.7.0), and clients drop it from their lists
+- server → client on connect: `{"type":"hello","you":deviceId,"macs":[{deviceId,name,online,lastSeenAt,ownerUserId}]}` (the user's own Macs in the socket's team)
+- server → the user's sockets of the Mac's team: `{"type":"presence","mac":{deviceId,name,online,lastSeenAt}}`; a deleted Mac's last presence adds `"removed":true` (0.7.0), and clients drop it from their lists
 - client → server → peer: `{"type":"signal","to":deviceId,"from":deviceId,"sessionId":uuid,"payload":P}`.
   A `from` other than the socket's own deviceId is refused with `bad_request`.
   On every forwarded signal the DO sets `"fromUserId": <sender's Stack userId>`,
   overwriting any client value. `cnx-hostd` admits a dial only when `fromUserId` equals the Mac's
   own user; a missing `fromUserId` is refused with `bye {reason:"not_admitted"}`.
   where `P.kind` is one of
-  - `webrtc-offer` `{sdp}`, `webrtc-answer` `{sdp}`, `webrtc-ice` `{candidate, sdpMid, sdpMLineIndex}`
+  - `webrtc-offer` `{sdp, lanes?, mediaFor?}`, `webrtc-answer` `{sdp, lanes?}`, `webrtc-ice` `{candidate, sdpMid, sdpMLineIndex}`.
+    An offer with `mediaFor` (added 2026-10-19) opens a media session for
+    the WireGuard link with that session id, not a link of its own ("Media
+    session" below).
   - `wg-init` `{publicKey, endpoints:[ "ip:port" ], overlayIP, lanes?, relayed?, relayedTls?, version?}`,
     `wg-resp` `{publicKey, endpoints, overlayIP, lanes?, relayed?, relayedTls?, version?}`.
     `relayed` (optional) lists which of the sender's endpoints are its TURN
@@ -145,7 +200,7 @@ with 4001 `moved`.
   session, so an older client fails no other dial in progress (it fails a
   dial only on an error for that dial's session or one without
   `sessionId`). A frame shorter than 16 bytes is dropped silently. The
-  TeamHub keeps presence and signaling (introductions); it carries no
+  hub keeps presence and signaling (introductions); it carries no
   data. A WireGuard path without UDP is TURN over TLS (below).
 - WireGuard specifics: `publicKey` is base64 Curve25519; `endpoints` are
   `ip:port` strings (host and STUN-reflexive addresses of the tunnel's UDP
@@ -264,7 +319,9 @@ with 4001 `moved`.
 
 Admission: the DO forwards `signal` only when `to` is a Mac owned by the
 sender's user (same `sub` in the same Stack project), or the reply direction of an existing sessionId. A sessionId
-is bound to the two devices of its first admitted signal.
+is bound to the two devices of its first admitted signal. Since 0.10.0 the hub is the sender's own, so another
+user's device is not in it at all: a signal to it is refused `not_owner` whether that device is online or not
+(never `offline`, which would confirm it exists).
 
 ## Link (inside either transport)
 
@@ -331,6 +388,67 @@ channel its own SCTP stream:
   opened on the input lane. `resize-surface` stays on the attach channel,
   because the daemon gives geometry authority to the attaching client.
   Output, attach streams, `acpmux` and `file` stay bulk.
+
+### Media session (`webrtc-media`; added 2026-10-19, backward compatible)
+
+WireGuard carries the link, and a WebRTC peer connection to the same Mac
+carries browser video beside it (verify/hybrid-link.md). WebRTC is used only
+where it is the better path for latency: a media stack with its own ICE
+candidates (direct or TURN over UDP), SRTP and congestion feedback, and a
+path chosen without waiting on the tunnel's.
+
+- **Negotiation.** The phone lists `"webrtc-media"` in `wg-init` `lanes`
+  next to `video`; a Mac that will answer media sessions for the link lists
+  it back in `wg-resp`, and only when it also attached the tunnel's media
+  lane (`video`), which stays the floor. Older peers leave it out and video
+  rides RTP in the tunnel as before.
+- **Opening.** The phone opens the session on demand: when a browser tab is
+  shown, or ahead of it when the shown workspace has browser tabs (a
+  warm-up that lasts a minute). The link and the terminal never wait for
+  it. Its first signal is a `webrtc-offer` on a new session id with
+  `lanes: ["video"]`, `mediaFor: <the WireGuard link's session id>` and one
+  `recvonly` H.264 m-line (the media lane's codec, feedback and TWCC
+  extension, below); there is no data channel. Candidates trickle through
+  `webrtc-ice` as for a WebRTC link, with the same `GET /v1/ice` servers.
+- **Admission (no new trust path).** The TeamHub forwards the offer like any
+  first signal (the Mac's owner's own phone, `fromUserId` stamped by the
+  hub). cnx-hostd answers only when `fromUserId` is its owner (as for a
+  dial), `mediaFor` names a live WireGuard link that listed `webrtc-media`,
+  the offer's `from` is that link's phone device, and, with pairing on, that
+  link passed `auth`. Otherwise it answers `bye {reason}` with
+  `unknown_link` or `unpaired`. Its answer has one `sendonly` track and
+  `lanes: ["video"]`. A newer session for the same link replaces the older;
+  every session ends with its link.
+- **Video.** The session's track is a second route of the link's media lane
+  (the same RTP stream format, NACK, PLI, FIR and TWCC as "Media lane"
+  below). The Mac sends each frame on one route: the session's track while
+  its peer connection is connected, else RTP in the tunnel. A route that is
+  current, has packets out and hears no TWCC feedback for 500 ms counts as
+  stalled: video leaves it and it is tried again after 1 s, doubling to
+  16 s (back to 1 s after 10 s of feedback). Video changes route only at a
+  keyframe (the Mac asks its encoder for one, at most every 250 ms); while
+  the old route still works its frames keep going until then, and while it
+  does not the frames in between are dropped, so the phone keeps showing
+  the last frame. The phone takes frames from every route and passes a
+  route's frames only after its keyframe, so a late frame from the old route
+  never reaches the decoder. `video_tag` and the channel fallback are
+  unchanged (with no lane at all, video rides the `browser` channel).
+- **Liveness.** The session's ICE reports disconnected after 3 s without
+  consent answers and failed after 8 s (1 s keepalives). The phone redials a
+  failed or closed session after 1, 2, 4, 8, 16, then every 30 s while video
+  is wanted (back to 1 s after a session that lasted 30 s), and closes it
+  with `bye` 30 s after the last browser tab was hidden.
+- **Input** stays on the WireGuard link's input lane: the session carries no
+  data channel (verify/hybrid-link.md "Input path" has the measurements).
+- **UDP blocked.** webrtc-rs cannot reach TURN over TCP or TLS, so on a
+  network without UDP the session never connects and video stays in the
+  tunnel (which rides TURN over TLS). The phone's Block UDP debug setting
+  gives the session no candidates, so it fails the same way.
+- **Labels.** The phone's link line adds the session: "Connected ·
+  WireGuard direct · video WebRTC (TURN) · 14 ms" ("video in the tunnel"
+  while a failed session waits for its retry). cnx-hostd reports
+  `{"type":"phone_media","session_id":<the link's>,"media_path":"direct"|"turn"|"none"}`
+  and the Mac's iPhone card adds "Video over WebRTC (TURN)".
 
 ### Media lane (`video`; added 2026-10-14, backward compatible)
 
@@ -409,7 +527,13 @@ Phone opens odd channel ids, Mac even. Services exposed by `cnx-hostd`
   `rb.menu.result`, `rb.dialog.result`, `rb.open_tab.result`, `rb.find`,
   `rb.find.stop`); hostd drops anything else. One host per `tab` outlives
   its channel; a new channel for the same tab closes the older with
-  `replaced`. `url` must be http, https or `about:blank` (`forbidden`), and
+  `replaced`. At most a host limit of hosts run (`CNX_RB_MAX_TABS`, 4);
+  opening another stops an idle host first, then a hidden tab's, then the
+  least recently used, and that viewer's channel closes `evicted`
+  (2026-10-20; before, `replaced`). The phone opens an evicted tab again when
+  it is shown (at its current address), and on a new link it opens only the
+  tab on screen, never every tab it holds (transport-verify-20261019.md
+  defect 7). `url` must be http, https or `about:blank` (`forbidden`), and
   a Mac with no browser host refuses with `unavailable`. Under
   `CNX_CONTROL=stdio` the app starts the hosts: hostd writes
   `{"type":"need_browser","request","tab","url"}` and the app answers
@@ -421,7 +545,11 @@ Phone opens odd channel ids, Mac even. Services exposed by `cnx-hostd`
   rides the link's media lane instead of the channel, on either carrier;
   rd control, input, clock probes and secondary surfaces stay on the
   channel. A newer `browser` channel that asks for the lane takes it, and the
-  older tab's video returns to its channel with a keyframe. A hostd without
+  older tab's video returns to its channel with a keyframe. The phone sends
+  `rb.visibility {visible}` when a tab is shown or hidden (hostd forwards it
+  to the host); `visible: true` on a channel that asked for the lane and lost
+  it takes the lane back, starting at a keyframe (2026-10-20). An older hostd
+  forwards it without moving the lane. A hostd without
   the lane, or an older one, ignores the field and streams on the channel.
   `"video_tag": N` (u32, random per channel): hostd appends it to each of
   this tab's lane access units as an H.264 SEI NAL unit after the slices
@@ -531,8 +659,13 @@ Nothing here changes the wire; it is how a phone keeps a dial short.
 
 ## Transport switch
 
-The app exposes Settings → Connection → Transport: `WebRTC` or `WireGuard`.
-Both produce the same `Link`; switching tears the link down and redials.
+The app exposes Settings → Connection → Transport: "WireGuard (recommended)"
+or "WebRTC only" (2026-10-19). Both produce the same `Link`; switching tears
+the link down and redials. WireGuard is the default for an install with no
+saved choice (it was WebRTC); a saved choice stays. With WireGuard the link
+rides the tunnel and browser video a WebRTC media session beside it ("Media
+session"); "WebRTC only" is the earlier behavior unchanged: the link and
+browser video share one peer connection.
 
 Debug builds add Settings → Developer → "Relay only (simulate distant
 network)" and "Block UDP". Both are phone-side dial policies with no wire
@@ -545,8 +678,15 @@ change, and changing either redials.
 - Block UDP (WireGuard; WebRTC ignores it): no plain UDP in or out and no
   TURN over UDP, as on a network that passes only TCP. The link rides TURN
   over TLS on 443 (path `turn-tls`); without a `turns:` or TCP `turn:`
-  server the dial fails at once. The rig sets it without the app's
-  settings: simulator `SIMCTL_CHILD_CNX_DEV_BLOCK_UDP=1`.
+  server the dial fails at once. The media session gets no candidates and
+  fails, so browser video stays in the tunnel. The rig sets it without the
+  app's settings: simulator `SIMCTL_CHILD_CNX_DEV_BLOCK_UDP=1`.
+- No media session (measurement): simulator
+  `SIMCTL_CHILD_CNX_DEV_NO_WEBRTC_MEDIA=1` leaves `webrtc-media` out of
+  `wg-init`, so browser video rides RTP in the tunnel ("WireGuard only").
+  cnx-hostd: `CNX_WEBRTC_MEDIA=0`, or the test signals `SIGUSR1` (toggle a
+  black hole under every media session's track) and `SIGUSR2` (close every
+  media session).
 
 The phone's link line names the path: "WireGuard direct", "WireGuard relay
 (TURN)", "WireGuard relay (TURN over TLS)" (and the same for WebRTC's

@@ -109,8 +109,9 @@ public struct LinkFileArtifactSource: ArtifactSource {
         var value: Bool { lock.withLock { fired } }
     }
 
-    /// Where the person shares a folder: the Mac's Chat Folders setting (cnx-hostd's file roots).
-    static let shareHint = "To open it here, add its project folder in cmux on the Mac: Settings › General › Chats › Chat Folders."
+    /// Where the person shares a folder: a workspace open on the Mac in that folder, or the Mac's
+    /// Chat Folders setting (cnx-hostd's file roots and the Mac's workspace folders).
+    static let shareHint = "To open it here, open a workspace in its project folder on the Mac, or add the folder in cmux on the Mac: Settings › General › Chats › Chat Folders."
 
     static func unavailable(_ error: LinkError, path: String, macName: String) -> ArtifactUnavailable {
         let name = (path as NSString).lastPathComponent

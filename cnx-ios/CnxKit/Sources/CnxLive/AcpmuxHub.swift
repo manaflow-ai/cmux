@@ -314,22 +314,28 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         Task {
             do {
                 switch intent {
-                case .prompt(let text, let attachments, let steer):
+                case .prompt(let text, let attachments, let steer, let promptID, let resend):
                     let blocks: [JSONValue]
                     do {
                         blocks = try await self.promptBlocks(text: text, attachments: attachments, hub: hub)
                     } catch {
-                        self.emit(.promptNotSent(text: text, attachments: attachments, reason: AcpmuxSessionSource.message(error)))
+                        self.emit(.promptNotSent(text: text, attachments: attachments, promptID: promptID,
+                                                 reason: AcpmuxSessionSource.message(error)))
                         return
                     }
-                    let meta: JSONValue = .object(["acpmux": .object(["promptId": .string(UUID().uuidString.lowercased()), "steer": .bool(steer)])])
+                    // acpmux runs each promptId once; `resend` also checks the session log.
+                    let meta: JSONValue = .object(["acpmux": .object([
+                        "promptId": .string(promptID), "steer": .bool(steer), "resend": .bool(resend),
+                    ])])
                     do {
                         _ = try await hub.request("session/prompt", .object([
                             "sessionId": session, "prompt": .array(blocks), "_meta": meta,
                         ]))
                     } catch let error as LinkError {
-                        // Never reached the Mac: the draft comes back.
-                        self.emit(.promptNotSent(text: text, attachments: attachments, reason: AcpmuxSessionSource.message(error)))
+                        // Maybe never reached the Mac: the draft comes back with its id, so a resend
+                        // runs at most once, and it leaves again if the transcript shows it ran.
+                        self.emit(.promptNotSent(text: text, attachments: attachments, promptID: promptID,
+                                                 reason: AcpmuxSessionSource.message(error)))
                     }
                 case .cancel:
                     try await hub.notify("session/cancel", .object(["sessionId": session]))
@@ -343,6 +349,8 @@ public final class AcpmuxSessionSource: AgentSessionSource {
                     try await hub.answer(question, with: answer)
                 case .setModel(let id):
                     _ = try await hub.request("session/set_model", .object(["sessionId": session, "modelId": .string(id)]))
+                    // The menu's check follows the pick (no record carries the model change).
+                    if !self.knownModels.isEmpty { self.emit(.modelsAvailable(self.knownModels, current: id)) }
                 case .setMode(let id):
                     _ = try await hub.request("session/set_mode", .object(["sessionId": session, "modeId": .string(id)]))
                 case .setConfigOption(let id, let value):
@@ -545,7 +553,8 @@ public final class AcpmuxSessionSource: AgentSessionSource {
             case "remote.lasting_grant_refused": return "From an iPhone you can allow once or deny. Allow for this chat on the Mac."
             default:
                 if error.message.hasPrefix("no pending permission") { return "Already answered on your Mac." }
-                return error.message
+                // An agent's raw JSON error (a model the account lacks) reads as a sentence.
+                return TurnFailureCopy.plain(error.message)
             }
         }
         return LinkController.reason(error)
@@ -593,6 +602,16 @@ public final class AcpmuxSessionSource: AgentSessionSource {
             }
             attached = true
             for record in page { receive(record: record) }
+            // The session's models, modes and options as acpmux keeps them now (D4: a running
+            // chat had no model menu, as they only came with later updates). After the page:
+            // a pick (set_model, set_mode, set_config_option) writes no record, so an older
+            // update in the page must not win over the state now.
+            if let detail = result["session"] {
+                for event in Self.sessionState(detail) {
+                    if case .modelsAvailable(let models, _) = event { knownModels = models }
+                    emit(event)
+                }
+            }
             let pending = held
             held = []
             for record in pending { receive(record: record) }
@@ -605,6 +624,37 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         } catch {
             emit(.clientError(Self.message(error)))
         }
+    }
+
+    /// The session's models (from attach), for the menu after a pick.
+    private var knownModels: [ACPModelInfo] = []
+
+    /// `_acpmux/attach`'s session detail as chat events: `models` ({currentModelId,
+    /// availableModels}), else a config option of category `model`; `modes` ({currentModeId,
+    /// availableModes}); `configOptions` (effort and the rest).
+    static func sessionState(_ detail: JSONValue) -> [AgentSessionEvent] {
+        var events: [AgentSessionEvent] = []
+        let options: [ACPConfigOption] = detail["configOptions"].flatMap { value in
+            guard case .array = value, let data = try? JSONEncoder().encode(value) else { return nil }
+            return try? JSONDecoder().decode([ACPConfigOption].self, from: data)
+        } ?? []
+        var models = (detail["models"]?["availableModels"]?.arrayValue ?? []).compactMap { model -> ACPModelInfo? in
+            guard let id = model["modelId"]?.stringValue, !id.isEmpty else { return nil }
+            return ACPModelInfo(id: id, name: model["name"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 } ?? id)
+        }
+        var current = detail["models"]?["currentModelId"]?.stringValue
+        if models.isEmpty, let option = options.first(where: { $0.category == "model" || $0.id == "model" }) {
+            models = option.options.map { ACPModelInfo(id: $0.value, name: $0.name.flatMap { $0.isEmpty ? nil : $0 } ?? $0.value) }
+            current = option.currentValue
+        }
+        if !models.isEmpty { events.append(.modelsAvailable(models, current: current)) }
+        let modes = (detail["modes"]?["availableModes"]?.arrayValue ?? []).compactMap { mode -> ACPMode? in
+            guard let id = mode["id"]?.stringValue, !id.isEmpty else { return nil }
+            return ACPMode(id: id, name: mode["name"]?.stringValue ?? id, description: mode["description"]?.stringValue)
+        }
+        if !modes.isEmpty { events.append(.modesAvailable(modes, current: detail["modes"]?["currentModeId"]?.stringValue)) }
+        if !options.isEmpty { events.append(.update(.configOptions(options))) }
+        return events
     }
 
     func receive(record: JSONValue) {

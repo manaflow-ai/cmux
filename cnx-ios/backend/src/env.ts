@@ -28,6 +28,10 @@ export interface Env {
   readonly ICE_LIMIT?: RateLimit
   readonly INVITE_LIMIT?: RateLimit
   readonly NOTIFY_LIMIT?: RateLimit
+  /** Team creations per user (they make Stack teams with the server key). */
+  readonly TEAM_LIMIT?: RateLimit
+  /** Milliseconds before an isolate retries a failed team hub retire (default 10 s; tests set 0). */
+  readonly TEAM_HUB_RETIRE_RETRY_MS?: string
   // Test only (ENVIRONMENT=test).
   readonly STACK_TEST_JWKS?: string
   /** JSON {userId: [teamId]} for primary-project users, {"<projectId>:<userId>": [teamId]} for the others; replaces Stack membership calls. */

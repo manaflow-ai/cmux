@@ -81,16 +81,67 @@ impl From<cnx_link::LinkPath> for LinkPath {
     }
 }
 
+/// The WebRTC media session beside a WireGuard link (browser video).
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Enum)]
+pub enum MediaState {
+    /// No session: nothing shows a browser tab, or this link has none
+    /// (WebRTC transport, or a Mac without media sessions).
+    Off,
+    Connecting,
+    /// Connected over `path`; `rtt_millis` is its ICE pair's round trip.
+    Up {
+        path: LinkPath,
+        rtt_millis: Option<u32>,
+    },
+    /// The last attempt failed or the session dropped: browser video rides
+    /// the WireGuard tunnel until a retry in `retry_in_millis` works.
+    Failed {
+        reason: String,
+        retry_in_millis: u32,
+    },
+}
+
+impl From<cnx_link::hybrid::MediaStatus> for MediaState {
+    fn from(value: cnx_link::hybrid::MediaStatus) -> Self {
+        let millis = |d: Duration| u32::try_from(d.as_millis()).unwrap_or(u32::MAX);
+        match value {
+            cnx_link::hybrid::MediaStatus::Off => Self::Off,
+            cnx_link::hybrid::MediaStatus::Connecting => Self::Connecting,
+            cnx_link::hybrid::MediaStatus::Up { path, rtt } => {
+                Self::Up { path: path.into(), rtt_millis: rtt.map(millis) }
+            }
+            cnx_link::hybrid::MediaStatus::Failed { reason, retry_in } => {
+                Self::Failed { reason, retry_in_millis: millis(retry_in) }
+            }
+        }
+    }
+}
+
 /// Link state events, in order: `Connecting`, then `Connected` (or
-/// `Disconnected` when the dial fails), then any number of `PathChanged` and
-/// `Rtt`, then one `Disconnected`.
+/// `Disconnected` when the dial fails), then any number of `PathChanged`,
+/// `Rtt` and `Media`, then one `Disconnected`.
 #[derive(Debug, Clone, PartialEq, uniffi::Enum)]
 pub enum LinkEvent {
-    Connecting { transport: Transport },
-    Connected { transport: Transport, path: LinkPath },
-    PathChanged { path: LinkPath },
-    Rtt { millis: u32 },
-    Disconnected { reason: String },
+    Connecting {
+        transport: Transport,
+    },
+    Connected {
+        transport: Transport,
+        path: LinkPath,
+    },
+    PathChanged {
+        path: LinkPath,
+    },
+    Rtt {
+        millis: u32,
+    },
+    /// The WebRTC media session beside a WireGuard link changed.
+    Media {
+        state: MediaState,
+    },
+    Disconnected {
+        reason: String,
+    },
 }
 
 /// Receives link state events on a library thread.
@@ -173,6 +224,9 @@ pub struct LinkHandle {
     watcher: Mutex<Option<tokio::task::JoinHandle<()>>>,
     timeline: Timeline,
     session_id: String,
+    /// The WebRTC media session beside a WireGuard link, when both sides
+    /// support one (cnx_link::hybrid).
+    media: Option<cnx_link::hybrid::MediaManager>,
 }
 
 impl Drop for LinkHandle {
@@ -257,6 +311,7 @@ impl LinkHandle {
         }
         let mut args = args;
         let link = self.link.clone();
+        let media = self.media.clone();
         on_runtime(async move {
             // With a media lane the page's video rides it (`video: "track"`:
             // a WebRTC track or RTP in the WireGuard tunnel); an older hostd
@@ -284,9 +339,34 @@ impl LinkHandle {
                 None => None,
             };
             let (sender, receiver) = channel.split();
-            Ok(browser::start(Arc::new(sender), receiver, observer, track))
+            // A shown browser tab wants the WebRTC media session (if this
+            // link has one); it lets go when hidden or closed.
+            Ok(browser::start(Arc::new(sender), receiver, observer, track, media))
         })
         .await
+    }
+
+    /// The shown workspace has browser tabs: open the WebRTC media session
+    /// beside this WireGuard link ahead of the first tab (no-op without one).
+    pub fn warm_media(&self) {
+        if let Some(media) = &self.media {
+            let media = media.clone();
+            runtime().spawn(async move { media.warm() });
+        }
+    }
+
+    /// The WebRTC media session's state (`Off` on links without one).
+    pub fn media_state(&self) -> MediaState {
+        self.media.as_ref().map_or(MediaState::Off, |m| m.status().borrow().clone().into())
+    }
+
+    /// Debug: close the media session's peer connection at once, as a dead
+    /// path would; video falls back to the tunnel and the session is dialed
+    /// again.
+    pub fn kill_media(&self) {
+        if let Some(media) = &self.media {
+            media.kill();
+        }
     }
 
     /// Round-trip one ping; milliseconds.
@@ -464,6 +544,10 @@ pub struct ConnectOptions {
     /// reliable channel on either transport (the comparison baseline).
     #[uniffi(default = false)]
     pub no_video_lane: bool,
+    /// WireGuard: no WebRTC media session beside the link, so browser video
+    /// rides RTP inside the tunnel (the "WireGuard only" comparison).
+    #[uniffi(default = false)]
+    pub no_webrtc_media: bool,
 }
 
 /// Dial `mac_device_id` from this phone (`device_id`) over `transport`.
@@ -517,6 +601,7 @@ pub async fn connect_with_options(
         relay_only: options.relay_only,
         block_udp: options.block_udp,
         video_lane: !options.no_video_lane,
+        webrtc_media: !options.no_webrtc_media && std::env::var_os("CNX_DEV_NO_WEBRTC_MEDIA").is_none(),
     };
     on_runtime(connect_inner(request, observer)).await
 }
@@ -540,6 +625,9 @@ pub struct ConnectRequest {
     pub block_udp: bool,
     /// Offer the media lane (browser video as RTP: a WebRTC track, or UDP inside the WireGuard tunnel).
     pub video_lane: bool,
+    /// WireGuard: offer a WebRTC media session beside the link for browser
+    /// video (cnx_link::hybrid).
+    pub webrtc_media: bool,
 }
 
 fn emit(observer: &Option<Arc<dyn LinkObserver>>, event: LinkEvent) {
@@ -566,12 +654,30 @@ pub async fn connect_inner(
     };
     let mut path = connected.path.clone();
     emit(&observer, LinkEvent::Connected { transport, path: (*path.borrow()).into() });
+    let media = connected.webrtc_media.then(|| media_manager(&request, &connected, &signaling));
+    let mut media_status = media.as_ref().map(cnx_link::hybrid::MediaManager::status);
     let link = connected.link.clone();
     let watcher = tokio::spawn(async move {
         let mut rtt = link.rtt();
         let mut closed = link.closed_state();
         loop {
+            let media_changed = async {
+                match media_status.as_mut() {
+                    Some(status) => status.changed().await.is_ok(),
+                    None => std::future::pending().await,
+                }
+            };
             tokio::select! {
+                changed = media_changed => {
+                    if !changed {
+                        media_status = None;
+                        continue;
+                    }
+                    if let Some(status) = media_status.as_mut() {
+                        let state = status.borrow_and_update().clone().into();
+                        emit(&observer, LinkEvent::Media { state });
+                    }
+                }
                 changed = path.changed() => {
                     if changed.is_err() { break; }
                     emit(&observer, LinkEvent::PathChanged { path: (*path.borrow_and_update()).into() });
@@ -609,7 +715,55 @@ pub async fn connect_inner(
         watcher: Mutex::new(Some(watcher)),
         timeline,
         session_id: connected.session_id,
+        media,
     }))
+}
+
+/// The phone's media session manager for a WireGuard link both sides
+/// agreed to pair with a WebRTC media session. It dials on the warm pool's
+/// current socket for this team and device (the link's may have been
+/// replaced since) with fresh ICE servers.
+fn media_manager(
+    request: &ConnectRequest,
+    connected: &cnx_link::Connected,
+    socket: &Arc<WarmSocket>,
+) -> cnx_link::hybrid::MediaManager {
+    let key = socket.key.clone();
+    let fallback = socket.client.clone();
+    let signaling: cnx_link::hybrid::SignalingSource = Arc::new(move || {
+        let key = key.clone();
+        let fallback = fallback.clone();
+        Box::pin(async move {
+            match warm().pooled(&key).await {
+                Some(socket) => Some(socket.client.clone()),
+                None => (fallback.closed_reason().is_none()).then_some(fallback),
+            }
+        })
+    });
+    let base_url = request.base_url.clone();
+    let token = request.token.clone();
+    // Cached servers while fresh; else fetched with the dial's token (best
+    // effort: an expired token leaves host candidates only).
+    let ice: cnx_link::hybrid::IceSource = Arc::new(move || {
+        let (base_url, token) = (base_url.clone(), token.clone());
+        Box::pin(async move {
+            without_turn_if_asked(warm().ice_servers(&base_url, &token, &Timeline::new()).await)
+        })
+    });
+    cnx_link::hybrid::MediaManager::start(cnx_link::hybrid::MediaConfig {
+        link: connected.link.clone(),
+        mac: request.mac_device_id.clone(),
+        link_session: connected.session_id.clone(),
+        signaling,
+        ice,
+        options: DialOptions {
+            include_loopback: request.include_loopback,
+            relay_only: request.relay_only,
+            block_udp: request.block_udp || std::env::var_os("CNX_DEV_BLOCK_UDP").is_some(),
+            ..DialOptions::default()
+        },
+        linger: cnx_link::hybrid::LINGER,
+    })
 }
 
 // MARK: Warm state
@@ -870,16 +1024,7 @@ async fn dial(
     let (ice_servers, socket) =
         tokio::join!(warm().ice_servers(&request.base_url, &request.token, timeline), socket);
     let (socket, reused) = socket?;
-    let mut ice_servers = ice_servers;
-    if std::env::var_os("CNX_DEV_NO_TURN").is_some() {
-        // Measurement support (simulator: SIMCTL_CHILD_CNX_DEV_NO_TURN=1):
-        // no TURN server, so WireGuard has only direct paths (and a relay-only
-        // or UDP-blocked dial fails at once: there is no backend relay).
-        for server in &mut ice_servers {
-            server.urls.retain(|url| !url.starts_with("turn:") && !url.starts_with("turns:"));
-        }
-        ice_servers.retain(|server| !server.urls.is_empty());
-    }
+    let ice_servers = without_turn_if_asked(ice_servers);
     let options = DialOptions {
         ice_servers,
         include_loopback: request.include_loopback,
@@ -888,6 +1033,7 @@ async fn dial(
         // SIMCTL_CHILD_CNX_DEV_BLOCK_UDP=1) without touching app settings.
         block_udp: request.block_udp || std::env::var_os("CNX_DEV_BLOCK_UDP").is_some(),
         video_lane: request.video_lane,
+        webrtc_media: request.webrtc_media,
         timeline: timeline.clone(),
         ..DialOptions::default()
     };
@@ -908,6 +1054,19 @@ async fn dial(
         }
         Err(Attempt::Failed(error)) => Err(fail(&socket, error).await),
     }
+}
+
+/// Measurement support (simulator: SIMCTL_CHILD_CNX_DEV_NO_TURN=1): no
+/// TURN server, so WireGuard has only direct paths (and a relay-only or
+/// UDP-blocked dial fails at once: there is no backend relay).
+fn without_turn_if_asked(mut ice_servers: Vec<IceServer>) -> Vec<IceServer> {
+    if std::env::var_os("CNX_DEV_NO_TURN").is_some() {
+        for server in &mut ice_servers {
+            server.urls.retain(|url| !url.starts_with("turn:") && !url.starts_with("turns:"));
+        }
+        ice_servers.retain(|server| !server.urls.is_empty());
+    }
+    ice_servers
 }
 
 enum Attempt {

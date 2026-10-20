@@ -16,6 +16,8 @@ import Testing
             == .phoneUp(CnxPhoneLink(sessionID: "s", phoneDeviceID: "p", transport: "wireguard", path: "relay")))
         #expect(CnxHostEvent(line: #"{"type":"phone_path","session_id":"s","path":"direct"}"#) == .phonePath(sessionID: "s", path: "direct"))
         #expect(CnxHostEvent(line: #"{"type":"phone_down","session_id":"s","reason":"eof"}"#) == .phoneDown(sessionID: "s", reason: "eof"))
+        #expect(CnxHostEvent(line: #"{"type":"phone_media","session_id":"s","media_path":"turn"}"#) == .phoneMedia(sessionID: "s", mediaPath: "turn"))
+        #expect(CnxHostEvent(line: #"{"type":"phone_media","session_id":"s","media_path":"none"}"#) == .phoneMedia(sessionID: "s", mediaPath: nil))
         #expect(CnxHostEvent(line: #"{"type":"online"}"#) == nil)
         #expect(CnxHostEvent(line: "2026-10-13 INFO not json") == nil)
     }
@@ -28,7 +30,11 @@ import Testing
         state.apply(.phoneUp(CnxPhoneLink(sessionID: "a", phoneDeviceID: "p", transport: "webrtc", path: "direct")), at: at)
         state.apply(.phoneUp(CnxPhoneLink(sessionID: "b", phoneDeviceID: "q", transport: "wireguard", path: "relay")), at: at)
         state.apply(.phonePath(sessionID: "b", path: "direct"), at: at)
+        state.apply(.phoneMedia(sessionID: "b", mediaPath: "turn"), at: at)
         #expect(state.phones.map(\.sessionID) == ["a", "b"])
+        #expect(state.phones[1].mediaPath == "turn" && state.phones[0].mediaPath == nil)
+        state.apply(.phoneMedia(sessionID: "b", mediaPath: nil), at: at)
+        #expect(state.phones[1].mediaPath == nil)
         #expect(state.phones[1].path == "direct" && state.phones[0].since == at)
         // A signaling reconnect keeps live links; only their own down event ends them.
         state.apply(.waiting(reason: "signaling closed", retryInSeconds: 1), at: at)

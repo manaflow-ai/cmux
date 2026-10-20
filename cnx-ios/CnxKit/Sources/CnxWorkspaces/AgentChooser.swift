@@ -65,7 +65,7 @@ struct AgentChooser: View {
                 }
                 if let harness = selectedHarness(in: catalog), !harness.models.isEmpty {
                     Section("Model") {
-                        modelRow(id: nil, name: harness.defaultModel.map { "Default (\(modelName($0, in: harness)))" } ?? "Default",
+                        modelRow(id: nil, name: harness.offeredDefaultModel.map { "Default (\(modelName($0, in: harness)))" } ?? "Default",
                                  reason: nil)
                         ForEach(harness.models.filter { $0.id != "default" }) { model in
                             modelRow(id: model.id, name: model.name, reason: model.unavailableReason)

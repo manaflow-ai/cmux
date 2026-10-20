@@ -118,6 +118,11 @@ pub struct SenderCore {
     keyframe_requests: u64,
     packets_sent: u64,
     nacks_received: u64,
+    /// When the oldest packet sent since the last TWCC feedback went out
+    /// (None: every packet so far was followed by feedback).
+    unanswered_since_us: Option<u64>,
+    /// The newest time this core was told (`frame`, `on_rtcp`, `expire`).
+    now_us: u64,
 }
 
 impl SenderCore {
@@ -144,6 +149,8 @@ impl SenderCore {
             keyframe_requests: 0,
             packets_sent: 0,
             nacks_received: 0,
+            unanswered_since_us: None,
+            now_us: 0,
         }
     }
 
@@ -218,10 +225,12 @@ impl SenderCore {
         }
         self.sent_order.push_back(seq);
         self.in_flight += bytes;
+        self.unanswered_since_us.get_or_insert(now_us);
         self.expire(now_us);
     }
 
-    fn expire(&mut self, now_us: u64) {
+    pub(crate) fn expire(&mut self, now_us: u64) {
+        self.now_us = self.now_us.max(now_us);
         while let Some(&oldest) = self.sent_order.front() {
             match self.sent.get(&oldest) {
                 Some(sent) if now_us.saturating_sub(sent.at_us) < IN_FLIGHT_EXPIRY_US => break,
@@ -259,6 +268,8 @@ impl SenderCore {
     }
 
     fn on_twcc(&mut self, feedback: &TransportLayerCc, now_us: u64) {
+        // The path answers: whatever was waiting for feedback got some.
+        self.unanswered_since_us = None;
         let results = twcc::results(feedback);
         let mut arrivals = Vec::with_capacity(results.len());
         let mut newest_delay = None;
@@ -318,6 +329,7 @@ impl SenderCore {
             keyframe_requests: self.keyframe_requests,
             packets_sent: self.packets_sent,
             nacks_received: self.nacks_received,
+            feedback_wait_us: self.unanswered_since_us.map_or(0, |since| self.now_us.saturating_sub(since)),
         }
     }
 }
