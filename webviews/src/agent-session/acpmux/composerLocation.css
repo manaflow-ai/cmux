@@ -1048,8 +1048,9 @@
    mode's text on the prompt's text edge, 16 px in from the box's side; the model and effort on the
    right, their labels 8 px apart (each chip's 4 px hover inset, no gap), the last one 12 px in from
    the box's right side; the row 28 px tall, 4 px under the box. No fill, no edge: the chips' rest,
-   hover, open, press and focus states are the bar's (above). Full access keeps its warning shield
-   so the risk shows without the menu. */
+   hover, open, press and focus states are the bar's (above). Full access shows its shield, in the
+   model chip's color as the quiet chip has it (Leo 2026-10-18, #21744): its "!" mark names the risk
+   without the menu, and the menu keeps the warning color where the mode is chosen. */
 .acpmux-composer-foot {
   --acpmux-row-inset: 4px;
   --acpmux-row-gap: 0px;
@@ -1074,7 +1075,6 @@
 .acpmux-composer-foot .acpmux-chips > .acpmux-mode:not(:first-child) { padding-inline-start: 0; }
 .acpmux-composer-foot .acpmux-access.acpmux-unrestricted .acpmux-access-trigger > .acpmux-icon:first-child {
   display: inline-flex;
-  color: var(--acpmux-warning);
 }
 /* The box's own row, with the chips gone: + on the left, the mic and Send or Stop on the right. */
 .acpmux-composer-inner { min-height: 48px; }
