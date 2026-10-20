@@ -10,6 +10,18 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
+/// At daemon start: the probe transcripts earlier runs left in the
+/// unattended folder, and `_acpmux/complete` run folders a crash left
+/// behind (`complete::places`).
+pub fn at_daemon_start() {
+    remove_probe_transcripts(&crate::protected_folders::unattended_cwd());
+    let places = crate::complete::places::Places::for_daemon();
+    let swept = places.sweep_stale_runs(crate::complete::places::STALE_RUN);
+    if swept > 0 {
+        tracing::info!(swept, "removed stale one-shot run folders");
+    }
+}
+
 /// Removes Claude Code's and Codex's transcripts of sessions that ran in `unattended`.
 pub fn remove_probe_transcripts(unattended: &Path) {
     let Some(home) = dirs::home_dir() else { return };

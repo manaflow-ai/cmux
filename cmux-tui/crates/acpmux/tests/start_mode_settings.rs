@@ -1,11 +1,18 @@
 //! The cmux setting `agents.defaultPermissionMode` in the app's settings
 //! file (JSONC, read at each new chat) chooses a new chat's start mode when
 //! acpmux config.json names none; a settings file acpmux cannot read, or a
-//! value it does not know, never gives full access (cx-wx93i). Its own test
+//! value it does not know, never gives full access (cx-wx93i). A change to
+//! the setting after the person's latest mode pick wins over that pick, and a
+//! later pick wins again. Its own test
 //! binary: it sets CMUX_NEXT_CONFIG_FILE, which every session start reads.
 
 // Unix only until the Windows port runs the daemon (cmux::local_socket).
 #![cfg(unix)]
+
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+// This process runs stand-in agents (the fake agents under tests/).
+const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
 
 use acpmux::config::{Config, ProfileSources, StoreMode};
 use acpmux::hub::Hub;
@@ -34,7 +41,11 @@ fn home(name: &str, extra: Value) -> PathBuf {
     let dir = std::fs::canonicalize(&dir).unwrap();
     let codex = dir.join("bin").join("codex");
     std::fs::create_dir_all(codex.parent().unwrap()).unwrap();
-    std::fs::write(&codex, format!("#!/bin/sh\nexec python3 {FAKE_APP_SERVER} \"$@\"\n")).unwrap();
+    std::fs::write(
+        &codex,
+        format!("#!/bin/sh\nexec python3 {} \"$@\"\n", daemon_env::sh_quote(FAKE_APP_SERVER)),
+    )
+    .unwrap();
     std::fs::set_permissions(&codex, std::fs::Permissions::from_mode(0o755)).unwrap();
     let mut config = json!({
         "harnesses": {
@@ -127,7 +138,7 @@ impl Client {
 }
 
 #[tokio::test]
-async fn the_settings_file_chooses_and_an_unreadable_one_never_gives_full_access() {
+async fn start_mode_answer_and_new_chats_follow_the_settings_file_never_full_access_unreadable() {
     let dir = home("settings", json!({}));
     let settings = dir.join("cmux-next.json");
     // JSONC as the app writes it: an inline comment and a trailing comma.
@@ -141,6 +152,12 @@ async fn the_settings_file_chooses_and_an_unreadable_one_never_gives_full_access
     let daemon = hub(&dir);
     let mut app = Client::app(&daemon).await;
     assert_eq!(app.chat(&dir, "codex").await.1, "ask");
+    // `_acpmux/start_mode` answers from the same setting, and says so.
+    let r =
+        app.call("_acpmux/start_mode", json!({"harness": "codex", "cwd": dir.join("work")})).await;
+    assert_eq!(r["result"]["modeId"], "ask", "{r}");
+    assert_eq!(r["result"]["level"], "ask", "{r}");
+    assert_eq!(r["result"]["source"], "settings", "{r}");
     // Read at each new chat.
     std::fs::write(&settings, r#"{"agents": {"defaultPermissionMode": "fullAccess"}}"#).unwrap();
     assert_eq!(app.chat(&dir, "codex").await.1, "agent-full-access");
@@ -153,5 +170,62 @@ async fn the_settings_file_chooses_and_an_unreadable_one_never_gives_full_access
     assert_eq!(app.chat(&dir, "codex").await.1, "agent");
     std::fs::write(&settings, r#"{"agents": {"defaultPermissionMode": "Ask"}}"#).unwrap();
     assert_eq!(app.chat(&dir, "codex").await.1, "agent");
+
+    // The person's latest choice wins, whether it is a pick in a chat or a
+    // change to the setting (Leo 2026-10-18: users set their own default).
+    std::fs::write(&settings, r#"{"agents": {"defaultPermissionMode": "fullAccess"}}"#).unwrap();
+    let (chat, mode) = app.chat(&dir, "codex").await;
+    assert_eq!(mode, "agent-full-access");
+    // A pick after the setting: new chats follow the pick.
+    let r = app.call("session/set_mode", json!({"sessionId": chat, "modeId": "ask"})).await;
+    assert!(r.get("error").is_none(), "{r}");
+    assert_eq!(app.chat(&dir, "codex").await.1, "ask");
+    // The setting changes after the pick: new chats follow the setting.
+    std::fs::write(&settings, r#"{"agents": {"defaultPermissionMode": "standard"}}"#).unwrap();
+    assert_eq!(app.chat(&dir, "codex").await.1, "agent");
+    let r =
+        app.call("_acpmux/start_mode", json!({"harness": "codex", "cwd": dir.join("work")})).await;
+    assert_eq!(r["result"]["source"], "settings", "{r}");
+    // A pick after that change wins again, also when it picks the level it
+    // picked before the change.
+    let r = app.call("session/set_mode", json!({"sessionId": chat, "modeId": "ask"})).await;
+    assert!(r.get("error").is_none(), "{r}");
+    assert_eq!(app.chat(&dir, "codex").await.1, "ask");
+    let r =
+        app.call("_acpmux/start_mode", json!({"harness": "codex", "cwd": dir.join("work")})).await;
+    assert_eq!(r["result"]["source"], "pick", "{r}");
+    // Removing the key is a change too: the default (full access) applies.
+    std::fs::write(&settings, r#"{"agents": {}}"#).unwrap();
+    assert_eq!(app.chat(&dir, "codex").await.1, "agent-full-access");
+
+    // A catalog reload reads both: a pick of `standard` made under `ask`
+    // (another daemon, or the file restored) wins while the setting is `ask`.
+    std::fs::write(&settings, r#"{"agents": {"defaultPermissionMode": "ask"}}"#).unwrap();
+    let edit = |pick: Value| {
+        let path = dir.join("config.json");
+        let mut config: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        for (k, v) in pick.as_object().unwrap() {
+            match v {
+                Value::Null => config.as_object_mut().unwrap().remove(k),
+                v => config.as_object_mut().unwrap().insert(k.clone(), v.clone()),
+            };
+        }
+        std::fs::write(&path, serde_json::to_vec_pretty(&config).unwrap()).unwrap();
+    };
+    edit(json!({"lastPermissionMode": "standard", "lastPermissionModeSetting": "\"ask\""}));
+    daemon.reload_catalog().await.unwrap();
+    assert_eq!(app.chat(&dir, "codex").await.1, "agent");
+    drop(app);
+    drop(daemon);
+
+    // A pick saved before acpmux recorded the setting beside it (an upgrade)
+    // keeps winning, and the setting as it is now is recorded, so a later
+    // change to the setting still wins over it.
+    edit(json!({"lastPermissionMode": "ask", "lastPermissionModeSetting": null}));
+    let daemon = hub(&dir);
+    let mut app = Client::app(&daemon).await;
+    assert_eq!(app.chat(&dir, "codex").await.1, "ask");
+    std::fs::write(&settings, r#"{"agents": {"defaultPermissionMode": "fullAccess"}}"#).unwrap();
+    assert_eq!(app.chat(&dir, "codex").await.1, "agent-full-access");
     let _ = std::fs::remove_dir_all(&dir);
 }

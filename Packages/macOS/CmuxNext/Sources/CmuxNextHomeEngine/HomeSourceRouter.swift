@@ -106,6 +106,10 @@ public nonisolated final class HomeSourceRouter: HomeSource {
         try await source(for: conversation).thread(of: conversation, root: root, after: afterSeq, limit: limit)
     }
 
+    public func resolveLink(conversation: ConversationID, message: MessageID) async throws -> HomeLinkTarget? {
+        try await source(for: conversation).resolveLink(conversation: conversation, message: message)
+    }
+
     /// Ops on a conversation go to its owner. Ops that create or invite name
     /// no conversation and only the cloud has them, except `createGroup` of
     /// local participants only (none, or the Chief and the local user): a
@@ -149,6 +153,15 @@ public nonisolated final class HomeSourceRouter: HomeSource {
 
     public func fetch(_ ref: AttachmentRef, at location: AttachmentLocation, variant: AttachmentVariant) async throws -> URL {
         try await source(for: location.conversation).fetch(ref, at: location, variant: variant)
+    }
+
+    /// The live snapshot request goes to the conversation's owner.
+    public func requestLive(of conversation: ConversationID) async {
+        await source(for: conversation).requestLive(of: conversation)
+    }
+
+    public func liveRunRows(of conversation: ConversationID, run: String, author: ParticipantID) async -> [HomeLiveRunSnapshot.Step]? {
+        await source(for: conversation).liveRunRows(of: conversation, run: run, author: author)
     }
 
     /// A closed transcript goes to its owner; one no owner reported was

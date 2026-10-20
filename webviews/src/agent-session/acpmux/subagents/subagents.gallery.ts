@@ -207,6 +207,7 @@ export default agentPaneEntry({
   anchors: [{ selector: ".acpmux-header" }, { selector: ".acpmux-composer" }],
   covers: [
     "agent-session/acpmux/subagents/SubagentGroup.tsx",
+    "agent-session/acpmux/subagents/AgentsPill.tsx#AgentsPill",
     "agent-session/acpmux/summary/SummaryButton.tsx#SummaryButton",
     "agent-session/acpmux/summary/SummaryCard.tsx#SummaryCard",
     "agent-session/acpmux/summary/SummaryBody.tsx#SummaryBody",
@@ -215,6 +216,11 @@ export default agentPaneEntry({
     "agent-session/acpmux/summary/SubagentStatusList.tsx#SubagentStatusList",
   ],
   variants: {
+    "agents-pill": {
+      note: "The agents pill while two of four subagents run (after Codex's phone app). It opens Active and Completed, a dot per agent in the color its name has in the open group; a click on an agent opens it.",
+      height: 640,
+      snapshot: MIXED,
+    },
     running: {
       note: "Four subagents started together, all still working.",
       snapshot: chat(

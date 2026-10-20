@@ -3,18 +3,6 @@ import CmuxNextDaemon
 import Foundation
 import Observation
 
-/// A browser tab that lives only in this app session because the daemon
-/// lacks `frontend-browser-tabs-v1`. Not restored after relaunch.
-struct LocalBrowserTab: Hashable, Sendable {
-    static let prefix = "local-browser:"
-    let id: String
-    var url: URL?
-
-    static func make(url: URL?) -> LocalBrowserTab {
-        LocalBrowserTab(id: prefix + UUID().uuidString.lowercased(), url: url)
-    }
-}
-
 /// Everything one window owns (architecture.md 1, user requirement
 /// 2026-09-29 "each window needs its own state"): the workspace it shows,
 /// tab selection per pane, focused pane per workspace, sidebar width and
@@ -51,12 +39,12 @@ final class WindowState {
     private(set) var workspaceRecency: [String] = []
     /// Machine that holds `workspaceID` (`local` or a Cloud machine id).
     var machineID: String = MachineRegistry.localID
-    var selection = TabSelectionMemory()
+    let selection = TabSelectionMemory()
     /// This window's focus state machine: the only owner of focus, last
     /// focused pane per workspace, and browser focus mode. Never persisted.
     let focus = FocusCoordinator()
-    /// Session-only browser tabs per pane (`PaneModel.id`).
-    var localBrowserTabs: [String: [LocalBrowserTab]] = [:]
+    /// Session-only browser tabs per pane (`PaneModel.id`), observed per pane.
+    let localBrowserTabs = LocalBrowserTabs()
     /// Sidebar width in points (nil = default); kept while hidden, so the
     /// sidebar comes back at this width.
     var sidebarWidth: Double?

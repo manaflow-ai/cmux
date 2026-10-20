@@ -134,7 +134,7 @@ final class TerminalClipboardReadService {
     }
 
     private func scope(for tab: TabModel?) -> CmuxDialogScope {
-        if let tab, let view = services?.cache.existingTerminal(tab.id)?.session.view, view.window != nil {
+        if let tab, let view = services?.cache.existingTerminal(tab.id)?.session.view, view.window != nil, !view.isHiddenOrHasHiddenAncestor {
             return .tab(view)
         }
         if let window = services?.windows.active?.window { return .window(window) }

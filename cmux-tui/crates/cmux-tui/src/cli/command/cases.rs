@@ -639,6 +639,10 @@ pub(in crate::cli) fn safe_operation_cases() -> Vec<(Vec<&'static str>, &'static
             "agent.message.release",
         ),
         (
+            vec!["agent", "message", "unsend", "msg_1", "--recipient", TERMINAL],
+            "agent.message.unsend",
+        ),
+        (
             vec![
                 "agent",
                 "report",
@@ -803,6 +807,42 @@ fn state_resource_cases<'a>(
         (
             vec!["browser", "tab", tab, "set-profile", "--profile", "Work"],
             "browser.tab.set_profile",
+        ),
+        (vec!["browser", "profile", "list"], "browser.profile.list"),
+        (
+            vec![
+                "browser",
+                "profile",
+                "create",
+                "--name",
+                "Work",
+                "--color",
+                "blue",
+                "--icon",
+                "briefcase",
+                "--index",
+                "0",
+            ],
+            "browser.profile.create",
+        ),
+        (
+            vec![
+                "browser",
+                "profile",
+                "open",
+                "https://example.com/",
+                "--profile",
+                "Work",
+                "--engine",
+                "cef",
+                "--title",
+                "Example",
+                "--background",
+                "true",
+                "--pane",
+                pane,
+            ],
+            "browser.profile.open",
         ),
         (vec!["tab", "group", "list", "--pane", pane], "tab_group.list"),
         (vec!["tab", "group", "g", "show"], "tab_group.get"),

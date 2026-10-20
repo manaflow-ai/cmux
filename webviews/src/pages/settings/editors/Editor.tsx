@@ -8,9 +8,11 @@ import { FolderListEditor } from "./FolderListEditor";
 import { HostListEditor } from "./HostListEditor";
 import { MenuEditor } from "./MenuEditor";
 import { NumberEditor } from "./NumberEditor";
+import { NumberListEditor } from "./NumberListEditor";
 import { OrderedChoicesEditor } from "./OrderedChoicesEditor";
 import { SegmentedEditor } from "./SegmentedEditor";
 import { SoundEditor } from "./SoundEditor";
+import { TextEditor } from "./TextEditor";
 import { TimeRangeEditor } from "./TimeRangeEditor";
 import { ToggleEditor } from "./ToggleEditor";
 import { SearchTemplateEditor } from "./SearchTemplateEditor";
@@ -40,6 +42,8 @@ export function Editor(props: EditorProps): ReactNode {
       return <DomainListEditor {...props} />;
     case "sound":
       return <SoundEditor {...props} />;
+    case "text":
+      return <TextEditor {...props} />;
     case "url":
       return row.validation === "domain:search_template" ? (
         <SearchTemplateEditor {...props} />
@@ -59,8 +63,9 @@ export function Editor(props: EditorProps): ReactNode {
       if (!row.choices) return <HostListEditor {...props} />;
       return row.ordered === false ? <ChoiceSetEditor {...props} /> : <OrderedChoicesEditor {...props} />;
     case "number_list":
+      return <NumberListEditor {...props} />;
     case "string_map":
-      // Only cmux-browser and page-hidden keys have these kinds, and the page never lists them (schema.ts).
+      // Only cmux-browser and page-hidden keys have this kind, and the page never lists them (schema.ts).
       return null;
   }
 }

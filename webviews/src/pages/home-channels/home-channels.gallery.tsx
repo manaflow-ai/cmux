@@ -14,6 +14,7 @@ import { MockHomeProvider, type MockDraft, type MockRuns } from "./mockProvider"
 import type { Pane } from "./panes";
 import type { HomeRoute } from "./routes";
 import { HomeChannelsStore } from "./store";
+import { CHIEF_HARNESSES, DEFAULT_CHIEF_TOOLS } from "./types";
 
 type Props = {
   /** The conversation the page opens with; default: the page's own first choice. */
@@ -207,6 +208,8 @@ export default componentEntry<Props>({
     "pages/home-channels/icons.tsx#HomeIcon",
     "pages/home-channels/RunCard.tsx",
     "pages/home-channels/RunSheet.tsx",
+    "pages/home-channels/GoalStrip.tsx#GoalStrip",
+    "pages/home-channels/LiveTyping.tsx#LiveTyping",
     "pages/home-channels/AttachmentViews.tsx",
   ],
   load: async () => HomeChannelsGallery,
@@ -340,6 +343,17 @@ export default componentEntry<Props>({
           .querySelector(field)
           ?.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
         await ctx.waitFor(() => ctx.document.querySelectorAll(".lg-main-compose .hc-tray-item.done").length === 2);
+      },
+    },
+    "composer-menu": {
+      note: "Right-click in the composer: its own menu (Cut, Copy, Paste, Paste as Plain Text, Attach Files…, Insert Mention), never WebKit's. The gallery has no app host, so the edits are off.",
+      props: { select: "c-chief" },
+      play: async (ctx) => {
+        const field = ".lg-main-compose .hc-composer-field";
+        await ctx.waitFor(() => ctx.document.querySelector(field));
+        await ctx.contextMenu({ selector: field });
+        await ctx.waitFor(() => ctx.find({ role: "menuitem", name: "Paste as Plain Text" }));
+        await ctx.waitFor(() => ctx.find({ role: "menuitem", name: "Attach Files…" }));
       },
     },
     "row-menu": {
@@ -545,8 +559,9 @@ export default componentEntry<Props>({
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".lg-form .lg-grant:not(:disabled)"));
         await ctx.type("Release Chief", { selector: ".lg-form .lg-chief-identity input" });
-        // Every harness shows checked (the owner's default means every harness).
-        await ctx.waitFor(() => ctx.document.querySelectorAll(".lg-form .lg-grant input:checked").length === 7);
+        // The default tools and every harness show checked (the owner's default means every harness).
+        const checked = DEFAULT_CHIEF_TOOLS.length + CHIEF_HARNESSES.length;
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".lg-form .lg-grant input:checked").length === checked);
       },
     },
     "primary-hover": {
@@ -657,19 +672,38 @@ export default componentEntry<Props>({
       },
     },
     "run-open": {
-      note: "The run sheet: every step in order (shell output, the read, the diff, the reply), time, tokens and cost.",
+      note: "The run sheet: every step in order (shell output, the read, a folded thought, the diff, the reply), time, tokens and cost.",
       props: { select: "c-chief", runs: "done" },
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".lg-run.done .lg-run-open"));
         await ctx.click({ selector: ".lg-run.done .lg-run-open" });
         await ctx.waitFor(() => ctx.document.querySelectorAll(".lg-run-sheet .cv-tool").length >= 3);
+        await ctx.waitFor(() => ctx.document.querySelector(".lg-run-sheet details.thought:not([open])"));
       },
     },
     "run-live": {
-      note: "A run that works now: Working for (ticking), its newest steps under the question, the Chief shown working.",
+      note: "A run that works now: Working for (ticking), its reply as it streams and its newest steps under the question; the typing row shows the reply's end and what it works on.",
       props: { select: "c-chief", runs: "live" },
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".lg-run.running .cv-tool"));
+        await ctx.waitFor(() => ctx.document.querySelector(".lg-run.running .lg-run-live"));
+        await ctx.waitFor(() => ctx.document.querySelector(".lg-typing.live .lg-live-activity"));
+      },
+    },
+    "run-live-sheet": {
+      note: "A tap on the typing row's live line opens the running run in the run sheet.",
+      props: { select: "c-chief", runs: "live" },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".lg-typing.live .lg-live"));
+        await ctx.click({ selector: ".lg-typing.live .lg-live" });
+        await ctx.waitFor(() => ctx.document.querySelector('.lg-run-sheet[data-status="running"]'));
+      },
+    },
+    "narrow-run-live": {
+      note: "A streaming run on a 380 px page: the reply's end wraps in the card, the typing row keeps one line each.",
+      props: { width: 380, pane: "conversation", select: "c-chief", runs: "live" },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".lg-run.running .lg-run-live"));
       },
     },
     "narrow-list": {

@@ -233,10 +233,11 @@ if ! awk '
   exit 1
 fi
 
-if ! awk -v helper_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-15' || (needs.decide.outputs.fast_build == 'true' && 'blacksmith-6vcpu-macos-15' || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}" \
-       -v app_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.decide.outputs.fast_build != 'true' && github.run_attempt == 1 && (github.event_name == 'push' || github.event_name == 'schedule') && github.ref == 'refs/heads/main' && vars.CI_PR_POOL_OWNED == '1' && vars.CI_SEED_TRUSTED_POOL != '' && vars.CI_NIGHTLY_TRUSTED_RUNNER != '' && fromJSON(format('[\"{0}\", \"{1}\"]', vars.CI_SEED_TRUSTED_POOL, vars.CI_NIGHTLY_TRUSTED_RUNNER)) || (needs.decide.outputs.fast_build == 'true' && 'blacksmith-12vcpu-macos-26' || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_26_LARGE || 'blacksmith-12vcpu-macos-26') }}" '
+if ! awk -v helper_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-15' || inputs.nightly_next_unsigned_run != '' && 'blacksmith-4vcpu-ubuntu-2404' || (needs.decide.outputs.fast_build == 'true' && 'blacksmith-6vcpu-macos-15' || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}" \
+       '
   /^  build-nightly-ghostty-cli-helper:/ { job="helper"; next }
   /^  build-nightly-app:/ { job="app"; next }
+  /^  prepare-nightly-variant:/ { job="publish"; next }
   /^  build-sign-notarize-nightly:/ { job="publish"; next }
   /^  [a-zA-Z0-9_-]+:/ { job="" }
   # Fast branch dogfood pins Blacksmith. Normal Nightly uses the repository
@@ -246,7 +247,6 @@ if ! awk -v helper_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai
   job == "helper" && /build-ghostty-cli-helper\.sh --universal/ { saw_build=1 }
   job == "helper" && /lipo .* -verify_arch arm64 x86_64/ { saw_arch_assert=1 }
   job == "helper" && /name: cmux-nightly-ghostty-cli-helper/ { saw_helper_artifact=1 }
-  job == "app" && index($0, app_runner) { saw_app_runner=1 }
   job == "app" && /CMUX_CI_XCODE_APP_MACOS_26/ { saw_app_xcode=1 }
   job == "app" && /select-ci-xcode\.sh/ { saw_app_selection=1 }
   job == "app" && /name: cmux-nightly-unsigned-app/ { saw_app_artifact=1 }
@@ -260,7 +260,7 @@ if ! awk -v helper_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai
   job == "publish" && /path: nightly-inputs\/app/ { saw_app_download_path=1 }
   job == "publish" && /tar -C "\$products" -xzf nightly-inputs\/app\/cmux-nightly-unsigned\.tar\.gz/ { saw_app_restore=1 }
   job == "publish" && /^      - name: Upload dSYMs to Sentry/ { saw_publish_dsym_upload=1 }
-  END { exit !(saw_helper_runner && saw_build && saw_arch_assert && saw_helper_artifact && saw_app_runner && saw_app_xcode && saw_app_selection && saw_app_artifact && saw_app_only_archive && saw_app_dsym_upload && saw_publish_needs_helper && saw_publish_needs_app && saw_publish_xcode && saw_publish_selection && saw_app_download && saw_app_download_path && saw_app_restore && !saw_publish_dsym_upload) }
+  END { exit !(saw_helper_runner && saw_build && saw_arch_assert && saw_helper_artifact && saw_app_xcode && saw_app_selection && saw_app_artifact && saw_app_only_archive && saw_app_dsym_upload && saw_publish_needs_helper && saw_publish_needs_app && saw_publish_xcode && saw_publish_selection && saw_app_download && saw_app_download_path && saw_app_restore && !saw_publish_dsym_upload) }
 ' "$WORKFLOW_FILE"; then
   echo "FAIL: nightly must build and hand off the macOS 15 helper and Xcode 26.5 app before publishing"
   exit 1
@@ -278,6 +278,7 @@ fi
 
 if ! awk '
   /^  build-nightly-app:/ { job="build"; next }
+  /^  prepare-nightly-variant:/ { job="publish"; next }
   /^  build-sign-notarize-nightly:/ { job="publish"; next }
   /^  [a-zA-Z0-9_-]+:/ { job="" }
   job == "build" && /^      - name: Derive Sparkle public key from private key/ { derived_in_build=1 }
@@ -290,6 +291,7 @@ if ! awk '
 fi
 
 if ! awk '
+  /^  prepare-nightly-variant:/ { job="publish"; next }
   /^  build-sign-notarize-nightly:/ { job="publish"; next }
   /^  [a-zA-Z0-9_-]+:/ { job="" }
   job == "publish" && /variant: \$\{\{ fromJSON\(needs\.decide\.outputs\.variants\) \}\}/ { saw_matrix=1 }
@@ -381,11 +383,25 @@ if ! awk '
   job == "app" && /Clear build outputs a persistent runner kept/ { in_clear=1; next }
   in_clear && /^      - name:/ { in_clear=0 }
   in_clear && /clear-dirs\.sh remote-daemon-assets/ { saw_clear=1 }
-  job == "app" && /Prepare persistent Release DerivedData/ { saw_prepare=1 }
+  job == "app" && /^      - name: Start Release DerivedData empty/ { in_prepare=1; saw_prepare=1; next }
+  in_prepare && /^      - name:/ { in_prepare=0 }
+  in_prepare && /clear-dirs\.sh build-universal/ { saw_clear_dd=1 }
+  in_prepare && /track \}\}" = nightly-next/ && !saw_clear_dd { next_first=1 }
+  in_prepare && /ln -s/ { saw_link=1 }
   job == "app" && /cmux-nightly-\$\{\{ needs\.decide\.outputs\.channel \}\}-\$\{toolchain_key\}/ { saw_key=1 }
-  END { exit !(saw_clear && saw_prepare && saw_key) }
+  job == "app" && /^      - name: Restore Xcode compilation cache/ && !saw_clear_dd { restore_first=1 }
+  job == "app" && /^      - name: Build nightly app \(Release\)/ { saw_build=1 }
+  job == "app" && !saw_build && /ln -s .*build-universal/ { saw_link=1 }
+  job == "app" && !saw_build && /persistent Release DerivedData/ { saw_persistent=1 }
+  job == "app" && /nightly_build_state\.py (replay|record)/ { saw_replay=1 }
+  END { exit !(saw_clear && saw_prepare && saw_clear_dd && !restore_first && !next_first && !saw_link && !saw_key && !saw_persistent && !saw_replay) }
 ' "$WORKFLOW_FILE"; then
-  echo "FAIL: persistent minis must retain channel/toolchain-keyed Release DerivedData"
+  # An incremental build can keep stale autolink and force-load data in
+  # objects it did not recompile after an import set changed. The shipped app
+  # must start from empty DerivedData with its inputs at their checkout times;
+  # only the content-keyed compilation cache (restored into it) and the Swift
+  # package checkouts may be warm.
+  echo "FAIL: the shipped nightly build must start from empty Release DerivedData, never a persistent tree or replayed input times"
   exit 1
 fi
 
@@ -441,13 +457,23 @@ if ! awk '
   exit 1
 fi
 
+# Nightly runs no bundle code in the signing job. verify-signed-nightly, a job
+# without secrets, launches the signed app and drives its CLI, and both
+# publication paths wait for it (publish-nightly needs it; the notarization
+# continuation requires its success). A launch failure is found after the
+# Apple submission, never after publication.
 if ! awk '
-  /^      - name: Codesign apps/ { sign_line=NR }
-  /^      - name: Smoke launch signed app before notarization/ { smoke_line=NR }
-  /^      - name: Notarize app ticket through final DMG/ { notarize_line=NR }
-  END { exit !(sign_line && smoke_line && notarize_line && sign_line < smoke_line && smoke_line < notarize_line) }
+  /^  verify-signed-nightly:/ { job="verify"; next }
+  /^  publish-nightly:/ { job="publish"; next }
+  /^  [a-zA-Z0-9_-]+:/ { job="" }
+  job == "verify" && /^    environment:/ { verify_env=1 }
+  job == "verify" && /secrets\./ { verify_secret=1 }
+  job == "verify" && /^      - name: Smoke launch signed app$/ { smoke=1 }
+  job == "verify" && /^ +\.\/scripts\/smoke-signed-app-cli\.sh/ { cli=1 }
+  job == "publish" && /needs: .*verify-signed-nightly/ { gated=1 }
+  END { exit !(smoke && cli && gated && !verify_env && !verify_secret) }
 ' "$WORKFLOW_FILE"; then
-  echo "FAIL: nightly must smoke-launch the signed app before paying the Apple notarization wait"
+  echo "FAIL: nightly must launch the signed app and its CLI in a secret-free verify job that gates publication"
   exit 1
 fi
 
@@ -538,10 +564,10 @@ if ! awk '
   job == "build-nightly-app:" && /resolve-cmux-tui-client-commit\.sh/ { in_app=1 }
   job == "resolve-nightly-cmux-tui-client:" && /^    needs: decide$/ { resolver_needs=1 }
   job == "resolve-nightly-cmux-tui-client:" && /scripts\/cmux-next\/pin-cmux-tui\.sh resolve-newest-published/ { resolver=1 }
-  job == "build-sign-notarize-nightly:" && /^    needs: .*resolve-nightly-cmux-tui-client/ { sign_needs=1 }
-  job == "build-sign-notarize-nightly:" && /^      - name: Bundle the cmux-tui client$/ { install_line=NR }
-  job == "build-sign-notarize-nightly:" && /^      - name: Thin bundle to the variant architecture$/ { thin_line=NR }
-  job == "build-sign-notarize-nightly:" && /CMUX_TUI_CLIENT_COMMIT: \$\{\{ needs\.resolve-nightly-cmux-tui-client\.outputs\.commit \}\}/ { sign_commit=1 }
+  job == "prepare-nightly-variant:" && /^    needs: .*resolve-nightly-cmux-tui-client/ { sign_needs=1 }
+  job == "prepare-nightly-variant:" && /^      - name: Bundle the cmux-tui client$/ { install_line=NR }
+  job == "prepare-nightly-variant:" && /^      - name: Thin bundle to the variant architecture$/ { thin_line=NR }
+  job == "prepare-nightly-variant:" && /CMUX_TUI_CLIENT_COMMIT: \$\{\{ needs\.resolve-nightly-cmux-tui-client\.outputs\.commit \}\}/ { sign_commit=1 }
   job == "report-nightly-failure:" && /^    needs: .*resolve-nightly-cmux-tui-client/ { reported=1 }
   END { exit !(!in_app && resolver_needs && resolver && sign_needs && sign_commit && install_line && thin_line && install_line < thin_line && reported) }
 ' "$WORKFLOW_FILE"; then
@@ -560,9 +586,9 @@ done
 # job's strip, so it must run strip-release-bundle.sh again after that install.
 if ! awk '
   /^  [a-zA-Z0-9_-]+:$/ { job=$1 }
-  job == "build-sign-notarize-nightly:" && /\.\/scripts\/install-cmux-tui-client\.sh/ && !install_line { install_line=NR }
-  job == "build-sign-notarize-nightly:" && /\.\/scripts\/strip-release-bundle\.sh "\$app"/ { strip_line=NR }
-  job == "build-sign-notarize-nightly:" && /^      - name: Thin bundle to the variant architecture$/ { thin_line=NR }
+  job == "prepare-nightly-variant:" && /\.\/scripts\/install-cmux-tui-client\.sh/ && !install_line { install_line=NR }
+  job == "prepare-nightly-variant:" && /\.\/scripts\/strip-release-bundle\.sh "\$app"/ { strip_line=NR }
+  job == "prepare-nightly-variant:" && /^      - name: Thin bundle to the variant architecture$/ { thin_line=NR }
   END { exit !(install_line && strip_line && thin_line && install_line < strip_line && strip_line < thin_line) }
 ' "$WORKFLOW_FILE"; then
   echo "FAIL: nightly sign job must run strip-release-bundle.sh after installing the cmux-tui client and before thinning"
@@ -595,9 +621,10 @@ if ! awk '
   exit 1
 fi
 
-# The launch smoke only proves the process stays alive. Both signing jobs must
-# also drive the signed app through its bundled CLI before notarization.
-for workflow in "$WORKFLOW_FILE" "$RELEASE_WORKFLOW_FILE"; do
+# release still smokes in its signing job (its split is a separate change);
+# it must also drive the signed app through its bundled CLI before notarization.
+
+for workflow in "$RELEASE_WORKFLOW_FILE"; do
   if ! awk '
     /^      - name: Smoke launch signed app before notarization/ { smoke_line=NR }
     /^      - name: Smoke bundled CLI against the signed app/ { cli_line=NR }
@@ -639,7 +666,7 @@ if ! awk '
   step == "bound" && /cache_kib=\$\(du -sk "\$cache_path"/ { measure[job]=NR }
   step == "bound" && /echo "save=/ && /GITHUB_OUTPUT/ { verdict[job]=1 }
   step == "save" && /uses: (actions\/cache\/save@|\.\/\.github\/actions\/cache-save$)/ { save_action[job]=1 }
-  step == "save" && /^        if: steps\.compilation-cache-restore\.outputs\.cache-hit != '\''true'\'' && steps\.compilation-cache-bound\.outputs\.save == '\''true'\''$/ { save_gate[job]=1 }
+  step == "save" && /steps\.compilation-cache-restore\.outputs\.cache-hit != '\''true'\'' && steps\.compilation-cache-bound\.outputs\.save == '\''true'\''$/ { save_gate[job]=1 }
   step == "save" && /hashFiles/ { rescan[job]=1 }
   END {
     n = split("refresh app", jobs, " ")
@@ -711,7 +738,7 @@ if ! awk '
   in_move && /continue-on-error: true/ { saw_move_best_effort=1 }
   in_move && /GH_TOKEN: \$\{\{ steps\.release-tag-token\.outputs\.token \}\}/ { saw_app_token=1 }
   in_move && index($0, "GITHUB_TOKEN: ''") { saw_github_token_cleared=1 }
-  in_move && /scripts\/ci\/update-release-tag\.py/ { saw_api_update=1 }
+  in_move && /(scripts|PUBLISH_TOOLING)\/ci\/update-release-tag\.py/ { saw_api_update=1 }
   END { exit !(saw_move_if && saw_move_id && saw_move_best_effort && saw_app_token && saw_github_token_cleared && saw_api_update) }
 ' "$WORKFLOW_FILE"; then
   echo "FAIL: moving the channel release tag must use the scoped app token, remain observable when stale, and use the verified API helper"
@@ -803,11 +830,14 @@ PUBLISH_SCHEDULE="(github.event_name != 'schedule' || github.event.schedule == '
 NOT_PUBLISHED="needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true'"
 # A nightly-next continuation run (nightly_next_continue_only) builds nothing of its own.
 NOT_CONTINUE="needs.decide.outputs.continue_only != 'true'"
-if [ "$(job_if build-nightly-app)" != "    if: needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && $NOT_PUBLISHED && $NOT_CONTINUE" ] \
-  || [ "$(job_if build-nightly-ghostty-cli-helper)" != "    if: needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && needs.decide.outputs.build_only != 'true' && $NOT_PUBLISHED && $NOT_CONTINUE" ] \
-  || [ "$(job_if build-sign-notarize-nightly)" != "    if: needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && needs.decide.outputs.build_only != 'true' && $NOT_PUBLISHED && $NOT_CONTINUE" ] \
-  || [ "$(job_if resolve-nightly-cmux-tui-client) && $NOT_PUBLISHED && $NOT_CONTINUE" != "$(job_if build-nightly-app)" ] \
-  || [ "$(job_if publish-nightly)" != "    if: \"!cancelled() && needs.decide.result == 'success' && needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && $PUBLISH_SCHEDULE && $NOT_PUBLISHED && needs.decide.outputs.no_publish != 'true' && ((needs.build-sign-notarize-nightly.result == 'success' && needs.build-sign-notarize-nightly.outputs.notary_pending != 'true') || needs.recover-nightly-next-notarization.outputs.accepted == 'true')\"" ]; then
+# A nightly-next push that a newer push replaced builds nothing (one build slot, #21917).
+NOT_SUPERSEDED="needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true'"
+if [ "$(job_if build-nightly-app)" != "    if: needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && $NOT_PUBLISHED && $NOT_SUPERSEDED && $NOT_CONTINUE" ] \
+  || [ "$(job_if build-nightly-ghostty-cli-helper)" != "    if: needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && needs.decide.outputs.build_only != 'true' && $NOT_PUBLISHED && $NOT_SUPERSEDED && $NOT_CONTINUE" ] \
+  || [ "$(job_if build-sign-notarize-nightly)" != "    if: needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && needs.decide.outputs.build_only != 'true' && $NOT_PUBLISHED && $NOT_SUPERSEDED && $NOT_CONTINUE" ] \
+  || [ "$(job_if prepare-nightly-variant)" != "$(job_if build-sign-notarize-nightly)" ] \
+  || [ "$(job_if resolve-nightly-cmux-tui-client) && $NOT_PUBLISHED && $NOT_SUPERSEDED && $NOT_CONTINUE" != "$(job_if build-nightly-app)" ] \
+  || [ "$(job_if publish-nightly)" != "    if: \"!cancelled() && needs.decide.result == 'success' && needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && $PUBLISH_SCHEDULE && $NOT_PUBLISHED && needs.decide.outputs.no_publish != 'true' && ((needs.build-sign-notarize-nightly.result == 'success' && needs.build-sign-notarize-nightly.outputs.notary_pending != 'true' && needs.verify-signed-nightly.result == 'success') || (needs.recover-nightly-next-notarization.outputs.accepted == 'true' && needs.verify-recovered-nightly-next.result == 'success'))\"" ]; then
   echo "FAIL: build_only must be a conjunctive exclusion on the helper, signing, and publication jobs, and must not gate the unsigned app build"
   exit 1
 fi
@@ -835,10 +865,10 @@ if ! awk '
   job == "app" && /^      - name: Archive unsigned nightly app/ { step="archive"; next }
   job == "app" && /^      - name: Upload unsigned nightly app/ { step="upload"; next }
   job == "app" && /^      - name:/ { step="" }
-  step == "restore" && /^        if: needs\.decide\.outputs\.cold_cache != '\''true'\''$/ { saw_cold_gate=1 }
-  step == "dsym" && /^        if: needs\.decide\.outputs\.build_only != '\''true'\''$/ { saw_dsym_gate=1 }
-  step == "archive" && /^        if: needs\.decide\.outputs\.build_only != '\''true'\''$/ { saw_archive_gate=1 }
-  step == "upload" && /^        if: needs\.decide\.outputs\.build_only != '\''true'\''$/ { saw_upload_gate=1 }
+  step == "restore" && /needs\.decide\.outputs\.cold_cache != '\''true'\''/ { saw_cold_gate=1 }
+  step == "dsym" && /needs\.decide\.outputs\.build_only != '\''true'\''/ { saw_dsym_gate=1 }
+  step == "archive" && /needs\.decide\.outputs\.build_only != '\''true'\''/ { saw_archive_gate=1 }
+  step == "upload" && /needs\.decide\.outputs\.build_only != '\''true'\''/ { saw_upload_gate=1 }
   END { exit !(saw_cold_gate && saw_dsym_gate && saw_archive_gate && saw_upload_gate) }
 ' "$WORKFLOW_FILE"; then
   echo "FAIL: build-only must allow a cold cache and skip dSYMs plus unused app archive/upload"
@@ -1004,6 +1034,37 @@ legacy_resolve "false false false" "a submission still in Apple's queue must be 
   --action new --pending true --notarize success --published false --apple unknown
 legacy_resolve "false false true" "a failed new attempt must count" \
   --action new --pending false --notarize failure --published false --apple unknown
+# Did the attempt fail (cx-vws1x)? It drives the failure report and the
+# publish job's red result after the sign, verify and publish split.
+legacy_attempt() {  # <expected true|false> <message> <args...>
+  local expected="$1" message="$2"; shift 2
+  local actual
+  actual="$(python3 "$ROOT_DIR/scripts/ci/nightly-next-legacy-attempt.py" "$@" | sed -n 's/^failed=//p')"
+  if [ "$actual" != "$expected" ]; then
+    echo "FAIL: $message (expected failed=$expected, got '$actual')"
+    exit 1
+  fi
+}
+legacy_attempt false "a published attempt must not fail" \
+  --sign-result success --sign-skip false --signed-ok true --pending false --published true --job-ok true
+legacy_attempt false "a submission still in Apple's queue must not fail" \
+  --sign-result success --sign-skip false --signed-ok true --pending true --published false --job-ok true
+legacy_attempt true "a final build whose smoke, digest check or upload failed must fail" \
+  --sign-result success --sign-skip false --signed-ok true --pending false --published false --job-ok true
+legacy_attempt true "a failed signing job must fail" \
+  --sign-result failure --sign-skip false --signed-ok false --pending false --published false --job-ok true
+legacy_attempt true "a signing job that failed before its order check must fail" \
+  --sign-result failure --sign-skip "" --signed-ok "" --pending "" --published false --job-ok true
+legacy_attempt true "a pending submission that could not be kept must fail (resolve.py does not count it)" \
+  --sign-result failure --sign-skip false --signed-ok false --pending true --published false --job-ok true
+legacy_attempt false "a signing job cancelled by a newer run must not fail" \
+  --sign-result cancelled --sign-skip "" --signed-ok "" --pending "" --published false --job-ok true
+legacy_attempt false "a signing job that never ran must not fail" \
+  --sign-result skipped --sign-skip "" --signed-ok "" --pending "" --published false --job-ok true
+legacy_attempt false "a build the old feed already has must not fail" \
+  --sign-result success --sign-skip true --signed-ok true --pending "" --published false --job-ok true
+legacy_attempt true "a failed step of the publish job must fail" \
+  --sign-result success --sign-skip false --signed-ok true --pending false --published true --job-ok false
 # An accepted bundle is continued with no time limit and its build is never
 # submitted again; two counted failures stop that build, not a newer one.
 legacy_feed "$legacy_dir/next.xml" 3850073942601
@@ -1071,10 +1132,127 @@ if [ "$(orphan 0)" != retired ] || ! grep -q 'artifacts/4242' "$legacy_dir/gh.lo
   echo "FAIL: a pending metadata artifact whose bundle is confirmed gone must be retired"
   exit 1
 fi
+# The failure issue is found with GitHub search and an exact title match, not a
+# one-page listing of open issues (it may be past the first 100 open issues
+# and pull requests); a failed search is an error, never "no issue".
+search_gh_dir="$legacy_dir/searchgh"
+mkdir -p "$search_gh_dir"
+cat > "$search_gh_dir/gh" <<'GH'
+#!/usr/bin/env bash
+case "$*" in
+  *search/issues*)
+    [ "$FAKE_SEARCH" = error ] && { echo "HTTP 403: rate limit" >&2; exit 1; }
+    printf '%b' "$FAKE_SEARCH"; exit 0 ;;
+  *"issues?state=open"*) echo "one-page listing used" >&2; exit 3 ;;
+esac
+exit 1
+GH
+chmod +x "$search_gh_dir/gh"
+failure_issue() {  # <search rows> -> number (exit code kept)
+  PATH="$search_gh_dir:$PATH" FAKE_SEARCH="$1" bash "$ROOT_DIR/scripts/ci/nightly-next-legacy-failure-issue.sh" manaflow-ai/cmux
+}
+issue_title="cmux NIGHTLY-identity publication failed (nightly.yml publish-nightly-identity-legacy)"
+if [ "$(failure_issue "20001\t$issue_title (old)\n20668\t$issue_title\n")" != 20668 ]; then
+  echo "FAIL: the failure issue must be found by search with an exact title match"
+  exit 1
+fi
+if [ -n "$(failure_issue "20001\tsomething else\n")" ]; then
+  echo "FAIL: no exact title match must give no failure issue"
+  exit 1
+fi
+if failure_issue error >/dev/null 2>&1; then
+  echo "FAIL: a failed issue search must be an error, not 'no failure issue'"
+  exit 1
+fi
+if grep -Fq 'issues?state=open&per_page=100' "$WORKFLOW_FILE" || grep -Fq 'listForRepo({ ...context.repo, state' "$WORKFLOW_FILE"; then
+  echo "FAIL: the cmux NIGHTLY-identity jobs must find the failure issue by search, not a one-page listing"
+  exit 1
+fi
+# A cmux NEXT build is copied only when every commit in
+# NIGHTLY_LEGACY_REQUIRED_COMMITS is in its commit (2026-10-15: builds with
+# 79dbcd0baf025 open a new daemon session; the adopt fix must ship with them).
+# The build's commit is the head of its nightly-next run; any error fails closed.
+req_gh_dir="$legacy_dir/reqgh"
+mkdir -p "$req_gh_dir"
+cat > "$req_gh_dir/gh" <<'GH'
+#!/usr/bin/env bash
+case "$*" in
+  *actions/runs/*)
+    [ "$FAKE_RUN" = error ] && { echo "HTTP 404" >&2; exit 1; }
+    echo "$FAKE_RUN"; exit 0 ;;
+  *compare/*)
+    [ "$FAKE_COMPARE" = error ] && { echo "HTTP 502" >&2; exit 1; }
+    echo "$FAKE_COMPARE"; exit 0 ;;
+esac
+exit 1
+GH
+chmod +x "$req_gh_dir/gh"
+build_sha=692a32616bd6324ca205b90d7b673ee6d32cdce9
+adopt_fix=1111111111111111111111111111111111111111
+requirement() {  # <run answer> <compare answer> [required...] -> "exit:first word"
+  local run="$1" compare="$2"; shift 2
+  local out code
+  out="$(PATH="$req_gh_dir:$PATH" FAKE_RUN="$run" FAKE_COMPARE="$compare" \
+    bash "$ROOT_DIR/scripts/ci/nightly-next-legacy-requirement.sh" manaflow-ai/cmux 3850073942601 "$@")"
+  code=$?
+  printf '%s:%s' "$code" "${out%% *}"
+}
+good_run="$build_sha nightly-next .github/workflows/nightly.yml"
+for case in \
+  "0:ok|$good_run|ahead|$adopt_fix|a build that contains the required commit must be allowed" \
+  "0:ok|$good_run|identical|$adopt_fix|a build at the required commit must be allowed" \
+  "3:missing|$good_run|behind|$adopt_fix|a build that lacks the required commit must be refused" \
+  "3:missing|$good_run|diverged|$adopt_fix|a build on another line than the required commit must be refused" \
+  "1:error:|$good_run|error|$adopt_fix|a failed ancestry check must fail closed" \
+  "1:error:|error|ahead|$adopt_fix|an unreadable build run must fail closed" \
+  "1:error:|$build_sha main .github/workflows/nightly.yml|ahead|$adopt_fix|a build from another branch must fail closed" \
+  "0:ok|$good_run|behind||no required commit means no requirement"; do
+  IFS='|' read -r expected run compare required message <<<"$case"
+  # shellcheck disable=SC2086 # an empty required list passes no argument
+  actual="$(requirement "$run" "$compare" $required)"
+  if [ "$actual" != "$expected" ]; then
+    echo "FAIL: $message (expected '$expected', got '$actual')"
+    exit 1
+  fi
+done
+# The build's commit comes from its signed release notes first (the app can be
+# built at an older commit than its run's head); the run head is the fallback.
+notes_sha=2222222222222222222222222222222222222222
+mkdir -p "$legacy_dir/notes"
+printf '{"build": "3850073942601", "head": "%s"}\n' "$notes_sha" > "$legacy_dir/notes/3850073942601.json"
+notes_out="$(PATH="$req_gh_dir:$PATH" FAKE_RUN="$good_run" FAKE_COMPARE=ahead NOTES_BASE="file://$legacy_dir/notes" \
+  bash "$ROOT_DIR/scripts/ci/nightly-next-legacy-requirement.sh" manaflow-ai/cmux 3850073942601 "$adopt_fix")"
+if [ "$notes_out" != "ok $notes_sha" ]; then
+  echo "FAIL: the build commit must come from the build's release notes when they exist (got '$notes_out')"
+  exit 1
+fi
+# The macOS job's refusal of an app that lacks a required commit is never
+# counted, and a continued submission of that build is retired.
+legacy_resolve "true false false" "a continued submission refused by the requirement must be retired and not counted" \
+  --action continue --pending false --notarize skipped --published false --apple unknown --requirement-refused true
+legacy_resolve "false false false" "a new attempt refused by the requirement must not be counted" \
+  --action new --pending false --notarize skipped --published false --apple unknown --requirement-refused true
+# A refused build is neither continued nor submitted; a newer build is checked next.
+legacy_feed "$legacy_dir/next.xml" 3865928435701 3850073942601
+legacy_feed "$legacy_dir/old.xml" 3821558930001
+pending_meta 3850073942601 $((now - 3600))
+legacy_expect "new 3865928435701 " "a pending submission of a refused build must not be continued" \
+  --pending-meta "$legacy_dir/pending.json" --pending-run 38677509707 --now "$now" --refuse-build 3850073942601
+legacy_expect "none  " "refused builds must be neither continued nor submitted" \
+  --pending-meta "$legacy_dir/pending.json" --pending-run 38677509707 --now "$now" --refuse-build 3850073942601 --refuse-build 3865928435701
+legacy_feed "$legacy_dir/next.xml" 3851000000001 3850073942601
 # Wiring: the macOS job takes its build and mode from legacy-identity-target,
 # not from this run's publish-nightly; a pending submission is stored and
 # continued, never counted as a failure.
-legacy_job="$(awk '/^  publish-nightly-identity-legacy:/{on=1} on && /^  [a-z0-9-]+:$/ && !/publish-nightly-identity-legacy/{exit} on' "$WORKFLOW_FILE")"
+# The cmux NIGHTLY-identity chain is three jobs (cx-vws1x): sign, a secret-free
+# verify, and publish.
+legacy_job_text() {  # <job id>
+  awk -v job="  $1:" '$0 == job {on=1; print; next} on && /^  [a-z0-9-]+:$/ {exit} on' "$WORKFLOW_FILE"
+}
+sign_job="$(legacy_job_text sign-nightly-identity-legacy)"
+verify_job="$(legacy_job_text verify-nightly-identity-legacy)"
+publish_job="$(legacy_job_text publish-nightly-identity-legacy)"
+legacy_job="$sign_job$verify_job$publish_job"
 target_job="$(awk '/^  legacy-identity-target:/{on=1} on && /^  [a-z0-9-]+:$/ && !/legacy-identity-target/{exit} on' "$WORKFLOW_FILE")"
 for expected in \
   "needs: [decide, legacy-identity-target]" \
@@ -1091,17 +1269,20 @@ for expected in \
   "name: cmux-nightly-identity-pending-meta" \
   "name: cmux-nightly-identity-pending-bundle" \
   "Build \${process.env.BUILD} failed:" \
-  "if: failure() && steps.resolve.outputs.real != 'false'" \
+  "if: always() && steps.failed.outputs.failed == 'true' && steps.resolve.outputs.real != 'false'" \
   ".github/workflows/nightly.yml push nightly-next \$GITHUB_REPOSITORY" \
   "BUNDLE_RUN: \${{ needs.legacy-identity-target.outputs.bundle_run }}" \
   "- name: Store the accepted submission's metadata" \
   '--apple "$apple"' \
   'CMUX_VERIFY_LICENSES_TOOL=$RUNNER_TEMP/build-src/scripts/verify-app-bundle-licenses.sh' \
+  "REQUIRED: \${{ vars.NIGHTLY_LEGACY_REQUIRED_COMMITS }}" \
+  "requirement in use: required: " \
+  'compare/$required...$sha' \
   "scripts/ci/nightly-next-legacy-resolve.py" \
   "./scripts/ci/nightly-next-legacy-orphan-meta.sh" \
   'xcrun stapler validate "legacy-app/cmux NIGHTLY.app"'; do
   if ! grep -Fq -- "$expected" <<<"$legacy_job"; then
-    echo "FAIL: publish-nightly-identity-legacy must contain: $expected"
+    echo "FAIL: the cmux NIGHTLY-identity jobs (sign, verify, publish) must contain: $expected"
     exit 1
   fi
 done
@@ -1111,12 +1292,70 @@ for expected in \
   '.workflow_run.head_branch == "nightly-next" and .workflow_run.head_repository_id == .workflow_run.repository_id' \
   "for candidate in" \
   "--failure-log failures.txt --max-failures 2" \
-  "the bundle of run \$bundle_run is gone"; do
+  "the bundle of run \$bundle_run is gone" \
+  "REQUIRED: \${{ vars.NIGHTLY_LEGACY_REQUIRED_COMMITS }}" \
+  "scripts/ci/nightly-next-legacy-requirement.sh" \
+  "requirement in use: required: " \
+  'grep -q "^Build $build skipped" failures.txt' \
+  'NOTES_BASE="${NIGHTLY_NEXT_FEED_BASE}/notes"'; do
   if ! grep -Fq -- "$expected" <<<"$target_job"; then
     echo "FAIL: legacy-identity-target must contain: $expected"
     exit 1
   fi
 done
+# Split contract (cx-vws1x): the signing job holds the secrets and runs no
+# bundle code; the verify job smokes the exact DMG with no environment and no
+# secret on a literal ephemeral label; publish takes only the tested digest.
+for expected in \
+  "environment: release-next" \
+  "CMUX_DEFER_LAUNCH_SMOKES: \"true\"" \
+  "name: cmux-nightly-identity-signed" \
+  "dmg_sha256: \${{ steps.handoff.outputs.dmg_sha256 }}" \
+  "signed_ok: \${{ steps.attempt.outputs.signed_ok }}" \
+  "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}"; do
+  grep -Fq -- "$expected" <<<"$sign_job" || { echo "FAIL: sign-nightly-identity-legacy must contain: $expected"; exit 1; }
+done
+for expected in \
+  "needs: [legacy-identity-target, sign-nightly-identity-legacy]" \
+  "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}" \
+  'stapled_flag=(--require-stapled-app)' \
+  './scripts/ci/smoke-dmg.sh "$dmg" nightly --expect-sha256 "$SIGNED_SHA256" "${stapled_flag[@]}"' \
+  "tested_sha256: \${{ steps.smoke.outputs.tested_sha256 }}"; do
+  grep -Fq -- "$expected" <<<"$verify_job" || { echo "FAIL: verify-nightly-identity-legacy must contain: $expected"; exit 1; }
+done
+if grep -Eq 'environment:|secrets\.|vars\.[A-Z_]*RUNNER' <<<"$verify_job"; then
+  echo "FAIL: verify-nightly-identity-legacy must hold no environment or secret and use a literal runner label"
+  exit 1
+fi
+for expected in \
+  "needs: [decide, legacy-identity-target, sign-nightly-identity-legacy, verify-nightly-identity-legacy]" \
+  "TESTED_SHA256: \${{ needs.verify-nightly-identity-legacy.outputs.tested_sha256 }}" \
+  './scripts/ci/nightly-next-legacy-tested-digest.sh' \
+  "group: nightly-next-legacy-identity-publish" \
+  "needs.sign-nightly-identity-legacy.result != 'cancelled'" \
+  "scripts/ci/nightly-next-legacy-attempt.py --sign-result"; do
+  grep -Fq -- "$expected" <<<"$publish_job" || { echo "FAIL: publish-nightly-identity-legacy must contain: $expected"; exit 1; }
+done
+# Every publishing step of the publish job needs the tested digest, after the check.
+for step in "Generate the old feed's appcast" "Publish the cmux NIGHTLY DMG, release notes and the old feed"; do
+  step_if="$(awk -v name="      - name: $step" '$0 == name { found=1; next } found && /^        if: / { sub(/^        if: /, ""); print; exit }' <<<"$publish_job")"
+  if [ "$step_if" != "steps.order.outputs.skip == 'false' && env.TESTED_SHA256 != ''" ]; then
+    echo "FAIL: '$step' must run only with a tested digest: $step_if"
+    exit 1
+  fi
+done
+check_line="$(grep -n 'nightly-next-legacy-tested-digest.sh' <<<"$publish_job" | head -1 | cut -d: -f1)"
+publish_line="$(grep -n 'gh release upload' <<<"$publish_job" | head -1 | cut -d: -f1)"
+if [ -z "$check_line" ] || [ -z "$publish_line" ] || [ "$check_line" -ge "$publish_line" ]; then
+  echo "FAIL: publish-nightly-identity-legacy must check the tested digest before it uploads"
+  exit 1
+fi
+if grep -Eq 'smoke-dmg\.sh|smoke-launch|signing-keychain\.sh create' <<<"$publish_job"; then
+  echo "FAIL: publish-nightly-identity-legacy must run no bundle code and import no signing keychain"
+  exit 1
+fi
+bash "$ROOT_DIR/tests/test_nightly_next_legacy_tested_digest.sh"
+
 if grep -Fq "publish-nightly.result == 'success'" <<<"$legacy_job$target_job" || grep -Fq "should_publish == 'true'" <<<"$target_job"; then
   echo "FAIL: the cmux NIGHTLY-identity jobs must not require a publication in the same run (recovered builds publish later)"
   exit 1

@@ -104,7 +104,7 @@ def quit_app(proc, home):
     if home:
         # The Chief of `home`: its acpmux daemon and router, then brain and owner (documented stop).
         acpmux_home = os.path.join(home, "acpmux")
-        subprocess.run([ACPMUX, "daemon", "shutdown"], env={**CLEAN_ENV, "ACPMUX_HOME": acpmux_home},
+        subprocess.run([ACPMUX, "daemon", "shutdown", "--end-agents"], env={**CLEAN_ENV, "ACPMUX_HOME": acpmux_home},
                        capture_output=True, timeout=30)
         try:
             conn = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)

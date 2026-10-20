@@ -15,6 +15,11 @@
 // Unix only until the Windows port runs the daemon (cmux::local_socket).
 #![cfg(unix)]
 
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+// This process runs stand-in agents (the fake agents under tests/).
+const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
+
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;
 use acpmux::rpc::Message;
@@ -243,6 +248,7 @@ async fn chats_list_their_tools_and_claude_turns_mcp_servers_off() {
     assert_eq!(info["toolsMutable"], json!(false), "{info}");
     let cmux_servers = vec![
         row("mcp:cmux-cua", "cmux", "cmux", true, false),
+        row("mcp:cmux-subsessions", "cmux", "cmux", true, false),
         row("mcp:cmux", "cmux", "cmux", true, false),
     ];
     assert_eq!(rows(&info["tools"]), cmux_servers, "{info}");
@@ -283,6 +289,7 @@ async fn chats_list_their_tools_and_claude_turns_mcp_servers_off() {
         rows(&info["tools"]),
         vec![
             row("mcp:cmux-cua", "cmux", "cmux", true, true),
+            row("mcp:cmux-subsessions", "cmux", "cmux", true, true),
             row("mcp:cmux", "cmux", "cmux", true, true),
             row("skill:cmux:cmux-browser", "cmux", "cmux", true, false),
             row("skill:cmux:cmux-cua", "cmux", "cmux", true, false),

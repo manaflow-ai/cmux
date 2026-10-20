@@ -1,8 +1,11 @@
 //! `agent message …`: a message to an agent (agent_message.rs sends and
-//! delivers it), or `agent message release <message-id> --recipient <agent>
+//! delivers it), `agent message release <message-id> --recipient <agent>
 //! --approve|--decline`, the person's decision on a held delivery (one
-//! `agent.message.release`). `release` is a reserved word there: an acpmux
-//! session named release is addressed as `acp:release`.
+//! `agent.message.release`), or `agent message unsend <message-id>
+//! [--recipient <agent>]`, which takes a message back (one
+//! `agent.message.unsend`; it prints each delivery's outcome). `release` and
+//! `unsend` are reserved words there: an acpmux session with such a name is
+//! addressed as `acp:release` or `acp:unsend`.
 
 use cmux_tui_core::resource::ResourceOperation;
 use serde_json::{Map, Value};
@@ -14,8 +17,10 @@ pub(super) fn parse(
     flags: &mut Flags,
     argv: Option<Vec<String>>,
 ) -> Result<CommandPlan, UsageError> {
-    if let ["release", rest @ ..] = words {
-        return release(rest, flags, argv);
+    match words {
+        ["release", rest @ ..] => return release(rest, flags, argv),
+        ["unsend", rest @ ..] => return unsend(rest, flags, argv),
+        _ => {}
     }
     let from = flags.take("from");
     let thread = flags.take("thread");
@@ -52,4 +57,26 @@ fn release(
     params.insert("recipient".into(), Value::String(recipient));
     params.insert("decision".into(), Value::String(decision.to_owned()));
     request(ResourceOperation::AgentMessageRelease, &Selectors::default(), flags, params)
+}
+
+fn unsend(
+    words: &[&str],
+    flags: &mut Flags,
+    argv: Option<Vec<String>>,
+) -> Result<CommandPlan, UsageError> {
+    let [message_id] = words else {
+        return Err(UsageError::new(
+            "agent message unsend takes one message id: \
+             agent message unsend <message-id> [--recipient <agent>]",
+        ));
+    };
+    if argv.is_some_and(|argv| !argv.is_empty()) {
+        return Err(UsageError::new("agent message unsend takes no text"));
+    }
+    let mut params = Map::new();
+    params.insert("message_id".into(), Value::String((*message_id).to_owned()));
+    if let Some(recipient) = flags.take("recipient") {
+        params.insert("recipient".into(), Value::String(recipient));
+    }
+    request(ResourceOperation::AgentMessageUnsend, &Selectors::default(), flags, params)
 }

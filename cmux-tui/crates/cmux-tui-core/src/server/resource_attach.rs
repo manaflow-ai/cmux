@@ -912,13 +912,49 @@ pub(super) fn start_sidebar_resource_attach(
     }
 }
 
+/// cx-8mla8: an `operation.failed` with reason `internal` gets a Request ID
+/// in `details.extra.request_id` (the catalog's forward-compatible map, no
+/// protocol change), and the daemon's log names that id with the operation
+/// and the cause, so a person can quote the id and the log shows why.
+fn with_internal_request_id(
+    operation: ResourceOperation,
+    mut error: ResourceError,
+) -> ResourceError {
+    if error.code != "operation.failed"
+        || error.details.get("reason").and_then(Value::as_str) != Some("internal")
+    {
+        return error;
+    }
+    let mut bytes = [0_u8; 8];
+    if getrandom::fill(&mut bytes).is_err() {
+        return error;
+    }
+    let id: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
+    let id = format!("req_{id}");
+    let cause = error
+        .details
+        .pointer("/extra/message")
+        .and_then(Value::as_str)
+        .unwrap_or("no cause given")
+        .to_owned();
+    eprintln!("cmux-tui: internal failure in {} (Request ID {id}): {cause}", operation.wire_name());
+    if let Some(details) = error.details.as_object_mut() {
+        let extra = details.entry("extra").or_insert_with(|| Value::Object(Default::default()));
+        if let Some(extra) = extra.as_object_mut() {
+            extra.insert("request_id".into(), Value::String(id));
+        }
+    }
+    error
+}
+
 pub(super) fn send_resource_response(
     writer: &MessageWriter,
     id: ResourceRequestId,
     operation: ResourceOperation,
     result: Result<Value, ResourceError>,
 ) -> bool {
-    let result = crate::resource_router::validate_operation_outcome(operation, result);
+    let result = crate::resource_router::validate_operation_outcome(operation, result)
+        .map_err(|error| with_internal_request_id(operation, error));
     let envelope = match result {
         Ok(result) => ResourceResponseEnvelope::success(id, result),
         Err(error) => ResourceResponseEnvelope::failure(id, error),

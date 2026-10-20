@@ -5,7 +5,8 @@
 //!
 //! The pane asks "Trust / Don't trust" for a folder whose level is unknown
 //! (`crate::trust`). Until the user answers Trust, a `session/prompt` (and the
-//! `_acpmux/handoff_start` that sends a capsule as a prompt) for a session in
+//! `_acpmux/handoff_start` that sends a capsule as a prompt, and the
+//! `_acpmux/btw` that opens a side session and prompts it) for a session in
 //! that folder is refused with `data.reason`:
 //! - `trust.pending`: no answer yet (the question is open);
 //! - `trust.untrusted`: the user answered Don't trust.
@@ -75,8 +76,10 @@ pub(super) async fn check(
         .await;
     }
     let session_id = match m {
+        // A side session (`hub/btw.rs`) starts an agent in its chat's folder and prompts it.
         method::SESSION_PROMPT
         | method::SESSION_FORK
+        | method::MUX_BTW
         | method::SESSION_SET_MODE
         | method::SESSION_SET_CONFIG_OPTION
         | method::MUX_SET_TOOLS => session_key(params).ok().map(str::to_owned),

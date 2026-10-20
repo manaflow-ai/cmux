@@ -32,6 +32,9 @@ MACOS_15_FORK_JOBS = {
     ("plain-paste-worker.yml", "macos-15"),
     # Seeds the macOS 15 pool's SwiftPM manifest cache, keyed on its Xcode.
     ("seed-swiftpm-manifests.yml", "seed"),
+    # Launches the published cmux NEXT DMG on macOS 15 (the macOS 14 floor's
+    # oldest hosted major); on macos-26 it would prove nothing.
+    ("nightly.yml", "nightly-next-macos15-launch"),
 }
 # A matrix job may instead pick a hosted label per row, e.g. to spread
 # app-host shards over macos-15 and macos-26. Accepted only when every
@@ -1136,7 +1139,7 @@ class ForkRunnerRoutingTests(unittest.TestCase):
         """A workflow_run follower of a pull_request_target workflow acts on fork runs too."""
         follower = (
             "on:\n  workflow_run:\n    workflows: [\"x\"]\n    types: [completed]\n"
-            "env:\n  SOURCE_WORKFLOW_PATHS: .github/workflows/cmux-tui-artifacts.yml\n"
+            "env:\n  SOURCE_WORKFLOW_PATHS: .github/workflows/cla.yml\n"
             "jobs:\n  retry:\n    if: github.event.workflow_run.conclusion == 'failure'\n"
             "    runs-on: ubuntu-24.04\n"
         )

@@ -70,7 +70,7 @@ const waitFor = async (frames: Array<any>, pred: (f: any) => boolean) => {
 
 /** A conversation socket with a frame log. */
 const connect = async (id: string, token: string) => {
-  const res = await worker.fetch(`https://api.test/v1/wire/conv/${id}`, { headers: { Upgrade: "websocket", "Sec-WebSocket-Protocol": `cmux.wire.v1, bearer.${token}` } })
+  const res = await worker.fetch(`https://api.test/v1/wire/conv/${id}`, { headers: { Upgrade: "websocket", "Sec-WebSocket-Protocol": "cmux.wire.v1", authorization: `Bearer ${token}` } })
   expect(res.status).toBe(101)
   const ws = res.webSocket!
   const frames: Array<any> = []
@@ -161,5 +161,42 @@ describe("Chief brain on Durable Objects", { timeout: 120_000 }, () => {
     expect(reply.parts[0].text).not.toContain("before")
     expect(reply.thread_root).toBe(sent.value.message_id)
     expect(reply.reply_to).toMatchObject({ message_id: sent.value.message_id })
+  })
+  it("ends its typing when it skips a turn, so a client's Thinking line does not stay", async () => {
+    const limits = env as unknown as { CHIEF_BRAIN_DAILY_TURNS?: string }
+    const saved = limits.CHIEF_BRAIN_DAILY_TURNS
+    limits.CHIEF_BRAIN_DAILY_TURNS = "1"
+    try {
+      const { token, chief } = await ownerWithChief("brain-skip-typing")
+      expect((await http("PUT", `/v1/chiefs/${chief.id}/brain`, token, { enabled: true })).status).toBe(200)
+      const socket = await connect(chief.main_conversation, token)
+      const conv = testEnv.CONVERSATION_DO.get(testEnv.CONVERSATION_DO.idFromName(chief.main_conversation))
+      const off = (f: any) => f.t === "conversation-typing" && f.participant === chief.id && f.on === false
+      const offAfter = async (mark: number) => {
+        for (let i = 0; i < 40 && !socket.frames.slice(mark).some(off); i++) {
+          await fireAlarm(conv)
+          await new Promise((r) => setTimeout(r, 50))
+        }
+        return socket.frames.slice(mark).some(off)
+      }
+      expect((await op(token, "message.send", { conversation: chief.main_conversation, client_msg_id: "sk-1", parts: [{ type: "text", text: "first" }] }, "sk-1")).ok).toBe(true)
+      await chiefReplies(token, chief.main_conversation, chief.id, 1)
+      // The first turn's own typing off (finish) reached the socket: every off after the mark is the skip's.
+      expect(await offAfter(0), JSON.stringify(socket.frames.map((f) => [f.t, f.on]))).toBe(true)
+      const mark = socket.frames.length
+
+      // Over the daily limit: no turn and no reply, but the socket sees the chief's typing go off.
+      expect((await op(token, "message.send", { conversation: chief.main_conversation, client_msg_id: "sk-2", parts: [{ type: "text", text: "second" }] }, "sk-2")).ok).toBe(true)
+      expect(await offAfter(mark), JSON.stringify(socket.frames.slice(mark).map((f) => [f.t, f.on]))).toBe(true)
+      expect(socket.frames.slice(mark).some((f) => f.t === "conversation-typing" && f.participant === chief.id && f.on === true)).toBe(false)
+      expect((await history(token, chief.main_conversation)).filter((m) => m.author === chief.id)).toHaveLength(1)
+      // The turn was refused for the limit (the env reached the brain), not answered late.
+      const brains = (env as unknown as { CHIEF_BRAIN_DO: DurableObjectNamespace }).CHIEF_BRAIN_DO
+      const brain = brains.get(brains.idFromName(`${chief.id}/${chief.main_conversation}`))
+      expect(await runInDurableObject(brain, async (_i, state) => state.storage.sql.exec(`SELECT state FROM cb_inbox WHERE seq = (SELECT MAX(seq) FROM cb_inbox)`).toArray())).toEqual([{ state: "skipped" }])
+      socket.ws.close()
+    } finally {
+      saved === undefined ? delete limits.CHIEF_BRAIN_DAILY_TURNS : (limits.CHIEF_BRAIN_DAILY_TURNS = saved)
+    }
   })
 })

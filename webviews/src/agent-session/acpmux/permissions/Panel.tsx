@@ -1,17 +1,38 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useId, useRef, useState } from "react";
+import { pathName } from "../chips/paths";
 import { EditDiff } from "../conversation/EditDiff";
+import { ChevronRight } from "../conversation/icons";
+import { ShellBlock } from "../conversation/ShellBlock";
+import { toolIcon } from "../conversation/ToolRow";
 import { toolFiles } from "../diff";
 import { toolDiffs } from "../direct";
 import { useT, type StringKey } from "../i18n";
 import { SHORTCUT_ACTIONS, useShortcut, withShortcut } from "../shortcuts";
-import { Icon } from "../icons/Icon";
-import type { PermissionClientState, PermissionDecision, PermissionGroup } from "./protocol";
-import { PermissionActionButton, PermissionCardFrame } from "../PermissionCard";
+import type { PermissionClientState, PermissionDecision, PermissionGroupItem } from "./protocol";
 
+/// What a receipt says was answered.
 const choices: Record<PermissionDecision, StringKey> = {
   allow_once: "permission.allowOnce",
   allow_chat: "permission.allowChat",
   deny: "permission.deny",
+};
+
+/// The answers at the end of a waiting ask's row, short, in this order (Leo 2026-10-14).
+const answers: [PermissionDecision, StringKey][] = [
+  ["allow_once", "permission.allow"],
+  ["allow_chat", "permission.always"],
+  ["deny", "permission.deny"],
+];
+
+/// ACP tool kinds to the verb before what the call names.
+const verbs: Partial<Record<string, StringKey>> = {
+  execute: "permission.verb.run",
+  edit: "permission.verb.edit",
+  read: "permission.verb.read",
+  delete: "permission.verb.delete",
+  move: "permission.verb.move",
+  fetch: "permission.verb.fetch",
+  search: "permission.verb.search",
 };
 
 type Props = {
@@ -24,68 +45,117 @@ type Props = {
   onRefresh(): void;
 };
 
-function GroupItems({ group, expandSignal }: { group: PermissionGroup; expandSignal: number }) {
-  const t = useT();
-  const container = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (expandSignal === 0) return;
-    container.current?.querySelectorAll("details").forEach((details) => {
-      details.open = true;
-    });
-  }, [expandSignal]);
-  return (
-    <div className="acpmux-permission-items" ref={container}>
-      {group.items.map((item) => {
-        const rawTool = item.request.toolCall;
-        const tool =
-          rawTool && typeof rawTool === "object" && !Array.isArray(rawTool)
-            ? (rawTool as Record<string, unknown>)
+const record = (value: unknown) =>
+  value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;
+const text = (value: unknown) => (typeof value === "string" && value.trim() ? value : undefined);
+
+/// What one request asks, as its row names it: a verb and the command, path, address or pattern
+/// the call carries (in the code face), else the agent's title for it.
+function askOf(item: PermissionGroupItem, fallback: string) {
+  const tool = record(item.request.toolCall);
+  const input = record(tool?.rawInput);
+  const kind = text(tool?.kind);
+  const paths = (Array.isArray(tool?.locations) ? tool.locations : [])
+    .map((location) => text(record(location)?.path))
+    .filter((path): path is string => path !== undefined);
+  const command = kind === "execute" ? text(input?.command) : undefined;
+  const path = paths[0] ?? text(input?.file_path) ?? text(input?.path);
+  const named =
+    kind === "execute"
+      ? command
+      : kind === "edit" || kind === "read" || kind === "delete" || kind === "move"
+        ? path && pathName(path)
+        : kind === "fetch"
+          ? text(input?.url)
+          : kind === "search"
+            ? (text(input?.pattern) ?? text(input?.query))
             : undefined;
-        // An edit's proposed change shows on the card, as the transcript draws an edit: what
-        // Allow lets it write should not sit behind Expand details as JSON (cx-d73v2).
-        const diffs = toolDiffs(tool?.content, tool?.locations);
-        const files = diffs ? toolFiles([{ id: item.permissionId, title: "", status: "proposed", diffs }]) : [];
-        return (
-          <React.Fragment key={item.permissionId}>
-            <details>
-              <summary>
-                <span>{typeof tool?.title === "string" ? tool.title : t("permission.toolRequest")}</span>
-                <span className="acpmux-permission-item-kind">{typeof tool?.kind === "string" ? tool.kind : ""}</span>
-                {item.state !== "pending" && (
-                  <span>{t(item.state === "cancelled" ? "permission.itemCancelled" : "permission.itemResolved")}</span>
-                )}
-              </summary>
-              {Array.isArray(tool?.locations) && (
-                <ul>
-                  {tool.locations.map((location, index) => {
-                    const path =
-                      location && typeof location === "object" ? (location as Record<string, unknown>).path : undefined;
-                    return typeof path === "string" ? <li key={index}>{path}</li> : null;
-                  })}
-                </ul>
-              )}
-              {tool?.rawInput !== undefined && (
-                <pre>{typeof tool.rawInput === "string" ? tool.rawInput : JSON.stringify(tool.rawInput, null, 2)}</pre>
-              )}
-              {tool?.content !== undefined && <pre>{JSON.stringify(tool.content, null, 2)}</pre>}
-              {tool?.rawInput === undefined && tool?.content === undefined && <p>{t("permission.noInput")}</p>}
-            </details>
-            {files.map((file) => (
-              <EditDiff key={file.path} file={file} />
-            ))}
-          </React.Fragment>
-        );
-      })}
-    </div>
-  );
+  return {
+    tool,
+    kind,
+    // The title already says what the call does ("Edit upload.sh"): no verb before it.
+    verb: named !== undefined ? verbs[kind ?? ""] : undefined,
+    subject: named ?? text(tool?.title) ?? fallback,
+    code: named !== undefined,
+    command,
+    cwd: text(input?.cwd),
+    paths,
+    input: tool?.rawInput,
+  };
 }
 
-function groupTitle(group: PermissionGroup, fallback: string): string {
-  if (group.items.length !== 1) return fallback;
-  const raw = group.items[0]?.request.toolCall;
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return fallback;
-  const title = (raw as Record<string, unknown>).title;
-  return typeof title === "string" && title.trim() ? title : fallback;
+/// One request: a row like the transcript's tool rows (its glyph, verb and what it names, on one
+/// line), which opens to the full request in plain words. An edit's proposed change shows under it
+/// without opening anything, as the transcript draws an edit (cx-d73v2).
+function AskRow({
+  item,
+  actions,
+  expandSignal,
+}: {
+  item: PermissionGroupItem;
+  actions?: React.ReactNode;
+  expandSignal: number;
+}) {
+  const t = useT();
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    if (expandSignal !== 0) setOpen(true);
+  }, [expandSignal]);
+  const detailsId = useId();
+  const ask = askOf(item, t("permission.toolRequest"));
+  const diffs = toolDiffs(ask.tool?.content, ask.tool?.locations);
+  const files = diffs ? toolFiles([{ id: item.permissionId, title: "", status: "proposed", diffs }]) : [];
+  return (
+    <>
+      <div className="acpmux-ask-row">
+        <button
+          type="button"
+          className="acpmux-ask-toggle"
+          aria-expanded={open}
+          aria-controls={open ? detailsId : undefined}
+          onClick={() => setOpen((value) => !value)}
+        >
+          <ChevronRight size={12} strokeWidth={1.4} className={`acpmux-ask-chevron${open ? " is-open" : ""}`} />
+          <span className="acpmux-ask-icon" aria-hidden="true">
+            {toolIcon(ask.kind)}
+          </span>
+          {ask.verb && <span className="acpmux-ask-verb">{t(ask.verb)}</span>}
+          <span className={`acpmux-ask-subject${ask.code ? " is-code" : ""}`}>{ask.subject}</span>
+          {item.state !== "pending" && (
+            <span className="acpmux-ask-state">
+              {t(item.state === "cancelled" ? "permission.itemCancelled" : "permission.itemResolved")}
+            </span>
+          )}
+        </button>
+        {actions}
+      </div>
+      {open && (
+        <div id={detailsId} className="acpmux-ask-details">
+          {ask.command ? (
+            <ShellBlock command={ask.command} />
+          ) : ask.input !== undefined ? (
+            <pre className="acpmux-ask-input">
+              {typeof ask.input === "string" ? ask.input : JSON.stringify(ask.input, null, 2)}
+            </pre>
+          ) : (
+            <p>{t("permission.noInput")}</p>
+          )}
+          {ask.cwd && <p>{t("permission.cwd", { path: ask.cwd })}</p>}
+          {!ask.command && ask.paths.length > 0 && (
+            <ul>
+              {ask.paths.map((path) => (
+                <li key={path}>{path}</li>
+              ))}
+            </ul>
+          )}
+          <p>{t("permission.reach")}</p>
+        </div>
+      )}
+      {files.map((file) => (
+        <EditDiff key={file.path} file={file} />
+      ))}
+    </>
+  );
 }
 
 export function PermissionPanel({ state, working, onRespond, onRetry, onRevoke, onRefresh }: Props) {
@@ -97,7 +167,6 @@ export function PermissionPanel({ state, working, onRespond, onRetry, onRevoke, 
   } satisfies Record<PermissionDecision, string | undefined>;
   const retryShortcut = useShortcut(SHORTCUT_ACTIONS.permissionRetry);
   const refreshShortcut = useShortcut(SHORTCUT_ACTIONS.permissionRefresh);
-  const expandShortcut = useShortcut(SHORTCUT_ACTIONS.permissionExpand);
   const [expandSignal, setExpandSignal] = useState(0);
   const pendingRef = useRef<typeof state.groups>([]);
   const stateRef = useRef(state);
@@ -129,7 +198,14 @@ export function PermissionPanel({ state, working, onRespond, onRetry, onRevoke, 
     }
     function runRevoke() {
       const current = stateRef.current;
-      if (current.supported && current.chatAllowance && !current.busy && !current.loading && !current.uncertain)
+      if (
+        current.supported &&
+        current.chatAllowance &&
+        current.ready !== false &&
+        !current.busy &&
+        !current.loading &&
+        !current.uncertain
+      )
         callbacks.current.onRevoke();
     }
     function runRefresh() {
@@ -160,54 +236,52 @@ export function PermissionPanel({ state, working, onRespond, onRetry, onRevoke, 
       aria-label={t("permission.title")}
       aria-busy={state.busy}
     >
-      {pending.map((group) => (
-        <PermissionCardFrame
-          title={groupTitle(group, t("permission.title"))}
-          leading={<Icon name="security.insecure" size={18} />}
-          className="acpmux-permission-surface"
-          key={group.groupId}
-        >
-          <div className="acpmux-permission-card-meta">
-            {t(group.items.length === 1 ? "permission.count.one" : "permission.count.other", { n: group.items.length })}
-            <span
-              className="acpmux-permission-coverage"
-              /* tooltip-allow: what the coverage covers, shown nowhere else */ title={t("permission.coverageDetail")}
-            >
-              {t("permission.coverage")}
-            </span>
-          </div>
-          {group.state === "pending" && (
-            <button type="button" onClick={() => setExpandSignal((value) => value + 1)}>
-              {withShortcut(t("permission.expand"), expandShortcut)}
-            </button>
-          )}
-          <GroupItems group={group} expandSignal={expandSignal} />
-          {group.state === "collecting" ? (
-            <output>{t("permission.collecting")}</output>
-          ) : (
-            <>
-              {group.decisions.includes("allow_chat") && (
-                <p className="acpmux-permission-scope">{t("permission.chatScope")}</p>
-              )}
-              {!group.decisions.includes("allow_once") && (
-                <p className="acpmux-permission-scope">{t("permission.denyOnly")}</p>
-              )}
-              <div className="acpmux-permission-buttons">
-                {group.decisions.map((decision) => (
-                  <PermissionActionButton
+      {pending.map((group) => {
+        const buttons =
+          group.state === "pending" ? (
+            <div className="acpmux-ask-actions">
+              {answers
+                .filter(([decision]) => group.decisions.includes(decision))
+                .map(([decision, label]) => (
+                  <button
                     key={decision}
-                    label={t(choices[decision])}
-                    shortcut={shortcuts[decision]}
-                    className={decision === "deny" ? "acpmux-permission-deny" : undefined}
+                    type="button"
+                    className={`acpmux-ask-action${decision === "allow_once" ? " is-primary" : decision === "allow_chat" ? " is-secondary" : ""}`}
+                    aria-keyshortcuts={shortcuts[decision] || undefined}
                     disabled={disabled}
                     onClick={() => onRespond(group.groupId, group.revision, decision)}
-                  />
+                  >
+                    {t(label)}
+                  </button>
                 ))}
-              </div>
-            </>
-          )}
-        </PermissionCardFrame>
-      ))}
+            </div>
+          ) : undefined;
+        return (
+          <fieldset
+            className="acpmux-ask acpmux-permission-surface"
+            aria-label={t("permission.title")}
+            key={group.groupId}
+          >
+            {group.items.map((item, index) => (
+              <AskRow
+                key={item.permissionId}
+                item={item}
+                actions={index === 0 ? buttons : undefined}
+                expandSignal={expandSignal}
+              />
+            ))}
+            {group.state === "collecting" && <output className="acpmux-ask-note">{t("permission.collecting")}</output>}
+            {/* What Always grants, in view while it can be chosen: hidden behind the row, the
+                bigger grant read as the same as Allow (cg-design-judge, 0-16 blind bouts). */}
+            {group.state === "pending" && group.decisions.includes("allow_chat") && (
+              <output className="acpmux-ask-note">{t("permission.alwaysScope")}</output>
+            )}
+            {group.state === "pending" && !group.decisions.includes("allow_once") && (
+              <output className="acpmux-ask-note">{t("permission.denyOnly")}</output>
+            )}
+          </fieldset>
+        );
+      })}
       {receipt && (
         <details className="acpmux-permission-receipt">
           <summary>
@@ -217,7 +291,9 @@ export function PermissionPanel({ state, working, onRespond, onRetry, onRevoke, 
                 ? t(choices[receipt.decision])
                 : t("permission.answered")}
           </summary>
-          <GroupItems group={receipt} expandSignal={expandSignal} />
+          {receipt.items.map((item) => (
+            <AskRow key={item.permissionId} item={item} expandSignal={expandSignal} />
+          ))}
         </details>
       )}
       {state.error && (

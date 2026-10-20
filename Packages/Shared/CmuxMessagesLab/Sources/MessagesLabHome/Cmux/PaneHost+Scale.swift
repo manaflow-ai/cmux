@@ -12,7 +12,15 @@ extension ChatController {
     /// already): its own guard is the view's renderScale. The host's layer trees, the picker and the video layers
     /// follow only when this view's scale changed.
     func followWindowScale() {
-        guard let demo, let s = host.window?.backingScaleFactor, s > 0 else { return }
+        // The video layers follow the rows' new snap (82ccac1) after the scale's display change has installed them.
+        if applyWindowScale() { intents?.rowsPlaced() }
+    }
+
+    /// followWindowScale without the video placement: true when this view's scale changed. Inside an outer
+    /// `MessagesWindowView.displayChange` (followDisplay) the rows snap at the end of that pass, so the caller places
+    /// the video layers after it.
+    @discardableResult private func applyWindowScale() -> Bool {
+        guard let demo, let s = host.window?.backingScaleFactor, s > 0 else { return false }
         let changed = s != demo.renderScale
         if changed {
             DisplayScale.current = s  // the process fallback (code with no view), as Host.swift
@@ -23,29 +31,46 @@ extension ChatController {
             ScaleKeeper.shared.setNeedsApply()
         }
         demo.setRenderScale(s)
-        guard changed else { return }
+        guard changed else { return false }
         demo.moveToWindowRecursively()
         picker?.rescale()
-        intents?.rowsPlaced()  // the video layers follow the rows' new snap (82ccac1)
+        return true
     }
 }
 
 extension ChatController {
+    /// A move to another display (MessagesLab 1674e3f, cx-3cb scale-redraw; Home handler rule): its colour space
+    /// (process-wide) and this pane's backing scale in one display change (MessagesWindowView.displayChange), so the
+    /// visible rows of every view draw once, at the new scale and in the new colour space, in this commit: the first
+    /// frame after the move shows no row at the old scale or colour space. AppKit reports the move twice
+    /// (viewDidChangeBackingProperties, NSWindow.didChangeScreenNotification), in either order: the first call does
+    /// both, the second finds nothing to do. `backingChanged` (viewDidChangeBackingProperties, also sent for a new
+    /// display profile on the same screen): nothing when neither the scale nor the screen's colour space differs.
+    /// Never `RowBitmaps.shared.removeAll()` and never a `setInactive` toggle here: cached bitmaps are keyed by scale
+    /// and colour space (a move back finds them), and both dropped every pane's rows (258b385).
+    func followDisplay(backingChanged: Bool = false) {
+        if backingChanged, let demo, host.window?.backingScaleFactor == demo.renderScale,
+           window?.screen?.colorSpace?.cgColorSpace.map({ $0 == DisplayScale.colorSpace }) ?? true { return }
+        var scaled = false
+        MessagesWindowView.displayChange {
+            followColorSpace()
+            scaled = applyWindowScale()
+        }
+        // After the pass: the visible rows have their new snap now (a deferred refresh runs at the pass's end).
+        if scaled { intents?.rowsPlaced() }
+    }
+
     /// Another display: new bitmaps draw in its colour space (no conversion at commit). One process-wide colour space
-    /// (`DisplayScale.colorSpace`). cmux 258b385: the row bitmap cache is not dropped and `setInactive` is not toggled
-    /// (both emptied every pane's cache and redrew every visible row: a window back on its 2x display showed its 1x
-    /// bitmaps until the off-main ones landed, depending on whether this notification came before or after the
-    /// backing scale change). Dropping only this pane's rows would race the same way (at the scale it goes back to).
-    /// A cached bitmap carries its own colour space, so a bitmap of the old space still shows the right colours; the
-    /// next drawing of a row uses the new space.
-    func windowDidChangeScreen() {
-        guard let cs = window?.screen?.colorSpace?.cgColorSpace, cs != DisplayScale.colorSpace, let demo else { return }
+    /// (`DisplayScale.colorSpace`). Only when the space changed: every live view's chrome, compose bar and visible
+    /// rows draw again in it (MessagesWindowView.displayColorSpaceChanged), in the enclosing display change's pass.
+    private func followColorSpace() {
+        guard demo != nil, let cs = window?.screen?.colorSpace?.cgColorSpace, cs != DisplayScale.colorSpace else { return }
         DisplayScale.colorSpace = cs
         // MessagesLab 7518134: the palette glyphs are drawn again in the new colour space now, not
         // inside the next menu's open on main.
         MenuGlyphs.removeAll()
         RunLoop.main.perform(inModes: [.default]) { MenuGlyphs.warm() }
-        demo.compose.rescale()
+        MessagesWindowView.displayColorSpaceChanged()
     }
 }
 

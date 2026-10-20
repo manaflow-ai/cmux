@@ -40,6 +40,13 @@ public final class HomeStore {
     /// The running agent reply of each conversation, while it is written.
     public internal(set) var drafts: [ConversationID: HomeTurnDraft] = [:]
     @ObservationIgnored var draftBook = HomeDraftBook()
+    /// What each conversation shows of its running Chief run (`chief-live-v1`).
+    public internal(set) var live: [ConversationID: HomeLiveRun] = [:]
+    @ObservationIgnored var liveBook = HomeLiveBook()
+    /// Conversations whose `run.live` request is out (one at a time).
+    @ObservationIgnored var liveRequests: Set<ConversationID> = []
+    /// Run row reads out after a snapshot (conversation, author, run).
+    @ObservationIgnored var liveRowReads: Set<String> = []
 
     @ObservationIgnored public let source: any HomeSource
     @ObservationIgnored var mirror = HomeMirror()

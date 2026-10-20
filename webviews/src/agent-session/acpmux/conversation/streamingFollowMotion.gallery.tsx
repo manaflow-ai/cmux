@@ -1,0 +1,97 @@
+// l10n-allow-file: deterministic motion fixture labels.
+import { useMemo, useRef, useState } from "react";
+import { componentEntry } from "../../../gallery/format";
+import type { Play } from "../../../gallery/play";
+import { VirtualTranscript } from "../App";
+import type { AcpmuxRow } from "../model";
+import { turnView } from "./turns";
+
+const paragraph = (index: number) =>
+  `Streaming paragraph ${index}: the lighthouse keeper checked the glass, crossed the gallery, and watched the tide return beneath the window.`;
+
+function StreamingFollowMotionGallery() {
+  const [count, setCount] = useState(0);
+  const [streaming, setStreaming] = useState(false);
+  const [done, setDone] = useState(false);
+  const timer = useRef<number | undefined>(undefined);
+  const rows = useMemo(() => {
+    const history: AcpmuxRow[] = Array.from({ length: 12 }, (_, index) => [
+      { id: `history-user-${index}`, kind: "user", version: 1, at: index + 1, text: `Prompt ${index + 1}` },
+      { id: `history-answer-${index}`, kind: "assistant", version: 1, at: index + 1, text: paragraph(index) },
+    ]).flat();
+    const text = Array.from({ length: count }, (_, index) => paragraph(index + 12)).join("\n\n");
+    return turnView(
+      [...history, { id: "streaming-answer", kind: "assistant", version: count + 1, at: 99, text, streaming }],
+      new Set(),
+    );
+  }, [count, streaming]);
+  const start = () => {
+    if (timer.current !== undefined) window.clearInterval(timer.current);
+    setDone(false);
+    setStreaming(true);
+    setCount(0);
+    let next = 0;
+    timer.current = window.setInterval(() => {
+      next += 1;
+      setCount(next);
+      if (next >= 28) {
+        window.clearInterval(timer.current);
+        timer.current = undefined;
+        setStreaming(false);
+        setDone(true);
+      }
+    }, 45);
+  };
+  return (
+    <div className="streaming-follow-motion-gallery">
+      <button type="button" className="ui-button" data-testid="stream-follow-start" onClick={start}>
+        Start deterministic stream
+      </button>
+      <output data-testid="stream-follow-done" aria-live="polite">
+        {done ? "Stream settled" : "Ready"}
+      </output>
+      <div className="streaming-follow-motion-gallery__transcript">
+        <VirtualTranscript
+          rows={rows}
+          sessionId="stream-motion"
+          onToggleActivity={() => {}}
+          expanded={new Set()}
+          working={streaming}
+        />
+      </div>
+    </div>
+  );
+}
+
+const streamFollow: Play = async (ctx) => {
+  ctx.motion.start({ kind: "streaming-follow", target: ".acpmux-scroll", maxMs: 3_000 });
+  await ctx.click({ testId: "stream-follow-start" });
+  await ctx.waitFor(() => ctx.find({ testId: "stream-follow-done" }).textContent === "Stream settled", {
+    capMs: 4_000,
+  });
+  const report = ctx.motion.stop();
+  if (!report || report.status === "fail")
+    throw new Error(report?.problems.join("; ") ?? "streaming follow was not sampled");
+};
+
+export default componentEntry<Record<string, never>>({
+  id: "agent-pane.streaming-follow-motion",
+  title: "Streaming follow motion",
+  area: "Agent pane",
+  height: 560,
+  anchors: [{ selector: "[data-testid=stream-follow-start]" }],
+  checks: {
+    anchorMovePx: { value: 0, reason: "Streaming content must not move the fixed stream control." },
+    settleMaxMs: { value: 4_000, reason: "The deterministic stream has a fixed 1.3 second duration." },
+  },
+  covers: ["agent-session/acpmux/App.tsx#VirtualTranscript"],
+  load: async () => StreamingFollowMotionGallery,
+  pane: true,
+  styles: () =>
+    Promise.all([
+      import("../styles.css"),
+      import("../conversation/conversation.css"),
+      import("../composerControls.css"),
+    ]),
+  variants: { stream: { props: {}, play: streamFollow } },
+});

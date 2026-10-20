@@ -1,0 +1,65 @@
+{
+  "$comment": "HAND-EDITED source of the hover card settings (cx-23e1f); gen-settings-sources.py writes the Swift descriptors and parser constants. Row fields: see schemas/settings/source/updates.json.",
+  "lists": [
+    {
+      "name": "hoverCards",
+      "section": "appearance",
+      "group": {
+        "key": "settings.group.sidebar",
+        "text": "Sidebar"
+      },
+      "note": "Hover cards of sidebar workspace rows and tabs (Lawrence 2026-10-14: can be turned off; 2026-10-18: Chrome's 1300 ms was too slow, about a tooltip's delay now).",
+      "rows": [
+        {
+          "key": "sidebar.hoverCards.enabled",
+          "note": "On by default. Off: no card opens on hover; Show Resource Usage still opens one.",
+          "title": {
+            "key": "settings.sidebar.hoverCards.enabled",
+            "text": "Show Hover Cards"
+          },
+          "help": {
+            "key": "settings.sidebar.hoverCards.enabled.help",
+            "text": "A card with details opens when the pointer rests on a workspace or a tab."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "hover",
+            "card",
+            "preview",
+            "tooltip",
+            "workspace",
+            "tab"
+          ]
+        },
+        {
+          "key": "sidebar.hoverCards.delay",
+          "note": "Milliseconds the pointer rests before the first card opens (HoverCardTiming.showDelay). While a card shows, or within 500 ms after it went, the next one opens at once.",
+          "title": {
+            "key": "settings.sidebar.hoverCards.delay",
+            "text": "Hover Card Delay"
+          },
+          "help": {
+            "key": "settings.sidebar.hoverCards.delay.help",
+            "text": "How long the pointer rests on a workspace or a tab before its card opens. While a card shows, the next one opens at once."
+          },
+          "kind": "number",
+          "range": {
+            "min": 0,
+            "max": 5000,
+            "step": 100,
+            "unit": "milliseconds"
+          },
+          "default": 250,
+          "keywords": [
+            "hover",
+            "card",
+            "delay",
+            "wait",
+            "milliseconds"
+          ]
+        }
+      ]
+    }
+  ]
+}
