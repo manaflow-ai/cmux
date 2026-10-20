@@ -38,25 +38,48 @@ enum TabMoves {
     }
 
     /// The new tab a split of `tab`'s own pane spawns there when `tab` is
-    /// its only tab: the same kind, fresh. A terminal gets a new shell in
-    /// the dragged terminal's directory; a frontend browser tab gets the New
-    /// Tab page with the dragged tab's engine and profile. Nil when the
-    /// kind cannot respawn: remote-terminal references, daemon-rendered
-    /// browser tabs, incognito tabs (their URL must stay out of the daemon),
-    /// conversation tabs (Home and agent chats, whose source is one
-    /// conversation or session), and app-local tabs, which are not daemon tabs.
+    /// its only tab. A terminal gets a new shell in the dragged terminal's
+    /// directory; a frontend browser tab gets the New Tab page with the
+    /// dragged tab's engine and profile. Every other kind leaves a fresh
+    /// terminal behind, as classic cmux does for bonsplit's placeholder
+    /// (#22287): remote-terminal references, daemon-rendered and incognito
+    /// browser tabs (no URL reaches the daemon), and other daemon kinds. Nil
+    /// for conversation tabs (Home and agent chats, whose source is one
+    /// conversation or session); app-local tabs are not daemon tabs.
     @MainActor
     static func respawn(for tab: TabModel, in pane: PaneModel, services: AppServices) -> SplitRespawn? {
-        switch tab.kind {
-        case .pty:
-            return .terminal(SpawnOptions(cwd: tab.cwd, workspace: services.workspaceKey(of: pane)))
-        case .browser:
+        // Only a terminal's own directory is a path on this machine.
+        let terminal = SplitRespawn.terminal(SpawnOptions(cwd: tab.kind == .pty ? tab.cwd : nil, workspace: services.workspaceKey(of: pane)))
+        switch splitLeftover(for: tab.kind) {
+        case .nothing:
+            return nil
+        case .terminal:
+            return terminal
+        case .sameKind where tab.kind == .browser:
             guard tab.isFrontendOwned, case let browserTabs = services.cache.browserTabs, !browserTabs.isIncognitoTab(tab.id),
                   case .open(let choice) = browserTabs.resolve(requested: nil, inherited: tab.browserEngine)
-            else { return nil }
+            else { return terminal }
             return .browser(url: services.newTabAddress(for: choice), engine: choice.engine, profileID: tab.browserProfileID)
-        default:
-            return nil
+        case .sameKind:
+            return terminal
+        }
+    }
+
+    /// What a split of a pane with its only tab, of `kind`, leaves in that pane (`respawn`).
+    enum SplitLeftover: Equatable {
+        /// A fresh tab of the same kind (a browser falls back to a terminal).
+        case sameKind
+        /// A fresh terminal.
+        case terminal
+        /// Nothing: the split is refused.
+        case nothing
+    }
+
+    static func splitLeftover(for kind: TabKind) -> SplitLeftover {
+        switch kind {
+        case .pty, .browser: .sameKind
+        case .conversation: .nothing
+        case .remoteTerminal, .other: .terminal
         }
     }
 

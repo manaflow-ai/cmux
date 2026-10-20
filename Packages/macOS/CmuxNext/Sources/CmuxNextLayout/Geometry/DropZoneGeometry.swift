@@ -7,8 +7,8 @@ public nonisolated enum DropZoneGeometry {
     /// body below its `header`-point tab bar (flipped, y grows down); over
     /// the tab bar a tab joins the pane (center). Each edge owns a band
     /// (`band(for:)`); a point inside several bands (a corner) goes to the
-    /// edge it is relatively nearest to (depth / band), so a corner splits
-    /// along the edge the pointer is closer to; else center. The preview
+    /// first of left, right, top, bottom, as in bonsplit, where left and
+    /// right take the corners (#22287); else center. The preview
     /// (`highlightRect`) and the commit both take the target from here
     /// (R47). `previous` is the zone the preview shows in this pane now: it
     /// holds until the pointer is `dropZoneHysteresis` past its line, so a
@@ -39,14 +39,13 @@ public nonisolated enum DropZoneGeometry {
             }
         }
         if let previous, previous != .center, reach(previous) < 1 { return previous }
-        let candidates = [PaneDropZone.left, .right, .top, .bottom].map { ($0, reach($0)) }.filter { $0.1 < 1 }
-        return candidates.min { $0.1 < $1.1 }?.0 ?? .center
+        return [PaneDropZone.left, .right, .top, .bottom].first { reach($0) < 1 } ?? .center
     }
 
     /// An edge band: a share of the extent between the style's floor and
-    /// cap (`dropEdgeFraction` 0.25 within 40...120 pt), and never more than
-    /// a third of it, so every pane keeps a center of at least a third of
-    /// each axis to join (DESIGN.md (c)2).
+    /// cap (bonsplit's `max(80, 0.25 * extent)`, no cap), and never more
+    /// than a third of it, so every pane keeps a center of at least a third
+    /// of each axis to join (DESIGN.md (c)2).
     static func band(for extent: CGFloat, style: LayoutStyle) -> CGFloat {
         let raw = extent * style.dropEdgeFraction
         let clamped = min(max(raw, style.dropEdgeRange.lowerBound), style.dropEdgeRange.upperBound)
@@ -63,6 +62,22 @@ public nonisolated enum DropZoneGeometry {
         }
         let candidates = geometry.panes.map { (pane: $0.key, cell: $0.value, visible: $0.value) }
         return paneTarget(at: point, candidates, headers: headers, footers: footers, style: style, previous: previous)
+    }
+
+    /// bonsplit's shared edge (#22287): a terminal tab dragged out of
+    /// `source` onto the band of the pane beside it that faces `source`
+    /// joins that pane instead of splitting it; the pane's outer edge still
+    /// splits. Only left and right, as in bonsplit. `frames` are the panes'
+    /// cells; the neighbor is `FocusNavigation`'s.
+    public static func joiningSharedEdge(_ target: DropTarget, from source: PaneID?, frames: [PaneID: CGRect]) -> DropTarget {
+        guard let source, case let .pane(pane, zone) = target, pane != source else { return target }
+        let toward: LayoutDirection
+        switch zone {
+        case .left: toward = .right
+        case .right: toward = .left
+        case .top, .bottom, .center: return target
+        }
+        return FocusNavigation.neighbor(of: source, direction: toward, frames: frames) == pane ? .pane(pane, .center) : target
     }
 
     /// The tab bar height of `pane` measured from its cell top: the cell's

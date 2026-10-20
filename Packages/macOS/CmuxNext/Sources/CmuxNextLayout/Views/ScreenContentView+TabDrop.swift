@@ -9,7 +9,8 @@ extension ScreenContentView {
     /// room check), so the shown zone holds near its line.
     /// `edgesArmed` false: a pane edge (a new split) joins the pane instead, until the drag has
     /// held that edge (`LayoutRootView.updateTabDrag`'s dwell); `hit` stays the edge.
-    func dropTarget(at localPoint: NSPoint, removing: PaneID? = nil, previous: DropTarget? = nil,
+    /// `joinsFrom`: a terminal tab's source pane (`DropZoneGeometry.joiningSharedEdge`).
+    func dropTarget(at localPoint: NSPoint, removing: PaneID? = nil, joinsFrom: PaneID? = nil, previous: DropTarget? = nil,
                     edgesArmed: Bool = true)
         -> (target: DropTarget, hit: DropTarget, highlight: CGRect, region: CGRect, companions: [CGRect])? {
         // The top band starts below the tab bar of the pane under the pointer.
@@ -21,9 +22,10 @@ extension ScreenContentView {
             return (dock, dock, rect, rect, [])
         }
         let (headers, footers) = paneChromeBands()
-        guard let hit = DropZoneGeometry.target(atView: localPoint, offset: scroll.value, screen: screenID, geometry: geometry,
-                                                headers: headers, footers: footers, style: context.style,
-                                                previous: previous) else { return nil }
+        guard let zoneHit = DropZoneGeometry.target(atView: localPoint, offset: scroll.value, screen: screenID, geometry: geometry,
+                                                    headers: headers, footers: footers, style: context.style,
+                                                    previous: previous) else { return nil }
+        let hit = DropZoneGeometry.joiningSharedEdge(zoneHit, from: joinsFrom, frames: geometry.panes)
         let target: DropTarget
         if !edgesArmed, case let .pane(pane, zone) = hit, zone != .center {
             target = .pane(pane, .center)
