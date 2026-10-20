@@ -92,6 +92,13 @@ open "$HOME/Library/Developer/Xcode/DerivedData/cmux-lawmux/Build/Products/Debug
 - Cloud 関連機能（ログイン、Cloud ターミナル、TunnelExtension）は Manaflow のサーバーと
   Apple の署名を前提にしているため、lawmux では動きません。
 
+### テストについて
+
+本家のテストの一部は、変更前のパスや Bundle ID（`~/.local/state/cmux`、`com.cmuxterm.app` など）を
+直書きしているため、lawmux では失敗します。本家の取り込み時の衝突を増やさないよう、
+テスト側は意図的に直していません。lawmux では本家の CI も動かしていないので、
+変更の確認はビルドと実機での動作確認で行っています。
+
 ## 本家の更新の取り込み
 
 週に一度、GitHub Actions（`lawmux-upstream-check`）が本家の更新を確認し、
