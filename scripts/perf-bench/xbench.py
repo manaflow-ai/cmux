@@ -214,7 +214,7 @@ class Browser:
 
     def __init__(self, name: str, bundle: str, helper: Helper, server: pages.BeaconServer):
         self.name = name
-        self.bundle = os.path.realpath(bundle)
+        self.bundle = os.path.abspath(bundle)  # procs matches this path and its realpath (Safari's is a cryptex)
         self.helper = helper
         self.server = server
         self.instance: procs.Instance | None = None
@@ -528,7 +528,7 @@ class Run:
             profile = self.profile(browser, f"launch{round_no}-{index}")
             tab_id = self.tab_id("launch")
             url = self.server.url("idle", tab_id)
-            watch = self.helper.wait_window(os.path.join(browser.bundle, "Contents/MacOS/"), 30)
+            watch = self.helper.wait_window(os.path.join(os.path.realpath(browser.bundle), "Contents/MacOS/"), 30)
             t0 = now_ms()
             try:
                 browser.launch(profile, url if browser.can_link or browser.name == "safari" else None)
