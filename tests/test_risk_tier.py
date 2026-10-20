@@ -45,7 +45,6 @@ class ClassifyTests(unittest.TestCase):
             "ghostty",
             ".github/workflows/cmux-next.yml",
             ".github/workflows/ci.yml",
-            "scripts/gh-merge-green",
             "scripts/ci/health_report.py",
             "brand-new-dir/thing.swift",
         ):
@@ -86,6 +85,65 @@ class ClassifyTests(unittest.TestCase):
         ):
             with self.subTest(path=path):
                 self.assertEqual(self.tier(path), "high")
+
+    def test_everything_that_enforces_risk_evidence_is_the_gate(self):
+        # gh-merge-green and next-autoland are what refuse a red `risk evidence`; a normal pull
+        # request could otherwise drop that refusal with no person looking.
+        for path in ("scripts/gh-merge-green", "scripts/ci/next_batch.py", ".github/workflows/risk-tier-tests.yml",
+                     "scripts/ci/risk_tier.py", ".github/workflows/risk-tier.yml", ".github/CODEOWNERS"):
+            with self.subTest(path=path):
+                self.assertEqual(risk.classify_path(path), ("high", "the risk gate itself"))
+
+    def test_docs_copy_locks_and_logs_are_low_even_in_a_high_directory(self):
+        for path in (
+            "docs/vm-identity-edge-auth.md", "docs/remote-tmux-reconnect-auth-acceptance.md",
+            "cmux-tui/docs/chatgpt-auth-refresh-remote-lifecycle.md",
+            "release-notes/next/highlights/browser-sign-in-and-certificate-warning.md",
+            NEXT + "CmuxNextUpdater/Resources/Localizable.xcstrings",
+            "services/iroh-relay-minter/README.md", "services/iroh-relay-minter/LICENSE",
+            "services/iroh-relay-minter/Cargo.lock", "web/services/auth/package-lock.json",
+            "docs/iroh-v2/evidence/run-1/iroh-v2-auth-test.log",
+        ):
+            with self.subTest(path=path):
+                self.assertEqual(self.tier(path), "low")
+
+    def test_a_top_level_migration_is_high(self):
+        self.assertEqual(risk.classify_path("migrations/0002_sessions.sql")[0], "high")
+
+    def test_rust_and_drizzle_deletes_count(self):
+        rs = "cmux-tui/crates/cmux-tui-core/src/history.rs"
+        for line in ("+    std::fs::remove_file(&path)?;", "+    fs::remove_dir(&dir)?;"):
+            with self.subTest(line=line):
+                self.assertEqual(self.tier(rs, patches={rs: line}), "high")
+        ts = "web/services/sessions/cleanup.ts"
+        for line in ("+  await db.delete(sessions).where(eq(sessions.id, id));",
+                     "+  await tx.delete(sessions).where(eq(sessions.id, id));"):
+            with self.subTest(line=line):
+                self.assertEqual(self.tier(ts, patches={ts: line}), "high")
+
+    def test_an_edited_or_moved_delete_is_not_new(self):
+        path = "backend/apps/api/src/cleanup.ts"
+        edited = "-  await db.execute(`DELETE FROM sessions WHERE id = $1`)\n+  await db.execute(`DELETE FROM sessions WHERE id = $1 AND owner = $2`)"
+        self.assertEqual(self.tier(path, patches={path: edited}), "normal")
+        other = "backend/apps/api/src/sessions.ts"
+        moved = {path: "-  await db.execute(`DELETE FROM sessions WHERE id = $1`)",
+                 other: "+  await db.execute(`DELETE FROM sessions WHERE id = $1`)"}
+        self.assertEqual(self.tier(path, other, patches=moved), "normal")
+        # One kept, one new: still a new delete.
+        grown = edited + "\n+  await db.execute(`DELETE FROM tokens WHERE id = $1`)"
+        self.assertEqual(self.tier(path, patches={path: grown}), "high")
+
+    def test_in_memory_purges_nested_scripts_bindings_and_block_comments_are_not_deletes(self):
+        cases = {
+            "cmux-tui/crates/cmux-tui-core/src/surface.rs": "+        self.purge_surface_side_tables(id);",
+            "webviews/src/agent-pane/session.ts": "+  return purgedSession(state);",
+            "cmux-tui/scripts/bench-terminal-perf.py": "+    shutil.rmtree(tmp)",
+            "cmux-tui/bindings/java/src/main/java/Cmux.java": "+    deleteAllSurfaces();",
+            NEXT + "CmuxNextHistory/HistoryStore.swift": "+    /* removeItem(at:) is never called here */",
+        }
+        for path, line in cases.items():
+            with self.subTest(path=path):
+                self.assertEqual(self.tier(path, patches={path: line}), "normal")
 
     def test_scripts_that_only_mention_release_are_not_high(self):
         self.assertEqual(self.tier("scripts/cmux-next/sidebar-rows-perf-release.py"), "low")
