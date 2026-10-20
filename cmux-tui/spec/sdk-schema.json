@@ -17341,6 +17341,39 @@
     "See spec/commands.md for the result object."
    ]
   },
+  "park-tabs": {
+   "authority": "control",
+   "since": 12,
+   "capability": "tab-park-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "surfaces": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "ref",
+        "name": "TabRef"
+       }
+      },
+      "presence": "required",
+      "nullable": false,
+      "aliases": [
+       "tabs"
+      ]
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "See spec/commands.md for the result object."
+   ]
+  },
   "set-frontend-browser-history": {
    "authority": "control",
    "since": 12,
