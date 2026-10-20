@@ -12,11 +12,10 @@ func scheduleAfterFrameCommit(_ work: @escaping @MainActor () -> Void) {
     // A before-waiting run loop observer: the frame commit point has no async-native signal.
     // Ordered last (`CFIndex.max`), after AppKit's display and Core Animation's commit
     // observers; non-repeating, so the run loop drops it after it fires. It runs on the main
-    // thread (the main run loop).
+    // thread (the main run loop). The pass in progress reaches that point, so it needs no wakeup.
     let observer = CFRunLoopObserverCreateWithHandler(kCFAllocatorDefault, CFRunLoopActivity.beforeWaiting.rawValue,
                                                       false, CFIndex.max) { _, _ in
-        MainActor.assumeIsolated { work() }
+        MainActor.assumeIsolated { work() } // main-proof: the observer is added only to CFRunLoopGetMain() (below)
     }
     CFRunLoopAddObserver(main, observer, .commonModes)
-    CFRunLoopWakeUp(main)
 }
