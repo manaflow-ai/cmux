@@ -18,7 +18,8 @@ nonisolated extension ActionSurfaceCatalog {
         "moveWorkspaceDown", "palette.moveWorkspaceToTop", "moveWorkspaceToWindow", "moveWorkspaceToNewWindow",
         "renameWorkspace", "palette.clearWorkspaceName", "editWorkspaceDescription",
         "palette.clearWorkspaceDescription", "markWorkspaceDone", "palette.workspaceStatus",
-        "palette.addWorkspaceChecklistItem", "palette.openWorkspaceTodoPane", "toggleChecklistItemComplete",
+        "palette.addWorkspaceChecklistItem", "palette.openWorkspaceTodoPane", "palette.openVaultPane",
+        "toggleChecklistItemComplete",
         "checklistEditItem", "checklistMarkInProgress", "checklistCompleteItem", "checklistRemoveItem", "checklistOpenAsPane",
         "checklistAttachImages", "palette.closeOtherWorkspaces", "palette.closeWorkspacesBelow", "palette.closeWorkspacesAbove",
         "workspace.closeAll", "workspace.closeAllInAllWindows", "workspaceGroup.closeOthers", "workspaceGroup.duplicate",
@@ -153,7 +154,6 @@ nonisolated extension ActionSurfaceCatalog {
         .ownerVerb: ownerVerbActions,
         .unimplemented: [
             "agentChat.toggleNotificationMute",
-            "palette.openVaultPane",
             "palette.openFindPane",
             "palette.openFilesPane",
         ],
