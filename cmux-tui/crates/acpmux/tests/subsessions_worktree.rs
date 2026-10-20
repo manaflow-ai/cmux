@@ -208,12 +208,27 @@ async fn a_worktree_start_runs_nothing_the_agent_wrote_in_its_repository() {
     let upload = format!("touch '{}'; git-upload-pack", upload_ran.display());
     git(&partial, &["config", "remote.origin.uploadpack", &upload]);
     std::fs::create_dir_all(partial.join("web")).unwrap();
+    // The fetch writes into the clone's objects from a throwaway git
+    // directory whose refs reach none of them: an automatic maintenance or
+    // gc there would prune the clone's own objects (its unpushed work).
+    let trace = root.join("git-trace");
+    // SAFETY: only this test's git runs meanwhile (stand-in agents run none).
+    unsafe { std::env::set_var("GIT_TRACE", &trace) };
     let lazy = p
         .ok(
             START,
             json!({"prompt": "echo x", "name": "Partial", "worktree": true, "cwd": partial.join("web")}),
         )
         .await;
+    unsafe { std::env::remove_var("GIT_TRACE") };
+    let traced = std::fs::read_to_string(&trace).unwrap_or_default();
+    assert!(traced.contains("fetch"), "the missing files were not fetched: {traced}");
+    for line in traced.lines().filter(|l| l.contains("run_command:")) {
+        assert!(
+            !["maintenance", "repack", " gc"].iter().any(|w| line.contains(w)),
+            "git maintenance ran against the clone's objects: {line}"
+        );
+    }
     let pwt = home.join(".cmux/worktrees/partial/partial");
     assert_eq!(lazy["worktree"]["root"], json!(pwt), "{lazy}");
     assert_eq!(std::fs::read_to_string(pwt.join("web/page.txt")).unwrap(), "page\n");
