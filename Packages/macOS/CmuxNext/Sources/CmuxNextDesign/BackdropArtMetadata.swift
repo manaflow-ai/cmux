@@ -29,28 +29,15 @@ public struct BackdropArtMetadata: Equatable, Sendable {
     public let tone: BackdropArtTone
     public let dominantPalette: [BackdropPaletteColor]
     public let quietZone: BackdropQuietZone
-    /// The least theme tint drawn over the art at full window opacity, above the theme's own
-    /// `ThemeTokens.wallpaperTintOpacity`. 0 leaves the theme's tint.
-    public let minimumTintOpacity: Double
-    /// The tint this work looks best under, replacing the theme's own when set: dark works show
-    /// more of themselves. The legibility floor still applies on top.
-    public let preferredTintOpacity: Double?
-    /// The measured darkest and lightest colors of the work, so the legibility floor need not
-    /// assume the art could be anything from black to white.
-    public let range: BackdropArtRange?
 
     public nonisolated init(focalAnchor: BackdropFocalAnchor, tone: BackdropArtTone,
                 dominantPalette: [BackdropPaletteColor], quietZone: BackdropQuietZone,
-                minimumTintOpacity: Double = 0, preferredTintOpacity: Double? = nil,
-                range: BackdropArtRange? = nil, subjectBox: BackdropSubjectBox? = nil) {
+                subjectBox: BackdropSubjectBox? = nil) {
         self.focalAnchor = focalAnchor
         self.subjectBox = subjectBox
         self.tone = tone
         self.dominantPalette = dominantPalette
         self.quietZone = quietZone
-        self.minimumTintOpacity = minimumTintOpacity
-        self.preferredTintOpacity = preferredTintOpacity
-        self.range = range
     }
 }
 
