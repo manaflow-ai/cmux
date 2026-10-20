@@ -149,8 +149,10 @@ import Testing
         defer { popups.closeAll() }
         let bars = descendants(of: window.contentView).compactMap { $0 as? AddressBarView }
         #expect(bars.count == 1, "the popup shows the browser tab's omnibar (AddressBarView), not a copy")
+        // The window's chrome (everything but the page's own view tree).
+        let page = window.page.contentView
         let otherFields = descendants(of: window.contentView).filter { view in
-            view is NSTextField && !bars.contains { view.isDescendant(of: $0) }
+            view is NSTextField && !view.isDescendant(of: page) && !bars.contains { view.isDescendant(of: $0) }
         }
         #expect(otherFields.isEmpty, "no second address field beside the omnibar: \(otherFields)")
     }
