@@ -311,10 +311,10 @@ struct ClassicImportTests {
         let preview = try #require(CmuxDialogCenter.shared.records.last {
             $0.spec.identifier == "cmux.dialog.classicImport"
         }, "classic import showed no preview")
-        #expect(preview.spec.lines.contains { $0.contains("Workspaces") }, "\(preview.spec.lines)")
-        #expect(preview.spec.lines.contains { $0.contains("Browser tabs") }, "\(preview.spec.lines)")
-        #expect(preview.spec.lines.contains { $0.contains("SSH") }, "\(preview.spec.lines)")
-        #expect(preview.spec.lines.contains { $0.contains("Agent chats") }, "\(preview.spec.lines)")
+        #expect(preview.spec.title == ClassicImportStrings.previewTitle)
+        #expect(preview.spec.lines.count == 8 && preview.spec.lines.allSatisfy { !$0.isEmpty })
+        #expect(preview.spec.defaultButton?.id == ClassicImportConfirmation.importButton)
+        #expect(preview.spec.cancelButton?.id == "cancel")
         #expect(try await connection.listWorkspaces().workspaces.count == before,
                 "classic workspaces opened before confirmation")
         if confirm {
