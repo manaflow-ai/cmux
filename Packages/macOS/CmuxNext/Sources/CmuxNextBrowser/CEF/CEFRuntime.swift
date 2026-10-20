@@ -248,6 +248,7 @@ final class CEFRuntime {
 
     enum BootError: Error, CustomStringConvertible {
         case notEmbedded
+        case untrusted(String)
         case shim(CEFShimLibrary.LoadError)
         case framework(String)
         /// NSApp is not a CefAppProtocol NSApplication subclass.
@@ -257,6 +258,7 @@ final class CEFRuntime {
         var description: String {
             switch self {
             case .notEmbedded: "runtime not embedded"
+            case .untrusted(let item): "runtime signature: \(item)"
             case .shim(let error): "shim: \(error)"
             case .framework(let message): message
             case .application: "NSApp does not conform to CefAppProtocol"
@@ -267,8 +269,12 @@ final class CEFRuntime {
 
     /// Maps the shim and the framework (`cef_load_library`, fork API lookup).
     /// Thread-safe: plain `dlopen`/`dlsym`, no Chromium code runs yet.
-    nonisolated static func loadLibrary(_ candidate: CEFRuntimeLayout?) -> Result<CEFLoadedLibrary, BootError> {
+    nonisolated static func loadLibrary(
+        _ candidate: CEFRuntimeLayout?,
+        signatureChecker: (any CEFCodeSignatureChecking)? = nil
+    ) -> Result<CEFLoadedLibrary, BootError> {
         guard let layout = candidate else { return .failure(.notEmbedded) }
+        _ = signatureChecker
         let clock = ContinuousClock()
         let started = clock.now
         let shim: CEFShimLibrary
