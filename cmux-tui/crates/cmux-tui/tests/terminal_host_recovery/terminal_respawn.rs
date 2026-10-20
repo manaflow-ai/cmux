@@ -605,3 +605,49 @@ fn a_close_after_a_host_loss_is_never_respawned() {
 
 #[path = "tab_restart.rs"]
 mod tab_restart;
+
+/// `resume-command`: a person's resume command is typed on the respawned
+/// terminal's new prompt, never run, and wins over what the daemon would
+/// offer; reading it back names the stored line, and a clear removes it.
+#[test]
+fn a_respawned_terminal_offers_the_resume_command_a_person_set() {
+    let _exclusive = exclusive_process_test();
+    let harness = RecoveryHarness::start("respawn-resume");
+    let (terminal_id, incarnation, surface) = start_default_shell(&harness, "resume");
+    let identify = request(&harness.socket, serde_json::json!({"cmd":"identify"}));
+    assert!(
+        identify["capabilities"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|cap| cap == "resume-command"),
+        "{identify}"
+    );
+    let set = request(
+        &harness.socket,
+        serde_json::json!({"cmd":"terminal-resume-command","surface":surface,"command":"  echo resume-ran-$((6*7)) "}),
+    );
+    assert_eq!(set["terminal_id"], terminal_id.as_str(), "{set}");
+    assert_eq!(set["command"], "echo resume-ran-$((6*7))", "{set}");
+    let read = request(
+        &harness.socket,
+        serde_json::json!({"cmd":"terminal-resume-command","terminal_id":terminal_id}),
+    );
+    assert_eq!(read["command"], "echo resume-ran-$((6*7))", "{read}");
+    // The shell is up before its host is killed.
+    echo_value(&harness, surface, "up", "$$");
+
+    kill_current_shell_and_host(&harness, &terminal_id);
+    wait_for_respawn(&harness, &terminal_id, &incarnation);
+    let surface = tab_named(&harness, "resume")["surface"].as_u64().expect("respawned surface");
+    let text = wait_for_screen(&harness.socket, surface, "echo resume-ran-$((6*7))");
+    assert!(!text.contains("resume-ran-42"), "the resume command ran on its own: {text}");
+    let lines = wait_for_respawn_lines(&harness, &terminal_id, 1);
+    assert_eq!(lines.first().map(|line| line["prefilled"].clone()), Some("resume".into()));
+
+    let cleared = request(
+        &harness.socket,
+        serde_json::json!({"cmd":"terminal-resume-command","terminal_id":terminal_id,"command":null}),
+    );
+    assert!(cleared["command"].is_null(), "{cleared}");
+}
