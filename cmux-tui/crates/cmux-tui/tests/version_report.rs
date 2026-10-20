@@ -20,10 +20,18 @@ fn probe() -> serde_json::Value {
     serde_json::from_slice(&output.stdout).unwrap()
 }
 
+/// What this test build must report: a release stamp, else the one cmux-next
+/// version (the workspace crate version; a `0.0.0-…` tree stamp is no release).
+fn expected_version() -> &'static str {
+    match option_env!("CMUX_TUI_DISTRIBUTION_VERSION") {
+        Some(stamp) if !stamp.is_empty() && !stamp.starts_with("0.0.0-") => stamp,
+        _ => env!("CARGO_PKG_VERSION"),
+    }
+}
+
 #[test]
 fn version_names_the_distribution_release() {
-    let probe = probe();
-    let distribution = probe["distribution_version"].as_str().unwrap();
+    let distribution = expected_version();
     let output = Command::new(bin()).arg("--version").output().unwrap();
     assert!(output.status.success());
     let text = String::from_utf8(output.stdout).unwrap();
@@ -48,7 +56,7 @@ fn version_json_reports_the_rollout_facts() {
             )
         });
     assert_eq!(report["app"], "cmux-tui", "{report}");
-    assert_eq!(report["version"], probe["distribution_version"], "{report}");
+    assert_eq!(report["version"], expected_version(), "{report}");
     assert_eq!(report["build_identity"], probe["build_identity"], "{report}");
     assert_eq!(report["build_time"], probe["build_time"], "{report}");
     assert_eq!(report["remote_protocol"], probe["remote_protocol"], "{report}");
