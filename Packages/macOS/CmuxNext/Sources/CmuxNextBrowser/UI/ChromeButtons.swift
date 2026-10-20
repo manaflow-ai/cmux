@@ -6,7 +6,8 @@ import CmuxNextIcons
 /// Borderless icon button with gray hover and press fills (no accent color).
 final class ChromeIconButton: NSButton {
     private let density = DensityBinding()
-    private var iconName = IconName.placeholder
+    /// The pack icon the button draws (`BrowserToolbarReport.icons`).
+    private(set) var iconName = IconName.placeholder
     private var iconLabel = ""
     /// Where the pointer is now (`OmnibarPointer`); a disabled button shows none.
     private var hover: PointerHover?
@@ -69,7 +70,7 @@ final class ChromeIconButton: NSButton {
 
     private func applyIcon() {
         let label = iconLabel
-        let side = CGFloat.iconRowSize(forLabelPointSize: isToolbar ? OmnibarStyle.buttonSymbolSize : BrowserMetrics.symbolPointSize)
+        let side = isToolbar ? OmnibarStyle.toolbarIconSize : CGFloat.iconRowSize(forLabelPointSize: BrowserMetrics.symbolPointSize)
         let icon = NSImage.icon(iconName, size: side)
         icon.accessibilityDescription = label
         image = icon

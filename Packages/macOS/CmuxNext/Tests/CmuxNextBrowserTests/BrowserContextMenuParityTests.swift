@@ -87,15 +87,15 @@ import Testing
         #expect(items[2].children[0].isChecked)
     }
 
-    /// Chrome on macOS draws icons on Translate and Cast…; cmux does too.
+    /// Chrome on macOS draws icons on Translate and Cast…; cmux does too, with Chrome's own icons.
     @Test func chromeRowsWithIconsGetThem() {
         let items = BrowserContextMenuItem.withChromeIcons(Self.rows([50161, 35011, 50162]) + [
             BrowserContextMenuItem(id: 1, title: "Sub", kind: .submenu, children: Self.rows([50179])),
         ])
-        #expect(items[0].icon == .symbol("translate"))
-        #expect(items[1].icon == .symbol("airplayvideo"))
+        #expect(items[0].icon == .symbol("browser.menu.translate"))
+        #expect(items[1].icon == .symbol("browser.menu.cast"))
         #expect(items[2].icon == nil)
-        #expect(items[3].children[0].icon == .symbol("translate"))
+        #expect(items[3].children[0].icon == .symbol("browser.menu.translate"))
     }
 
     /// The work a right-click adds stays far below a frame: decoding a
