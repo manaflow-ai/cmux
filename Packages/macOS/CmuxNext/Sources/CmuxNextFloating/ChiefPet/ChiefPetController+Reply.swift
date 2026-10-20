@@ -30,8 +30,8 @@ extension ChiefPetController {
 
     private func place(_ reply: ChiefPetReplyPanel, over panel: ChiefPetPanel) {
         guard let visible = panel.visibleFrame() ?? ChiefPetPanel.screenUnderPointer()?.visibleFrame else { return }
-        reply.setFrame(ChiefPetBubblePanel.frame(height: ChiefPetReplyPanel.size.height, over: panel.frame, in: visible,
-                                                 width: ChiefPetReplyPanel.size.width, gap: ChiefPetReplyPanel.gap), display: false)
+        let frame = ChiefPetReplyPanel.frame(over: panel.frame, in: visible)
+        if frame != reply.frame { reply.setFrame(frame, display: false) }
     }
 
     func closeReply() {
