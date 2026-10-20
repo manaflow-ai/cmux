@@ -158,7 +158,12 @@ export function parseBackends(answer: unknown): HomeChiefBackend[] {
       const own = Array.isArray(entry.models) ? (entry.models as Record<string, unknown>[]).map(model) : [];
       const name = typeof entry.displayName === "string" && entry.displayName ? entry.displayName : id;
       const unavailable = typeof entry.unavailable === "string" && entry.unavailable ? entry.unavailable : undefined;
-      return { id, name, models: own.length > 0 ? own : (models.get(id) ?? []), ...(unavailable ? { unavailable } : {}) };
+      return {
+        id,
+        name,
+        models: own.length > 0 ? own : (models.get(id) ?? []),
+        ...(unavailable ? { unavailable } : {}),
+      };
     });
 }
 

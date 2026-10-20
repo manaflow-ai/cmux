@@ -92,12 +92,7 @@ export function ChiefHistory({
                 {index === 0 ? (
                   <span className="ce-note">{t("chief.history.current")}</span>
                 ) : (
-                  <button
-                    type="button"
-                    className="ce-button"
-                    disabled={disabled}
-                    onClick={() => onUndo(revision.rev)}
-                  >
+                  <button type="button" className="ce-button" disabled={disabled} onClick={() => onUndo(revision.rev)}>
                     {t("chief.history.restore")}
                   </button>
                 )}

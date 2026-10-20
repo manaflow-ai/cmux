@@ -53,7 +53,12 @@ function client(answers: Record<string, unknown> = {}): { client: PageClient; se
 async function homeSheets() {
   const page = client();
   const host = client();
-  const sheets = new HomeSheets(page.client, host.client, { open: async () => {}, fail: (message) => { throw new Error(message); } });
+  const sheets = new HomeSheets(page.client, host.client, {
+    open: async () => {},
+    fail: (message) => {
+      throw new Error(message);
+    },
+  });
   await sheets.start();
   // The relay's list matches the page's: the host relays the person's gesture.
   await new Promise((resolve) => setTimeout(resolve, 0));
@@ -111,7 +116,13 @@ test("History reads chief.profile.history, newest first, who made each revision"
       chief: "agent_chief",
       revisions: [
         { rev: 1, at: "2026-10-10T09:00:00Z", actor: "owner", operation: "chief.profile.create", record: RAW },
-        { rev: 2, at: "2026-10-11T09:00:00Z", actor: { kind: "chief", id: "agent_chief" }, operation: "chief.profile.update", record: { ...RAW, rev: 2 } },
+        {
+          rev: 2,
+          at: "2026-10-11T09:00:00Z",
+          actor: { kind: "chief", id: "agent_chief" },
+          operation: "chief.profile.update",
+          record: { ...RAW, rev: 2 },
+        },
       ],
     },
   });
@@ -143,11 +154,20 @@ test("a brought backend is added through the host and checked with a real hello 
   expect(id).toBe("acme");
   expect(sent[0]).toEqual({
     op: "cmux.chief.backend.add",
-    params: { kind: "openai-endpoint", name: "Acme", baseUrl: "https://api.acme.dev/v1", model: "acme-1", apiKey: "sk-secret" },
+    params: {
+      kind: "openai-endpoint",
+      name: "Acme",
+      baseUrl: "https://api.acme.dev/v1",
+      model: "acme-1",
+      apiKey: "sk-secret",
+    },
   });
   const result = await calls.checkBackend("acme");
   expect(sent[1]).toEqual({ op: "cmux.chief.backend.doctor", params: { id: "acme", prompt: true } });
-  expect(result).toEqual({ ok: false, steps: [{ name: "prompt", ok: false, detail: "401", fix: "Check the API key." }] });
+  expect(result).toEqual({
+    ok: false,
+    steps: [{ name: "prompt", ok: false, detail: "401", fix: "Check the API key." }],
+  });
 });
 
 test("the backend list is every chat harness acpmux lists, with its models' efforts", () => {
@@ -161,7 +181,9 @@ test("the backend list is every chat harness acpmux lists, with its models' effo
         acme: { displayName: "Acme", unavailable: "acme-agent is not on PATH" },
       },
     },
-    models: { harnesses: [{ harness: "codex", models: [{ id: "gpt-6-astra", name: "GPT-6 Astra", efforts: ["low", "high"] }] }] },
+    models: {
+      harnesses: [{ harness: "codex", models: [{ id: "gpt-6-astra", name: "GPT-6 Astra", efforts: ["low", "high"] }] }],
+    },
   });
   expect(list.map((backend) => backend.id)).toEqual(["claude", "acme", "codex"]);
   expect(list.find((backend) => backend.id === "codex")!.models).toEqual([
@@ -173,18 +195,32 @@ test("the backend list is every chat harness acpmux lists, with its models' effo
 test("Settings' editor sends every change through the host, the name and the lock included", async () => {
   const { client: host, sent } = client();
   let done: boolean | undefined;
-  const editor = new HostChiefEditor(new ChiefHost(host), (saved) => (done = saved), (message) => {
-    throw new Error(message);
-  });
+  const editor = new HostChiefEditor(
+    new ChiefHost(host),
+    (saved) => (done = saved),
+    (message) => {
+      throw new Error(message);
+    },
+  );
   const before: HomeChief = chief(RAW);
   await editor.update(before, {
-    profile: { name: "Release Chief", role: before.role, personality: before.personality, instructions: before.instructions },
+    profile: {
+      name: "Release Chief",
+      role: before.role,
+      personality: before.personality,
+      instructions: before.instructions,
+    },
     engine: { harness: "" },
     locked: true,
     picture: undefined,
   });
   expect(done).toBe(true);
   const update = sent.find((call) => call.op === "cmux.chief.profile.update")!;
-  expect(update.params).toMatchObject({ chief: "agent_chief", display_name: "Release Chief", harness: "", locked: true });
+  expect(update.params).toMatchObject({
+    chief: "agent_chief",
+    display_name: "Release Chief",
+    harness: "",
+    locked: true,
+  });
   expect("personality" in update.params).toBe(false);
 });

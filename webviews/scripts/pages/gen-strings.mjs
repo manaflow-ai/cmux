@@ -135,7 +135,13 @@ export const PAGES = {
           all.filter(
             (key) =>
               key.startsWith("chief.") ||
-              ["sheet.newChief.title", "sheet.newChief.lead", "sheet.editChief.title", "sheet.editChief.lead", "edit.cancel"].includes(key),
+              [
+                "sheet.newChief.title",
+                "sheet.newChief.lead",
+                "sheet.editChief.title",
+                "sheet.editChief.lead",
+                "edit.cancel",
+              ].includes(key),
           ),
       },
     ],

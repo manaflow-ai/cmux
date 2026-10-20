@@ -440,7 +440,10 @@ export class MockHomeProvider implements PageClient {
   /** Also serve the host's `cmux.chief.profile.*` relay (a page in the app). */
   hostGrants = false;
   /** Every committed record state, by Chief id, oldest first (`chief.profile.history`). */
-  private readonly revisions = new Map<string, { rev: number; at: string; actor: string; operation: string; record: HomeChief }[]>();
+  private readonly revisions = new Map<
+    string,
+    { rev: number; at: string; actor: string; operation: string; record: HomeChief }[]
+  >();
   /** Backends the person brought (`cmux.chief.backend.add`). */
   private readonly brought: Record<string, { displayName: string }> = {};
 
@@ -889,7 +892,11 @@ export class MockHomeProvider implements PageClient {
       case "cmux.chief.backend.add": {
         if (!this.hostGrants) throw pageError("cmux.protocol.unknown_op", op);
         const name = String(params.name ?? "backend");
-        const id = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "my-backend";
+        const id =
+          name
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, "-")
+            .replace(/^-|-$/g, "") || "my-backend";
         this.brought[id] = { displayName: name };
         return { id } as R;
       }
@@ -905,7 +912,13 @@ export class MockHomeProvider implements PageClient {
                   { name: "prompt", ok: false, detail: "401 Unauthorized", fix: "Check the API key." },
                 ],
               }
-            : { ok: true, steps: [{ name: "launch", ok: true }, { name: "prompt", ok: true }] }
+            : {
+                ok: true,
+                steps: [
+                  { name: "launch", ok: true },
+                  { name: "prompt", ok: true },
+                ],
+              }
         ) as R;
       case "cmux.chief.profile.delete":
         if (!this.hostGrants) throw pageError("cmux.protocol.unknown_op", op);

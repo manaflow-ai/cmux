@@ -72,7 +72,8 @@ export function ChiefBackendPicker({
   const list = backends ?? [];
   const current = list.find((backend) => backend.id === engine.harness);
   // The record's harness stays a choice while acpmux does not list it (removed, or not loaded).
-  const options = engine.harness && !current ? [...list, { id: engine.harness, name: engine.harness, models: [] }] : list;
+  const options =
+    engine.harness && !current ? [...list, { id: engine.harness, name: engine.harness, models: [] }] : list;
   const models = current?.models ?? [];
   const model = models.find((entry) => entry.id === engine.model);
   // Effort options from the harness's capabilities when acpmux reports them: the picked model's,
@@ -159,7 +160,11 @@ export function ChiefBackendPicker({
         </select>
       </span>
       <span className="ce-note">
-        {backends === undefined ? t("chief.backend.loading") : failed ? t("chief.backend.none") : t("chief.backend.note")}
+        {backends === undefined
+          ? t("chief.backend.loading")
+          : failed
+            ? t("chief.backend.none")
+            : t("chief.backend.note")}
       </span>
       {engine.harness !== "" && chiefBackend(engine.harness) === "unii" && (
         <span className="ce-note">
@@ -269,7 +274,12 @@ function BringYourOwn({
       if (result.ok) return onPassed(harness, picked);
       setStatus({ state: "failed", harness, model: picked, step: result.steps.find((step) => !step.ok) });
     } catch (failure) {
-      setStatus({ state: "failed", harness, model: picked, step: { name: "doctor", ok: false, detail: describeError(failure) } });
+      setStatus({
+        state: "failed",
+        harness,
+        model: picked,
+        step: { name: "doctor", ok: false, detail: describeError(failure) },
+      });
     }
   };
   const submit = async () => {

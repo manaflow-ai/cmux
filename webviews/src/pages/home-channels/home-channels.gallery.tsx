@@ -564,7 +564,9 @@ export default componentEntry<Props>({
         await ctx.type("Release Chief", { selector: ".chief-editor .lg-chief-identity input" });
         // The default tools and every harness show checked (the owner's default means every harness).
         const checked = DEFAULT_CHIEF_TOOLS.length + CHIEF_HARNESSES.length;
-        await ctx.waitFor(() => ctx.document.querySelectorAll(".chief-editor .lg-grant input:checked").length === checked);
+        await ctx.waitFor(
+          () => ctx.document.querySelectorAll(".chief-editor .lg-grant input:checked").length === checked,
+        );
       },
     },
     "primary-hover": {
@@ -632,7 +634,8 @@ export default componentEntry<Props>({
         await ctx.waitFor(() => ctx.find({ role: "button", name: "Edit Chief" }));
         await ctx.click({ role: "button", name: "Edit Chief" });
         await ctx.waitFor(
-          () => ctx.document.querySelector<HTMLInputElement>(".chief-editor .lg-chief-identity input")?.value === "Chief",
+          () =>
+            ctx.document.querySelector<HTMLInputElement>(".chief-editor .lg-chief-identity input")?.value === "Chief",
         );
       },
     },

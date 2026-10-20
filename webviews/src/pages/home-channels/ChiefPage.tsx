@@ -104,8 +104,7 @@ export function ChiefPage({ service, strings, chief: given, picture, chiefName }
   const engineChanged = engineChange(chief, engine);
   // A new harness is saved only after its check passed.
   const harnessWaits = engineChanged.harness !== undefined && engine.harness !== "" && check.state !== "passed";
-  const ready =
-    profile.name.trim() !== "" && !busy && (grants || chief !== undefined) && !noHarness && !harnessWaits;
+  const ready = profile.name.trim() !== "" && !busy && (grants || chief !== undefined) && !noHarness && !harnessWaits;
   const field = (key: keyof HomeChiefProfile) => (value: string) => setProfile((p) => ({ ...p, [key]: value }));
   const toggle = (key: keyof HomeChiefGrant, name: string) =>
     setGrant((g) => ({
@@ -231,7 +230,10 @@ export function ChiefPage({ service, strings, chief: given, picture, chiefName }
     }
   };
   const shownPicture = image === null ? undefined : (image?.url ?? picture);
-  const lead = !chief && readOnly ? `${t("sheet.newChief.lead")} ${t("chief.appOnly")}` : t(chief ? "sheet.editChief.lead" : "sheet.newChief.lead");
+  const lead =
+    !chief && readOnly
+      ? `${t("sheet.newChief.lead")} ${t("chief.appOnly")}`
+      : t(chief ? "sheet.editChief.lead" : "sheet.newChief.lead");
   return (
     <section className="chief-editor" aria-labelledby={titleId} data-chief-page={chief ? "edit" : "new"}>
       <form className="ce-form" onSubmit={(event) => void submit(event)} aria-busy={busy || undefined}>
@@ -243,7 +245,18 @@ export function ChiefPage({ service, strings, chief: given, picture, chiefName }
             title={t("chief.page.back")}
             onClick={() => service.close()}
           >
-            <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 20 20"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+              focusable="false"
+            >
               <path d="M12.5 4.5 7 10l5.5 5.5" />
             </svg>
           </button>

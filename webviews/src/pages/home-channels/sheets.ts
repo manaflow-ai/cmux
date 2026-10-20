@@ -7,7 +7,14 @@
 import { isPageError, type PageClient } from "../shared/pageClient";
 import { ChiefHost, gestureFields, type ChiefEditorService, type ChiefSave } from "./chiefEditing";
 import { parseRoute, routeHash, type HomeRoute } from "./routes";
-import { chiefBackend, DEFAULT_CHIEF_BACKEND, HomeOps, type HomeCapabilities, type HomeChief, type HomeParticipant } from "./types";
+import {
+  chiefBackend,
+  DEFAULT_CHIEF_BACKEND,
+  HomeOps,
+  type HomeCapabilities,
+  type HomeChief,
+  type HomeParticipant,
+} from "./types";
 
 export interface SheetsSnapshot {
   route?: HomeRoute;
