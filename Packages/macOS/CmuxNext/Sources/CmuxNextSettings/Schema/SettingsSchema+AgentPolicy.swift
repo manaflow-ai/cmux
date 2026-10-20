@@ -285,9 +285,6 @@ extension SettingsSchema {
         "phone.keepAwake": .userOnly,
         // Workspace names leave this Mac for the Cloud service: only the person turns it on.
         "phone.cloudReplica": .privacy,
-        // Screenshot folder paths and the list of installed screenshot apps are personal data.
-        "screenshots.findTools": .privacy,
-        "screenshots.folders": .privacy,
         // Who may reach this Mac's sessions over the private network: only the person turns it on.
         "remoteHosting.enabled": .network,
         // On, a phone signed in to the same account can open this Mac's terminals and agents.

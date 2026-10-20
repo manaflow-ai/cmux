@@ -315,9 +315,7 @@
           {
             "key" : "settings.group.windowBackground",
             "rows" : [
-              "appearance.backdropArt",
               "appearance.background",
-              "appearance.paneBackgrounds",
               "appearance.backgroundOpacity",
               "appearance.backgroundBlur"
             ],
@@ -479,26 +477,6 @@
             "title" : {
               "key" : "settings.group.surfaces",
               "text" : "Surfaces"
-            }
-          },
-          {
-            "key" : "settings.group.markdownViewer",
-            "rows" : [
-              "markdown.remoteImages",
-              "markdown.layout.width",
-              "markdown.layout.fullWidth",
-              "markdown.font.size",
-              "markdown.font.preset",
-              "markdown.font.lineHeight",
-              "markdown.spacing.paragraph",
-              "markdown.code.scale",
-              "markdown.code.family",
-              "markdown.tables",
-              "markdown.theme"
-            ],
-            "title" : {
-              "key" : "settings.group.markdownViewer",
-              "text" : "Markdown Viewer"
             }
           }
         ],
@@ -1014,8 +992,7 @@
               "browser.hibernation",
               "browser.hibernationExclusions",
               "browser.hibernatePinnedTabs",
-              "browser.freezeHiddenTabs",
-              "browser.keepNeighborTabsAwake"
+              "browser.freezeHiddenTabs"
             ],
             "title" : {
               "key" : "settings.group.memory",
@@ -1275,7 +1252,6 @@
           {
             "key" : "settings.group.appearanceTuning",
             "rows" : [
-              "appearance.glassTransparency",
               "appearance.hue",
               "appearance.saturation"
             ],
@@ -6862,7 +6838,7 @@
         true,
         false
       ],
-      "agent_refusal" : "privacy",
+      "agent_refusal" : null,
       "agent_settable" : false,
       "consumers" : [
         "cmux-next"
@@ -6916,7 +6892,7 @@
           "~/notes"
         ]
       ],
-      "agent_refusal" : "privacy",
+      "agent_refusal" : null,
       "agent_settable" : false,
       "consumers" : [
         "cmux-next"
@@ -8772,7 +8748,7 @@
         "legacy"
       ],
       "kind" : "choice",
-      "page_hidden" : false,
+      "page_hidden" : true,
       "path" : [
         "appearance",
         "backdropArt"
@@ -10272,76 +10248,6 @@
     },
     {
       "accepts" : [
-        "shared",
-        "perPane"
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "choices" : [
-        {
-          "title" : {
-            "key" : "settings.choice.paneBackgrounds.shared",
-            "text" : "One for the Window"
-          },
-          "value" : "shared"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.paneBackgrounds.perPane",
-            "text" : "One per Pane"
-          },
-          "value" : "perPane"
-        }
-      ],
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : "shared",
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.windowBackground",
-        "text" : "Window Background"
-      },
-      "help" : {
-        "key" : "settings.appearance.paneBackgrounds.help",
-        "text" : "One background behind the whole window, or a copy in each pane. A pane's own background (right-click a pane) shows either way."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "appearance.paneBackgrounds",
-      "keywords" : [
-        "background",
-        "wallpaper",
-        "pane",
-        "split",
-        "per pane",
-        "each pane",
-        "backdrop",
-        "art"
-      ],
-      "kind" : "choice",
-      "page_hidden" : false,
-      "path" : [
-        "appearance",
-        "paneBackgrounds"
-      ],
-      "refuses" : [
-        "__not_a_choice__",
-        1,
-        true
-      ],
-      "section" : "appearance",
-      "summary" : {
-        "key" : "settings.appearance.paneBackgrounds.summary",
-        "text" : "One background or one per pane"
-      },
-      "title" : {
-        "key" : "settings.appearance.paneBackgrounds",
-        "text" : "Pane Backgrounds"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
         true,
         false
       ],
@@ -10529,7 +10435,10 @@
         true
       ],
       "section" : "appearance",
-      "summary" : null,
+      "summary" : {
+        "key" : "settings.appearance.backgroundBlur.summary",
+        "text" : "Clear Glass shows the desktop through the wallpaper"
+      },
       "title" : {
         "key" : "settings.appearance.backgroundBlur",
         "text" : "Material"
@@ -10566,7 +10475,7 @@
         "clear"
       ],
       "kind" : "number",
-      "page_hidden" : false,
+      "page_hidden" : true,
       "path" : [
         "appearance",
         "glassTransparency"
@@ -26133,65 +26042,6 @@
       "title" : {
         "key" : "settings.browser.freezeHiddenTabs",
         "text" : "Freeze Hidden Tabs"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        0,
-        3,
-        1.5
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : 1,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.memory",
-        "text" : "Memory"
-      },
-      "help" : {
-        "key" : "settings.browser.keepNeighborTabsAwake.help",
-        "text" : "Tabs on each side of the shown tab stay loaded and running, so switching to them is instant. 0 turns it off. Memory pressure and Low Power Mode turn it off."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "browser.keepNeighborTabsAwake",
-      "keywords" : [
-        "neighbor",
-        "adjacent",
-        "preload",
-        "warm",
-        "instant",
-        "switch",
-        "hibernation",
-        "freeze"
-      ],
-      "kind" : "number",
-      "page_hidden" : false,
-      "path" : [
-        "browser",
-        "keepNeighborTabsAwake"
-      ],
-      "range" : {
-        "max" : 3,
-        "min" : 0,
-        "placeholder" : 0,
-        "step" : 1,
-        "unit" : "count"
-      },
-      "refuses" : [
-        -3,
-        6,
-        "1"
-      ],
-      "section" : "browser",
-      "summary" : null,
-      "title" : {
-        "key" : "settings.browser.keepNeighborTabsAwake",
-        "text" : "Keep Neighbor Tabs Awake"
       },
       "validation" : "portable"
     },
