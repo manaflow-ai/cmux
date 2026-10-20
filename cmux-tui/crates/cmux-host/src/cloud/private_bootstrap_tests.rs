@@ -32,7 +32,7 @@ fn native_receiver_private_frame_refuses_mismatch_truncation_extra_bytes_and_lar
     let mut extra = bytes.clone();
     extra.push(0);
     assert!(NativeBootstrap::decode(&extra).is_err());
-    let mut wrong = bytes.clone();
+    let mut wrong = bytes;
     *wrong.last_mut().unwrap() ^= 1;
     assert!(NativeBootstrap::decode(&wrong).is_err());
 }

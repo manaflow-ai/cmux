@@ -13,6 +13,7 @@ use cmux_server_core::install_key::{InstallKey, SystemRandom};
 use serde::Deserialize;
 use serde_json::Value;
 use x25519_dalek::{PublicKey, StaticSecret};
+use zeroize::{Zeroize, Zeroizing};
 
 use super::client::{CloudClient, Http};
 use super::wire::Bound;
@@ -20,11 +21,20 @@ use crate::config::Paths;
 
 const UNAVAILABLE: &str = "protected VM identity unavailable";
 
-#[derive(PartialEq)]
 pub(super) struct ReceiverIdentity {
     pub bound: Bound,
     pub install_public_jwk: Value,
     pub wg_public: String,
+    wg_private: Zeroizing<[u8; 32]>,
+}
+
+impl PartialEq for ReceiverIdentity {
+    fn eq(&self, other: &Self) -> bool {
+        self.bound == other.bound
+            && self.install_public_jwk == other.install_public_jwk
+            && self.wg_public == other.wg_public
+            && self.wg_private.as_slice() == other.wg_private.as_slice()
+    }
 }
 
 #[derive(Deserialize)]
@@ -33,12 +43,22 @@ struct SavedInstall {
     instance_id: String,
     pkcs8: String,
 }
+impl Drop for SavedInstall {
+    fn drop(&mut self) {
+        self.pkcs8.zeroize();
+    }
+}
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct SavedWg {
     instance_id: String,
     private_key: String,
     public_key: String,
+}
+impl Drop for SavedWg {
+    fn drop(&mut self) {
+        self.private_key.zeroize();
+    }
 }
 
 fn child(dir: &File, name: &str, directory: bool, uid: u32) -> Result<File, String> {
@@ -77,7 +97,7 @@ fn check(file: &File, directory: bool, uid: u32) -> Result<(), String> {
 }
 
 fn read<T: serde::de::DeserializeOwned>(mut file: File) -> Result<T, String> {
-    let mut bytes = Vec::new();
+    let mut bytes = Zeroizing::new(Vec::new());
     file.by_ref().take(65537).read_to_end(&mut bytes).map_err(|_| UNAVAILABLE)?;
     if bytes.len() > 65536 {
         return Err(UNAVAILABLE.into());
@@ -111,19 +131,22 @@ pub(super) fn load(paths: &Paths, instance: &str) -> Result<ReceiverIdentity, St
     }
     let key = InstallKey::from_pkcs8_base64url(&install.pkcs8, &SystemRandom::new())
         .map_err(|_| UNAVAILABLE)?;
-    let private: [u8; 32] = STANDARD
-        .decode(&wg.private_key)
-        .map_err(|_| UNAVAILABLE)?
-        .try_into()
-        .map_err(|_| UNAVAILABLE)?;
-    if STANDARD.encode(private) != wg.private_key
+    let decoded = Zeroizing::new(STANDARD.decode(&wg.private_key).map_err(|_| UNAVAILABLE)?);
+    let private =
+        Zeroizing::new(<[u8; 32]>::try_from(decoded.as_slice()).map_err(|_| UNAVAILABLE)?);
+    if Zeroizing::new(STANDARD.encode(private.as_slice())).as_str() != wg.private_key
         || private.iter().all(|b| *b == 0)
-        || STANDARD.encode(PublicKey::from(&StaticSecret::from(private)).as_bytes())
+        || STANDARD.encode(PublicKey::from(&StaticSecret::from(*private)).as_bytes())
             != wg.public_key
     {
         return Err(UNAVAILABLE.into());
     }
-    Ok(ReceiverIdentity { bound, install_public_jwk: key.public_jwk(), wg_public: wg.public_key })
+    Ok(ReceiverIdentity {
+        bound,
+        install_public_jwk: key.public_jwk(),
+        wg_public: wg.public_key.clone(),
+        wg_private: private,
+    })
 }
 
 /// Check the protected files both before and after the bounded Cloud read.
@@ -134,6 +157,17 @@ pub(super) fn reply<H: Http>(
     client: &mut CloudClient<H>,
     now_wall_ms: u64,
 ) -> Result<Value, String> {
+    checked_snapshot(paths, instance, client, now_wall_ms)?
+        .1
+        .public_reply(std::time::Instant::now())
+}
+
+fn checked_snapshot<H: Http>(
+    paths: &Paths,
+    instance: &str,
+    client: &mut CloudClient<H>,
+    now_wall_ms: u64,
+) -> Result<(ReceiverIdentity, super::receiver::ReceiverSnapshot), String> {
     let started = std::time::Instant::now();
     let before = load(paths, instance)?;
     if &before.bound != client.bound() || before.install_public_jwk != client.install_public_jwk() {
@@ -145,17 +179,28 @@ pub(super) fn reply<H: Http>(
         client.clear_token();
         return Err(UNAVAILABLE.into());
     }
-    snapshot.public_reply(std::time::Instant::now())
+    snapshot.time(std::time::Instant::now()).ok_or(UNAVAILABLE)?;
+    Ok((before, snapshot))
 }
 
 /// Kept separate from the public agent reply: private bootstrap is available
 /// only to the root role's authenticated child chain.
 #[cfg(test)]
 pub(super) fn bootstrap<H: Http>(
-    _paths: &Paths,
-    _instance: &str,
-    _client: &mut CloudClient<H>,
-    _now_wall_ms: u64,
+    paths: &Paths,
+    instance: &str,
+    client: &mut CloudClient<H>,
+    now_wall_ms: u64,
 ) -> Result<super::private_bootstrap::NativeBootstrap, String> {
-    Err(UNAVAILABLE.into())
+    let (identity, snapshot) = checked_snapshot(paths, instance, client, now_wall_ms)?;
+    let binding = super::receiver::ReceiverBinding::from_original(
+        &identity.bound,
+        &identity.wg_public,
+        &identity.install_public_jwk,
+    )?;
+    super::private_bootstrap::NativeBootstrap::new(
+        binding,
+        snapshot.keys().clone(),
+        identity.wg_private,
+    )
 }
