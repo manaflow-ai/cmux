@@ -195,6 +195,47 @@ pub enum Command {
         #[arg(long)]
         policy: Option<String>,
     },
+    /// Be an ACP agent that answers each prompt by running a plain CLI once
+    /// (prompt on stdin, reply from stdout): makes any CLI a harness. In a
+    /// profile: `args = ["cli-agent", "--", "/path/to/program"]`.
+    CliAgent {
+        /// Send only the prompt's last text block (a Chief turn's new
+        /// messages), for a program that keeps its own memory.
+        #[arg(long)]
+        last_block: bool,
+        /// Pass the prompt as the last argument instead of on stdin.
+        #[arg(long)]
+        prompt_arg: bool,
+        /// Drop output up to the frame that echoes the prompt (unii).
+        #[arg(long)]
+        after_echo: bool,
+        /// Put the session folder's AGENTS.md before the prompt.
+        #[arg(long)]
+        instructions: bool,
+        /// Give the program a terminal as stdout and controlling terminal
+        /// (stdin stays the prompt), for one that prints only to a terminal.
+        #[arg(long)]
+        tty: bool,
+        /// The program and its arguments, after `--`.
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true, required = true)]
+        command: Vec<String>,
+    },
+    /// Be an ACP agent backed by a UniiChat server (uniichat.com or your own
+    /// `unii serve`), over UniiChat's own protocol: streaming, stop, images.
+    /// Signs in with the token `unii login` keeps. In a profile:
+    /// `args = ["uniichat-agent"]`.
+    UniichatAgent {
+        /// The server; default `$UNII_URL`, else https://uniichat.com.
+        #[arg(long)]
+        url: Option<String>,
+        /// Where `unii` keeps its sign-ins; default `$UNII_HOME`, else ~/.unii.
+        #[arg(long)]
+        home: Option<std::path::PathBuf>,
+        /// Send every text block of a prompt (UniiChat keeps its own memory,
+        /// so by default only the last one: a Chief turn's new messages).
+        #[arg(long)]
+        whole_prompt: bool,
+    },
     /// Print the dashboard URL and open it in the browser.
     Web {
         /// Only print the URL.
@@ -243,6 +284,10 @@ pub enum Command {
     /// session (agent_tools.rs registers it; not for people).
     #[command(hide = true)]
     OfferMcp,
+    /// The agent's sub-session tools (start_session and the rest): an MCP
+    /// stdio server for one agent session (agent_tools.rs registers it; not for people).
+    #[command(hide = true)]
+    SubsessionMcp,
     // Old spellings, kept working but hidden from help.
     #[command(hide = true)]
     Tail {
@@ -388,6 +433,7 @@ pub enum HarnessCmd {
         folder: Option<PathBuf>,
     },
     /// Write a new profile file into ~/.config/cmux/harnesses and check it.
+    #[command(after_help = crate::cli::harness::add_help())]
     Add {
         /// Profile id (file name); default: the example's id or the command's name.
         id: Option<String>,
@@ -397,9 +443,24 @@ pub enum HarnessCmd {
         /// acp (Agent Client Protocol over stdio) or terminal (a CLI/TUI without ACP).
         #[arg(long, default_value = "acp")]
         protocol: String,
-        /// Start from a shipped example: claude, codex, opencode, pi, gemini, aider.
+        /// Start from a shipped example: claude, codex, opencode, pi, gemini, aider, or your
+        /// own model endpoint: anthropic-endpoint, openai-endpoint (with --base-url, --model).
         #[arg(long)]
         example: Option<String>,
+        /// anthropic-endpoint / openai-endpoint: the endpoint's base URL (https; http only
+        /// to localhost or 127.0.0.1).
+        #[arg(long)]
+        base_url: Option<String>,
+        /// anthropic-endpoint / openai-endpoint: the model id the endpoint serves.
+        #[arg(long)]
+        model: Option<String>,
+        /// anthropic-endpoint / openai-endpoint: the Keychain item that holds the key
+        /// (default: cmux-harness/ID/KEY, which `cmux harness secret set ID KEY` writes).
+        #[arg(long)]
+        keychain_item: Option<String>,
+        /// anthropic-endpoint / openai-endpoint: the name the model picker shows.
+        #[arg(long)]
+        name: Option<String>,
         /// Replace an existing file.
         #[arg(long)]
         force: bool,
@@ -730,6 +791,11 @@ pub struct NewArgs {
     /// Permission policy: ask, approve-reads, approve-edits, approve-all, deny-all.
     #[arg(long)]
     pub policy: Option<String>,
+    /// The harness mode to start in (e.g. `auto`). One that does not ask needs the
+    /// person in cmux NEXT, a preset the person approved, or this command running
+    /// inside a session that is in that mode.
+    #[arg(long)]
+    pub mode: Option<String>,
     /// HARNESS[/MODEL]: a family or profile name (`claude`, `codex`, `omp`), optionally with a model
     /// (`claude/opus`, `codex/gpt-5.5`, `opencode/zai/glm-5.1`). Omitted: the default harness and its defaults.
     #[arg(long, short)]

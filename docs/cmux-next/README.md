@@ -70,6 +70,13 @@ comes back as a chat that resumes its session. A toast says when it's done and w
 classic. [classic-to-next.md](classic-to-next.md) lists exactly what comes over, and has an agent
 playbook for choosing workspaces or bringing launch commands too.
 
+## Settings in your dotfiles
+
+Settings live in `~/.config/cmux/cmux-next.json` and key bindings in
+`~/.config/cmux/keybindings.json`. Both reload when you save and keep your comments when
+Settings writes to them. [dotfiles.md](dotfiles.md) has example files, editor completion and the
+`cmux config` commands for scripts and agents.
+
 ## Moving between two cmux-next builds
 
 Builds with different bundle ids (for example DEV and nightly-next, or a tagged dev build) keep

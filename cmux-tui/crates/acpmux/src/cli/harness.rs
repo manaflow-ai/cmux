@@ -22,11 +22,13 @@ use serde::Serialize;
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 
+use crate::byo_endpoint;
 use crate::cli::command::{HarnessCmd, SecretCmd};
 use crate::config::folder_profiles;
 use crate::config::profiles::{self, ProfileSources, Severity};
 use crate::config::{Config, HarnessKind, HarnessProfile, ProfileSource};
 
+mod claude_turn;
 mod program;
 pub(crate) mod wire;
 use wire::{TempFolder, Wire};
@@ -40,6 +42,7 @@ pub const EXAMPLES: &[(&str, &str)] = &[
     ("gemini", include_str!("../../harnesses/gemini.toml")),
     ("aider", include_str!("../../harnesses/aider.toml")),
     ("muse", include_str!("../../harnesses/muse.toml")),
+    ("unii", include_str!("../../harnesses/unii.toml")),
 ];
 
 /// The guide an agent follows to integrate a harness (`cmux harness guide`).
@@ -91,7 +94,38 @@ pub async fn run(cmd: HarnessCmd, json_out: bool) -> Result<()> {
                 "give the registry agent id: `cmux harness add <id> --registry` (see `cmux harness registry`)"
             )
         }
-        HarnessCmd::Add { id, command, protocol, example, force, registry: false } => {
+        HarnessCmd::Add {
+            id,
+            command,
+            protocol,
+            example,
+            force,
+            registry: false,
+            base_url,
+            model,
+            keychain_item,
+            name,
+        } if example.as_deref().is_some_and(|e| byo_endpoint::Kind::from_example(e).is_some())
+            || base_url.is_some()
+            || model.is_some()
+            || keychain_item.is_some()
+            || name.is_some() =>
+        {
+            let p = crate::harness_admin::AddParams {
+                id,
+                display_name: name,
+                command,
+                protocol: (protocol != "acp").then_some(protocol),
+                example,
+                base_url,
+                model,
+                keychain_item,
+                replace: force,
+                ..Default::default()
+            };
+            add_endpoint_cmd(&p, json_out).await
+        }
+        HarnessCmd::Add { id, command, protocol, example, force, registry: false, .. } => {
             let sources = ProfileSources::current();
             let req = AddRequest { id, command, protocol, example, force };
             let added = add(&req, &sources)?;
@@ -183,6 +217,84 @@ pub async fn run(cmd: HarnessCmd, json_out: bool) -> Result<()> {
         }
     }
 }
+
+/// `cmux harness add ID --example anthropic-endpoint|openai-endpoint …`:
+/// the daemon's own add (`harness_admin`), then the next steps.
+async fn add_endpoint_cmd(p: &crate::harness_admin::AddParams, json_out: bool) -> Result<()> {
+    if p.example.as_deref().and_then(byo_endpoint::Kind::from_example).is_none() {
+        bail!(
+            "--base-url, --model, --keychain-item and --name go with --example anthropic-endpoint or openai-endpoint"
+        );
+    }
+    let added = crate::harness_admin::add(p, &ProfileSources::current(), None, &|_| None)
+        .map_err(|e| anyhow!("{e}"))?;
+    let reloaded = reload_daemon().await;
+    if json_out {
+        println!(
+            "{}",
+            json!({"id": added.id, "path": added.path, "diagnostics": added.diagnostics,
+                "secret": added.secret, "daemonReloaded": reloaded})
+        );
+        return Ok(());
+    }
+    println!("wrote {}", added.path.display());
+    for d in &added.diagnostics {
+        println!("warning: {d}");
+    }
+    if let Some(slot) = &added.secret {
+        let id = &added.id;
+        if p.keychain_item.is_some() {
+            println!(
+                "the key is read from the Keychain item {}; to store it there with cmux instead: `cmux harness secret set {id} {}`",
+                slot.keychain_item, slot.key
+            );
+        } else {
+            println!("next: store the key: `cmux harness secret set {id} {}`", slot.key);
+        }
+    }
+    println!("then check it with one real turn: `cmux harness doctor {}`", added.id);
+    Ok(())
+}
+
+/// `cmux harness add --help`'s closing text, in the locale's language
+/// (LC_ALL, LC_MESSAGES, LANG; English unless it starts with `ja`).
+pub fn add_help() -> &'static str {
+    let locale = ["LC_ALL", "LC_MESSAGES", "LANG"]
+        .iter()
+        .find_map(|k| std::env::var(k).ok().filter(|v| !v.is_empty()))
+        .unwrap_or_default();
+    if locale.to_ascii_lowercase().starts_with("ja") { ADD_HELP_JA } else { ADD_HELP_EN }
+}
+
+const ADD_HELP_EN: &str = "\
+Your own model endpoint:
+  cmux harness add acme --example anthropic-endpoint --base-url https://llm.example.com \\
+      --model acme-large [--keychain-item ITEM] [--name \"Acme\"]
+      Claude Code (acpmux's own adapter) on an Anthropic Messages API endpoint:
+      ANTHROPIC_BASE_URL, ANTHROPIC_MODEL, and ANTHROPIC_AUTH_TOKEN from the Keychain.
+  cmux harness add local --example openai-endpoint --base-url http://127.0.0.1:11434/v1 \\
+      --model qwen3 [--keychain-item ITEM]
+      OpenCode (`opencode acp`) on an OpenAI Chat Completions endpoint (provider byo).
+  The base URL is https (plain http only to localhost or 127.0.0.1). The key never goes on the
+  command line or into the profile: store it with `cmux harness secret set ID KEY` (KEY is
+  ANTHROPIC_AUTH_TOKEN or CMUX_BYO_API_KEY), or name the Keychain item that holds it with
+  --keychain-item. Then `cmux harness doctor ID` sends one real prompt and names the fix:
+  the key, the base URL or the model.";
+
+const ADD_HELP_JA: &str = "\
+自分のモデルエンドポイント:
+  cmux harness add acme --example anthropic-endpoint --base-url https://llm.example.com \\
+      --model acme-large [--keychain-item ITEM] [--name \"Acme\"]
+      Anthropic Messages API 互換のエンドポイントで Claude Code (acpmux のアダプター) を使います:
+      ANTHROPIC_BASE_URL、ANTHROPIC_MODEL、キーチェーンから ANTHROPIC_AUTH_TOKEN。
+  cmux harness add local --example openai-endpoint --base-url http://127.0.0.1:11434/v1 \\
+      --model qwen3 [--keychain-item ITEM]
+      OpenAI Chat Completions 互換のエンドポイントで OpenCode (`opencode acp`、プロバイダー byo) を使います。
+  ベース URL は https です (http は localhost と 127.0.0.1 だけ)。キーはコマンドラインにも
+  プロファイルにも書きません: `cmux harness secret set ID KEY` (KEY は ANTHROPIC_AUTH_TOKEN
+  または CMUX_BYO_API_KEY) で保存するか、--keychain-item でキーのあるキーチェーン項目を指定します。
+  そのあと `cmux harness doctor ID` が実際のプロンプトを 1 回送り、直す点 (キー、ベース URL、
+  モデル) を示します。";
 
 /// Ask a running daemon to reload its catalog; false when none runs.
 pub(crate) async fn reload_daemon() -> bool {
@@ -650,12 +762,16 @@ pub async fn doctor(cfg: &Config, id: &str, opts: &DoctorOptions) -> DoctorRepor
                     Some("some programs have no --version; start it once by hand".into()),
                 ),
             }
-            let note = if profile.kind == HarnessKind::Terminal {
-                format!("terminal harness: no ACP steps; open it with `cmux harness run {id}`")
+            if profile.kind == HarnessKind::Terminal {
+                let note =
+                    format!("terminal harness: no ACP steps; open it with `cmux harness run {id}`");
+                r.push("acp", StepStatus::Skip, &note, None);
+            } else if opts.prompt {
+                // acpmux's own Claude Code adapter: one real turn (u2586).
+                claude_turn::run(&mut r, id, profile, env, opts).await;
             } else {
-                format!("acpmux's own Claude Code adapter: try `cmux acp new -m {id} \"hi\"`")
-            };
-            r.push("acp", StepStatus::Skip, &note, None);
+                r.push("prompt", StepStatus::Skip, "--no-prompt", None);
+            }
         }
     }
     r.done()
@@ -793,7 +909,13 @@ async fn acp_steps(
         reply: String::new(),
         noise: 0,
     };
-    let outcome = handshake(r, &mut wire, folder, opts).await;
+    let endpoint = crate::byo_endpoint::Kind::of_env(&profile.env);
+    // An endpoint's first turn may install its provider package first.
+    let prompt_limit = match endpoint {
+        Some(_) => opts.timeout.max(Duration::from_secs(60)),
+        None => opts.timeout,
+    };
+    let outcome = handshake(r, &mut wire, folder, opts, prompt_limit).await;
     // Stop the harness and everything it started (its own process group),
     // then read the rest of its stderr: the pipe closes when it exits.
     #[cfg(unix)]
@@ -806,16 +928,18 @@ async fn acp_steps(
     if tokio::time::timeout(Duration::from_secs(2), &mut drain).await.is_err() {
         drain.abort();
     }
-    if !outcome {
-        let text = stderr_tail
-            .lock()
-            .map(|t| String::from_utf8_lossy(&t).into_owned())
-            .unwrap_or_default();
-        let lines: Vec<&str> = text.lines().collect();
-        let last = lines[lines.len().saturating_sub(15)..].join("\n");
-        if !last.trim().is_empty() {
-            r.push("stderr", StepStatus::Warn, &format!("last harness output:\n{last}"), None);
-        }
+    let text =
+        stderr_tail.lock().map(|t| String::from_utf8_lossy(&t).into_owned()).unwrap_or_default();
+    let lines: Vec<&str> = text.lines().collect();
+    let last = lines[lines.len().saturating_sub(15)..].join("\n");
+    let silent = opts.prompt && wire.reply.trim().is_empty();
+    if let Some(kind) = endpoint
+        && (!outcome || silent)
+    {
+        endpoint_prompt_verdict(r, id, kind, &last);
+    }
+    if (!outcome || (endpoint.is_some() && silent)) && !last.trim().is_empty() {
+        r.push("stderr", StepStatus::Warn, &format!("last harness output:\n{last}"), None);
     }
     if wire.noise > 0 {
         r.push(
@@ -833,8 +957,34 @@ async fn acp_steps(
     }
 }
 
+/// An endpoint harness whose prompt failed or came back empty: the prompt
+/// step fails with the fix its error names (the key, the base URL or the
+/// model), read from the step's detail and the harness's last output.
+fn endpoint_prompt_verdict(
+    r: &mut Report,
+    id: &str,
+    kind: crate::byo_endpoint::Kind,
+    stderr: &str,
+) {
+    let at = r.steps.iter().rposition(|s| s.step == "prompt");
+    let detail = at.map(|i| r.steps[i].detail.clone()).unwrap_or_default();
+    let problem = crate::byo_endpoint::classify(&format!("{detail}\n{stderr}"));
+    let fix = r.mask(&crate::byo_endpoint::fix(problem, kind, id));
+    // No prompt step: the handshake stopped before it, and that step has the fix.
+    if let Some(i) = at {
+        r.steps[i].status = StepStatus::Fail;
+        r.steps[i].fix = Some(fix);
+    }
+}
+
 /// initialize, session/new and the prompt; false at the first failure.
-async fn handshake(r: &mut Report, wire: &mut Wire, folder: &Path, opts: &DoctorOptions) -> bool {
+async fn handshake(
+    r: &mut Report,
+    wire: &mut Wire,
+    folder: &Path,
+    opts: &DoctorOptions,
+    prompt_limit: Duration,
+) -> bool {
     let init = json!({
         "protocolVersion": 1,
         "clientCapabilities": {"fs": {"readTextFile": false, "writeTextFile": false}, "terminal": false},
@@ -899,7 +1049,7 @@ async fn handshake(r: &mut Report, wire: &mut Wire, folder: &Path, opts: &Doctor
     }
     let prompt =
         json!({"sessionId": session_id, "prompt": [{"type": "text", "text": DOCTOR_PROMPT}]});
-    match wire.call("session/prompt", prompt, opts.timeout).await {
+    match wire.call("session/prompt", prompt, prompt_limit).await {
         Ok(v) => {
             let stop = v.get("stopReason").and_then(Value::as_str).unwrap_or("?").to_owned();
             if wire.reply.trim().is_empty() {

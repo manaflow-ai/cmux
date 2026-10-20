@@ -20,16 +20,18 @@ enum AgentPanePageHost {
     }
 
     /// What the old host pushed again after each load and handshake: the theme, shortcuts, preview
-    /// features, the New Tab page's chats and closed items, the edited-files card's and the composer's
-    /// settings, and a non-empty customization.
+    /// features, the in-session status toggle, the New Tab page's chats and closed items, the
+    /// edited-files card's and the composer's settings, and a non-empty customization.
     @MainActor static func currentEvents(_ view: AgentPaneView) -> [AgentPageEvent] {
         var events: [AgentPageEvent] = []
         if let theme = AgentPageEvent.theme(view.themeTokens, surface: view.surfaceKind) { events.append(theme) }
         events.append(.shortcuts(view.shortcuts))
         events.append(.preview(view.previewFeatures))
+        events.append(.sessionStatus(view.sessionStatus))
         events.append(AgentPaneSuggestedTasks.shared.event(for: view))
         events.append(.deviceChats(AgentPaneDeviceChat.shown(view.deviceChats, in: view)))
         events.append(.recentlyClosed(view.recentlyClosed))
+        events.append(AgentPaneNowPlaying.shared.event(for: view))
         events.append(.editedFiles(view.editedFiles))
         events.append(.composer(view.model.composer))
         events.append(.sidebarPreviewVariant(view.model.sidebarPreviewVariant))

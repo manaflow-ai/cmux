@@ -11,10 +11,10 @@ public struct SidebarMapping {
     /// The workspace kind of the home workspace (`workspace-kind-v1`).
     public static let homeKind = "home"
 
-    /// The front page's title, else the workspace's name. A daemon default
-    /// name (`workspace-7`) is shown: a terminal workspace gets no page or
-    /// agent title, so hiding it left the row blank until a rename (#21357).
-    /// The creating row sends the same name, so the reply changes nothing.
+    /// What a workspace's row shows of its front tab: a name in place of one
+    /// the user never gave (a page's title, cx-e32b; a chat's or terminal's,
+    /// hq#1957), and a page's favicon in place of an icon the user never chose.
+    /// A daemon default name (`workspace-7`) remains visible until a rename.
     private static func sidebarTitle(_ workspace: WorkspaceModel, page: PageFace?) -> String {
         if let pageTitle = page?.title, !pageTitle.isEmpty { return pageTitle }
         return workspace.displayName
@@ -28,10 +28,14 @@ public struct SidebarMapping {
     public struct PageFace {
         public var title: String?
         public var favicon: SidebarFavicon?
+        /// The page's sound (a browser tab playing sound or muted); the row
+        /// merges its tabs' (`SidebarWorkspaceAudio.merge`).
+        public var audio: SidebarWorkspaceAudio?
 
-        public init(title: String? = nil, favicon: SidebarFavicon? = nil) {
+        public init(title: String? = nil, favicon: SidebarFavicon? = nil, audio: SidebarWorkspaceAudio? = nil) {
             self.title = title
             self.favicon = favicon
+            self.audio = audio
         }
     }
 
@@ -39,9 +43,10 @@ public struct SidebarMapping {
     /// (`set_status`), the row's live second line. The cwd stays passive
     /// detail (tooltip, accessibility). `newTabPages` are the ids of tabs
     /// still on the New Tab page, which the tab list draws as new tabs
-    /// titled `newTabTitle` (localized by the App). `pageFace` gives the page
-    /// face of a workspace whose front tab is a browser, and the favicon of
-    /// each browser tab in the tab list. `tabTitle` names each tab in the tab
+    /// titled `newTabTitle` (localized by the App). `pageFace` gives the face
+    /// a workspace's front tab (any kind) lends its row, given the work tab a
+    /// browser front tab yields its name to (`workTab`), and the favicon of
+    /// each browser tab in the tab list (no work tab). `tabTitle` names each tab in the tab
     /// list as its strip does (the App's `TabTitleResolver`); without it a
     /// tab shows its record's title. `iconAsset` draws a stored image or SVG
     /// icon (`image:` / `svg:sha256-<hex>`); nil while it loads.
@@ -56,7 +61,7 @@ public struct SidebarMapping {
                                 statusLine: @escaping (String) -> String? = { _ in nil },
                                 selectedTab: @escaping (PaneModel) -> String? = { _ in nil },
                                 newTabPages: Set<String> = [], newTabTitle: String = "",
-                                pageFace: @escaping (WorkspaceModel, TabModel) -> PageFace? = { _, _ in nil },
+                                pageFace: @escaping (WorkspaceModel, TabModel, TabModel?) -> PageFace? = { _, _, _ in nil },
                                 tabTitle: ((TabModel) -> String)? = nil, notificationText: @escaping (TabModel) -> String? = { _ in nil },
                                 iconAsset: @escaping (String) -> SidebarFavicon? = { _ in nil },
                                 groupIconAsset: ((String) -> SidebarFavicon?)? = nil,
@@ -104,7 +109,7 @@ public struct SidebarMapping {
     /// `iconAsset` draws a stored image or SVG icon, as in `sections`.
     public func row(_ workspace: WorkspaceModel, machine: MachineID, status: String? = nil, showsUnread: Bool = true,
                     muted: Bool = false, selectedTab: (PaneModel) -> String? = { _ in nil }, newTabPages: Set<String> = [],
-                    newTabTitle: String = "", pageFace: (WorkspaceModel, TabModel) -> PageFace? = { _, _ in nil },
+                    newTabTitle: String = "", pageFace: (WorkspaceModel, TabModel, TabModel?) -> PageFace? = { _, _, _ in nil },
                     tabTitle: ((TabModel) -> String)? = nil, notificationText: (TabModel) -> String? = { _ in nil },
                     iconAsset: (String) -> SidebarFavicon? = { _ in nil }) -> SidebarWorkspace {
         let tabs = workspace.screens.flatMap(\.panes).flatMap(\.tabs)
@@ -112,7 +117,12 @@ public struct SidebarMapping {
         let indicator = StatusMapping.shared.summary(tabs: tabs, status: workspace.status)
         let front = frontTab(workspace, selectedTab: selectedTab)
         let folder = folderTab(tabs)
-        let page = front.flatMap { $0.kind == .browser ? pageFace(workspace, $0) : nil }
+        let page = front.flatMap { pageFace(workspace, $0, $0.kind == .browser ? workTab(workspace, selectedTab: selectedTab) : nil) }
+        // Each browser tab's face once: its favicon in the tab list, its sound on the row.
+        var browserFaces: [String: PageFace] = [:]
+        for tab in tabs where tab.kind == .browser {
+            browserFaces[tab.id] = tab.id == front?.id ? page : pageFace(workspace, tab, nil)
+        }
         let entries = workspace.status?.entries ?? []
         // Another computer's folders shorten against that computer's home, never this Mac's (cx-gaq9).
         let shorten: (String) -> String = machine == .local ? { abbreviate($0) } : Self.abbreviateRemote
@@ -135,7 +145,9 @@ public struct SidebarMapping {
                 ?? page?.favicon.map(WorkspaceIcon.favicon),
             kind: kind(front),
             kindBrand: front?.agentBrand,
-            unread: unread > 0 ? .count(unread) : (showsUnread && workspace.markedUnread ? .dot : .none),
+            // A tab marked unread by hand (Mark Tab Unread) shows as the workspace's manual dot.
+            unread: unread > 0 ? .count(unread)
+                : (showsUnread && (workspace.markedUnread || tabs.contains(where: \.markedUnread)) ? .dot : .none),
             activity: indicator.state,
             activityStyle: indicator.style,
             agentBrand: agentBrand(tabs),
@@ -145,8 +157,8 @@ public struct SidebarMapping {
                 let isNewTabPage = newTabPages.contains(tab.id) && !newTabTitle.isEmpty
                 let title = tabTitle?(tab) ?? (isNewTabPage ? newTabTitle : tab.displayTitle)
                 return SidebarTab(id: TabID(tab.id), title: title,
-                                  kind: Self.listedKind(tab, newTabPages: newTabPages), isUnread: tab.hasUnread,
-                                  brand: tab.agentBrand, favicon: tab.kind == .browser ? pageFace(workspace, tab)?.favicon : nil)
+                                  kind: Self.listedKind(tab, newTabPages: newTabPages), isUnread: tab.showsUnread,
+                                  brand: tab.agentBrand, favicon: browserFaces[tab.id]?.favicon)
             },
             muted: muted,
             // The store refuses every close of its home workspace (`home_not_closable`).
@@ -155,6 +167,7 @@ public struct SidebarMapping {
             folder: (front?.cwd ?? tabs.lazy.compactMap(\.cwd).first).map(shorten)
         )
         row.presence = presence(tabs)
+        row.audio = SidebarWorkspaceAudio.merge(tabs.lazy.map { browserFaces[$0.id]?.audio })
         row.lastMessage = lastMessage(front, tabs)
         if showsUnread { row.notificationText = newestUnread(tabs).flatMap(notificationText) }
         row.reported = Self.reported(workspace.status, asset: iconAsset)
@@ -165,9 +178,34 @@ public struct SidebarMapping {
 
     /// The tab the row stands for: the selected tab of the workspace's most
     /// recently focused pane; nil for a workspace with no tabs.
-    func frontTab(_ workspace: WorkspaceModel, selectedTab: (PaneModel) -> String?) -> TabModel? {
+    public func frontTab(_ workspace: WorkspaceModel, selectedTab: (PaneModel) -> String?) -> TabModel? {
         let panes = workspace.screens.flatMap(\.panes).filter { !$0.tabs.isEmpty }
         guard let pane = panes.max(by: { $0.focusedAt < $1.focusedAt }) else { return nil }
+        return selected(pane, selectedTab: selectedTab)
+    }
+
+    /// The tab a browser front tab yields its row's name to (a PR opened in
+    /// a split, https://github.com/manaflow-ai/cmux/issues/22249): the
+    /// selected tab of the most recently focused pane that shows a chat or
+    /// terminal, the work the row was named for before the page opened; nil
+    /// while every pane shows a page. A Home, page or app tab gives no name
+    /// (`WorkspaceAutoNameReader.front`), so it is passed over too.
+    public func workTab(_ workspace: WorkspaceModel, selectedTab: (PaneModel) -> String?) -> TabModel? {
+        // One pass: the newest eligible pane, the first stored one on a tie (as `frontTab`).
+        var work: (tab: TabModel, focusedAt: UInt64)?
+        for screen in workspace.screens {
+            for pane in screen.panes where !pane.tabs.isEmpty {
+                if let work, pane.focusedAt <= work.focusedAt { continue }
+                let tab = selected(pane, selectedTab: selectedTab)
+                let named = tab.agentSession != nil || (tab.kind != .conversation && tab.page == nil && tab.appTab == nil)
+                if tab.kind != .browser, named { work = (tab, pane.focusedAt) }
+            }
+        }
+        return work?.tab
+    }
+
+    /// The tab `pane` shows: the window's selection, else the daemon's default tab.
+    private func selected(_ pane: PaneModel, selectedTab: (PaneModel) -> String?) -> TabModel {
         if let id = selectedTab(pane), let tab = pane.tabs.first(where: { $0.id == id }) { return tab }
         return pane.tabs[min(max(pane.defaultTabIndex, 0), pane.tabs.count - 1)]
     }

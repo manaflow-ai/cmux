@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextBridge
 import typealias CmuxNextDaemon.SurfaceID
+import CmuxNextDiff
 import CmuxNextIcons
 import CmuxNextPages
 import CmuxNextSettings
