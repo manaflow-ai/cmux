@@ -253,6 +253,9 @@ pub(super) fn handle_command_with_cancellation(
         Command::SetTerminalKeep { surface, terminal_id, keep } => {
             cmd_terminals::set_terminal_keep(mux, surface, terminal_id, keep)
         }
+        Command::TerminalResumeCommand { surface, terminal_id, command } => {
+            cmd_terminals::terminal_resume_command(mux, surface, terminal_id, command)
+        }
         Command::NewTab { pane, cwd, env, cols, rows, keep, terminal_id, shell_args } => {
             cmd_tabs::new_tab(
                 mux,
@@ -461,6 +464,7 @@ pub(super) fn handle_command_with_cancellation(
         Command::MoveTabToColumn(params) => cmd_tabs::move_tab_to_column(mux, client, params),
         Command::NewRow(params) => cmd_panes::new_row(mux, client, params),
         Command::SetRowHeights(params) => cmd_panes::set_row_heights(mux, client, params),
+        Command::MoveColumn(params) => column_move::move_column(mux, client, params),
         Command::MoveTabToNewWorkspace { surface, group, index, name, transaction } => {
             cmd_tabs::move_tab_to_new_workspace(
                 mux,

@@ -211,12 +211,16 @@ class App:
         except ValueError:
             return {"error": (out.stdout + out.stderr).strip()[:300]}
 
-    def action(self, action: str, **args) -> dict:
+    def action(self, action: str, *, focus: bool = False, **args) -> dict:
         """`action.run` over the socket itself: the CLI reads `--session`
         as its own option, so an action argument of that name never reaches
-        the app through it."""
+        the app through it. `focus` moves the app's focus to what the action
+        opens or selects, as the user's shortcut would; without it a new tab
+        opens in the background and does not load until it is shown."""
         params = {"action": action, "args": args, "wait": True, "origin": "script",
                   "idempotency_key": f"mutation_{uuid.uuid4().hex}"}
+        if focus:
+            params["focus"] = True
         reply = b""
         try:
             with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as stream:
@@ -431,7 +435,7 @@ def merged(base: dict, extra: dict) -> dict:
     return out
 
 
-def launch(bundle: str, config: dict):
+def launch(bundle: str, config: dict, extra_env: dict | None = None):
     """Starts the app with a scratch HOME, TMPDIR and config; returns (pid, socket, scratch).
 
     Through LaunchServices (`open`), as a user's launch: the app is then the
@@ -451,6 +455,7 @@ def launch(bundle: str, config: dict):
     env = {"HOME": home, "USER": os.environ.get("USER", ""), "TMPDIR": os.path.join(scratch, "tmp") + "/",
            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_NO_ACTIVATE": "1",
            "CMUX_NEXT_SOCKET_MODE": "automation", "CMUX_NEXT_CONFIG_FILE": os.path.join(scratch, "cmux.json")}
+    env.update(extra_env or {})
     os.makedirs(env["TMPDIR"], exist_ok=True)
     # Sparkle would otherwise download a newer nightly into the bundle under
     # test mid-run (and its installer counts as the bundle's process).

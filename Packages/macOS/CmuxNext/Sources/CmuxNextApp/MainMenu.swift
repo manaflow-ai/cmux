@@ -31,6 +31,8 @@ enum MainMenu {
             item(Strings.menuCut, #selector(NSText.cut(_:)), "x", [.command]),
             item(Strings.menuCopy, #selector(NSText.copy(_:)), "c", [.command]),
             item(Strings.menuPaste, #selector(NSText.paste(_:)), "v", [.command]),
+            // Cmd+Shift+V, as in Chrome and Slack (Lawrence 2026-10-20): plain text only, in any text input.
+            item(Strings.menuPasteAndMatchStyle, #selector(NSTextView.pasteAsPlainText(_:)), "v", [.command, .shift]),
             item(Strings.menuSelectAll, #selector(NSText.selectAll(_:)), "a", [.command]),
         ]))
         mainMenu.addItem(submenu(Strings.menuView, items: registry.makeMainMenuItems(for: .view)))

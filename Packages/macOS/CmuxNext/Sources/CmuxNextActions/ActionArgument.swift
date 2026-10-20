@@ -37,6 +37,9 @@ public nonisolated struct ActionArgument: Sendable, Hashable {
     /// The target's new name (a rename): a prompt for it starts from the
     /// target's current name, selected.
     public var isTargetName = false
+    /// The target's new description: a prompt for it starts from the
+    /// target's current description, selected.
+    public var isTargetDescription = false
 
     public init(name: String, title: String, kind: ActionArgumentKind, isRequired: Bool = true, suggestions: ActionSuggestions? = nil) {
         self.name = name
@@ -60,6 +63,13 @@ public nonisolated struct ActionArgument: Sendable, Hashable {
     public var renamingTarget: ActionArgument {
         var copy = self
         copy.isTargetName = true
+        return copy
+    }
+
+    /// A copy that describes the action's target (`isTargetDescription`).
+    public var describingTarget: ActionArgument {
+        var copy = self
+        copy.isTargetDescription = true
         return copy
     }
 
