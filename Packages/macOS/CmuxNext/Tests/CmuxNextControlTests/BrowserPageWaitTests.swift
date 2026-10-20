@@ -132,6 +132,17 @@ import Testing
         #expect(engine.operations.isEmpty)
     }
 
+    /// The direct app control method has no access to the browser host's
+    /// cross-session secret masker, so it must fail closed before asking the
+    /// page engine for pixels.
+    @Test func rawBrowserScreenshotsAreRefusedBeforeThePageRuns() async {
+        let (router, engine) = install { _, _ in ["png_base64": "iVBO", "width": 800, "height": 600] }
+        let result = await router.handle(ControlRequest(method: "browser.page.screenshot", params: ["tab": "tab_0123"]))
+        #expect(result.failure?.code == "unavailable")
+        #expect(result.failure?.message == ControlStrings.text("control.error.personOnly", "Only a person in cmux can run this action"))
+        #expect(engine.operations.isEmpty)
+    }
+
     @Test func screenshotsTheViewportByDefaultAndTheWholePageOnRequest() async throws {
         let (router, engine) = install { _, _ in ["png_base64": "iVBO", "width": 800, "height": 600] }
         let shot = try await router.handle(ControlRequest(method: "browser.page.screenshot", params: ["tab": "tab_0123"])).get()
