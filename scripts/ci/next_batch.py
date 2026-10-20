@@ -823,6 +823,10 @@ class Debouncer:
     def ran(self, heads: tuple) -> None:
         self.done, self.first = heads, None
 
+    def succeeded(self) -> None:
+        """A batch finished: the next failure of any set starts at the short wait."""
+        self.failed_heads, self.failures, self.hold_until = None, 0, None
+
     def failed(self, heads: tuple, at: dt.datetime) -> None:
         """A batch for `heads` raised (a rate limit, a 502): try the same set
         again instead of waiting for a new push. The wait doubles with each
@@ -2417,6 +2421,7 @@ def cmd_serve(args: argparse.Namespace) -> int:
                     except Exception:
                         debouncer.failed(heads, now())
                         raise
+                    debouncer.succeeded()
             except Exception as error:  # keep serving; the next poll retries
                 log(f"serve: {type(error).__name__}: {error}")
         time.sleep(5)

@@ -370,9 +370,18 @@ class ServeDebounce(unittest.TestCase):
         self.assertFalse(debouncer.observe(heads, self.at(440)))
         self.assertTrue(debouncer.observe(heads, self.at(500)))
         debouncer.ran(heads)
-        debouncer.failed(heads, self.at(510))   # 3rd: 480s, past hard_max too
+        debouncer.failed(heads, self.at(510))   # 3rd: 480s
         self.assertFalse(debouncer.observe(heads, self.at(510 + 470)))
         self.assertTrue(debouncer.observe(heads, self.at(510 + 480)))
+
+    def test_a_finished_batch_clears_the_backoff(self):
+        debouncer = nb.Debouncer()
+        heads = ((1, "a"),)
+        for _ in range(3):
+            debouncer.failed(heads, self.at(0))
+        debouncer.succeeded()
+        debouncer.failed(heads, self.at(1000))
+        self.assertTrue(debouncer.observe(heads, self.at(1120)))
 
     def test_a_new_set_after_a_failure_runs_without_the_backoff(self):
         debouncer = nb.Debouncer()
