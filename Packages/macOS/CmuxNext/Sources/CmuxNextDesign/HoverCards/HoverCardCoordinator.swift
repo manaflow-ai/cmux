@@ -308,19 +308,26 @@ public final class HoverCardCoordinator {
         let needed = machine.activeTarget != nil
         if needed, monitor == nil {
             monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown, .scrollWheel]) { [weak self] event in
-                let reason: HoverDismissal = switch event.type {
-                case .keyDown: .keyDown
-                case .scrollWheel: .scrollWheel
-                default: .click
-                }
-                self?.dismiss(reason)
-                return event
+                guard let self else { return event }
+                return self.handleMonitoredEvent(event)
             }
         } else if !needed, let monitor {
             NSEvent.removeMonitor(monitor)
             self.monitor = nil
         }
         updateMoveMonitor()
+    }
+
+    /// One key press, click or wheel scroll seen by the dismissal monitor: it ends the card and
+    /// passes the event on. Returns the event to deliver, nil when the card took it.
+    func handleMonitoredEvent(_ event: NSEvent) -> NSEvent? {
+        let reason: HoverDismissal = switch event.type {
+        case .keyDown: .keyDown
+        case .scrollWheel: .scrollWheel
+        default: .click
+        }
+        dismiss(reason)
+        return event
     }
 
     /// While a card shows, pointer moves on it or just off it reach the machine: leaving the
