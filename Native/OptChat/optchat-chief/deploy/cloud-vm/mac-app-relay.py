@@ -56,17 +56,12 @@ sys.stdout.buffer.write(b)
 
 MAX_LINE = 512 << 10  # the gate's --stdin limit
 
-# This is a remote relay policy, not only a model-tool filter. The relay
-# exposes the four app actions in optchat-chief's CHIEF_CMUX_TOOLS and the
-# bounded catalog/diagnostic reads cmux needs to discover them. Everything
-# else is denied before the Mac gate sees a byte. In particular, direct app
-# methods, other CLI actions, caller-selected focus and non-MCP origins never
-# cross the host boundary.
+# This is a remote relay policy, not only a model-tool filter. Only bounded
+# diagnostics cross the host boundary. App actions remain denied until the
+# Mac can verify an unforgeable Cloud Chief capability and owned object ids.
 READ_METHODS = frozenset((
     "system.ping", "system.identify", "system.capabilities",
-    "action.list", "action.describe",
 ))
-ALLOWED_ACTIONS = frozenset(("show pane", "show tab", "tab new page", "file open"))
 
 
 def unreachable(request_id, message):
@@ -96,18 +91,7 @@ def allowed(request):
     if not isinstance(request, dict):
         return False
     method = request.get("method")
-    if method in READ_METHODS:
-        return isinstance(request.get("params", {}), dict)
-    if method != "action.run":
-        return False
-    params = request.get("params")
-    return (
-        isinstance(params, dict)
-        and params.get("cli") is True
-        and params.get("origin") == "mcp"
-        and params.get("focus") is not True
-        and params.get("action") in ALLOWED_ACTIONS
-    )
+    return method in READ_METHODS and isinstance(request.get("params", {}), dict)
 
 
 class Relay:

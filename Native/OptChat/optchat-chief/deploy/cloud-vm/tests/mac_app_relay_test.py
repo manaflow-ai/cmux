@@ -115,7 +115,7 @@ class RelayTest(unittest.TestCase):
     def test_an_unreachable_mac_answers_with_the_reason(self):
         open(os.path.join(self.dir, "asleep"), "w").close()
         listen = self.start_relay(self.app_path)
-        (answer,) = ask(listen, {"id": 7, "method": "action.list", "params": {}})
+        (answer,) = ask(listen, {"id": 7, "method": "system.ping", "params": {}})
         self.assertEqual(answer["id"], 7)
         self.assertFalse(answer["ok"])
         self.assertEqual(answer["error"]["code"], "app.unreachable")
