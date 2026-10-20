@@ -512,12 +512,16 @@
   border-radius: var(--cv-code-radius, 5px);
   background: var(--cv-code-bg);
 }
+/* Links are blue (--agent-link, shared/styles.css), underlined faintly, solidly on hover. */
 .cv-link {
-  color: var(--cv-link);
-  text-decoration: none;
+  color: var(--agent-link);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-decoration-color: color-mix(in srgb, currentColor 40%, transparent);
+  text-underline-offset: 3px;
 }
 .cv-link:hover {
-  text-decoration: underline;
+  text-decoration-color: currentColor;
 }
 .cv-link__icon {
   vertical-align: var(--cv-link-icon-align, -3px);
@@ -755,6 +759,7 @@
 }
 .cv-link.is-file {
   color: var(--cv-text);
+  text-decoration: none;
 }
 
 /* Math (Math.tsx): KaTeX at its own size (1.21em of the text), as ChatGPT sets it. KaTeX's
@@ -1493,6 +1498,25 @@ pre.cv-math-source {
 .cv-message__more:focus-visible {
   outline: 1.5px solid color-mix(in srgb, var(--agent-accent) 55%, transparent);
   outline-offset: 1px;
+}
+/* Another agent's message (IncomingMessageCard.tsx): Show more and Open on one line, and the
+   prompt as the agent got it once opened. */
+.cv-message__foot {
+  display: flex;
+  gap: 12px;
+  margin: -6px 0 7px 32.5px;
+}
+.cv-message__foot .cv-message__more {
+  margin: 0;
+}
+/* Another agent's images, under its message and in line with it (IncomingMessageCard.tsx). */
+.cv-message.is-incoming > .cv-message__images {
+  justify-content: flex-start;
+  max-width: none;
+  margin: 0 10px 6px 32.5px;
+}
+.cv-message.is-incoming > .cv-tool-output {
+  margin: 0 10px 8px 32.5px;
 }
 .cv-rotor.is-flipped {
   transform: rotate(180deg);
@@ -2606,6 +2630,65 @@ pre.cv-math-source {
   }
 }
 
+/* The running turn's activity line under its todo list (ActivityLine.tsx, agent.sessionStatus,
+   cx-ncc.102): three dots, what the agent is doing now and the turn's time. */
+.cv-activity {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 24px;
+  margin: 4px 0 8px;
+  padding-inline-start: 2px;
+  font-size: var(--text-body);
+  color: var(--cv-text-muted);
+}
+.cv-activity__label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cv-activity__time {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+.cv-activity__dots {
+  flex: none;
+  display: inline-flex;
+  gap: 2px;
+}
+.cv-activity__dots > span {
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: var(--agent-accent, currentColor);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .cv-activity__dots > span {
+    animation: cv-activity-dot 1.2s ease-in-out infinite;
+  }
+  .cv-activity__dots > span:nth-child(2) {
+    animation-delay: 0.15s;
+  }
+  .cv-activity__dots > span:nth-child(3) {
+    animation-delay: 0.3s;
+  }
+}
+/* Static status indicators (or Reduce Motion, above): the dots hold still. */
+:root[data-status-indicators="static"] .cv-activity__dots > span {
+  animation: none;
+}
+@keyframes cv-activity-dot {
+  0%,
+  60%,
+  100% {
+    opacity: 0.35;
+  }
+  30% {
+    opacity: 1;
+  }
+}
+
 /* ---------- A background shell's end (BackgroundTaskNote.tsx, cx-ncc.84) ---------- */
 .cv-bgtask[data-state="failed"] .cv-tool__icon {
   color: var(--agent-danger);
@@ -2775,4 +2858,8 @@ pre.cv-math-source {
 }
 .cv-user__steer[data-steer="waiting"] .cv-user__steer-label {
   color: var(--agent-accent);
+}
+/* A steer's read state under another agent's message, in line with its text (App.tsx). */
+.cv-incoming > .cv-user__steer {
+  padding-left: 32.5px;
 }

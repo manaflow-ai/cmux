@@ -6,11 +6,13 @@ import type { HandoffClientState } from "./handoff/client";
 import type { Enforcement } from "./handoff/protocol";
 import type { SlashCommand } from "./slashCommands";
 import type { SummaryCheckpoint } from "./changes/turnCheckpointSource";
+import type { IncomingPrompt } from "./conversation/incomingMessage";
 import { appHref, linkHref, safeHref } from "./replyHref";
 import type { ShellRun } from "./shell/shellRuns";
 import { SUBAGENTS, type Subagent } from "./subagents/subagentFold";
 import { SUBAGENT_OF, SUBAGENT_ROW } from "./subagents/subagentRows";
 import type { ComposerAttachment } from "./attachments";
+import { STARTED_SESSIONS, type StartedSession, hasStatusLine } from "./started/startedSessions";
 
 /** One item of an agent's todo list (an ACP `plan` entry). */
 export type AcpmuxPlanEntry = { content: string; status: "pending" | "in_progress" | "completed" };
@@ -106,6 +108,17 @@ export type AcpmuxRow = {
   offers?: AcpmuxSessionOffer[];
   /// A prompt acpmux sent this chat with a suggested task's result (offer/SuggestedTasks.tsx).
   received?: AcpmuxOfferResult;
+  /// A prompt that is not the person's: another agent's message, or harness bookkeeping
+  /// (conversation/incomingMessage.ts).
+  incoming?: Extract<IncomingPrompt, { kind: "message" | "notice" | "hidden" }>;
+  /// The prompt as the agent got it, when the row shows something else (an incoming message's
+  /// body): what Retry sends again.
+  resend?: string;
+  /// A prompt the person did not type (a task's result, another agent's message, bookkeeping),
+  /// whether or not it draws as one: prompt recall leaves it out (composer/promptHistory.ts).
+  untyped?: boolean;
+  /// A started sessions row's chats, oldest first (started/StartedSessionCard.tsx).
+  started?: StartedSession[];
   toolCount?: number;
   durationMs?: number;
   /// A turn summary's checkpoints, when acpmux recorded them (changes/turnCheckpointSource.ts).
@@ -536,6 +549,8 @@ function fallbackRowHeight(row: AcpmuxRow, width: number): number {
   if (row.kind === SUBAGENT_OF) return 44;
   // The 27px disclosure line, and the live status lines in its place.
   if (row.kind === WORKED || row.kind === WORKING || row.kind === THINKING) return 35;
+  // The activity line: one 24px line with 4px above and 8px below (conversation/ActivityLine.tsx).
+  if (row.kind === ACTIVITY_LINE) return 36;
   // The 20px date line with 8px above it.
   if (row.kind === DATE) return 36;
   // The preview card: its 58px head over the thumbnail, and 6px below (PreviewCard.tsx).
@@ -552,6 +567,12 @@ function fallbackRowHeight(row: AcpmuxRow, width: number): number {
     const started = row.offers.filter((offer) => offer.outcome === "accepted").length;
     return 8 + 8 + 28 + open * 84 + started * 30;
   }
+  // A turn's started chats (started/StartedSessionCard.tsx): one card, its 1px edges, a 34px row
+  // for each, 50px with its status line, 1px hairlines between, in 8px of row padding.
+  if (row.kind === STARTED_SESSIONS && row.started)
+    return (
+      8 + 2 + row.started.reduce((sum, child) => sum + (hasStatusLine(child) ? 50 : 34), 0) + (row.started.length - 1)
+    );
   // A paused agent pair: its sentence over the held count and Resume; resumed, one line.
   if (row.kind === "agentPair") return row.agentPair?.resumed ? 37 : 37 + 24;
   // A session start: its facts line, and the compaction note under it until it is dismissed.
@@ -689,6 +710,22 @@ function lexIncrementally(entry: PreparedRow, text: string): void {
 function measuredRowHeight(row: AcpmuxRow, width: number, cache: Map<string, PreparedRow>): number {
   // A task's result is one 26px line, however long the prompt that brought it (offer/SuggestedTasks.tsx).
   if (row.received) return 26 + 16;
+  // Another agent's message: its route line over two lines of the message; a notice is a tool
+  // row's line (conversation/IncomingMessageCard.tsx).
+  // Its images' 72px row with 6px below, and a steer's status line, as under a bubble.
+  if (row.incoming?.kind === "message")
+    return (
+      32 +
+      2 * 19 +
+      7 +
+      8 +
+      (row.incoming.message.text.length > 140 ? 12 : 0) +
+      (row.images?.length ? 78 : 0) +
+      (row.steer ? USER_STATUS_HEIGHT : 0)
+    );
+  if (row.incoming?.kind === "notice") return 26 + 8;
+  // Bookkeeping alone: a turn's start that draws nothing (conversation/turns.ts).
+  if (row.incoming?.kind === "hidden") return 0;
   // A preview row's text is its address, not prose: the card's height is fixed.
   if (!row.text || row.kind === PREVIEW) return fallbackRowHeight(row, width);
   let entry = cache.get(row.id);
@@ -842,7 +879,7 @@ import { lexer, type Token, type Tokens } from "marked";
 import { isFoldedRun } from "./conversation/toolRunSummary";
 import { PREVIEW_FRAME_HEIGHT, previewFrameHeight } from "./conversation/previewUrl";
 import { RENDER_FRAME_MIN_HEIGHT } from "./conversation/renderCall";
-import { DATE, isFoldedCopy, PREVIEW, RENDER, THINKING, WORKED, WORKING } from "./conversation/turns";
+import { ACTIVITY_LINE, DATE, isFoldedCopy, PREVIEW, RENDER, THINKING, WORKED, WORKING } from "./conversation/turns";
 import type { AcpmuxSessionEntry } from "./sessionList";
 import { agentName } from "./agents";
 import { type Translate, translate } from "./i18n";

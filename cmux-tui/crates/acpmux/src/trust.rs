@@ -16,6 +16,7 @@
 //! These rules serve `get` and the trust gate (`session_level`) alike.
 
 use std::collections::BTreeMap;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use serde_json::{Value, json};
@@ -148,11 +149,23 @@ pub enum Failure {
 /// acpmux's record; a missing file is empty, an unreadable one is an error, so a
 /// damaged record is never overwritten with a fresh one.
 fn read_record(path: &Path) -> Result<BTreeMap<String, String>, Failure> {
-    match std::fs::read_to_string(path) {
-        Ok(text) => serde_json::from_str(&text).map_err(|e| {
+    let mut file = match crate::config::private_state_file(path) {
+        Ok(file) => file,
+        Err(_)
+            if std::fs::symlink_metadata(path)
+                .is_err_and(|e| e.kind() == std::io::ErrorKind::NotFound) =>
+        {
+            return Ok(BTreeMap::new());
+        }
+        Err(error) => {
+            return Err(Failure::Record(format!("trust record {}: {error:#}", path.display())));
+        }
+    };
+    let mut text = String::new();
+    match file.read_to_string(&mut text) {
+        Ok(_) => serde_json::from_str(&text).map_err(|e| {
             Failure::Record(format!("trust record {} is damaged: {e}", path.display()))
         }),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(BTreeMap::new()),
         Err(e) => Err(Failure::Record(format!("trust record {}: {e}", path.display()))),
     }
 }
@@ -247,4 +260,34 @@ pub fn set(paths: &Paths, cwd: &str, level: &str) -> Result<Value, Failure> {
     crate::config::write_atomic(&paths.record, &bytes)
         .map_err(|e| Failure::Record(format!("trust record: {e}")))?;
     Ok(json!({"cwd": cwd, "level": level.as_str()}))
+}
+
+#[cfg(all(test, unix))]
+mod security_tests {
+    use super::*;
+
+    #[test]
+    fn acpmux_trust_record_never_follows_a_link() {
+        let root = std::env::temp_dir().join(format!(
+            "acpmux-trust-link-{}-{}",
+            std::process::id(),
+            uuid::Uuid::now_v7()
+        ));
+        let cwd = root.join("work");
+        std::fs::create_dir_all(&cwd).unwrap();
+        let target = root.join("planted.json");
+        std::fs::write(&target, format!(r#"{{"{}":"trusted"}}"#, cwd.display())).unwrap();
+        let record = root.join("trust.json");
+        std::os::unix::fs::symlink(&target, &record).unwrap();
+        let paths = Paths {
+            claude_json: root.join("claude.json"),
+            codex_config: root.join("config.toml"),
+            record,
+            agent_home: None,
+        };
+        let error =
+            get(&paths, &cwd.to_string_lossy()).expect_err("a linked trust decision loaded");
+        assert!(matches!(error, Failure::Record(_)), "{error:?}");
+        let _ = std::fs::remove_dir_all(&root);
+    }
 }

@@ -123,7 +123,7 @@ export function SummaryCard({
       <aside
         ref={panel}
         className="acpmux-summary-card"
-        // Focusable from script only: the last place closing the Subagents tab can leave focus.
+        // ui-allow: focusable from script only, the last place closing the Subagents tab can leave focus.
         tabIndex={-1}
         aria-label={title}
         data-placement={card.column ? "inline" : "popover"}
