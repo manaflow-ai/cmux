@@ -88,14 +88,14 @@ public nonisolated struct PageDevServer: Sendable, Equatable {
     }
 
     /// Whether `response` still comes from this server; a redirect elsewhere is refused.
-    func isOwn(_ response: URL?) -> Bool {
+    public func isOwn(_ response: URL?) -> Bool {
         guard let response else { return false }
         return response.scheme?.lowercased() == "http" && response.host?.lowercased() == root.host
             && response.port == root.port
     }
 
     /// One uncached GET from the server.
-    @concurrent static func fetch(_ url: URL) async -> (Data, HTTPURLResponse)? {
+    @concurrent public static func fetch(_ url: URL) async -> (Data, HTTPURLResponse)? {
         let request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 30)
         guard let (data, response) = try? await URLSession.shared.data(for: request),
               let http = response as? HTTPURLResponse else { return nil }

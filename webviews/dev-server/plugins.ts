@@ -87,6 +87,7 @@ export const DEV_SERVER_PORT = Number(process.env.CMUX_WEBVIEWS_DEV_PORT) || 420
 /// All dev-server plugins, for vite.config.ts.
 export function cmuxDevServer(): Plugin[] {
   return [
+    appHostServer(),
     devServerShell(),
     agentPaneHost(),
     pagesHost(),
@@ -97,6 +98,31 @@ export function cmuxDevServer(): Plugin[] {
     galleryHost(),
     { ...galleryModules(), apply: "serve" },
   ];
+}
+
+/// A running cmux-next can load its pages and agent pane from this server (`web-dev.json`,
+/// WebDevOverride.swift): each page keeps its own `cmux-page://` or `cmux-agent://pane` origin and
+/// the app fetches the files from here, so the Vite client must be told where its HMR socket is,
+/// and the Settings page imports its schema from schemas/settings above webviews/. Only a server on
+/// a fixed port (`bun run dev`, dev-slot.sh, fastloop) that sets neither itself; a test's server on
+/// port 0 keeps Vite's defaults. vite.config.pages-dev.ts sets both the same way.
+function appHostServer(): Plugin {
+  return {
+    name: "cmux-dev-app-host",
+    apply: "serve",
+    config(config) {
+      const port = config.server?.port;
+      if (typeof port !== "number" || port === 0) return;
+      return {
+        server: {
+          hmr: config.server?.hmr ?? { protocol: "ws", host: "127.0.0.1", clientPort: port },
+          fs: config.server?.fs?.allow
+            ? undefined
+            : { allow: [webviewsRoot, path.join(webviewsRoot, "..", "schemas/settings")] },
+        },
+      };
+    },
+  };
 }
 
 let recentsStore: ReturnType<typeof devRecents> | undefined;

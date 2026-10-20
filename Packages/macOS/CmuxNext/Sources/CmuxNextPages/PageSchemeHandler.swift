@@ -39,6 +39,8 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
     let devServer: PageDevServer?
     /// Fetches one file from ``devServer`` (tests replace it).
     var fetchDevServer: @Sendable (URL) async -> (Data, HTTPURLResponse)? = { await PageDevServer.fetch($0) }
+    /// The live override (``WebDevOverride/current``; tests replace it).
+    var liveOverride: @Sendable () -> WebDevOverride = { WebDevOverride.current }
     /// Tasks started and not yet answered or stopped; a stopped task must not be answered.
     private var active: Set<ObjectIdentifier> = []
 
@@ -68,6 +70,7 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
     }
 
     func webView(_ webView: WKWebView, start task: any WKURLSchemeTask) {
+        WebDevOverrideWatcher.shared.served(webView) // a web-dev.json change reloads it
         let request = task.request
         guard request.httpMethod.map({ $0 == "GET" }) ?? true,
               let url = request.url, let served = served(url),
@@ -95,16 +98,24 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
 
     /// The reply for a GET of `url`: a bundled file (nil when missing or outside the root, as
     /// before), or the dynamic source's answer (a 404 when it has none). With a ``devServer`` a
-    /// page file comes from that server instead.
+    /// page file comes from that server instead. The live override (``WebDevOverride``) is read
+    /// per request: its server's answers, else (a stopped server, a 4xx or 5xx) its overlay
+    /// folder's file, else the bundled one.
     func reply(to url: URL) async -> Reply? {
         guard let served = served(url) else { return nil }
-        if let devServer, let remote = devServer.url(for: url, page: served.page) {
-            guard let (body, response) = await fetchDevServer(remote), devServer.isOwn(response.url) else { return nil }
-            let type = response.value(forHTTPHeaderField: "Content-Type").flatMap(Self.validMIMEType)
-                ?? Self.mimeType(forExtension: remote.pathExtension)
-            return Self.reply(url: url, csp: devServer.csp(for: served.page), status: response.statusCode, mimeType: type, body: body)
+        let live = liveOverride()
+        if let devServer = devServer ?? live.server, let remote = devServer.url(for: url, page: served.page) {
+            if let (body, response) = await fetchDevServer(remote), devServer.isOwn(response.url),
+               self.devServer != nil || response.statusCode < 400 {
+                let type = response.value(forHTTPHeaderField: "Content-Type").flatMap(Self.validMIMEType)
+                    ?? Self.mimeType(forExtension: remote.pathExtension)
+                return Self.reply(url: url, csp: devServer.csp(for: served.page), status: response.statusCode, mimeType: type, body: body)
+            }
+            // The launch variable's server (Debug) fails the request, as before.
+            if self.devServer != nil { return nil }
         }
-        switch Self.route(for: url, page: served.page, root: served.root) {
+        let root = live.overlayRoot(for: served.page, bundledRoot: served.root) ?? served.root
+        switch Self.route(for: url, page: served.page, root: root) {
         case nil:
             return nil
         case .file(let file):
