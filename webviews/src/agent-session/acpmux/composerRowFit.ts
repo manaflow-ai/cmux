@@ -2,8 +2,8 @@ import { type RefObject, useLayoutEffect } from "react";
 
 // The composer's controls row never cuts a label (Leo 2026-10-14: "Claude Opus …", "Medi…"). A
 // narrower pane swaps whole units, never letters: the model, effort (its own chip, Leo 2026-10-15:
-// "move it back out"), the permission mode, the speed bolt and the mic each take a shorter form or
-// leave, and +, the access glyph, Send or Stop and every chevron always stay.
+// "move it back out"), the permission mode and the speed bolt each take a shorter form or leave,
+// and +, the access glyph, the mic, Send or Stop and every chevron always stay.
 //
 // The steps are composer widths, in COMPOSER_FIT_STEPS. composerLocation.css applies them with
 // container queries on the composer (`composer`, #20548), whose widths are literals that
@@ -36,8 +36,6 @@ export const COMPOSER_FIT_STEPS = {
   modelMark: 370,
   /** The speed bolt leaves the row (#20964's narrow step); the reasoning menu's speed rows set it. */
   speedHidden: 370,
-  /** The mic leaves the row. */
-  micHidden: 340,
   /** The location strip's folder name truncates in the middle. */
   folderMiddleTruncate: 340,
   /** The row's group gap narrows and the card reaches 10px from the pane's edges (#20548). */
@@ -56,8 +54,8 @@ export type FitForm = "full" | "short" | "family" | "icon" | "hidden";
 /** The row's steps: at its width (COMPOSER_FIT_STEPS) `unit` takes the form `to`. Labels shorten
  *  early and whole, a little before the row runs out of room: effort's short name, the model's
  *  family, the permission label (its glyph stays), the model's mark alone (its name only while the
- *  row can hold it, #20548), then the speed bolt leaves (the reasoning menu still sets it); the mic
- *  leaves only when nothing is left to shorten. A row too long for its width's steps takes the next
+ *  row can hold it, #20548), then the speed bolt leaves (the reasoning menu still sets it). The mic
+ *  never leaves (Leo 2026-10-19, as Claude Code's): the prompt gives way instead. A row too long for its width's steps takes the next
  *  ones too, in this order, so a transient control (Steer while a turn runs) takes the mic last.
  *  One table: the steps change here. */
 export const ROW_FIT_STEPS: readonly { step: keyof typeof COMPOSER_FIT_STEPS; unit: FitUnit; to: FitForm }[] = [
@@ -66,7 +64,6 @@ export const ROW_FIT_STEPS: readonly { step: keyof typeof COMPOSER_FIT_STEPS; un
   { step: "accessLabelHidden", unit: "access", to: "icon" },
   { step: "modelMark", unit: "model", to: "icon" },
   { step: "speedHidden", unit: "speed", to: "hidden" },
-  { step: "micHidden", unit: "mic", to: "hidden" },
 ];
 
 const UNITS: readonly FitUnit[] = ["access", "effort", "mic", "model", "speed"];

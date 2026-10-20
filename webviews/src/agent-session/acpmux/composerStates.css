@@ -134,8 +134,9 @@
   outline-offset: 2px;
 }
 
-/* Send is the one filled control, iMessage's blue (styles.css --acpmux-send-fill, never the ANSI
-   blue); Stop is the same disc in the text color (composerLocation.css). Each steps toward the
+/* Send is the one filled control, in the theme's own ink as Claude Code's (Leo 2026-10-19: no
+   system or iMessage blue anywhere): the text color's disc with the composer's surface for its
+   arrow (styles.css --acpmux-send-fill); Stop is the same disc (composerLocation.css). Each steps toward the
    base on hover and further on press. */
 .acpmux-send.acpmux-send-ready:hover {
   background: color-mix(in srgb, var(--acpmux-send-fill) 88%, var(--acpmux-base));

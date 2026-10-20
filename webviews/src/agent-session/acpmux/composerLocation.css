@@ -276,7 +276,9 @@
 }
 .ui-menu-item.acpmux-access-item {
   display: grid;
-  grid-template-columns: 16px 16px minmax(0, 1fr) auto;
+  /* Claude Code's mode menu (Leo 2026-10-19): the mode's shield, its name and description, then a
+     trailing gutter holding its number, or the check on the chosen row, as Claude's model menu. */
+  grid-template-columns: 16px minmax(0, 1fr) 16px;
   align-items: center;
   gap: 8px;
   min-height: var(--ui-row-height);
@@ -285,14 +287,16 @@
   color: var(--agent-text);
 }
 .ui-menu-item.acpmux-access-item[data-highlighted] { background: var(--acpmux-menu-hover); }
-.acpmux-access-item .ui-menu-check { grid-column: 1; display: inline-flex; width: 16px; justify-content: center; margin: 0; color: var(--agent-text); font-weight: 600; }
+.acpmux-access-item .ui-menu-check { grid-row: 1; grid-column: 3; display: inline-flex; width: 16px; justify-content: center; margin: 0; color: var(--agent-text); font-weight: 600; }
 .acpmux-access-item-icon { display: inline-flex; align-items: center; color: var(--agent-muted); }
 .acpmux-access-item-icon .acpmux-icon { width: 16px; height: 16px; }
-.acpmux-access-item .acpmux-access-item-icon { grid-column: 2; }
-.acpmux-access-item .acpmux-menu-text { grid-column: 3; min-width: 0; }
+.acpmux-access-item .acpmux-access-item-icon { grid-row: 1; grid-column: 1; }
+.acpmux-access-item .acpmux-menu-text { grid-row: 1; grid-column: 2; min-width: 0; }
 /* The numbers are secondary, as a native menu's key equivalents: quieter than the row's title. */
-.acpmux-access-item .ui-menu-shortcut { grid-column: 4; margin-inline-start: 0; padding-inline-start: 8px; color: var(--agent-muted); font-size: var(--text-detail); font-variant-numeric: tabular-nums; }
+.acpmux-access-item .ui-menu-shortcut { grid-row: 1; grid-column: 3; justify-self: center; margin-inline-start: 0; padding-inline-start: 0; color: var(--agent-muted); font-size: var(--text-detail); font-variant-numeric: tabular-nums; }
 .acpmux-access-item .acpmux-menu-label { font-size: var(--text-control); }
+/* The chosen row shows its check where its number was. */
+.acpmux-access-item[data-checked] .ui-menu-shortcut { visibility: hidden; }
 .acpmux-access-item .acpmux-menu-description { display: block; margin-top: 1px; color: var(--agent-muted); font-size: var(--text-detail); line-height: 15px; }
 .acpmux-access-item.acpmux-unrestricted .acpmux-access-item-icon { color: var(--acpmux-warning); }
 .acpmux-access-grants {
@@ -599,8 +603,8 @@
 .acpmux-composer-bar .acpmux-picker-button > * { flex: none; }
 /* The row swaps whole units as the composer narrows (composerRowFit.ts COMPOSER_FIT_STEPS):
    labels shorten early and whole, effort's short name ("Med") at 470 px, the model's family at
-   440, the access label (its glyph stays) at 420, the model's mark alone at 370; the mic leaves at
-   340, once nothing is left to shorten. A unit's part shows in the
+   440, the access label (its glyph stays) at 420, the model's mark alone at 370; the mic
+   never leaves. A unit's part shows in the
    forms its data-fit-forms lists; a part of another form is laid out of the row, absolute and
    invisible, so composerRowFit.ts still knows its width, and its control clips it so it adds no
    scroll width. The container queries are the composer's widths (#20548's `composer` container) (literals:
@@ -630,7 +634,6 @@
 .acpmux-composer-bar[data-fit-access="icon"] [data-fit-part="access"]:not([data-fit-forms~="icon"]),
 .acpmux-composer-bar[data-fit-effort="short"] [data-fit-part="effort"]:not([data-fit-forms~="short"]),
 .acpmux-composer-bar[data-fit-speed="hidden"] [data-fit-part="speed"]:not([data-fit-forms~="hidden"]),
-.acpmux-composer-bar[data-fit-mic="hidden"] [data-fit-part="mic"]:not([data-fit-forms~="hidden"]),
 .acpmux-composer-bar[data-fit-model="family"] [data-fit-part="model"]:not([data-fit-forms~="family"]),
 .acpmux-composer-bar[data-fit-model="icon"] [data-fit-part="model"]:not([data-fit-forms~="icon"]) {
   position: absolute;
@@ -711,21 +714,7 @@
     pointer-events: none;
   }
 }
-@container composer (max-width: 340px) {
-  .acpmux-composer-bar [data-fit-part="mic"]:not([data-fit-forms~="hidden"]) {
-    position: absolute;
-    top: 0;
-    inset-inline-start: 0;
-    visibility: hidden;
-    pointer-events: none;
-  }
-}
-/* The New Tab row (.nt-pickers) has no fit hook: its mic leaves at the same step. Its chips can
-   only shrink to the model's 56 px floor, so under it the actions cluster ran into the mode chip
-   (agent-pane.narrow new-tab at 280 px). A listening mic stays. */
-@container composer (max-width: 340px) {
-  .nt-pickers .acpmux-composer-actions .acpmux-mic:not([aria-pressed="true"]) { display: none; }
-}
+/* The mic never leaves a row (Leo 2026-10-19, as Claude Code's): the prompt gives way instead. */
 /* A listening mic stays in any row: its waveform shows the dictation and a click stops it. */
 .acpmux-composer-bar .acpmux-fit-mic[data-fit-part="mic"]:has(.acpmux-mic[aria-pressed="true"]) {
   position: static;
@@ -1050,3 +1039,38 @@
 /* A narrow composer lays the bolt out of the row (composerRowFit.ts speedHidden, the
    `[data-fit-part="speed"]` rules above): the reasoning menu's speed rows still set it. Its hover
    ease and its press's spring are the other chips' (composerStates.css). */
+
+/* Claude Code's split (Leo 2026-10-19, "stick it to the bottom"; ComposerFoot.tsx): under the plain
+   footer look the box keeps +, the prompt, the mic and Send or Stop, and the mode, model and effort
+   sit in a quiet row under it. As Claude Code draws it (measured from its composer at 1x): the
+   mode's text on the prompt's text edge, 16 px in from the box's side; the model and effort on the
+   right, their labels 8 px apart (each chip's 4 px hover inset, no gap), the last one 12 px in from
+   the box's right side; the row 28 px tall, 4 px under the box. No fill, no edge: the chips' rest,
+   hover, open, press and focus states are the bar's (above). Full access keeps its warning shield
+   so the risk shows without the menu. */
+.acpmux-composer-foot {
+  --acpmux-row-inset: 4px;
+  --acpmux-row-gap: 0px;
+  --acpmux-row-group-gap: 0px;
+  --acpmux-row-edge: 12px;
+  min-height: 28px;
+  margin-top: 4px;
+  padding-block: 0;
+  padding-inline: calc(16px - var(--acpmux-row-inset)) calc(var(--acpmux-row-edge) - var(--acpmux-row-inset));
+  gap: 0;
+  background: none;
+  box-shadow: none;
+}
+/* The chips lay out as the row's own items, so the mode goes left and the rest right. */
+.acpmux-composer-foot .acpmux-chips { display: contents; }
+.acpmux-composer-foot .acpmux-access {
+  order: -1;
+  margin-inline-end: auto;
+}
+.acpmux-composer-foot .acpmux-chips > .acpmux-mode:not(:first-child) { padding-inline-start: 0; }
+.acpmux-composer-foot .acpmux-access.acpmux-unrestricted .acpmux-access-trigger > .acpmux-icon:first-child {
+  display: inline-flex;
+  color: var(--acpmux-warning);
+}
+/* The box's own row, with the chips gone: + on the left, the mic and Send or Stop on the right. */
+.acpmux-composer-inner { min-height: 48px; }

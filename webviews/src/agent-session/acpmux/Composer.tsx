@@ -44,6 +44,7 @@ import {
 } from "./ComposerPickers";
 import { FileSearch } from "./FileSearch";
 import { FastToggle, SpeedToggleHost, type SpeedTiers } from "./FastToggle";
+import { ComposerFoot } from "./ComposerFoot";
 import { Icon } from "./icons/Icon";
 import { MentionMenu, mentionQuery, mentionResults, mentionText, useMentionSearch } from "./MentionMenu";
 import { Close, FileDoc } from "./conversation/icons";
@@ -1258,7 +1259,14 @@ export function Composer({
         </ContextMenu>
         {/* The button row: a right-click here shows a control hidden from its own (composerChrome.tsx). */}
         <ChromeArea className="acpmux-chrome-area" items={chrome.all}>
-          <div ref={bar} className="acpmux-composer-bar" data-footer-look={plainFooter ? "plain" : undefined}>
+          {/* Claude Code's split (Leo 2026-10-19), the plain footer's default: the box keeps +, the
+              prompt, the mic and Send or Stop; the mode, model and effort sit in a quiet row under
+              it (ComposerFoot below). The other look keeps them all in this row. */}
+          <div
+            ref={plainFooter ? undefined : bar}
+            className={plainFooter ? "acpmux-composer-bar acpmux-composer-inner" : "acpmux-composer-bar"}
+            data-footer-look={plainFooter ? "plain" : undefined}
+          >
             <input
               ref={chooser}
               className="acpmux-attach-input"
@@ -1278,6 +1286,7 @@ export function Composer({
             ) : (
               <Picker
                 label={t(COMPOSER_LABELS.add)}
+                tooltip={t(COMPOSER_LABELS.add)}
                 className="acpmux-composer-plus"
                 button={<PlusIcon />}
                 align="start"
@@ -1349,9 +1358,11 @@ export function Composer({
             {/* The granted-permission status gets no slot of its own in this row (hq#1957 item 15
                 compact row): grants live in the permission mode's Access menu, one lock. */}
             {/* The chips hand up the speed option the bolt before the mic draws (FastToggle.tsx). */}
-            <SpeedToggleHost.Provider value={setSpeed}>
-              <Chips snapshot={snapshot} permissionAccess={permissionAccess} />
-            </SpeedToggleHost.Provider>
+            {!plainFooter && (
+              <SpeedToggleHost.Provider value={setSpeed}>
+                <Chips snapshot={snapshot} permissionAccess={permissionAccess} />
+              </SpeedToggleHost.Provider>
+            )}
             <span className="acpmux-composer-actions">
               {/* Steer comes in at the cluster's leading edge, so the mic and Send keep their places
                   when typing during a turn turns Stop into Steer and Send (hq#1957). */}
@@ -1371,7 +1382,7 @@ export function Composer({
                   {t(steerKind === "steer" ? "composer.steer" : "composer.interrupt")}
                 </button>
               )}
-              {speed && <FastToggle speed={speed} />}
+              {!plainFooter && speed && <FastToggle speed={speed} />}
               {/* The mic leaves a narrow row (composerRowFit.ts micHidden). */}
               {accessory && (
                 <span className="acpmux-fit-mic" data-fit-part="mic" data-fit-forms="full">
@@ -1413,6 +1424,16 @@ export function Composer({
           </div>
         </ChromeArea>
       </div>
+      {plainFooter && (
+        <ChromeArea className="acpmux-chrome-area" items={chrome.all}>
+          <ComposerFoot ref={bar}>
+            <SpeedToggleHost.Provider value={setSpeed}>
+              <Chips snapshot={snapshot} permissionAccess={permissionAccess} />
+            </SpeedToggleHost.Provider>
+            {speed && <FastToggle speed={speed} />}
+          </ComposerFoot>
+        </ChromeArea>
+      )}
     </form>
   );
 }

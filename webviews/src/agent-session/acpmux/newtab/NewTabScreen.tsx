@@ -43,6 +43,8 @@ import { usePopupHost } from "../../../ui/UiProvider";
 import { UI_ANCHOR_GAP } from "../../../ui/anchor";
 import { useComposerChrome } from "../composerChrome";
 import { useComposerSettings } from "../composerSettings";
+import { ComposerFoot } from "../ComposerFoot";
+import { useRowFit } from "../composerRowFit";
 import { useMenuPressGuard } from "../menuPressGuard";
 import { useMinuteClock } from "../clock";
 
@@ -232,6 +234,9 @@ export function NewTabScreen(props: Props) {
   // The chat composer's footer look (composerSettings.ts plainFooter): the New Tab row draws the
   // same plain chips, so the two composers never disagree (composerLocation.css).
   const { plainFooter } = useComposerSettings();
+  // The quiet row's labels step down with the composer's width, as the chat's (composerRowFit.ts).
+  const foot = useRef<HTMLDivElement>(null);
+  useRowFit(foot);
   // A press outside an open chip menu only closes it (menuPressGuard.ts).
   useMenuPressGuard();
   const device = useDeviceChats();
@@ -665,7 +670,7 @@ export function NewTabScreen(props: Props) {
             >
               {/* The folder Enter asks in (screenActions: the picked project, else the tab's), so a pick's
               switch is the one Enter reuses. */}
-              {Chips && <Chips snapshot={chipSnapshot} {...(chatFolder ? { cwd: chatFolder } : {})} />}
+              {!plainFooter && Chips && <Chips snapshot={chipSnapshot} {...(chatFolder ? { cwd: chatFolder } : {})} />}
               <span className="acpmux-composer-actions">
                 {props.accessory}
                 {/* Send: a click does what Return does (a prompt, a row, or a shell command). */}
@@ -683,6 +688,15 @@ export function NewTabScreen(props: Props) {
             </div>
           </ChromeArea>
         </div>
+        {/* Claude Code's split, the chat composer's (ComposerFoot.tsx): the mode, model and effort in
+            a quiet row under the box; the box keeps the prompt, the mic and Send. */}
+        {plainFooter && Chips && (
+          <div className="nt-foot" onPointerDownCapture={touch}>
+            <ComposerFoot ref={foot}>
+              <Chips snapshot={chipSnapshot} {...(chatFolder ? { cwd: chatFolder } : {})} />
+            </ComposerFoot>
+          </div>
+        )}
       </div>
       {rows.length > 0 && box && (
         <Popover
