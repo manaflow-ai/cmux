@@ -86,6 +86,7 @@ nonisolated enum AppearanceSettingsSchema {
                 default: .string(BackdropSelectionSetting.defaultSelection?.id ?? "none"),
                 keywords: ["painting", "art", "wallpaper", "backdrop", "desktop", "attribution", "museum", "dark", "doré"]
             ),
+            PaneBackgroundsSetting.descriptor(group: window),
             SettingDescriptor(
                 ExperimentalAppearanceSetting().configPath, section: .appearance, group: window,
                 title: SettingsText.keyed("settings.appearance.experimentalControls", "Experimental Appearance Controls"),

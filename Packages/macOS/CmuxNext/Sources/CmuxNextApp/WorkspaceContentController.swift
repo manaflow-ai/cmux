@@ -300,6 +300,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         controller.view.toolbar = PaneToolbar(pane: controller) // the tab bar's hover "…" and pinned buttons
         controller.view.swapDrag = PaneSwapDrag(pane: controller)
         panes[pane] = controller
+        services.themes.applyPaneBackground(controller) // its own background and tint, before the first frame
         services.paneMounts.changed()
         sendTopology()
         // Settings… asked before any window had a pane waits for the first one (R82). It opens
