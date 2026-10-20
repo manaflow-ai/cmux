@@ -69,6 +69,29 @@ import Testing
         #expect(coordinator.isShowing(shown.id), "a scroll on the card dismissed it (\(coordinator.machine.phase))")
     }
 
+    /// The history is longer than the card: the wheel on it scrolls the history, and the card stays.
+    @Test func aScrollOnALongHistoryScrollsTheHistory() async throws {
+        let clock = ManualClock()
+        let (list, window, coordinator, rows) = Self.sidebar(clock: clock)
+        defer { coordinator.dismiss(.action); window.contentView = nil; window.close() }
+        let now = Date()
+        list.hoverCard.timelineSource = { _, limit in
+            (0..<min(limit, 40)).map { SidebarTimelineEntry(kind: .prompt, date: now.addingTimeInterval(-Double($0) * 60), text: "Prompt \($0)") }
+        }
+        let card = try await Self.showCard(list, coordinator, clock, row: try #require(rows.first))
+        let shown = try #require(coordinator.machine.shownTarget)
+        let body = try #require(coordinator.panel?.glass.contentView.subviews.compactMap { $0 as? WorkspaceHoverCardView }.first)
+        try #require(!body.timeline.isHidden, "the card shows no history")
+        #expect(body.timeline.scrollOffset == 0)
+        let history = body.timeline.scrollView
+        let frame = try #require(history.window).convertToScreen(history.convert(history.bounds, to: nil))
+        coordinator.pointerMoved(to: CGPoint(x: frame.midX, y: frame.midY))
+        #expect(card.contains(CGPoint(x: frame.midX, y: frame.midY)))
+        for _ in 0..<5 { _ = coordinator.handleMonitoredEvent(try Self.scrollEvent(dy: -40)) }
+        #expect(body.timeline.scrollOffset > 0, "the wheel did not scroll the history")
+        #expect(coordinator.isShowing(shown.id), "scrolling the history dismissed the card")
+    }
+
     @Test func aScrollOffTheCardStillEndsIt() async throws {
         let clock = ManualClock()
         let (list, window, coordinator, rows) = Self.sidebar(clock: clock)
