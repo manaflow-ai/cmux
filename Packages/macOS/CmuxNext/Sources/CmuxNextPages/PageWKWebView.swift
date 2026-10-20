@@ -178,11 +178,13 @@ final class PageWKWebView: WKWebView {
     /// every drag to WebKit.
     var fileDrop: PageFileDrop?
 
+    /// Reads the first file URL of a drag's pasteboard: a round trip to the pasteboard server.
+    var readDroppedFileURL: @MainActor (NSPasteboard) -> URL? = { pasteboard in
+        pasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true])?.first as? URL
+    }
+
     private func droppedFile(_ info: any NSDraggingInfo) -> URL? {
-        guard let fileDrop,
-              let url = info.draggingPasteboard.readObjects(forClasses: [NSURL.self],
-                                                            options: [.urlReadingFileURLsOnly: true])?.first as? URL,
-              fileDrop.accepts(url) else { return nil }
+        guard let fileDrop, let url = readDroppedFileURL(info.draggingPasteboard), fileDrop.accepts(url) else { return nil }
         return url
     }
 
