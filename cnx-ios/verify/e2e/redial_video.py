@@ -54,8 +54,8 @@ class Redial(tv.TV):
         self.save()
 
     def link(self, transport, env):
-        if self.state.get("phone_env") != env:
-            self.relaunch_phone(env)
+        # Every row starts from a fresh launch with its environment.
+        self.relaunch_phone(env)
         return self.set_mode("wg-direct" if transport == "wireguard" else "rtc-direct")
 
     def mac_workspaces(self):
@@ -174,8 +174,7 @@ class Redial(tv.TV):
         os.makedirs(d, exist_ok=True)
         r = {"row": f"terminal {how}", "start": datetime.datetime.now().isoformat(timespec="seconds"), **tv.load()}
         sim, j = self.sim, self.j
-        if self.state.get("phone_env"):
-            self.relaunch_phone({})
+        self.relaunch_phone({})
         r["link"] = self.set_mode("wg-direct")
         j.open_seed_workspace()
         r["term_before"] = j.current_tab_marker()

@@ -61,6 +61,8 @@ final class FakeOpener: BrowserStreamOpening, @unchecked Sendable {
         a.setVisible(false)
         await show(b, on: first)
         #expect(first.tabs == ["s1", "s2"])
+        first.sink("s2")?.browserMessage(Data(#"{"t":"rb.page","url":"https://example.org/moved","title":"M","loading":false,"can_go_back":true,"can_go_forward":false}"#.utf8))
+        await settle()
         await dropLink(first, ["s1", "s2"])
 
         let second = FakeOpener()
@@ -69,6 +71,8 @@ final class FakeOpener: BrowserStreamOpening, @unchecked Sendable {
         await until { !second.tabs.isEmpty }
         await settle()
         #expect(second.tabs == ["s2"], "only the shown tab opens on the new link")
+        // A restarted cnx-hostd starts the page where it was.
+        #expect(second.lock.withLock { second.opens.first?.url } == "https://example.org/moved")
 
         // The hidden one opens when it is shown again.
         b.setVisible(false)

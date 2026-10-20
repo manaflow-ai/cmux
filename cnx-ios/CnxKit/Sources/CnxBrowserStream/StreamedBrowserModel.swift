@@ -95,10 +95,6 @@ public final class StreamedBrowserModel: BrowserTabState {
     /// each other stop after two rounds (review finding 2).
     @ObservationIgnored private var liveSince: ContinuousClock.Instant?
     static let forgiveAfter: Duration = .seconds(20)
-    /// The next open is a reopen after the Mac stopped this page: it starts
-    /// at the page's current address. Otherwise the tab's own address goes
-    /// (a tab id the Mac reused after a restart must not get this page).
-    @ObservationIgnored private var reopenHere = false
     /// A stream opened while hidden (it said so after its `rb.open`): the
     /// directory reminds the Mac which tab is shown, so the lane goes back.
     @ObservationIgnored var openedHidden: (@MainActor () -> Void)?
@@ -190,8 +186,8 @@ public final class StreamedBrowserModel: BrowserTabState {
         let open = open
         let tab = tab
         // A page the Mac stopped starts again where it was, not at its first address.
-        let url = reopenHere ? url.flatMap { $0.absoluteString == "about:blank" ? nil : $0 } : nil
-        reopenHere = false
+        // (A cnx-hostd restart stops every host too: the page comes back where it was.)
+        let url = url.flatMap { $0.absoluteString == "about:blank" ? nil : $0 }
         // task-owner: one dial per connect; the result lands on the main actor
         Task { [weak self] in
             do {
@@ -256,7 +252,6 @@ public final class StreamedBrowserModel: BrowserTabState {
     /// another viewer took it).
     public func reopen() {
         autoReopens = 0
-        reopenHere = true
         if connection == nil { connect() }
     }
 
@@ -333,12 +328,10 @@ public final class StreamedBrowserModel: BrowserTabState {
             // The Mac stopped this page to make room (its host limit): a shown
             // page opens again at once, never a frozen frame.
             autoReopens += 1
-            reopenHere = true
             phase = .waiting(String(localized: "Reopening the page…"))
             connect()
         case .waitForView:
             // Opens when it is shown again (``setVisible(_:)``).
-            reopenHere = true
             phase = .waiting(String(localized: "Reopening the page…"))
         case .offerReopen:
             canReopen = true
