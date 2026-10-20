@@ -180,6 +180,30 @@ import Testing
         for id in ids { #expect(registry.descriptor(for: id)?.isPersonOnly == true) }
     }
 
+    /// Phone screenshots can contain authentication prompts and other private pixels,
+    /// and their optional output path writes a file. The socket must not expose that
+    /// capture-and-write primitive to an automated caller.
+    @Test func phoneScreenshotsAreRefusedOverTheSocket() async {
+        let registry = ActionRegistry.standard()
+        var ran = false
+        registry.bind("phone.screenshot", invoke: { _ in ran = true })
+        let router = ControlRouter(identity: testIdentity(), executor: RegistryControlBridge(registry: registry), settings: nil,
+                                   configuration: .loadTolerant)
+        router.updateCatalog(RegistryControlBridge.catalog(from: registry))
+
+        for origin: JSONValue in ["user", "cli", "mcp", "script", .null] {
+            let result = await router.handle(ControlRequest(method: "action.run", params: [
+                "action": "phone.screenshot", "origin": origin,
+                "args": ["path": "/tmp/phone.png"],
+            ]))
+            expectPersonOnlyRefusal(result, "phone.screenshot from \(origin)")
+        }
+        #expect(!ran)
+        #expect(registry.descriptor(for: "phone.screenshot")?.isPersonOnly == true)
+        #expect(registry.perform("phone.screenshot"))
+        #expect(ran, "an in-app palette or keyboard run still reaches the handler")
+    }
+
     @Test func toolPermissionActionsRequireAPersonInTheApp() async {
         let registry = ActionRegistry.standard()
         registry.context = [.agentPaneFocused]
