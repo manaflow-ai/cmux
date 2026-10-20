@@ -3,13 +3,15 @@ public import CoreGraphics
 /// Pane padding composed with the rest of the layout. A pane's frame (its
 /// cell) is what split and column geometry compute; its tab strip and
 /// content sit in the cell inset by `panePadding`. The border and rounded
-/// corners trace only the content area below the header (tab strip, browser
-/// toolbar) when the hosted view reports one (`PaneContentChrome`).
+/// corners trace only the content area below the header (the tab strip)
+/// when the hosted view reports one (`PaneContentChrome`).
 extension LayoutStyle {
     /// Gap the column strip leaves between and around columns. Each pane
     /// already brings `panePadding` on every side, so the strip adds only
     /// what the padding does not cover: the visible space between two
     /// columns' panes is `max(columnGap, 2 * panePadding)`, never both.
+    /// Edge-to-edge separations (dividers, none) get no gap by default
+    /// (`Metrics.stripColumnGap` is 0 unless the user set a column gap).
     public nonisolated var stripGap: CGFloat {
         max(0, columnGap - panePadding * 2)
     }
@@ -35,6 +37,14 @@ extension LayoutStyle {
     /// except under `layout.paneSeparation` none (the cursor is the cue).
     public nonisolated var showsDividerFeedback: Bool { paneSeparation.drawsDividerFeedback }
 
+    /// Row stacks use the same gap as columns, but their resize handles are
+    /// also the only visual cue between otherwise edge-to-edge rows. Keep a
+    /// quiet separator at rest whenever lines are enabled; `none` remains a
+    /// deliberate opt-out while the hit area and resize cursor still work.
+    public nonisolated var showsRowSeparator: Bool {
+        drawsLines && paneSeparation != .none
+    }
+
     /// Whether panes differ from plain edge-to-edge rectangles.
     public nonisolated var hasPaneChrome: Bool {
         panePadding > 0 || paneCornerRadius > 0 || showsPaneBorder
@@ -52,8 +62,8 @@ public nonisolated enum PaneChromeGeometry {
     }
 
     /// The rounded content area of a padded pane rect (`contentRect(forCell:)`)
-    /// whose hosted view has a `headerHeight`-point header (tab strip,
-    /// browser toolbar) on top and a `footerHeight`-point footer (a tab
+    /// whose hosted view has a `headerHeight`-point header (the tab strip)
+    /// on top and a `footerHeight`-point footer (a tab
     /// strip at the bottom, R109) below: the border, ring and rounding leave
     /// both out. Flipped coordinates (y grows down).
     public static func roundedRect(inPadded padded: CGRect, headerHeight: CGFloat, footerHeight: CGFloat = 0) -> CGRect {

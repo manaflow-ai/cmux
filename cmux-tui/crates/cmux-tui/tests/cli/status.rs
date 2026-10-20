@@ -8,6 +8,13 @@
 
 use super::*;
 
+#[path = "notification_levels.rs"]
+mod notification_levels;
+#[path = "status_wait.rs"]
+mod status_wait;
+#[path = "terminal_wait_until.rs"]
+mod terminal_wait_until;
+
 /// Runs the CLI against `server` with `--json --socket` and returns the raw
 /// output (no success assertion). `terminal` routes it as a cmux terminal
 /// would instead: `CMUX_TUI_SOCKET` plus `CMUX_TUI_TERMINAL_ID`.
@@ -215,6 +222,66 @@ fn status_entries_auto_clear_with_their_owner_and_replay_after_a_daemon_restart(
     assert!(entry(&server, &workspace, "note").is_none());
 }
 
+/// cx-6so.13: a pid reused while the daemon was down is not the owner. Two
+/// entries name the same running pid; one records an earlier start time, as
+/// if its owner had exited and the kernel handed the pid to the process that
+/// holds it now. The restarted daemon removes only that entry, keeps the
+/// other, and removes the other when the process now holding the pid exits.
+#[test]
+fn status_owner_pid_reused_while_the_daemon_was_down_clears_only_the_old_owner() {
+    let mut server = HeadlessServer::start("status-pid-reuse");
+    state_cli(&server, None, &["workspace", "create", "--name", "zeta", "--empty"]);
+    let workspace = workspace_id_named(&server, "zeta");
+    let mut holder = spawn_sleeper();
+    let pid = holder.id().to_string();
+    for key in ["stale", "live"] {
+        let output = status_output(
+            &server,
+            None,
+            &[
+                "status", "set", key, "--label", key, "--target", &workspace, "--state", "busy",
+                "--pid", &pid,
+            ],
+        );
+        assert_success(&output);
+    }
+    assert!(entry(&server, &workspace, "stale").is_some());
+    assert!(entry(&server, &workspace, "live").is_some());
+
+    // Stop the daemon (no shutdown path) and backdate the stale owner's
+    // recorded start time: that owner is a process that no longer runs.
+    let _ = server.child.kill();
+    let _ = server.child.wait();
+    let databases: Vec<PathBuf> = fs::read_dir(&server.state)
+        .unwrap()
+        .filter_map(Result::ok)
+        .map(|item| item.path().join("workspace-registry.sqlite3"))
+        .filter(|path| path.is_file())
+        .collect();
+    let mut rewritten = 0;
+    for database in &databases {
+        let connection = rusqlite::Connection::open(database).unwrap();
+        rewritten += connection
+            .execute(
+                "UPDATE workspace_status_meta
+                 SET owner_pid_start = CAST(CAST(owner_pid_start AS INTEGER) - 60000 AS TEXT)
+                 WHERE status_key = 'stale' AND owner_pid = ?1",
+                [holder.id()],
+            )
+            .unwrap();
+    }
+    assert_eq!(rewritten, 1, "the stale owner row in {databases:?}");
+
+    restart_daemon(&mut server);
+    assert_cleared(&server, &workspace, "stale", "its pid was reused by another process");
+    let live = entry(&server, &workspace, "live").expect("the current owner's entry stays");
+    assert_eq!(live["owner"]["pid"].to_string(), pid, "{live}");
+
+    holder.kill().unwrap();
+    holder.wait().unwrap();
+    assert_cleared(&server, &workspace, "live", "the process holding the pid exited");
+}
+
 /// A loading entry set from inside a terminal is owned by that terminal and
 /// removed when it closes; `status run` marks its run busy, owned by its own
 /// process, records the outcome, and exits with the command's status; a
@@ -368,6 +435,70 @@ fn status_set_refuses_a_forged_owner() {
     assert_eq!(output.status.code(), Some(2), "{}", String::from_utf8_lossy(&output.stderr));
 
     assert_eq!(entries(&server, &workspace), Vec::<serde_json::Value>::new());
+}
+
+/// cx-odyw4: a new terminal's shell can run `cmux status set` before the
+/// daemon has committed its tab. The set waits for the terminal to join its
+/// workspace, exits 0, and the entry is there.
+#[test]
+fn status_set_from_a_terminal_at_its_first_command_reaches_its_workspace() {
+    let server = HeadlessServer::start("status-new-terminal");
+    state_cli(&server, None, &["workspace", "create", "--name", "delta"]);
+    let workspace = workspace_id_named(&server, "delta");
+    let mut runs = Vec::new();
+    for index in 0..5 {
+        let code = server.dir.join(format!("set-{index}.code"));
+        let log = server.dir.join(format!("set-{index}.log"));
+        let script = format!(
+            "'{bin}' --json status set race-{index} 'Ready {index}' > '{log}' 2>&1; \
+             echo $? > '{code}.tmp' && mv '{code}.tmp' '{code}'",
+            bin = bin(),
+            log = log.display(),
+            code = code.display(),
+        );
+        let output = status_output(
+            &server,
+            None,
+            &["workspace", &workspace, "run", "--on-exit", "keep", "--", "/bin/sh", "-c", &script],
+        );
+        assert_success(&output);
+        let terminal = json_output(&output)["value"]["terminal_id"].as_str().unwrap().to_owned();
+        runs.push((index, terminal, code, log));
+    }
+    for (index, terminal, code, log) in runs {
+        let deadline = Instant::now() + Duration::from_secs(20);
+        let exit = loop {
+            if let Ok(text) = fs::read_to_string(&code) {
+                break text.trim().to_owned();
+            }
+            assert!(Instant::now() < deadline, "status set in {terminal} never finished");
+            std::thread::sleep(Duration::from_millis(50));
+        };
+        let printed = fs::read_to_string(&log).unwrap_or_default();
+        assert_eq!(exit, "0", "status set in new terminal {terminal} failed: {printed}");
+        let key = format!("race-{index}");
+        let set = entry(&server, &workspace, &key)
+            .unwrap_or_else(|| panic!("{key} from {terminal} is not in its workspace: {printed}"));
+        assert_eq!(set["text"], format!("Ready {index}"), "{set}");
+    }
+}
+
+/// A caller terminal the session never shows fails the set after a bounded
+/// wait, non-zero, with a message that names the terminal and the way out.
+#[test]
+fn status_set_from_an_unknown_terminal_exits_non_zero_after_a_bounded_wait() {
+    let server = HeadlessServer::start("status-unknown-terminal");
+    state_cli(&server, None, &["workspace", "create", "--name", "epsilon"]);
+    let unknown = format!("term_{}", "0".repeat(32));
+    let started = Instant::now();
+    let output = status_output(&server, Some(&unknown), &["status", "set", "lost", "Lost"]);
+    assert!(started.elapsed() < Duration::from_secs(15), "the wait is not bounded");
+    assert!(!output.status.success(), "a set from an unknown terminal succeeded");
+    let error = json_error(&output);
+    assert_eq!(error["code"], "selector.not_found", "{error}");
+    let message = error["message"].as_str().unwrap_or_default();
+    assert!(message.contains(&unknown), "{error}");
+    assert!(message.contains("cmux workspace <workspace>"), "{error}");
 }
 
 /// cx-uf8b (nxdog94 preflight): the root help lists `status`, `status --help`

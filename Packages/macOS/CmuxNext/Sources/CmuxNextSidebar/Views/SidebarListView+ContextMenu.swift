@@ -1,13 +1,14 @@
 import AppKit
 // Right-click: resolve the target, let the App build the menu from the
 // action registry.
-extension SidebarListView {
+extension SidebarListViewComponents {
     override func menu(for event: NSEvent) -> NSMenu? {
         let point = convert(event.locationInWindow, from: nil)
         if case let .group(id)? = displayed.row(at: point.y)?.key {
-            // A right-click on a group shows its full menu, the same as its
-            // more button (cx-a9h6); a click on the chip edits name and color.
-            groupEditing.showMenu(id)
+            // A right-click on a group opens its editor (cx-rcby, as Chrome's
+            // group bubble), like its more button; the editor's More Group
+            // Actions row shows the full menu (Lawrence 2026-10-14).
+            groupEditing.open(id)
             return nil
         }
         guard let contextMenuProvider else { return nil }
@@ -25,6 +26,10 @@ extension SidebarListView {
             target = .section(id)
         case let .tab(workspace, tab)?:
             target = .tab(workspace, tab)
+        case let .item(item)?:
+            target = .layoutItem(LayoutItemID(item))
+        case .block?:
+            target = .background
         case nil:
             target = .background
         }

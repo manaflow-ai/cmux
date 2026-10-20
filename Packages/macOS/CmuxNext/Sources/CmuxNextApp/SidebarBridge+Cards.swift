@@ -1,7 +1,9 @@
 import CmuxNextCompat
 import Foundation
 import CmuxNextActions
+import CmuxNextNowPlaying
 import CmuxNextPages
+import CmuxNextSettings
 import CmuxNextSidebar
 import CmuxNextUpdater
 import Observation
@@ -9,7 +11,8 @@ import Observation
 extension SidebarBridge {
     func observeCards() {
         cardsObservation?.cancel()
-        cardsObservation = SidebarCardFeed.start(model: model, updater: services.updater, window: state, registry: services.registry)
+        let nowPlaying = model.followNowPlaying(services.cache.pageRequests.sidebarSources) { [weak services] in services?.settings?.snapshot.nowPlaying.enabled ?? NowPlayingSettings.enabledDefault }
+        cardsObservation = SidebarCardFeed.start(model: model, updater: services.updater, window: state, registry: services.registry, settings: services.settings).cancelling(nowPlaying)
     }
 }
 
@@ -32,10 +35,11 @@ enum SidebarCardFeed {
     /// The cards, and with `window` its What's New item (SidebarWhatsNewItemFeed):
     /// one task, so the bridge cancels both together. `registry` gives the
     /// tip card its action's shortcut.
-    static func start(model: SidebarModel, updater: UpdaterService, window: WindowState?, registry: ActionRegistry? = nil) -> Task<Void, Never> {
+    static func start(model: SidebarModel, updater: UpdaterService, window: WindowState?, registry: ActionRegistry? = nil,
+                      settings: SettingsController? = nil) -> Task<Void, Never> {
         let cards = start(model: model, updater: updater, registry: registry)
         guard window != nil else { return cards }
-        let whatsNew = SidebarWhatsNewItemFeed.start(model: model, center: updater.whatsNew)
+        let whatsNew = SidebarWhatsNewItemFeed.start(model: model, settings: settings)
         return Task { await withTaskCancellationHandler { await cards.value } onCancel: { cards.cancel(); whatsNew.cancel() } }
     }
 
@@ -65,19 +69,18 @@ enum SidebarCardFeed {
         case .noticeAction(let card, let action):
             noticeAction(card, action, updater: services.updater, open: { openUpdateLink($0, services: services) })
         case .dismissNotice(let card): dismissNotice(card, updater: services.updater)
-        case .openWhatsNew, .shareCmux, .dismissUpdated: route(intent, registry: services.registry, updater: services.updater)
+        case .openWhatsNew, .dismissUpdated: route(intent, registry: services.registry, updater: services.updater)
         default: break
         }
     }
 
-    /// The "cmux Updated!" card (cx-7py7): its rows run the palette's own
-    /// actions as the user's (`updates.whatsNew` opens the page and marks
-    /// this version seen; `app.shareCmux` opens the modal); its x marks this
-    /// version seen, so the card and the What's New dot go together.
+    /// The "cmux Updated!" card (cx-7py7): its button runs the palette's
+    /// `updates.whatsNew` as the user's (it opens the page and marks this
+    /// version seen); its x marks this version seen, so the card and the
+    /// What's New dot go together. Share cmux is the palette's (`app.shareCmux`).
     static func route(_ intent: SidebarIntent, registry: ActionRegistry, updater: UpdaterService) {
         switch intent {
         case .openWhatsNew: _ = registry.perform("updates.whatsNew", invocation: ActionInvocation(origin: .user))
-        case .shareCmux: _ = registry.perform("app.shareCmux", invocation: ActionInvocation(origin: .user))
         case .dismissUpdated: updater.whatsNew.dismissUpdated()
         default: break
         }
@@ -88,7 +91,7 @@ enum SidebarCardFeed {
     static func updatedCard(_ updater: UpdaterService) -> SidebarUpdatedCard? {
         guard updater.readyCard == nil, updater.card == nil, updater.testFeedURL == nil, updater.whatsNew.showsUpdatedCard else { return nil }
         return SidebarUpdatedCard(title: UpdaterService.updatedCardTitle, whatsNewTitle: UpdaterService.updatedCardWhatsNewTitle,
-                                  shareTitle: UpdaterService.updatedCardShareTitle, dismissLabel: UpdaterService.updatedCardDismissLabel)
+                                  dismissLabel: UpdaterService.updatedCardDismissLabel)
     }
 
     /// A link in the update card's popover (a pull request, the release
@@ -103,11 +106,12 @@ enum SidebarCardFeed {
         }
     }
 
-    /// A notice button: the update status's actions (Release Notes is a
-    /// link `open` shows like a popover link), Use Real Feed, an
-    /// announcement's allow-listed Try It, a tip's Try It and its x's menu.
+    /// A notice button: the update status's actions (Release Notes is a link `open` shows like a popover
+    /// link), the update cards' x menu, Use Real Feed, an announcement's Try It, a tip's Try It and x menu.
     static func noticeAction(_ card: String, _ action: String, updater: UpdaterService, open: (URL) -> Void) {
-        if card == updateCardID, let action = UpdateCardAction(rawValue: action) {
+        if card == updateCardID || card == SidebarUpdateCard.cardID, let option = UpdateCardCloseOption(rawValue: action) {
+            updater.closeUpdateCard(option)
+        } else if card == updateCardID, let action = UpdateCardAction(rawValue: action) {
             if action == .releaseNotes, let url = updater.cardReleaseNotesURL {
                 open(url)
             } else {
@@ -141,7 +145,7 @@ enum SidebarCardFeed {
     /// announcements and the tip also wait for the "cmux Updated!" card.
     static func noticeCard(_ updater: UpdaterService, registry: ActionRegistry?) -> SidebarNoticeCard? {
         guard updater.readyCard == nil else { return nil }
-        if let shown = updater.cardPresentation { return notice(shown) }
+        if let shown = updater.cardPresentation { return notice(shown, asked: updater.flow.userAsked) }
         if let text = updater.testFeedCardText {
             return SidebarNoticeCard(id: testFeedCardID, symbol: "testtube.2", title: text.title, detail: text.detail,
                                      actions: [SidebarNoticeCard.Action(id: useRealFeedActionID, title: text.useRealFeed)])
@@ -162,26 +166,35 @@ enum SidebarCardFeed {
     }
 
     /// The update status as a notice: one model (``UpdateCard``), its icon,
-    /// title, detail and actions.
-    static func notice(_ shown: UpdateCardPresentation) -> SidebarNoticeCard {
+    /// title, detail and actions. `asked`: the person asked to check, so the
+    /// notice takes the slot from Now Playing.
+    static func notice(_ shown: UpdateCardPresentation, asked: Bool = false) -> SidebarNoticeCard {
         let progress: SidebarNoticeCard.Progress? = shown.showsProgress ? (shown.progress.map { .fraction($0) } ?? .indeterminate) : nil
-        return SidebarNoticeCard(id: updateCardID, symbol: shown.symbol, title: shown.title, detail: shown.detail, lines: shown.lines,
-                                 progress: progress,
+        // A found update gets the Hide button (remind me later on right-click); a result keeps the x.
+        let closes = shown.actions.contains(.update)
+        return SidebarNoticeCard(id: updateCardID, symbol: shown.symbol, title: shown.title, detail: shown.detail, lines: shown.lines, progress: progress,
                                  actions: shown.actions.map { SidebarNoticeCard.Action(id: $0.rawValue, title: $0.title, prominent: $0.isProminent) },
-                                 dismissLabel: shown.dismissible ? UpdaterService.cardDismissLabel : nil)
+                                 dismissLabel: shown.dismissible ? (closes ? UpdaterService.updateCloseLabel : UpdaterService.cardDismissLabel) : nil,
+                                 dismissTitle: closes && shown.dismissible ? UpdaterService.updateHideTitle : nil, dismissMenu: closes ? UpdaterService.updateCloseMenu.map(SidebarNoticeCard.Action.init) : [],
+                                 userAsked: asked)
     }
 
     /// The staged update card (UPDATE-CARD; nil while checking or downloading).
     static func updateCard(_ updater: UpdaterService) -> SidebarUpdateCard? {
-        guard let card = updater.readyCard else { return nil }
+        updater.readyCard.map { updateCard($0) }
+    }
+
+    /// The sidebar's card for the updater's staged `card`.
+    static func updateCard(_ card: UpdateReadyCard) -> SidebarUpdateCard {
         let notes = card.notes
         let changes = notes.changes.map { SidebarUpdateCard.Change(title: $0.title, author: $0.author, linkTitle: $0.prLabel, url: $0.url) }
         return SidebarUpdateCard(
-            title: card.title, detail: card.detail, lines: card.lines, seeAllTitle: card.seeAllTitle,
-            buttonTitle: card.buttonTitle, isEnabled: !card.isInstalling,
+            title: card.title, detail: card.detail, seeAllTitle: card.seeAllTitle, buttonTitle: card.buttonTitle, isEnabled: !card.isInstalling,
             automaticUpdatesTitle: card.automaticUpdatesTitle, automaticUpdates: card.automaticUpdates,
             notes: SidebarUpdateCard.Notes(headline: notes.headline, keepsRunning: notes.keepsRunning,
                                            whatsChangedTitle: notes.whatsChangedTitle, changes: changes,
-                                           moreTitle: notes.moreTitle, moreURL: notes.moreURL))
+                                           moreTitle: notes.moreTitle, moreURL: notes.moreURL),
+            closeTitle: card.isInstalling ? nil : UpdaterService.updateHideTitle, closeLabel: UpdaterService.updateCloseLabel,
+            closeAction: UpdaterService.updateHideAction, closeMenu: UpdaterService.updateCloseMenu.map(SidebarNoticeCard.Action.init))
     }
 }

@@ -9,7 +9,9 @@
 
 mod attachments;
 mod budget;
+mod home;
 mod id;
+mod link;
 mod link_preview;
 mod question;
 mod reducer;
@@ -24,9 +26,14 @@ pub use attachments::{
 };
 pub use budget::{
     BUDGET_WINDOW, MAX_AGENT_TURNS, MIN_AGENT_GAP_MS, check_agent_budget, check_agent_streak,
-    parse_rfc3339_millis,
+    in_thread, parse_rfc3339_millis, streak_of, thread_agent_streak, with_turn,
+};
+pub use home::{
+    CHIEF_NAME, ChiefState, CloudInboxEntry, HomeInboxInput, HomeKind, HomeListState, HomeRow,
+    OWNER_CLOUD, PREVIEW_CHARS, cloud_row, home_inbox, merge_rows, preview_of,
 };
 pub use id::{encode_id, format_rfc3339_millis};
+pub use link::{ConversationLink, MAX_LINK_BYTES, format_link, parse_link};
 pub use link_preview::{
     MAX_LINK_SITE_CHARS, MAX_LINK_TITLE_CHARS, MAX_LINK_URL_BYTES, valid_link_preview_part,
     valid_link_url,
@@ -47,7 +54,8 @@ pub use search::{
 };
 pub use types::{
     AgentClass, Change, ConversationHead, DerivedImage, Message, Op, Origin, Part, PartRef,
-    Participant, ParticipantKind, Reaction, ReactionKind, Summary, Tapback, TextRun, WorkStatus,
+    Participant, ParticipantKind, Reaction, ReactionKind, Summary, Tapback, TextRun,
+    ThreadResolution, ThreadState, ThreadStatus, WorkStatus,
 };
 
 /// `Summary.owner` for conversations owned by a local daemon.

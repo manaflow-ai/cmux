@@ -26,7 +26,8 @@ export const PLAN_STALE_MS = 2 * 60 * 60_000
 export const FAILURE_BACKOFF_MS = 60_000
 
 /** `user_limit_usd`: the caller's monthly AI limit in this team (personal, else team default, else 200; team-ai-limit.ts). */
-export type PlanAnswer = { readonly ok: true; readonly paid: boolean; readonly user_limit_usd: number } | { readonly ok: false; readonly reason: "unavailable" }
+/** `plan`: the plan id the sign-in service holds (go, pro, max, founders, team), or null (cx-y79zh S5: the included-amount stop). */
+export type PlanAnswer = { readonly ok: true; readonly paid: boolean; readonly user_limit_usd: number; readonly plan?: string | null } | { readonly ok: false; readonly reason: "unavailable" }
 
 const ensure = (sql: SqlStorage) => {
   sql.exec(`CREATE TABLE IF NOT EXISTS inference_plan (id INTEGER PRIMARY KEY CHECK (id = 1), plan TEXT, checked_at INTEGER NOT NULL, failed_at INTEGER)`)
@@ -86,10 +87,17 @@ export const inferencePlanOf = async (sql: SqlStorage, state: TeamState | null, 
       const plan = await s.getUserPlan(stackUser)
       return plan === "user_gone" ? null : plan
     })
-    return r.ok ? { ok: true, paid: personalPlanPaid(r.plan), user_limit_usd: limit } : { ok: false, reason: "unavailable" }
+    return r.ok ? { ok: true, paid: personalPlanPaid(r.plan), user_limit_usd: limit, plan: r.plan } : { ok: false, reason: "unavailable" }
   }
   if (!team || team.id !== entity || team.deleted_at !== undefined || team.kind !== "stack" || !team.stack_team) return { ok: true, paid: false, user_limit_usd: limit }
   const stackTeam = team.stack_team
   const r = await read(async (s) => (await s.getTeam(stackTeam))?.plan ?? null)
-  return r.ok ? { ok: true, paid: teamPlanPaid(r.plan), user_limit_usd: limit } : { ok: false, reason: "unavailable" }
+  return r.ok ? { ok: true, paid: teamPlanPaid(r.plan), user_limit_usd: limit, plan: r.plan } : { ok: false, reason: "unavailable" }
+}
+
+/** The stored plan copy, without a Stack read (team.ai_limit.get's team line); null when there is none yet. */
+export const storedPlan = (sql: SqlStorage): string | null => {
+  // A read: no table create (review P3); a team that never had a plan check has no copy.
+  if (sql.exec<{ n: number }>(`SELECT COUNT(*) AS n FROM sqlite_master WHERE type = 'table' AND name = 'inference_plan'`).one().n === 0) return null
+  return sql.exec<{ plan: string | null }>(`SELECT plan FROM inference_plan WHERE id = 1`).toArray()[0]?.plan ?? null
 }

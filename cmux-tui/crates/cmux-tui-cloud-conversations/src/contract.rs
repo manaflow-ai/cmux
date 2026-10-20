@@ -21,7 +21,13 @@ pub const CLOUD_OP_KINDS: &[&str] = &[
     "reaction.remove",
     "read_cursor.set",
     "title.set",
+    "thread.update",
     "invite.create",
+    // Message requests (home-messaging-invites DESIGN 2.3): the invited
+    // address's verified owner accepts without the link, or dismisses (and
+    // with `block`, blocks the sender).
+    "invite.accept_verified",
+    "request.dismiss",
 ];
 
 /// Kinds that create or open a conversation and therefore name none.
@@ -128,6 +134,19 @@ pub(crate) fn require_conversation(id: &str) -> Result<(), CloudError> {
     }
 }
 
+/// A Chief participant id (`agent_` and 1-64 letters or digits): the path
+/// segment of the Chief brain's run reads.
+pub(crate) fn require_agent(id: &str) -> Result<(), CloudError> {
+    let valid = id.strip_prefix("agent_").is_some_and(|rest| {
+        (1..=64).contains(&rest.len()) && rest.bytes().all(|b| b.is_ascii_alphanumeric())
+    });
+    if valid {
+        Ok(())
+    } else {
+        Err(CloudError::BadRequest(format!("agent {id:?} is not a Chief id")))
+    }
+}
+
 /// `cloud-conversation-op` params.
 #[derive(Debug, Clone, Deserialize)]
 pub struct OpRequest {
@@ -190,6 +209,55 @@ pub(crate) fn op_body(request: &OpRequest) -> Result<Value, CloudError> {
         (None, true) => {}
     }
     Ok(json!({"op": kind, "params": params, "idempotency_key": key, "origin": origin}))
+}
+
+/// Op kinds `cloud-inbox-op` forwards to the person's UserDO inbox (the
+/// person's own list state: home-core `inbox.pin`, `inbox.mark_unread`).
+/// Every other kind is refused before any network call (default deny).
+pub const CLOUD_INBOX_OP_KINDS: &[&str] = &["inbox.pin", "inbox.mark_unread"];
+
+/// `cloud-inbox-op` params: one inbox op on one conversation's entry.
+#[derive(Debug, Clone, Deserialize)]
+pub struct InboxOpRequest {
+    pub conversation: String,
+    pub idempotency_key: String,
+    pub op: Value,
+}
+
+/// The `POST /v1/ops` body of one inbox op: `{op, params, idempotency_key}`
+/// with the op's fields and the conversation as `params`.
+pub(crate) fn inbox_op_body(request: &InboxOpRequest) -> Result<Value, CloudError> {
+    let key = &request.idempotency_key;
+    if key.is_empty() || key.chars().count() > MAX_KEY_CHARS {
+        return Err(CloudError::BadRequest(format!(
+            "idempotency_key must be 1-{MAX_KEY_CHARS} characters"
+        )));
+    }
+    require_conversation(&request.conversation)?;
+    let Value::Object(fields) = &request.op else {
+        return Err(CloudError::BadRequest("op must be an object tagged by kind".into()));
+    };
+    let Some(kind) = fields.get("kind").and_then(Value::as_str) else {
+        return Err(CloudError::BadRequest("op.kind must be a string".into()));
+    };
+    if !CLOUD_INBOX_OP_KINDS.contains(&kind) {
+        return Err(CloudError::daemon_reject(
+            "unsupported_op",
+            format!("{kind} is not a cloud inbox op"),
+        ));
+    }
+    if fields.contains_key("conversation") {
+        return Err(CloudError::BadRequest(
+            "name the conversation at the top level, not inside op".into(),
+        ));
+    }
+    let mut params: Map<String, Value> = fields
+        .iter()
+        .filter(|(name, _)| name.as_str() != "kind")
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect();
+    params.insert("conversation".into(), Value::String(request.conversation.clone()));
+    Ok(json!({"op": kind, "params": params, "idempotency_key": key}))
 }
 
 pub(crate) fn read_body(op: &str, params: Value) -> Value {
@@ -284,6 +352,22 @@ pub(crate) fn inbox_list_data(value: Value, revision: Value) -> Result<Value, Cl
         .cloned()
         .ok_or_else(|| CloudError::Unavailable("inbox.list without entries".into()))?;
     Ok(json!({"entries": entries, "revision": revision}))
+}
+
+/// `home.requests.list` data: `{requests}` with only rows whose
+/// `conversation` is a conversation id (nothing else names an id).
+pub(crate) fn requests_list_data(value: Value) -> Result<Value, CloudError> {
+    let Some(rows) = value.get("requests").and_then(Value::as_array) else {
+        return Err(CloudError::Unavailable("home.requests.list without requests".into()));
+    };
+    let requests: Vec<Value> = rows
+        .iter()
+        .filter(|row| {
+            row.get("conversation").and_then(Value::as_str).is_some_and(valid_conversation_id)
+        })
+        .cloned()
+        .collect();
+    Ok(json!({"requests": requests}))
 }
 
 pub(crate) fn history_data(value: Value) -> Result<Value, CloudError> {

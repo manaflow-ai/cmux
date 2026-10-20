@@ -2,7 +2,7 @@
 import Darwin
 import Foundation
 import os
-import Synchronization
+import os
 
 private let socketLogger = Logger(subsystem: "com.cmuxterm.cua", category: "socket")
 
@@ -21,7 +21,7 @@ public final class HelperSocketServer: Sendable {
     private let admission: AdmissionState
     private let inspector: any PeerInspecting
     private let tools: any ToolInvoking
-    private let listener = Mutex<Int32>(-1)
+    private let listener = OSAllocatedUnfairLock<Int32>(initialState: -1)
 
     public init(path: String, admission: AdmissionState, inspector: any PeerInspecting, tools: any ToolInvoking) {
         self.path = path
@@ -63,14 +63,14 @@ public final class HelperSocketServer: Sendable {
             close(descriptor)
             throw StartError.socket(failure)
         }
-        listener.withLock { $0 = descriptor }
+        listener.withLockUnchecked { $0 = descriptor }
         let thread = Thread { [self] in acceptLoop(descriptor) }
         thread.name = "cua-helper-accept"
         thread.start()
     }
 
     public func stop() {
-        let descriptor = listener.withLock { value -> Int32 in
+        let descriptor = listener.withLockUnchecked { value -> Int32 in
             let old = value
             value = -1
             return old
@@ -179,12 +179,12 @@ public final class HelperSocketServer: Sendable {
 
     /// One client socket; writes are serialized, close happens once.
     final class Connection: Sendable {
-        private let state: Mutex<Int32>
+        private let state: OSAllocatedUnfairLock<Int32>
 
-        init(descriptor: Int32) { state = Mutex(descriptor) }
+        init(descriptor: Int32) { state = OSAllocatedUnfairLock(initialState: descriptor) }
 
         func write(_ data: Data) {
-            state.withLock { descriptor in
+            state.withLockUnchecked { descriptor in
                 guard descriptor >= 0 else { return }
                 data.withUnsafeBytes { raw in
                     var offset = 0
@@ -203,7 +203,7 @@ public final class HelperSocketServer: Sendable {
         }
 
         func close() {
-            state.withLock { descriptor in
+            state.withLockUnchecked { descriptor in
                 guard descriptor >= 0 else { return }
                 Darwin.close(descriptor)
                 descriptor = -1

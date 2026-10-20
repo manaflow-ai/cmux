@@ -1,6 +1,7 @@
 import CmuxNextActions
 import CmuxNextCloud
 import CmuxNextDaemon
+import CmuxNextWorkspaceRepair
 import Foundation
 import Observation
 
@@ -110,15 +111,12 @@ final class MachineRegistry {
     }
 
     /// The daemon whose tree holds workspace `id` (`WorkspaceModel.id`).
-    func daemon(forWorkspace id: String) -> DaemonService? {
-        daemons.first { daemon in daemon.store.workspaces.contains { $0.id == id } }
-    }
+    func daemon(forWorkspace id: String) -> DaemonService? { workspace(id: id)?.1 }
 
+    /// O(1) per daemon (`DaemonStore.workspace(id:)`).
     func workspace(id: String) -> (WorkspaceModel, DaemonService)? {
-        for daemon in daemons {
-            if let workspace = daemon.store.workspaces.first(where: { $0.id == id }) { return (workspace, daemon) }
-        }
-        return nil
+        if let workspace = local.store.workspace(id: id) { return (workspace, local) } // no daemon list for the common case
+        return remoteDaemons.lazy.compactMap { daemon in daemon.store.workspace(id: id).map { ($0, daemon) } }.first
     }
 
     /// The daemon holding pane `pane` (by object identity).

@@ -110,6 +110,12 @@ pub struct Request {
     /// From the same start to the request's first content delta: its time
     /// to first token.
     pub ttft_ms: Option<u64>,
+    /// Claude Code's session id (`session_id` of its stream-json line):
+    /// the key the subrouter pins an account to (it reads Claude Code's
+    /// `X-Claude-Code-Session-Id`). The subrouter answers no account in its
+    /// responses, so this id (with `id`, the upstream message id) is what
+    /// joins a request to the subrouter's session assignment and proxy log.
+    pub session: Option<String>,
 }
 
 /// The model stream of the request in flight (Claude Code's
@@ -158,6 +164,8 @@ pub struct TurnFold {
     segment: u64,
     /// Segments finished since the drafts last took them: (segment, text).
     closed: Vec<(u64, String)>,
+    /// The turn's run record (`run.rs`): the same events, in full shape.
+    run: crate::run::RunSteps,
 }
 
 impl TurnFold {
@@ -288,6 +296,11 @@ impl TurnFold {
                                 usage,
                                 headers_ms: stream.headers_ms,
                                 ttft_ms: stream.ttft_ms,
+                                session: event
+                                    .msg
+                                    .get("session_id")
+                                    .and_then(Value::as_str)
+                                    .map(str::to_owned),
                             });
                         }
                     }
@@ -310,6 +323,18 @@ impl TurnFold {
                     && let Some(text) = content.get("text").and_then(Value::as_str)
                 {
                     self.talk.push_str(text);
+                    self.run.close_thought();
+                    self.run.talk(self.segment, &self.talk, true);
+                }
+            }
+            (_, "agent_thought_chunk") => {
+                if let Some(text) = update
+                    .and_then(|u| u.get("content"))
+                    .filter(|c| c.get("type").and_then(Value::as_str) == Some("text"))
+                    .and_then(|c| c.get("text"))
+                    .and_then(Value::as_str)
+                {
+                    self.run.thought(text);
                 }
             }
             (_, "tool_call") => {
@@ -397,6 +422,28 @@ impl TurnFold {
         out
     }
 
+    /// The run steps that changed since the last call (`run.rs`); an open
+    /// reply segment waits up to a second, unless `all`.
+    pub fn take_run_steps(&mut self, now: std::time::Instant, all: bool) -> Vec<Value> {
+        self.run.take(now, all)
+    }
+
+    /// The turn is over: the run's open talk and thought steps close (their
+    /// last live frames go next, before the run's end and the reply).
+    pub fn close_run_steps(&mut self) {
+        self.run.close_all();
+    }
+
+    /// The run's live frames since the last call (`run.rs` `take_live`).
+    pub fn take_run_live(&mut self) -> Vec<Value> {
+        self.run.take_live()
+    }
+
+    /// The pictures the turn's tool calls returned since the last call.
+    pub fn take_run_images(&mut self) -> Vec<crate::run::RunImage> {
+        self.run.take_images()
+    }
+
     /// The reply segments finished since the last call, then the open one
     /// (its index and its text so far), for the drafts.
     pub fn take_segments(&mut self) -> (Vec<(u64, String)>, (u64, &str)) {
@@ -410,6 +457,7 @@ impl TurnFold {
         let raw = std::mem::take(&mut self.talk);
         let text = raw.trim();
         if !text.is_empty() {
+            self.run.talk(self.segment, text, false);
             self.closed.push((self.segment, raw.clone()));
             self.segment += 1;
             out.push(Entry {
@@ -422,12 +470,14 @@ impl TurnFold {
 
     fn tool_call(&mut self, update: &Value, at: Option<u64>, out: &mut Vec<Entry>) {
         let Some(id) = tool_id(update) else { return };
-        let tool = self.tools.entry(id).or_default();
+        self.run.close_thought();
+        let tool = self.tools.entry(id.clone()).or_default();
         tool.started = tool.started.or(at);
         tool.name = tool_name(update).unwrap_or_else(|| tool.name.clone());
         if let Some(input) = update.get("rawInput").filter(|v| has_input(v)) {
             tool.input = input.clone();
         }
+        self.run.tool_call(&id, &tool.name, update, at);
         // Some adapters announce a call before its input streams in; it is
         // logged once the input is known, or at its result at the latest.
         if has_input(&tool.input) {
@@ -457,6 +507,8 @@ impl TurnFold {
             log_tool(tool, out);
         }
         let status = update.get("status").and_then(Value::as_str).unwrap_or("");
+        self.run
+            .tool_update(&id, &tool.name, update, &result_text(update), at);
         if !tool.done && matches!(status, "completed" | "failed") {
             log_tool(tool, out);
             tool.done = true;

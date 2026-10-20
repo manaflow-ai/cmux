@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextBrowser
 import CmuxNextDaemon
+import CmuxNextFocus
 
 /// Browser-category actions that act on the focused page or create browser
 /// panes. Back, forward, reload, zoom, and the address bar are bound in
@@ -11,6 +12,7 @@ enum BrowserHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         bindPage(into: registry, context: context)
         BrowserToolbarHandlers.bind(into: registry, context: context)
+        BrowserDeviceHandlers.bind(into: registry, context: context)
         bindSplits(into: registry, context: context)
         bindLinkHints(into: registry, context: context)
         bindUnavailable(registry)

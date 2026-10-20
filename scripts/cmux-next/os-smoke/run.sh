@@ -7,13 +7,17 @@
 # missing, take the fleet host lock exclusively, clone, boot headless
 # (--no-graphics), copy the build in, run guest-probe.py over SSH (launch with
 # CMUX_NEXT_NO_ACTIVATE=1 and CMUX_NEXT_SOCKET_MODE=automation, wait for the
-# first window and the control socket, open one terminal and one browser tab,
-# debug.window_snapshot, quit), copy the artifacts out, stop and delete the
+# first window and the control socket, open terminal, browser, Settings and
+# agent chat tabs, snapshot each, check it lives 60 s, quit, dyld-load every
+# bundled Mach-O), copy the artifacts out, stop and delete the
 # clone, release the lock. Base images stay. Majors run one at a time (the
 # Apple license allows at most two macOS VMs per host).
 #
 # Usage: run.sh [--majors 14,15,26] [--work DIR] [--keep-vm] BUILD
-#   BUILD    a cmux-next .app or a zip that contains one (cmux-ci artifact).
+#   BUILD    a cmux-next .app or a zip that contains one (cmux-ci artifact, or
+#            the app copied out of a shipped DMG: a release build has no debug.*
+#            methods, so the probe drives it through the public socket methods
+#            and takes screenshots with screencapture).
 #   --work   state root (default /Volumes/ephemeral0/cmux-agent-work/mfloor).
 #   --keep-vm  leave the clone stopped but not deleted (debugging only).
 # Env: TART_BIN (default: tart on PATH, else <work>/tools/tart-*/tart.app),
@@ -42,7 +46,7 @@ while [[ $# -gt 0 ]]; do
     --work) WORK=$2; shift 2 ;;
     --keep-vm) KEEP_VM=1; shift ;;
     --vm-cycle) CYCLE=$2; shift 2 ;;  # internal: one major, already under the host lock
-    -h|--help) sed -n '2,31p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,34p' "$0"; exit 0 ;;
     -*) echo "unknown option $1" >&2; exit 2 ;;
     *) BUILD=$1; shift ;;
   esac
@@ -70,8 +74,9 @@ elapsed() { python3 -I -c 'import sys; print(f"{float(sys.argv[2]) - float(sys.a
 # ---- one major, inside the host lock ---------------------------------------
 if [[ -n "$CYCLE" ]]; then
   : "${RUN_DIR:?}" "${BUILD_ZIP:?}"
-  major=$CYCLE
-  out="$RUN_DIR/$major"
+  slot=$CYCLE          # a major, or major-N for a repeated major
+  major=${slot%%-*}
+  out="$RUN_DIR/$slot"
   mkdir -p "$out"
   source_ref="$(image_field "$major" ref)@$(image_field "$major" digest)"
   vm="os-smoke-$major-$$"
@@ -121,6 +126,9 @@ if [[ -n "$CYCLE" ]]; then
   t_boot=$(now); record boot_s "$(elapsed "$t_clone" "$t_boot")"
   scp "${SSH_OPTS[@]}" -q "$BUILD_ZIP" "$HERE/guest-probe.py" "admin@$ip:/Users/admin/" </dev/null
   gssh 'set -e; rm -rf ~/smoke && mkdir -p ~/smoke/app && ditto -x -k ~/build.zip ~/smoke/app && test -x /usr/bin/python3 && /usr/bin/python3 -c 1'
+  # The base images restore windows of their own setup (System Settings on 14, Terminal on
+  # 26) that would cover the app in the release-build screenshots; quit them in the clone.
+  gssh 'pkill -x "System Settings"; pkill -x Terminal; true'
   t_copy=$(now); record copy_s "$(elapsed "$t_boot" "$t_copy")"
   probe_rc=0
   gssh "app=\$(ls -d ~/smoke/app/*.app | head -1); OS_SMOKE_LAUNCH_DEADLINE=${OS_SMOKE_LAUNCH_DEADLINE:-180} OS_SMOKE_TAB_DEADLINE=${OS_SMOKE_TAB_DEADLINE:-120} /usr/bin/python3 -I ~/guest-probe.py \"\$app\" ~/smoke/out" \
@@ -150,8 +158,13 @@ shasum -a 256 -b "$(readlink "$BUILD_ZIP" || echo "$BUILD_ZIP")" | cut -d' ' -f1
 "$TART_BIN" --version >"$RUN_DIR/tart.version"
 
 IFS=, read -r -a majors <<<"$MAJORS"
+slots=()
 for major in "${majors[@]}"; do
-  out="$RUN_DIR/$major"; mkdir -p "$out"
+  # A repeated major (--majors 14,14,14) gets its own directory: 14, 14-2, 14-3.
+  slot=$major; n=1
+  while [[ -e "$RUN_DIR/$slot" ]]; do n=$((n + 1)); slot="$major-$n"; done
+  slots+=("$slot")
+  out="$RUN_DIR/$slot"; mkdir -p "$out"
   ref=$(image_field "$major" ref); digest=$(image_field "$major" digest)
   t0=$(now)
   if ! "$TART_BIN" list --source oci --format json | python3 -I -c 'import json,sys
@@ -163,7 +176,7 @@ sys.exit(0 if any(sys.argv[1] in v.get("Name", "") for v in json.load(sys.stdin)
   oci_dir="$TART_HOME/cache/OCIs/${ref}/${digest}"
   echo "image_disk_kb=$(du -sk "$(readlink "$oci_dir" || echo "$oci_dir")" 2>/dev/null | cut -f1)" >>"$out/host.env"
   echo "== macOS $major: waiting for the host lock" >&2
-  cycle=("$0" --vm-cycle "$major" --work "$WORK")
+  cycle=("$0" --vm-cycle "$slot" --work "$WORK")
   [[ "$KEEP_VM" == 1 ]] && cycle+=(--keep-vm)
   rc=0
   if [[ "$LOCK" == none ]]; then
@@ -178,7 +191,7 @@ sys.exit(0 if any(sys.argv[1] in v.get("Name", "") for v in json.load(sys.stdin)
   echo "total_s=$(elapsed "$t0" "$(now)")" >>"$out/host.env"
 done
 
-python3 -I - "$RUN_DIR" "$MAJORS" <<'PY'
+python3 -I - "$RUN_DIR" "$(IFS=,; echo "${slots[*]}")" <<'PY'
 import json, os, sys
 run, majors = sys.argv[1], sys.argv[2].split(",")
 rows, failed = [], False

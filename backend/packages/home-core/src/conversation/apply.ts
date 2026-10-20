@@ -1,6 +1,6 @@
-import { checkAgentBudget, checkAgentStreak } from "./budget.ts"
+import { checkAgentBudget, checkAgentStreak, threadAgentStreak, withTurn } from "./budget.ts"
 import { removeParticipant, setSettings } from "./cloud.ts"
-import { acceptInvite, approveJoin, createInvite, reportDelivery, revokeInvite } from "./invite-ops.ts"
+import { acceptInvite, acceptVerifiedInvite, approveJoin, createInvite, reportDelivery, revokeInvite } from "./invite-ops.ts"
 import { parseRfc3339Millis, validToken } from "./ids.ts"
 import { answerQuestion, checkQuestionEdit } from "./question.ts"
 import { fail, reject, RejectError } from "./reject.ts"
@@ -8,6 +8,7 @@ import { conversationChanged, upsertParticipant, type ApplyResult, type Commit, 
 import {
   MAX_PARTICIPANTS,
   SYSTEM_ACTOR,
+  type ThreadResolution,
   type ConversationHead,
   type Message,
   type Op,
@@ -22,6 +23,7 @@ import {
   validateParticipant,
   validateParts,
   validateReaction,
+  validateThreadTitle,
   validateTitle
 } from "./validate.ts"
 
@@ -29,11 +31,13 @@ import {
 export const targetMessageId = (op: Op): string | undefined =>
   op.kind === "message.edit" || op.kind === "message.retract" || op.kind === "reaction.add" || op.kind === "reaction.remove" || op.kind === "question.answer"
     ? op.message_id
-    : undefined
+    : op.kind === "thread.update"
+      ? op.root
+      : undefined
 
 export const isSend = (op: Op): boolean => op.kind === "message.send"
 
-const CLOUD_OPS = new Set(["invite.create", "invite.revoke", "invite.accept", "invite.approve_join", "invite.delivery.report", "conversation.settings.set"])
+const CLOUD_OPS = new Set(["invite.create", "invite.revoke", "invite.accept", "invite.accept_verified", "invite.approve_join", "invite.delivery.report", "conversation.settings.set"])
 
 /** Validates one op against the head. Every commit increases `rev` by exactly one. */
 export const apply = (head: ConversationHead, request: OpRequest): ApplyResult => {
@@ -53,6 +57,7 @@ const applyOrThrow = (head: ConversationHead, request: OpRequest): Commit => {
   const next: Draft = { ...head, rev: head.rev + 1 }
   // Ops whose caller is not a participant.
   if (op.kind === "invite.accept") return acceptInvite(head, next, request, op)
+  if (op.kind === "invite.accept_verified") return acceptVerifiedInvite(head, next, request, op)
   if (op.kind === "invite.delivery.report") {
     if (request.actor !== SYSTEM_ACTOR) fail("forbidden")
     return reportDelivery(head, next, request, op)
@@ -67,39 +72,41 @@ const applyOrThrow = (head: ConversationHead, request: OpRequest): Commit => {
   switch (op.kind) {
     case "message.send": {
       if (op.client_msg_id !== request.idempotency_key || !validToken(op.client_msg_id)) fail("invalid_client_msg_id")
-      const parts = validateParts(op.parts, cloud)
+      const parts = validateParts(op.parts, cloud, true)
       // Only an agent posts a question, and only a pending one (Rust `bad_question`).
       if (parts.some((part) => part.type === "question" && (actor.kind !== "agent" || part.state.kind !== "pending"))) fail("invalid_parts")
       const replyTo = op.reply_to
+      let parent: Message | undefined
       if (replyTo !== undefined) {
         const replied = request.reply_target
         if (!replied || replied.id !== replyTo.message_id || replied.conversation !== head.id) fail("unknown_message")
         if (replyTo.part_index >= replied!.parts.length) fail("invalid_part_index")
+        parent = replied!
       }
       // A null thread_root is no thread (as serde reads it in Rust).
-      const threadRoot = op.thread_root ?? undefined
-      if (threadRoot !== undefined) {
+      const namedRoot = op.thread_root ?? undefined
+      if (namedRoot !== undefined) {
         const root = request.thread_target
-        // A thread has one level: a reply in a thread cannot be a root (Rust `InvalidThreadRoot`).
-        if (!root || root.id !== threadRoot || root.conversation !== head.id || root.thread_root !== undefined) fail("invalid_thread_root")
+        // thread_root is always the top root: a reply in a thread cannot be a root (Rust `InvalidThreadRoot`).
+        if (!root || root.id !== namedRoot || root.conversation !== head.id || root.thread_root !== undefined) fail("invalid_thread_root")
       }
+      // Threads nest without a limit (conversation-tree-v1, Rust reducer.rs): reply_to is the parent;
+      // a parent in a thread passes its root on; a named root must be the parent's own.
+      if (namedRoot !== undefined && parent !== undefined && parent.id !== namedRoot && parent.thread_root !== namedRoot) fail("invalid_thread_root")
+      const threadRoot = namedRoot ?? parent?.thread_root
       const nowMs = parseRfc3339Millis(now) ?? 0
       // Every head carries the loop guard (O(1), no row window, so work cards cannot hide agent
       // turns). A head written before the counters existed falls back to the row window once.
       const counted = head.agent_text_streak !== undefined
-      const budget = counted || cloud ? checkAgentStreak(head, request.actor, parts, nowMs) : request.recent ? checkAgentBudget(head, request.actor, parts, request.recent, nowMs) : null
+      const budget = counted || cloud ? checkAgentStreak(head, request.actor, parts, nowMs, threadRoot) : request.recent ? checkAgentBudget(head, request.actor, parts, request.recent, nowMs, threadRoot) : null
       if (budget) fail(budget)
       next.last_seq = head.last_seq + 1
       next.updated_at = now
       if (hasText(parts)) {
-        if (actor.kind === "agent") {
-          // A legacy head (no counters yet) seeds the streak from the host window's trailing agent texts.
-          const seed = counted || cloud || !request.recent ? (head.agent_text_streak ?? 0) : trailingAgentTexts(head, request.recent)
-          next.agent_text_streak = seed + 1
-          next.last_agent_text_at = now
-        } else {
-          next.agent_text_streak = 0
-        }
+        // The streak of the thread this message joins: an agent's text adds 1, a person's resets it.
+        // A legacy head (no counters yet) seeds it from the host window's trailing agent texts.
+        const seed = actor.kind === "agent" && !(counted || cloud) && request.recent ? threadAgentStreak(head, request.recent, threadRoot) : undefined
+        applyTurn(next, withTurn(next, threadRoot, actor.kind === "agent", now, seed))
       }
       const message: Message = {
         id: request.new_message_id,
@@ -126,7 +133,7 @@ const applyOrThrow = (head: ConversationHead, request: OpRequest): Commit => {
       const message = target(head, request, op.message_id)
       if (message.author !== request.actor) fail("not_author")
       if (message.retracted_at !== undefined) fail("retracted")
-      const parts = validateParts(op.parts, cloud)
+      const parts = validateParts(op.parts, cloud, true)
       checkQuestionEdit(message.parts, parts)
       return updated(next, {
         ...message,
@@ -167,8 +174,9 @@ const applyOrThrow = (head: ConversationHead, request: OpRequest): Commit => {
       const part = Number.isInteger(index) && index >= 0 && index <= 0xffff_ffff ? message.parts[index] : undefined
       if (part?.type !== "question") return fail("invalid_part_index")
       const answered = answerQuestion(part, op.answer, actor, now)
-      // A person's answer is a human turn: the agent may go on (the loop guard counts from here).
-      next.agent_text_streak = 0
+      // A person's answer (question answers are human only) is a person's turn in the question's
+      // thread: agents may go on there (the loop guard counts from here).
+      applyTurn(next, withTurn(next, message.thread_root, false, now))
       return updated(next, { ...message, parts: message.parts.map((p, i) => (i === index ? answered : p)) })
     }
     case "read_cursor.set": {
@@ -196,6 +204,38 @@ const applyOrThrow = (head: ConversationHead, request: OpRequest): Commit => {
       next.participants = upsertParticipant(head.participants, stamped)
       next.updated_at = now
       return conversationChanged(next, request)
+    }
+    // A thread object lives on its root (conversation-thread-objects-v1). Like an edit it changes
+    // a message, not the list order, so `updated_at` stays; any participant may set it, a Chief too.
+    case "thread.update": {
+      const message = target(head, request, op.root)
+      if (message.thread_root !== undefined) fail("invalid_thread_root")
+      // A null field is absent, as serde reads it in Rust.
+      const title = op.title ?? undefined
+      const status = op.status ?? undefined
+      const owner = op.owner ?? undefined
+      if (title === undefined && status === undefined && owner === undefined) fail("invalid_thread_update")
+      const state: { title?: string; owner?: string; resolved?: ThreadResolution } = { ...message.thread }
+      if (title !== undefined) {
+        // An empty title clears it (readers show the root's first line).
+        validateThreadTitle(title)
+        if (title === "") delete state.title
+        else state.title = title
+      }
+      if (owner !== undefined) {
+        // A current participant who can act: a person, a device or an agent (a Chief), never a
+        // pending invited address.
+        const holder = owner === "" ? undefined : currentParticipant(head, owner as string)
+        if (typeof owner !== "string" || (owner !== "" && (!holder || holder.kind === "address"))) fail("invalid_thread_owner")
+        if (owner === "") delete state.owner
+        else state.owner = owner
+      }
+      if (status === "resolved") state.resolved = { by: request.actor, at: now, seq: head.last_seq }
+      else if (status === "open") delete state.resolved
+      else if (status !== undefined) fail("invalid_thread_update")
+      const { thread: _old, ...rest } = message
+      const empty = state.title === undefined && state.owner === undefined && state.resolved === undefined
+      return updated(next, empty ? rest : { ...rest, thread: state })
     }
     case "title.set": {
       if (head.kind === "dm" || head.kind === "chief") fail("kind_forbids")
@@ -234,13 +274,11 @@ const updated = (next: Draft, message: Message): Commit => {
 const sortedRecord = (record: Readonly<Record<string, number>>): Record<string, number> =>
   Object.fromEntries(Object.entries(record).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
 
-/** Agent text messages at the newest end of `recent` (newest first), up to the first human text. */
-const trailingAgentTexts = (head: ConversationHead, recent: ReadonlyArray<Message>): number => {
-  let count = 0
-  for (const message of recent) {
-    if (!hasText(message.parts)) continue
-    if (findParticipant(head, message.author)?.kind !== "agent") break
-    count++
-  }
-  return count
+/** Copies the loop-guard fields of `turned` (`withTurn`) onto the draft head. */
+const applyTurn = (next: Draft, turned: ConversationHead): void => {
+  const draft = next as { agent_text_streak?: number; last_agent_text_at?: string; thread_agent_streaks?: Readonly<Record<string, number>> }
+  if (turned.agent_text_streak !== undefined) draft.agent_text_streak = turned.agent_text_streak
+  if (turned.last_agent_text_at !== undefined) draft.last_agent_text_at = turned.last_agent_text_at
+  if (turned.thread_agent_streaks === undefined) delete draft.thread_agent_streaks
+  else draft.thread_agent_streaks = turned.thread_agent_streaks
 }

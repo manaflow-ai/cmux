@@ -1,4 +1,4 @@
-// The New Tab composer's project chip names the folder a prompt starts in (screenActions onAsk):
+// The New Tab composer's project (its location row's folder) names the folder a prompt starts in (screenActions onAsk):
 // a real pick, else the host's start folder; never the home ~ a Cmd-N tab inherits (cx-7fje0).
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
@@ -66,7 +66,7 @@ afterEach(() => {
   host.replaceChildren();
 });
 
-async function mount(cwd: string, startCwd?: string) {
+async function mount(cwd: string, startCwd?: string, startPending = false) {
   const { createRoot } = await import("react-dom/client");
   const { NewTabScreen } = await import("../src/agent-session/acpmux/newtab/NewTabScreen");
   root = createRoot(host);
@@ -77,6 +77,7 @@ async function mount(cwd: string, startCwd?: string) {
         lastAgent="claude"
         cwd={cwd}
         {...(startCwd ? { startCwd } : {})}
+        {...(startPending ? { startPending: true } : {})}
         onAsk={noop}
         onOpen={noop}
         onSearch={noop}
@@ -87,14 +88,17 @@ async function mount(cwd: string, startCwd?: string) {
       />,
     ),
   );
-  return host.querySelector<HTMLButtonElement>('.nt-pickers button[aria-label="Project"]')?.textContent ?? "";
+  // The folder control of the card's location row (the agent composer's, ComposerContext).
+  return (
+    host.querySelector<HTMLButtonElement>('.acpmux-composer-context button[aria-label="Folder"]')?.textContent ?? ""
+  );
 }
 
 // Dogfood nxdog92/93 (cx-7fje0, a regression of cx-nn3e): Cmd-N's New Tab composer named its
 // project ~, the home folder the tab inherited, while a prompt starts in the host's start folder
 // (screenActions onAsk). The chip names that folder, or asks for a project; never the home ~.
 test("a Cmd-N New Tab's project chip names the folder its chat starts in, not ~", async () => {
-  expect(await mount("/Users/you")).toBe("Choose project");
+  expect(await mount("/Users/you")).toBe("Choose folder");
 });
 
 test("a Cmd-N New Tab whose host names a start folder shows that folder", async () => {
@@ -108,5 +112,15 @@ test("a New Tab that inherited a project folder names the folder its host starts
 // With no start folder from the host yet, a prompt starts in the private agent-home folder (App's
 // chat.new fills none): the chip asks for a project rather than name the inherited folder.
 test("before the host names a start folder, the chip asks for a project", async () => {
-  expect(await mount("/Users/you/src/app")).toBe("Choose project");
+  expect(await mount("/Users/you/src/app")).toBe("Choose folder");
+});
+
+// Leo 2026-10-19: the first frame showed "Choose folder", then the project the tab inherited once
+// the handshake named it. Before the handshake answers, the chip names that project (the handshake
+// starts the chat there); the home folder is still never one.
+test("before the handshake answers, an inherited project shows at once; the home folder does not", async () => {
+  expect(await mount("/Users/you/src/app", undefined, true)).toBe("app");
+  act(() => root?.unmount());
+  root = undefined;
+  expect(await mount("/Users/you", undefined, true)).toBe("Choose folder");
 });

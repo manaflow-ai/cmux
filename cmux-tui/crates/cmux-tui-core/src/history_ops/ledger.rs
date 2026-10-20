@@ -16,7 +16,7 @@ use crate::workspace_registry::{ResourcePatch, WorkspaceMutation};
 const ORIGIN: &str = "resource-api";
 
 /// The operation and its normalized fields.
-pub(super) fn fingerprint(operation: &str, fields: &serde_json::Map<String, Value>) -> Value {
+pub(crate) fn fingerprint(operation: &str, fields: &serde_json::Map<String, Value>) -> Value {
     json!({"operation": operation, "fields": fields})
 }
 
@@ -38,7 +38,7 @@ fn registry_error(operation: &str, error: anyhow::Error) -> ResourceError {
 
 /// Whether `key` was committed before (then [`commit`] replays it or
 /// refuses other input, without running the operation again).
-pub(super) fn seen(mux: &Mux, key: &str, operation: &str) -> Result<bool, ResourceError> {
+pub(crate) fn seen(mux: &Mux, key: &str, operation: &str) -> Result<bool, ResourceError> {
     let registry = mux.workspace_registry.lock().unwrap_or_else(|poison| poison.into_inner());
     registry
         .connection
@@ -51,7 +51,7 @@ pub(super) fn seen(mux: &Mux, key: &str, operation: &str) -> Result<bool, Resour
 
 /// Records `value` as the result of `key` and answers the mutation result
 /// (the first result when `key` was committed before).
-pub(super) fn commit(
+pub(crate) fn commit(
     mux: &Arc<Mux>,
     key: &str,
     operation: &str,

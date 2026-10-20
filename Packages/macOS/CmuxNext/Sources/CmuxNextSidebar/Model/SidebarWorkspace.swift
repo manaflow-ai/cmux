@@ -127,6 +127,11 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     /// beyond the ports and pr entries: the row's status block. Nil when
     /// nothing is reported.
     public var reported: SidebarWorkspaceStatus?
+    /// The hover card's extra facts (elapsed time, model, task, command, needs-input reason).
+    public var detail = SidebarWorkspaceDetail()
+    /// The title's weight from the user's row decoration (`SidebarRowDecoration`); nil is the
+    /// default (regular).
+    public var titleWeight: SidebarRowDecoration.Weight?
 
     public init(
         id: WorkspaceID,

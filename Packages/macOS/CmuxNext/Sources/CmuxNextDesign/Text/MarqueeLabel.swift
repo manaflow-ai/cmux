@@ -42,6 +42,16 @@ public final class MarqueeLabel: NSView {
     /// actions, cx-qno.22): the title stays where it is, fades out before
     /// them, and its marquee ends there. The frame never changes.
     public var trailingOcclusion: CGFloat = 0 { didSet { if oldValue != trailingOcclusion { needsLayout = true } } }
+    /// The next layout fades the title's end to a new `trailingOcclusion`
+    /// (Motion `hover`), as the actions over it fade in or out.
+    private var fadesOcclusion = false
+
+    /// Sets `trailingOcclusion`, fading the title's end to it when `animated`.
+    public func setTrailingOcclusion(_ occlusion: CGFloat, animated: Bool) {
+        guard occlusion != trailingOcclusion else { return }
+        fadesOcclusion = animated
+        trailingOcclusion = occlusion
+    }
 
     public override init(frame: NSRect) {
         super.init(frame: frame)
@@ -56,7 +66,7 @@ public final class MarqueeLabel: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    public override var isFlipped: Bool { true }
+    nonisolated public override var isFlipped: Bool { true }
     public override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
     public override var intrinsicContentSize: NSSize {
@@ -90,7 +100,8 @@ public final class MarqueeLabel: NSView {
         )
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        fade.apply(geometry, frame: bounds, animated: false)
+        fade.apply(geometry, frame: bounds, animated: fadesOcclusion)
         CATransaction.commit()
+        fadesOcclusion = false
     }
 }

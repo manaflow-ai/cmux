@@ -121,6 +121,8 @@ pub(super) fn registry_workspace(state: &State, index: usize, session: &str) -> 
         public_id: workspace.public_id.clone(),
         key: workspace.key.clone(),
         name: workspace.name.clone(),
+        name_source: workspace.name_source,
+        name_revision: workspace.name_revision,
         group_key: session.to_string(),
     }
 }
@@ -162,6 +164,10 @@ pub(super) fn workspace_value(
         "name":workspace.name,
         "index":u32::try_from(index).context("workspace index exceeds uint32")?,
         "focused":topology.active_workspace.as_ref() == Some(id),
+        "extra":crate::resource_name::workspace_name_extra(
+            workspace.name_source,
+            workspace.name_revision,
+        ),
     }))
 }
 

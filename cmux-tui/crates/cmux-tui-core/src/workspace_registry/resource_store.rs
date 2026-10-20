@@ -2,6 +2,7 @@ mod events_page;
 use super::*;
 use crate::JournalIngress;
 use crate::resource::{NotificationPublicId, TerminalPublicId};
+pub(crate) use events_page::query_resource_events_after;
 use serde_json::json;
 mod patch_apply;
 mod topology_load;
@@ -1994,6 +1995,10 @@ pub struct ResourceEventBatch {
     pub previous_revision: u64,
     pub revision: u64,
     pub changes: Value,
+    /// The journal record's `placement_shift`: placements that moved by
+    /// ordinal only and are not restated in `changes`
+    /// (`crate::state::placement_shift`).
+    pub placement_shift: Option<Value>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -2721,9 +2726,14 @@ fn resource_change_is_stored(
 ) -> anyhow::Result<bool> {
     Ok(match change {
         ResourceChange::UpsertWorkspace { workspace, position, active_screen } => {
+            let (name_source, name_revision) = workspace_name_store::sql_name_provenance(
+                workspace.name_source,
+                workspace.name_revision,
+            )?;
             let stored = transaction
                 .query_row(
-                    "SELECT w.numeric_id, w.name, w.group_key, w.position, rw.active_screen_id
+                    "SELECT w.numeric_id, w.name, w.group_key, w.position, rw.active_screen_id,
+                            w.name_source, w.name_revision
                      FROM resource_workspaces rw
                      JOIN workspaces w ON w.workspace_key = rw.workspace_key
                      WHERE rw.public_id = ?1 AND rw.workspace_key = ?2
@@ -2736,17 +2746,22 @@ fn resource_change_is_stored(
                             row.get::<_, String>(2)?,
                             row.get::<_, Option<i64>>(3)?,
                             row.get::<_, Option<String>>(4)?,
+                            (row.get::<_, String>(5)?, row.get::<_, i64>(6)?),
                         ))
                     },
                 )
                 .optional()?;
-            stored.is_some_and(|(numeric_id, name, group_key, stored_position, screen)| {
-                i64::try_from(workspace.id).ok() == Some(numeric_id)
-                    && name == workspace.name
-                    && group_key == workspace.group_key
-                    && stored_position == i64::try_from(*position).ok()
-                    && screen.as_deref() == active_screen.as_ref().map(ScreenPublicId::as_str)
-            })
+            stored.is_some_and(
+                |(numeric_id, name, group_key, stored_position, screen, (source, revision))| {
+                    i64::try_from(workspace.id).ok() == Some(numeric_id)
+                        && name == workspace.name
+                        && group_key == workspace.group_key
+                        && stored_position == i64::try_from(*position).ok()
+                        && screen.as_deref() == active_screen.as_ref().map(ScreenPublicId::as_str)
+                        && source == name_source
+                        && revision == name_revision
+                },
+            )
         }
         ResourceChange::UpsertScreen(screen) => {
             let stored = transaction
@@ -3348,19 +3363,27 @@ fn upsert_resource_workspace(
     active_screen: Option<&ScreenPublicId>,
     revision: i64,
 ) -> anyhow::Result<()> {
+    // Identity first: a key bound to another public id is refused as that,
+    // not as a name conflict with the other workspace's row.
     upsert_workspace_resource(transaction, workspace, revision)?;
+    workspace_name_store::fence_stored_row(transaction, workspace)?;
     let position = i64::try_from(position).context("workspace position exceeds SQLite range")?;
+    let (name_source, name_revision) =
+        workspace_name_store::sql_name_provenance(workspace.name_source, workspace.name_revision)?;
     transaction.execute(
         "INSERT INTO workspaces(
            workspace_key, numeric_id, name, group_key, position, tombstoned,
-           created_revision, updated_revision, deleted_revision
-         ) VALUES(?1, ?2, ?3, ?4, ?5, 0, ?6, ?6, NULL)
+           created_revision, updated_revision, deleted_revision,
+           name_source, name_revision
+         ) VALUES(?1, ?2, ?3, ?4, ?5, 0, ?6, ?6, NULL, ?7, ?8)
          ON CONFLICT(workspace_key) DO UPDATE SET
            numeric_id=excluded.numeric_id,
            name=excluded.name,
            group_key=excluded.group_key,
            position=excluded.position,
-           updated_revision=excluded.updated_revision",
+           updated_revision=excluded.updated_revision,
+           name_source=excluded.name_source,
+           name_revision=excluded.name_revision",
         params![
             workspace.key,
             i64::try_from(workspace.id).context("workspace id exceeds SQLite range")?,
@@ -3368,6 +3391,8 @@ fn upsert_resource_workspace(
             workspace.group_key,
             position,
             revision,
+            name_source,
+            name_revision,
         ],
     )?;
     transaction.execute(
@@ -3926,21 +3951,24 @@ fn set_resource_workspace_order(
         &live,
         workspace_ids.iter().map(WorkspacePublicId::as_str),
     )?;
-    for (position, workspace_id) in workspace_ids.iter().enumerate() {
-        transaction.execute(
-            "UPDATE workspaces
-             SET position = ?1, updated_revision = ?2
-             WHERE workspace_key = (
-               SELECT workspace_key FROM resource_workspaces
-               WHERE public_id = ?3 AND deleted_revision IS NULL
-             ) AND tombstoned = 0 AND position != ?1",
-            params![
-                i64::try_from(position).context("workspace position exceeds SQLite range")?,
-                revision,
-                workspace_id.as_str(),
-            ],
-        )?;
-    }
+    // One statement: the order as a JSON array (index = position), so a
+    // creation or move at 2000 workspaces is not 2000 statements; only rows
+    // whose position changes are written.
+    let order = serde_json::to_string(
+        &workspace_ids.iter().map(WorkspacePublicId::as_str).collect::<Vec<_>>(),
+    )?;
+    transaction.execute(
+        "UPDATE workspaces
+         SET position = target.position, updated_revision = ?2
+         FROM (SELECT rw.workspace_key AS workspace_key, CAST(entry.key AS INTEGER) AS position
+               FROM json_each(?1) AS entry
+               JOIN resource_workspaces AS rw
+                 ON rw.public_id = entry.value AND rw.deleted_revision IS NULL) AS target
+         WHERE workspaces.workspace_key = target.workspace_key
+           AND workspaces.tombstoned = 0
+           AND workspaces.position != target.position",
+        params![order, revision],
+    )?;
     Ok(())
 }
 
@@ -4061,9 +4089,11 @@ fn validate_touched_resource_invariants(
             ResourceChange::TombstoneWorkspace { workspace_id } => {
                 workspaces.insert(workspace_id.to_string());
             }
-            ResourceChange::SetWorkspaceOrder { workspace_ids } => {
-                workspaces.extend(workspace_ids.iter().map(ToString::to_string));
-            }
+            // An order change writes only `workspaces.position`: the set
+            // (set_resource_workspace_order) and the contiguous positions
+            // (below) are its invariants, so it touches no workspace's own
+            // rows; validating every workspace per create cost O(n).
+            ResourceChange::SetWorkspaceOrder { .. } => {}
             ResourceChange::SetActiveWorkspace { workspace_id } => {
                 if let Some(workspace) = workspace_id {
                     workspaces.insert(workspace.to_string());

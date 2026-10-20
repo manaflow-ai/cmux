@@ -29,7 +29,7 @@ files=( "$src"/appkit-native/Sources/*.swift )
 while IFS= read -r f; do files+=( "$src/catalyst/Sources/$f" ); done \
   < <(sed -n 's|.*path: \.\./catalyst/Sources/\([A-Za-z0-9_]*\.swift\).*|\1|p' "$src/appkit-native/project.yml")
 files+=( "$src"/appkit-port/Sources/Shim/{UIKitNames,RoundedRect,LayerViews}.swift "$src"/tools/diff-harness/{Harness,LiveProbes}.swift )
-xcrun swiftc -swift-version 5 -Onone -D APPKIT_NATIVE -D MESSAGESLAB_SELFTEST -target arm64-apple-macos26.0 -lsqlite3 -module-name MessagesLabAppKitNative \
+xcrun swiftc -swift-version 5 -Onone -D APPKIT_NATIVE -D MESSAGESLAB_SELFTEST -target arm64-apple-macos14.0 -lsqlite3 -module-name MessagesLabAppKitNative \
   -o "$app/Contents/MacOS/MessagesLabAppKitNative" "${files[@]}" > "$out/build.log" 2>&1 || { grep -m10 'error:' "$out/build.log"; exit 3; }
 cp "$src/catalyst/springs.json" "$src/shared/conversation.json" "$app/Contents/Resources/" || exit 3
 cp -R "$src/shared/assets" "$app/Contents/Resources/assets" && cp -R "$src/catalyst/Fixtures/real" "$app/Contents/Resources/real" || exit 3

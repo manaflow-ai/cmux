@@ -4,7 +4,8 @@
 //! Hooks are off (`core.hooksPath` names an empty directory the owner
 //! created, which also silences `reference-transaction`), fsmonitor is off,
 //! no filter runs (callers hash raw bytes with `--no-filters` and blank every
-//! filter driver through `overrides`), and git takes its real locks.
+//! filter driver through `overrides`), no transport runs (a partial clone
+//! never fetches on demand), and git takes its real locks.
 //!
 //! Hashing and other preparation have a deadline; a write-critical step
 //! (update-index, write-tree, mktree, commit-tree, update-ref) is never killed
@@ -18,7 +19,7 @@ use std::time::Duration;
 
 use wait_timeout::ChildExt;
 
-use crate::run::{GitFailure, GitOutput};
+use crate::run::{GitFailure, GitOutput, Override, deny_transports, set_overrides};
 
 const MAX_STDERR_BYTES: usize = 16 * 1024;
 
@@ -36,7 +37,7 @@ pub enum Bound {
 /// hooks directory.
 pub struct WriteGit<'a> {
     pub root: &'a Path,
-    pub overrides: &'a [String],
+    pub overrides: &'a [Override],
     pub hooks: &'a Path,
 }
 
@@ -51,7 +52,7 @@ impl WriteGit<'_> {
         bound: Bound,
         max_stdout: usize,
     ) -> Result<GitOutput, GitFailure> {
-        let mut command = Command::new("git");
+        let mut command = Command::new(crate::run::PROGRAM);
         for (name, _) in std::env::vars_os() {
             if name.as_encoded_bytes().starts_with(b"GIT_") {
                 command.env_remove(name);
@@ -65,9 +66,8 @@ impl WriteGit<'_> {
         command.args(["-c", "maintenance.auto=false"]);
         // Temporary index files stay whole, plain index files.
         command.args(["-c", "core.splitIndex=false", "-c", "index.skipHash=false"]);
-        for setting in self.overrides {
-            command.args(["-c", setting]);
-        }
+        set_overrides(&mut command, self.overrides);
+        deny_transports(&mut command);
         command
             .args(arguments)
             .current_dir(self.root)

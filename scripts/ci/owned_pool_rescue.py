@@ -74,7 +74,9 @@ failure) goes back to the minis on any attempt. Neither has a marker of its
 own; the sweeper finds them among the unfinished CI runs (owned_reruns()) and
 watches them like attempt 1, and a job stuck or refused there gets the bot's
 next re-run, which every runs-on sends to retry_runner (Blacksmith) from
-attempt 3 on, so a refusal costs two re-runs at most.
+attempt 3 on, so a refusal costs two re-runs at most. cmux-next's bot attempt
+3 also drops the stale placement label and takes Blacksmith, so the sweeper
+stops after attempt 2 and cannot issue a redundant attempt 4.
 
 Dispatch runs (DISPATCH_WORKFLOW_PATHS) are watched the same way; see below
 for the iOS and Iroh release gate workflows. A stuck dispatch run that
@@ -118,9 +120,10 @@ both glaeda-side-* labels that only the minis' non-root runners carry. Most
 side lanes take the job's Blacksmith default on attempt 2 and later. cmux-next
 keeps trusted attempts 1 and 2 on the owned side label and only overflows a
 later bot attempt after its ten-minute queue budget. So the first job on an owned label marks the run as on a persistent
-pool (a job behind a Linux gate appears once the gate ends), and the watch
-stops once every owned job has been accepted, which a side lane's few short
-jobs reach in minutes. A refused side-lane job gets the run's failed jobs
+pool (a job behind a Linux gate appears once the gate ends). The watch stays
+through run completion: a job behind a gate can be created after the first
+owned job is accepted, and glaeda's runner hook can refuse it at that point.
+A refused side-lane job gets the run's failed jobs
 re-run; a stuck one gets the run cancelled and its failed and cancelled jobs
 re-run, keeping the jobs that had already finished. That re-run takes the
 lane's configured retry route, so the watch ends there or continues on
@@ -167,8 +170,7 @@ It stops watching, doing nothing, when:
   or a side-lane workflow, of a trusted non-PR run of a side-lane workflow, of
   main's full-suite dispatch of ci.yml, or of a dispatch in
   DISPATCH_WORKFLOW_PATHS;
-- a side-lane run finished with no job on an owned label, or the fleet
-  accepted all of its owned jobs;
+- a side-lane run finished with no job on an owned label;
 - on a re-run of failed jobs, no job runs on an owned label once
   late-placement, if it re-ran, has finished;
 - on a full re-run, `changes` and late-placement finished without that
@@ -252,16 +254,25 @@ NIGHTLY_EVENTS = frozenset({"push", "schedule"})
 # app build asks for one through this watch.
 TRUSTED_LABEL = re.compile(r"glaeda-(?:root-)?trusted-(?:xl|std|light)-xcode-[0-9]+(?:\.[0-9]+)*")
 SIDE_WORKFLOW_PATHS = frozenset({
+    ".github/workflows/agent-brands.yml",
     ".github/workflows/auth-refresh-tests.yml",
+    ".github/workflows/cmux-next-base-autofix.yml",
+    ".github/workflows/cmux-next-batch.yml",
+    ".github/workflows/cmux-next-frame-pacing.yml",
+    ".github/workflows/cmux-next-media.yml",
+    ".github/workflows/cmux-next-pr-autofix.yml",
+    ".github/workflows/cmux-next-shim-cpp.yml",
     # feat-cmux-next only; on attempt 1 its placement job (side_lane_placement.py) puts a Mac job on the
     # side label only while a side runner is idle, and uploads the owned-pool-watch marker when one is.
     ".github/workflows/cmux-next.yml",
+    ".github/workflows/cmux-tui-artifacts.yml",
     ".github/workflows/cmux-tui.yml",
     ".github/workflows/iroh-v2.yml",
     ".github/workflows/relay-tls.yml",
     ".github/workflows/reload-build.yml",
     ".github/workflows/remote-daemon.yml",
     ".github/workflows/terminal-hang-diagnostics.yml",
+    ".github/workflows/test-feed-reply-providers.yml",
 })
 # cmux-next is the side lane whose placement and retry route are minis-first;
 # other side workflows keep their existing fallback policy.
@@ -351,7 +362,7 @@ def owned_rerun(run: Mapping[str, Any]) -> bool:
     if run.get("path") == CMUX_NEXT_WORKFLOW_PATH:
         # Manual side-lane reruns stay minis-first at any attempt. The bot's
         # second attempt is still watched so a second long queue can overflow
-        # on attempt three; bot attempt three is the overflow route.
+        # on attempt three; that attempt is Blacksmith and is not watched again.
         return actor != RESCUE_ACTOR or attempt <= LAST_OWNED_ATTEMPT
     return run.get("path") == CI_WORKFLOW_PATH and (attempt <= LAST_OWNED_ATTEMPT or (
         run.get("event") == "pull_request" and actor != RESCUE_ACTOR))
@@ -819,7 +830,7 @@ def target_from_event(event: Mapping[str, Any], repository: str) -> Target | str
     if head.casefold() != repository.casefold():
         return "a fork head; forks never take a persistent pool"
     attempt = int(run.get("run_attempt") or 0)
-    if attempt != 1:
+    if attempt != 1 and not (run.get("status") == "completed" and run.get("conclusion") == "failure"):
         return f"attempt {attempt}; its first attempt's watch follows it"
     if e2e and not ios_pull:
         return Target(int(run["id"]), attempt, str(run.get("head_sha") or ""), 0, e2e=True,
@@ -840,11 +851,11 @@ def target_from_event(event: Mapping[str, Any], repository: str) -> Target | str
 
 
 def nightly_target(run: Mapping[str, Any], repository: str) -> Target | str:
-    """A nightly.yml run to watch, or why not: only attempt 1 of main's own push or schedule run."""
+    """Attempt 1 of main push/schedule or nightly-next push, from this repository."""
     if run.get("event") not in NIGHTLY_EVENTS:
         return f"a {run.get('event') or 'unknown'} run of {NIGHTLY_WORKFLOW_PATH}, not a push or schedule"
-    if run.get("head_branch") != MAIN_BRANCH:
-        return f"a run of {NIGHTLY_WORKFLOW_PATH} on {run.get('head_branch') or 'an unknown branch'}, not {MAIN_BRANCH}"
+    if run.get("head_branch") not in (MAIN_BRANCH, "nightly-next") or (run.get("head_branch") == "nightly-next" and run.get("event") != "push"):
+        return f"a run of {NIGHTLY_WORKFLOW_PATH} on {run.get('head_branch') or 'an unknown branch'}, not a trusted nightly event"
     head = (run.get("head_repository") or {}).get("full_name") or ""
     if head.casefold() != repository.casefold():
         return "a fork head; forks never take a persistent pool"
@@ -852,7 +863,7 @@ def nightly_target(run: Mapping[str, Any], repository: str) -> Target | str:
     if attempt != 1:
         return f"attempt {attempt}; its first attempt's watch follows it"
     return Target(int(run["id"]), attempt, str(run.get("head_sha") or ""), 0, path=NIGHTLY_WORKFLOW_PATH,
-                  side=True, nightly=True)
+                  side=True, nightly=True, push_branch=str(run["head_branch"]))
 
 
 def marker_name(target: Target) -> str:
@@ -988,13 +999,11 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
                 # admission, so its watch goes on until the run finishes.
                 own_admission = any(job.get("name") == ADMISSION_JOB
                                     and not carried(job, target.attempt_started_at) for job in jobs)
-                if (target.attempt > 1 and not target.full_rerun and not own_admission and owned
-                        and all(accepted(job, seen_at) for job in owned)):
-                    # The fleet took the retry; later attempts never come back to it.
-                    return "stop", "the fleet accepted the retry"
-                if target.side and owned and all(accepted(job, seen_at) for job in owned):
-                    # A side lane's jobs are all created by now, and none can be refused any more.
-                    return "stop", "the fleet accepted the side-lane jobs"
+                # Do not stop merely because the currently visible jobs were
+                # accepted. A Linux gate or a sibling can create another job
+                # later, and its runner hook may refuse it after this point.
+                # Stay until the run completes (or the bounded watch expires)
+                # so every owned-pool refusal gets a retry.
         if now() >= deadline:
             return "stop", "watch limit reached"
         sleep(interval)
@@ -1021,9 +1030,16 @@ def pull_moved(api: GitHub, target: Target, sleep: Callable[[float], None],
         # nightly.yml's concurrency group never cancels in progress: a newer
         # run waits behind this one, and a re-run of this one would join the
         # group and cancel that pending run. Leave the revision to it.
-        newer = read(lambda: api.newer_unfinished_runs(target.path, target.run_id, MAIN_BRANCH), sleep, log)
+        newer = read(lambda: api.newer_unfinished_runs(target.path, target.run_id, target.push_branch or MAIN_BRANCH), sleep, log)
         if newer:
-            return f"a newer nightly run on {MAIN_BRANCH} ({newer[0]}) has not finished and builds instead"
+            return f"a newer nightly run on {target.push_branch or MAIN_BRANCH} ({newer[0]}) has not finished and builds instead"
+        # nightly-next runs are never pending at the workflow level (a run-scoped
+        # group); their builds share one job-level slot instead, where a rerun of
+        # this older run would replace the newest push's waiting build.
+        if target.push_branch == "nightly-next":
+            head = read(lambda: api.branch_head("nightly-next"), sleep, log)
+            if head != target.head_sha:
+                return "nightly-next has moved on, and the newer push's run builds it"
         return ""
     if target.push_branch:
         # Not the branch head: a head commit outside the workflow's paths has no
@@ -1229,7 +1245,7 @@ def follow(client: GitHub, target: Target, *, seconds: int, queue_rounds: str | 
     subject = (f"pull request #{target.pr_number}'s {target.path}" if target.pr_number else
                f"a dispatch of {target.path}") \
         if target.e2e else f"main's full-suite dispatch at {target.head_sha[:12]}" if target.main \
-        else f"main's nightly build at {target.head_sha[:12]}" if target.nightly \
+        else f"{target.push_branch or MAIN_BRANCH}'s nightly build at {target.head_sha[:12]}" if target.nightly \
         else f"pull request #{target.pr_number}" if target.pr_number else f"a run of {target.path}"
     if target.side and not target.nightly:
         subject += " (side lane)"

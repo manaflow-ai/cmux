@@ -10,6 +10,9 @@ pub const PERMISSION_GROUP_OPERATIONS: [&str; 3] = [
     method::MUX_PERMISSION_CHAT_REVOKE,
 ];
 const WINDOW: Duration = Duration::from_millis(100);
+/// The most a group's timer waits past WINDOW for requests still on their
+/// way (`AskInFlight`); one later than that forms a group of its own.
+const LANDING_BOUND: Duration = Duration::from_secs(2);
 const MAX_ITEMS: usize = 32;
 const MAX_GROUPS: usize = 64;
 
@@ -71,16 +74,46 @@ impl Group {
     }
 
     fn value(&self, session_id: &str) -> Value {
+        use crate::protocol::permission::{
+            PermissionDecision, PermissionGroup, PermissionGroupItem,
+        };
         let can_allow = self
             .items
             .iter()
             .filter(|i| i.state == "pending")
             .all(|i| option(&i.request, "allow_once").is_some());
-        json!({"groupId":self.id, "sessionId":session_id, "turnId":self.turn_id,
-            "revision":self.revision, "state":self.state,
-            "items":self.items.iter().map(|i| json!({"permissionId":i.id,"request":i.request,"state":i.state})).collect::<Vec<_>>(),
-            "decisions":if can_allow {json!(["allow_once","allow_chat","deny"])} else {json!(["deny"])},
-            "decision":self.receipt.as_ref().map(|(body,_)| body["decision"].clone())})
+        let group = PermissionGroup {
+            group_id: self.id.clone(),
+            session_id: session_id.to_owned(),
+            turn_id: self.turn_id.clone(),
+            revision: self.revision,
+            state: self.state,
+            items: self
+                .items
+                .iter()
+                .map(|i| PermissionGroupItem {
+                    permission_id: i.id.clone(),
+                    request: i.request.clone(),
+                    state: i.state,
+                })
+                .collect(),
+            decisions: if can_allow {
+                vec![
+                    PermissionDecision::AllowOnce,
+                    PermissionDecision::AllowChat,
+                    PermissionDecision::Deny,
+                ]
+            } else {
+                vec![PermissionDecision::Deny]
+            },
+            // Validated when it was taken (`respond_permission_group`).
+            decision: self
+                .receipt
+                .as_ref()
+                .and_then(|(body, _)| body["decision"].as_str())
+                .and_then(PermissionDecision::from_wire),
+        };
+        serde_json::to_value(group).unwrap_or(Value::Null)
     }
 }
 
@@ -97,6 +130,15 @@ impl PermissionState {
     }
 
     // Returns the group id and whether a new timer is needed.
+    //
+    // A request joins the group of its turn that is still collecting: the
+    // group's timer (`start_permission_group_timer`, WINDOW after it opened,
+    // once no request read before then is on its way: `AskInFlight`) ends
+    // collection under this lock, so a group holds exactly what came before
+    // it was shown. Membership never reads the clock at the request:
+    // a burst the agent sent in one millisecond reached this lock 100 ms
+    // and more apart on a busy daemon (its request tasks wait their turn),
+    // and a clock test there split it into two groups (cx-nx5mb, rbx).
     pub fn register(
         &mut self,
         id: &str,
@@ -109,7 +151,6 @@ impl PermissionState {
             g.state == "collecting"
                 && g.turn_id == turn
                 && g.epoch == epoch
-                && now.duration_since(g.opened) < WINDOW
                 && g.items.len() < MAX_ITEMS
         });
         let (index, fresh) = match existing {
@@ -167,6 +208,29 @@ impl PermissionState {
     }
 }
 
+/// One agent `session/request_permission` on its way from the session's
+/// inbound loop, which reads the agent's requests in order, to its group.
+/// Dropped once the request joined a group or was decided without one.
+/// A group's timer waits for every request counted when it fires, so a
+/// burst the inbound loop read together is shown together however late
+/// its request tasks run (cx-nx5mb).
+pub(super) struct AskInFlight(Arc<Session>);
+
+impl AskInFlight {
+    pub(super) fn new(session: &Arc<Session>) -> Self {
+        session.asks_in_flight.fetch_add(1, Ordering::SeqCst);
+        Self(session.clone())
+    }
+}
+
+impl Drop for AskInFlight {
+    fn drop(&mut self) {
+        if self.0.asks_in_flight.fetch_sub(1, Ordering::SeqCst) == 1 {
+            self.0.asks_landed.notify_waiters();
+        }
+    }
+}
+
 fn conflict(reason: &str, group: Value) -> RpcError {
     RpcError::new(-32000, reason).with_data(json!({"reason":reason,"group":group}))
 }
@@ -210,6 +274,23 @@ impl Hub {
             };
             let Some(deadline) = deadline else { return };
             tokio::time::sleep_until(deadline.into()).await;
+            // A request the agent sent with this group's first may still be
+            // on its way here: it joins before the group is shown. Each one
+            // lands within its own request task (no wait on a person); the
+            // bound keeps a request task that is stuck (a re-adopted host
+            // that stopped reading) from holding the group back.
+            let _ = tokio::time::timeout(LANDING_BOUND, async {
+                loop {
+                    let landed = session.asks_landed.notified();
+                    tokio::pin!(landed);
+                    landed.as_mut().enable();
+                    if session.asks_in_flight.load(Ordering::SeqCst) == 0 {
+                        break;
+                    }
+                    landed.await;
+                }
+            })
+            .await;
             let mut state = session.permissions.lock().unwrap();
             if let Some(g) = state.groups.iter_mut().find(|g| g.id == id && g.state == "collecting")
             {

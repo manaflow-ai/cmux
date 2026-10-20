@@ -39,6 +39,8 @@ pub(crate) use saved_tab_groups::{
 };
 
 mod frontend_browser_history;
+mod frontend_browser_profiles;
+pub(crate) use frontend_browser_profiles::clear_frontend_browser_profile;
 mod icon;
 pub use icon::{
     IconAssetKind, is_sha256_hex, parse_icon_asset, validate_icon_value,
@@ -883,7 +885,12 @@ pub(crate) fn write_workspace_presentation(
             "pinned": record.pinned,
             "marked_unread": record.marked_unread,
         }),
-    )
+    )?;
+    if update.pinned.is_some() {
+        // sidebar-doc-v1: the old pin flag pins or unpins in the document.
+        crate::state::sidebar_doc_sync::sync_from_legacy(transaction)?;
+    }
+    Ok(())
 }
 
 impl WorkspaceRegistry {

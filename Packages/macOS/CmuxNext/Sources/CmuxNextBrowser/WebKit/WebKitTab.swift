@@ -56,6 +56,9 @@ public final class WebKitTab: NSObject, BrowserTab {
     @ObservationIgnored private(set) var isClosed = false
     /// The re-show that applies the last render-rate change, while it runs (WebKitEngine).
     @ObservationIgnored var rateReshow: Task<Void, Never>?
+    /// The daemon's resolved emulation (`WebKitTab+DeviceEmulation`) and the user agent to restore after it.
+    @ObservationIgnored public internal(set) var deviceEmulation: BrowserEmulation?
+    @ObservationIgnored var userAgentBeforeEmulation: String?
 
     init(configuration: BrowserTabConfiguration, webViewConfiguration: WKWebViewConfiguration, engine: WebKitEngine,
          openedByPage: Bool = false) {
@@ -85,6 +88,7 @@ public final class WebKitTab: NSObject, BrowserTab {
         controller.add(WeakScriptMessageHandler(self), name: PaneFullscreenScript.messageHandlerName)
         WebKitContextHit.install(self, into: controller)
         WebKitMediaHandler.install(on: self, into: controller)
+        WebKitVerificationHandler.install(on: self, into: controller)
         WebKitPasskeyInstaller.install(self, into: controller)
         WebKitNotificationBridge.install(on: self, into: controller)
         observeWebView()

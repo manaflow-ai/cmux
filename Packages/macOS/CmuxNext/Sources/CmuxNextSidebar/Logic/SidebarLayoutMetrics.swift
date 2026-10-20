@@ -43,8 +43,8 @@ public nonisolated struct SidebarLayoutMetrics: Hashable, Sendable {
         self.emptySectionHeight = emptySectionHeight
     }
 
-    /// Minimal mode's metrics (`sidebar.minimal`): shorter rows, tab rows and group headers (a
-    /// group header draws as a thin line there, `SidebarRow.isThinHeader`).
+    /// Minimal mode's metrics (`sidebar.minimal`): shorter rows, tab rows and group headers. A
+    /// group header keeps its solid bar in the group's color, only shorter (Lawrence 2026-10-18).
     public var minimal: SidebarLayoutMetrics {
         var m = self
         let step = (rowHeight * 0.17).rounded()
@@ -75,6 +75,15 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     public var excludedWorkspaces: Set<WorkspaceID> = []
     /// A group removed from the layout with its children (being dragged).
     public var excludedGroup: GroupID?
+    /// A listed document item removed from the layout (being dragged).
+    public var excludedItem: String?
+    /// The height of each document section's block (its items in its own arrangement), by section id.
+    public var blockHeights: [String: CGFloat] = [:]
+    /// Document sections folded by their header: their groups do not list.
+    public var collapsedDocSections: Set<String> = []
+    /// Document sections whose block draws no item (at most a title): during a drag (`showEmptyPinned`)
+    /// each opens a one-row drop zone under its title, so an empty section always takes a drop.
+    public var emptyDocSections: Set<String> = []
     /// When set, only these workspaces show; containers force-expand.
     public var filterMatches: Set<WorkspaceID>?
     /// Show the drop zone for an empty pinned section.
@@ -108,6 +117,8 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     public var minimal = false
     /// Expanded rows (`sidebar.density`), unless minimal: `WorkspaceRowContent(expanded:)`.
     public var expanded = false
+    /// Row badges draw each state apart (`sidebar.detailedStatusIcons`), not Working or Ready only.
+    public var detailedStatus = false
     /// The start of today: the last-activity element shows a time for today,
     /// else a date. A day, not the current time, so options stay equal.
     public var now = Date(timeIntervalSince1970: 0)
@@ -121,14 +132,21 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
 }
 
 nonisolated extension SidebarLayoutOptions {
-    /// Icon only: the name and the unread mark always draw (minimal mode).
-    static let minimalRow = WorkspaceRowPreferences(base: WorkspaceRowElements(shown: [.icon]))
+    /// Icon, the working spinner and progress (spinner and OSC 9;4 bar, Lawrence via cx-htbe5): the name
+    /// and the unread mark always draw (minimal mode).
+    static let minimalRow = WorkspaceRowPreferences(base: WorkspaceRowElements(shown: [.icon, .working, .progress]))
 
     /// What `ws`'s row draws under these options. Minimal mode drops the
     /// second line (including another computer's name and a machine's
-    /// stage), counts, badges and the working dots; attention states
-    /// (waiting, error) still show, like the unread mark.
+    /// stage), the status block, counts and badges; the working spinner,
+    /// loading, the progress bar and attention states still show, like the unread mark.
     func rowContent(_ ws: SidebarWorkspace, machine: String?) -> WorkspaceRowContent {
+        var content = baseRowContent(ws, machine: machine)
+        content.detailedStatus = detailedStatus
+        return content
+    }
+
+    private func baseRowContent(_ ws: SidebarWorkspace, machine: String?) -> WorkspaceRowContent {
         if expanded && !minimal {
             return WorkspaceRowContent(expanded: ws, now: now, machine: machine,
                                        showsNotification: workspaceRow.resolved(for: ws.rowKind).shows(.notification))
@@ -136,6 +154,8 @@ nonisolated extension SidebarLayoutOptions {
         guard minimal else { return WorkspaceRowContent(ws, preferences: workspaceRow, now: now, machine: machine) }
         var content = WorkspaceRowContent(ws, preferences: Self.minimalRow, now: now)
         content.detail = nil
+        content.badgeTime = nil
+        content.status = nil
         return content
     }
 }

@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "acpmux"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "base64",
@@ -29,6 +29,7 @@ dependencies = [
  "regex",
  "reqwest",
  "rustls",
+ "schemars",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -914,6 +915,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-api-compat"
+version = "0.1.0"
+dependencies = [
+ "proptest",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-app-host"
 version = "0.1.0"
 dependencies = [
@@ -934,7 +944,7 @@ dependencies = [
 
 [[package]]
 name = "cmux-browser-host"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "chacha20poly1305",
  "getrandom 0.3.4",
@@ -945,6 +955,13 @@ dependencies = [
  "serde_json",
  "sha1",
  "url",
+]
+
+[[package]]
+name = "cmux-build-identity"
+version = "0.1.0"
+dependencies = [
+ "cmux-tui-source-watch",
 ]
 
 [[package]]
@@ -986,6 +1003,7 @@ dependencies = [
  "axum",
  "base64",
  "bytes",
+ "cmux-link",
  "cmux-local-auth",
  "fs4",
  "futures-util",
@@ -999,7 +1017,6 @@ dependencies = [
  "libc",
  "reqwest",
  "rustls",
- "security-framework",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -1016,7 +1033,7 @@ dependencies = [
 [[package]]
 name = "cmux-codex-acp"
 version = "0.1.0"
-source = "git+https://github.com/manaflow-ai/cmux-codex-acp?rev=684a4bdb42ab7f61f6adc5d1a3e5ce274ee064a9#684a4bdb42ab7f61f6adc5d1a3e5ce274ee064a9"
+source = "git+https://github.com/manaflow-ai/cmux-codex-acp?rev=882b976332ea3dd89df18b401ab13e14a5dc78cc#882b976332ea3dd89df18b401ab13e14a5dc78cc"
 dependencies = [
  "serde_json",
 ]
@@ -1028,6 +1045,7 @@ dependencies = [
  "base64",
  "core-foundation 0.10.1",
  "core-foundation-sys",
+ "jsonschema",
  "notify",
  "plist",
  "serde",
@@ -1076,6 +1094,15 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "cmux-focus-core"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "unicode-segmentation",
 ]
 
 [[package]]
@@ -1146,6 +1173,7 @@ dependencies = [
 name = "cmux-mobile-core"
 version = "0.1.0"
 dependencies = [
+ "cmux-cloud-wire",
  "cmux-terminal-sizing",
  "serde_json",
 ]
@@ -1166,6 +1194,14 @@ dependencies = [
  "libc",
  "objc2-app-kit",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "cmux-mux2"
+version = "0.1.0"
+dependencies = [
+ "ghostty-vt",
+ "libc",
 ]
 
 [[package]]
@@ -1265,12 +1301,12 @@ dependencies = [
  "axum",
  "base64",
  "bytes",
+ "cmux-build-identity",
  "cmux-link",
  "cmux-pty",
  "cmux-relay",
  "cmux-remote-protocol",
  "cmux-tui-core",
- "cmux-tui-source-watch",
  "cmux-unix-socket",
  "cmux-wg",
  "diffy",
@@ -1322,6 +1358,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-remote-transcript"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "flate2",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+]
+
+[[package]]
 name = "cmux-sdk"
 version = "1.0.0"
 dependencies = [
@@ -1339,8 +1386,10 @@ dependencies = [
 name = "cmux-server"
 version = "0.1.0"
 dependencies = [
+ "base64",
  "cmux-server-core",
  "flate2",
+ "futures-util",
  "getrandom 0.3.4",
  "libc",
  "reqwest",
@@ -1351,6 +1400,11 @@ dependencies = [
  "sha2 0.10.9",
  "tar",
  "tempfile",
+ "tokio",
+ "tokio-tungstenite",
+ "url",
+ "x25519-dalek",
+ "zeroize",
 ]
 
 [[package]]
@@ -1449,7 +1503,7 @@ dependencies = [
 
 [[package]]
 name = "cmux-tui"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "acpmux",
  "anyhow",
@@ -1457,6 +1511,8 @@ dependencies = [
  "base64",
  "bytes",
  "cmux-agent-pane-policy",
+ "cmux-build-identity",
+ "cmux-config",
  "cmux-host",
  "cmux-link",
  "cmux-pty",
@@ -1481,7 +1537,9 @@ dependencies = [
  "parking_lot",
  "plist",
  "ratatui",
+ "regex",
  "reqwest",
+ "rquickjs",
  "rusqlite",
  "rustls",
  "serde",
@@ -1519,6 +1577,7 @@ name = "cmux-tui-cloud-conversations"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "cmux-cloud-wire",
  "serde",
  "serde_json",
  "url",
@@ -1531,6 +1590,8 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "base64",
+ "cmux-agent-pane-policy",
+ "cmux-api-compat",
  "cmux-app-host",
  "cmux-app-manifest",
  "cmux-config",
@@ -1559,6 +1620,7 @@ dependencies = [
  "ghostty-vt",
  "jsonschema",
  "libc",
+ "notify",
  "parking_lot",
  "proptest",
  "quick-xml",
@@ -1569,6 +1631,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "socket2",
  "tokio",
  "tungstenite",
  "uds_windows",

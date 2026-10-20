@@ -13,6 +13,10 @@ import CmuxNextSidebar
 /// folder's titles by the folder's title.
 enum DebugSidebarRows {
     static func report(_ params: [String: JSONValue] = [:], services: AppServices) -> JSONValue {
+        if params["refuse_next_close"] == .bool(true) { ClosingWorkspaces.shared.refusesNext = true; return .object(["refuse_next_close": .bool(true)]) }
+        if let motion = params["motion"]?.stringValue {
+            return services.windows.controllers.first.map { json($0.sidebar.container.sidebarView.debugMotionReport(start: motion == "start")) } ?? .null
+        }
         guard let x = params["menu_x"]?.doubleValue, let y = params["menu_y"]?.doubleValue else { return rows(services: services) }
         let menu = services.windows.controllers.first.flatMap {
             $0.sidebar.container.debugMenu(atWindowPoint: CGPoint(x: x, y: y))
@@ -24,61 +28,20 @@ enum DebugSidebarRows {
     }
 
     private static func rows(services: AppServices) -> JSONValue {
-        .object(["windows": .array(services.windows.controllers.map { controller in
-            let sidebar = controller.sidebar.container.sidebarView
-            let (rows, selection, dragging) = sidebar.debugRows()
-            return .object([
-                "window": .string(controller.state.id),
-                "selection": .array(selection.map(JSONValue.string)),
-                "dragging": .array(dragging.map(JSONValue.string)),
-                "drop": sidebar.debugDropProbe().map(probe) ?? .null,
-                "paging": .object(sidebar.debugPaging().mapValues(JSONValue.string)),
-                "items": .array(items(of: controller)),
-                "new_button": sidebar.debugNewButtonFrame().map(rect) ?? .null,
-                "rows": .array(rows.map { row in
-                    .object([
-                        "key": .string(row.key), "title": row.title.map(JSONValue.string) ?? .null,
-                        "frame": rect(row.frame), "window_frame": rect(row.windowFrame), "view_frame": row.viewFrame.map(rect) ?? .null,
-                        "view_alpha": row.viewAlpha.map { .number(Double($0)) } ?? .null,
-                        "in_list": .bool(row.inList), "suppressed": .bool(row.suppressed), "selected": .bool(row.selected),
-                        "muted": .bool(row.muted), "activity": row.activity.map(JSONValue.string) ?? .null,
-                        "icon": row.icon.map(JSONValue.string) ?? .null,
-                        "shown_frame": row.shownFrame.map(rect) ?? .null, "clips": .bool(row.clips),
-                        "group": row.group.map(JSONValue.string) ?? .null,
-                        "detail": row.detail.map(JSONValue.string) ?? .null,
-                        "fill": .bool(row.fill), "hovered": .bool(row.hovered),
-                        "disclosure": row.disclosureIcon.map { icon in
-                            .object(["icon": .string(icon), "frame": row.disclosureFrame.map(rect) ?? .null, "shown": .bool(row.disclosureShown)])
-                        } ?? .null,
-                    ])
-                }),
-            ])
+        // `doc`: the sidebar document path is on, and the mirror's FFI calls so far (two per drag: drag_begin, the drop).
+        .object(["open_tab_favicons": .object(services.openTabFaviconsByOrigin().mapValues(JSONValue.string)), "doc": .object(["active": .bool(SidebarDocStore.current?.isActive == true), "ffi_calls": .object(SidebarMirror.calls.mapValues { .number(Double($0)) })]),
+                 "windows": .array(services.windows.controllers.map { controller in
+            var window = controller.sidebar.container.sidebarView.debugReport()
+            window["window"] = controller.state.id
+            return json(window)
         })])
     }
 
     /// The window's sidebar layout items (debug.sidebar_rows "items").
     static func items(of controller: WindowController) -> [JSONValue] {
-        controller.sidebar.container.sidebarView.debugLayoutItems().map { item in
-            .object([
-                "id": .string(item.id), "ref_kind": .string(item.refKind), "ref": .string(item.ref),
-                "region": .string(item.region), "section": .string(item.section),
-                "section_title": item.sectionTitle.map(JSONValue.string) ?? .null, "active": .bool(item.isActive),
-                "window_frame": item.windowFrame.map(rect) ?? .null,
-            ])
-        }
+        controller.sidebar.container.sidebarView.debugLayoutItemsReport().map(json)
     }
 
-    /// The last drop resolution of a live drag: card edge, hit row, zone, target.
-    private static func probe(_ p: SidebarDropProbe) -> JSONValue {
-        func num(_ v: CGFloat?) -> JSONValue { v.map { .number(Double($0)) } ?? .null }
-        return .object([
-            "edge": .string(p.edge), "display_y": .number(Double(p.displayY)), "base_y": num(p.baseY),
-            "row": p.row.map(JSONValue.string) ?? .null, "fraction": num(p.fraction),
-            "target": p.target.map(JSONValue.string) ?? .null,
-        ])
-    }
-
-    private static func rect(_ r: CGRect) -> JSONValue {
-        .object(["x": .number(r.minX), "y": .number(r.minY), "width": .number(r.width), "height": .number(r.height)])
-    }
+    /// The sidebar's JSONSerialization graph (SidebarView+DebugReport) as JSON.
+    private static func json(_ object: Any) -> JSONValue { JSONValue(foundation: object) ?? .null }
 }

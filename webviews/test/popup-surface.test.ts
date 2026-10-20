@@ -2,8 +2,9 @@
 // them showed through (the New Tab folder popover over the Chats list read as text on text). Every
 // one is now the solid popup surface, `--surface-popup`: the host's `--cmux-popup-surface`, the
 // same opaque fill as the native overlays (`Palette.popupSurface`), with no backdrop blur. The two
-// web tooltips (Base UI's `.ui-tooltip`, the title tooltip) also match the native tooltip: popup
-// surface, primary ink, 5 px radius, 4×8 padding, a separator hairline and the caption font.
+// web tooltips (Base UI's `.ui-tooltip`, the title tooltip) match the native tooltip: primary ink,
+// 5 px radius, 4×8 padding, a separator hairline and the caption font; since 2026-10-14 they are
+// frosted glass instead (tooltip-surface.test.ts).
 //
 // The pages are the real stylesheets with the variables the host sets, in a see-through window
 // (a translucent elevated background). The engines come from `playwright install chromium
@@ -69,27 +70,29 @@ await requireBrowserLane("popup-surface.test.ts", async () => {
       "icon-picker/styles.css",
       "pages/markdown/styles.css",
       "pages/home-channels/styles.css",
+      "pages/home-channels/ledger.css",
       "pages/editor/styles.css",
     ),
     body: `<div class="ui-positioner"><div class="ui-popup" id="menu">Menu</div></div>
 ${tooltips}
 <div class="page-menu" id="page-menu">Sort</div>
 <div class="icon-bar-pill" id="icon-bar-pill">Icons</div>
-<div class="md-link-card" id="md-link-card">https://example.com</div>
+<div class="md-link-bubble" id="md-link-bubble">https://example.com</div>
 <div class="md-link-popover" id="md-link-popover">Edit link</div>
 <div class="hc-msg-toolbar" id="hc-msg-toolbar">React</div>
-<div class="hc-switcher" id="hc-switcher">Switch channel</div>
+<div class="lg-palette" id="lg-palette">Search conversations</div>
+<div class="lg-form" id="lg-form">New message</div>
 <div id="editor-widget" style="background: var(--cmux-editor-widget-background)">Suggest</div>`,
+    // Tooltips are frosted glass (tooltip-surface.test.ts).
     surfaces: [
       "menu",
-      "ui-tooltip",
-      "title-tooltip",
       "page-menu",
       "icon-bar-pill",
-      "md-link-card",
+      "md-link-bubble",
       "md-link-popover",
       "hc-msg-toolbar",
-      "hc-switcher",
+      "lg-palette",
+      "lg-form",
       "editor-widget",
     ],
   };
@@ -112,7 +115,6 @@ ${tooltips}
 <div class="acpmux-context-pop" id="context-pop">Context</div>
 <div class="acpmux-slash-menu" id="slash">/compact</div>
 <div class="ui-popup ui-picker-popup acpmux-mp" id="model-picker">Models</div>
-<div class="acpmux-mp-cascade"><div class="acpmux-mp-sub" id="model-sub">Older</div></div>
 <div class="acpmux-changes"><div class="acpmux-file-menu-list" id="file-menu">Open</div></div>
 </div>
 <div class="ui-positioner"><div class="ui-popup" id="popup">Menu</div></div>
@@ -121,7 +123,7 @@ ${tooltips}
 <div class="ui-positioner"><div class="ui-popup acpmux-access-menu" id="access">Full access</div></div>
 <div class="ui-positioner"><div class="ui-popup acpmux-chat-menu-popover" id="chat-menu">Rename</div></div>
 <div class="ui-positioner"><div class="acpmux-pr-status" id="pr-status">Checks</div></div>
-<div class="ui-positioner"><div class="acpmux-summary-popover" id="summary">Summary</div></div>
+<div class="acpmux-shell"><div class="acpmux-summary-card" data-placement="popover" id="summary">Summary</div></div>
 <div class="ui-positioner"><div class="ui-popup nt-popover" id="new-tab-suggestions">reddit.com</div></div>
 ${tooltips}`,
     surfaces: [
@@ -129,7 +131,6 @@ ${tooltips}`,
       "context-pop",
       "slash",
       "model-picker",
-      "model-sub",
       "file-menu",
       "popup",
       "context-menu",
@@ -140,7 +141,6 @@ ${tooltips}`,
       "summary",
       // Leo 10-13: the New Tab suggestions showed the page's rows through them on a wallpaper theme.
       "new-tab-suggestions",
-      "title-tooltip",
     ],
   };
 
@@ -191,10 +191,34 @@ ${tooltips}`,
             return { border: style.borderTopWidth, radius: style.borderTopLeftRadius, shadow: style.boxShadow };
           });
         const want = await look("context-menu");
-        const ids = pane.surfaces.filter((id) => id !== "title-tooltip");
+        const ids = pane.surfaces;
         const seen: Record<string, { border: string; radius: string; shadow: string }> = {};
         for (const id of ids) seen[id] = await look(id);
         expect(seen).toEqual(Object.fromEntries(ids.map((id) => [id, want])));
+        await page.close();
+      });
+
+      // Coherence pass batch 2: the web popups cast the native popup shadow (PopupStyle.swift), so a
+      // menu has the same depth in a page as over the sidebar. The deeper two-layer shadow came with
+      // the glass popups (#19008); popups are solid again, and POLISH asks for subtle shadows.
+      test("the web popup shadow is the native popup shadow", async () => {
+        const swift = fs.readFileSync(
+          path.resolve(import.meta.dir, "../../Packages/macOS/CmuxNext/Sources/CmuxNextDesign/PopupStyle.swift"),
+          "utf8",
+        );
+        // The raised step of the shared scale (`elevation2`; subtle-elevation.test.ts).
+        const raised = swift.match(
+          /static let elevation2 = Elevation\(offset: ([\d.]+), blur: ([\d.]+), alpha: ([\d.]+)\)/,
+        )!;
+        const [offset, blur, alpha] = raised.slice(1, 4).map(Number);
+        const page = await open(browser, pages);
+        const shadow = await page.$eval("#menu", (node) => getComputedStyle(node).boxShadow);
+        // Black at an alpha serializes as rgba() or, from color-mix(), as color(srgb ...).
+        const drops = shadow
+          .split(/,(?![^(]*\))/)
+          .filter((part) => !part.includes("inset"))
+          .map((part) => part.trim().replace(/^rgba\(0, 0, 0, ([\d.]+)\)/, "color(srgb 0 0 0 / $1)"));
+        expect(drops).toEqual([`color(srgb 0 0 0 / ${alpha}) 0px ${offset}px ${blur}px 0px`]);
         await page.close();
       });
 

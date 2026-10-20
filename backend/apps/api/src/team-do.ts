@@ -4,7 +4,7 @@ import { aiLimitViewOf, codeRunLimit, teamDomain, type TeamState } from "./domai
 import type { Env } from "./env.ts"
 import { OwnerDO, type ReadResult } from "./owner-do.ts"
 import { teamRead, teamVmAccountsFence, withAiSpend } from "./team-reads.ts"
-import { can, firstOwner, homeCoMembersOf, roleOf, TABLE_MEMBER, TEAM_PRIVATE_TABLES } from "./domains/team-members.ts"
+import { can, firstOwner, homeCoMembersOf, hostOf, memberOf, roleOf, TABLE_MEMBER, TEAM_PRIVATE_TABLES } from "./domains/team-members.ts"
 import { integrationSyncPending, releasePending, sliceHash, type IntegrationFields } from "./domains/team-integration-sync.ts"
 import { runSyncPending, runSyncPush } from "./domains/team-run-sync.ts"
 import { cloudPolicyOf, currentPolicy, integrationSlice } from "./domains/team-policy.ts"
@@ -22,6 +22,7 @@ import { vmAdminExternal } from "./team-vm-taint-admin.ts"
 import { memberAdminExternal } from "./team-member-admin.ts"
 import type { SshPresence } from "./team-ssh-presence.ts"
 import { cleanupRemovedMembers, revokeMemberCertsNow } from "./team-member-cleanup.ts"
+import { HostReplicaDrops, hostsLeavingOwner, type ReplicaDropTarget } from "./team-host-replica-drop.ts"
 
 /** TeamDO: membership cache and the account directory of hosts (U2). */
 export type { SignInRules } from "./team-sign-in-rules.ts"
@@ -62,7 +63,7 @@ export class TeamDO extends OwnerDO<TeamState> {
   protected read(state: TeamState, op: string, params: unknown, principal: Principal): ReadResult { return teamRead(state, op, params, principal, this.rows) }
   async aiUserLimit(entity: string, user: string): Promise<number> { return codeRunLimit(this.isBound(entity) ? this.bind(entity).currentState : undefined, this.rows, user) } // RPC from code runs: this member's AI limit only, 0 for a non-member (team-ai-limit.ts)
   async aiLimitView(entity: string, user: string, cursor?: string) { return aiLimitViewOf(this.isBound(entity) ? this.bind(entity).currentState : undefined, this.rows, entity, user, cursor) } // RPC from the team.ai_limit.get route
-  override async readOp(entity: string, principal: Principal, op: string, params: unknown): Promise<ReadResult> { const r = await super.readOp(entity, principal, op, params); const fenced = (r.ok && (await teamVmAccountsFence(() => this.teamVm(entity).currentInstall(entity), principal, op))) || r; return op === "team.ai_limit.get" ? withAiSpend(this.env, entity, fenced) : fenced }
+  override async readOp(entity: string, principal: Principal, op: string, params: unknown): Promise<ReadResult> { const r = await super.readOp(entity, principal, op, params); const fenced = (r.ok && (await teamVmAccountsFence(() => this.teamVm(entity).currentInstall(entity), principal, op))) || r; return op === "team.ai_limit.get" ? withAiSpend(this.env, entity, fenced, (await import("./inference/plan.ts")).storedPlan(this.ctx.storage.sql)) : fenced }
 
   /** Backoff after a failed push to ConnectionDO (in memory: a restart retries at once). */
   private syncRetryAt: number | null = null
@@ -74,6 +75,18 @@ export class TeamDO extends OwnerDO<TeamState> {
 
   /** Wake while ConnectionDO lacks the current policy version (spec/enterprise.md 4.6) or SchedulerDO lacks the run class. */
   protected override nextWakeAt(state: TeamState, now: number): number | null {
+    const base = this.nextTeamWakeAt(state, now)
+    const dropAt = this.replicaDrops.nextAt(now)
+    return base === null ? dropAt : dropAt === null ? base : Math.min(base, dropAt)
+  }
+
+  /** A host that left its owner loses its read replica (team-host-replica-drop.ts); the queue is SQL, the alarm retries. */
+  private _replicaDrops: HostReplicaDrops | undefined
+  private get replicaDrops(): HostReplicaDrops {
+    return (this._replicaDrops ??= new HostReplicaDrops(this.ctx.storage.sql, (host) => this.env.HOST_DO.get(this.env.HOST_DO.idFromName(host)) as unknown as ReplicaDropTarget))
+  }
+
+  private nextTeamWakeAt(state: TeamState, now: number): number | null {
     const stackAt = this.stackSync.nextWakeAt(state, now)
     if (!state.team) return stackAt
     if (Object.keys(state.member_cleanup ?? {}).length > 0) return Math.max(now, this.cleanupRetryAt ?? now)
@@ -119,6 +132,7 @@ export class TeamDO extends OwnerDO<TeamState> {
    * version, synced by version and hash), so a crash between steps replays.
    */
   protected override async onWake(now: number): Promise<void> {
+    await this.replicaDrops.flush(now)
     // Stack re-checks, and a deleted Stack team's members leaving through team.member.remove (team-stack-sync.ts).
     if (this.boundEngine) await this.stackSync.wake(now)
     if (this.cleanupRetryAt === null || now >= this.cleanupRetryAt) this.cleanupMembers()
@@ -189,6 +203,13 @@ export class TeamDO extends OwnerDO<TeamState> {
 
   /** A member removal settles their SSH certificates and hosts in the same turn (the alarm retries; team-member-cleanup.ts). */
   protected override afterOp(_principal: Principal, op: string, frames: ReadonlyArray<OwnerFrame>) {
+    const leaving = hostsLeavingOwner(op, frames)
+    if (leaving.length > 0) {
+      this.replicaDrops.queue(leaving, Date.now())
+      // The alarm is armed before the call, so an eviction during it still retries.
+      this.scheduleAlarm()
+      this.ctx.waitUntil(this.replicaDrops.flush(Date.now()).finally(() => this.scheduleAlarm()))
+    }
     if (op === "team.member.remove") this.cleanupMembers()
     // A member who left (or a team Stack deleted) loses its sockets here now; CloudDO closes its own from the outbox (review P1-2).
     const v = (frames.find((f) => f.t === "result") as { value?: { user?: string; removed?: boolean; deleted?: boolean } } | undefined)?.value
@@ -355,6 +376,20 @@ export class TeamDO extends OwnerDO<TeamState> {
     return connection !== undefined && state.sso_connections?.[connection]?.state === "active"
   }
 
+  /**
+   * RPC from the Worker before a host replica socket (host-replica/wire.ts): the install that
+   * enrolled the host publishes; its owner's other sessions and installs read; anyone else nothing.
+   * A chief token (principal.agent) gets nothing in this slice: no chief needs the replica yet.
+   */
+  async hostReplicaRole(entity: string, host: string, principal: Principal): Promise<"publisher" | "reader" | null> {
+    if (!this.isBound(entity) || !principal.user || principal.agent) return null
+    const record = hostOf(this.bind(entity).currentState, this.rows, host)
+    // An orphaned host (its owner left the team) has no owner to read it until a team owner reassigns it.
+    if (!record || record.owner_user !== principal.user || record.orphaned) return null
+    // A removed member's hosts are orphaned by the cleanup a moment later; no socket opens in between.
+    if (!memberOf(this.bind(entity).currentState, this.rows, principal.user)) return null
+    return principal.kind === "install" && principal.install === record.enrolled_by ? "publisher" : "reader"
+  }
   async serverPlacementActive(entity: string, host: string, install: string): Promise<boolean> { return this.isBound(entity) && serverPlacementActive(this.bind(entity).currentState, this.rows, host, install) } // RPC from UserDO.installGrant (placed chief): enrolled here, no revocation pending
   /** May this signed-in principal add a server to this team? An early refusal before the approval writes anything. */
   /** RPC from TeamVmDO's bind (vm-image.md 6b): the owner whose UserDO holds the team VM's install. */

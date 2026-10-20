@@ -10,6 +10,12 @@ use crate::Actor;
 /// `get-frontend-browser-history`. Never part of the tree.
 pub const FRONTEND_BROWSER_HISTORY_CAPABILITY: &str = "frontend-browser-history-v1";
 
+/// `profile_id` on `update-frontend-browser-tab`: move the tab to another
+/// browser profile (its id or exact name) in place, keeping its surface, tab
+/// id and position. The hosting app re-creates the page in the new
+/// profile's store (cookies, storage, cache), which reloads it.
+pub const FRONTEND_BROWSER_TAB_PROFILE_CAPABILITY: &str = "frontend-browser-tab-profile-v1";
+
 /// `new-frontend-browser-tab`: a browser tab whose page the frontend renders
 /// (WebKit or CEF); the daemon persists its location and never attaches a CDP
 /// target. With `idempotency_key` (`frontend-browser-tab-keys-v1`) a retry
@@ -89,7 +95,7 @@ pub(super) fn create(mux: &Arc<Mux>, client: u64, params: NewTabParams) -> anyho
                 record,
                 size,
                 &key,
-                crate::mux::FrontendTabPlacement { activate, after },
+                crate::mux::FrontendTabPlacement { activate, after, index: None },
             )?;
             (outcome.surface, outcome.replayed)
         }
@@ -99,7 +105,7 @@ pub(super) fn create(mux: &Arc<Mux>, client: u64, params: NewTabParams) -> anyho
                 pane,
                 record,
                 size,
-                crate::mux::FrontendTabPlacement { activate, after },
+                crate::mux::FrontendTabPlacement { activate, after, index: None },
             )?,
             false,
         ),

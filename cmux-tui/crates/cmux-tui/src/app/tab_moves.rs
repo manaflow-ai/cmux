@@ -143,25 +143,6 @@ impl App {
         Some((area.pane, len))
     }
 
-    pub(super) fn workspace_drop_target_at(&self, x: u16, y: u16) -> Option<usize> {
-        let area = self.workspace_sidebar_area(self.content_area.height.saturating_add(1))?;
-        if area.width < 3 || x < area.x || x >= area.x + area.width.saturating_sub(1) || y < area.y
-        {
-            return None;
-        }
-        let len = self.tree.workspaces().len();
-        for index in 0..len {
-            let start = area.y + 2 + index as u16 * 3;
-            if y < start {
-                return Some(index);
-            }
-            if y <= start + 1 {
-                return Some(if y == start { index } else { index + 1 }.min(len));
-            }
-        }
-        Some(len)
-    }
-
     pub(super) fn tab_location(&self, surface: SurfaceId) -> Option<(PaneId, usize)> {
         self.tree
             .workspaces()

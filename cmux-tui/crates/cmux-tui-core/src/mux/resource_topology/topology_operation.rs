@@ -65,6 +65,8 @@ impl Mux {
         let mut state = self.lock_state_pinned(&registry).unwrap();
         self.resolve_resource_path_in_state(&state, &registry, ResourceTarget::Session, &selectors)
             .map_err(anyhow::Error::new)?;
+        // A retry carries the same fields (the fingerprint), so the same source.
+        let name_source = crate::resource_name::NameSource::for_requested(name.is_some());
         let reserved_name = name.unwrap_or_else(|| self.default_workspace_name(&state));
         let proposed_intent = json!({
             "workspace_public_id":WorkspacePublicId::random()?,
@@ -129,6 +131,8 @@ impl Mux {
             public_id: public_id.clone(),
             key: key.clone(),
             name: name.clone(),
+            name_source,
+            name_revision: 0,
             screens: Vec::new(),
             active_screen: 0,
         };
@@ -147,6 +151,7 @@ impl Mux {
                 registry.session_id().as_str(),
                 &previous.public_id,
                 &previous.name,
+                (previous.name_source, previous.name_revision),
                 state.active_workspace,
                 false,
             ));
@@ -156,6 +161,7 @@ impl Mux {
             registry.session_id().as_str(),
             &public_id,
             &name,
+            (name_source, 0),
             index,
             true,
         ));
@@ -165,6 +171,8 @@ impl Mux {
             public_id: public_id.clone(),
             key: key.clone(),
             name: name.clone(),
+            name_source,
+            name_revision: 0,
             group_key: self.session.clone(),
         };
         let mut desired = self.registry_projection(&state);
@@ -307,9 +315,11 @@ impl Mux {
             expected_revision,
             mutation,
         )?;
+        crate::debug_spans::mark("topology.committed");
         if !commit.replayed {
             self.emit_resource_topology_legacy_events(operation, &commit);
         }
+        crate::debug_spans::mark("topology.legacy_events");
         Ok(commit)
     }
 
@@ -386,6 +396,19 @@ impl Mux {
             "selectors": selectors,
             "fields": fingerprint_fields,
         });
+        // A tab made in a workspace whose chat dock has the focus goes to the
+        // right side, never into the dock (cx-ebm.59.5). The fingerprint keeps
+        // the selectors the caller sent, so a retry with the same key replays
+        // after the focus moved.
+        let mut selectors = selectors;
+        if matches!(
+            operation,
+            ResourceOperation::TabCreateTerminal | ResourceOperation::TabCreateBrowser
+        ) && let Some(pane) =
+            crate::resource_router::right_pane_beside_focused_dock(self, &selectors)
+        {
+            selectors.pane = Some(pane.as_str().to_string());
+        }
         let commit = match operation {
             ResourceOperation::WorkspaceFocus => {
                 self.resource_focus_workspace(selectors, expected_revision, mutation, &fingerprint)?
@@ -522,7 +545,7 @@ impl Mux {
                 self.with_state(|state| state.resource_indexes.screens.get(&id).copied())
             })
         {
-            self.emit(MuxEvent::LayoutChanged(screen));
+            self.emit_layout_changed(screen, None);
         }
     }
 }

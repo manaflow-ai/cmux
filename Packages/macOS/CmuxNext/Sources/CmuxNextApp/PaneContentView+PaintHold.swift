@@ -141,8 +141,7 @@ extension PaneContentView {
     }
 
     /// `incoming` stays invisible until it paints; `outgoing` stays shown until then.
-    /// A strip that hides with this swap (the tab over a lone chat closed)
-    /// stays, and `outgoing` keeps its place under it: the pane changes in
+    /// A strip that hides with this swap stays, and `outgoing` keeps its place under it: the pane changes in
     /// one frame, when the swap shows (cx-f6i7).
     func beginPaintHold(outgoing: NSView, incoming: NSView) {
         if hidesStrip, !stripView.isHidden, !isBandActive, outgoing.frame.height > 0 {

@@ -18,11 +18,11 @@ import os
 /// DevTools channel rule); Release and RC never bundle or start it: Home
 /// works and the Chief does not answer. Both keep the
 /// `host --daemon-socket --mux-home` contract and one lock per mux home.
-/// The mux home is the Chief home (`ChiefHome`): one per account, shared by
-/// every build, so the memory is one history; isolated launches (agent
-/// preflights, tests) get their own. The host lock keeps one host per home:
-/// a second build's launch exits at once and its Home shows the running
-/// host's conversation, which lives in the Chief home's own owner.
+/// The mux home is this build's Chief home (`ChiefHome`, one Chief per
+/// build); isolated launches (agent preflights, tests) get their own. The
+/// host lock keeps one host per home: a second launch (or one `cmux chief`
+/// started) exits at once. When the host dies while the app runs, Home
+/// starts it again (`ChiefBrainWatch`).
 public nonisolated struct HomeBrainHost: Sendable {
     let executable: URL
     let muxHome: URL
@@ -41,11 +41,30 @@ public nonisolated struct HomeBrainHost: Sendable {
         DevTools.isAvailable(bundleID: bundleID, isDebugBuild: isDebugBuild)
     }
 
+    /// Whether this app can start a host at all (`resolve` finds an executable).
+    public static func canStart(environment: [String: String] = ProcessInfo.processInfo.environment,
+                                bundledBinDirectory: URL? = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true),
+                                bundledChiefAllowed: Bool = HomeBrainHost.bundledChiefAllowed(bundleID: Bundle.main.bundleIdentifier,
+                                                                                              isDebugBuild: DevTools.isDebugBuild)) -> Bool {
+        // The build-session kill switch: no Chief host, so no brain starts (cx-9ettq).
+        if AcpmuxEnvironment.agentLaunchDisabled(environment) { return false }
+        let override = environment["CMUX_NEXT_MUX_HOST"].flatMap { $0.isEmpty ? nil : $0 }
+        let bundled = bundledChiefAllowed ? bundledBinDirectory?.appendingPathComponent(bundledChiefName).path : nil
+        return [override, bundled].compactMap { $0 }.contains { FileManager.default.isExecutableFile(atPath: $0) }
+    }
+
+    /// Home's notice on this Mac's Chief while the build-session kill switch
+    /// is on (cx-tgf4h): no host starts, so the Chief cannot answer; nil else.
+    public static func agentsDisabledNotice(environment: [String: String] = ProcessInfo.processInfo.environment) -> String? {
+        AcpmuxEnvironment.agentLaunchDisabled(environment) ? HomeStrings.chiefAgentsDisabled : nil
+    }
+
     public static func resolve(daemonSocket: String, controlSocket: String, home: ChiefHome,
                         environment: [String: String] = ProcessInfo.processInfo.environment,
                         bundledBinDirectory: URL? = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true),
                         bundledChiefAllowed: Bool = HomeBrainHost.bundledChiefAllowed(bundleID: Bundle.main.bundleIdentifier,
                                                                                       isDebugBuild: DevTools.isDebugBuild)) -> HomeBrainHost? {
+        if AcpmuxEnvironment.agentLaunchDisabled(environment) { return nil }
         let override = environment["CMUX_NEXT_MUX_HOST"].flatMap { $0.isEmpty ? nil : $0 }
         let bundled = bundledChiefAllowed ? bundledBinDirectory?.appendingPathComponent(bundledChiefName).path : nil
         guard let path = [override, bundled].compactMap({ $0 }).first(where: { FileManager.default.isExecutableFile(atPath: $0) }) else {
@@ -58,18 +77,19 @@ public nonisolated struct HomeBrainHost: Sendable {
         acpmuxEnvironment["ACPMUX_HOME"] = home.acpmuxHome.path
         acpmuxEnvironment.removeValue(forKey: "ACPMUX_SOCKET")
         return HomeBrainHost(executable: URL(fileURLWithPath: path), muxHome: home.muxHome, daemonSocket: daemonSocket, controlSocket: controlSocket,
-                             acpmux: AcpmuxEnvironment.resolve(tag: nil, bundledBinDirectory: bundledBinDirectory, environment: acpmuxEnvironment))
+                             acpmux: AcpmuxEnvironment.resolve(build: nil, bundledBinDirectory: bundledBinDirectory, environment: acpmuxEnvironment))
     }
 
-    /// The Chief home's mux home (`ChiefHome`), the same for every build of
-    /// one account; the engine bar, sidebar and files read it.
+    /// This build's Chief home's mux home (`ChiefHome`); the engine bar,
+    /// sidebar and files read it.
     public static func muxHome(tag: String?, environment: [String: String] = ProcessInfo.processInfo.environment,
                         userHome: URL = FileManager.default.homeDirectoryForCurrentUser) -> URL {
         ChiefHome.resolve(tag: tag, environment: environment, userHome: userHome).muxHome
     }
 
+    /// The shell prints the host's pid, so Home watches that process's exit.
     var arguments: [String] {
-        ["-c", #"set -m; "$@" >>"$MUX_HOST_LOG" 2>&1 </dev/null &"#, "mux-host-launch",
+        ["-c", #"set -m; "$@" >>"$MUX_HOST_LOG" 2>&1 </dev/null & echo "$!""#, "mux-host-launch",
          executable.path, "host", "--daemon-socket", daemonSocket, "--mux-home", muxHome.path]
     }
 
@@ -81,6 +101,9 @@ public nonisolated struct HomeBrainHost: Sendable {
             "MUX_AGENT_TOKEN_FILE": tokenFile.path,
             "HOME": FileManager.default.homeDirectoryForCurrentUser.path,
             "MUX_HOST_LOG": muxHome.appendingPathComponent("host.log").path,
+            // `cmux chief` in the brain's turns and subagents opens this Chief
+            // (one Chief per build), never the shared home by default.
+            "CMUX_CHIEF_HOME": muxHome.path,
             // The host's chief create request must equal the app's (the owner
             // refuses a different request under the same key).
             "MUX_USER_NAME": HomeChiefName.localUserName,
@@ -92,7 +115,9 @@ public nonisolated struct HomeBrainHost: Sendable {
             variables.merge(acpmux.childEnvironment) { $1 }
             variables["ACPMUX_BIN"] = acpmux.executable.path
         }
-        for key in ["USER", "TMPDIR", "MUX_HARNESS", "CMUX_MCP_COMMAND"] {
+        // No CMUX_MCP_COMMAND: acpmux gives every agent chat, the Chief's
+        // turns included, its own `cmux mcp serve` (one server per turn).
+        for key in ["USER", "TMPDIR", "MUX_HARNESS"] {
             if let value = ProcessInfo.processInfo.environment[key] { variables[key] = value }
         }
         return variables
@@ -115,17 +140,28 @@ public nonisolated struct HomeBrainHost: Sendable {
     /// What `start` did.
     public enum StartOutcome: Equatable, Sendable {
         /// A live host holds the home's lock and its token: no new token.
-        case reusedRunningHost
-        /// A token was minted and a host launched.
-        case launched
+        case reusedRunningHost(pid: pid_t?)
+        /// A token was minted and a host launched (its pid when known).
+        case launched(pid: pid_t?)
+
+        /// The process to watch: when it exits, Home starts the host again.
+        public var pid: pid_t? {
+            switch self {
+            case .reusedRunningHost(let pid), .launched(let pid): pid
+            }
+        }
     }
 
     /// Starts the host for a Home that opened. `mintToken` replaces the
     /// owner's agent_mux credential and revokes the binding of the host that
     /// runs, so it is called only when the host must start.
     @concurrent public func start(mintToken: @Sendable () async throws -> String) async throws -> StartOutcome {
-        // A Chief-home acpmux without this Chief home (an older build, or one an
-        // app started before ACPMUX_CHIEF_MUX_HOME) is handed off (AcpmuxChiefHandoff).
+        // cmux NEXT's one-time adoption of its old homes ends before its brain starts (cx-is1kf.9).
+        await AcpmuxEnvironment.adoptBuildHomes()
+        // A Chief-home acpmux that runs from a replaced bundle (an update replaced the
+        // app it ran from, so the peer check refuses it and Chief chats say acpmux did
+        // not start), or without this Chief home (an older build, or one an app started
+        // before ACPMUX_CHIEF_MUX_HOME), is handed off (AcpmuxChiefHandoff).
         // Only the Chief host starts that daemon (a tab never does, cx-ebm.54): the
         // host that ran on it ends, and the one launched below starts it with this
         // Chief home's env.
@@ -134,10 +170,11 @@ public nonisolated struct HomeBrainHost: Sendable {
             _ = await AgentPaneProcessExit(pid: pid).event(within: .seconds(15))
         }
         // A live host reads the token file at each connect: keep its binding.
-        if runningHostHasToken { return .reusedRunningHost }
+        if runningHostHasToken {
+            return .reusedRunningHost(pid: ChiefHostStop.runningHostPID(home: ChiefHome(root: muxHome, isolated: false)))
+        }
         let token = try await mintToken()
-        await launch(agentToken: token)
-        return .launched
+        return .launched(pid: await launch(agentToken: token))
     }
 
     /// Whether a host holds this home's lock (`state/host.lock`) and the
@@ -148,7 +185,7 @@ public nonisolated struct HomeBrainHost: Sendable {
         return !token.isEmpty && ChiefMigration.lockHeld(at: muxHome.appendingPathComponent("state/host.lock"))
     }
 
-    @concurrent func launch(agentToken: String) async {
+    @concurrent func launch(agentToken: String) async -> pid_t? {
         let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "home")
         do {
             try FileManager.default.createDirectory(at: muxHome, withIntermediateDirectories: true)
@@ -157,7 +194,7 @@ public nonisolated struct HomeBrainHost: Sendable {
             guard FileManager.default.createFile(atPath: tokenFile.path, contents: Data(agentToken.utf8),
                                                  attributes: [.posixPermissions: 0o600]) else {
                 logger.error("mux agent token file could not be written")
-                return
+                return nil
             }
             let shell = Process()
             shell.executableURL = URL(fileURLWithPath: "/bin/sh")
@@ -169,12 +206,19 @@ public nonisolated struct HomeBrainHost: Sendable {
             // agent reads Downloads, Documents and Desktop at once.
             shell.currentDirectoryURL = muxHome
             shell.standardInput = FileHandle.nullDevice
-            shell.standardOutput = FileHandle.nullDevice
+            let output = Pipe()
+            shell.standardOutput = output
             shell.standardError = FileHandle.nullDevice
             try shell.run()
-            logger.info("mux host started for \(muxHome.path, privacy: .public)")
+            // The shell exits right after the background start; its one line is the pid.
+            // concurrency-allow: one pid line from a shell that exits at once, off the main actor in @concurrent `launch`
+            let printed = String(decoding: output.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+            let pid = pid_t(printed.trimmingCharacters(in: .whitespacesAndNewlines)).flatMap { $0 > 1 ? $0 : nil }
+            logger.info("mux host started for \(muxHome.path, privacy: .public) pid \(pid.map(String.init) ?? "?", privacy: .public)")
+            return pid
         } catch {
             logger.error("mux host failed to start: \(String(describing: error), privacy: .public)")
+            return nil
         }
     }
 }

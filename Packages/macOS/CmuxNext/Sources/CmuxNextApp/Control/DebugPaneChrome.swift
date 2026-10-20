@@ -1,13 +1,14 @@
 import AppKit
+import CmuxNextActions
 import CmuxNextDesign
 import CmuxNextSettings
 
 /// `debug.pane_chrome`: per pane of each window, the frames that must line
 /// up (`PaneChromeMetrics`), in window points with a top-left origin: the
-/// pane cell, the tab strip, the first tab pill, the content border, and
-/// the terminal's first cell; plus the measured gaps (above and below the
-/// pill, pill left minus border left, first cell minus border), and the
-/// tab bar's state (`strip_hidden`, `tab_bar_kind`, `tab_bar_choice`).
+/// pane cell, the tab strip, the first tab pill, the content border, the
+/// terminal's first cell, each tab's [x, width] (`tab_slots`, strip content
+/// points, and `tab_available`); the gaps (above/below the pill, pill left
+/// minus border left, first cell minus border); and the tab bar's state.
 enum DebugPaneChrome {
     static func report(services: AppServices) -> JSONValue {
         let windows = services.windows.controllers.compactMap { controller -> JSONValue? in
@@ -33,13 +34,15 @@ enum DebugPaneChrome {
                     "pane": .string(ring.pane),
                     "cell": rect(cell),
                     "strip": rect(strip),
-                    "border": rect(border),
-                    "pill": pill.map(rect) ?? .null,
+                    "border": rect(border), "pill": pill.map(rect) ?? .null,
                     "first_cell": firstCell.map { .array([.number(Double($0.x)), .number(Double($0.y))]) } ?? .null,
-                    // The tab bar rule (cx-soza): hidden now, the pane's kind, its own choice.
+                    // The tab bar (cx-soza): hidden now, the pane's own choice, the palette row's title.
                     "strip_hidden": .bool(view.hidesStrip),
-                    "tab_bar_kind": .string(pane.tabBarKind.rawValue),
+                    "tab_bar_title": .string(services.registry.action(for: PaneTabBarHandlers.toggle)?.targetTitle?(
+                        ActionInvocation(target: ActionTargetRef(kind: .pane, id: pane.paneKey), origin: .script))
+                        ?? services.registry.title(for: PaneTabBarHandlers.toggle) ?? ""),
                     "tab_bar_choice": services.paneTabBars.choice(for: pane.paneKey).map(JSONValue.bool) ?? .null,
+                    "tab_slots": .array(view.stripView.tabSlots.map { .array($0.map(JSONValue.number)) }), "tab_available": .number(view.stripView.tabAvailableWidth),
                 ]
                 if let pill {
                     fields["gap_above"] = .number(Double(pill.minY - cell.minY))
@@ -68,7 +71,7 @@ enum DebugPaneChrome {
             return .object([
                 "id": .string(controller.state.id),
                 "scale": .number(Double(window.backingScaleFactor)),
-                "pane_padding": .number(Double(Metrics.panePadding)),
+                "pane_padding": .number(Double(Metrics.panePadding)), "floating_panes": .bool(Metrics.floatingPanes), "main_pane": rect(topLeft(controller.root.contentHost.convert(controller.root.contentHost.bounds, to: nil))), "sidebar": rect(topLeft(controller.root.sidebar.convert(controller.root.sidebar.bounds, to: nil))), "chrome_style": .string(DesignSettings.shared.chromeStyle.rawValue),
                 "panes": .array(panes),
                 "window_controls": .object([
                     "sidebar_hidden": .bool(controller.root.sidebarHidden),

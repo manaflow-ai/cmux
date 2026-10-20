@@ -171,6 +171,7 @@ fn codex_item_step(record: &Value) -> Option<Step> {
         .as_array()?
         .iter()
         .filter_map(|item| item.get("text").and_then(Value::as_str))
+        .filter(|text| !crate::prompt_context::is_context_text(text))
         .collect::<Vec<_>>()
         .join("\n");
     let text = text.trim().to_owned();
@@ -226,6 +227,7 @@ fn text_of(content: &Value) -> Option<String> {
             .iter()
             .filter(|b| b.get("type").and_then(Value::as_str) == Some("text"))
             .filter_map(|b| b.get("text").and_then(Value::as_str))
+            .filter(|text| !crate::prompt_context::is_context_text(text))
             .collect::<Vec<_>>()
             .join("\n"),
         _ => return None,

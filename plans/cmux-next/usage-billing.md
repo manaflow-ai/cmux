@@ -305,6 +305,12 @@ allowlist change was needed). Script: `backend/scripts/stripe-usage-e2e.ts`.
 
 ## 10. Live steps for Lawrence (none done; all test-mode work above)
 
+Lawrence's answers (2026-10-14, through the chief):
+- Included amounts: keep the test values, Go 5, Pro 20, Max 100, Team 20 USD per month.
+- Team included amount: support BOTH per team and per seat (the per-seat form needs the pusher to
+  subtract seats x amount and a flat price; to build).
+- Invoice finalization grace period: 1 hour.
+
 1. Restricted live key (Stripe Dashboard only): Billing meter events Write, Subscriptions Read,
    Subscription items Write, Prices Read, Customers Read. Store it in the team store; it goes to the
    production Worker as STRIPE_USAGE_KEY. The code refuses every live key today: the live switch is
@@ -326,3 +332,190 @@ allowlist change was needed). Script: `backend/scripts/stripe-usage-e2e.ts`.
    still to build (S5).
 9. Rotate the development and staging BILLING_LEVELS_KEY / STRIPE_USAGE_KEY secrets onto the team
    Cloudflare token when it exists (they were set with Lawrence's own OAuth login).
+
+## 11. S5: the included-amount stop (landed with this section)
+
+`USAGE_HARD_STOP_UNBILLED=1` (development only today): a team that the usage sync has not seen on a
+billable subscription (a usage item on an active monthly plan, `UsageMeterDO.markBillable`) may
+spend AI up to its plan's included amount per UTC month (settled facts plus open reservations plus
+the call's maximum). Founders counts as Pro. Apple purchases and operator grants have no Stripe
+subscription, so they stop there too. The refusal is 402 `usage.included_reached`: "You used the AI
+amount included in your plan for this month. It resets at the start of next month." with
+`included_usd`, `spent_usd`, `resets_at`. A billable team keeps its member and team limits only.
+Turning it on in production is a live step (it stops every paid team at the included amount until
+the live sync marks it billable).
+
+Review (S5 security, REVISE folded in): the check runs inside the member reservation's transaction, so
+two calls cannot both pass it. A billable mark counts while its period end plus 2 hours is ahead and
+the sync saw it in the last 2 hours (`BILLABLE_GRACE_MS`), so a renewal or one failed run does not stop
+a paying team, and a canceled or moved subscription stops being billable within 2 hours. Stated
+policy: past_due subscriptions stay billable (Stripe retries the card); annual plans are never
+billable for usage (no monthly metered item) and so stop at the included amount; the stop counts the
+UTC month, so a team that moves off the card plan mid-month can stop at once (it errs toward
+refusing). A truncated subscription listing logs `billing.usage_sync.truncated` as an error. A Stripe
+outage or a failing sync for more than 2 hours stops every paying team at its included amount (refusal
+by design); alerts on truncation and on sync failure are live steps.
+
+## 12. S6 design: the live switch (note only, nothing built)
+
+- Today `stripeKeyMode` refuses every live key in every environment, before any call.
+- The switch is code, not configuration: a reviewed change that lets a live key run only when all
+  of these hold, checked at the start of each run:
+  1. `ENVIRONMENT === "production"` (staging and development refuse live keys forever);
+  2. the key is a restricted key (`rk_live_`), never a full secret key (`sk_live_` stays refused);
+  3. a build-time constant in the bundle (`USAGE_LIVE_ENABLED = true`, compiled in by the reviewed
+     change itself; a var cannot prove which build is running, because the same rail sets both);
+  5. every object the run reads from Stripe has `livemode` equal to the key's mode; any mismatch
+     refuses the run.
+  4. the production catalog read finds the live meter with aggregation `last` and the `-v2` prices with
+     the amounts that the catalog code names; any mismatch refuses the run (no writes).
+- First live run is staged: `BILLING_USAGE_LIVE_ALLOW` lists subscription ids (staff accounts); the sync
+  touches only those until the list is removed by a second reviewed change.
+- Gates for that change: correctness review and security review by subagents (both APPROVE), a
+  production dry run (the sync's read-only mode: lists what it would add and send, writes nothing),
+  the chief's go, and Lawrence's yes for money. The restricted key is created by Lawrence in the
+  Dashboard and set on the production Worker through the release rails with a receipt.
+- Order with the included-amount stop: first one complete, untruncated live sync with no allowlist
+  marks every billable team; only then `USAGE_HARD_STOP_UNBILLED=1` in production. During a deploy an
+  old isolate reserves without the included amount, so the stop applies once the deploy has rolled out. With the staff-only
+  allowlist on, the stop must stay off (it would stop every other paying team).
+- The sync's read-only (dry-run) mode does not exist yet: it is a work item of S6.
+- Rollback: turn the stop off first (`USAGE_HARD_STOP_UNBILLED` unset), then delete the production
+  `STRIPE_USAGE_KEY`; the sync refuses with `no_key` on the next run. (With the stop on and no sync,
+  every billable mark expires and every paying team stops at its included amount.)
+  Usage items stay on subscriptions (metered, so nothing is billed without meter events); a cleanup
+  run can remove them if live billing is abandoned.
+
+## 13. S5: team included amount per team and per seat (built, test mode)
+
+Lawrence 2026-10-14: support both. Config shape (superseded by section 16: the Team mode is an operator setting per team): first built
+as part of the price set, per plan, beside the included USD.
+
+| mode | price | meter | what the sync sends |
+| --- | --- | --- | --- |
+| per_team | graduated, `cmux-ai-usage-<plan>-incl<N>-<set>`: N units at 0, then 1.00 USD | `cmux_ai_usage` | the period's whole level |
+| per_seat | flat 1.00 USD per unit, `cmux-ai-usage-<plan>-seat<N>-<set>` | `cmux_ai_usage_above_included` | the level above N x seats, never below 0 |
+
+- Two meters, so a meter value always means one thing. A plan changes mode only in a new price set,
+  at a period boundary (a mode change moves the usage item to the other meter's price).
+- Seats = the plan item's quantity, the most seen at any sync run in the period: a seat removed late
+  in the period does not take its included amount back (errs toward the customer). The per-seat
+  identifier names the seats, so a seat change is a new meter event. A closed period's final push after
+  renewal reuses that period's mode and seats (usage_push columns `mode`, `seats`, `included_usd`).
+- v1 (production values): every plan per team, Team included 20 USD per team (as built). Which mode
+  the live Team plan uses is Lawrence's choice; switching is a new price set (`v2`) with
+  `team: "per_seat"`.
+- e2e (development Worker): Team per seat, and Max per seat at 0.5 USD so that the agent's personal
+  team can prove the per-seat path with a 2-seat Max plan item (`stripe-usage-e2e.ts MODE=seat`).
+- The included-amount stop (section 11) counts the plan's amount per team for a team that is not
+  billable; seats are known only from a billable subscription.
+- Console: `team.ai_limit.get` returns `team_usage` beside the members list (billing.manage readers):
+  billed or not, the included amount (x seats per seat), spend this period (the billing period when
+  billed, else the UTC month), and whether the stop applies or stopped the team.
+- Proof: route tests in `backend/apps/api/test/inference-spend-facts.test.ts` ("team included amount
+  per seat", "the console's team usage line"), payment service faked at HTTP.
+
+## 14. S5: the console usage view (two designs, Lawrence picks)
+
+- The Team page's "AI usage" section (`backend/apps/dashboard/src/routes/-ai-usage-view.tsx`) for
+  billing.manage readers: the team's usage this period against the included amount and the stop state
+  (`team_usage`), each member's spend next to their limit with an inline edit (set or clear a personal
+  limit), and the team default (change or reset to the cmux default). Members see their own line only.
+  React over HTTP against the Worker ops; no Swift. Copy in en and ja, no vendor names.
+- Two designs: `meter` (a progress line, member rows with thin bars) and `ledger` (three figures and a
+  quiet table). Row actions appear on hover or keyboard focus. The page uses `meter` until Lawrence picks;
+  `?ai_view=ledger` shows the other on the real page.
+- Preview with sample data, both designs in six states (billed per team, billed per seat above the
+  included amount, unbilled near the stop, unbilled above it with the stop off, stopped, plan not known):
+  https://console-staging.cmux.dev/preview/ai-usage (not served on console.cmux.dev).
+- Browser check (`backend/apps/dashboard/test-browser/ai-usage-preview.mjs`, run on a Freestyle VM):
+  actions hidden at rest, shown on hover and on focus, Edit opens a field, Save shows the new limit, no
+  page errors, for both designs.
+
+## 15. Per-seat test-mode end-to-end result (2026-10-14)
+
+Development Worker at train f1cd4bebb493 (backend.yml run 38511562593 green), Stripe test mode, agent
+CMUX_UITEST, team `team_6774f37212cb1152d2a9`. Catalog `--set=e2e` made the per-seat meter
+`mtr_test_61VZhrXhOEqJQvIS341LbtiW1udY8BeS` (`cmux_ai_usage_above_included`, last) and the flat prices
+`cmux-ai-usage-max-seat0.5-e2e` and `cmux-ai-usage-team-seat1-e2e` (livemode false).
+`stripe-usage-e2e.ts MODE=seat`: clock `clock_1UQJuNLbtiW1udY8A9UNdM37`, subscription
+`sub_1UQJuOLbtiW1udY8GacR7jz3`, Max plan item with 2 seats.
+
+- Before the first sync the team was not billable and had used its included amount this month: the
+  three calls got 402 `usage.included_reached` (the S5 stop). The sync added the usage item and marked
+  the team billable; the next 29 calls passed.
+- Level 1.16829 USD (30 facts, incl. usage 10 minutes before the period end and after the renewal while
+  the invoice was a draft); included 2 x 0.5 = 1 USD; the meter summary showed 0.16829 (the level above
+  the included amount), and the renewal invoice: 2 x Max 400.00 + "0.16829 x cmux AI usage (at $1.00)"
+  = 0.17, total 400.17 USD, correct to the cent (check pass).
+- Cleanup: subscription canceled, clock deleted by exact id, VM secrets shredded, Freestyle VM
+  vm-7c87fc445b814419a9da82fee5b66e41 deleted by exact id. Real provider spend about 1.2 USD.
+
+## 16. Lawrence's decisions 2026-10-14 (S5 follow-up), built
+
+- Console design: `meter`. The ledger design and the `?ai_view` switch are removed; the preview route
+  stays as the view's gallery of sample states (https://console-staging.cmux.dev/preview/ai-usage).
+- Team included mode: chosen per team by an operator. `POST /v1/internal/billing/team-mode`
+  (`backend/apps/api/src/billing-team-mode.ts`, Bearer BILLING_LEVELS_KEY, `actor` required, `reason`
+  optional): without `mode` it reads the setting, with `mode` (`per_team` | `per_seat`) it records a
+  change. Every call logs `billing.team_mode.*` (team, before, after, actor); every change is kept in the
+  team's UsageMeterDO (`usage_mode_setting`). Team admins never see or set it. New teams are per team.
+- A change applies from the next period start: a period's mode is the last setting made at or before
+  its start (`teamModeAt`), and a period already pushed keeps the mode it was pushed in. The usage item
+  moves to the other mode's price only at the first sync run of a new period. This closes the S5 review
+  P2 "mode change moves the usage item mid-period" for mode changes (a price-set change, e2e to v1, can
+  still move it mid-period; only the development Worker uses e2e).
+- The sync reads the mode for the Team plan (Go, Pro and Max are per team). The included-amount stop
+  reads it too: a per-seat team that is not billable gets the amount x its last billable seats (the
+  mode in force at the UTC month's start); the console line shows the same amount.
+- Seat count per seat: the most seats seen in the period (as built). The S5 review P2 "a short seat
+  churn keeps the included amount of the added seats for the whole period" is accepted (Lawrence
+  2026-10-14).
+- e2e set: Pro 1 USD (per team) and Team 0.5 USD per seat (a graduated price needs a whole-dollar tier,
+  so the e2e Team plan has the per-seat price only), so one run can cross both included amounts with a
+  little real usage (the development daily provider cap is 5 USD). The e2e uses the agent's personal team (Pro, per team) and
+  its shared e2e team (sign-in service team e8733fff-8ce2-457b-9d6a-d20223d46a71, team id
+  team_34bccc85e7a38258be69, cmuxPlan=team on the development sign-in project only; on the development
+  INFERENCE_ALLOWED_TEAMS) set per seat with 2 seats, on one test clock.
+- Order at renewal (S5 follow-up review P2): the sync sends the closed period's final level before it
+  adds or moves the usage item for the new period.
+- Credential (review P2, accepted for test mode): the route uses BILLING_LEVELS_KEY, which the sync
+  route also uses, and `actor` is what the caller says. Before the live step the route gets its own
+  operator key (a live step for Lawrence, with the S6 key work).
+- Test clocks (review P3, development only): the setting time is real time and a test clock's period
+  start can be later than real time, so on a test clock a setting can apply to a period that already
+  started. In live mode a period start is never in the future. The e2e makes the setting before it
+  creates the clock.
+- The stop's seats come only from a billable subscription whose period ended at most 35 days ago.
+- e2e finding (2026-10-14, fixed): the sync used the meter event identifier as the idempotency key but
+  dated the event at real time, so after one failed send every retry of the same level was a different
+  request with the same key, and the payment service refused it ("Keys for idempotent requests can only
+  be used with the same parameters") until the level changed. Now the event is dated at the level's last
+  fact, after the period's previous event (`usage_push.event_ts`) and inside the period, so a retry is
+  the same request. Route test "a retried level is the same request".
+- Test clocks: a meter event dated more than a few minutes after the customer's clock time is refused,
+  so the e2e moves its clock up to real time before a sync in the running period.
+- Open P3 (test mode only): a period that was running when event_ts was added has an old event dated at
+  push time; a seat-only change in that same period can be dated before it. Fix if it matters:
+  use pushed_at + 1 s when event_ts is null.
+
+## 17. Per-team and per-seat test-clock e2e, side by side (2026-10-14)
+
+Development Worker at 55c505de22e6 (backend.yml 38524457745 green). One test clock
+`clock_1UQLoBLbtiW1udY8GKDCmiNR`, two teams, `stripe-usage-e2e.ts` phases a, more, b, c, cleanup:
+
+| team | mode | plan item | level | included | meter summary | invoice usage | total | check |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| personal team_6774f37212cb1152d2a9 | per team (graduated, `cmux_ai_usage`) | Pro x1, 50.00 | 1.217035 | 1.00 | 1.217035 | Tier 1 0.00 + 0.217035 x 1.00 = 0.22 | 50.22 | pass |
+| shared team_34bccc85e7a38258be69 | per seat (operator setting, flat, `cmux_ai_usage_above_included`) | Team x2, 120.00 | 1.577405 | 2 x 0.50 | 0.577405 | 0.577405 x 1.00 = 0.58 | 120.58 | pass |
+
+- The per-seat setting was made through `POST /v1/internal/billing/team-mode` before the subscription
+  started, so it was in force from the first period; the per-team team needed no setting.
+- Before the first sync the shared team was not billable: its first call got 402
+  `usage.included_reached` (the stop); the sync added both usage items and marked both billable.
+- Usage 10 minutes before the period end and after the renewal (draft invoices) reached both invoices.
+- Finding fixed on the way: the deterministic event timestamp (section 16, e2e finding).
+- Cleanup: both subscriptions canceled, the clock deleted by exact id, the shared team's setting set
+  back to per team (actor e2e-hq-84), VM secrets shredded, Freestyle VM
+  vm-0ac15ef11f3c4a91be39d4b92bbfd50e deleted by exact id. The shared e2e team stays as the standing
+  e2e team on the development sign-in project. Real provider spend about 2 USD.

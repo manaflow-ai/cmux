@@ -35,7 +35,9 @@
     "conversation",
     "setting",
     "keybinding",
-    "browser_device"
+    "browser_device",
+    "browser_profile",
+    "stash"
   ],
   "types": {
     "BrowserDeviceList": {
@@ -87,6 +89,621 @@
             "name": "boolean"
           },
           "description": "False when no custom device had the title."
+        }
+      },
+      "extra": false
+    },
+    "BrowserProfile": {
+      "kind": "object",
+      "fields": {
+        "id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 36
+          },
+          "description": "`default` or a lowercase UUID."
+        },
+        "name": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "color": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        },
+        "icon": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        },
+        "index": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "The profile's place in the person's order."
+        }
+      },
+      "extra": false
+    },
+    "BrowserProfileCreateResult": {
+      "kind": "object",
+      "fields": {
+        "browser_profile": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "BrowserProfile"
+          }
+        },
+        "changed": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "False when a retry found the profile it created."
+        }
+      },
+      "extra": false
+    },
+    "BrowserProfileList": {
+      "kind": "object",
+      "fields": {
+        "browser_profiles": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "BrowserProfile"
+            }
+          }
+        }
+      },
+      "extra": false
+    },
+    "BrowserProfileOpenResult": {
+      "kind": "object",
+      "fields": {
+        "tab_id": {
+          "required": true,
+          "type": {
+            "kind": "resource_id",
+            "resource": "tab"
+          }
+        },
+        "browser_id": {
+          "required": true,
+          "type": {
+            "kind": "resource_id",
+            "resource": "browser"
+          }
+        },
+        "pane_id": {
+          "required": true,
+          "type": {
+            "kind": "resource_id",
+            "resource": "pane"
+          }
+        },
+        "profile_id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "The profile the tab's record names."
+        }
+      },
+      "extra": false
+    },
+    "BrowserTabProfileResult": {
+      "kind": "object",
+      "fields": {
+        "tab_id": {
+          "required": true,
+          "type": {
+            "kind": "resource_id",
+            "resource": "tab"
+          }
+        },
+        "profile_id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "The profile the tab's record names now."
+        },
+        "changed": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "False when the tab was in that profile already."
+        }
+      },
+      "extra": false
+    },
+    "ChiefAvatarImage": {
+      "kind": "object",
+      "fields": {
+        "sha256": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 64,
+            "max_length": 64
+          }
+        },
+        "media_type": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "image/gif",
+              "image/jpeg",
+              "image/png",
+              "image/webp"
+            ]
+          }
+        },
+        "bytes": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          }
+        },
+        "data": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "base64"
+          }
+        }
+      },
+      "extra": false
+    },
+    "ChiefAvatarPage": {
+      "kind": "object",
+      "fields": {
+        "chief": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 64
+          },
+          "description": "The Chief's id: agent_mux (the default Chief) or agent_ then 26 Crockford base32 characters. It is the Chief's conversation participant id."
+        },
+        "avatar": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "ref",
+              "name": "ChiefAvatarImage"
+            }
+          },
+          "description": "null when the Chief has no picture."
+        }
+      },
+      "extra": false
+    },
+    "AvatarRef": {
+      "kind": "object",
+      "fields": {
+        "sha256": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 64,
+            "max_length": 64
+          },
+          "description": "SHA-256 of the bytes, lowercase hex."
+        },
+        "media_type": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "image/gif",
+              "image/jpeg",
+              "image/png",
+              "image/webp"
+            ]
+          }
+        },
+        "bytes": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "The picture's size in bytes."
+        }
+      },
+      "extra": false
+    },
+    "ParticipantAvatarImage": {
+      "kind": "object",
+      "fields": {
+        "sha256": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 64,
+            "max_length": 64
+          },
+          "description": "SHA-256 of the bytes, lowercase hex."
+        },
+        "media_type": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "image/gif",
+              "image/jpeg",
+              "image/png",
+              "image/webp"
+            ]
+          }
+        },
+        "bytes": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "The picture's size in bytes."
+        },
+        "data": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "base64"
+          },
+          "description": "The picture."
+        }
+      },
+      "extra": false
+    },
+    "ParticipantAvatarPage": {
+      "kind": "object",
+      "fields": {
+        "participant_id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 6,
+            "max_length": 70
+          }
+        },
+        "avatar": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "ref",
+              "name": "ParticipantAvatarImage"
+            }
+          },
+          "description": "null when the participant has no picture."
+        }
+      },
+      "extra": false
+    },
+    "ParticipantAvatarResult": {
+      "kind": "object",
+      "fields": {
+        "participant_id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 6,
+            "max_length": 70
+          }
+        },
+        "avatar": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "ref",
+              "name": "AvatarRef"
+            }
+          },
+          "description": "The stored reference, null after clear."
+        }
+      },
+      "extra": false
+    },
+    "ChiefAvatarRef": {
+      "kind": "object",
+      "fields": {
+        "sha256": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 64,
+            "max_length": 64
+          },
+          "description": "SHA-256 of the image bytes, lowercase hex."
+        },
+        "media_type": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "image/gif",
+              "image/jpeg",
+              "image/png",
+              "image/webp"
+            ]
+          }
+        },
+        "bytes": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "Image size in bytes, at most 1048576."
+        }
+      },
+      "extra": false
+    },
+    "ChiefEngineChoice": {
+      "kind": "object",
+      "fields": {
+        "harness": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "max_length": 128
+          },
+          "description": "The acpmux harness of the Chief's own turns; absent: the brain default."
+        },
+        "model": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "max_length": 128
+          }
+        },
+        "effort": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "max_length": 128
+          }
+        }
+      },
+      "extra": false
+    },
+    "ChiefList": {
+      "kind": "object",
+      "fields": {
+        "chiefs": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "ChiefRecord"
+            }
+          },
+          "description": "Every live Chief, the default first, then in creation order."
+        }
+      },
+      "extra": false
+    },
+    "ChiefRecord": {
+      "kind": "object",
+      "fields": {
+        "id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 64
+          },
+          "description": "The Chief's id: agent_mux (the default Chief) or agent_ then 26 Crockford base32 characters. It is the Chief's conversation participant id."
+        },
+        "display_name": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 100
+          }
+        },
+        "role": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "max_length": 200
+          },
+          "description": "One line, empty when unset."
+        },
+        "personality": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "max_length": 4000
+          },
+          "description": "Tone and style, appended to the Chief's prompt after the base rules."
+        },
+        "instructions": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "max_length": 32000
+          },
+          "description": "System prompt additions, appended after the base rules; they cannot remove them."
+        },
+        "avatar": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "ref",
+              "name": "ChiefAvatarRef"
+            }
+          },
+          "description": "The profile picture; chief.avatar.get reads the bytes."
+        },
+        "tools": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 64
+            }
+          },
+          "description": "The tools the person granted, sorted: browser, chiefs, cloud_vms, memory_import, spawn, tell, workspaces."
+        },
+        "harnesses": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 64
+            }
+          },
+          "description": "The acpmux harnesses its subagents may use, sorted; empty: every harness."
+        },
+        "engine": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "ChiefEngineChoice"
+          }
+        },
+        "self_edit": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 64
+            }
+          },
+          "description": "The fields the Chief may change about itself without asking, sorted: a subset of avatar, display_name, instructions, personality, role."
+        },
+        "is_default": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "The default Chief (agent_mux); exactly one, never deleted."
+        },
+        "rev": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "+1 per committed change."
+        },
+        "created_at": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 64
+          },
+          "description": "RFC 3339 UTC with milliseconds."
+        },
+        "updated_at": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 64
+          },
+          "description": "RFC 3339 UTC with milliseconds."
+        },
+        "brain": {
+          "required": false,
+          "type": {
+            "kind": "ref",
+            "name": "ChiefBrainStart"
+          },
+          "description": "Only in the answer of chief.profile.create and chief.profile.adopt (not a replay): what happened to the new Chief's brain, from the daemon's brain supervisor."
+        }
+      },
+      "extra": false
+    },
+    "ChiefBrainStart": {
+      "kind": "object",
+      "fields": {
+        "state": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 32
+          },
+          "description": "started or not_started."
+        },
+        "reason": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 64
+          },
+          "description": "With not_started: no_supervisor (this daemon runs no Chief brains), launch_disabled (agents are off in this build session), error (the start failed; the daemon log says why) or unconfirmed (the supervisor did not answer in time; it may still start)."
         }
       },
       "extra": false
@@ -1652,6 +2269,32 @@
         "Clients never read or expand $SHELL. To choose an executable, send argv [executable, \"-lc\", script]."
       ]
     },
+    "MachinePlatform": {
+      "kind": "object",
+      "fields": {
+        "os": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        },
+        "arch": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        }
+      },
+      "extra": false
+    },
     "MachineSnapshot": {
       "kind": "object",
       "fields": {
@@ -1674,7 +2317,10 @@
           "type": {
             "kind": "enum",
             "values": [
-              "local"
+              "local",
+              "cloud",
+              "ssh",
+              "server"
             ]
           }
         },
@@ -1722,12 +2368,33 @@
             }
           },
           "description": "Explicit forward-compatible data. Unknown sibling fields remain forbidden."
+        },
+        "platform": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "ref",
+              "name": "MachinePlatform"
+            }
+          }
+        },
+        "capabilities": {
+          "required": false,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
         }
       },
       "extra": false,
       "constraints": [
-        "This endpoint returns the one local machine that owns its mux session.",
-        "Cross-machine discovery, lifecycle, and provider metadata are reserved for a later broker protocol."
+        "The native local owner remains first and authoritative.",
+        "A verified app may publish a bounded, connection-scoped projection of its admitted remote routes. Catalog membership does not confer session or execution authority.",
+        "Optional platform and capability metadata is non-secret. Legacy owners may omit it."
       ]
     },
     "SessionSnapshot": {
@@ -1839,7 +2506,7 @@
               "name": "JsonValue"
             }
           },
-          "description": "Explicit forward-compatible data. Optional title, color, and icon carry the shared workspace identity; ephemeral is true for a workspace the daemon closes at its next start; agent_folder is the folder new agent chats start in (workspace.agent_folder.set). Unknown sibling fields remain forbidden."
+          "description": "Explicit forward-compatible data. Optional title, color, and icon carry the shared workspace identity; ephemeral is true for a workspace the daemon closes at its next start; agent_folder is the folder new agent chats start in (workspace.agent_folder.set); key is the workspace key its terminals and agent chats carry as CMUX_WORKSPACE_ID. name_source (user or auto) and name_revision (decimal) carry the name provenance (workspace-name-source-v1). Unknown sibling fields remain forbidden."
         }
       },
       "extra": false
@@ -2041,7 +2708,7 @@
               "name": "JsonValue"
             }
           },
-          "description": "Explicit forward-compatible data. Optional name_source (user or auto) and name_revision (canonical unsigned decimal string) carry durable name authority. Their absence means automatic naming is unavailable. pinned, tab_group_id, zoom (browser page zoom or terminal font scale), and a browser tab's back and forward URL lists (at most 20 each) are present when set. Unknown sibling fields remain forbidden."
+          "description": "Explicit forward-compatible data. Optional name_source (user or auto) and name_revision (canonical unsigned decimal string) carry durable name authority. Their absence means automatic naming is unavailable. pinned, tab_group_id, zoom (browser page zoom or terminal font scale), and a browser tab's back and forward URL lists (at most 20 each) are present when set. A frontend-rendered browser tab carries browser_profile_id: the browser profile whose store its page uses (default when none was set; browser-profile-agent-v1). Unknown sibling fields remain forbidden."
         }
       },
       "extra": false
@@ -2275,7 +2942,7 @@
               "name": "JsonValue"
             }
           },
-          "description": "Explicit forward-compatible data. progress is the terminal's OSC 9;4 progress ({state: normal|error|indeterminate|paused, value: 0-100 or null}) while one is shown; activity ({state: running|in_use, since_ms: decimal}) is a shell command running between OSC 133 C and D (terminal-activity-v1): running for a plain command, in_use once the command took the terminal for interaction (alternate screen, mouse or focus reporting, bracketed paste), for the rest of that command; neither is work in progress, which only a program's own program_status or progress report says. busy ({since_ms: decimal}) is the older field, present only while activity is running. Both are absent once the terminal exits. Unknown sibling fields remain forbidden."
+          "description": "Explicit forward-compatible data. progress is the terminal's OSC 9;4 progress ({state: normal|error|indeterminate|paused, value: 0-100 or null}) while one is shown; activity ({state: running|in_use, since_ms: decimal}) is a shell command running between OSC 133 C and D (terminal-activity-v1): running for a plain command, in_use once the command took the terminal for interaction (alternate screen, mouse or focus reporting, bracketed paste), for the rest of that command; neither is work in progress, which only a program's own program_status or progress report says. busy ({since_ms: decimal}) is the older field, present only while activity is running. prompt ({since_ms: decimal}) is the shell sitting at its prompt, from OSC 133 A until the next C; a shell without shell integration never shows it. All are absent once the terminal exits. Unknown sibling fields remain forbidden."
         }
       },
       "extra": false,
@@ -2704,10 +3371,14 @@
     "AgentMessageState": {
       "kind": "enum",
       "values": [
+        "held",
         "queued",
         "delivered",
         "acknowledged",
-        "failed"
+        "failed",
+        "unsent",
+        "retracted",
+        "declined"
       ]
     },
     "AgentMessageDelivery": {
@@ -2763,6 +3434,68 @@
               "name": "string"
             }
           }
+        },
+        "reason": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "Why the delivery is held or declined: workspace_unknown or cross_workspace (held), approved (released), declined or expired (declined)."
+        },
+        "created_at_ms": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          }
+        },
+        "queued_at_ms": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "decimal"
+            }
+          },
+          "description": "When the delivery became queued: at the send, or when a person approved it."
+        },
+        "delivered_at_ms": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "decimal"
+            }
+          },
+          "description": "When a delivery path last handed the message over."
+        },
+        "acknowledged_at_ms": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "decimal"
+            }
+          },
+          "description": "When the recipient acknowledged the message."
+        },
+        "held_until_ms": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "decimal"
+            }
+          },
+          "description": "When a held delivery expires (declined, reason expired) without a decision."
         }
       },
       "extra": false
@@ -2888,6 +3621,106 @@
             }
           },
           "description": "One receipt per recipient, in recipient order."
+        }
+      },
+      "extra": false
+    },
+    "AgentMessageUnsendOutcome": {
+      "kind": "enum",
+      "values": [
+        "unsent",
+        "retracted",
+        "too_late",
+        "failed"
+      ]
+    },
+    "AgentMessageUnsendResult": {
+      "kind": "object",
+      "fields": {
+        "outcome": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "AgentMessageUnsendOutcome"
+          },
+          "description": "failed when any delivery failed, else too_late when any was too late, else retracted when any was retracted, else unsent."
+        },
+        "outcomes": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "object",
+              "fields": {
+                "recipient": {
+                  "required": true,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string",
+                    "min_length": 1,
+                    "max_length": 256
+                  }
+                },
+                "outcome": {
+                  "required": true,
+                  "type": {
+                    "kind": "ref",
+                    "name": "AgentMessageUnsendOutcome"
+                  }
+                },
+                "error": {
+                  "required": false,
+                  "type": {
+                    "kind": "object",
+                    "fields": {
+                      "reason": {
+                        "required": true,
+                        "type": {
+                          "kind": "primitive",
+                          "name": "string",
+                          "min_length": 1,
+                          "max_length": 128
+                        },
+                        "description": "acpmux_unavailable or withdraw_refused."
+                      },
+                      "message": {
+                        "required": true,
+                        "type": {
+                          "kind": "primitive",
+                          "name": "string",
+                          "min_length": 1,
+                          "max_length": 1024
+                        }
+                      },
+                      "acpmux_reason": {
+                        "required": false,
+                        "type": {
+                          "kind": "primitive",
+                          "name": "string",
+                          "min_length": 1,
+                          "max_length": 128
+                        },
+                        "description": "acpmux's reason for a withdraw_refused."
+                      }
+                    },
+                    "extra": false
+                  },
+                  "description": "Why a failed delivery could not be taken back."
+                }
+              },
+              "extra": false
+            },
+            "min_items": 1,
+            "max_items": 64
+          },
+          "description": "One outcome per delivery taken back, in recipient order."
+        },
+        "message": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "AgentMessageSnapshot"
+          }
         }
       },
       "extra": false
@@ -3338,6 +4171,64 @@
       },
       "extra": false
     },
+    "OpenedBrowserPath": {
+      "kind": "object",
+      "fields": {
+        "kind": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "browser"
+            ]
+          }
+        },
+        "workspace_id": {
+          "required": true,
+          "type": {
+            "kind": "resource_id",
+            "resource": "workspace"
+          }
+        },
+        "screen_id": {
+          "required": true,
+          "type": {
+            "kind": "resource_id",
+            "resource": "screen"
+          }
+        },
+        "pane_id": {
+          "required": true,
+          "type": {
+            "kind": "resource_id",
+            "resource": "pane"
+          }
+        },
+        "tab_id": {
+          "required": true,
+          "type": {
+            "kind": "resource_id",
+            "resource": "tab"
+          }
+        },
+        "browser_id": {
+          "required": true,
+          "type": {
+            "kind": "resource_id",
+            "resource": "browser"
+          }
+        },
+        "reused": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "true when the link loaded in a browser tab that was already on the right side; false when it made a new one."
+        }
+      },
+      "extra": false
+    },
     "CreatedPath": {
       "kind": "union",
       "variants": [
@@ -3658,6 +4549,22 @@
             "name": "boolean"
           },
           "description": "True when the dock cannot be undocked or closed. Absent when false."
+        },
+        "pinned": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "pinned-dock-v1: true for a pinned column (the Home dock). Its first tab stays (no close, move out or reorder away from the first place), the column is never removed, undocked or unpinned, and it takes no other tab unless allow_tabs is true. Absent when false."
+        },
+        "allow_tabs": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "pinned-dock-v1: true when a pinned column takes more tabs. Absent when false (the default)."
         }
       },
       "extra": false,
@@ -6373,6 +7280,14 @@
             "kind": "primitive",
             "name": "boolean"
           }
+        },
+        "scrollback_not_kept": {
+          "required": false,
+          "description": "True when the closed terminal's archived screen was dropped to keep the archive byte budget: the tab reopens in its directory without its old scrollback. Absent otherwise.",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
         }
       },
       "extra": false
@@ -6787,6 +7702,34 @@
             }
           },
           "description": "At level `workspace`: the workspaces the selector chose; else empty."
+        },
+        "closed_ids": {
+          "required": false,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "StateId"
+            }
+          },
+          "description": "The `closed.list` groups this call stored, oldest first; `closed.reopen` of each restores exactly what it closed. Absent only on a replay of a call committed before the field existed."
+        }
+      },
+      "extra": false
+    },
+    "WorkspaceCloseResult": {
+      "kind": "object",
+      "fields": {
+        "closed_ids": {
+          "required": false,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "StateId"
+            }
+          },
+          "description": "With `report_closed_ids`: the `closed.list` groups this close stored, oldest first (empty for an ephemeral workspace); `closed.reopen` of each restores exactly what it closed. Absent without `report_closed_ids`, and on a replay of a close committed before the groups were recorded."
         }
       },
       "extra": false
@@ -7410,7 +8353,12 @@
         "screen_group",
         "closed",
         "workspace_status",
-        "window_record"
+        "window_record",
+        "sidebar_layout",
+        "sidebar_item",
+        "sidebar_section",
+        "sidebar_doc",
+        "stash"
       ]
     },
     "StateEntitySnapshot": {
@@ -7451,6 +8399,26 @@
         {
           "kind": "ref",
           "name": "WindowRecordSnapshot"
+        },
+        {
+          "kind": "ref",
+          "name": "SidebarLayoutSnapshot"
+        },
+        {
+          "kind": "ref",
+          "name": "SidebarItemSnapshot"
+        },
+        {
+          "kind": "ref",
+          "name": "SidebarSectionSnapshot"
+        },
+        {
+          "kind": "ref",
+          "name": "SidebarDocChange"
+        },
+        {
+          "kind": "ref",
+          "name": "StashSnapshot"
         }
       ],
       "constraints": [
@@ -9743,6 +10711,299 @@
       },
       "extra": false
     },
+    "SidebarSectionSnapshot": {
+      "kind": "object",
+      "fields": {
+        "id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "kind": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "JsonValue"
+          },
+          "description": "Tagged by type: machine {session_id}, pinned, custom, app {contribution}, builtin."
+        },
+        "title": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "shows_title": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        "region": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "top, middle or bottom (a newer value is kept)."
+        },
+        "look": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "arrangement": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "list, inline or grid."
+        },
+        "align": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "leading, center, trailing or fill (a newer value is kept): where an inline or grid section's rows or tiles sit on their line. Default leading."
+        },
+        "gap": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "0 to 32 points between the section's rows or tiles. Absent: the look's default spacing."
+        },
+        "columns": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          }
+        },
+        "max_rows": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "1 to 50: the section grows with its content up to this many rows (or tile lines), then scrolls inside itself. Absent: it grows without limit (the fixed stack as a whole is capped at half the sidebar height, then each fixed section scrolls inside itself)."
+        },
+        "scroll": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "fixed (stays visible: in the fixed stack at the top, or at the bottom for the bottom region) or flow (scrolls with the main list). Default by kind and region: builtin and pinned fixed, machine flow, custom and app fixed in the top and bottom regions and flow in the middle."
+        },
+        "room": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "order": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "Fractional order key among the region's sections."
+        },
+        "keeps_closed": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "Pinned and custom sections keep a closed workspace (drawn dimmed) and an empty group."
+        },
+        "extra": {
+          "required": false,
+          "type": {
+            "kind": "map",
+            "values": {
+              "kind": "ref",
+              "name": "JsonValue"
+            }
+          },
+          "description": "Explicit forward-compatible data (a newer client's keys, an item's stored label, ...). Unknown sibling fields remain forbidden."
+        }
+      },
+      "extra": false
+    },
+    "SidebarItemSnapshot": {
+      "kind": "object",
+      "fields": {
+        "id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "section": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "parent": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "The group item it is in."
+        },
+        "order": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "Fractional order key among its siblings."
+        },
+        "body": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "JsonValue"
+          },
+          "description": "Tagged by type: workspace {ref {session_id, workspace_id, extra?}}, group {name, color?, icon?, collapsed, profile?}, builtin {id}, app {id}, url {url, title?, icon_url?}, tab {ref}, room {id}, saved_group {id}, ref {kind, value}."
+        },
+        "shows_label": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        "span": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          }
+        },
+        "extra": {
+          "required": false,
+          "type": {
+            "kind": "map",
+            "values": {
+              "kind": "ref",
+              "name": "JsonValue"
+            }
+          },
+          "description": "Explicit forward-compatible data (a newer client's keys, an item's stored label, ...). Unknown sibling fields remain forbidden."
+        }
+      },
+      "extra": false
+    },
+    "SidebarDocChange": {
+      "kind": "object",
+      "fields": {
+        "revision": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          },
+          "description": "The document revision after the change."
+        },
+        "previous_revision": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          },
+          "description": "The document revision before it; a client at another revision refetches with sidebar.get."
+        },
+        "idempotency_key": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "The key of the sidebar.* request, null for a change the daemon made (an old write followed, a close)."
+        }
+      },
+      "extra": false
+    },
+    "SidebarDocMutation": {
+      "kind": "object",
+      "fields": {
+        "revision": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          }
+        },
+        "inverse": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "JsonValue"
+            }
+          },
+          "description": "The ops that undo this mutation (item.put, item.delete, section.put, section.delete), for sidebar.apply."
+        }
+      },
+      "extra": false
+    },
+    "SidebarDocSnapshot": {
+      "kind": "object",
+      "fields": {
+        "revision": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          },
+          "description": "Increases by one per committed change; 0 as migrated."
+        },
+        "sections": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "SidebarSectionSnapshot"
+            }
+          },
+          "description": "Sections in display order: {id, kind, title?, shows_title, region, look, arrangement, align, gap?, columns?, max_rows?, scroll, room?, order, keeps_closed}; unknown keys are kept."
+        },
+        "items": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "SidebarItemSnapshot"
+            }
+          },
+          "description": "Items in display order: {id, section, parent?, order, body, shows_label, span?}; unknown keys are kept."
+        }
+      },
+      "extra": false
+    },
     "SidebarLayoutSnapshot": {
       "kind": "object",
       "fields": {
@@ -9778,7 +11039,7 @@
             "name": "string",
             "min_length": 1
           },
-          "description": "Qualified id: page:<profile>:<visit>, agent:<machine>/<provider>/<session>, command:<machine>/<terminal>/<start ms>, closed:daemon:<id> or location:<machine>:<tab>:<index>."
+          "description": "Qualified id: page:<profile>:<visit>, agent:<machine>/<provider>/<session>, command:<machine>/<command row id>, closed:daemon:<id> or location:<trail entry id>."
         },
         "kind": {
           "required": true,
@@ -9914,6 +11175,22 @@
             "name": "string"
           },
           "description": "Agent: the hook adapter id, for the localized title."
+        },
+        "window": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "Location: the window the step was made in."
+        },
+        "location": {
+          "required": false,
+          "type": {
+            "kind": "ref",
+            "name": "HistoryTrailLocation"
+          },
+          "description": "Location: the place as the app recorded it (an app rebuilds its Back and Forward steps from it)."
         }
       },
       "extra": false
@@ -10029,6 +11306,150 @@
       },
       "extra": false
     },
+    "HistoryTrailLocation": {
+      "kind": "object",
+      "fields": {
+        "machine": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "max_length": 8192,
+            "min_length": 1
+          },
+          "description": "The machine id of the tab (the app's own id for this machine), or top-page for a top page."
+        },
+        "tab": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "max_length": 8192,
+            "min_length": 1
+          },
+          "description": "The tab id on that machine, or the top page's route."
+        },
+        "title": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "max_length": 8192
+          },
+          "description": "The tab's or page's title when the step was made."
+        },
+        "page": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "max_length": 8192
+          },
+          "description": "A top page's route, when the step is a top page."
+        },
+        "workspace": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "max_length": 8192
+          },
+          "description": "The workspace key on its machine."
+        },
+        "workspace_title": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "max_length": 8192
+          },
+          "description": "The workspace name, shown under the title."
+        },
+        "pane": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "max_length": 8192
+          }
+        },
+        "screen": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "max_length": 8192
+          }
+        },
+        "room": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "max_length": 8192
+          }
+        },
+        "content": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "max_length": 8192
+          },
+          "description": "terminal, browser or other."
+        },
+        "machine_name": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "max_length": 8192
+          },
+          "description": "The machine name; absent for this machine."
+        },
+        "url": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "max_length": 8192
+          },
+          "description": "A browser tab's page URL (context only)."
+        },
+        "cwd": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "max_length": 8192
+          },
+          "description": "A terminal's folder."
+        }
+      },
+      "extra": false
+    },
+    "HistoryTrailRecordResult": {
+      "kind": "object",
+      "fields": {
+        "id": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "The entry id, location:<trail entry id>; absent for an incognito step (never stored)."
+        },
+        "recorded": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "False when the trail did not change (the same place and context, or an incognito step)."
+        }
+      },
+      "extra": false
+    },
     "HistoryVisitImportResult": {
       "kind": "object",
       "fields": {
@@ -10100,6 +11521,36 @@
         "command",
         "agent"
       ]
+    },
+    "ProjectSourceSummary": {
+      "kind": "object",
+      "fields": {
+        "id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "The source id."
+        },
+        "enabled": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "Whether the user has the source on."
+        },
+        "projects": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "How many projects the source reports."
+        }
+      },
+      "extra": false
     },
     "ProjectSourceSeen": {
       "kind": "object",
@@ -10234,6 +11685,17 @@
             }
           },
           "description": "Pinned first (by order), then the most recently used."
+        },
+        "sources": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "ProjectSourceSummary"
+            }
+          },
+          "description": "Every source seen or turned off, with its project count (Settings)."
         }
       },
       "extra": false
@@ -11239,6 +12701,322 @@
         }
       },
       "extra": false
+    },
+    "StashTab": {
+      "kind": "object",
+      "fields": {
+        "id": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "StateId"
+          },
+          "description": "The member's stable id; stash.restore and stash.delete name members by it."
+        },
+        "url": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "The page; secret-looking query keys are stripped."
+        },
+        "title": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "The page title when it was stashed or imported."
+        },
+        "browser_profile_id": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "The browser profile the page reopens in; null is the default profile."
+        },
+        "workspace_id": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "resource_id",
+              "resource": "workspace"
+            }
+          },
+          "description": "The workspace the page was stashed from; null for an imported page."
+        }
+      },
+      "extra": false
+    },
+    "StashSnapshot": {
+      "kind": "object",
+      "fields": {
+        "id": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "StateId"
+          }
+        },
+        "name": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "The name of the workspace the pages left, or of the imported group."
+        },
+        "created_at_ms": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          },
+          "description": "Unix time in milliseconds of the stash (or the imported group's own time)."
+        },
+        "member_count": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          }
+        },
+        "members": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "StashTab"
+            }
+          },
+          "description": "The pages in restore order; stash.restore and stash.delete name them by id."
+        }
+      },
+      "extra": false
+    },
+    "StashCreateResult": {
+      "kind": "object",
+      "fields": {
+        "stash_id": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "StateId"
+          }
+        },
+        "tab_ids": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "resource_id",
+              "resource": "tab"
+            }
+          },
+          "description": "The tabs that closed into the stash, in member order."
+        },
+        "skipped": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "resource_id",
+              "resource": "tab"
+            }
+          },
+          "description": "With workspace: its tabs that stayed open (not web pages, pinned, or incognito)."
+        }
+      },
+      "extra": false
+    },
+    "StashRestoreResult": {
+      "kind": "object",
+      "fields": {
+        "stash_id": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "StateId"
+          }
+        },
+        "workspace_id": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "resource_id",
+              "resource": "workspace"
+            }
+          },
+          "description": "The first workspace a page reopened in."
+        },
+        "workspace_ids": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "resource_id",
+              "resource": "workspace"
+            }
+          }
+        },
+        "screen_ids": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "resource_id",
+              "resource": "screen"
+            }
+          },
+          "description": "The screens the pages reopened in."
+        },
+        "tab_ids": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "resource_id",
+              "resource": "tab"
+            }
+          },
+          "description": "The reopened tabs in member order."
+        },
+        "remaining": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "Members still in the stash; 0 means the stash is gone."
+        }
+      },
+      "extra": false
+    },
+    "StashDeleteResult": {
+      "kind": "object",
+      "fields": {
+        "stash_id": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "StateId"
+          }
+        },
+        "remaining": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "Members still in the stash; 0 means the stash is gone."
+        }
+      },
+      "extra": false
+    },
+    "StashImportTab": {
+      "kind": "object",
+      "fields": {
+        "url": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 8192
+          },
+          "description": "Only http and https pages are kept."
+        },
+        "title": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "max_length": 1024
+          }
+        }
+      },
+      "extra": false
+    },
+    "StashImportGroup": {
+      "kind": "object",
+      "fields": {
+        "name": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "max_length": 256
+          },
+          "description": "The group's name (OneTab's group title)."
+        },
+        "created_ms": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          },
+          "description": "Unix time in milliseconds the group was made; default now."
+        },
+        "tabs": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "StashImportTab"
+            },
+            "min_items": 1,
+            "max_items": 1000
+          }
+        }
+      },
+      "extra": false
+    },
+    "StashImportResult": {
+      "kind": "object",
+      "fields": {
+        "stash_ids": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "StateId"
+            }
+          },
+          "description": "One stash per group that kept a page, in request order."
+        },
+        "imported_tabs": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          }
+        },
+        "skipped_tabs": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "Pages that are not http(s) URLs, or repeat a URL of their group."
+        }
+      },
+      "extra": false
     }
   },
   "generics": {
@@ -11640,7 +13418,8 @@
                 "closed",
                 "window_record",
                 "git_checkpoint",
-                "conversation"
+                "conversation",
+                "stash"
               ]
             }
           },
@@ -12332,6 +14111,85 @@
         "validation.invalid"
       ]
     },
+    "agent.message.release": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "agent",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "message_id": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            }
+          },
+          "recipient": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 256
+            }
+          },
+          "decision": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "approve",
+                "decline"
+              ]
+            },
+            "description": "approve queues the held delivery; decline declines it."
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "Only a held delivery is released; another state is refused with operation.failed, reason not_held, or reason expired once its 24 hours ended.",
+          "Only the person decides, in the verified cmux app (the frontend actor): any other request, a plain local connection or the CLI included, is refused with operation.failed, reason release_needs_app. Any local connection may be an agent that left out its launch credential."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "AgentMessageSnapshot"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "resource.not_found",
+        "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
     "agent.message.send": {
       "class": "mutation",
       "idempotency": "required",
@@ -12366,9 +14224,9 @@
             "type": {
               "kind": "primitive",
               "name": "string",
-              "min_length": 1,
-              "max_length": 32768
-            }
+              "min_length": 1
+            },
+            "description": "At most 32768 bytes of UTF-8; a longer body is refused with validation.invalid, reason body_too_large."
           },
           "sender": {
             "required": false,
@@ -12378,7 +14236,7 @@
               "min_length": 1,
               "max_length": 256
             },
-            "description": "The sender's address, as the caller asserts it; it is not verified. Defaults to cli."
+            "description": "The sender is the request's verified actor: the terminal (term_...) or ACP session (acp:<session id>) its launch credential names, else cli (the person). A sender given here must match it, or the send is refused with validation.invalid, reason sender_mismatch."
           },
           "sender_name": {
             "required": false,
@@ -12421,7 +14279,10 @@
         "extra": false,
         "constraints": [
           "The body is text: newlines and tabs are the only control characters allowed.",
-          "Every recipient starts queued. Messages survive a daemon restart; messages beyond the newest 2000 are pruned once no recipient is still queued."
+          "A recipient's delivery starts queued when the sender is the person or shares the recipient's workspace, held (reason workspace_unknown) when either workspace is unknown, and for different workspaces as the daemon's CMUX_AGENT_MESSAGE_CROSS_WORKSPACE says: hold (default; reason cross_workspace), refuse (operation.failed, reason cross_workspace) or allow (queued). The person is the local user or the verified app; every other actor without a known workspace starts held. A held delivery waits 24 hours for agent.message.release, then is declined with reason expired. Holds are advisory against an agent that leaves out its launch credential: it then sends as the person, until launch credentials are mandatory.",
+          "Limits, each refused with operation.failed and its details.reason: 5 sends in 10 seconds per sender and 20 a minute per sender and recipient (rate_limited), 50 queued or held deliveries per recipient (queue_full), replies at most 8 deep (reply_depth), 40 messages per thread, counted apart from pruning (thread_budget), and the same body from the same sender to the same recipient within 10 seconds (duplicate). Every limit counts stored rows, so a restart keeps them.",
+          "An agent puts a message, or a reply, in an existing thread only when it sent one of its messages or one was addressed to it; otherwise operation.failed, reason thread_not_joined.",
+          "Messages survive a daemon restart; messages beyond the newest 2000 are pruned once no recipient is still queued or held."
         ]
       },
       "result": {
@@ -12431,6 +14292,78 @@
           {
             "kind": "ref",
             "name": "AgentMessageSnapshot"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "resource.not_found",
+        "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "agent.message.unsend": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "agent",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "message_id": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            }
+          },
+          "recipient": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 256
+            },
+            "description": "Take back only this recipient's delivery; every delivery when omitted."
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "Only the message's verified sender, or the person in the verified cmux app, takes it back, with no time limit; another agent is refused with operation.failed, reason unsend_not_sender, and a plain local connection (it may be an agent that left out its launch credential) with reason unsend_needs_app.",
+          "Each delivery gets an outcome: unsent when it never reached the agent (a held, queued or failed delivery, or one acpmux still had waiting; the delivery becomes unsent), retracted when acpmux told the agent in its turn that the message was withdrawn (the delivery becomes retracted), too_late when the turn ended or the delivery path cannot take it back (nothing changes), failed when it could not be taken back now (nothing changes; error names why).",
+          "An acpmux recipient's outcome is acpmux's _acpmux/prompt_withdraw answer. When acpmux does not answer for a delivery a hand-over may have reached, its outcome is failed with error.reason acpmux_unavailable; when acpmux refuses the withdraw, failed with error.reason withdraw_refused and error.acpmux_reason. Every other delivery's outcome still commits.",
+          "A retry under the same idempotency key replays the first result, and a key reused with other input or a stale expected_revision is refused, before acpmux is asked.",
+          "Unsending again answers the same outcome."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "AgentMessageUnsendResult"
           }
         ]
       },
@@ -12839,7 +14772,7 @@
         "fields": {},
         "extra": false,
         "constraints": [
-          "Answers {chrome, devices}: the custom devices (origin custom, oldest first), then the built-in list compiled into the daemon: Chrome DevTools' device list verbatim and in Chrome's order (origin chrome; chrome names the devtools-frontend ref, commit and Chromium milestone), then newer devices Chrome does not list yet (origin cmux, each with its sources). Each device is Chrome's JSONV1 device object (title, type, order, show-by-default, screen, capabilities, user-agent, user-agent-metadata, modes, dual-screen, foldable-screen)."
+          "Answers {chrome, devices}: the custom devices (origin custom, oldest first), then the built-in list compiled into the daemon: Chrome DevTools' device list verbatim and in Chrome's order (origin chrome; chrome names the devtools-frontend ref, commit and Chromium milestone), then newer devices Chrome does not list yet (origin cmux, each with its sources). Each device also has category (Chrome's device menu section: mobile, foldable, tablet-desktop or smart-display). Each device is Chrome's JSONV1 device object (title, type, order, show-by-default, screen, capabilities, user-agent, user-agent-metadata, modes, dual-screen, foldable-screen)."
         ]
       },
       "result": {
@@ -13472,6 +15405,215 @@
         "validation.invalid"
       ]
     },
+    "browser.profile.create": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "browser_profile",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "name": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 1024
+            },
+            "description": "The profile's name: 1 to 256 characters, not blank, with no control character. Names need not be unique; an ambiguous name is refused where a profile is named."
+          },
+          "color": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 32
+            },
+            "description": "A palette token (lowercase letters, digits and hyphens) or #RRGGBB / #RRGGBBAA."
+          },
+          "icon": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 256
+            },
+            "description": "An icon value as the app stores it for presentation records; an icon asset must exist."
+          },
+          "index": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "uint32"
+            },
+            "description": "Insertion index among the profiles; absent or past the end is last."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "Creates an empty browser profile record in the home session's personal state (browser-profiles-v1). Each app engine keys its own cookie and site data store by the new id; the daemon stores only the record.",
+          "A retry with the same idempotency key answers the first result and creates no second profile. No operation deletes a profile: only a person does, in the app."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "BrowserProfileCreateResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "browser.profile.list": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "browser_profile",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {},
+        "extra": false,
+        "constraints": [
+          "Answers {browser_profiles}: every browser profile in the person's order, the default profile included. Each has its id, name, color, icon and index only: never its import origin, cookies, history or site data."
+        ]
+      },
+      "result": {
+        "kind": "ref",
+        "name": "BrowserProfileList"
+      },
+      "errors": [
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "browser.profile.open": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "tab",
+      "ancestors": [
+        "machine",
+        "session",
+        "workspace",
+        "screen",
+        "pane"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required",
+          "workspace": "optional",
+          "screen": "optional",
+          "pane": "optional"
+        },
+        "fields": {
+          "url": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 8192
+            },
+            "description": "An http or https URL with a host and no user name or password, with no control, space or invisible format character. Anything else is validation.invalid (field url)."
+          },
+          "profile": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 1024
+            },
+            "description": "A browser profile: its id (`default` or a lowercase UUID), else its exact name. An unknown or ambiguous name is validation.invalid (field profile)."
+          },
+          "engine": {
+            "required": false,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "webkit",
+                "cef"
+              ]
+            },
+            "description": "The engine the app renders the page with. Absent is the person's browser.defaultEngine setting: webkit for webkit, else cef (Chromium, the setting's default)."
+          },
+          "title": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 1024
+            },
+            "description": "The tab's title until the page reports its own."
+          },
+          "activate": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "default": true,
+            "description": "False keeps the pane's selected tab."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "Opens a frontend-rendered browser tab whose record names the profile (frontend-browser-tab-profile-v1): the app that shows it makes the page in that profile's store, with its cookies and site data. The tab is in the named pane, else the focused pane; workspace and screen only qualify a pane.",
+          "A retry with the same idempotency key answers the first result and opens no second tab."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "BrowserProfileOpenResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "selector.wrong_parent",
+        "validation.invalid"
+      ]
+    },
     "browser.reload": {
       "class": "mutation",
       "idempotency": "required",
@@ -13585,6 +15727,16 @@
             },
             "description": "The device's mode orientation; absent is its first. portrait, landscape, unfolded-portrait and unfolded-landscape name vertical, horizontal, vertical-spanned and horizontal-spanned."
           },
+          "fit": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 3,
+              "max_length": 16
+            },
+            "description": "Fit a desktop layout instead of a device: an aspect ratio W:H such as 16:9 (whole numbers of 1 to 64, at most 4:1 either way), or a fixed layout width in CSS px such as 1280 (640 to 3840), or off to end the emulation (as browser.tab.emulate.clear). Give it alone."
+          },
           "expected_revision": {
             "required": false,
             "type": {
@@ -13596,8 +15748,9 @@
         },
         "extra": false,
         "constraints": [
-          "A browser tab only. device or custom (not both); with neither, orientation re-orients the device the tab emulates. The daemon keeps the device and orientation on the tab and shows the resolved values on every tab snapshot as extra.emulation {device, origin, orientation, orientations, width, height, device_scale_factor, mobile, touch, user_agent, user_agent_metadata, screen_orientation, display_feature, device_posture, safe_area_insets, chromium_calls}; user_agent and the strings of user_agent_metadata (the device's client hints as given, without added brands) have \"%s\" replaced by <milestone>.0.0.0 of the Chromium the built-in list comes from (the CEF pin), as DevTools patches them; chromium_calls are the DevTools Emulation.* calls Chrome's device mode sends (setDeviceMetricsOverride with scale 1: an engine that shows a device bigger than its view lowers scale to fit). The engine that shows the tab applies the record and decides nothing. The tab keeps a copy of the device: removing or changing a custom device, or a newer built-in list, does not change it until the next browser.tab.emulate; a reopened closed tab does not keep its emulation.",
-          "An unknown title, an orientation the device does not have, or a device outside Chrome's limits is validation.invalid."
+          "A browser tab only. device or custom (not both), or fit alone; with none of them, orientation re-orients the device the tab emulates. The daemon keeps the device and orientation on the tab and shows the resolved values on every tab snapshot as extra.emulation {device, origin, orientation, orientations, width, height, device_scale_factor, mobile, touch, user_agent, user_agent_metadata, screen_orientation, display_feature, device_posture, safe_area_insets, chromium_calls}; user_agent and the strings of user_agent_metadata (the device's client hints as given, without added brands) have \"%s\" replaced by <milestone>.0.0.0 of the Chromium the built-in list comes from (the CEF pin), as DevTools patches them; chromium_calls are the DevTools Emulation.* calls Chrome's device mode sends (setDeviceMetricsOverride with scale 1: an engine that shows a device bigger than its view lowers scale to fit). The engine that shows the tab applies the record and decides nothing. The tab keeps a copy of the device: removing or changing a custom device, or a newer built-in list, does not change it until the next browser.tab.emulate; a reopened closed tab does not keep its emulation.",
+          "fit W:H keeps a fit on the tab instead of a device and shows extra.emulation {mode: \"fit\", fit {value, aspect, aspect_width, aspect_height, min_width 1024, max_width 1920}, device_scale_factor 0, mobile false, touch false, user_agent \"\", chromium_calls}. The engine lays the page out at layout width = clamp(view height x W / H, min_width, max_width) CSS px, scale = view width / layout width, layout height = view height / scale, so the page fills the whole view (no bars) and shows a desktop layout; a view at least layout width wide shows the page as is. fit N (a bare number, 640 to 3840) is a fixed layout width: fit {value \"N\", aspect 16:9, min_width N, max_width N}, so the same formula gives layout width N at any view height. fit.value is the fit as given (\"16:9\" or \"1280\"). It recomputes on every view resize without a reload. chromium_calls carry 0 for width and height (the engine fills them and scale) and reset the user agent and touch.",
+          "An unknown title, a fit that is not W:H or a width of 640 to 3840, fit with device, custom or orientation, an orientation the device does not have, or a device outside Chrome's limits is validation.invalid."
         ]
       },
       "result": {
@@ -13674,6 +15827,65 @@
         "origin.forbidden",
         "resource.not_found",
         "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "selector.wrong_parent",
+        "validation.invalid"
+      ]
+    },
+    "browser.tab.set_profile": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "tab",
+      "ancestors": [
+        "machine",
+        "session",
+        "workspace",
+        "screen",
+        "pane"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required",
+          "workspace": "optional",
+          "screen": "optional",
+          "pane": "optional",
+          "tab": "required"
+        },
+        "fields": {
+          "profile": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            },
+            "description": "A browser profile: its id (`default` or a lowercase UUID), else its exact name, else the one name that matches ignoring case."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "A frontend-rendered browser tab only. The tab keeps its id and place in the pane; its record names the profile (frontend-browser-tab-profile-v1), and the app that shows it makes the page in that profile's store and loads the same URL, so cookies, local storage and IndexedDB switch at once. Back/forward history and session storage stay with the old store: the page in the new profile starts a new history. The same profile again changes nothing (changed false)."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "BrowserTabProfileResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -13809,7 +16021,18 @@
           "machine": "required",
           "session": "required"
         },
-        "fields": {},
+        "fields": {
+          "chief": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 70
+            },
+            "description": "The Chief whose brain the request goes to (capability chief-brains-v1): a live Chief's id (agent_mux is the default Chief). Absent: the default Chief."
+          }
+        },
         "extra": false
       },
       "result": {
@@ -13826,6 +16049,7 @@
       ],
       "constraints": [
         "Owner only (risk: owner). Only the owner's trusted connection may call it: a registered Unix client with no link peer record whose conversation principal is user_local (a local client or the link's owner_session splice). An agent-bound, relayed, WebSocket or page connection is refused with origin.forbidden before anything is forwarded; the remote relay never admits it.",
+        "chief-brains-v1: with chief naming a live Chief other than the default, the daemon forwards to that Chief's own brain (the tools socket in its brain directory under the daemon's Chief home) and to no other; absent, null or agent_mux reaches the default Chief's brain as before. A Chief that does not exist: operation.failed details.reason not_found. A daemon that runs no Chief brains: not_configured. A Chief whose brain does not run now (never started here, stopped after 30 minutes idle, or between restarts): unavailable; a read or stop never starts a brain (chief.engine.set does). With agents off in the build session: the agents-disabled refusal, as for the default Chief.",
         "The daemon forwards one line to the Chief brain's tools socket (CMUX_TUI_CHIEF_TOOLS_SOCKET, as chief-inspect does). Without it: operation.failed details.reason not_configured. A brain refusal is operation.failed with details.reason the brain's code (unknown_harness, invalid_effort, engine_unavailable, write_failed, bad_request, unavailable, internal) and extra.message its text.",
         "The brain's engine report, owned by the brain and passed through unchanged: {engine: {harness, model, effort, compactor_harness, compactor_model}, choice, last_turn, recent}."
       ]
@@ -13843,6 +16067,16 @@
           "session": "required"
         },
         "fields": {
+          "chief": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 70
+            },
+            "description": "The Chief whose brain the request goes to (capability chief-brains-v1): a live Chief's id (agent_mux is the default Chief). Absent: the default Chief."
+          },
           "harness": {
             "required": false,
             "type": {
@@ -13887,6 +16121,24 @@
               "max_length": 128
             },
             "description": "The compactor speed, default or fast, applied at the next brain start; empty or default clears it."
+          },
+          "compactor_harness": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 128
+            },
+            "description": "The compactor's acpmux harness, applied at the next brain start; empty or default clears it (the turns' engine harness when it is a Claude one, else the default Claude route)."
+          },
+          "compactor_model": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 128
+            },
+            "description": "The compactor's model, applied at the next brain start; empty or default clears it (Claude Haiku on a Claude harness)."
           }
         },
         "extra": false
@@ -13912,9 +16164,744 @@
       ],
       "constraints": [
         "Owner only (risk: owner). Only the owner's trusted connection may call it: a registered Unix client with no link peer record whose conversation principal is user_local (a local client or the link's owner_session splice). An agent-bound, relayed, WebSocket or page connection is refused with origin.forbidden before anything is forwarded; the remote relay never admits it.",
+        "chief-brains-v1: with chief naming a live Chief other than the default, the daemon forwards to that Chief's own brain (the tools socket in its brain directory under the daemon's Chief home) and to no other; absent, null or agent_mux reaches the default Chief's brain as before. A Chief that does not exist: operation.failed details.reason not_found. A daemon that runs no Chief brains: not_configured. A Chief whose brain does not run now (never started here, stopped after 30 minutes idle, or between restarts): chief.engine.set starts it as a message to that Chief would (a brain in restart backoff starts only at its retry time), waits up to 15 s for its tools socket, then forwards; unavailable at once when no brain process starts, and when the socket does not answer in time. With agents off in the build session: the agents-disabled refusal, as for the default Chief.",
         "The daemon forwards one line to the Chief brain's tools socket (CMUX_TUI_CHIEF_TOOLS_SOCKET, as chief-inspect does). Without it: operation.failed details.reason not_configured. A brain refusal is operation.failed with details.reason the brain's code (unknown_harness, invalid_effort, invalid_speed, engine_unavailable, write_failed, bad_request, unavailable, internal) and extra.message its text.",
         "An absent field is unchanged. The change applies from the Chief's next turn; a running turn finishes on its engine. The value is the engine report after the write. The brain's engine report, owned by the brain and passed through unchanged: {engine: {harness, model, effort, compactor_harness, compactor_model, speed, compactor_speed}, choice, last_turn, recent}.",
         "Setting the same values again changes nothing, so a retry is safe; replayed is always false."
+      ]
+    },
+    "chief.profile.adopt": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "participant_id": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 7,
+              "max_length": 70
+            },
+            "description": "An agent participant of the owner's local conversations (agent_ then 1 to 64 characters) that is not a Chief record and not a deleted Chief; never agent_mux and never a person."
+          },
+          "display_name": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 100
+            },
+            "description": "1 to 100 characters, one line; default: the participant's display name."
+          },
+          "role": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 200
+            }
+          },
+          "personality": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 4000
+            }
+          },
+          "instructions": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 32000
+            },
+            "description": "System prompt additions."
+          },
+          "tools": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string",
+                "min_length": 1,
+                "max_length": 64
+              }
+            },
+            "description": "Names from browser, chiefs, cloud_vms, memory_import, spawn, tell, workspaces; owner only. A new Chief without it gets spawn, tell, workspaces."
+          },
+          "harnesses": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string",
+                "min_length": 1,
+                "max_length": 64
+              }
+            },
+            "description": "Owner only; empty: every harness."
+          },
+          "self_edit": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string",
+                "min_length": 1,
+                "max_length": 64
+              }
+            },
+            "description": "Names from avatar, display_name, instructions, personality, role; owner only. A new Chief without it gets avatar."
+          },
+          "harness": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 128
+            },
+            "description": "Owner only; empty or default clears it."
+          },
+          "model": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 128
+            },
+            "description": "Owner only; empty or default clears it."
+          },
+          "effort": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 128
+            },
+            "description": "Owner only; empty or default clears it."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "ChiefRecord"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "Owner only: a trusted local Unix caller acting as the person (a registered Unix client with no link peer record whose conversation principal is user_local). A page WebSocket, a paired or remote device and a bound agent (a Chief) are refused with origin.forbidden; no page route allows it.",
+        "The participant must be an agent participant (kind agent) of a local conversation that is not a Chief record: a live record is already_chief, a deleted Chief (its tombstone, and its memory while it is kept) is deleted_chief, agent_mux is default_chief, an id whose brain directory (its last 8 characters, lowercased) another Chief, live or deleted, already has is brain_home_taken, a participant with a bound connection (its current agent session) is participant_bound with the hint to stop that session first, anything else is not_an_agent_participant (operation.failed details.reason). At most 64 live Chiefs: too_many_chiefs. In the same write the daemon revokes every credential issued for the participant before the adopt; after it, only the Chief brain's credential binds (with a brain supervisor), or on a daemon without one a credential the person mints from a local terminal (conversation-agent-token) after the adopt.",
+        "The record gets create's defaults (tools spawn, tell, workspaces; self_edit avatar; no engine) and only the fields given; from the participant it takes only its id and, without display_name, its display name. Its conversations, history and credentials stay as they are.",
+        "The idempotency key is per caller, as for chief.profile.create: the same key with the same params answers the committed record with replayed true; other params under the key are idempotency.conflict. The committed write reaches the Chief brain supervisor and publishes chief-profile-changed as a create does."
+      ]
+    },
+    "chief.profile.avatar.get": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "chief": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 64
+            },
+            "description": "The Chief's id: agent_mux (the default Chief) or agent_ then 26 Crockford base32 characters. It is the Chief's conversation participant id."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "ref",
+        "name": "ChiefAvatarPage"
+      },
+      "errors": [
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "Callers: the owner (a registered Unix client with no link peer record whose conversation principal is user_local) and the Chiefs (a Unix connection bound with conversation-bind to the participant id of a live record). A page, WebSocket, relayed or remote connection, or an agent that is not a Chief, is refused with origin.forbidden.",
+        "The daemon owns the registry: chiefs.sqlite3 in the session state directory (memory for an in-memory session). The default Chief agent_mux exists from the first read. A deleted id is never reused.",
+        "An unknown or deleted Chief is operation.failed details.reason chief_not_found."
+      ]
+    },
+    "chief.profile.avatar.set": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "chief": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 64
+            },
+            "description": "The Chief's id: agent_mux (the default Chief) or agent_ then 26 Crockford base32 characters. It is the Chief's conversation participant id."
+          },
+          "expected_rev": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "uint32"
+            },
+            "description": "The rev the caller read; refused with rev_mismatch when the record changed."
+          },
+          "media_type": {
+            "required": false,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "image/gif",
+                "image/jpeg",
+                "image/png",
+                "image/webp"
+              ]
+            }
+          },
+          "data": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "base64"
+            },
+            "description": "The image, at most 1048576 bytes; its first bytes must be the media_type's signature."
+          },
+          "clear": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "true removes the picture (no data)."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "ChiefRecord"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "Callers: the owner (a registered Unix client with no link peer record whose conversation principal is user_local) and the Chiefs (a Unix connection bound with conversation-bind to the participant id of a live record). A page, WebSocket, relayed or remote connection, or an agent that is not a Chief, is refused with origin.forbidden.",
+        "The daemon owns the registry: chiefs.sqlite3 in the session state directory (memory for an in-memory session). The default Chief agent_mux exists from the first read. A deleted id is never reused.",
+        "An unknown or deleted Chief is operation.failed details.reason chief_not_found.",
+        "A Chief changes its own record only in the fields its self_edit lists (the person's rule; else operation.failed details.reason chief_self_edit_denied with extra.fields); its own tools, harnesses, engine fields and self_edit are the owner's only. A Chief whose tools hold chiefs may change another Chief within its own grant: the new values and the target's current grant within the caller's (grant_exceeds_caller, target_exceeds_caller), never the default Chief's grant (chief_default_grant), and on a Chief the person made only display_name, role and the picture (chief_person_made_fields); without chiefs every write on another Chief is chief_manage_denied. The ledger records such a write as <agent id> via chief. Nothing is written on a refusal. A Chief may set its own picture when its self_edit lists avatar (the default).",
+        "data with media_type, or clear true; anything else is validation.invalid. Bytes are stored once by SHA-256 and deleted when no Chief names them.",
+        "expected_rev, when given, must be the record's rev, else operation.failed details.reason rev_mismatch with extra.rev the current one.",
+        "The idempotency key is per caller (the last 256 keys of each caller are kept): the same key with the same params answers the committed record with replayed true; other params under the key are idempotency.conflict."
+      ]
+    },
+    "chief.profile.create": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "display_name": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 100
+            },
+            "description": "1 to 100 characters, one line."
+          },
+          "role": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 200
+            }
+          },
+          "personality": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 4000
+            }
+          },
+          "instructions": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 32000
+            },
+            "description": "System prompt additions."
+          },
+          "tools": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string",
+                "min_length": 1,
+                "max_length": 64
+              }
+            },
+            "description": "Names from browser, chiefs, cloud_vms, memory_import, spawn, tell, workspaces; owner only. A new Chief without it gets spawn, tell, workspaces."
+          },
+          "harnesses": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string",
+                "min_length": 1,
+                "max_length": 64
+              }
+            },
+            "description": "Owner only; empty: every harness."
+          },
+          "self_edit": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string",
+                "min_length": 1,
+                "max_length": 64
+              }
+            },
+            "description": "Names from avatar, display_name, instructions, personality, role; owner only. A new Chief without it gets avatar."
+          },
+          "harness": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 128
+            },
+            "description": "Owner only; empty or default clears it."
+          },
+          "model": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 128
+            },
+            "description": "Owner only; empty or default clears it."
+          },
+          "effort": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 128
+            },
+            "description": "Owner only; empty or default clears it."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "ChiefRecord"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "The owner, or a Chief whose tools hold chiefs (chief_manage_denied without it): a Chief gives the new Chief only tools, harnesses, engine fields and self_edit it holds itself (grant_exceeds_caller with extra.fields; omitted grant fields come from the caller), never more than MAX_CHIEFS, and the answer's brain says whether the new Chief's brain started. Callers: the owner (a registered Unix client with no link peer record whose conversation principal is user_local) and the Chiefs (a Unix connection bound with conversation-bind to the participant id of a live record). A page, WebSocket, relayed or remote connection, or an agent that is not a Chief, is refused with origin.forbidden.",
+        "The daemon owns the registry: chiefs.sqlite3 in the session state directory (memory for an in-memory session). The default Chief agent_mux exists from the first read. A deleted id is never reused.",
+        "The new id is agent_ then 26 Crockford base32 characters. At most 64 live Chiefs: operation.failed details.reason too_many_chiefs.",
+        "The idempotency key is per caller (the last 256 keys of each caller are kept): the same key with the same params answers the committed record with replayed true; other params under the key are idempotency.conflict."
+      ]
+    },
+    "chief.profile.delete": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "chief": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 64
+            },
+            "description": "The Chief's id: agent_mux (the default Chief) or agent_ then 26 Crockford base32 characters. It is the Chief's conversation participant id."
+          },
+          "expected_rev": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "uint32"
+            },
+            "description": "The rev the caller read; refused with rev_mismatch when the record changed."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "ChiefRecord"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "Owner only. Callers: the owner (a registered Unix client with no link peer record whose conversation principal is user_local) and the Chiefs (a Unix connection bound with conversation-bind to the participant id of a live record). A page, WebSocket, relayed or remote connection, or an agent that is not a Chief, is refused with origin.forbidden.",
+        "The daemon owns the registry: chiefs.sqlite3 in the session state directory (memory for an in-memory session). The default Chief agent_mux exists from the first read. A deleted id is never reused.",
+        "An unknown or deleted Chief is operation.failed details.reason chief_not_found.",
+        "The default Chief is operation.failed details.reason chief_is_default. The value is the record as it was; the Chief's conversations keep their participant.",
+        "expected_rev, when given, must be the record's rev, else operation.failed details.reason rev_mismatch with extra.rev the current one.",
+        "The idempotency key is per caller (the last 256 keys of each caller are kept): the same key with the same params answers the committed record with replayed true; other params under the key are idempotency.conflict."
+      ]
+    },
+    "chief.profile.get": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "chief": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 64
+            },
+            "description": "The Chief's id: agent_mux (the default Chief) or agent_ then 26 Crockford base32 characters. It is the Chief's conversation participant id."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "ref",
+        "name": "ChiefRecord"
+      },
+      "errors": [
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "Callers: the owner (a registered Unix client with no link peer record whose conversation principal is user_local) and the Chiefs (a Unix connection bound with conversation-bind to the participant id of a live record). A page, WebSocket, relayed or remote connection, or an agent that is not a Chief, is refused with origin.forbidden.",
+        "The daemon owns the registry: chiefs.sqlite3 in the session state directory (memory for an in-memory session). The default Chief agent_mux exists from the first read. A deleted id is never reused.",
+        "An unknown or deleted Chief is operation.failed details.reason chief_not_found."
+      ]
+    },
+    "chief.profile.list": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {},
+        "extra": false
+      },
+      "result": {
+        "kind": "ref",
+        "name": "ChiefList"
+      },
+      "errors": [
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "Callers: the owner (a registered Unix client with no link peer record whose conversation principal is user_local) and the Chiefs (a Unix connection bound with conversation-bind to the participant id of a live record). A page, WebSocket, relayed or remote connection, or an agent that is not a Chief, is refused with origin.forbidden.",
+        "The daemon owns the registry: chiefs.sqlite3 in the session state directory (memory for an in-memory session). The default Chief agent_mux exists from the first read. A deleted id is never reused."
+      ]
+    },
+    "chief.profile.update": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "chief": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 64
+            },
+            "description": "The Chief's id: agent_mux (the default Chief) or agent_ then 26 Crockford base32 characters. It is the Chief's conversation participant id."
+          },
+          "expected_rev": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "uint32"
+            },
+            "description": "The rev the caller read; refused with rev_mismatch when the record changed."
+          },
+          "display_name": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 100
+            },
+            "description": "1 to 100 characters, one line."
+          },
+          "role": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 200
+            }
+          },
+          "personality": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 4000
+            }
+          },
+          "instructions": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 32000
+            },
+            "description": "System prompt additions."
+          },
+          "tools": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string",
+                "min_length": 1,
+                "max_length": 64
+              }
+            },
+            "description": "Names from browser, chiefs, cloud_vms, memory_import, spawn, tell, workspaces; owner only. A new Chief without it gets spawn, tell, workspaces."
+          },
+          "harnesses": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string",
+                "min_length": 1,
+                "max_length": 64
+              }
+            },
+            "description": "Owner only; empty: every harness."
+          },
+          "self_edit": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string",
+                "min_length": 1,
+                "max_length": 64
+              }
+            },
+            "description": "Names from avatar, display_name, instructions, personality, role; owner only. A new Chief without it gets avatar."
+          },
+          "harness": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 128
+            },
+            "description": "Owner only; empty or default clears it."
+          },
+          "model": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 128
+            },
+            "description": "Owner only; empty or default clears it."
+          },
+          "effort": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 128
+            },
+            "description": "Owner only; empty or default clears it."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "ChiefRecord"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "Callers: the owner (a registered Unix client with no link peer record whose conversation principal is user_local) and the Chiefs (a Unix connection bound with conversation-bind to the participant id of a live record). A page, WebSocket, relayed or remote connection, or an agent that is not a Chief, is refused with origin.forbidden.",
+        "The daemon owns the registry: chiefs.sqlite3 in the session state directory (memory for an in-memory session). The default Chief agent_mux exists from the first read. A deleted id is never reused.",
+        "An unknown or deleted Chief is operation.failed details.reason chief_not_found.",
+        "A Chief changes its own record only in the fields its self_edit lists (the person's rule; else operation.failed details.reason chief_self_edit_denied with extra.fields); its own tools, harnesses, engine fields and self_edit are the owner's only. A Chief whose tools hold chiefs may change another Chief within its own grant: the new values and the target's current grant within the caller's (grant_exceeds_caller, target_exceeds_caller), never the default Chief's grant (chief_default_grant), and on a Chief the person made only display_name, role and the picture (chief_person_made_fields); without chiefs every write on another Chief is chief_manage_denied. The ledger records such a write as <agent id> via chief. Nothing is written on a refusal.",
+        "The self_edit rule binds a Chief's bound connection. A Chief turn that has a shell runs as the same OS user as the person, so the rule guards against the model, not against the OS user; an owner connection is any unbound trusted local client, as for chief.engine.*.",
+        "An absent field is unchanged; a change that leaves the record as it was keeps its rev.",
+        "expected_rev, when given, must be the record's rev, else operation.failed details.reason rev_mismatch with extra.rev the current one.",
+        "The idempotency key is per caller (the last 256 keys of each caller are kept): the same key with the same params answers the committed record with replayed true; other params under the key are idempotency.conflict."
       ]
     },
     "chief.stop": {
@@ -13930,6 +16917,16 @@
           "session": "required"
         },
         "fields": {
+          "chief": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 70
+            },
+            "description": "The Chief whose brain the request goes to (capability chief-brains-v1): a live Chief's id (agent_mux is the default Chief). Absent: the default Chief."
+          },
           "name": {
             "required": false,
             "type": {
@@ -13963,6 +16960,7 @@
       ],
       "constraints": [
         "Owner only (risk: owner). Only the owner's trusted connection may call it: a registered Unix client with no link peer record whose conversation principal is user_local (a local client or the link's owner_session splice). An agent-bound, relayed, WebSocket or page connection is refused with origin.forbidden before anything is forwarded; the remote relay never admits it.",
+        "chief-brains-v1: with chief naming a live Chief other than the default, the daemon forwards to that Chief's own brain (the tools socket in its brain directory under the daemon's Chief home) and to no other; absent, null or agent_mux reaches the default Chief's brain as before. A Chief that does not exist: operation.failed details.reason not_found. A daemon that runs no Chief brains: not_configured. A Chief whose brain does not run now (never started here, stopped after 30 minutes idle, or between restarts): unavailable; a read or stop never starts a brain (chief.engine.set does). With agents off in the build session: the agents-disabled refusal, as for the default Chief.",
         "The daemon forwards one line to the Chief brain's tools socket (CMUX_TUI_CHIEF_TOOLS_SOCKET, as chief-inspect does). Without it: operation.failed details.reason not_configured. A brain refusal is operation.failed with details.reason the brain's code (unknown_harness, invalid_effort, engine_unavailable, write_failed, bad_request, unavailable, internal) and extra.message its text.",
         "Stops the Chief's running turn as a newer message would: a running tool call finishes first, the turn posts its partial reply and then '(turn stopped)'. replayed is always false; a retry after the turn ended stops nothing (stopped false). With name, only that subagent stops (its report says the user stopped it); an unknown or still-starting name answers stopped false."
       ]
@@ -14576,6 +17574,22 @@
             },
             "description": "Column width as a fraction of the viewport. Omit to leave the width unchanged."
           },
+          "pinned": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "pinned-dock-v1: true makes the docked column pinned (the Home dock). One way: false fails with validation.invalid."
+          },
+          "allow_tabs": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "pinned-dock-v1: whether a pinned column takes more tabs (new tabs, moves in). Default false. Needs a pinned column."
+          },
           "expected_revision": {
             "required": false,
             "type": {
@@ -14609,7 +17623,8 @@
         "validation.invalid"
       ],
       "constraints": [
-        "At least one of dock or width is required. edge and mode require the dock field and apply only when dock is true.",
+        "At least one of dock, width, pinned or allow_tabs is required. edge and mode require the dock field and apply only when dock is true.",
+        "pinned-dock-v1: a change that would close, move out or reorder the first tab of a pinned column, add a tab to a pinned column whose allow_tabs is false, or remove, undock or unpin a pinned column fails with operation.failed, reason_code dock-column-pinned. This holds for every operation, not only column.update.",
         "width is finite, at least 0.1, and at most 1.",
         "A screen keeps at most one docked column per edge (pinning an edge another column holds unpins that column) and at least one scrolling column; a change that would leave none fails with validation.invalid.",
         "The layout document of the resulting ScreenSnapshot does not carry dock flags; the JSON-lines Screen.columns[].dock does."
@@ -16933,7 +19948,7 @@
       ],
       "constraints": [
         "Every removal of page visits moves them to a backup and answers its restore_id (recoverable by default); the backup ends at history.restore, history.backups.purge (origin user) or the 90-day retention.",
-        "Page visits in the range are removed; agent and command entries are hidden by range and closed groups closed in the range are deleted for good as closed.delete (neither with a profile); location entries are never touched; removed counts visits and deleted closed groups."
+        "Page visits in the range are removed; agent entries are hidden by range; command rows started in the range, trail entries entered in the range and closed groups closed in the range are deleted for good (closed groups as closed.delete); none of these with a profile. removed counts visits, command rows, trail entries and deleted closed groups."
       ]
     },
     "history.entries.list": {
@@ -17024,7 +20039,7 @@
         "validation.invalid"
       ],
       "constraints": [
-        "The merged history, newest first: page visits of every browser profile (shared by the machine's sessions), agent sessions and finished commands folded from the session journal minus the hidden ones, closed items, and the app's location trail."
+        "The merged history, newest first: page visits of every browser profile (shared by the machine's sessions), agent sessions folded from the session journal minus the hidden ones, this machine's terminal command rows (terminal-command-history-v1; recorded only while command history is on), closed items, and the location trail (history.trail.record; current marks the newest entry)."
       ]
     },
     "history.entries.remove": {
@@ -17079,7 +20094,7 @@
       ],
       "constraints": [
         "Every removal of page visits moves them to a backup and answers its restore_id (recoverable by default); the backup ends at history.restore, history.backups.purge (origin user) or the 90-day retention.",
-        "Page visits are removed; agent and command entries are hidden; closed entries delete their closed group for good as closed.delete (it cannot be reopened; no restore id; an already gone group counts nothing); any location id refuses the whole request with operation.failed reason history.location_client_owned (the app owns its trail)."
+        "Page visits are removed; agent entries are hidden; command rows are deleted for good (as delete-terminal-commands); closed entries delete their closed group for good as closed.delete (it cannot be reopened; no restore id; an already gone group counts nothing); a location removes every trail entry of its place (machine and tab). removed counts each of them."
       ]
     },
     "history.restore": {
@@ -17188,6 +20203,102 @@
       ],
       "constraints": [
         "Every removal moves the visits to a backup and answers its restore_id (recoverable by default); the backup ends at history.restore, history.backups.purge (origin user) or the 90-day retention."
+      ]
+    },
+    "history.trail.record": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "window": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 256
+            },
+            "description": "The window the person moved in (the app's window id)."
+          },
+          "location": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "HistoryTrailLocation"
+            },
+            "description": "Where the person is now."
+          },
+          "at_ms": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "The step's time in Unix milliseconds, from the recording app's clock (quick passes compare these). Omitted: the daemon's clock."
+          },
+          "steps": {
+            "required": false,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "workspaces",
+                "everything"
+              ]
+            },
+            "description": "What a step is (navigation.history.steps): workspaces, a location in the newest entry's sidebar item replaces it; everything, every place is a step.",
+            "default": "workspaces"
+          },
+          "jump": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "A place the person jumped to on purpose: the newest entry is never coalesced away as a quick pass.",
+            "default": false
+          },
+          "incognito": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "An incognito window's step: answered, never stored.",
+            "default": false
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "HistoryTrailRecordResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "Only origin user (the verified cmux app connection, gate A2) may send it: the app that shows the windows reports where the person went, so no agent adds a step. Any other origin is refused with origin.forbidden.",
+        "The daemon owns the trail (projection history.locations; the first write adopts the app's older history.trail document) and runs the Swift LocationTrail step rules at the end of the trail: the same machine and tab as the newest entry refresh it; with steps workspaces and no jump, a location in the newest entry's sidebar item (the same top page, or the same workspace on the same machine) replaces its place; a step less than 750 ms after the newest entry (and no jump) drops that entry as a quick pass, refreshing the entry before it when it is this place; else a new entry is appended. At most 200 entries are kept (the oldest go). A remove or clear joins two neighbours of the same place. Every change emits history-changed with kind location."
       ]
     },
     "history.visit.import": {
@@ -17960,7 +21071,13 @@
         "selectors": {
           "machine": "required"
         },
-        "fields": {},
+        "fields": {
+          "catalog": {
+            "required": false,
+            "type": {"kind": "primitive", "name": "boolean"},
+            "description": "Opt in to owner metadata and admitted remote records. Omitted or false preserves the original local-only shape; this grants no execution authority."
+          }
+        },
         "extra": false
       },
       "result": {
@@ -17983,7 +21100,13 @@
       "ancestors": [],
       "params": {
         "selectors": {},
-        "fields": {},
+        "fields": {
+          "catalog": {
+            "required": false,
+            "type": {"kind": "primitive", "name": "boolean"},
+            "description": "Opt in to owner metadata and admitted remote records. Omitted or false preserves the original local-only shape; this grants no execution authority."
+          }
+        },
         "extra": false
       },
       "result": {
@@ -19667,6 +22790,120 @@
         "validation.invalid"
       ]
     },
+    "participant.avatar.get": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "participant_id": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 6,
+              "max_length": 70
+            },
+            "description": "The participant: a person (user_local, or another person user_...) or a Chief (agent_mux or agent_ then 26 Crockford base32 characters)."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "ref",
+        "name": "ParticipantAvatarPage"
+      },
+      "errors": [
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "Callers: the person's own clients of the local conversations (a Unix connection, or an authenticated WebSocket: the Channels page reads it through its page allow list). A relayed or remote connection is refused with origin.forbidden.",
+        "The daemon keeps ONE avatar store for people and Chiefs: chiefs.sqlite3 in the session state directory (memory for an in-memory session). Bytes are stored once by SHA-256 and deleted when no participant references them.",
+        "The media type comes from the bytes: PNG, JPEG, GIF or WebP, 1 to 1048576 bytes; anything else is validation.invalid on bytes.",
+        "avatar is null when the participant has no picture (also for an id that is no person or live Chief)."
+      ]
+    },
+    "participant.avatar.set": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "participant_id": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 6,
+              "max_length": 70
+            },
+            "description": "The participant: a person (user_local, or another person user_...) or a Chief (agent_mux or agent_ then 26 Crockford base32 characters)."
+          },
+          "bytes": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "base64"
+            },
+            "description": "The picture, at most 1048576 bytes; its type comes from its signature."
+          },
+          "clear": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "true removes the picture (no bytes)."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "ParticipantAvatarResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "A person sets only their own picture: the connection's principal is that person (user_local on the owner's Unix or authenticated WebSocket connection, or a person bound with a person credential). Nobody sets another person's: operation.failed details.reason avatar_not_yours.",
+        "A Chief's picture is the chief.profile.avatar.set write: the owner (a registered Unix client acting as user_local) sets any Chief's, a Chief its own only when its self_edit lists avatar (else operation.failed details.reason chief_self_edit_denied), and another Chief's when its tools hold chiefs and that Chief's grant is within its own (else chief_manage_denied or target_exceeds_caller), every other caller is origin.forbidden; the Chief record's rev moves and its brain is told (a picture never restarts a brain). The CLI (cmux avatar set) refuses an agent caller.",
+        "The daemon keeps ONE avatar store for people and Chiefs: chiefs.sqlite3 in the session state directory (memory for an in-memory session). Bytes are stored once by SHA-256 and deleted when no participant references them.",
+        "The media type comes from the bytes: PNG, JPEG, GIF or WebP, 1 to 1048576 bytes; anything else is validation.invalid on bytes.",
+        "bytes or clear true; anything else is validation.invalid. Setting the same picture again changes nothing; a committed change publishes participant-avatar-changed on subscribe to connections that echoed participant-avatars-v1.", "The idempotency key is per participant for a person (the last 256 keys are kept) and per caller for a Chief: the same key with the same params answers the committed result with replayed true; other params under the key are idempotency.conflict. revision is the Chief record's rev for a Chief and the people's avatar revision (it moves on every change of any person's picture) for a person."
+      ]
+    },
     "project.add": {
       "class": "mutation",
       "idempotency": "required",
@@ -19866,6 +23103,63 @@
         "extra": false,
         "constraints": [
           "A project a source still reports is hidden (so a resync does not bring it back); any other one is deleted."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "ProjectChange"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "project.source.update": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "project",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "source": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            },
+            "description": "The source id (claude-code, codex, codex-app, vscode, cursor, zed, t3code, conductor, ...); not user."
+          },
+          "enabled": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "On: its reports count again (an editor or app source is read at once). Off: it leaves every project and its reports are ignored."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "The user source is validation.invalid; an edited project keeps its edits when its last source goes off."
         ]
       },
       "result": {
@@ -21930,7 +25224,9 @@
       "params": {
         "selectors": {"machine": "required", "session": "required"},
         "fields": {
-          "event": {"required": true, "type": {"kind": "ref", "name": "JournalIngressEvent"}}
+          "event": {"required": true, "type": {"kind": "ref", "name": "JournalIngressEvent"}},
+          "live_prompt": {"required": false, "description": "An agent hook's turn prompt for the hover card task line: kept in daemon memory only (at most 200 characters), never journaled, persisted or logged.", "type": {"kind": "primitive", "name": "string"}},
+          "live_reply": {"required": false, "description": "A finished or failed turn's last agent message for its banner preview: kept in daemon memory only (at most 200 characters) until the turn's notification event carries it as preview, never journaled, persisted or logged.", "type": {"kind": "primitive", "name": "string"}}
         },
         "extra": false
       },
@@ -23152,6 +26448,1023 @@
         "validation.invalid"
       ]
     },
+    "sidebar.adopt": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "sidebar_layout",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "refs": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "ref",
+                "name": "JsonValue"
+              }
+            },
+            "description": "Workspace refs {session_id, workspace_id, workspace_ref?} of live workspaces; a ref already placed is skipped, and a workspace_ref (the workspace_placement reference) that matches an item placed before its id was known resolves that item in place."
+          },
+          "to": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "JsonValue"
+            },
+            "description": "Where the adopted workspaces land (Target {section, parent?, before?|after?|index?}: where the items land; before/after name a sibling item; index counts the siblings without the moved items; none appends.); default: the end of each one's machine section."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "A refused op is validation.invalid whose reason is the reducer's (unknown_section, unknown_item, duplicate_id, duplicate_ref, cross_machine, provider_owned, nesting, invalid_target, machine_required, no_machine, invalid_title, invalid_value, too_many) and writes nothing.",
+          "An op that changes nothing commits with no session.events change and the same document revision."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "SidebarDocMutation"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "sidebar.apply": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "sidebar_layout",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "ops": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "ref",
+                "name": "JsonValue"
+              }
+            },
+            "description": "Reducer ops, each tagged by op (move, pin, unpin, item.add, item.remove, item.update, section.add, section.update, section.move, section.remove, group.create, group.update, group.ungroup, adopt, close {refs}: a closed workspace leaves a machine section and stays in Pinned and custom sections, item.remove_ref {ref}, reset, item.put, item.delete, section.put, section.delete), applied atomically. The inverse a mutation returns is such a list (undo); the inverse of an inverse is the redo."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "A refused op is validation.invalid whose reason is the reducer's (unknown_section, unknown_item, duplicate_id, duplicate_ref, cross_machine, provider_owned, nesting, invalid_target, machine_required, no_machine, invalid_title, invalid_value, too_many) and writes nothing.",
+          "An op that changes nothing commits with no session.events change and the same document revision.",
+          "At most 500 ops and 256 KiB."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "SidebarDocMutation"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "sidebar.get": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "sidebar_layout",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {},
+        "extra": false
+      },
+      "result": {
+        "kind": "ref",
+        "name": "SidebarDocSnapshot"
+      },
+      "errors": [
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "sidebar.group.create": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "sidebar_layout",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "id": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "The group item id; minted when absent."
+          },
+          "name": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            }
+          },
+          "color": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            }
+          },
+          "icon": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            }
+          },
+          "profile": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "The room of the group."
+          },
+          "items": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string",
+                "min_length": 1
+              }
+            },
+            "description": "Items that move into the group, in order."
+          },
+          "to": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "JsonValue"
+            },
+            "description": "Where the group lands (Target {section, parent?, before?|after?|index?}: where the items land; before/after name a sibling item; index counts the siblings without the moved items; none appends.); default: the place of its first item."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "A refused op is validation.invalid whose reason is the reducer's (unknown_section, unknown_item, duplicate_id, duplicate_ref, cross_machine, provider_owned, nesting, invalid_target, machine_required, no_machine, invalid_title, invalid_value, too_many) and writes nothing.",
+          "An op that changes nothing commits with no session.events change and the same document revision."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "SidebarDocMutation"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "sidebar.group.ungroup": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "sidebar_layout",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "id": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            }
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "A refused op is validation.invalid whose reason is the reducer's (unknown_section, unknown_item, duplicate_id, duplicate_ref, cross_machine, provider_owned, nesting, invalid_target, machine_required, no_machine, invalid_title, invalid_value, too_many) and writes nothing.",
+          "An op that changes nothing commits with no session.events change and the same document revision.",
+          "The group's items take its place, in order; the group goes."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "SidebarDocMutation"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "sidebar.group.update": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "sidebar_layout",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "id": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            }
+          },
+          "patch": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "JsonValue"
+            },
+            "description": "{name?, color?, icon?, collapsed?, profile?}; null clears color, icon and profile."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "A refused op is validation.invalid whose reason is the reducer's (unknown_section, unknown_item, duplicate_id, duplicate_ref, cross_machine, provider_owned, nesting, invalid_target, machine_required, no_machine, invalid_title, invalid_value, too_many) and writes nothing.",
+          "An op that changes nothing commits with no session.events change and the same document revision."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "SidebarDocMutation"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "sidebar.item.add": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "sidebar_layout",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "item": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "JsonValue"
+            },
+            "description": "{id?, body, shows_label?, span?}; body is tagged by type (workspace {ref}, group {name, color?, icon?, collapsed?, profile?}, builtin {id}, app {id}, url {url, title?}, tab {ref}, room {id}, saved_group {id}); unknown keys are kept."
+          },
+          "to": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "JsonValue"
+            },
+            "description": "Target {section, parent?, before?|after?|index?}: where the items land; before/after name a sibling item; index counts the siblings without the moved items; none appends."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "A refused op is validation.invalid whose reason is the reducer's (unknown_section, unknown_item, duplicate_id, duplicate_ref, cross_machine, provider_owned, nesting, invalid_target, machine_required, no_machine, invalid_title, invalid_value, too_many) and writes nothing.",
+          "An op that changes nothing commits with no session.events change and the same document revision."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "SidebarDocMutation"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "sidebar.item.remove": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "sidebar_layout",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "id": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            }
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "A refused op is validation.invalid whose reason is the reducer's (unknown_section, unknown_item, duplicate_id, duplicate_ref, cross_machine, provider_owned, nesting, invalid_target, machine_required, no_machine, invalid_title, invalid_value, too_many) and writes nothing.",
+          "An op that changes nothing commits with no session.events change and the same document revision.",
+          "Removing a group removes its items."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "SidebarDocMutation"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "sidebar.item.remove_ref": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "sidebar_layout",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "ref": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "SidebarItemRef"
+            },
+            "description": "The old layout ref {kind, value}: workspace <session>:<workspace id>, url (the url), app, built_in, tab, room, saved_group, or an unknown kind kept by the document. A group has no ref."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "A refused op is validation.invalid whose reason is the reducer's (unknown_section, unknown_item, duplicate_id, duplicate_ref, cross_machine, provider_owned, nesting, invalid_target, machine_required, no_machine, invalid_title, invalid_value, too_many) and writes nothing.",
+          "Removes every item that shows the ref, in every section (the old layout's item.remove_ref, \"Remove from Sidebar\"); unknown_item when none does. A removed workspace is unplaced and shows again at the end of its machine section."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "SidebarDocMutation"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "sidebar.item.update": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "sidebar_layout",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "id": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            }
+          },
+          "patch": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "JsonValue"
+            },
+            "description": "{shows_label?, span?, label?, title?, icon_url?}; title and icon_url are a url item's (another body is invalid_value); null clears them."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "A refused op is validation.invalid whose reason is the reducer's (unknown_section, unknown_item, duplicate_id, duplicate_ref, cross_machine, provider_owned, nesting, invalid_target, machine_required, no_machine, invalid_title, invalid_value, too_many) and writes nothing.",
+          "An op that changes nothing commits with no session.events change and the same document revision."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "SidebarDocMutation"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "sidebar.move": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "sidebar_layout",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "items": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string",
+                "min_length": 1
+              }
+            },
+            "description": "Item ids, in the order they land."
+          },
+          "to": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "JsonValue"
+            },
+            "description": "Target {section, parent?, before?|after?|index?}: where the items land; before/after name a sibling item; index counts the siblings without the moved items; none appends."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "A refused op is validation.invalid whose reason is the reducer's (unknown_section, unknown_item, duplicate_id, duplicate_ref, cross_machine, provider_owned, nesting, invalid_target, machine_required, no_machine, invalid_title, invalid_value, too_many) and writes nothing.",
+          "An op that changes nothing commits with no session.events change and the same document revision.",
+          "A workspace or group of machine A never lands in machine B's section or in a group of machine B's workspaces (cross_machine)."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "SidebarDocMutation"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "sidebar.pin": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "sidebar_layout",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "items": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string",
+                "min_length": 1
+              }
+            },
+            "description": "Item ids, in the order they land."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "A refused op is validation.invalid whose reason is the reducer's (unknown_section, unknown_item, duplicate_id, duplicate_ref, cross_machine, provider_owned, nesting, invalid_target, machine_required, no_machine, invalid_title, invalid_value, too_many) and writes nothing.",
+          "An op that changes nothing commits with no session.events change and the same document revision.",
+          "The items move to the end of Pinned (sec_pinned, made first in the top region when missing); an item already there stays."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "SidebarDocMutation"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "sidebar.reset": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "sidebar_layout",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {},
+        "extra": false,
+        "constraints": [
+          "A refused op is validation.invalid whose reason is the reducer's (unknown_section, unknown_item, duplicate_id, duplicate_ref, cross_machine, provider_owned, nesting, invalid_target, machine_required, no_machine, invalid_title, invalid_value, too_many) and writes nothing.",
+          "An op that changes nothing commits with no session.events change and the same document revision.",
+          "Restores the default sections (the old layout's layout.reset): sec_top (built-in, top: Home, App Store), an empty sec_pinned, one machine section per machine with its default look (its title stays), sec_recents (the recent agent chats app section) and sec_bottom (built-in, bottom, inline: the account). Every other section is removed.",
+          "Keeps the user's workspaces and groups: those in a machine section stay in place; a workspace or group in Pinned or a removed section moves to the end of its machine section (a group with its items; an empty group to the first machine section). Other items in Pinned and in removed sections are removed.",
+          "This machine's placed workspaces that are closed are removed (the machine sections they would move into do not keep closed items)."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "SidebarDocMutation"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "sidebar.section.add": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "sidebar_layout",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "section": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "JsonValue"
+            },
+            "description": "A section {id, kind {type: machine {session_id}|pinned|custom|app {contribution}|builtin}, title?, shows_title?, region?, look?, arrangement?, columns?, max_rows?, scroll? (fixed|flow; default by kind and region), room?, keeps_closed?}; unknown keys are kept."
+          },
+          "place": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "JsonValue"
+            },
+            "description": "{region?, before?|after?|index?} among the region's sections; default: last."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "A refused op is validation.invalid whose reason is the reducer's (unknown_section, unknown_item, duplicate_id, duplicate_ref, cross_machine, provider_owned, nesting, invalid_target, machine_required, no_machine, invalid_title, invalid_value, too_many) and writes nothing.",
+          "An op that changes nothing commits with no session.events change and the same document revision."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "SidebarDocMutation"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "sidebar.section.move": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "sidebar_layout",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "id": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            }
+          },
+          "place": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "JsonValue"
+            },
+            "description": "{region?, before?|after?|index?}"
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "A refused op is validation.invalid whose reason is the reducer's (unknown_section, unknown_item, duplicate_id, duplicate_ref, cross_machine, provider_owned, nesting, invalid_target, machine_required, no_machine, invalid_title, invalid_value, too_many) and writes nothing.",
+          "An op that changes nothing commits with no session.events change and the same document revision."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "SidebarDocMutation"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "sidebar.section.remove": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "sidebar_layout",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "id": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            }
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "A refused op is validation.invalid whose reason is the reducer's (unknown_section, unknown_item, duplicate_id, duplicate_ref, cross_machine, provider_owned, nesting, invalid_target, machine_required, no_machine, invalid_title, invalid_value, too_many) and writes nothing.",
+          "An op that changes nothing commits with no session.events change and the same document revision.",
+          "A machine section cannot be removed (machine_required). Workspaces and groups go back to the end of their machine section; other items are removed."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "SidebarDocMutation"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "sidebar.section.update": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "sidebar_layout",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "id": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            }
+          },
+          "patch": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "JsonValue"
+            },
+            "description": "{title?, shows_title?, look?, arrangement?, align? (leading|center|trailing|fill), gap? (0-32 points), columns?, max_rows?, scroll? (fixed|flow), room?, keeps_closed?}; null clears title, gap, columns, max_rows and room; a gap outside 0-32 is invalid_value. A section.move into another region moves a scroll the user never changed to that region's default."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "A refused op is validation.invalid whose reason is the reducer's (unknown_section, unknown_item, duplicate_id, duplicate_ref, cross_machine, provider_owned, nesting, invalid_target, machine_required, no_machine, invalid_title, invalid_value, too_many) and writes nothing.",
+          "An op that changes nothing commits with no session.events change and the same document revision."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "SidebarDocMutation"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "sidebar.unpin": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "sidebar_layout",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "items": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string",
+                "min_length": 1
+              }
+            },
+            "description": "Item ids, in the order they land."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "A refused op is validation.invalid whose reason is the reducer's (unknown_section, unknown_item, duplicate_id, duplicate_ref, cross_machine, provider_owned, nesting, invalid_target, machine_required, no_machine, invalid_title, invalid_value, too_many) and writes nothing.",
+          "An op that changes nothing commits with no session.events change and the same document revision.",
+          "Each item moves to the end of its own machine section; an item with no machine is refused (no_machine)."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "SidebarDocMutation"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
     "sidebar_layout.get": {
       "class": "read",
       "idempotency": "forbidden",
@@ -23547,6 +27860,327 @@
         "operation.failed",
         "origin.forbidden",
         "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "stash.create": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "stash",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "tabs": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "resource_id",
+                "resource": "tab"
+              },
+              "min_items": 1,
+              "max_items": 256
+            },
+            "description": "Browser tabs to stash. Name exactly one of tabs or workspace."
+          },
+          "workspace": {
+            "required": false,
+            "type": {
+              "kind": "resource_id",
+              "resource": "workspace"
+            },
+            "description": "Stash this workspace's unpinned web pages; its other tabs stay open and are reported as skipped."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "The tabs close in one commit and form one stash named after the workspace of the first; they are not recorded in the closed history (closed.list).",
+          "With tabs, a tab that is not a web page (a terminal, a conversation or a remote terminal) or is in an incognito workspace refuses the whole request with validation.invalid; nothing closes.",
+          "A workspace the stash leaves without a tab closes, as any last-tab close does."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "StashCreateResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "stash.delete": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "stash",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "stash": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "StateId"
+            },
+            "description": "The stash to delete from."
+          },
+          "members": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "ref",
+                "name": "StateId"
+              },
+              "min_items": 1,
+              "max_items": 1000
+            },
+            "description": "Ids of the stash's members to delete; an unknown id is resource.not_found and nothing changes. Omit to delete the whole stash."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "Deletion is permanent."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "StashDeleteResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "stash.import": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "stash",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "source": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "onetab"
+              ]
+            },
+            "description": "Where the groups come from."
+          },
+          "groups": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "ref",
+                "name": "StashImportGroup"
+              },
+              "min_items": 1,
+              "max_items": 1000
+            },
+            "description": "The groups, each becoming one stash."
+          },
+          "engine": {
+            "required": false,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "webkit",
+                "cef"
+              ]
+            },
+            "description": "The browser engine imported pages reopen in. Omit for a daemon-rendered browser."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "Each group with at least one kept page becomes one stash; only http(s) URLs are kept, once per group, with secret-looking query keys stripped.",
+          "A retry with the same key replays and imports nothing twice."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "StashImportResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "stash.list": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "stash",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {},
+        "extra": false,
+        "constraints": [
+          "Newest first. Stashes are kept until restored or deleted; there is no retention pruning."
+        ]
+      },
+      "result": {
+        "kind": "array",
+        "items": {
+          "kind": "ref",
+          "name": "StashSnapshot"
+        }
+      },
+      "errors": [
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "stash.restore": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "stash",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "stash": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "StateId"
+            },
+            "description": "The stash to restore from."
+          },
+          "members": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "ref",
+                "name": "StateId"
+              },
+              "min_items": 1,
+              "max_items": 1000
+            },
+            "description": "Ids of the stash's members to restore; an unknown id is resource.not_found and nothing changes. Omit to restore every member; the rest stay."
+          },
+          "target": {
+            "required": false,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "here",
+                "new_workspace"
+              ]
+            },
+            "description": "here (default): each page reopens in its pane at its index when that pane is live, else in its workspace's focused pane, else in the session's focused pane. new_workspace: every page opens, in order, in one new workspace named after the stash."
+          },
+          "pane": {
+            "required": false,
+            "type": {
+              "kind": "resource_id",
+              "resource": "pane"
+            },
+            "description": "With here: the pane a page opens in (at its end) when its own pane is gone, normally the focused pane of the window the user acted from. An unknown pane is resource.not_found."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "Restored members leave the stash in the commit that stores the result; the stash is removed with its last member. A retry with the same key replays.",
+          "All or nothing: when a member cannot reopen, or the commit fails, the pages this call opened close again (unrecorded), every member stays in the stash, and the error is returned; a retry opens each page once.",
+          "A page reopens with its back/forward history, its browser profile and its engine."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "StashRestoreResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -24336,6 +28970,14 @@
               }
             },
             "description": "The tab's user icon: an SF Symbol name or one emoji (the shared icon string); null clears it. Shown as the tab's extra.icon on every client."
+          },
+          "marked_unread": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "tab-mark-unread-v1: true marks the tab unread by hand (no notification needed), false clears the mark. Shown as the tab's extra.marked_unread (present only while marked) on every client; a client clears it when the person views the tab."
           },
           "expected_revision": {
             "required": false,
@@ -26699,6 +31341,14 @@
               "name": "decimal"
             },
             "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          },
+          "report_closed_ids": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "When true, the result value names the closed groups the close stored (`closed_ids`). Omitted or false: the value is empty, as before."
           }
         },
         "extra": false
@@ -26709,7 +31359,7 @@
         "arguments": [
           {
             "kind": "ref",
-            "name": "EmptyResult"
+            "name": "WorkspaceCloseResult"
           }
         ]
       },
@@ -27106,8 +31756,7 @@
                 "personal"
               ]
             },
-            "default": "session",
-            "description": "personal-mixed-order-v1. session: the session's workspace order. personal: the personal sidebar order (loose workspaces, and each group's members at the group's place), then this session's workspaces without a personal row in session order."
+            "description": "personal-mixed-order-v1. session: the session's workspace order. personal: the sidebar order. Absent: the sidebar order with the sidebar document (sidebar-doc-v1), else the session order. With the document the sidebar order is the document's order of this machine's workspaces (Pinned first, group members in place, unplaced ones where workspaces.newPlacement puts a new one); without it, the personal order (loose workspaces, and each group's members at the group's place), then this session's workspaces without a personal row in session order."
           }
         },
         "extra": false
@@ -27179,6 +31828,65 @@
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "workspace.open_url": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "tab",
+      "ancestors": [
+        "machine",
+        "session",
+        "workspace"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required",
+          "workspace": "optional"
+        },
+        "fields": {
+          "url": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "The link: an http or https URL with a host and no user name or password, at most 8192 bytes, with no control, space or invisible format character (bidi marks and overrides, zero-width characters). Anything else is validation.invalid (field url)."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "An omitted workspace is the session's home workspace (workspace-kind-v1); with no home workspace the request fails with selector.not_found (scope workspace).",
+          "The target is the workspace's focused screen (else its first). Its right side is every pane outside a docked column whose dock has role agent_chat or edge left.",
+          "Reuse: the selected browser tab of the focused right-side pane, else of the right-side pane focused most recently (ties in layout order), else any browser tab on the right side, loads url (the same browser navigation as the browser's own operation) and becomes its pane's selected tab. The keyboard focus does not move.",
+          "Else a new browser tab, as tab.create_browser makes it, in the first of those panes; a workspace with no screen gets the screen tab.create_browser makes for it. Else (only the dock) the browser opens in a new viewport column right of the dock.",
+          "Errors of the navigation or the creation are returned as they are: with no browser provider the creation fails with operation.failed, extra.code engine_unavailable, as tab.create_browser does. A retry with the same idempotency key replays the step the first request ran."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "OpenedBrowserPath"
+          }
+        ]
+      },
+      "errors": [
+        "creation.conflict",
+        "idempotency.conflict",
+        "mutation.indeterminate",
+        "operation.failed",
+        "origin.forbidden",
+        "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "selector.wrong_parent",
         "validation.invalid"
       ]
     },
@@ -27302,12 +32010,12 @@
         },
         "fields": {
           "name": {
-            "required": true,
+            "required": false,
             "type": {
               "kind": "primitive",
               "name": "string"
             },
-            "description": "Exact name bytes. Empty, whitespace, and Unicode strings are preserved."
+            "description": "Exact name bytes. Empty, whitespace, and Unicode strings are preserved. Required unless release is true."
           },
           "expected_revision": {
             "required": false,
@@ -27316,9 +32024,50 @@
               "name": "decimal"
             },
             "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          },
+          "source": {
+            "required": false,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "user",
+                "auto"
+              ]
+            },
+            "default": "user",
+            "description": "Who chose the name. An automatic name never replaces a user name; a user rename pins the name (workspace-name-source-v1). A refused automatic rename is operation.failed with extra.reason_code name_pinned (over a user name) or name_empty (an empty name)."
+          },
+          "expected_generation": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "expected_name_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "The workspace's extra.name_revision the caller read; a rename since then is revision.conflict."
+          },
+          "release": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "default": false,
+            "description": "With source auto, a person hands the current name back to the automatic namer: the text stays, name_source becomes auto and name_revision advances. Needs no expected_name_revision; name, when present, must equal the current name (workspace-name-source-v1)."
           }
         },
-        "extra": false
+        "extra": false,
+        "constraints": [
+          "source auto requires expected_generation and expected_name_revision unless release is true.",
+          "release requires source auto.",
+          "name is required unless release is true."
+        ]
       },
       "result": {
         "kind": "apply",

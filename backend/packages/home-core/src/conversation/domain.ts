@@ -148,6 +148,9 @@ const prepare = (
 ): { op: Op; trusted?: boolean } | string => {
   // Params never name the actor or the op kind.
   const { actor: _actor, kind: _kind, proof, ...rest } = params as Record<string, unknown>
+  if (op === "invite.accept_verified") {
+    return { op: { kind: "invite.accept_verified", display_name: safeDisplayName(ctx.principal.display_name, FALLBACK_NAME) } }
+  }
   if (op === "invite.accept") {
     if (typeof proof !== "string" || proof.length === 0 || proof.length > 256) return "unknown_invite"
     return { op: { kind: "invite.accept", token_hash: hashInviteSecret(proof), display_name: safeDisplayName(ctx.principal.display_name, FALLBACK_NAME) } }
@@ -241,7 +244,7 @@ const reduceConversation = (
   const floor = historyFloor(head, actor)
   const visible = (row: Message | null): Message | null => (row && row.seq > floor ? row : null)
   const threadRow = threadId === undefined ? null : (rowsOf(ctx).get<Message>(TABLE_MSG, threadId)?.row ?? null)
-  const verified = op === "invite.accept" && ctx.principal.email_verified === true && options.addressIdsFor
+  const verified = (op === "invite.accept" || op === "invite.accept_verified") && ctx.principal.email_verified === true && options.addressIdsFor
   const request: OpRequest = {
     actor,
     // The engine's ledger owns idempotency; `msgkey` keeps (author, client_msg_id) unique.
@@ -249,7 +252,12 @@ const reduceConversation = (
     op: coreOp,
     now: formatRfc3339Millis(ctx.now),
     new_message_id: coreOp.kind === "message.send" ? ctx.newId("msg") : "",
-    target: messageId === undefined ? null : (rowsOf(ctx).get<Message>(TABLE_MSG, messageId)?.row ?? null),
+    // A thread root below the actor's history floor is refused like a missing one (the thread
+    // read's rule), so thread.update never probes or changes hidden history.
+    target: (() => {
+      const row = messageId === undefined ? null : (rowsOf(ctx).get<Message>(TABLE_MSG, messageId)?.row ?? null)
+      return coreOp.kind === "thread.update" ? visible(row) : row
+    })(),
     // A reply target or thread root below the actor's history floor (since_join) is not visible
     // to it: refused like a missing one, so a send never probes hidden history.
     reply_target: visible(replyId === undefined ? null : (rowsOf(ctx).get<Message>(TABLE_MSG, replyId)?.row ?? null)),
@@ -262,6 +270,11 @@ const reduceConversation = (
   const result = apply(head, request)
   if (!result.ok) return refuse(result.code)
   const { commit } = result
+  // A thread root derived from the parent (a reply to a thread reply that names no thread_root) must be
+  // visible to the sender, like a named one: a root below its history floor is refused, never joined.
+  if (coreOp.kind === "message.send" && threadId === undefined && commit.message?.thread_root !== undefined) {
+    if (!visible(rowsOf(ctx).get<Message>(TABLE_MSG, commit.message.thread_root)?.row ?? null)) return refuse("invalid_thread_root")
+  }
   const writes: Array<RowWrite> = []
   if (commit.message && MESSAGE_PART_OPS.has(coreOp.kind)) {
     // The author's own view: an uploader of the hash, or a referencing message above their floor.

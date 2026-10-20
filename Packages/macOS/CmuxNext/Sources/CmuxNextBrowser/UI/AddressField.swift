@@ -74,17 +74,15 @@ final class AddressField: ChromeTextField, OmnibarFieldSurface {
         sink?.fieldEditorMouseUp()
     }
 
-    /// The I-beam only while the omnibar edits its text (`OmnibarPointer`):
-    /// at rest a click selects the whole address, so the field shows the
-    /// arrow. The field editor adds its own I-beam over the text it edits.
+    /// The I-beam over the text at rest and while editing (`OmnibarPointer`);
+    /// while editing the field editor adds its own I-beam over its text.
     override func resetCursorRects() {
         if isFieldEditorActive {
             super.resetCursorRects()
-            installedCursor = .iBeam
         } else {
-            addCursorRect(bounds, cursor: OmnibarPointer.cursor(.text, editing: false).cursor)
-            installedCursor = .arrow
+            addCursorRect(bounds, cursor: OmnibarPointer.cursor(.text).cursor)
         }
+        installedCursor = OmnibarPointer.cursor(.text)
     }
 
     /// The cursor AppKit last asked this field to install over its text

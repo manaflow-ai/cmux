@@ -58,7 +58,7 @@ extension NewTabPage {
         // A pane of another machine shows the same page, never a prewarmed spare: a spare is connected
         // to this Mac's acpmux, and that pane's chat starts on its machine at the first send (cx-k21v).
         let spare = seed == nil && pane.daemon.isLocal
-            ? BenchSpans.measure("newTab.take", { services.newTabSpares.take(for: pane.view.window, size: pane.view.contentHost.bounds.size) })
+            ? BenchSpans.measure("newTab.take", { services.newTabSpares.take(for: pane.view.window, size: NewTabSparePool.newTabContentSize(in: pane)) })
             : nil
         // The tab shows at once (a store intent); the store's tab replaces it when it answers.
         guard BenchSpans.measure("newTab.open", { pane.openAgentTab(seed: seed, newTab: (page, handler), spare: spare?.view, then: then) }) else {
@@ -71,11 +71,17 @@ extension NewTabPage {
         services.keyRouter.newTabInputCoordinator.didShow(in: pane.view.window)
         // The adopted page is alive: show it this frame and give it the keyboard now, so the
         // first key typed after the open reaches its field (fleet test: it went to the old responder).
-        if spare != nil, services.presentation.showNow(pane) {
+        let showedSpare = spare != nil && services.presentation.showNow(pane)
+        if showedSpare {
             services.windowController(showing: pane)?.focus.send(.focusPane(pane.paneKey, source: .intent))
         }
-        // Its tab grows in at its slot as the page shows (Leo 2026-10-13: no pop, no neighbour jump).
-        BenchSpans.measure("newTab.strip") { pane.view.stripView.sync(fromModel: true) }
+        // `showNow` already syncs the strip as part of presenting the adopted spare. Repeating
+        // that full reconciliation on the same main-actor turn adds directly to the Cmd-T p95
+        // budget (cx-98s). Cold pages still need the immediate strip sync because their content
+        // is presented by the normal scheduler on a later frame.
+        if !showedSpare {
+            BenchSpans.measure("newTab.strip") { pane.view.stripView.sync(fromModel: true) }
+        }
         services.newTabSpares.record(.init(spare: spare != nil, crossWindow: spare?.crossWindow == true,
                                            milliseconds: NewTabSparePool.milliseconds(since: start), refit: spare?.refit == true))
     }

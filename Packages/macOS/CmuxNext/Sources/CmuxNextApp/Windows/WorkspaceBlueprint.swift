@@ -107,7 +107,7 @@ extension WorkspaceBlueprint.Node {
         case .leaf(let pane):
             let found = tabs(pane)
             return found.isEmpty ? nil : .pane(found)
-        case .split(_, let direction, let ratio, let a, let b):
+        case .split(_, _, let direction, let ratio, let a, let b):
             switch (capture(a, tabs: tabs), capture(b, tabs: tabs)) {
             case let (a?, b?): return .split(direction: direction, ratio: ratio, a: a, b: b)
             case let (a?, nil): return a
@@ -141,7 +141,7 @@ extension WorkspaceBlueprint {
                     switch tab.kind {
                     case .pty: .terminal(cwd: tab.cwd)
                     case .browser: tab.url.map {
-                        .browser(url: $0, engine: tab.browserEngine.flatMap(BrowserEngine.init(rawValue:)), profile: tab.snapshot.browserProfileID)
+                        .browser(url: $0, engine: tab.browserEngine.flatMap(BrowserEngine.init(rawValue:)), profile: tab.browserProfileID)
                     }
                     // A remote reference or a conversation is not re-created on duplicate.
                     case .remoteTerminal, .conversation, .other: nil

@@ -42,6 +42,8 @@ final class LayoutViewContext {
     var requestFrames: () -> Void = {}
     /// Pane hosts or dividers moved: the overlay plane follows them.
     var overlayNeedsSync: () -> Void = {}
+    /// A pane's strip clip changed (`PaneHostView.setStripClip`): Chromium pages re-read their clips.
+    var stripClipsDidChange: () -> Void = {}
     /// The strip scrollbar's fade-out deadline clock.
     let scrollbarClock: any Clock<Duration>
     /// Where the pointer is now, in `window`'s coordinates; nil when it cannot
@@ -79,6 +81,10 @@ final class LayoutViewContext {
 
     /// Movement snaps: Reduce Motion or `ui.animationSpeed` "off" (`Motion`).
     var reduceMotion: Bool { reduceMotionOverride ?? !Motion.animatesMovement }
+
+    /// Pane layout changes spring (`ui.paneAnimations`, on by default; plans/cmux-next/motion.md rule 9).
+    /// A test that pins `reduceMotionOverride` pins this too, so its springs run as before the setting.
+    var animatesPaneLayout: Bool { reduceMotionOverride.map { !$0 } ?? Motion.animatesPaneLayout }
 
     func host(for pane: PaneID) -> PaneHostView {
         if let host = hosts[pane] { return host }

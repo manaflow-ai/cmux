@@ -192,6 +192,7 @@ fn test_session_with_abort_and_context(
         size_states: Mutex::new(HashMap::new()),
         provider_workspace_authority,
         provider_workspaces_guarded: AtomicBool::new(false),
+        sidebar_doc: sidebar_doc::RemoteSidebarDoc::default(),
     })
 }
 

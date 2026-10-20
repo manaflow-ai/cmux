@@ -9,52 +9,58 @@ import CmuxNextIcons
 /// one short detail of up to two lines, an optional progress bar, up to
 /// two buttons (the call to action filled, the others quiet) with an
 /// optional shortcut beside them, and an x. Rows a notice does not use take
-/// no room. Hidden without a notice. It floats on Liquid Glass with the
-/// theme's glass tint, like the other cmux-next overlays (cx-367y); under
-/// Reduce Transparency the same `OverlaySurfaceView` draws an opaque theme
-/// fill with a hairline.
+/// no room. Hidden without a notice. It sits on the composer's surface
+/// (`CardSurfaceView`, Leo 2026-10-13), as every sidebar card does: the
+/// theme's text tint over the wallpaper, opaque under Reduce Transparency.
 final class SidebarNoticeCardView: NSView {
     /// A button: the notice's id and the action's id.
     var onAction: ((String, String) -> Void)?
     var onDismiss: ((String) -> Void)?
     private(set) var notice: SidebarNoticeCard?
-    private let eyebrowLabel = NSTextField(labelWithString: "")
-    private let titleLabel = NSTextField(labelWithString: "")
-    private let detailLabel = NSTextField(wrappingLabelWithString: "")
-    private let shortcutLabel = NSTextField(labelWithString: "")
+    private let eyebrowLabel = ChromeLabel(labelWithString: "")
+    private let titleLabel = ChromeLabel(labelWithString: "")
+    private let detailLabel = ChromeLabel(wrappingLabelWithString: "")
+    private let shortcutLabel = ChromeLabel(labelWithString: "")
     /// List lines under the detail (a changelog), one label each.
-    private var lineLabels: [NSTextField] = []
+    private var lineLabels: [ChromeLabel] = []
     private let icon = NSImageView()
     private let spinner = StatusIndicatorView.spinner()
     private let track = CALayer()
     private let bar = CALayer()
     private(set) var actionButtons: [SidebarUpdateButton] = []
     let closeButton = SidebarIconButton(icon: .actionClose, pointSize: { 9 }, label: "")
-    /// The card's material: Liquid Glass, or opaque under Reduce Transparency.
-    let surface: OverlaySurfaceView
+    /// The text button that replaces the x when the notice names one (``SidebarNoticeCard/dismissTitle``).
+    let dismissButton = SidebarCardTextButton()
+    /// The card's surface: the composer's, opaque under Reduce Transparency.
+    let surface: CardSurfaceView
     /// The lines and buttons, flipped, over the surface.
     private let content = SidebarNoticeCardContent()
     /// The notice whose `shownAction` was sent (once per notice id), and its
     /// `hiddenAction` (sent when that notice leaves the card).
     private var reportedShown: (id: String, hiddenAction: String?)?
     private var occlusionObserver: NSObjectProtocol?
+    /// Shows and hides the card with its entrance and exit (``SidebarCardTransition``).
+    private(set) lazy var presence = SidebarCardPresence(self, policy: motionPolicy)
+    private let motionPolicy: @MainActor () -> MotionPolicy
+    /// The card plays its exit: the slot keeps it in place until it has gone.
+    var isLeaving: Bool { presence.isLeaving }
 
-    init(frame: NSRect = .zero, reduceTransparency: ReduceTransparency = .shared) {
-        surface = OverlaySurfaceView(interactive: true, cornerRadius: Metrics.space3, reduceTransparency: reduceTransparency)
+    /// - Parameter motionPolicy: The motion settings the card's transitions follow (`Motion.policy`).
+    init(frame: NSRect = .zero, reduceTransparency: ReduceTransparency = .shared,
+         motionPolicy: @escaping @MainActor () -> MotionPolicy = { Motion.policy }) {
+        surface = CardSurfaceView(cornerRadius: Metrics.space3, reduceTransparency: reduceTransparency)
+        self.motionPolicy = motionPolicy
         super.init(frame: frame)
-        surface.translatesAutoresizingMaskIntoConstraints = true
-        // The lines sit in a sibling view above the material, not inside the glass's own content
-        // view: a build against the macOS 26 SDK drew the card empty on macOS 27 (nxdog75).
+        wantsLayer = true
         addSubview(surface)
         addSubview(content)
-        content.material = { [weak surface] in surface?.material ?? .liquidGlass }
         for label in [eyebrowLabel, titleLabel, shortcutLabel] {
             label.lineBreakMode = .byTruncatingTail
             label.maximumNumberOfLines = 1
         }
         detailLabel.maximumNumberOfLines = 2
         detailLabel.lineBreakMode = .byWordWrapping
-        detailLabel.cell?.truncatesLastVisibleLine = true
+        detailLabel.truncatesLastVisibleLine = true
         detailLabel.isSelectable = false
         shortcutLabel.alignment = .right
         icon.imageScaling = .scaleProportionallyDown
@@ -63,8 +69,10 @@ final class SidebarNoticeCardView: NSView {
         bar.cornerRadius = 1.5
         content.layer?.addSublayer(track)
         content.layer?.addSublayer(bar)
+        closeButton.takesKeyFocus = true
         closeButton.onPress = { [weak self] in self?.closePressed() }
-        [eyebrowLabel, titleLabel, detailLabel, shortcutLabel, icon, spinner, closeButton].forEach(content.addSubview)
+        dismissButton.onPress = { [weak self] in if let id = self?.notice?.id { self?.onDismiss?(id) } }
+        [eyebrowLabel, titleLabel, detailLabel, shortcutLabel, icon, spinner, closeButton, dismissButton].forEach(content.addSubview)
         setAccessibilityElement(false)
         isHidden = true
     }
@@ -72,7 +80,7 @@ final class SidebarNoticeCardView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
 
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
     override var mouseDownCanMoveWindow: Bool { false }
 
     /// Shows `notice`, or hides the view for nil.
@@ -85,10 +93,16 @@ final class SidebarNoticeCardView: NSView {
             reportedShown = nil
             if let hidden = shown.hiddenAction { onAction?(shown.id, hidden) }
         }
-        isHidden = notice == nil
+        let wasShowing = !isHidden && !isLeaving
+        presence.setShown(notice != nil)
         guard let notice else {
+            // The exit shows the last notice as it was; only its spinner stops.
             spinner.spin(false)
             return
+        }
+        // A new message in a card already on screen (Checking… to Up to Date) crossfades.
+        if let previous, wasShowing, Self.changesMessage(from: previous, to: notice) {
+            presence.transition.crossfade(content.layer)
         }
         eyebrowLabel.stringValue = notice.eyebrow ?? ""
         eyebrowLabel.isHidden = notice.eyebrow == nil
@@ -98,7 +112,7 @@ final class SidebarNoticeCardView: NSView {
         if previous?.lines != notice.lines {
             lineLabels.forEach { $0.removeFromSuperview() }
             lineLabels = notice.lines.prefix(Self.maxLines).map { line in
-                let label = NSTextField(labelWithString: "• " + line)
+                let label = ChromeLabel(labelWithString: "• " + line)
                 label.lineBreakMode = .byTruncatingTail
                 label.maximumNumberOfLines = 1
                 label.themedToolTip = line
@@ -111,8 +125,10 @@ final class SidebarNoticeCardView: NSView {
         let spins = notice.progress == .indeterminate
         icon.isHidden = notice.symbol == nil || spins
         spinner.spin(spins)
-        closeButton.isHidden = notice.dismissLabel == nil
+        closeButton.isHidden = notice.dismissLabel == nil || notice.dismissTitle != nil
         closeButton.label = notice.dismissLabel ?? ""
+        dismissButton.isHidden = notice.dismissTitle == nil
+        dismissButton.configure(title: notice.dismissTitle ?? "", help: notice.dismissLabel)
         if previous?.actions != notice.actions { rebuildButtons(notice.actions) }
         let help = [notice.title, notice.detail].compactMap { $0 }.joined(separator: ". ")
         for (button, action) in zip(actionButtons, notice.actions) {
@@ -190,6 +206,7 @@ final class SidebarNoticeCardView: NSView {
         actionButtons = actions.prefix(2).map { action in
             let button = SidebarUpdateButton()
             button.isQuiet = !action.prominent
+            button.fixedStyle = .inverted
             button.onPress = { [weak self] in
                 guard let id = self?.notice?.id else { return }
                 self?.onAction?(id, action.id)
@@ -197,6 +214,13 @@ final class SidebarNoticeCardView: NSView {
             content.addSubview(button)
             return button
         }
+    }
+
+    /// Whether `old` to `new` changes what the card says (not only its progress).
+    static func changesMessage(from old: SidebarNoticeCard, to new: SidebarNoticeCard) -> Bool {
+        old.id != new.id || old.title != new.title || old.detail != new.detail || old.symbol != new.symbol
+            || old.eyebrow != new.eyebrow || old.lines != new.lines || old.actions != new.actions
+            || (old.progress == nil) != (new.progress == nil)
     }
 
     // MARK: Geometry
@@ -236,7 +260,12 @@ final class SidebarNoticeCardView: NSView {
         detailLabel.font = Typography.caption
         shortcutLabel.font = Typography.caption
         closeButton.frame = NSRect(x: b.width - pad / 2 - close, y: pad / 2, width: close, height: close)
-        let width = max(0, b.width - 2 * pad), closeRoom = closeButton.isHidden ? 0 : close
+        let dismissWidth = dismissButton.fittingWidth, dismissHeight = SidebarCardTextButton.height
+        let titleY = pad + (eyebrowLabel.isHidden ? 0 : line.caption)
+        dismissButton.frame = NSRect(x: b.width - pad / 2 - dismissWidth, y: titleY + (line.body - dismissHeight) / 2,
+                                     width: dismissWidth, height: dismissHeight)
+        let width = max(0, b.width - 2 * pad)
+        let closeRoom = !dismissButton.isHidden ? dismissWidth + Metrics.space1 : closeButton.isHidden ? 0 : close
         var y = pad
         if !eyebrowLabel.isHidden {
             eyebrowLabel.frame = NSRect(x: pad, y: y, width: max(0, width - closeRoom), height: line.caption)
@@ -246,7 +275,7 @@ final class SidebarNoticeCardView: NSView {
         let glyphSide = line.body, textX = pad + (showsGlyph ? glyphSide + Metrics.space2 : 0)
         icon.frame = NSRect(x: pad, y: y, width: glyphSide, height: glyphSide)
         spinner.frame = icon.frame
-        let titleWidth = max(0, b.width - pad - textX - (eyebrowLabel.isHidden ? closeRoom : 0))
+        let titleWidth = max(0, b.width - pad - textX - (eyebrowLabel.isHidden || !dismissButton.isHidden ? closeRoom : 0))
         titleLabel.frame = NSRect(x: textX, y: y, width: titleWidth, height: line.body)
         y += line.body
         let textWidth = max(0, b.width - pad - textX)
@@ -286,6 +315,7 @@ final class SidebarNoticeCardView: NSView {
                                      width: max(0, b.width - pad - x), height: line.caption)
         // A window that shows after the card was filled lays it out: the hint is on screen now.
         reportShownIfOnScreen()
+        presence.didLayout()
     }
 
     private func applyColors() {
@@ -305,7 +335,7 @@ final class SidebarNoticeCardView: NSView {
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         applyColors()
-        surface.applyTheme()
+        surface.needsDisplay = true
     }
 
     override func viewDidMoveToWindow() {
@@ -330,12 +360,8 @@ final class SidebarNoticeCardView: NSView {
     }
 }
 
-/// The notice card's lines, flipped, over the glass: a light theme veil
-/// keeps them legible over a bright backdrop image; the opaque fill needs none.
+/// The notice card's lines and buttons, flipped, over its surface.
 private final class SidebarNoticeCardContent: NSView {
-    /// The card's material (the surface beneath); the veil is for glass only.
-    var material: () -> OverlayMaterial = { .liquidGlass }
-
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
@@ -344,14 +370,5 @@ private final class SidebarNoticeCardContent: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
 
-    override var isFlipped: Bool { true }
-    override var wantsUpdateLayer: Bool { true }
-
-    override func updateLayer() {
-        performWithTheme {
-            layer?.backgroundColor = material() == .opaque
-                ? NSColor.clear.cgColor
-                : Palette.elevatedBackground.withAlphaComponent(0.32).cgColor
-        }
-    }
+    nonisolated override var isFlipped: Bool { true }
 }

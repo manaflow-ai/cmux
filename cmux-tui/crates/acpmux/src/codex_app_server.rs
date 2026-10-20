@@ -18,14 +18,15 @@ use std::sync::Arc;
 
 pub use cmux_codex_acp::Translator;
 
-/// Whether `program args...` runs `codex app-server`: a program named
-/// `codex` (or `codex-<something>`, a renamed build; any extension) whose
-/// first argument that is not a global option is `app-server`, with no
-/// app-server subcommand after it. Global options before the subcommand
-/// (`-c key=value`, `--enable x`, `-p profile`) take one value each.
+/// Whether `program args...` runs `codex app-server`: a program named `codex`,
+/// `codex-<x>` or `<x>-codex` (a renamed build such as `cmux-codex`; any
+/// extension) and whose first argument that is not a global
+/// option is `app-server`, with no app-server subcommand after it. Global
+/// options before the subcommand (`-c key=value`, `--enable x`, `-p profile`)
+/// take one value each.
 pub fn is_launch(program: &str, args: &[String]) -> bool {
     let name = Path::new(program).file_stem().and_then(|n| n.to_str()).unwrap_or("");
-    if !(name == "codex" || name.starts_with("codex-")) {
+    if !(name == "codex" || name.starts_with("codex-") || name.ends_with("-codex")) {
         return false;
     }
     let mut i = 0;
@@ -49,12 +50,16 @@ pub fn is_profile_launch(argv: &[String]) -> bool {
     argv.split_first().is_some_and(|(program, args)| is_launch(program, args))
 }
 
-/// A translator for one app-server process.
+/// A translator for one app-server process. It takes one-shot audio prompts
+/// (the composer's mic) from any app-server that accepts them: the library
+/// advertises `promptCapabilities.audio` only to Codex 0.145.0 or later, so
+/// an older `codex` keeps `audio: false` and the pane falls back to dictation.
 pub fn translator() -> Arc<Translator> {
     Arc::new(Translator::new(Options {
         client_name: "acpmux".into(),
         client_title: "cmux".into(),
         client_version: env!("CARGO_PKG_VERSION").into(),
+        audio_input: true,
         ..Options::default()
     }))
 }
@@ -103,4 +108,41 @@ pub fn line(v: &Value) -> String {
     let mut s = v.to_string();
     s.push('\n');
     s
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    /// What `translator()` tells the hub about audio once an app-server that
+    /// reports `user_agent` answered its `initialize`.
+    fn advertises_audio(user_agent: &str) -> bool {
+        let tr = translator();
+        let start = split(tr.start());
+        let id = start.server[0]["id"].clone();
+        split(tr.from_server(
+            &json!({"jsonrpc": "2.0", "id": id, "result": {"userAgent": user_agent}}),
+        ));
+        let reply = split(tr.from_client(&json!({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": 1},
+        })));
+        let result = reply
+            .hub
+            .iter()
+            .find_map(|m| m.to_value().get("result").cloned())
+            .expect("initialize result");
+        result["agentCapabilities"]["promptCapabilities"]["audio"] == json!(true)
+    }
+
+    #[test]
+    fn a_current_codex_takes_audio_prompts() {
+        assert!(advertises_audio("acpmux/0.163.0 (Mac OS 27.0.1; arm64) unknown (acpmux; 1)"));
+    }
+
+    #[test]
+    fn an_older_or_unknown_codex_does_not() {
+        assert!(!advertises_audio("acpmux/0.144.0 (Mac OS 27.0.1; arm64) unknown (acpmux; 1)"));
+        assert!(!advertises_audio("fake"));
+    }
 }

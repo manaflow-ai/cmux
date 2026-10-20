@@ -56,7 +56,8 @@ impl Apps {
             .env("CMUX_APP_HOST_BIN", self.dir.join("app-host"))
             .env("CMUX_APP_SERVER_DIR", self.dir.join("servers"))
             .env("CMUX_APPS_FIRST_PARTY_DIR", self.dir.join("first-party"))
-            .env("CMUX_APPS_DIRS", self.dir.join("bundled"));
+            .env("CMUX_APPS_DIRS", self.dir.join("bundled"))
+            .env("CMUX_CUSTOMIZE_DIR", self.dir.join("customize"));
         // By default a daemon with no login session (cx-9mmyz: rbx, containers,
         // cron) has no runtime dir, and its `<state>/apps-tmp/<ns>` is too long
         // for a socket path: app servers must still get a socket folder.
@@ -919,4 +920,225 @@ fn the_app_store_answers_v2_namespace_requests_for_the_apps_page() {
         json!({"idempotency_key": "g2", "origin": {"claim": "user", "confirmation": token}});
     let reply = relay.v2("apps.install", install, confirmed);
     assert_eq!(v2_ok(&reply)["app"]["state"]["installed"], true, "{reply}");
+}
+
+/// The token the verified app mints for one relay request: `operation` with
+/// exactly `params` (plus the host's `current` selectors) on `relay_id`.
+fn confirmation(app: &mut Client, relay_id: &str, operation: &str, params: &Value) -> String {
+    use sha2::Digest;
+    // Canonical params: sorted keys, as the relay hashes them.
+    let mut sorted: std::collections::BTreeMap<String, Value> =
+        params.as_object().unwrap().iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+    sorted.insert("machine".into(), json!("current"));
+    sorted.insert("session".into(), json!("current"));
+    let digest = sha2::Sha256::digest(serde_json::to_string(&sorted).unwrap().as_bytes());
+    let digest: String = digest.iter().map(|byte| format!("{byte:02x}")).collect();
+    let issued = app.v2(
+        "origin.confirmation.issue",
+        json!({"operation": operation, "params_sha256": digest, "relay_connection_id": relay_id}),
+        json!({}),
+    );
+    v2_ok(&issued)["token"].as_str().unwrap().to_owned()
+}
+
+/// The Apps page gets the installed-app panels from the daemon (cx-hnmbt.13):
+/// grants, logs and the icon are reads; Hide/Show and revoking a scope need
+/// the person's gesture; allowing a scope needs the native sheet's
+/// confirmation; an agent changes none of them.
+#[test]
+fn the_apps_page_reads_panels_and_changes_apps_only_for_the_person() {
+    let apps = Apps::new("panels");
+    let tool = apps.dir.join("bundled");
+    write_app(
+        &tool,
+        "acme",
+        "tool",
+        json!({
+            "icon": "icon.png",
+            "scopes": { "workspace:read": "Show workspaces." },
+            "optionalScopes": { "storage:local": "Keep notes." },
+        }),
+    );
+    let png = b"\x89PNG\r\n\x1a\nhq6d";
+    std::fs::write(tool.join("tool").join("icon.png"), png).unwrap();
+    std::fs::write(tool.join("tool").join("notes.txt"), "text").unwrap();
+    apps.start();
+    let mut app = apps.app();
+    let reply = app.store(
+        "cmux.apps.install",
+        json!({ "app": "acme/tool", "idempotency_key": "p0" }),
+        "user",
+    );
+    assert_eq!(ok(&reply)["app"]["state"]["installed"], true, "{reply}");
+
+    let mut relay = apps.agent();
+    let hello = relay.rpc(json!({"cmd": "client-hello", "role": "page_relay", "page": "apps"}));
+    let relay_id = ok(&hello)["connection_id"].as_str().unwrap().to_owned();
+    let gesture = &ok(&hello)["page_operations"]["gesture"];
+    let hides = gesture.as_array().is_some_and(|ops| ops.contains(&json!("apps.hidden.set")));
+    assert!(hides, "{hello}");
+    let page = json!({"origin": {"claim": "page"}});
+
+    // Reads: grants with their state, the icon as a data URL, the log ring.
+    let reply = relay.v2("apps.grants.get", json!({"app": "acme/tool"}), page.clone());
+    let grants = v2_ok(&reply);
+    let granted = |grants: &Value, scope: &str| {
+        grants["scopes"].as_array().unwrap().iter().find(|row| row["scope"] == scope).unwrap()
+            ["granted"]
+            .clone()
+    };
+    assert_eq!(
+        (granted(grants, "workspace:read"), granted(grants, "storage:local")),
+        (json!(true), json!(false)),
+        "{reply}"
+    );
+    let reply =
+        relay.v2("apps.asset.get", json!({"app": "acme/tool", "path": "icon.png"}), page.clone());
+    let url = v2_ok(&reply)["data_url"].as_str().unwrap_or_default().to_owned();
+    assert!(url.starts_with("data:image/png;base64,"), "{reply}");
+    for path in ["notes.txt", "../tool/notes.png"] {
+        let refused =
+            relay.v2("apps.asset.get", json!({"app": "acme/tool", "path": path}), page.clone());
+        assert_eq!(refused["ok"], false, "{path}: {refused}");
+    }
+    let reply = relay.v2("apps.logs", json!({"app": "acme/tool"}), page.clone());
+    assert!(v2_ok(&reply)["lines"].is_array(), "{reply}");
+
+    // Hide needs the person's gesture (a token the app mints for it).
+    let hide = json!({"app": "acme/tool", "hidden": true});
+    let refused = relay.v2("apps.hidden.set", hide.clone(), json!({"idempotency_key": "h1"}));
+    assert_eq!(v2_reason(&refused), "gesture_required");
+    let token = confirmation(&mut app, &relay_id, "apps.hidden.set", &hide);
+    let user = |key: &str, token: String| json!({"idempotency_key": key, "origin": {"claim": "user", "confirmation": token}});
+    let reply = relay.v2("apps.hidden.set", hide, user("h2", token));
+    assert_eq!(v2_ok(&reply)["app"]["state"]["hidden"], true, "{reply}");
+
+    // Allowing a scope needs the sheet's confirmation; revoking a gesture.
+    let allow = json!({"app": "acme/tool", "scope": "storage:local", "granted": true});
+    let refused = relay.v2("apps.grant.set", allow.clone(), json!({"idempotency_key": "g1"}));
+    assert_eq!(v2_reason(&refused), "confirmation_required");
+    let token = confirmation(&mut app, &relay_id, "apps.grant.set", &allow);
+    v2_ok(&relay.v2("apps.grant.set", allow, user("g2", token)));
+    let reply = relay.v2("apps.grants.get", json!({"app": "acme/tool"}), page.clone());
+    assert_eq!(granted(v2_ok(&reply), "storage:local"), json!(true), "{reply}");
+    let revoke = json!({"app": "acme/tool", "scope": "storage:local"});
+    let refused = relay.v2("apps.grant.revoke", revoke.clone(), json!({"idempotency_key": "r1"}));
+    assert_eq!(v2_reason(&refused), "gesture_required");
+    let token = confirmation(&mut app, &relay_id, "apps.grant.revoke", &revoke);
+    v2_ok(&relay.v2("apps.grant.revoke", revoke, user("r2", token)));
+    let reply = relay.v2("apps.grants.get", json!({"app": "acme/tool"}), page);
+    assert_eq!(granted(v2_ok(&reply), "storage:local"), json!(false), "{reply}");
+
+    // An agent connection changes nothing, through either door.
+    let mut agent = apps.agent();
+    let refused = agent.v2(
+        "apps.hidden.set",
+        json!({"app": "acme/tool", "hidden": false}),
+        json!({"idempotency_key": "a1"}),
+    );
+    assert_eq!(refused["error"]["details"]["required"], "user", "{refused}");
+    let refused = agent.store(
+        "cmux.apps.grant.revoke",
+        json!({"app": "acme/tool", "scope": "workspace:read", "idempotency_key": "a2"}),
+        "user",
+    );
+    assert_eq!(error_code(&refused), "origin.forbidden", "{refused}");
+}
+
+/// The user's customization folder (cx-swovq.1): its `local/customize` app
+/// installs itself with its required scopes, and a changed file reloads it
+/// with no restart and no command.
+#[test]
+fn the_customize_folder_installs_itself_and_reloads_when_it_changes() {
+    let apps = Apps::new("customize");
+    let customize = |version: &str| {
+        write_app(
+            &apps.dir,
+            "local",
+            "customize",
+            json!({
+                "version": version,
+                "runtime": { "main": "main.js" },
+                "implements": { "cmux.hovercard/1": { "export": "renderCard" } },
+                "scopes": { "agent:read": "Shows what the hovered row's agent does." },
+            }),
+        );
+        std::fs::write(
+            apps.dir.join("customize/main.js"),
+            "globalThis.__cmuxAppExports = { renderCard: () => Text('hi') }\n",
+        )
+        .unwrap();
+    };
+    customize("1.0.0");
+    apps.start();
+    let mut client = apps.agent();
+    let mut entry_at = |version: &str| {
+        let deadline = Instant::now() + Duration::from_secs(20);
+        loop {
+            let list = client.rpc(json!({ "cmd": "apps-list" }));
+            let found = list["data"]["apps"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .find(|app| app["id"] == "local/customize" && app["version"] == version)
+                .cloned();
+            if let Some(found) = found {
+                return found;
+            }
+            assert!(Instant::now() < deadline, "local/customize {version} never listed: {list}");
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    };
+    let first = entry_at("1.0.0");
+    assert_eq!(first["installed"], true, "{first}");
+    assert_eq!(first["enabled"], true, "{first}");
+    assert!(
+        first["grants"].as_array().is_some_and(|g| g.iter().any(|s| s == "agent:read")),
+        "its read scope is granted: {first}"
+    );
+    assert_eq!(first["sandboxed"], true, "it runs sandboxed as any unverified app: {first}");
+    customize("1.0.1");
+    let reloaded = entry_at("1.0.1");
+    assert_eq!(reloaded["installed"], true, "still installed after the reload: {reloaded}");
+}
+
+/// The documented template (docs/cmux-next/sidebar-customization) is a valid
+/// customize folder: copied as is, it installs, sandboxed, with its read scope.
+#[test]
+fn the_documented_customize_template_installs_as_is() {
+    let apps = Apps::new("customize-template");
+    let template =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../docs/cmux-next/sidebar-customization");
+    let target = apps.dir.join("customize");
+    std::fs::create_dir_all(&target).unwrap();
+    for name in ["cmux-app.json", "main.js"] {
+        std::fs::copy(template.join(name), target.join(name)).unwrap();
+    }
+    apps.start();
+    let mut client = apps.agent();
+    let deadline = Instant::now() + Duration::from_secs(20);
+    let entry = loop {
+        let list = client.rpc(json!({ "cmd": "apps-list" }));
+        if let Some(found) = list["data"]["apps"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find(|app| app["id"] == "local/customize")
+        {
+            break found.clone();
+        }
+        let logs = client.rpc(json!({ "cmd": "apps-logs", "app": "cmux/supervisor" }));
+        assert!(
+            Instant::now() < deadline,
+            "the template never listed: {list}\nsupervisor logs: {logs}"
+        );
+        std::thread::sleep(Duration::from_millis(50));
+    };
+    assert_eq!(entry["installed"], true, "{entry}");
+    assert_eq!(entry["enabled"], true, "{entry}");
+    assert_eq!(entry["sandboxed"], true, "{entry}");
+    assert!(
+        entry["grants"].as_array().is_some_and(|g| g.iter().any(|s| s == "workspace:read")),
+        "{entry}"
+    );
 }

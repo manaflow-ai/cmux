@@ -24,17 +24,26 @@ extension DaemonConnection {
         try await request(MoveTabToWorkspaceRequest(surface: surface, workspace: workspace, transaction: transaction))
     }
 
+    /// `keepFocus`: the new pane does not take focus. A daemon without
+    /// `tab-split-keep-focus-v1` gets the plain move (the new pane takes focus).
     @discardableResult
-    public func moveTabToSplit(_ surface: SurfaceID, pane: PaneID, edge: PaneEdge, ratio: Double? = nil,
+    public func moveTabToSplit(_ surface: SurfaceID, pane: PaneID, edge: PaneEdge, ratio: Double? = nil, keepFocus: Bool = false,
                                transaction: ClientTransactionID? = nil) async throws -> TabMoveResult {
-        try await requestNew(MoveTabToSplitRequest(surface: surface, pane: pane, edge: edge, ratio: ratio, transaction: transaction))
+        if keepFocus, identity?.supports(DaemonCapabilities.shared.tabSplitKeepFocus) == true {
+            return try await request(MoveTabToSplitKeepingFocusRequest(surface: surface, pane: pane, edge: edge, ratio: ratio,
+                                                                        transaction: transaction))
+        }
+        return try await requestNew(MoveTabToSplitRequest(surface: surface, pane: pane, edge: edge, ratio: ratio, transaction: transaction))
     }
 
+    /// `keepFocus`: as for ``moveTabToSplit``; ignored by a daemon without `tab-split-keep-focus-v1`.
     @discardableResult
     public func moveTabToColumn(_ surface: SurfaceID, target: ColumnDropTarget, afterColumn: ColumnID? = nil, width: Double? = nil,
-                                dock: DockSnapshot? = nil, transaction: ClientTransactionID? = nil) async throws -> TabMoveResult {
-        try await requestNew(MoveTabToColumnRequest(surface: surface, target: target, afterColumn: afterColumn,
-                                                    width: width, dock: dock, transaction: transaction))
+                                dock: DockSnapshot? = nil, keepFocus: Bool = false,
+                                transaction: ClientTransactionID? = nil) async throws -> TabMoveResult {
+        let keepFocus = keepFocus && identity?.supports(DaemonCapabilities.shared.tabSplitKeepFocus) == true
+        return try await requestNew(MoveTabToColumnRequest(surface: surface, target: target, afterColumn: afterColumn,
+                                                           width: width, dock: dock, keepFocus: keepFocus, transaction: transaction))
     }
 
     /// New workspace holding the tab. On daemons without `tab-drag-v1` it

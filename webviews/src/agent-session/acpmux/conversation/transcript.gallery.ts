@@ -2,7 +2,8 @@
 // The transcript's row kinds and states (conversation/*, App.tsx VirtualTranscript), each as the
 // snapshot the pane bridge would deliver. src/gallery/format.ts describes the format.
 import { agentPaneEntry } from "../../../gallery/format";
-import { activity, assistant, chat, summary, thought, tool, user } from "../../../gallery/fixtures/acpmux";
+import { activity, assistant, chat, row, summary, thought, tool, user } from "../../../gallery/fixtures/acpmux";
+import { SUBAGENTS } from "../subagents/subagentFold";
 import type { PlayContext } from "../../../gallery/play";
 import { workedTurnRows } from "../workedTurn";
 import { minutesAgo } from "../../../gallery/clock";
@@ -81,13 +82,20 @@ const groupedShellRows = [
 
 /// One call in the gallery's log: a host bridge call, or `acpmux <method>` for a request the page
 /// sent to the in-page mock daemon (mock.ts).
-type GalleryCall = { method: string; params?: { id?: string; sessionId?: string; archived?: unknown } };
+type GalleryCall = {
+  method: string;
+  params?: { id?: string; sessionId?: string; archived?: unknown };
+};
 /// The pane's client attached the mock daemon's chat (the menu can show before, from the stage's
 /// snapshot), and its header offers the chat menu.
 const chatMenuReady = async (ctx: PlayContext) => {
   const log = (ctx.document.defaultView as unknown as { cmuxGalleryLog: GalleryCall[] }).cmuxGalleryLog;
-  await ctx.waitFor(() => log.some(({ method }) => method === "acpmux _acpmux/attach"), { capMs: 10_000 });
-  await ctx.waitFor(() => ctx.document.querySelector('[aria-label="Chat actions"]'), { capMs: 10_000 });
+  await ctx.waitFor(() => log.some(({ method }) => method === "acpmux _acpmux/attach"), {
+    capMs: 10_000,
+  });
+  await ctx.waitFor(() => ctx.document.querySelector('[aria-label="Chat actions"]'), {
+    capMs: 10_000,
+  });
 };
 /// The plays that run the pane's real client against the in-page mock daemon.
 const mockDaemonFrames = {
@@ -150,6 +158,17 @@ const longChatRows = Array.from({ length: 24 }, (_, index) => {
   ];
 }).flat();
 
+/// A thought taller than the transcript's view (ThoughtRow.tsx folds it once done).
+const LONG_THOUGHT = [
+  "**Planning the retry fix**",
+  "",
+  ...Array.from(
+    { length: 40 },
+    (_, index) =>
+      `${index + 1}. ${["Read how the helper parses errors", "Check which statuses reach the retry loop", "Compare the jitter with the backoff cap", "Note what the tests already cover"][index % 4]} (step ${index + 1}).`,
+  ),
+].join("\n");
+
 const LONG_CODE = [
   "Here is the whole retry module after the change:",
   "",
@@ -177,6 +196,18 @@ const MATH = [
   "$$",
   "",
   "With $d_0 = 250\\,\\text{ms}$, $d_{\\max} = 4\\,\\text{s}$ and $N = 3$ that is $E[W] = 1000\\,\\text{ms}$.",
+].join("\n");
+
+const MATH_DELIMITERS = [
+  "Every delimiter typesets: $\\lambda = 1/\\bar{d}$ and \\(p = 1 - e^{-\\lambda t}\\) inline,",
+  "",
+  "\\[",
+  "P(T \\le t) = \\int_0^t \\lambda e^{-\\lambda s}\\,ds",
+  "\\]",
+  "",
+  "and $$\\textstyle\\sum_i p_i = 1$$ inside a sentence.",
+  "",
+  "Prices and shell text stay text: the runner costs $5 and $10 an hour, $5-$10 on spot, US$40 a month, and echo $$ and $$ print the shell's PID.",
 ].join("\n");
 
 const WEB_VIDEO = "https://github.com/user-attachments/assets/7d3f2c1a-58b4-4e0f-9a61-2c8e5b0d4f17";
@@ -217,7 +248,10 @@ const BUILD_CHART = [
         },
         {
           mark: { type: "tick", color: "#e8a33d", thickness: 2 },
-          encoding: { y: { field: "target", type: "nominal", sort: "-x" }, x: { field: "p90", type: "quantitative" } },
+          encoding: {
+            y: { field: "target", type: "nominal", sort: "-x" },
+            x: { field: "p90", type: "quantitative" },
+          },
         },
       ],
     },
@@ -301,6 +335,39 @@ const CHIP_HOST = {
   },
 };
 
+const completedFooterSnapshot = chat([
+  user(prompt, 30),
+  assistant(MARKDOWN_MIX, 29),
+  summary(29, { status: "completed", durationMs: 41_000, seq: 2 }),
+]);
+
+const footerActionsPlacement = (placement: "left" | "right") => async (ctx: PlayContext) => {
+  await ctx.waitFor(() => {
+    const group = ctx.document.querySelector<HTMLElement>(".cv-turn-action-group");
+    const datasetPlacement = ctx.document.documentElement.dataset.turnActionsPlacement;
+    // Right is the stylesheet default, so the bridge removes its data attribute for that side.
+    const datasetMatches = placement === "right" ? datasetPlacement === undefined : datasetPlacement === placement;
+    return (
+      datasetMatches &&
+      group !== null &&
+      group.querySelector('button[aria-label="Copy"]') !== null &&
+      group.querySelector('button[aria-label="Retry"]') !== null
+    );
+  });
+  const footer = ctx.document.querySelector<HTMLElement>(".cv-turn-actions");
+  const group = ctx.document.querySelector<HTMLElement>(".cv-turn-action-group");
+  const copy = group?.querySelector('button[aria-label="Copy"]');
+  const retry = group?.querySelector('button[aria-label="Retry"]');
+  if (!footer || !group || !copy || !retry) throw new Error("turn footer actions did not render");
+  await ctx.focus({ selector: 'button[aria-label="Copy"]' });
+  const footerBox = footer.getBoundingClientRect();
+  const groupBox = group.getBoundingClientRect();
+  const footerMid = (footerBox.left + footerBox.right) / 2;
+  const groupMid = (groupBox.left + groupBox.right) / 2;
+  if (placement === "left" ? groupMid >= footerMid : groupMid <= footerMid)
+    throw new Error(`turn footer actions are not ${placement}-aligned`);
+};
+
 export default agentPaneEntry({
   id: "agent-pane.transcript",
   title: "Transcript rows",
@@ -335,6 +402,7 @@ export default agentPaneEntry({
     "agent-session/acpmux/chips/ReplyMedia.tsx",
     "agent-session/acpmux/conversation/icons.tsx#Expand",
     "agent-session/acpmux/conversation/ToolRun.tsx",
+    "agent-session/acpmux/conversation/transcriptDisclosure.tsx#TranscriptDisclosureProvider",
     "agent-session/acpmux/conversation/ToolGroupRow.tsx",
     "agent-session/acpmux/conversation/CommandRow.tsx",
     "agent-session/acpmux/conversation/ShellBlock.tsx#ShellBlock",
@@ -354,11 +422,19 @@ export default agentPaneEntry({
   variants: {
     conversation: {
       note: "A finished exchange: prompt, markdown reply, turn footer.",
-      snapshot: chat([
-        user(prompt, 30),
-        assistant(MARKDOWN_MIX, 29),
-        summary(29, { status: "completed", durationMs: 41_000, seq: 2 }),
-      ]),
+      snapshot: completedFooterSnapshot,
+    },
+    "footer-actions-left": {
+      note: "A completed answer keeps Copy and Retry at the transcript's left edge.",
+      theme: { turnActionsPlacement: "left" },
+      snapshot: completedFooterSnapshot,
+      play: footerActionsPlacement("left"),
+    },
+    "footer-actions-right": {
+      note: "A completed answer keeps Copy and Retry at the transcript's right edge.",
+      theme: { turnActionsPlacement: "right" },
+      snapshot: completedFooterSnapshot,
+      play: footerActionsPlacement("right"),
     },
     "github-references": {
       note: "Issue and pull request references link in prose while code stays untouched.",
@@ -412,7 +488,9 @@ export default agentPaneEntry({
       ]),
       play: async (ctx) => {
         await ctx.focus({ selector: "[contenteditable='true']" });
-        const page = ctx.document.defaultView as unknown as { cmuxAcpmuxBridge?: { lastCodeBlock?(): string | null } };
+        const page = ctx.document.defaultView as unknown as {
+          cmuxAcpmuxBridge?: { lastCodeBlock?(): string | null };
+        };
         await ctx.waitFor(() => page.cmuxAcpmuxBridge?.lastCodeBlock !== undefined);
         const copied = page.cmuxAcpmuxBridge?.lastCodeBlock?.();
         if (copied !== "retry(fetch, { attempts: 3, cap: 8000 });") throw new Error(`copied ${JSON.stringify(copied)}`);
@@ -531,7 +609,7 @@ export default agentPaneEntry({
       },
     },
     "thought-row": {
-      note: "Play: a long thought is one closed Thought row titled by its first line (cx-ncc.73, Codex parity); a click opens the full text.",
+      note: "Play: a thought shows in full on its row, wrapped after a muted Thought label, with nothing to open and no tooltip (Leo 2026-10-13).",
       snapshot: chat(
         [
           user(prompt, 2),
@@ -550,18 +628,41 @@ export default agentPaneEntry({
         { isWorking: true },
       ),
       play: async (ctx) => {
-        const row = () => ctx.document.querySelector<HTMLButtonElement>("button.cv-thought");
-        await ctx.waitFor(() => row()?.textContent?.includes("Check how the helper parses errors first.") ?? false);
-        if (row()!.getAttribute("aria-expanded") !== "false") throw new Error("a thought opens closed");
-        if (ctx.document.body.textContent?.includes("jittered backoff"))
-          throw new Error("a closed thought shows only its first line");
-        await ctx.click({ selector: "button.cv-thought" });
-        await ctx.waitFor(() => row()?.getAttribute("aria-expanded") === "true");
-        await ctx.waitFor(() => ctx.document.body.textContent?.includes("jittered backoff"));
+        const row = () => ctx.document.querySelector<HTMLElement>(".cv-thought");
+        await ctx.waitFor(() => row()?.textContent?.includes("jittered backoff capped at three attempts") ?? false);
+        // Hovering the thought used to pop its full text as a tooltip.
+        await ctx.hover({ selector: ".cv-thought__text" });
+        if (row()!.matches("button") || row()!.hasAttribute("aria-expanded"))
+          throw new Error("a thought is a row of text, not a toggle");
+        if (row()!.closest("[title]") || row()!.querySelector("[title]")) throw new Error("a thought shows no tooltip");
       },
     },
+    "long-thought-streaming": {
+      note: "A long thought still streaming shows in full. With the Debug toggle agentPane.debug.foldLongThoughts on, it holds a seven-line viewport with its newest line in view (agentPane.debug.liveThoughtViewport) and folds once done.",
+      snapshot: chat([user(prompt, 2), activity([thought(LONG_THOUGHT)], 1.5)], {
+        isWorking: true,
+      }),
+    },
+    "long-thought-done": {
+      note: 'A long thought followed by a step. With the Debug toggle agentPane.debug.foldLongThoughts on (data-fold-long-thoughts on <html>), it folds to "Thought for 12s" (with agentPane.debug.thoughtHeader preview, "Thought" and its first line); off, it shows in full as before.',
+      snapshot: chat(
+        [
+          user(prompt, 2),
+          activity(
+            [
+              thought(LONG_THOUGHT, { startedAt: 0, endedAt: 12_000 }),
+              tool("Read client.ts", "read", "completed", {
+                locations: [{ path: "/Users/you/src/atlas-web/src/net/client.ts" }],
+              }),
+            ],
+            1.5,
+          ),
+        ],
+        { isWorking: true },
+      ),
+    },
     "thought-find": {
-      note: "Play: Find in Chat for a word in a closed thought opens it and marks the word in its text, never the row's own Thought label (cx-ncc.73).",
+      note: "Play: Find in Chat for a word in a thought marks the word in its text, never the row's own Thought label (cx-ncc.73).",
       checks: {
         longFrameFailMs: {
           value: 80,
@@ -570,7 +671,7 @@ export default agentPaneEntry({
         },
         layoutShiftMax: {
           value: 0.01,
-          reason: "Find opens the fold and the thought that hold the match, which moves the rows below on purpose.",
+          reason: "Find opens the fold that holds the match, which moves the rows below on purpose.",
         },
       },
       snapshot: chat([
@@ -591,7 +692,9 @@ export default agentPaneEntry({
       ]),
       play: async (ctx) => {
         // Cmd-F: the app sends the page `find`, and the bar takes the keyboard.
-        const page = ctx.document.defaultView as unknown as { cmuxAcpmuxBridge?: { command?(name: string): void } };
+        const page = ctx.document.defaultView as unknown as {
+          cmuxAcpmuxBridge?: { command?(name: string): void };
+        };
         page.cmuxAcpmuxBridge?.command?.("find");
         await ctx.waitFor(() => ctx.document.activeElement?.classList.contains("acpmux-find__field") ?? false);
         // A key at a time, as a person types: the play's type inserts its whole text in one task,
@@ -604,7 +707,7 @@ export default agentPaneEntry({
         };
         await ctx.waitFor(() => active() !== undefined);
         const at = active()!.startContainer.parentElement;
-        if (!at?.closest(".cv-thought__body"))
+        if (!at?.closest(".cv-thought__text"))
           throw new Error(`the current match is not in the thought's text: ${at?.className ?? "none"}`);
       },
     },
@@ -627,6 +730,42 @@ export default agentPaneEntry({
             ],
             1.5,
           ),
+        ],
+        { isWorking: true },
+      ),
+    },
+    "working-counts": {
+      note: "A live turn with background work: the line counts the two agents still running and the dev server still up, not the agent that finished. A count opens what it counts.",
+      snapshot: chat(
+        [
+          user("Start the dev server", 9),
+          activity(
+            [
+              tool("npm run dev", "execute", "completed", {
+                command: "npm run dev",
+                inputSummary: JSON.stringify({ command: "npm run dev", run_in_background: true }),
+              }),
+            ],
+            8.9,
+          ),
+          assistant("The dev server is up on port 5173.", 8.8),
+          summary(8.8, { status: "completed" }),
+          user(prompt, 3),
+          row(SUBAGENTS, 2.8, {
+            subagents: [
+              { id: "agent-retries", parent: null, name: "Retry policy", state: "running", startedAt: minutesAgo(2.8) },
+              { id: "agent-tests", parent: null, name: "Test coverage", state: "running", startedAt: minutesAgo(2.8) },
+              {
+                id: "agent-errors",
+                parent: null,
+                name: "Error parsing",
+                state: "completed",
+                startedAt: minutesAgo(2.8),
+                endedAt: minutesAgo(1.6),
+              },
+            ],
+          }),
+          activity([tool("Read client.ts", "read", "in_progress")], 1.5),
         ],
         { isWorking: true },
       ),
@@ -678,7 +817,10 @@ export default agentPaneEntry({
       note: "A turn the agent ended with an error.",
       snapshot: chat([
         user(prompt, 6),
-        summary(5.5, { status: "failed", error: "The agent stopped: model overloaded (529). Try again in a moment." }),
+        summary(5.5, {
+          status: "failed",
+          error: "The agent stopped: model overloaded (529). Try again in a moment.",
+        }),
       ]),
     },
     "turn-error-with-pdf": {
@@ -697,7 +839,10 @@ export default agentPaneEntry({
             },
           ],
         }),
-        summary(5.5, { status: "failed", error: "The model stopped before reading the document. Try again." }),
+        summary(5.5, {
+          status: "failed",
+          error: "The model stopped before reading the document. Try again.",
+        }),
       ]),
     },
     "turn-error-long": {
@@ -757,7 +902,10 @@ export default agentPaneEntry({
       snapshot: chat(
         [
           user(prompt, 6),
-          summary(5.5, { status: "failed", error: "API Error: 401 authentication_error: invalid x-api-key" }),
+          summary(5.5, {
+            status: "failed",
+            error: "API Error: 401 authentication_error: invalid x-api-key",
+          }),
         ],
         { harness: "claude" },
       ),
@@ -874,7 +1022,10 @@ export default agentPaneEntry({
       chipHost: {
         paths: {
           "/Users/you/src/atlas-web/out/build-times.png": { place: "root" as const, folder: false },
-          "/Users/you/src/atlas-web/out/build-report.pdf": { place: "root" as const, folder: false },
+          "/Users/you/src/atlas-web/out/build-report.pdf": {
+            place: "root" as const,
+            folder: false,
+          },
         },
         images: {
           "/Users/you/src/atlas-web/out/build-times.png": `data:image/png;base64,${BUILD_TIMES_PNG}`,
@@ -912,8 +1063,12 @@ export default agentPaneEntry({
     "tool-video": {
       note: "A terminal recording a tool saved plays inline with controls (muted while hovered); Expand shows it over the pane.",
       chipHost: {
-        paths: { "/Users/you/src/atlas-web/out/login-tests.mp4": { place: "root" as const, folder: false } },
-        media: { "/Users/you/src/atlas-web/out/login-tests.mp4": `data:video/mp4;base64,${LOGIN_TESTS_MP4}` },
+        paths: {
+          "/Users/you/src/atlas-web/out/login-tests.mp4": { place: "root" as const, folder: false },
+        },
+        media: {
+          "/Users/you/src/atlas-web/out/login-tests.mp4": `data:video/mp4;base64,${LOGIN_TESTS_MP4}`,
+        },
       },
       snapshot: chat([
         user("Record the login tests running so I can attach it to the PR", 4),
@@ -966,12 +1121,27 @@ export default agentPaneEntry({
       note: "Inline and display math (KaTeX).",
       snapshot: chat([user("What is the expected wait?", 4), assistant(MATH, 3.9), summary(3.9)]),
     },
+    "math-delimiters": {
+      note: "Math in all four delimiters ($…$, \\(…\\), \\[…\\], $$…$$) beside prices and shell $$ that stay text.",
+      snapshot: chat([
+        user("How likely is a retry inside t seconds?", 4),
+        assistant(MATH_DELIMITERS, 3.9),
+        summary(3.9),
+      ]),
+    },
     permission: {
       note: "A tool call waiting for the user's permission.",
       snapshot: chat(
         [
           user("Install the tree package", 1),
-          activity([tool("bun add @pierre/trees", "execute", "pending", { command: "bun add @pierre/trees" })], 0.9),
+          activity(
+            [
+              tool("bun add @pierre/trees", "execute", "pending", {
+                command: "bun add @pierre/trees",
+              }),
+            ],
+            0.9,
+          ),
         ],
         {
           isWorking: true,
@@ -993,7 +1163,11 @@ export default agentPaneEntry({
       note: "Play: an agent asks for a secret (cx-ncc.42). The value is typed in the private field and Provide sends it to acpmux only; the card closes and the chat never shows the value.",
       snapshot: chat([user("Create the Stripe test webhook", 1), assistant("I need your Stripe key for that.", 0.9)], {
         isWorking: true,
-        secret: { secretId: "gallery-secret", name: "STRIPE_API_KEY", reason: "Create the test webhook" },
+        secret: {
+          secretId: "gallery-secret",
+          name: "STRIPE_API_KEY",
+          reason: "Create the test webhook",
+        },
       }),
       afterCall: {
         "chat.secret": chat(

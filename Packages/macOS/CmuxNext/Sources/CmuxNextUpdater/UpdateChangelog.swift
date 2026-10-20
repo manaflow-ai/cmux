@@ -45,6 +45,30 @@ nonisolated public struct UpdateChangelog: Codable, Equatable, Sendable {
         }
     }
 
+    /// The staged update card's line (Leo 2026-10-13): "nightly 3845050 · Oct 13", short enough
+    /// that it never truncates in a sidebar at its default width. The card's popover names the
+    /// full build ("1.0.0-nightly.3845050428001").
+    public var cardDetail: String? {
+        let short = version.map(Self.cardVersion)
+        let day = date?.formatted(.dateTime.month(.abbreviated).day())
+        switch (short, day) {
+        case let (short?, day?): return UpdaterStrings.versionDate(short, day)
+        case let (short?, nil): return short
+        case let (nil, day?): return day
+        case (nil, nil): return nil
+        }
+    }
+
+    /// "1.0.0-nightly.3845050428001" reads "nightly 3845050" (the channel and the build tell
+    /// nightlies apart; every one is 1.0.0). Any other version reads as ``shortVersion(_:)``:
+    /// "1.0.1", "1.0.1 beta 3".
+    public static func cardVersion(_ version: String) -> String {
+        let short = shortVersion(version)
+        let words = short.split(separator: " ", maxSplits: 1)
+        guard words.count == 2, words[1].hasPrefix("nightly ") else { return short }
+        return String(words[1])
+    }
+
     /// "1.0.0-nightly.3801702344901" reads "1.0.0 nightly 3801702": the
     /// run number's first 7 digits are enough to tell builds apart.
     public static func shortVersion(_ version: String) -> String {

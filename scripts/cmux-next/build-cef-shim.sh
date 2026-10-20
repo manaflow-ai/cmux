@@ -59,7 +59,7 @@ common=(
   -fvisibility=hidden -fvisibility-inlines-hidden -fobjc-call-cxx-cdtors
   -D__STDC_CONSTANT_MACROS -D__STDC_FORMAT_MACROS
   -I"$CEF_DIR"
-  -Wno-deprecated-declarations -Wno-undefined-var-template
+  -Wno-deprecated-declarations -Wno-undefined-var-template -Werror=unguarded-availability-new
 )
 export CXX CEF_DIR OUT_DIR
 export COMMON_FLAGS="${common[*]}"

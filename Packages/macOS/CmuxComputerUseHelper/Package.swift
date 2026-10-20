@@ -22,7 +22,7 @@ let swiftSettings: [SwiftSetting] = [
 
 let package = Package(
     name: "CmuxComputerUseHelper",
-    platforms: [.macOS(.v15)],
+    platforms: [.macOS(.v14)],
     products: [
         .executable(name: "cmux-cua-helper", targets: ["cmux-cua-helper"]),
         .library(name: "CmuxCuaHelperCore", targets: ["CmuxCuaHelperCore"]),

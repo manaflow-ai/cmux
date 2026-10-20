@@ -16,8 +16,8 @@
 //! exactly this operation, these params and this relay connection
 //! (`origin.confirmation.issue`). Gate A2: `apps.install`, `apps.uninstall`,
 //! `apps.enable`, `workspace.agent_folder.set`, `history.backups.purge`,
-//! `history.visit.record`, `history.visit.title` and
-//! `history.visit.import` need origin `user`.
+//! `history.visit.record`, `history.visit.title`, `history.visit.import`
+//! and `history.trail.record` need origin `user`.
 
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
@@ -46,8 +46,9 @@ pub(crate) const CONFIRMATION_TTL_MS: u64 = 60_000;
 /// ends (RECOVERABLE-BY-DEFAULT). Page visits, their titles and the app's
 /// older visit logs come from the hosting app, the verified app
 /// connection: an agent cannot add a visit the person never made, nor
-/// make the daemon read a file by path.
-pub(crate) const USER_ONLY_OPERATIONS: [&str; 8] = [
+/// make the daemon read a file by path. The same holds for a step of the
+/// location trail.
+pub(crate) const USER_ONLY_OPERATIONS: [&str; 9] = [
     "apps.install",
     "apps.uninstall",
     "apps.enable",
@@ -56,6 +57,7 @@ pub(crate) const USER_ONLY_OPERATIONS: [&str; 8] = [
     crate::history_ops::RECORD_OPERATION,
     crate::history_ops::TITLE_OPERATION,
     crate::history_ops::IMPORT_OPERATION,
+    crate::history_ops::TRAIL_RECORD_OPERATION,
 ];
 /// Unconsumed tokens one relay connection may hold; the oldest goes first.
 const MAX_CONFIRMATIONS_PER_RELAY: usize = 16;
@@ -136,6 +138,9 @@ pub(crate) struct ConnectionOrigin {
     /// page Origin (`cmux-page://cmux.<page>`). Its allow list decides its
     /// v2 operations (page_access.rs).
     pub(crate) page: Option<String>,
+    /// Admitted with a page-bound credential (`page-credential {page}`): its
+    /// `subscribe` hears only its page's conversation events.
+    pub(crate) scoped_page: bool,
     /// Tokens issued for this connection as a relay (page relays only).
     confirmations: Vec<Confirmation>,
 }

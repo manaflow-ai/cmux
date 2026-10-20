@@ -128,3 +128,166 @@ fn a_request_for_a_version_that_is_not_installed_is_refused() -> Result<(), Stri
     assert_eq!(ranked[0]["rows"][0]["index"], 0);
     Ok(())
 }
+
+/// Rows like the macOS palette sends them: titles, keywords and the keycaps of each live shortcut.
+fn shortcut_entries() -> Value {
+    serde_json::json!([
+        { "title": "Split Right", "keywords": ["pane"], "hasShortcut": true, "keycaps": ["⌘", "D"], "actionID": "pane.splitRight" },
+        { "title": "Toggle Inspector", "hasShortcut": true, "keycaps": ["⌘", "I"], "actionID": "app.inspector" },
+        { "title": "Command Palette", "hasShortcut": true, "keycaps": ["⇧", "⌘", "P"], "actionID": "palette.open" },
+        { "title": "Print", "keywords": ["paper"], "hasShortcut": true, "keycaps": ["⌘", "P"], "actionID": "app.print" },
+        { "title": "Next Tab", "hasShortcut": true, "keycaps": ["⌃", "⇥"], "actionID": "tab.next" },
+        { "title": "Kill Line", "hasShortcut": true, "keycaps": ["⌥", "⇧", "K"], "actionID": "edit.killLine" },
+        { "title": "Select Workspace 1…9", "hasShortcut": true, "keycaps": ["⌘", "1…9"], "actionID": "workspace.select" },
+        { "title": "Leader Close", "hasShortcut": true, "keycaps": ["⌃", "B", "C"], "actionID": "leader.close" },
+        { "title": "Scroll To Bottom", "hasShortcut": true, "keycaps": ["G"], "actionID": "browser.bottom" },
+        { "title": "Inspect Element", "keywords": ["devtools"], "actionID": "browser.inspect" },
+        { "title": "Disabled Thing", "isEnabled": false, "hasShortcut": true, "keycaps": ["⌘", "J"], "actionID": "x.disabled" },
+        { "title": "Zoom Out", "hasShortcut": true, "keycaps": ["⌘", "-"], "actionID": "view.zoomOut" },
+        { "title": "Show Help", "hasShortcut": true, "keycaps": ["⇧", "⌘", "/"], "actionID": "app.help" },
+        { "title": "Next Sidebar Tab", "hasShortcut": true, "keycaps": ["⌃", "\u{f72d}"], "actionID": "sidebar.next" },
+        { "title": "Quick Look", "hasShortcut": true, "keycaps": ["⌘", "␣"], "actionID": "app.quickLook" },
+        { "title": "Find In Page", "hasShortcut": true, "keycaps": ["⌘", "F"], "actionID": "browser.find" }
+    ])
+}
+
+fn first_titles(
+    handle: &Handle,
+    version: i64,
+    query: &str,
+    count: usize,
+) -> Result<Vec<String>, String> {
+    let entries = shortcut_entries();
+    let (code, body) = handle.rank(&serde_json::json!({
+        "operation": "rank", "version": version, "query": query
+    }))?;
+    if code != OK {
+        return Err(format!("{query}: code {code}: {}", String::from_utf8_lossy(&body)));
+    }
+    let sections: Value = serde_json::from_slice(&body).map_err(|error| error.to_string())?;
+    let titles = sections
+        .as_array()
+        .into_iter()
+        .flatten()
+        .flat_map(|section| section["rows"].as_array().cloned().unwrap_or_default())
+        .filter_map(|row| row["index"].as_u64())
+        .filter_map(|index| entries[index as usize]["title"].as_str().map(str::to_owned))
+        .take(count)
+        .collect();
+    Ok(titles)
+}
+
+#[test]
+fn a_typed_shortcut_finds_its_action_first() -> Result<(), String> {
+    let handle = Handle(cmux_palette_ranker_new());
+    handle.install(7, &shortcut_entries())?;
+    let cases: &[(&str, &str)] = &[
+        ("cmd i", "Toggle Inspector"),
+        ("cmd+i", "Toggle Inspector"),
+        ("CMD I", "Toggle Inspector"),
+        ("⌘I", "Toggle Inspector"),
+        ("command-i", "Toggle Inspector"),
+        ("cmd shift p", "Command Palette"),
+        ("shift cmd p", "Command Palette"),
+        ("⌘⇧P", "Command Palette"),
+        ("⇧⌘P", "Command Palette"),
+        ("cmd+shift+P", "Command Palette"),
+        ("cmd p", "Print"),
+        ("ctrl-tab", "Next Tab"),
+        ("control tab", "Next Tab"),
+        ("⌃⇥", "Next Tab"),
+        ("⌥⇧K", "Kill Line"),
+        ("opt shift k", "Kill Line"),
+        ("alt+shift+k", "Kill Line"),
+        ("cmd 3", "Select Workspace 1…9"),
+        ("ctrl b c", "Leader Close"),
+        ("cmd -", "Zoom Out"),
+        ("cmd+-", "Zoom Out"),
+        ("cmd d", "Split Right"),
+        ("Cmd + P", "Print"),
+        ("⌘-D", "Split Right"),
+        ("cmd ?", "Show Help"),
+        ("cmd shift /", "Show Help"),
+        ("ctrl pagedown", "Next Sidebar Tab"),
+        ("cmd space", "Quick Look"),
+        ("⌘␣", "Quick Look"),
+        ("cmd f", "Find In Page"),
+    ];
+    let mut failures = Vec::new();
+    for (query, title) in cases {
+        let first = first_titles(&handle, 7, query, 1)?;
+        if first.first().map(String::as_str) != Some(*title) {
+            failures.push(format!("{query:?}: first {first:?}, want {title:?}"));
+        }
+    }
+    // A disabled row bound to the shortcut still shows, after the enabled rows.
+    if !first_titles(&handle, 7, "cmd j", 20)?.iter().any(|title| title == "Disabled Thing") {
+        failures.push("\"cmd j\" lost the disabled row".to_owned());
+    }
+    // The user's own alias for the query still wins over the bound shortcut.
+    let (code, body) = handle.rank(&serde_json::json!({
+        "operation": "rank", "version": 7, "query": "cmd i",
+        "aliases": { "browser.find": ["cmd i"] }
+    }))?;
+    let ranked: Value = serde_json::from_slice(&body).map_err(|error| error.to_string())?;
+    let order: Vec<u64> = ranked
+        .as_array()
+        .into_iter()
+        .flatten()
+        .flat_map(|section| section["rows"].as_array().cloned().unwrap_or_default())
+        .filter_map(|row| row["index"].as_u64())
+        .take(2)
+        .collect();
+    if code != OK || order != [15, 1] {
+        failures.push(format!("alias \"cmd i\": code {code}, first rows {order:?}, want [15, 1]"));
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+    Ok(())
+}
+
+#[test]
+fn word_queries_rank_the_same_with_and_without_keycaps() -> Result<(), String> {
+    let with_caps = shortcut_entries();
+    let mut without_caps = with_caps.clone();
+    for entry in without_caps.as_array_mut().into_iter().flatten() {
+        if let Some(entry) = entry.as_object_mut() {
+            entry.remove("keycaps");
+        }
+    }
+    let with_handle = Handle(cmux_palette_ranker_new());
+    with_handle.install(1, &with_caps)?;
+    let without_handle = Handle(cmux_palette_ranker_new());
+    without_handle.install(1, &without_caps)?;
+    let mut failures = Vec::new();
+    // Words, a lone modifier, a modifier with a word that is not a key, and a key with no modifier.
+    for query in [
+        "split",
+        "inspect",
+        "cmd",
+        "command",
+        "opt",
+        "alt",
+        "shift",
+        "p",
+        "g",
+        "tab",
+        "alt text",
+        "cmd palette",
+        "print paper",
+        "i cmd",
+    ] {
+        let request = serde_json::json!({ "operation": "rank", "version": 1, "query": query });
+        let (with_code, with_body) = with_handle.rank(&request)?;
+        let with_body = with_body.clone();
+        let (without_code, without_body) = without_handle.rank(&request)?;
+        if (with_code, &with_body) != (without_code, &without_body) {
+            failures.push(format!(
+                "{query:?}:\n  with keycaps    {}\n  without keycaps {}",
+                String::from_utf8_lossy(&with_body),
+                String::from_utf8_lossy(&without_body)
+            ));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+    Ok(())
+}

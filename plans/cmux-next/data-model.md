@@ -289,8 +289,26 @@ X, Open Link in Browser Profile X, `--browser-profile`), else the workspace's
 personal browser profile, else its space's, else `default`. No window level: a
 window's browser profile is its space's. The resolved id is stored on the tab
 at creation (`frontend_browser_tabs.profile_id`) and never changes by
-inheritance, so no live page silently changes cookie jar; Move Tab to Browser
-Profile reopens its URL in the target.
+inheritance, so no live page silently changes cookie jar. Move Tab to Browser
+Profile is the one explicit change: `update-frontend-browser-tab {profile_id}`
+(`frontend-browser-tab-profile-v1`) moves the record in place (same tab id and
+position), and the app re-creates the page in the target store (a new
+`WKWebView` with that profile's `WKWebsiteDataStore`, or a new CEF browser in
+that profile's `CefRequestContext`), which loads the same URL. Back/forward
+history and unsaved form input stay behind: page state must not cross
+profiles. A page made later (asleep, deferred) wakes in the record's profile
+without the old history. A tab of another machine's tree, or a daemon without
+the capability, gets the old move (the URL reopens in a new tab). The app's page swap
+follows the record (`BrowserProfileService.followRecordProfiles`), so any daemon
+client that moves the record moves the page.
+Agents use the daemon: `browser.profile.list`, `browser.profile.create` and
+`browser.profile.open {url, profile}` (cx-2kl68; CLI `cmux browser profile
+list|create|open`, MCP `browser_profile_*`; the list shows names and ids,
+never a profile's import origin or data) and `browser.tab.set_profile {tab, profile}`
+(`browser-profile-agent-v1`, CLI `cmux browser tab <tab> set-profile`, MCP);
+a profile is named by id or exact name, and a tab's profile is its
+`extra.browser_profile_id`. No agent verb deletes a profile: only a person
+does (`delete-browser-profile`).
 
 Display: the omnibar shows the tab's browser profile (dot or icon, name in the
 tooltip and Page Info) whenever more than one exists; a tab whose browser
@@ -336,7 +354,7 @@ into theirs once.
 
 | Level | Colors | Reason |
 | --- | --- | --- |
-| Space | every workspace and terminal without an override, and the window chrome (sidebar, titlebar, floating cards) unless the shown workspace has a theme of the same light/dark mode | a window shows one space and chrome is continuous with the terminal background; the recolor on a switch is the clearest cue of the current space |
+| Space | every workspace and terminal without an override, and the window chrome (sidebar, titlebar, floating cards) unless the shown workspace has a theme (of any light/dark mode, with the color transition) | a window shows one space and chrome is continuous with the terminal background; the recolor on a switch is the clearest cue of the current space |
 | Workspace | its content area (terminals, pane tab strips, pane chrome, the screen bar) and, while shown, the window chrome when it is as light or dark as the space; its sidebar row shows its color | the sidebar background equals the content background beside it (Lawrence, 2026-10-01): a seam read as a wrong color, not as a signal. The window top never flips light in a dark space or dark in a light one (Leo, 2026-10-01), so a workspace of the other mode keeps the space's chrome. The chrome switches with the content in one frame |
 | Terminal | only its surface (`terminal-color-overrides-v1`) | a pane-level cue, such as ssh to prod |
 
@@ -358,11 +376,11 @@ Stage 5 (landed): `ThemeScope` in CmuxNextDesign is a tree under
 `ThemeScope.app` (the Ghostty config): each window adopts a space scope, each
 workspace content view roots a workspace scope, each terminal host view a
 terminal scope. A space scope `show`s its window's current workspace scope:
-its own views and window draw in that scope's tokens when they share the
-space's light/dark mode, while children keep inheriting the space's own theme
+its own views and window draw in that scope's tokens at any light/dark mode
+(Lawrence 2026-10-15, cx-3rf4z), while children keep inheriting the space's own theme
 (`ownTokens`). A scope recomputes only when its theme or an ancestor's
-changes and repaints only what it roots, behind a `Motion` `theme`
-crossfade. Views resolve `Palette` inside `performWithTheme` (the nearest
+changes and repaints only what it roots, with the `ColorTransition`
+(`appearance.colorTransition`). Views resolve `Palette` inside `performWithTheme` (the nearest
 scope); `scripts/cmux-next/check-theme-scope.sh` refuses any other color
 read in a module. Every terminal surface takes the spec in effect for it
 through `ghostty_surface_update_config` (palette, background, foreground,

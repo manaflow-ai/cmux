@@ -1,5 +1,10 @@
 //! End-to-end tests through the real protocol handler with a fake agent.
 
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+// This process runs stand-in agents (the fake agents under tests/).
+const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
+
 use acpmux::config::{Config, HarnessProfile, PermissionPolicy, StoreMode};
 use acpmux::hub::Hub;
 use acpmux::rpc::{Message, method};
@@ -10,22 +15,40 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
 
+#[path = "hub_integration/auto_resume.rs"]
+mod auto_resume;
 #[path = "hub_integration/cursor_requests.rs"]
 mod cursor_requests;
 #[path = "hub_integration/drafts.rs"]
 mod drafts;
+#[path = "hub_integration/lanes.rs"]
+mod lanes;
 #[path = "hub_integration/permission_groups.rs"]
 mod permission_groups;
+#[path = "hub_integration/prompt_context.rs"]
+mod prompt_context;
+#[path = "hub_integration/prompt_provenance.rs"]
+mod prompt_provenance;
+#[path = "hub_integration/prompt_withdraw.rs"]
+mod prompt_withdraw;
 #[path = "hub_integration/questions.rs"]
 mod questions;
+#[path = "hub_integration/restart.rs"]
+mod restart;
 #[path = "hub_integration/secrets.rs"]
 mod secrets;
 #[path = "hub_integration/seen.rs"]
 mod seen;
+#[path = "hub_integration/session_offers.rs"]
+mod session_offers;
 #[path = "hub_integration/status_indicator.rs"]
 mod status_indicator;
 #[path = "hub_integration/steer_only.rs"]
 mod steer_only;
+#[path = "hub_integration/stop.rs"]
+mod stop;
+#[path = "hub_integration/tags_rules.rs"]
+mod tags_rules;
 #[path = "hub_integration/xai_requests.rs"]
 mod xai_requests;
 
@@ -532,178 +555,6 @@ async fn turn_markers_history_and_cursor() {
 }
 
 #[tokio::test]
-async fn tags_rules_and_unread() {
-    let (hub, mut c) = setup(PermissionPolicy::Ask).await;
-    let s = c
-        .request(
-            method::SESSION_NEW,
-            json!({"cwd": cwd(), "mcpServers": [], "_meta": {"acpmux": {"name": "t"}}}),
-        )
-        .await
-        .unwrap();
-    let id = s["sessionId"].as_str().unwrap().to_owned();
-    // Tags with and without expiry.
-    let v = c.request(method::MUX_TAG, json!({"sessionId": id, "set": {"task": "review", "owner": "orchestrator"}, "ttlSeconds": 3600})).await.unwrap();
-    assert_eq!(v["tags"]["task"], "review");
-    let v =
-        c.request(method::MUX_TAG, json!({"sessionId": id, "remove": ["owner"]})).await.unwrap();
-    assert!(v["tags"].get("owner").is_none());
-    assert_eq!(v["tags"]["task"], "review");
-    // Rules: deny rm under an ask policy answers without a client.
-    assert!(
-        c.request(method::MUX_SET_RULES, json!({"sessionId": id, "rules": {"bogus": 1}}))
-            .await
-            .is_err()
-    );
-    let v = c
-        .request(
-            method::MUX_SET_RULES,
-            json!({"sessionId": id, "rules": {"autoDeny": ["rm"], "autoApprove": ["ls"]}}),
-        )
-        .await
-        .unwrap();
-    assert_eq!(v["rules"], true);
-    c.request(
-        method::SESSION_PROMPT,
-        json!({"sessionId": id, "prompt": [{"type": "text", "text": "ask: rm -rf /"}]}),
-    )
-    .await
-    .unwrap();
-    let session = hub.resolve(&id).unwrap();
-    assert_eq!(hub.session_summary(&session)["preview"], "chose no");
-    let autos: Vec<Value> = hub
-        .events(&id, 0, 1000)
-        .unwrap()
-        .into_iter()
-        .filter(|e| e.kind == "permission_auto")
-        .map(|e| e.msg)
-        .collect();
-    assert_eq!(autos.last().unwrap()["rule"], "deny");
-    // This client saw that turn end: not unread.
-    assert_eq!(hub.session_summary(&session)["unread"], false);
-    // Detach, then a second client sends a slow prompt and disconnects
-    // mid-turn, like `acpmux send --no-wait`, so nobody is attached when it ends.
-    c.request(method::MUX_DETACH, json!({"sessionId": id})).await.unwrap();
-    {
-        let (in_tx2, in_rx2) = mpsc::channel(64);
-        let (out_tx2, _out_rx2) = mpsc::channel(4096);
-        tokio::spawn(serve_connection(hub.clone(), in_rx2, out_tx2));
-        in_tx2
-            .send(
-                Message::request(
-                    1,
-                    method::SESSION_PROMPT,
-                    json!({"sessionId": id, "prompt": [{"type": "text", "text": "slow"}]}),
-                )
-                .to_line(),
-            )
-            .await
-            .unwrap();
-        tokio::time::sleep(Duration::from_millis(150)).await;
-        drop(in_tx2);
-    }
-    let w = c.request(method::MUX_WAIT, json!({"sessions": [id.clone()], "until": ["ready"], "afterSeq": {id.clone(): hub.session_summary(&session)["stateSeq"].as_u64().unwrap()}, "timeoutMs": 10000})).await.unwrap();
-    assert_eq!(w["timedOut"], false, "{w}");
-    // Unread: nobody was attached when the turn ended.
-    assert_eq!(hub.session_summary(&session)["unread"], true);
-    assert_eq!(hub.session_summary(&session)["attached"], 0);
-    let w = c
-        .request(
-            method::MUX_WAIT,
-            json!({"sessions": [id.clone()], "until": ["done"], "timeoutMs": 2000}),
-        )
-        .await
-        .unwrap();
-    assert_eq!(w["resolved"][0]["unread"], true, "{w}");
-    c.request(method::MUX_ATTACH, json!({"sessionId": id, "limit": 0})).await.unwrap();
-    assert_eq!(hub.session_summary(&session)["unread"], false);
-    assert_eq!(hub.session_summary(&session)["attached"], 1);
-    c.request(method::MUX_DETACH, json!({"sessionId": id})).await.unwrap();
-    assert_eq!(hub.session_summary(&session)["attached"], 0);
-    // Clearing rules returns to the policy.
-    let v =
-        c.request(method::MUX_SET_RULES, json!({"sessionId": id, "rules": null})).await.unwrap();
-    assert_eq!(v["rules"], false);
-}
-
-#[tokio::test]
-async fn restart_marks_unknown_outcome() {
-    use acpmux::store::EventRecord;
-    let dir = std::env::temp_dir().join(format!("acpmux-test-{}", uuid::Uuid::now_v7()));
-    let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
-    let mut agents = BTreeMap::new();
-    agents.insert(
-        "fake".to_owned(),
-        HarnessProfile {
-            kind: Default::default(),
-            argv: vec!["python3".into(), fake.into()],
-            env: BTreeMap::new(),
-            description: None,
-            fallback: None,
-            family: None,
-            models: vec![],
-            model: None,
-            effort: None,
-            policy: None,
-        },
-    );
-    let mut cfg =
-        Config { harnesses: agents, default_harness: Some("fake".into()), ..Default::default() };
-    cfg.store.mode = StoreMode::Local;
-    let store = acpmux::store::open(&cfg.store, &dir).unwrap();
-    let hub = Hub::new(cfg.clone(), store);
-    hold_person_key(&hub);
-    let (in_tx, in_rx) = mpsc::channel(64);
-    let (out_tx, out_rx) = mpsc::channel(4096);
-    tokio::spawn(serve_connection(hub.clone(), in_rx, out_tx));
-    let mut c = TestClient { tx: in_tx, rx: out_rx, next: 0 };
-    c.become_person().await;
-    let s = c
-        .request(
-            method::SESSION_NEW,
-            json!({"cwd": cwd(), "mcpServers": [], "_meta": {"acpmux": {"name": "crash"}}}),
-        )
-        .await
-        .unwrap();
-    let id = s["sessionId"].as_str().unwrap().to_owned();
-    c.request(
-        method::SESSION_PROMPT,
-        json!({"sessionId": id, "prompt": [{"type": "text", "text": "hi"}]}),
-    )
-    .await
-    .unwrap();
-    let last = hub.session_summary(&hub.resolve(&id).unwrap())["lastSeq"].as_u64().unwrap();
-    hub.shutdown_all().await;
-    drop(hub);
-    // Simulate a crash mid-turn: a turn_started with no turn_result.
-    let store2 = acpmux::store::open(&cfg.store, &dir).unwrap();
-    store2
-        .append(
-            &id,
-            &EventRecord {
-                seq: last + 1,
-                at: 0,
-                dir: "mux".into(),
-                kind: "turn_started".into(),
-                msg: json!({"prompt": "lost"}),
-                host_seq: None,
-            },
-        )
-        .unwrap();
-    let hub2 = Hub::new(cfg, store2);
-    let events = hub2.events(&id, last, 100).unwrap();
-    let final_kind = events.last().map(|e| e.kind.clone()).unwrap_or_default();
-    assert_eq!(
-        final_kind,
-        "turn_result",
-        "{:?}",
-        events.iter().map(|e| &e.kind).collect::<Vec<_>>()
-    );
-    assert_eq!(events.last().unwrap().msg["detail"], "outcome_unknown");
-    let _ = std::fs::remove_dir_all(&dir);
-}
-
-#[tokio::test]
 async fn limit_error_fails_over_to_the_fallback_profile() {
     let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
     let mut agents = BTreeMap::new();
@@ -1072,16 +923,7 @@ async fn catalog_reload_preserves_pending_turn_and_rejects_invalid_config() {
     );
     next.presets.insert(
         "flash".into(),
-        acpmux::config::Preset {
-            harness: "deepseek".into(),
-            model: None,
-            effort: None,
-            policy: None,
-            env: BTreeMap::new(),
-            args: Vec::new(),
-            system_prompt_sha256: None,
-            description: None,
-        },
+        serde_json::from_value::<acpmux::config::Preset>(json!({"harness": "deepseek"})).unwrap(),
     );
     std::fs::write(&path, serde_json::to_vec(&next).unwrap()).unwrap();
     let reload = c.request(method::MUX_RELOAD_CONFIG, json!({})).await.unwrap();
@@ -1354,25 +1196,6 @@ async fn watchers_get_permission_pending_and_auto_approvals() {
     assert!(c.response(rid).await.0.is_ok());
 }
 
-#[tokio::test]
-async fn session_cancel_as_a_request_is_answered() {
-    let (_hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
-    let id = new_session(&mut c, "cancel-req").await;
-    let rid = c.send(method::SESSION_PROMPT, prompt(&id, "slow", None)).await;
-    c.wait_for(method::SESSION_UPDATE, |p| p["update"]["sessionUpdate"] == "agent_message_chunk")
-        .await;
-    let cancel = c.send(method::SESSION_CANCEL, json!({"sessionId": id})).await;
-    let (r, _) = c.response(cancel).await;
-    assert_eq!(r.unwrap(), json!({}));
-    let r = c.response(rid).await.0.unwrap();
-    assert_eq!(r["stopReason"], "cancelled");
-    // With no turn running it still answers.
-    assert_eq!(
-        c.request(method::SESSION_CANCEL, json!({"sessionId": id})).await.unwrap(),
-        json!({})
-    );
-}
-
 #[path = "hub_integration/handoff.rs"]
 mod handoff;
 #[path = "hub_integration/transcript_events.rs"]
@@ -1480,19 +1303,22 @@ mod adopt;
 #[cfg(unix)]
 mod preset_args;
 
-#[path = "hub_integration/lifecycle_fixes.rs"]
-mod lifecycle_fixes;
-
-#[path = "hub_integration/quit_spawn.rs"]
-mod quit_spawn;
-
 #[path = "hub_integration/claude_failover.rs"]
 mod claude_failover;
+#[path = "hub_integration/lifecycle_fixes.rs"]
+mod lifecycle_fixes;
+#[path = "hub_integration/quit_spawn.rs"]
+mod quit_spawn;
 
 #[path = "hub_integration/fork_through.rs"]
 mod fork_through;
 #[path = "hub_integration/last_message.rs"]
 mod last_message;
+#[path = "hub_integration/session_git_state.rs"]
+mod session_git_state;
+#[cfg(unix)]
+#[path = "hub_integration/session_list_order.rs"]
+mod session_list_order;
 #[path = "hub_integration/transfer.rs"]
 mod transfer;
 #[path = "hub_integration/transfer_guard.rs"]

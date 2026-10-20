@@ -1,5 +1,5 @@
-//! Folds the session journal into the agent and command history as records
-//! are committed, and notices commits that changed the closed-history store
+//! Folds the session journal into the agent history as records are
+//! committed, and notices commits that changed the closed-history store
 //! (a closed workspace, tab or group, or a deleted one), so `history-changed`
 //! names the Closed kind and an open History page re-reads (cx-hnmbt.9). One thread per session waits on the journal kernel's
 //! commit epoch (no timeout, so it never polls) and folds every record after
@@ -14,7 +14,7 @@
 
 use std::sync::{Arc, Weak};
 
-use cmux_history::{COMMAND_JOURNAL_KIND, HistoryKind};
+use cmux_history::HistoryKind;
 use serde_json::Value;
 
 use crate::Mux;
@@ -23,14 +23,11 @@ use crate::workspace_registry::SessionJournalRecord;
 
 const PAGE: usize = 512;
 
-/// True for a record kind one of the folds reads.
+/// True for a record kind the agent fold reads. Finished commands are not
+/// folded: the merged history lists the terminal command rows, and the
+/// command worker announces them (cx-hnmbt.12).
 fn folded(kind: &str) -> bool {
-    kind.starts_with("agent.") || kind == COMMAND_JOURNAL_KIND
-}
-
-/// The history kind a folded record changes.
-fn kind_of(record: &SessionJournalRecord) -> HistoryKind {
-    if record.kind == COMMAND_JOURNAL_KIND { HistoryKind::Command } else { HistoryKind::Agent }
+    kind.starts_with("agent.")
 }
 
 /// True for a resource commit that upserted or deleted a closed item
@@ -53,7 +50,7 @@ fn page(mux: &Mux, cursor: u64) -> anyhow::Result<(Vec<(HistoryKind, Value)>, u6
     let mut take = |record: &SessionJournalRecord| -> anyhow::Result<()> {
         scanned = scanned.max(record.sequence);
         if folded(&record.kind) {
-            records.push((kind_of(record), serde_json::to_value(record)?));
+            records.push((HistoryKind::Agent, serde_json::to_value(record)?));
         } else if changes_closed(record) {
             records.push((HistoryKind::Closed, Value::Null));
         }

@@ -77,6 +77,14 @@ fn browser_devices_list_custom_devices_and_tab_emulation_through_a_real_daemon()
         identity["capabilities"].as_array().unwrap().iter().any(|v| v == "browser-devices-v1"),
         "{identity}"
     );
+    assert!(
+        ["browser-fit-v1", "browser-fit-width-v1"].iter().all(|cap| identity["capabilities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|v| v == cap)),
+        "{identity}"
+    );
 
     // The list: Chrome's devices verbatim and in Chrome's order, then newer ones.
     let list = ok(&server, &["browser", "devices", "list"]);
@@ -96,6 +104,13 @@ fn browser_devices_list_custom_devices_and_tab_emulation_through_a_real_daemon()
         assert!(titles.contains(&title), "{title} missing from {titles:?}");
     }
     assert_eq!(all.iter().filter(|d| d["origin"] == "chrome").count(), 46);
+    // Chrome's menu sections come from the daemon too.
+    let section =
+        |title: &str| all.iter().find(|d| d["title"] == title).unwrap()["category"].clone();
+    assert_eq!(section("Surface Duo"), "foldable");
+    assert_eq!(section("iPad Mini"), "tablet-desktop");
+    assert_eq!(section("Nest Hub Max"), "smart-display");
+    assert_eq!(section("iPhone 17 Pro"), "mobile");
     assert!(all.iter().filter(|d| d["origin"] == "cmux").all(|d| d["sources"].is_array()));
 
     // Custom devices persist in the daemon and come first; Chrome's limits hold.
@@ -216,6 +231,68 @@ fn browser_devices_list_custom_devices_and_tab_emulation_through_a_real_daemon()
             .contains("only to browser tabs")
     );
 
+    // Fit as 16:9 Desktop: the tab keeps a fit in place of the device; the
+    // record names the aspect and width bounds, the engine sizes the layout
+    // from its view, and the calls reset the device's user agent and touch.
+    let fit = ok(&server, &["tab", &browser, "emulate", "--fit", "16:9"]);
+    let fit = find(&fit, "emulation").expect("result shows extra.emulation").clone();
+    assert_eq!(fit["mode"], "fit", "{fit}");
+    assert_eq!(
+        fit["fit"],
+        serde_json::json!({"value": "16:9", "aspect": "16:9", "aspect_width": 16, "aspect_height": 9,
+                           "min_width": 1024, "max_width": 1920})
+    );
+    assert!(fit.get("device").is_none(), "a fit names no device: {fit}");
+    assert_eq!((fit["mobile"].as_bool(), fit["touch"].as_bool()), (Some(false), Some(false)));
+    assert_eq!(fit["user_agent"], "");
+    let calls = fit["chromium_calls"].as_array().unwrap();
+    assert_eq!(calls[0]["method"], "Emulation.setDeviceMetricsOverride");
+    assert_eq!(calls[0]["params"]["mobile"], false);
+    assert_eq!(calls[0]["params"]["dontSetVisibleSize"], true);
+    assert_eq!(calls[1]["params"], serde_json::json!({"userAgent": ""}));
+    assert_eq!(calls[2]["params"], serde_json::json!({"enabled": false}));
+    assert_eq!(emulation(&server, &browser).as_ref(), Some(&fit));
+    // "16x9" is the same fit; a bad ratio or fit with a device is refused.
+    let same = ok(&server, &["tab", &browser, "emulate", "--fit", "16x9"]);
+    assert_eq!(find(&same, "emulation"), Some(&fit));
+    assert!(refused(&server, &["tab", &browser, "emulate", "--fit", "wide"]).contains("W:H"));
+    assert!(refused(&server, &["tab", &browser, "emulate", "--fit", "9:40"]).contains("W:H"));
+    assert!(
+        refused(&server, &["tab", &browser, "emulate", "--fit", "16:9", "--device", "Kiosk"])
+            .contains("fit alone")
+    );
+    assert!(
+        refused(&server, &["tab", &terminal, "emulate", "--fit", "16:9"])
+            .contains("only to browser tabs")
+    );
+    // Orientation alone needs a device, not a fit.
+    assert!(
+        refused(&server, &["tab", &browser, "emulate", "--orientation", "portrait"])
+            .contains("emulates no device")
+    );
+    // Fit as Desktop (1280): a fixed layout width (min = max = 1280) in
+    // place of the 16:9 fit; only one fit is on a tab at a time.
+    let fixed = ok(&server, &["tab", &browser, "emulate", "--fit", "1280"]);
+    let fixed = find(&fixed, "emulation").expect("result shows extra.emulation").clone();
+    assert_eq!(fixed["mode"], "fit", "{fixed}");
+    assert_eq!(
+        fixed["fit"],
+        serde_json::json!({"value": "1280", "aspect": "16:9", "aspect_width": 16, "aspect_height": 9,
+                           "min_width": 1280, "max_width": 1280})
+    );
+    let trimmed = ok(&server, &["tab", &browser, "emulate", "--fit", " 1280 "]);
+    assert_eq!(find(&trimmed, "emulation"), Some(&fixed));
+    assert_eq!(emulation(&server, &browser).as_ref(), Some(&fixed));
+    assert!(refused(&server, &["tab", &browser, "emulate", "--fit", "99999"]).contains("1280"));
+    assert!(refused(&server, &["tab", &browser, "emulate", "--fit", "300"]).contains("1280"));
+    // `--fit off` ends the fit.
+    ok(&server, &["tab", &browser, "emulate", "--fit", "16:10"]);
+    assert_eq!(emulation(&server, &browser).unwrap()["fit"]["value"], "16:10");
+    ok(&server, &["tab", &browser, "emulate", "--fit", "off"]);
+    assert_eq!(emulation(&server, &browser), None);
+    // A device again replaces the fit.
+    ok(&server, &["tab", &browser, "emulate", "--device", "Kiosk"]);
+
     // A removed custom device leaves the tab's own copy; clear ends emulation.
     ok(&server, &["browser", "devices", "remove", "--title", "Kiosk"]);
     assert!(devices(&server).iter().all(|d| d["title"] != "Kiosk"));
@@ -225,16 +302,19 @@ fn browser_devices_list_custom_devices_and_tab_emulation_through_a_real_daemon()
 }
 
 #[test]
-fn browser_profile_commands_create_move_open_and_delete_through_a_real_daemon() {
+fn browser_profile_commands_create_move_and_open_and_refuse_delete_through_a_real_daemon() {
     let server = HeadlessServer::start("browser-profiles");
 
     let created = ok(&server, &["browser", "profile", "create", "--name", "Work"]);
-    let profile_id =
-        created["browser_profile"]["id"].as_str().expect("created browser profile id").to_owned();
+    let profile_id = find(&created, "browser_profile")
+        .and_then(|profile| profile["id"].as_str())
+        .expect("created browser profile id")
+        .to_owned();
 
     let listed = ok(&server, &["browser", "profile", "list"]);
-    assert_eq!(listed["browser_profiles"][1]["name"], "Work", "{listed}");
-    assert_eq!(listed["browser_profiles"][1]["id"], profile_id, "{listed}");
+    let profiles = find(&listed, "browser_profiles").cloned().unwrap_or_default();
+    assert_eq!(profiles[1]["name"], "Work", "{listed}");
+    assert_eq!(profiles[1]["id"], profile_id, "{listed}");
 
     let opened = ok(
         &server,
@@ -249,7 +329,7 @@ fn browser_profile_commands_create_move_open_and_delete_through_a_real_daemon() 
             "Work",
         ],
     );
-    assert!(opened["content_resource_id"].as_str().is_some(), "{opened}");
+    assert!(find(&opened, "browser_id").and_then(|id| id.as_str()).is_some(), "{opened}");
     assert_eq!(frontend_browser_tab(&profile_tree(&server))["browser_profile_id"], profile_id);
 
     let opened_with_flag = ok(
@@ -266,20 +346,25 @@ fn browser_profile_commands_create_move_open_and_delete_through_a_real_daemon() 
             "Work",
         ],
     );
-    assert!(opened_with_flag["content_resource_id"].as_str().is_some(), "{opened_with_flag}");
+    assert!(
+        find(&opened_with_flag, "browser_id").and_then(|id| id.as_str()).is_some(),
+        "{opened_with_flag}"
+    );
 
     ok(&server, &["browser", "profile", "move", "--profile", "Work", "--index", "0"]);
     let moved = ok(&server, &["browser", "profile", "list"]);
-    assert_eq!(moved["browser_profiles"][0]["name"], "Work", "{moved}");
+    assert_eq!(find(&moved, "browser_profiles").unwrap()[0]["name"], "Work", "{moved}");
 
-    ok(&server, &["browser", "profile", "delete", "--profile", "Work"]);
+    // Only a person deletes a browser profile, in the app: the CLI is refused and the profile stays.
+    let refusal = refused(&server, &["browser", "profile", "delete", "--profile", "Work"]);
+    assert!(refusal.contains("only a person deletes a browser profile"), "{refusal}");
     let after_delete = ok(&server, &["browser", "profile", "list"]);
     assert!(
-        after_delete["browser_profiles"]
-            .as_array()
+        find(&after_delete, "browser_profiles")
+            .and_then(|profiles| profiles.as_array())
             .unwrap()
             .iter()
-            .all(|profile| profile["id"] != profile_id),
+            .any(|profile| profile["id"] == profile_id),
         "{after_delete}"
     );
 }

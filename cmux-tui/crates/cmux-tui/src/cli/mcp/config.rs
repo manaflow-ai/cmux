@@ -17,27 +17,33 @@ pub(super) fn path() -> PathBuf {
     cmux_tui_core::user_settings::config_path()
 }
 
-/// Whether `mcp.enabled` is `true`. A missing file, a missing key and
-/// `false` are off; an unreadable file or a non-boolean value is an error
-/// the caller reports, so a typo never turns the server on.
-pub(super) fn enabled(path: &Path) -> Result<bool, String> {
+/// `mcp.enabled` as the file says it: `None` when the file or the key is
+/// missing (or null), so the caller can tell "not set" from `false`; an
+/// unreadable file or a non-boolean value is an error the caller reports,
+/// so a typo never turns the server on.
+pub(super) fn setting(path: &Path) -> Result<Option<bool>, String> {
     let text = match std::fs::read_to_string(path) {
         Ok(text) => text,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(error) => return Err(format!("{}: {error}", path.display())),
     };
-    enabled_in(&text).map_err(|error| format!("{}: {error}", path.display()))
+    setting_in(&text).map_err(|error| format!("{}: {error}", path.display()))
 }
 
+#[cfg(test)]
 pub(super) fn enabled_in(text: &str) -> Result<bool, String> {
+    setting_in(text).map(|value| value.unwrap_or(false))
+}
+
+fn setting_in(text: &str) -> Result<Option<bool>, String> {
     if text.trim().is_empty() {
-        return Ok(false);
+        return Ok(None);
     }
     let document: Value = serde_json::from_str(&strip_jsonc(text))
         .map_err(|error| format!("cmux.json is not valid JSONC: {error}"))?;
     match document.get("mcp").and_then(|mcp| mcp.get("enabled")) {
-        None | Some(Value::Null) => Ok(false),
-        Some(Value::Bool(enabled)) => Ok(*enabled),
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::Bool(enabled)) => Ok(Some(*enabled)),
         Some(_) => Err("mcp.enabled must be true or false".into()),
     }
 }

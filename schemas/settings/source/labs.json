@@ -30,6 +30,27 @@
             "beta",
             "prototype"
           ]
+        },
+        {
+          "key": "labs.classicHome",
+          "note": "Home as the classic top page (the Chief conversation full window) instead of the home workspace with the Chief's page in a left dock (hq-6d cx-ebm.59.5). Off by default; kept for one release. HomeDock.classic reads it through DesignSettings.classicHome.",
+          "title": {
+            "key": "settings.labs.classicHome",
+            "text": "Classic Home"
+          },
+          "help": {
+            "key": "settings.labs.classicHome.help",
+            "text": "Show Home as a full page instead of a workspace with the Chief docked on the left. Takes effect after cmux restarts."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "home",
+            "chief",
+            "classic",
+            "dock",
+            "page"
+          ]
         }
       ]
     }

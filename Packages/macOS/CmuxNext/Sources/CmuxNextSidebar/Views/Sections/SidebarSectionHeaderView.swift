@@ -8,7 +8,7 @@ final class SidebarSectionHeaderView: NSView {
     var onPress: (() -> Void)?
     var onContextMenu: ((NSEvent, NSView) -> Void)?
 
-    private let name = NSTextField(labelWithString: "")
+    private let name = ChromeLabel(labelWithString: "")
     let chevron = NSImageView()
     private var collapsed = false
     /// Set by the hover owner (`PointerHover`, cx-3wu5).
@@ -36,8 +36,8 @@ final class SidebarSectionHeaderView: NSView {
     private var pressLocation: NSPoint?
     private var didDrag = false
 
-    override var isFlipped: Bool { true }
-    override var wantsUpdateLayer: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
+    nonisolated override var wantsUpdateLayer: Bool { true }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     func configure(title: String, collapsed: Bool) {
@@ -79,7 +79,9 @@ final class SidebarSectionHeaderView: NSView {
         let th = ceil(name.intrinsicContentSize.height)
         let chevronSide = Metrics.smallIconSize
         chevron.frame = NSRect(x: b.width - inset - chevronSide, y: (b.height - chevronSide) / 2, width: chevronSide, height: chevronSide)
-        name.frame = NSRect(x: inset, y: (b.height - th) / 2, width: max(0, chevron.frame.minX - Metrics.space2 - inset), height: th)
+        // The label cell draws inside its frame: the text starts at the inset, with workspace titles.
+        let nameX = inset - SidebarStyle.labelCellPadding
+        name.frame = NSRect(x: nameX, y: (b.height - th) / 2, width: max(0, chevron.frame.minX - Metrics.space2 - nameX), height: th)
     }
 
     override func viewDidChangeEffectiveAppearance() {

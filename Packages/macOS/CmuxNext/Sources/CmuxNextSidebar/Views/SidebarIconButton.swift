@@ -23,6 +23,18 @@ final class SidebarIconButton: NSButton {
             renderIcon()
         }
     }
+    /// Full Keyboard Access reaches this button (a card's x, UPDATE-CARD-CLOSE): Tab focuses it,
+    /// Space presses it, and the focus shows as a ring in the theme's focus color (cx-wqn5), not
+    /// the system's blue ring. Off by default: most icon buttons have a keyboard path elsewhere.
+    var takesKeyFocus = false {
+        didSet { refusesFirstResponder = !takesKeyFocus }
+    }
+    private var isKeyFocused = false { didSet { if isKeyFocused != oldValue { needsDisplay = true } } }
+    /// Mouse events never move the keyboard focus here: a click on a card's x would otherwise
+    /// leave the focus on a button that the card then hides, and typing would go nowhere.
+    private static let mouseEvents: Set<NSEvent.EventType> = [.leftMouseDown, .leftMouseUp, .rightMouseDown, .rightMouseUp,
+                                                               .otherMouseDown, .otherMouseUp]
+    private lazy var keyRepaint = KeyWindowRepaint(self)
     /// The label point size the icon sits beside, read at layout time so density changes apply live.
     private let pointSize: () -> CGFloat
     private var renderedSize: CGFloat = 0
@@ -37,6 +49,8 @@ final class SidebarIconButton: NSButton {
         super.init(frame: .zero)
         renderIcon()
         imagePosition = .imageOnly
+        // An image-only button: no "Button" title for VoiceOver and hint mode (they read the label).
+        title = ""
         isBordered = false
         setAccessibilityLabel(label)
         themedToolTip = label
@@ -44,6 +58,7 @@ final class SidebarIconButton: NSButton {
         target = self
         action = #selector(pressed)
         refusesFirstResponder = true
+        focusRingType = .none
         // Hover follows the pointer and the button's frame (cx-3wu5).
         hover.followPointer(onChange: { [weak self] in self?.needsDisplay = true })
     }
@@ -83,13 +98,39 @@ final class SidebarIconButton: NSButton {
         renderIcon()
     }
 
-    override var wantsUpdateLayer: Bool { true }
+    nonisolated override var wantsUpdateLayer: Bool { true }
+
+    override var acceptsFirstResponder: Bool {
+        guard takesKeyFocus else { return super.acceptsFirstResponder }
+        return NSApp.isFullKeyboardAccessEnabled && isEnabled && !(NSApp.currentEvent.map { Self.mouseEvents.contains($0.type) } ?? false)
+    }
+    override var canBecomeKeyView: Bool { takesKeyFocus ? acceptsFirstResponder && !isHiddenOrHasHiddenAncestor : super.canBecomeKeyView }
+
+    override func becomeFirstResponder() -> Bool {
+        let became = super.becomeFirstResponder()
+        if became { isKeyFocused = true }
+        return became
+    }
+
+    override func resignFirstResponder() -> Bool {
+        let resigned = super.resignFirstResponder()
+        if resigned { isKeyFocused = false }
+        return resigned
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if takesKeyFocus { keyRepaint.track() }
+    }
 
     override func updateLayer() {
         layer?.cornerRadius = Metrics.itemCornerRadius
         performWithTheme {
             contentTintColor = tintOverride ?? (hover.state.hovering || hover.state.pressed ? Palette.textPrimary : Palette.textSecondary)
         }
+        // The theme's focus ring through the shared chrome (ChromeHover), only in the key window.
+        let ring = takesKeyFocus && KeyWindowRepaint.showsFocus(self, focused: isKeyFocused)
+        if hover.state.focused != ring { hover.state.focused = ring }
         hover.refresh(animated: false)
     }
 

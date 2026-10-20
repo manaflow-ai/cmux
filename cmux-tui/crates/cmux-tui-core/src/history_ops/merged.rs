@@ -1,28 +1,29 @@
 //! The merged read model and the mutations of the history module.
 //!
-//! Per session: the agent and command folds over the session journal and
+//! Per session: the agent fold over the session journal and
 //! the history revision ([`HistoryHost`], one mutex). Per machine: the page
-//! visit stores (pages.rs). Read from other owners: closed items from the
-//! closed-history store and the app's location trail (sources.rs).
+//! visit stores (pages.rs) and the location trail (trail.rs). Read from
+//! other owners: closed items from the closed-history store (sources.rs)
+//! and finished commands from the terminal command rows
+//! (`terminal-command-history-v1`, the rows the Swift History page lists).
 //!
 //! What each kind allows (history.md section 3): page visits are deleted
-//! into a backup (restore id); agent and command entries live in the
-//! append-only journal and are hidden (`history.hidden`); closed items are
-//! deleted from the closed-history store for good (closed.rs, as
-//! `closed.delete`); locations are the app's view state and are refused.
+//! into a backup (restore id); agent entries live in the append-only
+//! journal and are hidden (`history.hidden`); command rows and closed items
+//! are deleted for good (the command store; closed.rs, as `closed.delete`);
+//! a location removes every trail entry of its place (cx-hnmbt.12).
 
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 
 use cmux_history::{
-    AgentSessionFold, EntryContext, HiddenHistory, HistoryEntry, HistoryKind, TerminalCommandFold,
-    hidden_id,
+    AgentSessionFold, EntryContext, HiddenHistory, HistoryEntry, HistoryKind, hidden_id,
 };
 use serde_json::{Map, Value, json};
 
 use super::pages::{self, run, wire};
-use super::{closed, hidden_doc, journal_feed, sources, store_failed};
+use super::{closed, commands, hidden_doc, journal_feed, sources, store_failed, trail};
 use crate::Mux;
 use crate::resource::ResourceError;
 use crate::workspace_registry::Actor;
@@ -31,9 +32,6 @@ use crate::workspace_registry::Actor;
 /// `MachineRegistry.localID`, so hides it stored (`local/<provider>/<id>`)
 /// keep applying.
 pub(super) const LOCAL_MACHINE: &str = "local";
-/// `history.entries.remove` refuses the whole request for a location id.
-pub(crate) const LOCATION_CLIENT_OWNED: &str = "history.location_client_owned";
-const TRAIL_SUBJECT: &str = "history.trail";
 
 /// The session's history state: the journal folds, the journal cursor they
 /// reached and the history revision.
@@ -44,7 +42,6 @@ pub(crate) struct HistoryHost {
 
 struct HostState {
     agents: AgentSessionFold,
-    commands: TerminalCommandFold,
     cursor: u64,
     revision: u64,
 }
@@ -54,7 +51,6 @@ impl Default for HistoryHost {
         Self {
             state: Mutex::new(HostState {
                 agents: AgentSessionFold::new(LOCAL_MACHINE),
-                commands: TerminalCommandFold::new(LOCAL_MACHINE),
                 cursor: 0,
                 revision: 1,
             }),
@@ -88,15 +84,11 @@ impl HistoryHost {
         let pick = |kind| -> Vec<Value> {
             records.iter().filter(|(of, _)| *of == kind).map(|(_, value)| value.clone()).collect()
         };
-        let (agents, commands) = (pick(HistoryKind::Agent), pick(HistoryKind::Command));
+        let agents = pick(HistoryKind::Agent);
         let mut changed = Vec::new();
         if !agents.is_empty() {
             state.agents.apply(&agents);
             changed.push(HistoryKind::Agent);
-        }
-        if !commands.is_empty() {
-            state.commands.apply(&commands);
-            changed.push(HistoryKind::Command);
         }
         // Closed items live in the closed-history store; a record that
         // changed one only marks the kind (an open History page re-reads).
@@ -107,22 +99,10 @@ impl HistoryHost {
         changed
     }
 
-    /// Agent and command entries the hides leave visible.
-    fn journal_entries(
-        &self,
-        wants: impl Fn(HistoryKind) -> bool,
-        hidden: &HiddenHistory,
-    ) -> Vec<HistoryEntry> {
-        let state = self.lock();
+    /// Agent entries the hides leave visible.
+    fn agent_entries(&self, hidden: &HiddenHistory) -> Vec<HistoryEntry> {
         let context = EntryContext { local_machine: LOCAL_MACHINE, available: true };
-        let mut entries = Vec::new();
-        if wants(HistoryKind::Agent) {
-            entries.extend(state.agents.entries(&context, hidden));
-        }
-        if wants(HistoryKind::Command) {
-            entries.extend(state.commands.entries(&context, hidden));
-        }
-        entries
+        self.lock().agents.entries(&context, hidden)
     }
 
     fn revision(&self) -> u64 {
@@ -176,34 +156,53 @@ pub(super) fn list(
                 .map_err(|error| store_failed(OPERATION, error))?,
         );
     }
-    if wants(HistoryKind::Agent) || wants(HistoryKind::Command) {
+    if wants(HistoryKind::Agent) {
         journal_feed::start(mux);
         let changed = journal_feed::catch_up(mux).map_err(|error| failed(OPERATION, &error))?;
         if !changed.is_empty() {
             mux.history.changed(mux, &changed);
         }
         let (hidden, _) = hidden_doc::load(mux).map_err(|error| failed(OPERATION, &error))?;
-        entries.extend(mux.history.journal_entries(wants, &hidden));
+        entries.extend(mux.history.agent_entries(&hidden));
+    }
+    if wants(HistoryKind::Command) {
+        // Every unexpired row up to the store's page (1000): the search and
+        // range filter below run over all of them, not the newest `limit`.
+        entries.extend(commands::entries(mux).map_err(|error| failed(OPERATION, &error))?);
     }
     if wants(HistoryKind::Closed) {
         let items = mux
             .read_registry_state(crate::state::closed_history_query::closed_items)
             .map_err(|error| failed(OPERATION, &error))?;
-        entries.extend(items.iter().filter_map(sources::closed_entry));
+        entries.extend(sources::closed_entries(&items));
     }
+    // A location row also carries its window and stored location (an app
+    // rebuilds its Back/Forward steps from them).
+    let mut locations = Map::new();
     if wants(HistoryKind::Location) {
-        let trail = mux
-            .get_frontend_projection(hidden_doc::FRONTEND, hidden_doc::SCOPE, TRAIL_SUBJECT)
-            .map_err(|error| failed(OPERATION, &error))?;
-        if let Some(trail) = trail {
-            entries.extend(sources::location_entries(&trail.projection));
+        let (document, _) = trail::load(mux).map_err(|error| failed(OPERATION, &error))?;
+        let newest = document.entries.last().map(|entry| entry.id);
+        for entry in &document.entries {
+            let id = format!("location:{}", entry.id);
+            locations
+                .insert(id.clone(), json!({"window": entry.window, "location": entry.location}));
+            entries.push(sources::location_entry(&id, entry, Some(entry.id) == newest));
         }
     }
     let matched = query.apply(&entries, now_ms, day_start_ms, |path| Path::new(path).is_dir());
-    Ok(json!({
-        "entries": matched.iter().map(wire).collect::<Vec<_>>(),
-        "revision": mux.history.revision().to_string(),
-    }))
+    let rows = matched
+        .iter()
+        .map(|entry| {
+            let mut row = wire(entry);
+            if let (Some(object), Some(Value::Object(extra))) =
+                (row.as_object_mut(), locations.get(&entry.id))
+            {
+                object.extend(extra.clone());
+            }
+            row
+        })
+        .collect::<Vec<_>>();
+    Ok(json!({"entries": rows, "revision": mux.history.revision().to_string()}))
 }
 
 /// Runs one mutation once (the caller checked the key): its result value
@@ -227,6 +226,13 @@ pub(super) fn mutate(
     match operation {
         "history.entries.remove" => remove(mux, key, actor, fields, now_ms, day_start_ms),
         "history.clear" => clear(mux, key, actor, fields, now_ms, day_start_ms),
+        "history.trail.record" => {
+            let (value, changed) =
+                trail::record(mux, key, actor, fields, now_ms).inspect_err(|error| {
+                    trail::log(mux, format!("refused ({}: {})", error.code, error.message));
+                })?;
+            Ok((value, if changed { vec![HistoryKind::Location] } else { Vec::new() }))
+        }
         _ => pages_only(mux),
     }
 }
@@ -240,9 +246,9 @@ fn changed_pages(value: &Value) -> Vec<HistoryKind> {
     if counted || value.get("id").is_some() { vec![HistoryKind::Page] } else { Vec::new() }
 }
 
-/// `history.entries.remove`: page visits into a backup, agent and command
-/// entries hidden, closed groups deleted; any location id refuses the whole
-/// request.
+/// `history.entries.remove`: page visits into a backup, agent entries
+/// hidden, command rows and closed groups deleted, and every trail entry of
+/// a location's place removed.
 fn remove(
     mux: &Arc<Mux>,
     key: &str,
@@ -253,26 +259,39 @@ fn remove(
 ) -> Result<(Value, Vec<HistoryKind>), ResourceError> {
     const OPERATION: &str = "history.entries.remove";
     let ids = pages::ids(fields)?;
-    if let Some(location) = ids.iter().find(|id| id.starts_with("location:")) {
-        return Err(ResourceError::operation_failed(
-            OPERATION,
-            LOCATION_CLIENT_OWNED,
-            json!({"id": location, "message": "locations belong to the app's trail; remove them in the app"}),
-        ));
-    }
     // Closed groups first: a failure there leaves no page backup without
     // its restore id.
     let deleted = closed::remove(mux, key, actor, &ids)?;
     let mut changed = Vec::new();
+    let mut others = 0;
+    let locations = trail::remove(mux, key, actor, &trail::ids(&ids))
+        .map_err(|error| failed(OPERATION, &error))?;
+    if locations > 0 {
+        others += locations;
+        changed.push(HistoryKind::Location);
+    }
+    let command_ids = commands::ids(&ids);
+    if !command_ids.is_empty() {
+        // The command worker announces the deleted rows (history-changed).
+        others += commands::delete(mux, commands::Selection::Ids(command_ids))
+            .map_err(|error| failed(OPERATION, &error))?;
+    }
     let mut value = json!({"removed": 0, "restore_id": null});
     if ids.iter().any(|id| id.starts_with("page:")) {
         value = pages::with_stores(mux, OPERATION, |stores| {
             run(stores, OPERATION, fields, now_ms, day_start_ms)
         })?;
-        changed = changed_pages(&value);
+        changed.extend(changed_pages(&value));
     }
+    if others > 0 {
+        let before = value["removed"].as_u64().unwrap_or(0);
+        value["removed"] = json!(before + others);
+    }
+    // Agent entries are hidden; so is an older journal command id
+    // (`command:<machine>/<terminal>/<start ms>`).
     let hides: Vec<(&str, HistoryKind)> = ids
         .iter()
+        .filter(|id| commands::row_id(id).is_none())
         .filter_map(|id| {
             let kind = match id.split(':').next() {
                 Some("agent") => HistoryKind::Agent,
@@ -306,9 +325,9 @@ fn remove(
 }
 
 /// `history.clear`: page visits of the range into a backup (in `profile` or
-/// every profile); agent and command entries hidden and closed groups
-/// deleted by range unless a profile narrows the clear to pages. Location
-/// entries are never touched.
+/// every profile); unless a profile narrows the clear to pages, agent
+/// entries hidden, and command rows, closed groups and trail entries
+/// deleted by range: the kinds the Swift History page clears.
 fn clear(
     mux: &Arc<Mux>,
     key: &str,
@@ -335,10 +354,28 @@ fn clear(
         })?;
         changed = changed_pages(&value);
     }
-    let hidden: Vec<HistoryKind> = [HistoryKind::Agent, HistoryKind::Command]
-        .into_iter()
-        .filter(|kind| profile.is_none() && wants(*kind))
-        .collect();
+    let mut others = 0;
+    if profile.is_none() && wants(HistoryKind::Location) {
+        let removed =
+            trail::clear(mux, key, actor, since).map_err(|error| failed(OPERATION, &error))?;
+        if removed > 0 {
+            others += removed;
+            changed.push(HistoryKind::Location);
+        }
+    }
+    if profile.is_none() && wants(HistoryKind::Command) {
+        let selection = since.map_or(commands::Selection::All, |since| {
+            commands::Selection::StartedSince(u64::try_from(since).unwrap_or(0))
+        });
+        // The command worker announces the deleted rows (history-changed).
+        others += commands::delete(mux, selection).map_err(|error| failed(OPERATION, &error))?;
+    }
+    if others > 0 {
+        let before = value["removed"].as_u64().unwrap_or(0);
+        value["removed"] = json!(before + others);
+    }
+    let hidden: Vec<HistoryKind> =
+        [HistoryKind::Agent].into_iter().filter(|kind| profile.is_none() && wants(*kind)).collect();
     if !hidden.is_empty() {
         hidden_doc::change(mux, key, actor, |document| {
             for kind in &hidden {

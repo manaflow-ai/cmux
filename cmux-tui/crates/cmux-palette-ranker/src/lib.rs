@@ -19,6 +19,7 @@
 
 pub mod ffi;
 mod rank;
+mod shortcut;
 mod text;
 mod tier;
 
@@ -64,6 +65,10 @@ pub struct Entry {
     pub demoted: Option<bool>,
     /// The row has a keyboard shortcut: first among equal matches.
     pub has_shortcut: Option<bool>,
+    /// The keycaps the row shows for its live shortcut (`["⇧", "⌘", "P"]`): a query that names
+    /// this shortcut ("cmd shift p", "⇧⌘P") ranks the row first.
+    #[serde(default, deserialize_with = "null_as_default")]
+    pub keycaps: Vec<String>,
 }
 
 /// One frecency record.

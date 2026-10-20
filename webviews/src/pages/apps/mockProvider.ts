@@ -5,6 +5,7 @@ import { pageError, type PageClient, type PageHandler } from "../shared/pageClie
 import { LINK_CLOSED, MockPageStreams } from "../shared/pageStreams";
 import {
   AppsOps,
+  OPEN_ACTION,
   type AppDetail,
   type AppsChanged,
   type GrantRow,
@@ -12,7 +13,7 @@ import {
   type InstalledApp,
   type LogLine,
 } from "./types";
-import type { WireDetail, WireInstalledList, WireListing } from "./wire";
+import type { WireDetail, WireInstalledList, WireListing, WireUpdatesList } from "./wire";
 
 export interface MockCall {
   op: string;
@@ -94,9 +95,29 @@ export class MockAppsProvider implements PageClient {
               source: row.source,
               version: row.version,
               update: row.update ?? null,
+              failure: row.failure ?? null,
             },
             grants: [],
           })),
+        };
+        return list as R;
+      }
+      case AppsOps.updatesList: {
+        const list: WireUpdatesList = {
+          revision: this.revision,
+          updates: Object.values(this.installed).flatMap((row) =>
+            row.update
+              ? [
+                  {
+                    app: row.id,
+                    name: row.name,
+                    current_version: row.version,
+                    version: row.update.version,
+                    failure: row.failure ?? null,
+                  },
+                ]
+              : [],
+          ),
         };
         return list as R;
       }
@@ -146,23 +167,38 @@ export class MockAppsProvider implements PageClient {
         }
         return this.changed(app) as R;
       }
-      case AppsOps.grantSet: {
+      case AppsOps.hiddenSet: {
+        const row = this.installed[app];
+        if (!row) throw pageError("cmux.apps.not_installed", app);
+        row.hidden = params.hidden === true;
+        return this.changed(app) as R;
+      }
+      case AppsOps.grantSet:
+      case AppsOps.grantRevoke: {
         const grants = this.grants[app];
         const row = grants?.scopes.find((scope) => scope.scope === params.scope);
         if (!row) throw pageError("cmux.apps.unknown_scope", String(params.scope));
-        row.granted = params.granted === true;
+        row.granted = op === AppsOps.grantSet && params.granted === true;
         return this.changed(app) as R;
       }
+      case AppsOps.logs:
+        return {
+          app,
+          lines: sampleLog(app).map((line) => ({ level: line.level, message: line.message, ts_ms: line.at_ms })),
+        } as R;
+      case AppsOps.assetGet:
+        throw pageError("cmux.apps.asset.missing", String(params.path));
       case AppsOps.update: {
         const row = this.installed[app];
         if (row?.update) {
           row.version = row.update.version;
           delete row.update;
+          delete row.failure;
         }
         return this.changed(app) as R;
       }
-      case AppsOps.open:
-        return { status: "done" } as R;
+      case OPEN_ACTION.op:
+        return { ran: true } as R;
       default:
         throw pageError("cmux.protocol.unknown_op", op);
     }
@@ -171,7 +207,7 @@ export class MockAppsProvider implements PageClient {
   async subscribe<E>(
     stream: string,
     onEvent: (data: E, seq: number) => void,
-    filter?: Record<string, unknown>,
+    _filter?: Record<string, unknown>,
   ): Promise<() => void> {
     const pageStream = this.page.subscribe(stream, onEvent as (data: unknown, seq: number) => void);
     if (pageStream) return pageStream;
@@ -181,11 +217,6 @@ export class MockAppsProvider implements PageClient {
     if (stream === AppsOps.watch) {
       this.watchers.set(sub, emit);
       return () => void this.watchers.delete(sub);
-    }
-    if (stream === AppsOps.logs) {
-      const app = String(filter?.app ?? "");
-      sampleLog(app).forEach((line, index) => emit({ line }, index + 1));
-      return () => undefined;
     }
     throw pageError("cmux.protocol.unknown_op", stream);
   }

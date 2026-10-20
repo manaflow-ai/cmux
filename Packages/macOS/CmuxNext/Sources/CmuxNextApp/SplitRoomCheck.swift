@@ -49,6 +49,15 @@ extension AppServices {
         }
     }
 
+    /// The daemon handle of the strip column holding `pane`, or nil when no shown screen lays it out in columns.
+    func columnHandle(containing pane: PaneModel) -> DaemonColumnID? {
+        guard let controller = paneController(for: pane), let content = controller.workspace else { return nil }
+        let layoutPane = controller.layoutPaneID
+        guard let column = content.layoutModel.screen(containing: layoutPane)?.layout.columns.first(where: { $0.root.contains(layoutPane) })
+        else { return nil }
+        return content.handles.columns[column.id]
+    }
+
     /// The ONE rule for a split that opens a new tool (Split Right/Down/Left/Up and Split Browser
     /// Right/Down, from the chat header's Terminal and Browser buttons, the palette, menus,
     /// shortcuts and the CLI) (cx-yihq). A person's split from the docked agent chat opens the tool

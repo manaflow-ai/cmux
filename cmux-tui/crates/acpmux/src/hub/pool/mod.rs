@@ -63,6 +63,10 @@ const RSS_TICK: Duration = Duration::from_secs(60);
 const CLAIM_WAIT: Duration = Duration::from_secs(15);
 /// How long an ended entry's host gets before it is ended by nonce proof.
 const END_GRACE: Duration = Duration::from_secs(2);
+/// Most a claimed entry's host may take to answer before the entry counts
+/// as wedged: the hello budget of `agent_host::link::connect`. A healthy
+/// host answers in milliseconds; a loaded machine may take seconds.
+const CLAIM_PROBE: Duration = Duration::from_secs(5);
 
 /// Measures a pooled host's process tree RSS in bytes.
 pub type RssProbe = Arc<dyn Fn(u32) -> u64 + Send + Sync>;
@@ -282,7 +286,7 @@ impl Hub {
         if let Some(reason) = crate::protected_folders::unasked_refusal(&cwd) {
             return Err(RpcError::invalid_params(reason));
         }
-        let cwd = super::adoption::session_cwd(Some(cwd), None, &family)?;
+        let (cwd, _) = super::adoption::session_cwd(Some(cwd), None, &family, &[])?;
         let spawn_model = profile_takes_model_at_spawn(&r.profile)
             || r.defaults.env.values().any(|v| v.contains("${model}"));
         let draft = super::resolve::draft_meta(super::resolve::Draft {
@@ -307,6 +311,11 @@ impl Hub {
             return Err(RpcError::invalid_params(
                 "a remote-origin connection never uses the session pool",
             ));
+        }
+        if crate::launch_policy::agent_launch_disabled() {
+            return Ok(
+                json!({"accepted": false, "reason": crate::launch_policy::DISABLED_MESSAGE}),
+            );
         }
         if !self.pool_enabled().await {
             return Ok(json!({"accepted": false, "reason": "the session pool is off"}));
@@ -501,12 +510,37 @@ impl Hub {
         if meta.remote_origin || !self.pool_enabled().await {
             return None;
         }
+        // A preset with a start mode or an approval starts cold: the approval
+        // holds for the contents this session's own spawn reads, not the ones
+        // a pooled harness started with (`hub/start_gate/preset_bind.rs`). Only
+        // the person sets an approval, so no client can clear it for a claim
+        // and get it back for the start.
+        let approved = |p: &crate::config::Preset| p.mode.is_some() || p.mode_approval.is_some();
+        if let Some(name) = &meta.preset
+            && self.config.read().await.presets.get(name).is_some_and(approved)
+        {
+            return None;
+        }
         let spec = self.pool_spec_for(meta, profile, defaults_env).await.ok()?;
         loop {
             let took = lock(&self.pool.pool).take(&spec.key);
             match took {
                 Take::Ready(mut p) => {
-                    if !p.child.is_alive().await {
+                    // A dead or wedged host is ended; the session starts on
+                    // a fresh host (`spawn_hosted_child`).
+                    let asked = std::time::Instant::now();
+                    if !p.child.is_alive().await || !p.child.answers_within(CLAIM_PROBE).await {
+                        tracing::warn!(
+                            harness = %spec.key.harness,
+                            waited_ms = asked.elapsed().as_millis() as u64,
+                            "a pooled agent host did not answer; it ends and the session starts on a fresh host"
+                        );
+                        self.pool_discard(vec![p]);
+                        return None;
+                    }
+                    // `stop_pool` may have drained the pool and the claims
+                    // while the entry was out of both.
+                    if self.pool.stopping.load(Ordering::SeqCst) {
                         self.pool_discard(vec![p]);
                         return None;
                     }

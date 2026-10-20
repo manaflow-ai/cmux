@@ -82,7 +82,7 @@ plistlib.dump({
     "CFBundlePackageType": "APPL",
     "CFBundleShortVersionString": "1.0",
     "CFBundleVersion": version,
-    "LSMinimumSystemVersion": "15.0",
+    "LSMinimumSystemVersion": "14.0",
     "LSUIElement": True,
     "NSHumanReadableCopyright": "GPL-3.0-or-later. Includes Cua Driver (MIT).",
     "CmuxHelperSourceTree": tree,

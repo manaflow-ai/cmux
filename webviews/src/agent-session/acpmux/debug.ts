@@ -9,6 +9,7 @@ import { loadRun, loadSeed, type LoadRunOptions } from "./loadDebug";
 import { workedTurnRows } from "./workedTurn";
 import { acpWire, type AcpWireLog } from "./wire";
 import { followTrace } from "./followTrace";
+import { composerChips, layoutWatch, type LayoutWatchOptions } from "./layoutWatch";
 
 // `window.cmuxAcpmuxDebug`, called by the DEBUG `debug.agent_pane` socket
 // method. The first measurement call turns on measurement (acpmuxPerf.enabled);
@@ -48,6 +49,8 @@ export type AcpmuxDebug = {
   openChanges(): Record<string, unknown>;
   setModel(model: string, effort?: string): Promise<Record<string, unknown>>;
   models(): Record<string, unknown>;
+  /** What moved on the page after it first showed its content, watched for `ms` (layoutWatch.ts). */
+  layoutWatch(options?: LayoutWatchOptions): Promise<Record<string, unknown>>;
   /** Streams a scripted reply into a long synthetic transcript and reports the frames (streamDebug.ts). */
   stream(options?: StreamOptions): Promise<Record<string, unknown>>;
   /** Opens a mock session of `turns` heavy turns through the real client (loadDebug.ts). */
@@ -73,9 +76,12 @@ function openMenuRows(
     const box = row.getBoundingClientRect();
     return box.height > 0 && box.top >= top - 0.5 && box.bottom <= bottom + 0.5;
   });
+  const dialog = popup.closest<HTMLElement>("[role=dialog]");
   return {
     rows: rows.length,
     shown_in_page: whole.length,
+    height: Math.round(frame.height),
+    ...(dialog ? { dialog_height: Math.round(dialog.getBoundingClientRect().height) } : {}),
     // A Base UI menu marks its positioner; a list the page positions itself, itself (popupHost.ts).
     escaped: popup.hasAttribute("data-escaped") || (popup.parentElement?.hasAttribute("data-escaped") ?? false),
   };
@@ -247,7 +253,16 @@ export function createAcpmuxDebug(
 
     chatState() {
       return host.automation
-        ? { ...automation.automationState(host.automation), follow: followTrace.snapshot() }
+        ? {
+            ...automation.automationState(host.automation),
+            follow: followTrace.snapshot(),
+            // The summary card as drawn (summary/SummaryCard.tsx), and the subagent this pane shows.
+            summaryCard: summaryCardState(),
+            subagentOf: document.querySelector(".cv-subagent-of__parent")?.textContent ?? null,
+            // The composer's chips as drawn (model, effort, access), keyed by their menu label.
+            composer: composerChips(),
+            focused: document.hasFocus(),
+          }
         : NO_AUTOMATION;
     },
     async sendPrompt(text) {
@@ -276,6 +291,9 @@ export function createAcpmuxDebug(
     models() {
       return host.automation ? automation.models(host.automation) : NO_AUTOMATION;
     },
+    layoutWatch(options = {}) {
+      return layoutWatch(options);
+    },
     stream(options = {}) {
       return runStream(host.replaceRows, options);
     },
@@ -287,5 +305,19 @@ export function createAcpmuxDebug(
     loadRun(options = {}) {
       return loadRun({ sessionId: () => host.sessionId?.(), rowCount: host.rowCount }, options);
     },
+  };
+}
+
+/// The summary card's rows as drawn: each subagent's name and status, or null with no card.
+function summaryCardState() {
+  const card = document.querySelector(".acpmux-summary-card");
+  if (!card) return null;
+  return {
+    collapsed: card.hasAttribute("data-collapsed"),
+    agents: [...card.querySelectorAll<HTMLElement>(".acpmux-summary-agent")].map((row) => ({
+      name: row.querySelector(".acpmux-summary-agent__name")?.textContent ?? "",
+      status: row.dataset.status ?? "",
+      current: row.getAttribute("aria-current") === "true",
+    })),
   };
 }

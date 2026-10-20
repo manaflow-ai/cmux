@@ -45,7 +45,13 @@ final class SidebarRows {
             shown.isCollapsed = fold.collapsed
             sections[s].nodes[n] = .group(shown)
         }
-        model.setSections(sections)
+        model.setSections(model.priorityOrdering ? SidebarPriority().reordered(sections) : sections)
+    }
+
+    /// Row content of listed workspaces changed (`SidebarRowFeed`): written in place, or shown again when it moves rows.
+    func patch(_ changed: [SidebarWorkspace]) {
+        live = SidebarSection.patching(changed, in: live)
+        if !model.patchWorkspaces(changed) { show() }
     }
 
     /// Folds or opens `group` at once and keeps that look until `body`

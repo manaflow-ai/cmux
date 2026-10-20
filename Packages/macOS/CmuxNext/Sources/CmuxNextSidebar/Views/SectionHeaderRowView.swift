@@ -61,6 +61,13 @@ final class SectionHeaderRowView: SidebarRowView {
             statusTone = nil
             badgeText = nil
             themedToolTip = nil
+        case let .custom(custom):
+            // A document section's own title (sidebar-v2); Pinned draws no header.
+            symbol = custom.id == SidebarDocStore.pinnedSection ? .statePinned : .folder
+            title = custom.title ?? ""
+            statusTone = nil
+            badgeText = nil
+            themedToolTip = nil
         case let .machine(machine):
             switch machine.kind {
             case .local: symbol = .machineLocal
@@ -115,13 +122,13 @@ final class SectionHeaderRowView: SidebarRowView {
             themedToolTip = nil
             setAccessibilityHelp(nil)
         }
-        if section.kind == .pinned || row.titlesProjects { setAccessibilityLabel(title) }
+        if section.machine == nil || row.titlesProjects { setAccessibilityLabel(title) }
         glyph.image = NSImage.icon(symbol, size: .iconRowSize(forLabelPointSize: SidebarStyle.headerFont.pointSize))
         machineIcon.configure(icon: ownIcon)
-        name.stringValue = title
-        name.font = SidebarStyle.headerFont
-        badge.stringValue = badgeText ?? ""
-        badge.font = SidebarStyle.headerFont
+        name.setString(title)
+        name.setFont(SidebarStyle.headerFont)
+        badge.setString(badgeText ?? "")
+        badge.setFont(SidebarStyle.headerFont)
         chevron.image = SidebarStyle.chevron(collapsed: collapsed)
         setAccessibilityElement(true)
         setAccessibilityRole(.disclosureTriangle)
@@ -137,10 +144,10 @@ final class SectionHeaderRowView: SidebarRowView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         performWithTheme {
-            name.textColor = Palette.textTertiary
-            badge.textColor = Palette.textTertiary
-            glyph.contentTintColor = Palette.textSecondary
-            chevron.contentTintColor = Palette.textTertiary
+            name.setColor(Palette.textTertiary)
+            badge.setColor(Palette.textTertiary)
+            glyph.setTint(Palette.textSecondary)
+            chevron.setTint(Palette.textTertiary)
             status.backgroundColor = statusTone.map(Self.color)?.cgColor
         }
         status.isHidden = statusTone == nil
@@ -175,7 +182,7 @@ final class SectionHeaderRowView: SidebarRowView {
             machineIcon.frame = NSRect(x: nameX, y: (b.height - side) / 2, width: side, height: side)
             nameX += side + Metrics.space2
         }
-        var trailing = b.width - Metrics.space2
+        var trailing = b.width - SidebarStyle.horizontalInset
         // The add button keeps its slot, so the name never re-truncates on hover.
         // Section actions stay available at rest. Hiding them until hover made
         // the bottom of the sidebar flash as the pointer crossed a header.
@@ -193,7 +200,8 @@ final class SectionHeaderRowView: SidebarRowView {
         trailing -= chevronSide + Metrics.space2
         let nw = min(ceil(name.attributedStringValue.size().width) + Metrics.space2, max(0, trailing - nameX - Metrics.space5))
         let nh = ceil(name.intrinsicContentSize.height)
-        name.frame = NSRect(x: nameX, y: (b.height - nh) / 2, width: nw, height: nh)
+        // The label cell draws inside its frame: the text starts where row titles do.
+        name.frame = NSRect(x: nameX - SidebarStyle.labelCellPadding, y: (b.height - nh) / 2, width: nw, height: nh)
         let dot = SidebarStyle.dotSize
         status.frame = CGRect(x: name.frame.maxX + Metrics.space2, y: (b.height - dot) / 2, width: dot, height: dot)
         status.cornerRadius = dot / 2

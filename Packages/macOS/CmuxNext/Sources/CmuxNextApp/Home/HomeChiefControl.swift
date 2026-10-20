@@ -15,7 +15,13 @@ import os
 struct HomeChiefControl {
     let services: AppServices
     let conversation: ConversationID
+    /// The default Chief's mux home (this build's Chief home).
     let muxHome: URL
+    /// The local Chief this conversation is with when it is not the default
+    /// (chief-brains-v1, cx-327wl): every control names it in `chief`, so the
+    /// panel, Stop and the avatar act on that Chief's own brain, never the
+    /// default's. Nil: the default Chief (or a cloud Chief).
+    var chief: String?
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "home")
 
     /// The `shared stop action` (palette, the compose bar's stop button, Esc
@@ -36,12 +42,25 @@ struct HomeChiefControl {
         isCloud ? server?.daemon.connection : services.home.connection
     }
 
+    /// The `chief` field of this conversation's controls: a local Chief that
+    /// is not the default; nil for the default and a cloud Chief.
+    var named: String? { isCloud ? nil : chief }
+
+    /// The mux home of the brain that answers here (ChiefHome.brainHome).
+    var brainHome: URL { ChiefHome.brainHome(muxHome: muxHome, chief: named) }
+
     /// The settings panel's source for this Chief.
     func engineSource() -> any HomeChiefEngineSource {
-        let files = HomeChiefFiles(muxHome: muxHome)
+        let files = HomeChiefFiles(muxHome: brainHome)
         let services = services
         guard isCloud else {
-            return HomeChiefLocalEngine(files: files, connection: { [weak services] in services?.home.connection })
+            // The owner daemon starts a named Chief's brain (chief_brains.rs);
+            // only the default Chief's host is this app's to start.
+            let named = named
+            return HomeChiefLocalEngine(files: files, connection: { [weak services] in services?.home.connection },
+                                        startBrain: { [weak services] asked in
+                                            named == nil ? services?.home.brain.ensure(asked: asked) ?? false : false
+                                        }, chief: named)
         }
         let conversation = conversation
         let muxHome = muxHome
@@ -56,7 +75,7 @@ struct HomeChiefControl {
     func stop() async -> HomeChiefEngineError? {
         guard let connection else { return .unreachable }
         do {
-            let stopped = try await ChiefControlClient(connection).stopChief()
+            let stopped = try await ChiefControlClient(connection).stopChief(chief: named)
             Self.logger.info("home: chief.stop answered stopped=\(stopped, privacy: .public)")
             return nil
         } catch let error as ChiefControlError {

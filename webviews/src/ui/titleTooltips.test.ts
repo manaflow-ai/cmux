@@ -4,6 +4,7 @@
 // Tooltips also carry a shortcut hint in the secondary ink, like the native one.
 import { afterEach, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
+import { HoverGroup, HoverIntent } from "./hoverIntent";
 import { installTooltips, tooltipWidth } from "./titleTooltips";
 
 test("a tooltip for truncated text wraps up to its source's width, never narrower than the line", () => {
@@ -32,11 +33,12 @@ async function hover(element: Element) {
   await new Promise((resolve) => dom!.window.requestAnimationFrame(resolve));
 }
 
-function page(body: string) {
+/** A page with title tooltips; the layout tests show them with no hover delay (the delay is tested below). */
+function page(body: string, options: Parameters<typeof installTooltips>[1] = { delay: 0 }) {
   dom = new JSDOM(`<!doctype html><body>${body}</body>`, { pretendToBeVisual: true });
   Object.defineProperty(dom.window.document.documentElement, "clientWidth", { value: 1000 });
   Object.defineProperty(dom.window.document.documentElement, "clientHeight", { value: 800 });
-  uninstall = installTooltips(dom.window.document);
+  uninstall = installTooltips(dom.window.document, options);
   return dom.window.document;
 }
 
@@ -101,17 +103,6 @@ test("an untruncated control's tooltip keeps the standard width and shows its sh
   expect(tip.querySelector(".ui-tooltip-hint")?.textContent).toBe("⌘T");
 });
 
-test("the first tooltip shows on the next frame after the first hover, with no delay", async () => {
-  // POLISH (Instant): tooltips open on the first frame, no hover delay on the first show.
-  const doc = page(`<button id="close" title="Close Tab"></button>`);
-  const button = doc.getElementById("close")!;
-  button.getBoundingClientRect = () => ({ left: 10, top: 10, width: 24, height: 24 }) as DOMRect;
-  await hover(button);
-  const tip = doc.querySelector<HTMLElement>(".ui-title-tooltip")!;
-  expect(tip.hidden).toBe(false);
-  expect(tip.querySelector(".ui-tooltip-text")?.textContent).toBe("Close Tab");
-});
-
 test("rows passing under a scroll do not flash their tooltips; the row under the pointer shows once it stops", async () => {
   // Review of #19902: with no hover delay, scrolling a list under a resting pointer flashed each row's tooltip.
   const doc = page(`<div id="a" title="First">a</div><div id="b" title="Second">b</div>`);
@@ -128,4 +119,136 @@ test("rows passing under a scroll do not flash their tooltips; the row under the
   await new Promise((resolve) => setTimeout(resolve, 400));
   expect(tip().hidden).toBe(false);
   expect(tip().querySelector(".ui-tooltip-text")?.textContent).toBe("Second");
+});
+
+// Leo, 2026-10-14: tooltips showed at once on every control the pointer passed. They wait the hover
+// delay (450 ms, ui/hoverIntent.ts) before the first, then show at once for a neighbor while the
+// group is warm, and cool 500 ms after the last one hid. A control whose own text says the tooltip
+// shows none (#20375). The timers run on a clock the test moves.
+class FakeClock {
+  now = 0;
+  private timers: { at: number; run: () => void; id: number }[] = [];
+  private next = 1;
+  set = (run: () => void, ms: number) => {
+    const id = this.next++;
+    this.timers.push({ at: this.now + ms, run, id });
+    return id;
+  };
+  clear = (id: unknown) => {
+    this.timers = this.timers.filter((timer) => timer.id !== id);
+  };
+  advance(ms: number) {
+    const end = this.now + ms;
+    for (;;) {
+      const due = this.timers.filter((timer) => timer.at <= end).sort((a, b) => a.at - b.at)[0];
+      if (!due) break;
+      this.timers = this.timers.filter((timer) => timer !== due);
+      this.now = due.at;
+      due.run();
+    }
+    this.now = end;
+  }
+}
+
+function toolbar(clock: FakeClock) {
+  const labels = ["Back", "Forward", "Reload", "Share", "Downloads"];
+  const doc = page(labels.map((label, index) => `<button id="b${index}" title="${label}"></button>`).join(""), {
+    clock,
+  });
+  const buttons = labels.map((_, index) => doc.getElementById(`b${index}`)!);
+  buttons.forEach((button, index) => {
+    button.getBoundingClientRect = () => ({ left: 10 + index * 30, top: 10, width: 24, height: 24 }) as DOMRect;
+  });
+  const tip = () => doc.querySelector<HTMLElement>(".ui-title-tooltip")!;
+  const text = () => (tip().hidden ? null : (tip().querySelector(".ui-tooltip-text")?.textContent ?? null));
+  return { doc, buttons, text };
+}
+
+async function leave(element: Element, into: Element | null = null) {
+  element.dispatchEvent(new dom!.window.MouseEvent("pointerout", { bubbles: true, relatedTarget: into }));
+  await new Promise((resolve) => dom!.window.requestAnimationFrame(resolve));
+}
+
+test("the first tooltip waits the hover delay; a neighbor's then shows at once until the group cools", async () => {
+  const clock = new FakeClock();
+  const { buttons, text } = toolbar(clock);
+  await hover(buttons[0]);
+  expect(text()).toBeNull();
+  clock.advance(300);
+  await hover(buttons[0]);
+  expect(text()).toBeNull();
+  clock.advance(200);
+  await new Promise((resolve) => dom!.window.requestAnimationFrame(resolve));
+  expect(text()).toBe("Back");
+  // Warm: straight to the neighbor, its tooltip at once.
+  await leave(buttons[0], buttons[1]);
+  await hover(buttons[1]);
+  expect(text()).toBe("Forward");
+  // Off the toolbar for less than the warm time: still at once.
+  await leave(buttons[1]);
+  expect(text()).toBeNull();
+  clock.advance(200);
+  await hover(buttons[2]);
+  expect(text()).toBe("Reload");
+  // Away past the warm time: the next waits the full delay again.
+  await leave(buttons[2]);
+  clock.advance(600);
+  await hover(buttons[3]);
+  expect(text()).toBeNull();
+  clock.advance(850);
+  await new Promise((resolve) => dom!.window.requestAnimationFrame(resolve));
+  expect(text()).toBe("Share");
+});
+
+test("a fast sweep across a toolbar shows no tooltip", async () => {
+  const clock = new FakeClock();
+  const { buttons, text } = toolbar(clock);
+  const seen: string[] = [];
+  for (const [index, button] of buttons.entries()) {
+    await hover(button);
+    clock.advance(60);
+    const shown = text();
+    if (shown) seen.push(shown);
+    await leave(button, buttons[index + 1] ?? null);
+  }
+  clock.advance(1500);
+  await new Promise((resolve) => dom!.window.requestAnimationFrame(resolve));
+  const shown = text();
+  if (shown) seen.push(shown);
+  expect(seen).toEqual([]);
+});
+
+test("a control whose own text says the tooltip shows none", async () => {
+  const clock = new FakeClock();
+  const doc = page(`<button id="reload" title="Reload">Reload</button><button id="icon" title="Back"></button>`, {
+    clock,
+  });
+  for (const id of ["reload", "icon"])
+    doc.getElementById(id)!.getBoundingClientRect = () => ({ left: 10, top: 10, width: 60, height: 24 }) as DOMRect;
+  const tip = () => doc.querySelector<HTMLElement>(".ui-title-tooltip")!;
+  await hover(doc.getElementById("reload")!);
+  clock.advance(2000);
+  await new Promise((resolve) => dom!.window.requestAnimationFrame(resolve));
+  expect(tip().hidden).toBe(true);
+  // An icon-only control still shows its own.
+  await leave(doc.getElementById("reload")!, doc.getElementById("icon"));
+  await hover(doc.getElementById("icon")!);
+  clock.advance(2000);
+  await new Promise((resolve) => dom!.window.requestAnimationFrame(resolve));
+  expect(tip().hidden).toBe(false);
+  expect(tip().querySelector(".ui-tooltip-text")?.textContent).toBe("Back");
+});
+
+test("a key typed while a toolbar hint waits drops it: it does not pop up mid-typing", async () => {
+  const clock = new FakeClock();
+  const group = new HoverGroup(500, clock);
+  const doc = page(`<button id="b" title="Back"></button>`, { clock, group });
+  // A toolbar hint (ui/Toolbar.tsx) in the same group, waiting its delay.
+  const hint: string[] = [];
+  const toolbarHint = new HoverIntent<string>({ group, clock, show: (id) => hint.push(id), hide: () => {} });
+  toolbarHint.hover("Share");
+  clock.advance(200);
+  doc.dispatchEvent(new dom!.window.KeyboardEvent("keydown", { key: "a", bubbles: true }));
+  clock.advance(2000);
+  expect(hint).toEqual([]);
 });

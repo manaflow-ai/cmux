@@ -63,7 +63,10 @@ pub(crate) fn program_status(
             message: decoder.optional_string()?,
             updated_seq: decoder.u64()?,
             updated_at_ms: decoder.u64()?,
+            since_ms: 0,
         };
+        // Older hosts and this layout carry no state start: count from the last report.
+        let record = ProgramStatusRecord { since_ms: record.updated_at_ms, ..record };
         records.push((id, record));
     }
     Ok(ProgramStatusSnapshot { records, next_seq })

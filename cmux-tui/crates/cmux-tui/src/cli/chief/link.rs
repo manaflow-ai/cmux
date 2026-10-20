@@ -42,6 +42,8 @@ pub(super) struct Link {
     reader: BufReader<Box<dyn Stream>>,
     writer: Box<dyn Stream>,
     next_id: u64,
+    /// The socket came from `--socket` (not derived): a timeout hints at a wrong socket.
+    given: bool,
 }
 
 /// A Chief brain's own session lives under `~/.cmux/brains/`; every
@@ -72,7 +74,7 @@ impl Link {
         let stream = cmux_tui_core::server::connect_session_socket(socket, derived)?;
         stream.set_read_timeout(Some(REQUEST_TIMEOUT))?;
         let writer = stream.try_clone_box()?;
-        Ok(Self { reader: BufReader::new(stream), writer, next_id: 1 })
+        Ok(Self { reader: BufReader::new(stream), writer, next_id: 1, given: !derived })
     }
 
     /// Sends `operation` and waits for its response, skipping other lines.
@@ -92,7 +94,7 @@ impl Link {
             .map_err(|e| LinkError::Transport(e.to_string()))?;
         loop {
             let value = read_line(&mut self.reader)
-                .map_err(|e| LinkError::Transport(e.to_string()))?
+                .map_err(|e| read_failed(e, self.given))?
                 .ok_or_else(|| LinkError::Transport(super::messages::messages().lost.into()))?;
             if value.get("type").and_then(Value::as_str) != Some("response")
                 || value.get("id").and_then(Value::as_str) != Some(&id)
@@ -109,7 +111,19 @@ impl Link {
                 Some(reason) if !reason.is_empty() => format!("{}: {reason}", text("code")),
                 _ => text("code"),
             };
-            return Err(LinkError::Rejected { code, message: text("message") });
+            // cx-8mla8: operation.failed carries the reason as its message and
+            // the daemon's own words in details.extra.message; show those.
+            let detail = error
+                .pointer("/details/extra/message")
+                .and_then(Value::as_str)
+                .filter(|m| !m.trim().is_empty());
+            let mut message =
+                detail.map_or_else(|| text("message"), crate::cli::wire::sanitize_remote_text);
+            if let Some(id) = error.pointer("/details/extra/request_id").and_then(Value::as_str) {
+                let id = crate::cli::wire::sanitize_remote_text(id);
+                message.push_str(&format!(" (Request ID {id})"));
+            }
+            return Err(LinkError::Rejected { code, message });
         }
     }
 
@@ -133,7 +147,7 @@ impl Link {
             .map_err(|e| LinkError::Transport(e.to_string()))?;
         loop {
             let value = read_line(&mut self.reader)
-                .map_err(|e| LinkError::Transport(e.to_string()))?
+                .map_err(|e| read_failed(e, self.given))?
                 .ok_or_else(|| LinkError::Transport(super::messages::messages().lost.into()))?;
             if value.get("id").and_then(Value::as_str) != Some(&id) || value.get("type").is_some() {
                 continue;
@@ -191,6 +205,21 @@ impl Link {
             })
             .map(|_| ())
             .map_err(|e| LinkError::Transport(e.to_string()))
+    }
+}
+
+/// A read error as the CLI says it: a request that met the read timeout
+/// (EAGAIN on macOS) names the timeout, not "Resource temporarily
+/// unavailable"; on a `--socket` the CLI did not derive, it also names a
+/// wrong socket.
+fn read_failed(error: io::Error, given: bool) -> LinkError {
+    let m = super::messages::messages();
+    match error.kind() {
+        io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut => LinkError::Transport(
+            if given { m.no_answer_socket } else { m.no_answer }
+                .replace("{secs}", &REQUEST_TIMEOUT.as_secs().to_string()),
+        ),
+        _ => LinkError::Transport(error.to_string()),
     }
 }
 

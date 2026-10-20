@@ -9,10 +9,11 @@ public import Foundation
 /// `updates.installOnQuit`.
 extension UpdaterService {
     /// The notice card's update status, or nil (``UpdateFlow/card``); a
-    /// found update the user dismissed stays hidden until a newer one.
+    /// found update the person closed or snoozed (``updateSnooze``) stays
+    /// hidden; a check they ask for clears that first (``checkForUpdates()``).
     public var card: UpdateCard? {
         guard let card = flow.card else { return nil }
-        if case .available(let version) = card, dismissedAvailableVersion == (version ?? "") { return nil }
+        if case .available(let version) = card, updateSnooze.hides(version: version, at: now()) { return nil }
         return card
     }
 
@@ -86,6 +87,7 @@ extension UpdaterService {
     func syncFlowPhase() {
         let phase = indicatorPhase
         guard phase != flow.phase else { return }
+        if userCheckRunning, phase != .checking { userCheckRunning = false }
         #if DEBUG
         if phase.harnessName != flow.phase.harnessName { UpdateHarness.mark("phase.\(phase.harnessName)") }
         if case .note = phase, let controller,

@@ -91,6 +91,18 @@ pub struct ClosedItemSnapshot {
     pub additional: BTreeMap<String, Value>,
 }
 
+/// What `workspace.close` with `report_closed_ids` closed.
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+pub struct WorkspaceCloseResult {
+    /// The closed groups the close stored, oldest first (empty for an
+    /// ephemeral workspace); `reopen_closed` of each restores exactly that
+    /// close, also when other closed workspaces share its name.
+    #[serde(default)]
+    pub closed_ids: Vec<String>,
+    #[serde(flatten)]
+    pub additional: BTreeMap<String, Value>,
+}
+
 /// What `closed.reopen` restored.
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 pub struct ClosedReopenResult {
@@ -267,5 +279,24 @@ fn validate_window(window: Option<&str>) -> Result<()> {
             )))
         }
         _ => Ok(()),
+    }
+}
+
+impl Workspace {
+    /// `workspace.close` that also names the closed groups it stored
+    /// (`report_closed_ids`), so an Undo reopens exactly this close.
+    pub fn close_reporting(&self) -> Result<MutationResult<WorkspaceCloseResult>> {
+        self.close_reporting_with(MutationOptions::unique()?)
+    }
+
+    pub fn close_reporting_with(
+        &self,
+        mutation: MutationOptions,
+    ) -> Result<MutationResult<WorkspaceCloseResult>> {
+        let params = self.params().value("report_closed_ids", Value::Bool(true));
+        mutation_snapshot(
+            self.session.client.mutate(ops::WORKSPACE_CLOSE, params, mutation)?,
+            "workspace close result",
+        )
     }
 }

@@ -2,7 +2,7 @@ import { DurableObject } from "cloudflare:workers"
 import { LEDGER_RETENTION_MS, OwnerEngine, type Domain, type EngineOptions, type EventFrame, type OpFrame, type OutboxFailure, type OwnerFrame, type Principal, type Reject, type SqlStore } from "@cmux/ownership"
 import type { Env } from "./env.ts"
 import { groupTargets, type DeliverResult, type TargetItem } from "./do-outbox.ts"
-import { DEAD_REPLAY_MS, drainOutboxChannels } from "./owner-outbox.ts"
+import { DEAD_REPLAY_MS, drainOutboxChannels, isWakeChannel } from "./owner-outbox.ts"
 import { boundEntityOf, createBinding, isBoundTo, refusalOnInitial } from "./owner-preflight.ts"
 import { closeQuietly, SocketGate } from "./socket-gate.ts"
 import { AlarmSerial } from "./alarm-serial.ts"
@@ -112,6 +112,9 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
   /** Whether this owner asks UserDO about install revocation (UserDO closes its own sockets on revoke). */
   protected checksInstallRevocation = true
   private readonly alarmSerial = new AlarmSerial()
+  /** The commit-time drain of Chief wake channels in flight (afterCommit), and whether a commit came during it. */
+  private wakeDrain: Promise<void> | undefined
+  private wakeAgain = false
   private readonly gate = new SocketGate(this.ctx, this.env, () => this.checksInstallRevocation, (ws, a) => {
     if (a.subscribed && this.engine) safeSend(ws, this.snapshotFor(this.engine, a.principal, []))
   })
@@ -334,12 +337,31 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
    * failed drain is backing off; its retry alarm stays), or to the owner's next
    * wake. Never moves it later: the alarm handler computes the next time itself.
    */
+  private drainWakes(now: number): void {
+    if (!this.engine) return
+    if (this.wakeDrain) return void (this.wakeAgain = true)
+    if (!this.engine.outbox.dueChannels(now).some(isWakeChannel)) return
+    this.wakeDrain = drainOutboxChannels(this.engine, this.env, (c) => this.targetNamespace(c), undefined, undefined, isWakeChannel)
+      .catch(() => undefined)
+      .finally(() => {
+        this.wakeDrain = undefined
+        if (this.wakeAgain) [(this.wakeAgain = false), this.drainWakes(Date.now())]
+      })
+    this.ctx.waitUntil(this.wakeDrain)
+  }
+
   private afterCommit() {
     if (!this.engine) return
     const now = Date.now()
     // Per channel: a backed-off channel waits, a healthy one drains now (outbox.ts).
     const want = earliest(this.engine.outbox.nextDueAt(now), this.wakeAt(now))
     if (want === null) return
+    // A Chief's wake goes at once, not after the alarm fires (and after a running alarm's slow projection):
+    // a person waits on it (staging: 1-2.4 s from the message to the brain). The alarm still drains everything,
+    // so a failed send here is retried there; MuxDO takes a repeated delivery once (item ids).
+    // One commit-time drain at a time per object: a slow or hung MuxDO is not sent the same rows once per commit
+    // (and one fault never counts as many); a commit during the drain looks again when it ends.
+    this.drainWakes(now)
     // setAlarm refuses a time <= 0; a past time fires at once, so the alarm never goes before now.
     const at = Math.max(want, now)
     void this.ctx.storage.getAlarm().then((t) => (t === null || t > at ? this.ctx.storage.setAlarm(at) : undefined))
@@ -382,6 +404,8 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
     return this.bind(entity).debugDump()
   }
 
+  /** Capabilities this owner's socket announces in `welcome.capabilities` (e.g. ConversationDO: chief-live-v1). */
+  protected readonly welcomeCapabilities: ReadonlyArray<string> = []
   /** WebSocket gateway (cmux.wire/1 subset). The Worker sets the principal headers after authentication. */
   override async fetch(request: Request): Promise<Response> {
     const entity = request.headers.get("x-cmux-entity")
@@ -398,7 +422,7 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
     // The Worker checked the install just now; the alarm closes the socket at its token's expiry.
     this.gate.seed(server, principal, { cls: this.constructor.name, name: entity })
     this.afterCommit()
-    safeSend(server, JSON.stringify({ t: "welcome", principal: { user: principal.user, team: principal.team, install: principal.install }, server_time: Date.now(), streams: [engine.stream] }))
+    safeSend(server, JSON.stringify({ t: "welcome", principal: { user: principal.user, team: principal.team, install: principal.install }, server_time: Date.now(), streams: [engine.stream], ...(this.welcomeCapabilities.length > 0 ? { capabilities: this.welcomeCapabilities } : {}) }))
     return new Response(null, { status: 101, webSocket: client, headers: { "Sec-WebSocket-Protocol": "cmux.wire.v1" } })
   }
 
@@ -461,9 +485,7 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
   override async webSocketClose(ws: WebSocket, code: number) {
     this.gate.closed(ws)
     // 1005/1006 are reserved: they report "no code" and "abnormal" and cannot be sent.
-    try {
-      ws.close(code === 1005 || code === 1006 ? 1000 : code, "closing")
-    } catch {}
+    try { ws.close(code === 1005 || code === 1006 ? 1000 : code, "closing") } catch {}
   }
 
   /**

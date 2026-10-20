@@ -105,26 +105,51 @@ fn a_page_relay_connection_cannot_mint_with_a_legacy_command() {
 }
 
 /// Pages speak only `cmux.protocol/2` through the relay, so every legacy
-/// line on a page relay is refused (default deny), except `identify`.
+/// line on a page relay is refused (default deny), except `identify` and,
+/// by design (`page-events-v1`, spec/page-router.md "Events"), a plain
+/// `subscribe` from a relay whose page names events. A relay whose page names
+/// no event, or a `subscribe` with a `surface` output stream, is refused with
+/// `reason: page_events`.
 #[test]
 fn a_page_relay_connection_refuses_every_legacy_command_but_identify() {
-    let mux = mux("relay-deny");
-    let mut client = Client::connect(&mux, "mint-relay-deny");
-    assert_eq!(client.hello(json!({"role": "page_relay"}))["ok"], true);
-    for request in [
+    let legacy = [
         json!({"cmd": "ping"}),
         json!({"cmd": "list-workspaces"}),
         json!({"cmd": "read-screen", "surface": 1}),
         json!({"cmd": "send", "surface": 1, "text": "id\n"}),
-        json!({"cmd": "subscribe"}),
         json!({"cmd": "some-future-command"}),
         json!({"no_cmd": true}),
-    ] {
-        let reply = client.request(request.clone());
-        assert_legacy_forbidden(&reply, "page");
-        assert_eq!(reply["error_details"]["required"], "agent", "{request} -> {reply}");
-    }
+    ];
+    let assert_default_deny = |client: &mut Client| {
+        for request in &legacy {
+            let reply = client.request(request.clone());
+            assert_legacy_forbidden(&reply, "page");
+            assert_eq!(reply["error_details"]["required"], "agent", "{request} -> {reply}");
+        }
+    };
+    let assert_page_events_refusal = |reply: &Value| {
+        assert_legacy_forbidden(reply, "page");
+        assert_eq!(reply["error_details"]["reason"], "page_events", "{reply}");
+    };
+
+    // A relay without a page hears no event: `subscribe` stays refused.
+    let mux = mux("relay-deny");
+    let mut client = Client::connect(&mux, "mint-relay-deny");
+    assert_eq!(client.hello(json!({"role": "page_relay"}))["ok"], true);
+    assert_default_deny(&mut client);
+    assert_page_events_refusal(&client.request(json!({"cmd": "subscribe"})));
     assert_eq!(client.identify()["ok"], true);
+    drop(client);
+
+    // The history page hears history-changed: only its plain `subscribe` is
+    // admitted; a surface output stream and every other legacy line are not.
+    let (surface, _) = terminal(&mux);
+    let mut client = Client::connect(&mux, "mint-relay-history");
+    let hello = client.hello(json!({"role": "page_relay", "page": "history"}));
+    assert_eq!(hello["data"]["page_events"], json!(["history-changed"]), "{hello}");
+    assert_page_events_refusal(&client.request(json!({"cmd": "subscribe", "surface": surface})));
+    assert_eq!(client.request(json!({"cmd": "subscribe"}))["ok"], true);
+    assert_default_deny(&mut client);
 }
 
 #[test]

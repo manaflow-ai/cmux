@@ -242,9 +242,11 @@ test("Clear History offers each range and clears only the kind the chip shows", 
   await click(menuItem("Last Hour")!);
   expect(provider.last(HistoryOps.clear)).toMatchObject({ range: "hour", kinds: ["command"] });
 
-  // The daemon never clears locations (the app's trail), so Clear is off under that chip.
+  // The daemon owns the trail (cx-hnmbt.12), so Clear also works under that chip.
   await click(button("Locations"));
-  expect(button("Clear History…").disabled).toBe(true);
+  await click(button("Clear History…"));
+  await click(menuItem("All Time")!);
+  expect(provider.last(HistoryOps.clear)).toMatchObject({ range: "all", kinds: ["location"] });
 });
 
 test("in Japanese every string of the page is the Japanese one", async () => {

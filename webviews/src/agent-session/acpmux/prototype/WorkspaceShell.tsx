@@ -294,21 +294,19 @@ export function WorkspaceShell() {
           <span>{space.name}</span>
           <ProfileChip id={space.browserProfile} />
         </div>
-        {items.groupByStatus ? (
-          // Grouped by each workspace's most urgent agent, in this space's stack order.
-          <div key={space.id} className="proto-stack-list">
-            {groupByStatus(stack.workspaces, (workspace) => details.get(workspace.id)!.status).map((group) => (
+        <div className="proto-stack-list">
+          {items.groupByStatus ? (
+            // Grouped by each workspace's most urgent agent, in this space's stack order.
+            groupByStatus(stack.workspaces, (workspace) => details.get(workspace.id)!.status).map((group) => (
               <section key={group.status} className="proto-stack-group">
                 <StatusHeader group={group} />
                 <ul>{group.items.map(row)}</ul>
               </section>
-            ))}
-          </div>
-        ) : (
-          <ul key={space.id} className="proto-stack-list">
-            {stack.workspaces.map(row)}
-          </ul>
-        )}
+            ))
+          ) : (
+            <ul>{stack.workspaces.map(row)}</ul>
+          )}
+        </div>
         <SpaceDots spaces={spaces} onSelect={(id) => showSpaces(switchSpace(spaces, id))} />
       </nav>
 
@@ -557,7 +555,7 @@ function TerminalMock({ tab, onOpenLink }: { tab: WorkspaceTab; onOpenLink: () =
 function ProfileChip({ id }: { id: string }) {
   const profile = browserProfileById.get(id)!;
   return (
-    <span className="proto-profile" title={`Browser profile: ${profile.name}`}>
+    <span className="proto-profile">
       <i style={{ background: `var(--proto-${profile.color})` }} />
       {profile.name}
     </span>
@@ -650,12 +648,7 @@ function MiniBrowser({
             From {mini.source.label} · <b>{workspaceLead(target).title}</b>
           </span>
         </span>
-        <button
-          type="button"
-          className="proto-mini-promote"
-          title={`Open as a tab in ${workspaceLead(target).title}`}
-          onClick={onPromote}
-        >
+        <button type="button" className="proto-mini-promote" onClick={onPromote}>
           <PromoteIcon />
           Open as tab
           <kbd>⌘O</kbd>

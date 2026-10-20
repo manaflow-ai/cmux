@@ -49,6 +49,20 @@ origin `user` on top of the table.
 hq-99's rule (cmux#13742): `history.*` reads only for page `history`; a History delete needs page
 `history` and the person's gesture.
 
+Page `home-channels` may call `workspace.open_url` (cx-ebm.59.3) only on the person's gesture: the
+host proves a click on a web link in the Chief chat with a confirmation for that request on the
+page relay, and the link opens on the right side of the home workspace. The page's own WebSocket
+has no confirmation, so the call is refused there (`gesture_required`).
+
+With `chief-profile-ws-v1`, page `home-channels` also manages the person's Chiefs: it may call
+`chief.profile.list`, `chief.profile.get`, `chief.profile.avatar.get`, `chief.profile.avatar.set`
+and `chief.profile.update`, and `chief.profile.create` and `chief.profile.delete` only on the
+person's gesture. An update that names instructions, personality or a grant field (`tools`,
+`harnesses`, `harness`, `model`, `effort`, `self_edit`) needs the gesture too
+(`request_origin/page_access.rs`): without it the page changes only display_name, role and the
+avatar. Chief messages render links and rich text in this page, so injected content must not plant
+behavior a Chief acts on, widen its grant or delete it without the person's click. The page may call nothing else of the catalog.
+
 ## Events (`page-events-v1`)
 
 A page entry's `events` names the subscribe events (events.md) that page hears. A page relay's
@@ -72,7 +86,19 @@ map each one to its owner, so the same v2 envelope works on every host:
 
 | namespace | owner | read | mutation |
 | --- | --- | --- | --- |
-| `apps` | `apps.store` (the app supervisor's App Store, raw `apps-store {op, args}`) | `apps.catalog.list`, `apps.catalog.get`, `apps.installed.list` | `apps.set`, `apps.install`, `apps.uninstall` (page `apps`: `confirm`) |
+| `agent_session` | `agent_session.trust` (the folder trust of a chat of this machine, `agent-session-trust` in commands.md; Unix socket only) | `agent_session.trust.get` | `agent_session.trust.set` (page `agent`: `gesture`) |
+| `apps` | `apps.store` (the app supervisor's App Store, raw `apps-store {op, args}`) | `apps.catalog.list`, `apps.catalog.get`, `apps.installed.list`, `apps.grants.get`, `apps.logs`, `apps.asset.get` | `apps.set`, `apps.install`, `apps.uninstall`, `apps.grant.set` (page `apps`: `confirm`); `apps.hidden.set`, `apps.grant.revoke` (page `apps`: `gesture`) |
+
+The installed-app panels (cx-hnmbt.13): `apps.grants.get {app}` answers `{app, sandboxed, scopes:
+[{scope, reason, risk, optional, granted}]}` for an installed app (`apps.not_installed` otherwise);
+`apps.logs {app, limit?}` the last lines of the app's log ring (`{app, lines: [{level, message,
+ts_ms}]}`, at most 500, no stream: the page reads again); `apps.asset.get {app, path}` an image file
+of the package as `{app, path, data_url}` (png, jpeg, gif, webp or svg, at most 512 KiB, never a
+path outside the package). `apps.hidden.set {app, hidden}` is Hide/Show and `apps.grant.revoke {app,
+scope}` revokes a scope: neither widens what an app may do, so the Apps page needs only the
+person's gesture. `apps.grant.set {app, scope, granted}` sets a scope and needs the native sheet (a
+host shows it for an allow; a page revokes with `apps.grant.revoke`). Opening an app is a host verb (the page runs the host action `app.open`), never a
+daemon operation.
 
 A routed request is `{protocol, type: "request", id, operation, params, idempotency_key?,
 origin?}`; the response is the normal `cmux.protocol/2` response. The origin rules are the

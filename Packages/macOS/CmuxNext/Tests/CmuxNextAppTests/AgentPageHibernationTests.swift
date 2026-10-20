@@ -33,7 +33,7 @@ struct AgentPageHibernationTests {
         let start = ContinuousClock.now
 
         init() {
-            tabs = AgentTabStore(tag: nil, registry: ActionRegistry(),
+            tabs = AgentTabStore(build: nil, registry: ActionRegistry(),
                                  environment: [AgentPaneSource.devURLVariable: "http://127.0.0.1:9/"], showcase: true)
             tabs.localHost = AgentPageHibernationTests.thisMac
             turns.localHost = AgentPageHibernationTests.thisMac
@@ -82,7 +82,7 @@ struct AgentPageHibernationTests {
         rig.hibernation.update(setting: BrowserHibernationSetting(mode: .moderate), pressure: .normal)
         let page = try rig.hiddenChat("tab_quiet", session: "s-quiet")
         let busy = try rig.hiddenChat("tab_busy", session: "s-busy")
-        _ = rig.turns.states.set("s-busy", .working)
+        rig.turns.setState(.working, session: "s-busy")
 
         // Moderate: an hour hidden. At half an hour both pages stay.
         rig.advance(minutes: 30)

@@ -14,7 +14,13 @@ use crate::{JournalCheckpoint, JournalContentRef, JournalReplayPolicy, Mux, Sess
 pub(crate) const JOURNAL_REDUCER_VERSION: u32 = 1;
 const MAX_CHECKPOINT_TERMINALS: usize = 4096;
 const MAX_CHECKPOINT_UNCOMPRESSED_BYTES: u64 = 256 * 1024 * 1024;
+const CHECKPOINT_REPLAY_RETRY_BUDGETS: [usize; 3] = [
+    crate::surface::VT_REPLAY_MAX_BYTES,
+    crate::surface::VT_REPLAY_MAX_BYTES * 2,
+    crate::surface::VT_REPLAY_MAX_BYTES * 4,
+];
 const MAX_UNSUPPORTED_PREVIEW_RECORDS: usize = 1024;
+pub(crate) const MAX_CHECKPOINT_CAPTURE_ATTEMPTS: usize = 4;
 const RESOURCE_COLLECTIONS: [&str; 10] = [
     "workspaces",
     "screens",
@@ -36,6 +42,19 @@ pub(crate) struct CapturedCheckpoint {
 }
 
 pub(crate) fn capture(mux: &Mux) -> anyhow::Result<CapturedCheckpoint> {
+    for _ in 0..MAX_CHECKPOINT_CAPTURE_ATTEMPTS {
+        if let Some(captured) = capture_attempt(mux)? {
+            return Ok(captured);
+        }
+        #[cfg(test)]
+        if let Some(hook) = tests::AFTER_RECOVERY_HOOK.with_borrow_mut(Option::take) {
+            hook();
+        }
+    }
+    anyhow::bail!("terminal replay recovery did not settle during checkpoint capture")
+}
+
+fn capture_attempt(mux: &Mux) -> anyhow::Result<Option<CapturedCheckpoint>> {
     // Drain every output frame that reached ingress before the capture fence.
     // Per-terminal epochs below reject a parser snapshot taken while its
     // corresponding journal frame is still being enqueued.
@@ -70,22 +89,14 @@ pub(crate) fn capture(mux: &Mux) -> anyhow::Result<CapturedCheckpoint> {
         "checkpoint contains more than {MAX_CHECKPOINT_TERMINALS} terminals"
     );
 
-    let mut total_bytes = 0_u64;
-    let mut blobs = Vec::new();
-    for terminal_id in terminal_ids {
-        let Some(surface) = mux.terminal_resource_surface(&terminal_id) else { continue };
-        let blob = terminal_replay_blob(&surface, &terminal_id)?;
-        total_bytes = total_bytes
-            .checked_add(blob.reference.uncompressed_bytes)
-            .context("checkpoint content byte count overflow")?;
-        anyhow::ensure!(
-            total_bytes <= MAX_CHECKPOINT_UNCOMPRESSED_BYTES,
-            "checkpoint terminal content exceeds {MAX_CHECKPOINT_UNCOMPRESSED_BYTES} bytes"
-        );
-        blobs.push(blob);
+    let (blobs, recovered) = capture_terminal_blobs(mux, &terminal_ids)?;
+    mux.flush_terminal_journal()?;
+    if recovered {
+        // CAN advances the journal. Start a complete new attempt so terminal
+        // IDs and extension manifests come from the new consistency cut too.
+        return Ok(None);
     }
 
-    mux.flush_terminal_journal()?;
     // Verify against one cut as well, so a write landing between two separate
     // head and cursor reads cannot fail a capture that was in fact stable.
     let (verify_snapshot, head_after) =
@@ -96,7 +107,7 @@ pub(crate) fn capture(mux: &Mux) -> anyhow::Result<CapturedCheckpoint> {
         head_before == head_after && snapshot["cursor"] == cursor_after,
         "session changed during checkpoint capture"
     );
-    Ok(CapturedCheckpoint {
+    Ok(Some(CapturedCheckpoint {
         source_sequence: head_after,
         state: json!({
             "session_snapshot":snapshot,
@@ -106,6 +117,43 @@ pub(crate) fn capture(mux: &Mux) -> anyhow::Result<CapturedCheckpoint> {
             },
         }),
         blobs,
+    }))
+}
+
+fn capture_terminal_blobs(
+    mux: &Mux,
+    terminal_ids: &[TerminalPublicId],
+) -> anyhow::Result<(Vec<JournalContentBlob>, bool)> {
+    let mut total_bytes = 0_u64;
+    let mut recovered = false;
+    let mut blobs = Vec::new();
+    for terminal_id in terminal_ids {
+        let Some(surface) = mux.terminal_resource_surface(terminal_id) else { continue };
+        let (blob, terminal_recovered) = terminal_replay_blob_with_recovery(&surface, terminal_id)?;
+        recovered |= terminal_recovered;
+        total_bytes = total_bytes
+            .checked_add(blob.reference.uncompressed_bytes)
+            .context("checkpoint content byte count overflow")?;
+        anyhow::ensure!(
+            total_bytes <= MAX_CHECKPOINT_UNCOMPRESSED_BYTES,
+            "checkpoint terminal content exceeds {MAX_CHECKPOINT_UNCOMPRESSED_BYTES} bytes"
+        );
+        blobs.push(blob);
+    }
+    Ok((blobs, recovered))
+}
+
+pub(crate) fn capture_error_is_retryable(error: &anyhow::Error) -> bool {
+    error.chain().any(|cause| {
+        let message = cause.to_string();
+        [
+            "session changed during checkpoint capture",
+            "session journal changed during checkpoint capture",
+            "terminal changed during replay capture",
+            "terminal journal ingress is unsettled during replay capture",
+        ]
+        .iter()
+        .any(|reason| message.contains(reason))
     })
 }
 
@@ -117,6 +165,13 @@ pub(crate) fn terminal_replay_blob(
     surface: &crate::Surface,
     terminal_id: &TerminalPublicId,
 ) -> anyhow::Result<JournalContentBlob> {
+    terminal_replay_blob_with_recovery(surface, terminal_id).map(|(blob, _)| blob)
+}
+
+fn terminal_replay_blob_with_recovery(
+    surface: &crate::Surface,
+    terminal_id: &TerminalPublicId,
+) -> anyhow::Result<(JournalContentBlob, bool)> {
     let epoch_before = surface
         .terminal_journal_capture_epoch()
         .context("captured terminal is not a PTY surface")?;
@@ -124,11 +179,56 @@ pub(crate) fn terminal_replay_blob(
         epoch_before & 1 == 0,
         "terminal journal ingress is unsettled during replay capture"
     );
-    let (cols, rows, replay) = surface.try_with_terminal(|terminal| {
-        terminal
-            .vt_replay_bounded(crate::surface::VT_REPLAY_MAX_BYTES)
-            .map(|replay| (terminal.cols(), terminal.rows(), replay))
-    })??;
+    let (cols, rows, replay, recovered) = {
+        let mut last_error = None;
+        let mut captured = None;
+        let mut recovered = false;
+        for budget in CHECKPOINT_REPLAY_RETRY_BUDGETS {
+            let result = surface
+                .try_with_terminal(|terminal| {
+                    terminal
+                        .vt_replay_bounded(budget)
+                        .map(|replay| (terminal.cols(), terminal.rows(), replay))
+                })
+                .with_context(|| format!("terminal {terminal_id} replay capture"))?;
+            match result {
+                Ok(value) => {
+                    captured = Some(value);
+                    break;
+                }
+                Err(ghostty_vt::Error::OutOfSpace) => {
+                    last_error = Some(anyhow::Error::new(ghostty_vt::Error::OutOfSpace));
+                }
+                Err(error) => {
+                    return Err(anyhow::anyhow!(
+                        "terminal {terminal_id} replay capture failed: {error}"
+                    ));
+                }
+            }
+        }
+        if captured.is_none() {
+            let result = surface
+                .discard_unreplayable_replay_with(|terminal| {
+                    terminal
+                        .vt_replay_bounded(CHECKPOINT_REPLAY_RETRY_BUDGETS[0])
+                        .map(|replay| (terminal.cols(), terminal.rows(), replay))
+                })
+                .with_context(|| format!("terminal {terminal_id} replay recovery"))?;
+            if let Some(Ok(value)) = result {
+                captured = Some(value);
+                recovered = true;
+            } else {
+                return Err(anyhow::anyhow!(
+                    "terminal {terminal_id} replay capture failed after retrying larger buffers: {}",
+                    last_error
+                        .map(|error| error.to_string())
+                        .unwrap_or_else(|| "buffer too small".into())
+                ));
+            }
+        }
+        let (cols, rows, replay) = captured.expect("replay recovery must either capture or return");
+        (cols, rows, replay, recovered)
+    };
     let epoch_after = surface
         .terminal_journal_capture_epoch()
         .context("captured terminal is not a PTY surface")?;
@@ -168,7 +268,7 @@ pub(crate) fn terminal_replay_blob(
     let digest = Sha256::digest(&uncompressed);
     let digest_hex = encode_hex(digest.as_slice());
     let compressed = gzip_deterministic(&uncompressed)?;
-    JournalContentBlob::verified(
+    let blob = JournalContentBlob::verified(
         JournalContentRef {
             content_id: format!("jcontent_{digest_hex}"),
             terminal_id: terminal_id.as_str().into(),
@@ -180,7 +280,8 @@ pub(crate) fn terminal_replay_blob(
             rows,
         },
         compressed,
-    )
+    )?;
+    Ok((blob, recovered))
 }
 
 #[cfg(test)]
@@ -748,6 +849,11 @@ mod tests {
     };
     use std::sync::Arc;
 
+    thread_local! {
+        pub(super) static AFTER_RECOVERY_HOOK: std::cell::RefCell<Option<Box<dyn FnOnce()>>> =
+            std::cell::RefCell::new(None);
+    }
+
     fn terminal_replay_checkpoint() -> JournalCheckpoint {
         JournalCheckpoint {
             checkpoint_id: "checkpoint_terminal_replay".into(),
@@ -1194,6 +1300,25 @@ mod tests {
             "producer_1",
         )
         .unwrap();
+        for index in 0..1_100 {
+            mux.append_journal_ingress(
+                &crate::JournalIngress {
+                    producer_id: "segment_test".into(),
+                    manifest_version: 1,
+                    kind: "plugin.segment_test.event".into(),
+                    schema_version: 1,
+                    occurred_at_ms: None,
+                    subjects: vec![],
+                    sensitivity: None,
+                    payload: json!({"index": index}),
+                    causation_id: None,
+                    correlation_id: None,
+                },
+                "client_test",
+                &format!("segment_event_{index}"),
+            )
+            .unwrap();
+        }
         let checkpoint = mux.create_journal_checkpoint("client_test", "checkpoint_1").unwrap();
         let before = mux.session_journal_after(0, 1024).unwrap().records;
         let seal = mux
@@ -1203,11 +1328,22 @@ mod tests {
                 "segment_1",
             )
             .unwrap();
-        assert_eq!(seal.through_sequence, checkpoint.checkpoint.source_sequence);
+        assert!(seal.through_sequence < checkpoint.checkpoint.source_sequence);
+        assert!(seal.segments.iter().all(|segment| segment.record_count <= 1_024));
         assert!(!seal.segments.is_empty());
+        let stored_segments = mux.journal_segments().unwrap();
+        assert_eq!(stored_segments.len(), seal.segments.len());
+        assert!(stored_segments.iter().all(|segment| segment.record_count <= 1_024));
+        let second_seal = mux
+            .seal_journal_segments(
+                checkpoint.checkpoint.source_sequence,
+                "client_test",
+                "segment_2",
+            )
+            .unwrap();
+        assert_eq!(second_seal.through_sequence, checkpoint.checkpoint.source_sequence);
         let after = mux.session_journal_after(0, 1024).unwrap().records;
         assert_eq!(&after[..before.len()], before.as_slice());
-        assert_eq!(after.last().unwrap().kind, "journal.segment.sealed");
         let preview = mux.journal_restore_preview("latest").unwrap();
         assert_eq!(preview["fully_reducible"], true);
 

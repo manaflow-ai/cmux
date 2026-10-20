@@ -6,7 +6,8 @@ import CmuxNextIcons
 /// Borderless icon button with gray hover and press fills (no accent color).
 final class ChromeIconButton: NSButton {
     private let density = DensityBinding()
-    private var iconName = IconName.placeholder
+    /// The pack icon the button draws (`BrowserToolbarReport.icons`).
+    private(set) var iconName = IconName.placeholder
     private var iconLabel = ""
     /// Where the pointer is now (`OmnibarPointer`); a disabled button shows none.
     private var hover: PointerHover?
@@ -15,13 +16,20 @@ final class ChromeIconButton: NSButton {
     /// Toolbar buttons use the omnibar geometry (`OmnibarStyle`); others the
     /// compact overlay size.
     private let isToolbar: Bool
+    /// False where the tooltip would only repeat the icon's name (Back,
+    /// Forward, Reload/Stop, More: Lawrence 2026-10-13). The accessibility
+    /// label stays.
+    var showsToolTip: Bool {
+        didSet { if showsToolTip != oldValue { themedToolTip = showsToolTip ? iconLabel : nil } }
+    }
     /// A menu for right-click and long-press (Back / Forward entries).
     var menuProvider: (() -> NSMenu?)?
     private let holdTimer = DemandTimer(owner: "ChromeIconButton.hold")
     private var showedHoldMenu = false
 
-    init(icon: IconName, label: String, action: Selector?, target: AnyObject?, toolbar: Bool = false) {
+    init(icon: IconName, label: String, action: Selector?, target: AnyObject?, toolbar: Bool = false, toolTip: Bool = true) {
         isToolbar = toolbar
+        showsToolTip = toolTip
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
         isBordered = false
@@ -31,7 +39,7 @@ final class ChromeIconButton: NSButton {
         iconLabel = label
         self.action = action
         self.target = target
-        themedToolTip = label
+        themedToolTip = showsToolTip ? label : nil
         setAccessibilityLabel(label)
         wantsLayer = true
         NSLayoutConstraint.activate([
@@ -62,11 +70,11 @@ final class ChromeIconButton: NSButton {
 
     private func applyIcon() {
         let label = iconLabel
-        let side = CGFloat.iconRowSize(forLabelPointSize: isToolbar ? OmnibarStyle.buttonSymbolSize : BrowserMetrics.symbolPointSize)
+        let side = isToolbar ? OmnibarStyle.toolbarIconSize : CGFloat.iconRowSize(forLabelPointSize: BrowserMetrics.symbolPointSize)
         let icon = NSImage.icon(iconName, size: side)
         icon.accessibilityDescription = label
         image = icon
-        themedToolTip = label
+        themedToolTip = showsToolTip ? label : nil
         setAccessibilityLabel(label)
     }
 
