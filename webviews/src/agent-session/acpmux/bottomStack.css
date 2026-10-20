@@ -26,6 +26,10 @@
   left: 0;
   display: flex;
   flex-direction: column;
+  /* In a pane too short for the queue's last row and the whole composer (its box and, with Claude
+     Code's split, the quiet row under it), what does not fit spills over the transcript above, never
+     past the pane's bottom: the card keeps its place whether or not prompts are queued. */
+  justify-content: flex-end;
   max-height: calc(100% - 44px - var(--acpmux-transcript-min, 96px));
   /* The gutters beside and under the card pass the wheel to the transcript under them. */
   pointer-events: none;

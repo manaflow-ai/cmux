@@ -385,6 +385,11 @@ export default agentPaneEntry({
             ctx.document.querySelector(".acpmux-composer-foot") === null &&
             ctx.document.querySelector(".acpmux-composer-bar .acpmux-model") !== null,
         );
+        // The swap is a layout change of its own (the quiet row goes, the box's row takes the chips,
+        // the transcript's inset follows): let it settle before the step that measures shifts.
+        const view = ctx.document.defaultView!;
+        await new Promise((done) => view.setTimeout(done, 600));
+        await new Promise((done) => view.requestAnimationFrame(() => view.requestAnimationFrame(done)));
         await check(ctx);
       },
     },
