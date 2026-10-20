@@ -139,6 +139,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.ssh.start()
         services.serverReach.start()
         services.updater.start()
+        DebugTimings.markLaunch("launch.non_paint_services")
         // Before the first window opens (restoreWhenLoaded opens one at once).
         services.windows.onPresent = { [weak services] controller in
             services?.crashRecovery.showRestartNotice(on: controller.window)
@@ -210,6 +211,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             })
         services.pageHostPool.noteLikely()
         AgentTabImport.start(services)
+        DebugTimings.markLaunch("launch.post_window_warmups")
         // Other apps' sign-ins, before any request a launch by one delivers.
         let webAuthHandler = WebAuthSessionHandler(broker: WebAuthSessionBroker(opener: WebAuthSessionWindows(services: services)))
         self.webAuthHandler = webAuthHandler
