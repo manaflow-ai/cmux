@@ -62,6 +62,10 @@ pub struct HostState {
     /// The turn whose messages are logged but whose reply is not posted yet.
     #[serde(default)]
     pub turn: Option<PendingTurn>,
+    /// The turn session kept for the next turn (`Settings::keep_turn_session`):
+    /// a host that restarts ends it (it knows nothing of its history).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kept_session: Option<String>,
     /// E22: what the last turn answered (message ids): a spawn made after
     /// that turn's end still belongs to it.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -676,7 +680,10 @@ impl StateFile {
     /// Where a turn's attached files are saved (`brain::files`): the
     /// `attachments` folder beside the state, in the Chief's home.
     pub fn attachments_dir(&self) -> PathBuf {
-        self.path.parent().unwrap_or_else(|| Path::new(".")).join("attachments")
+        self.path
+            .parent()
+            .unwrap_or_else(|| Path::new("."))
+            .join("attachments")
     }
 
     pub fn new(path: &Path) -> StateFile {
