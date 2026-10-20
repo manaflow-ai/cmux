@@ -48,7 +48,7 @@ extension ChiefConversationOwner {
         case .setReadCursor(let id, let seq):
             let state = try conversationState(id)
             guard seq <= state.summary.lastSeq else { throw HomeRejection.invalid("cursor_beyond_end") }
-            moveReadCursor(id, of: me.id, to: seq)
+            _ = try moveReadCursor(id, of: me.id, to: seq)
             return HomeOpResult(rev: conversations[id]?.summary.rev ?? state.summary.rev)
         case .addReaction(let messageID, let id, let kind, let partIndex):
             let reaction = Reaction(author: me.id, partIndex: partIndex, kind: kind)

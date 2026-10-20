@@ -260,14 +260,16 @@ public actor ChiefConversationOwner {
     }
 
     /// Moves `participant`'s read cursor forward to `seq`.
-    func moveReadCursor(_ id: ConversationID, of participant: ParticipantID, to seq: Seq) {
+    @discardableResult
+    func moveReadCursor(_ id: ConversationID, of participant: ParticipantID, to seq: Seq) throws -> Bool {
         guard let state = conversations[id], seq > (state.summary.readCursors[participant] ?? 0),
-              seq <= state.summary.lastSeq else { return }
+              seq <= state.summary.lastSeq else { return false }
         let time = now()
-        _ = try? updateConversation(id) {
+        _ = try updateConversation(id) {
             $0.readCursors[participant] = seq
             $0.readCursorTimes[participant] = time
         }
+        return true
     }
 
     /// Adds a new conversation to the inbox.

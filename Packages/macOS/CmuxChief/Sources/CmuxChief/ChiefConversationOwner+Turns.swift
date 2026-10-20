@@ -38,7 +38,7 @@ extension ChiefConversationOwner {
         guard let state = conversations[conversation], let chief = state.chief else { return }
         // The user's "Always Allow" rules belong to this owner/home.
         allowRules.load(home)
-        if let seq = next.readSeq { moveReadCursor(conversation, of: chief.id, to: seq) }
+        if let seq = next.readSeq { _ = try? moveReadCursor(conversation, of: chief.id, to: seq) }
         running[conversation] = ChiefRunningTurn(chief: chief.id, threadRoot: next.threadRoot, startedAt: now())
         guard let turnID = running[conversation]?.id else { return }
         publish(.typing(conversation, chief.id, on: true))
