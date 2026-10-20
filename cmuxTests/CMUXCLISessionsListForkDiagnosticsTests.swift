@@ -76,6 +76,13 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(session["stored_pid_exists"] as? Bool == false)
         #expect(session["runtime_status"] is NSNull)
         #expect(session["stale_pid_blocks_restore_in_0_64_17"] as? Bool == true)
+        let binding = try #require(session["identity_binding"] as? [String: Any])
+        #expect(binding["surface_id"] as? String == surfaceId)
+        #expect(binding["expected_provider"] as? String == "codex")
+        #expect(binding["expected_session_id"] as? String == sessionId)
+        #expect(binding["expected_checkpoint_id"] as? String == sessionId)
+        #expect(binding["identity_match"] as? Bool == false)
+        #expect(binding["status"] as? String == "no_live_process")
     }
 
     @Test func testSessionsListForkStartupInputAvailabilityCanDifferFromForkSupport() throws {
@@ -258,6 +265,11 @@ extension CMUXCLIErrorOutputRegressionTests {
         let session = try #require(sessions.first)
         #expect(session["stored_pid_exists"] as? Bool == true)
         #expect(session["stale_pid_blocks_restore_in_0_64_17"] as? Bool == false)
+        let binding = try #require(session["identity_binding"] as? [String: Any])
+        #expect(binding["status"] as? String == "mismatch")
+        #expect(binding["pid_start_matches"] as? Bool == true)
+        #expect(binding["session_id_matches"] as? Bool == false)
+        #expect(binding["identity_match"] as? Bool == false)
     }
 
     func sessionsListDiagnosticSession(
