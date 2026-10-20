@@ -110,7 +110,7 @@ extension AgentTabStore {
     static func wired(to services: AppServices) -> AgentTabStore {
         let tabs = AgentTabStore(build: services.environment.build, registry: services.registry,
                                  environment: ProcessInfo.processInfo.environment, showcase: services.environment.showcase,
-                                 linkScheme: services.linkScheme, settings: services.settings)
+                                 linkScheme: services.linkScheme, settings: services.settings, replyServices: services.agentReplies)
         tabs.launchImages = AgentPaneLaunchImages(beside: services.environment.sidebarSnapshotFile)
         tabs.unsentDrafts = AgentUnsentDrafts(beside: services.environment.sidebarSnapshotFile)
         // The Chief home's acpmux: the Chief host's subagent tabs attach there.

@@ -4,9 +4,6 @@ public import Foundation
 /// The pane module's bounded, cookieless fetch queue for passive Thread details icons.
 /// Duplicate origins share a checked fetch; cancelling the last reader cancels its transport.
 public actor AgentPaneSourceIcons {
-    // Share one admission budget across panes, including readers of the same origin.
-    static let shared = AgentPaneSourceIcons()
-
     private struct Entry {
         let id = UUID()
         var readers: [UUID: AsyncStream<AgentPaneSourceIconResult>.Continuation] = [:]

@@ -47,6 +47,7 @@ type IconReaders = {
 const fetchingIcons = new Map<string, IconReaders>();
 // The first completed held-icon inspection makes an origin ready. Path changes cannot revoke it.
 const inspectedIconOrigins = new Map<string, string>();
+const heldIconOrigins = new Map<string, string>();
 const askingUrls = new Set<string>();
 let generation = 0;
 /// Paths sent to the host and not answered yet.
@@ -118,6 +119,7 @@ function ask(path?: string, url?: string) {
     paths.clear();
     asking.clear();
     sites.clear();
+    heldIconOrigins.clear();
     askingUrls.clear();
     // Keep active origins ready across cache compaction, including during path changes.
     for (const origin of inspectedIconOrigins.keys())
@@ -196,7 +198,10 @@ function cachedIcon(origin: string) {
 
 function rememberInspectedOrigin(url: string) {
   const parsed = sourceURL(url);
-  if (parsed?.protocol === "https:" && !inspectedIconOrigins.has(parsed.origin))
+  if (!parsed) return;
+  const icon = sites.get(url)?.icon;
+  if (icon) heldIconOrigins.set(parsed.origin, icon);
+  if (parsed.protocol === "https:" && !inspectedIconOrigins.has(parsed.origin))
     inspectedIconOrigins.set(parsed.origin, url);
 }
 
@@ -286,14 +291,16 @@ export function useSourceIcon(
   // Subscribe to the values themselves so the React Compiler sees inspection and icon changes.
   const held = useSyncExternalStore(
     subscribe,
-    () => (valid ? sites.get(valid)?.icon : undefined),
+    () => (parsed ? heldIconOrigins.get(parsed.origin) : undefined),
     () => undefined,
   );
   // Passive fetches use TLS only. An HTTP source can still use an icon held by an open tab.
   const origin = parsed?.protocol === "https:" ? parsed.origin : undefined;
   const answered = useSyncExternalStore(
     subscribe,
-    () => !!origin && inspectedIconOrigins.has(origin),
+    () => !!origin && inspectedIconOrigins.has(origin) &&
+      // Existing readers keep their ownership while a new path is inspected; no new fetch starts.
+      (!askingUrls.has(valid!) || fetchingIcons.has(origin)),
     () => false,
   );
   const icon = useSyncExternalStore(
@@ -326,6 +333,7 @@ export function resetLinkStore(): void {
   for (const readers of fetchingIcons.values()) if (readers.retry !== undefined) clearTimeout(readers.retry);
   fetchingIcons.clear();
   inspectedIconOrigins.clear();
+  heldIconOrigins.clear();
   askingUrls.clear();
   generation += 1;
   inFlight = false;

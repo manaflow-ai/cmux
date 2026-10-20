@@ -17,7 +17,7 @@ public nonisolated struct AgentPaneReplySite: Equatable, Sendable {
 
 /// The App's side of the reply link requests (``AgentPaneReplyRequest``): the settings, the
 /// favicon and title lookup, the outside-root confirmation sheet, and the effects. Each has a safe
-/// default, so a host that wires nothing fetches source icons only under the lab gate and opens
+/// default, so a host that wires nothing fetches no source icons and opens
 /// nothing outside.
 @MainActor public final class AgentPaneReplyLinks {
     /// `agentPane.links.outsideRoots` and `agentPane.images.remote`, read on every request.
@@ -26,7 +26,7 @@ public nonisolated struct AgentPaneReplySite: Equatable, Sendable {
     public var sites: @MainActor ([URL]) -> [URL: AgentPaneReplySite] = { _ in [:] }
     /// A site's icon fetched from `url` (the pane module's guarded queue: no cookies, size capped),
     /// for Thread details sources with labs `sourceIcons` on.
-    public var favicon: @MainActor (URL) async -> AgentPaneSourceIconResult = { await AgentPaneSourceIcons.shared.result(at: $0) }
+    public var favicon: @MainActor (URL) async -> AgentPaneSourceIconResult = { _ in .unavailable }
     var sourceIconsBaseline = AgentPaneTunables.sourceIcons.value
     var sourceIconsLayout: Bool?
     var sourceIconRequests: [UUID: (url: URL, task: Task<AgentPaneSourceIconResult, Never>)] = [:]

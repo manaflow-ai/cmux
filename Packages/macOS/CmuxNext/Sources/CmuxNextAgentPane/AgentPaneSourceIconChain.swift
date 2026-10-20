@@ -17,6 +17,8 @@ nonisolated struct AgentPaneSourceIconChain: Sendable {
         var fetch = fetch
         let transport = AgentPaneSourceIconTransport(fetch.transport)
         fetch.transport = transport
+        let resolver = AgentPaneSourceIconResolver(fetch.resolver)
+        fetch.resolver = resolver
         var attempted: Set<URL> = [url]
         func expired() -> Bool { Task.isCancelled || clock.now >= deadline }
         func bounded(_ request: GuardedRemoteFetch) -> GuardedRemoteFetch {
@@ -26,9 +28,10 @@ nonisolated struct AgentPaneSourceIconChain: Sendable {
         }
         func checked(_ request: GuardedRemoteFetch, _ target: URL) async -> (Result<RemoteFetchResponse, RemoteFetchFailure>, Bool) {
             let checkpoint = await transport.checkpoint()
+            let lookupFailures = await resolver.failures
             let result = await bounded(request).fetch(target)
-            // A policy refusal is definitive even when no request reached a transport.
-            if case .failure(.refused) = result { return (result, false) }
+            // Failed DNS lookups are transient; resolved but blocked addresses are definitive.
+            if case .failure(.refused) = result { return (result, await resolver.failures > lookupFailures) }
             return (result, await transport.needsRetry(since: checkpoint))
         }
         let (ico, icoTemporary) = await checked(fetch, url)
@@ -47,7 +50,15 @@ nonisolated struct AgentPaneSourceIconChain: Sendable {
         htmlFetch.maximumBytes = 256 * 1024
         htmlFetch.accept = GuardedRemoteFetch.htmlAccept
         htmlFetch.allowsTruncation = true
-        let (homeResult, homeTemporary) = await checked(htmlFetch, pageURL)
+        let homeResult: Result<RemoteFetchResponse, RemoteFetchFailure>
+        let homeTemporary: Bool
+        if case .success(let response) = ico, response.finalURL == pageURL {
+            // The ICO redirect already fetched this bounded body; discovery scans at most 256 KiB.
+            homeResult = .success(response)
+            homeTemporary = false
+        } else {
+            (homeResult, homeTemporary) = await checked(htmlFetch, pageURL)
+        }
         temporary = temporary || homeTemporary
         guard !expired() else { return .temporary }
         guard case .success(let page) = homeResult else { return temporary ? .temporary : .unavailable }
