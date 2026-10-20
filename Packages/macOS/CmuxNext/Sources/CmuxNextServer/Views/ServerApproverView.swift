@@ -102,6 +102,8 @@ struct ServerApproverView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
+        // The Grid sizes to its cells' ideal widths; the card's width is the row's.
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func label(_ text: String) -> some View {
