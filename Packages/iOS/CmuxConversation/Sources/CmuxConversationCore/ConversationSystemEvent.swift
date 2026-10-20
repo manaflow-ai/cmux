@@ -98,6 +98,7 @@ private extension Substring {
 
 /// Messages' wording for status rows and notification-state notices,
 /// shared by the iOS and macOS transcripts (ChatKit strings, en and ja).
+// lint:allow namespace-type -- vendored CmuxConversation snapshot
 public enum ConversationStatusStrings {
     /// The status line for `message.systemEvent`, or nil for a plain message.
     /// Names are participants' display names; I am "You".
