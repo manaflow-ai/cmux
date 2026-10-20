@@ -144,8 +144,8 @@ import AppKit
     }
 
     private func toggle(_ group: GroupID) {
+        // The fold draws itself on the group's rows (`SidebarListView.foldGroup`): no list reload.
         model.send(.toggleCollapse(.group(group)))
-        list.reload(animated: true)
     }
 
     private func group(containing id: WorkspaceID) -> GroupID? {
