@@ -23,15 +23,15 @@ package final class AgentRenderPreviewRequests {
               let session = params["agent_session"]?.stringValue, !session.isEmpty,
               let html = params["html"]?.stringValue, !html.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               html.utf8.count <= 1 << 20 else {
-            throw AgentRenderPreviewFailure(code: "invalid_params", message: "render_preview needs its MCP agent_session and at most 1 MiB of html")
+            throw AgentRenderPreviewFailure(code: "invalid_params", message: String(localized: "agentPane.renderPreview.invalidParams", defaultValue: "render_preview needs its MCP agent_session and at most 1 MiB of html", bundle: .module))
         }
         let width = params["width"]?.intValue
         if let raw = params["width"], raw != .null,
            width == nil || raw != .number(Double(width ?? 0)) || !(320...1440).contains(width ?? 0) {
-            throw AgentRenderPreviewFailure(code: "invalid_params", message: "width must be an integer from 320 to 1440")
+            throw AgentRenderPreviewFailure(code: "invalid_params", message: String(localized: "agentPane.renderPreview.invalidWidth", defaultValue: "width must be an integer from 320 to 1440", bundle: .module))
         }
         guard let view = self.pane(for: session, view: pane) else {
-            throw AgentRenderPreviewFailure(code: "unavailable", message: "the requesting session has no local chat pane")
+            throw AgentRenderPreviewFailure(code: "unavailable", message: String(localized: "agentPane.renderPreview.noLocalPane", defaultValue: "the requesting session has no local chat pane", bundle: .module))
         }
         return try await capture {
             try await view.renderPreview(html: html, width: width, dataStore: dataStore, park: park)
@@ -40,7 +40,7 @@ package final class AgentRenderPreviewRequests {
 
     package func capture(_ operation: @MainActor () async throws -> String) async throws -> JSONValue {
         try Task.checkCancellation()
-        guard inFlight < 2 else { throw AgentRenderPreviewFailure(code: "busy", message: "two render previews are already running") }
+        guard inFlight < 2 else { throw AgentRenderPreviewFailure(code: "busy", message: String(localized: "agentPane.renderPreview.globalBusy", defaultValue: "two render previews are already running", bundle: .module)) }
         inFlight += 1
         defer { inFlight -= 1 }
         do {
@@ -49,9 +49,9 @@ package final class AgentRenderPreviewRequests {
         } catch let error as AgentPaneRenderPreviewError {
             throw AgentRenderPreviewFailure(code: error.rawValue, message: error.message)
         } catch is CancellationError {
-            throw AgentRenderPreviewFailure(code: "timeout", message: "render preview exceeded its deadline")
+            throw AgentRenderPreviewFailure(code: "timeout", message: AgentPaneRenderPreviewError.timeout.message)
         } catch {
-            throw AgentRenderPreviewFailure(code: "render_failed", message: "WebKit could not capture the render preview")
+            throw AgentRenderPreviewFailure(code: "render_failed", message: AgentPaneRenderPreviewError.failed.message)
         }
     }
 }
