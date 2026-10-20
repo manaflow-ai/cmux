@@ -235,8 +235,11 @@ def write_tree(repo: Path, dest: Path, files: dict[str, str]) -> None:
         cursor += size + 1
     (dest / PKG / "Sources").mkdir(parents=True, exist_ok=True)
     (dest / PKG / "Tests").mkdir(parents=True, exist_ok=True)
-    subprocess.run(["git", "init", "-q", str(dest)], check=True)
-    subprocess.run(["git", "-C", str(dest), "add", "-A"], check=True, capture_output=True)
+    # A hook runs with GIT_DIR (and maybe GIT_INDEX_FILE, GIT_WORK_TREE) of the pushing checkout:
+    # without them stripped, init and add would rewrite that repository instead of the temp tree.
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    subprocess.run(["git", "init", "-q", str(dest)], check=True, env=env, capture_output=True)
+    subprocess.run(["git", "-C", str(dest), "add", "-A"], check=True, capture_output=True, env=env)
 
 
 def ls_tree(repo: Path, rev: str, prefix: str) -> list[str]:
