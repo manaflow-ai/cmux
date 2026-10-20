@@ -35,12 +35,14 @@ public nonisolated struct SidebarItemOrder: Hashable, Sendable {
     }
 
     /// Whether selecting `item` shows the list from its very top: a top item
-    /// (Home, the App Store) or the first row, so the pinned items above the
-    /// rows stay in view (a Cmd-1 to Home, a wrap from the last workspace).
+    /// (Home, the App Store) or a row with only top items before it (the first
+    /// workspace, under a document block's Home), so the pinned items above it
+    /// stay in view (a Cmd-1 to Home, a wrap from the last workspace).
     public func revealsTop(for item: SidebarItem?) -> Bool {
         guard let stop = stop(for: item) else { return false }
-        if case .topItem = stop { return true }
-        return stop == rows.first
+        if topItems.contains(stop) { return true }
+        guard let index = rows.firstIndex(of: stop) else { return false }
+        return rows[..<index].allSatisfy { if case .topItem = $0 { true } else { false } }
     }
 
     /// The stop in this order that `item` is at (a workspace in a collapsed group: the group).
