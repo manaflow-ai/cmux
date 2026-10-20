@@ -39,3 +39,8 @@ export function designSelectionChips(value: unknown): ComposerAttachment[] {
   }
   return chips;
 }
+
+/// The chip ids a `{removed: id}` push takes out of the composer (red stub).
+export function designSelectionRemovals(_value: unknown): string[] {
+  return [];
+}

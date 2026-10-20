@@ -42,6 +42,14 @@ public nonisolated struct BrowserDesignModeCards: Sendable {
     /// Forgets what was sent (design mode turned off, or a new document).
     public mutating func reset() { sent = [] }
 
+    /// What `message` changed: new or edited cards, and the ids of cards to take out (red stub).
+    public mutating func change(_ message: Data, pageURL: URL?) -> BrowserDesignModeChange {
+        BrowserDesignModeChange(cards: receive(message, pageURL: pageURL), removed: [])
+    }
+
+    /// Forgets every card and returns their ids, to take them out (design mode turned off) (red stub).
+    public mutating func removeAll() -> [String] { [] }
+
     /// True for the page's `exit_requested` (Escape with nothing highlighted).
     public static func isExitRequest(_ message: Data) -> Bool {
         object(message)?["type"] as? String == "exit_requested"
