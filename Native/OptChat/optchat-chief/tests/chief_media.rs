@@ -217,3 +217,24 @@ fn security_a_reply_cannot_attach_an_arbitrary_local_file() {
         "a model-authored path outside this turn's media outbox was uploaded"
     );
 }
+
+#[cfg(unix)]
+#[test]
+fn security_a_symlinked_media_outbox_cannot_escape_to_another_directory() {
+    use std::os::unix::fs::symlink;
+
+    let private = tempfile::tempdir().unwrap();
+    std::fs::write(private.path().join("private.png"), png(8, 8)).unwrap();
+    let target = private.path().to_owned();
+    let (parts, h) = turn(move |outbox| {
+        std::fs::remove_dir(outbox).unwrap();
+        symlink(&target, outbox).unwrap();
+        format!("![private]({})", outbox.join("private.png").display())
+    });
+
+    assert_eq!(parts.len(), 1, "the path stays plain text");
+    assert!(
+        h.owner.lock().unwrap().uploads.is_empty(),
+        "the media reader followed a symlinked outbox parent"
+    );
+}
