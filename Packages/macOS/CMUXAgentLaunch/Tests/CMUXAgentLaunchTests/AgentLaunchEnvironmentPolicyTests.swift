@@ -116,7 +116,14 @@ struct AgentLaunchEnvironmentPolicyTests {
         )
 
         #expect(selected.isEmpty)
-        #expect(!AgentLaunchEnvironmentPolicy().inputEnvironmentKeys.contains("XDG_CONFIG_HOME"))
+        // XDG_CONFIG_HOME is captured for OpenCode restores (#21346); capture
+        // alone must not make it replay for Cursor.
+        #expect(
+            AgentLaunchEnvironmentPolicy().selectedEnvironment(
+                from: ["XDG_CONFIG_HOME": "/tmp/custom-config"],
+                kind: "cursor"
+            ).isEmpty
+        )
     }
 
     @Test("Cursor config override stays scoped to Cursor restores")
