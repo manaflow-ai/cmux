@@ -1,5 +1,4 @@
 import AppKit
-import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDaemonService
@@ -195,7 +194,6 @@ extension AppOnboardingServices {
             }
             for turn in later.sorted(by: { $0.index < $1.index }) { try await makeClassicWorkspace(turn.saved, window: turn.index, run: run) }
         }
-        await placeClassicWorkspaces(plan, made: run.made, ledger: run.ledger, targets: run.targets)
         ledger = run.ledger
         outcome = run.outcome
         let lastError = run.lastError, reveal = run.reveal, openedInFirstWindow = run.openedInFirstWindow
@@ -263,83 +261,8 @@ extension AppOnboardingServices {
         run.ledger.workspaces[saved.key] = ClassicMigrationLedger.Entry(stage: .done, nextWorkspace: made)
         try await save(run.ledger, to: repository)
         run.outcome.opened.append(made)
-        run.made[index, default: []].insert(made)
         if index == 0 { run.openedInFirstWindow = true }
         if index == 0, saved.key == window.selectedKey { run.reveal = made }
-    }
-
-    /// Puts the workspaces this run made at their classic place in each
-    /// window's sidebar, through the row-drag path (`SidebarBridge.place`):
-    /// a resumed or merged run makes them last. In each sidebar container
-    /// (the pinned rows, the loose rows, a group) each one goes right below
-    /// the nearest classic workspace before it there, else right above the
-    /// next one. One already in place does not move, so a first run moves
-    /// nothing and the person's own order of earlier ones stays.
-    private func placeClassicWorkspaces(_ plan: ClassicMigrationPlan, made: [Int: Set<String>], ledger: ClassicMigrationLedger,
-                                        targets: [String]) async {
-        let machines = services.machines
-        let registry = services.windows.registry
-        for (index, window) in plan.windows.enumerated() {
-            guard let fresh = made[index], !fresh.isEmpty,
-                  let bridge = services.windows.controller(for: targets[index])?.sidebar else { continue }
-            let target = targets[index]
-            // The window's sidebar as the store has it now (the same rows the person's sidebar draws).
-            let sections: @MainActor @Sendable () -> [SidebarRowSection] = {
-                SidebarBridge.sections(machines, members: registry.members(of: target), profile: .defaultProfile)
-            }
-            let listed: @MainActor @Sendable () -> Set<String> = {
-                Set(sections().flatMap(\.nodes).flatMap(Self.workspaceIDs))
-            }
-            guard await Self.awaitStore({ fresh.isSubset(of: listed()) }) else { continue }
-            // Classic's window as it is here, in classic's order (what earlier runs made too).
-            let classic = window.workspaces.compactMap { ledger.workspaces[$0.key]?.nextWorkspace }
-            for id in classic where fresh.contains(id) {
-                let now = sections()
-                guard let (section, container) = Self.container(of: id, in: now) else { continue }
-                let mates = classic.filter(container.contains)
-                guard let at = mates.firstIndex(of: id) else { continue }
-                let shown = container.filter(mates.contains)
-                let before = at > 0 ? mates[at - 1] : nil
-                let after = at + 1 < mates.count ? mates[at + 1] : nil
-                let current = shown.firstIndex(of: id)
-                let inPlace = before.map { shown.firstIndex(of: $0).map { $0 + 1 } == current }
-                    ?? after.map { shown.firstIndex(of: $0).map { $0 - 1 } == current } ?? true
-                guard !inPlace else { continue }
-                let slot: WorkspaceSlot? = before.map { .below($0) } ?? after.map { .above($0) }
-                guard let slot, let drop = slot.position(moving: [id], section: section, in: now) else { continue }
-                bridge.place([SidebarWorkspaceID(id)], at: drop, in: now)
-                // The next one is placed against the sidebar with this one moved.
-                _ = await Self.awaitStore({ Self.container(of: id, in: sections()).map { _, rows in
-                    before.map { b in rows.firstIndex(of: b).map { $0 + 1 } == rows.firstIndex(of: id) }
-                        ?? after.map { a in rows.firstIndex(of: a).map { $0 - 1 } == rows.firstIndex(of: id) } ?? true
-                } ?? false })
-            }
-        }
-    }
-
-    /// The workspace ids a sidebar node lists.
-    private nonisolated static func workspaceIDs(_ node: SidebarNode) -> [String] {
-        switch node {
-        case .workspace(let workspace): [workspace.id.rawValue]
-        case .group(let group): group.workspaces.map(\.id.rawValue)
-        case .item: []
-        }
-    }
-
-    /// The section and the container (its loose rows, or one group's rows) that list `id`, rows in order.
-    private nonisolated static func container(of id: String, in sections: [SidebarRowSection]) -> (SectionID, [String])? {
-        for section in sections {
-            let loose = section.nodes.compactMap { node -> String? in
-                if case .workspace(let workspace) = node { return workspace.id.rawValue }
-                return nil
-            }
-            if loose.contains(id) { return (section.id, loose) }
-            for case .group(let group) in section.nodes {
-                let rows = group.workspaces.map(\.id.rawValue)
-                if rows.contains(id) { return (section.id, rows) }
-            }
-        }
-        return nil
     }
 
     /// Whether `ready` holds, now or within 5 s, woken by the store's own changes.
@@ -518,8 +441,6 @@ fileprivate final class ClassicMigrationRunState {
     var lastError: (any Error)?
     var reveal: String?
     var openedInFirstWindow = false
-    /// cmux-next workspaces made in this run, by classic window index.
-    var made: [Int: Set<String>] = [:]
 
     init(ledger: ClassicMigrationLedger, outcome: ClassicMigrationOutcome, plan: ClassicMigrationPlan,
          groups: [String: WorkspaceGroupID], hosts: [String: DaemonService], repository: ClassicMigrationRepository, targets: [String]) {

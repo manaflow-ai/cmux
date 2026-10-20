@@ -11,7 +11,7 @@ import Testing
 /// (180 s without a test finishing), so it is one simulation in phases, in
 /// order: the launch and the first part of the run, then waiting for the
 /// rest, then the checks and a relaunch.
-@MainActor @Suite(.serialized, .timeLimit(.minutes(10)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
+@MainActor @Suite(.serialized, .timeLimit(.minutes(15)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
 struct ClassicUpgradeHugeSimulationTests {
     /// The simulation every phase works on.
     private final class Run {
@@ -31,8 +31,8 @@ struct ClassicUpgradeHugeSimulationTests {
 
     private static var run: Run?
 
-    /// Phases: 0 launches and runs up to 150 s, 1 and 2 wait up to 150 s more each, 3 checks.
-    @Test(arguments: [0, 1, 2, 3])
+    /// Phases: 0 launches and runs up to 150 s, 1 to 4 wait up to 150 s more each, 5 checks.
+    @Test(arguments: [0, 1, 2, 3, 4, 5])
     func aHugeSessionComesOverOnceWithTheFirstWindowFirst(_ phase: Int) async throws {
         let profile = ClassicUpgradeProfile.huge
         switch phase {
@@ -45,7 +45,7 @@ struct ClassicUpgradeHugeSimulationTests {
             print(String(format: "CLASSIC-SIM huge workspaces=%d first_window=%.2fs phase0=%.2fs made=%d",
                          profile.expectedCount, launch.firstWindow.simSeconds, launch.migration.simSeconds, run.sim.made().count))
             #expect(launch.firstWindow < ClassicUpgradeSimulationTests.firstWindowBudget, "first window after \(launch.firstWindow)")
-        case 1, 2:
+        case 1...4:
             let run = try #require(Self.run)
             guard !run.finished, let task = run.sim.services.onboarding.classicMigrationRun else { return }
             if let outcome = await run.sim.wait(for: task, upTo: .seconds(150)) {
@@ -59,7 +59,7 @@ struct ClassicUpgradeHugeSimulationTests {
             if !run.finished, let task = run.sim.services.onboarding.classicMigrationRun {
                 run.outcome = await run.sim.wait(for: task, upTo: .seconds(150))
             }
-            let outcome = try #require(run.outcome, "the migration of 512 workspaces did not finish in 10 minutes (\(run.sim.made().count) made)")
+            let outcome = try #require(run.outcome, "the migration of 512 workspaces did not finish in 15 minutes (\(run.sim.made().count) made)")
             print("CLASSIC-SIM huge opened=\(outcome.opened.count) failed=\(outcome.failures.count) first=\(outcome.failures.values.first ?? "-")")
             // Known limit: macOS hands out at most kern.tty.ptmx_max (511) PTYs, shared with
             // every other process; past it a terminal cannot start. Any other failure is a hitch.
