@@ -101,18 +101,20 @@ pushing directly, not a person's review.
 
 ### Replay over feat-cmux-next
 
-Graded with both classifiers, the 825 pull requests merged into `feat-cmux-next` from
-2026-09-28 to 2026-10-19:
+Graded with both classifiers, the 1,035 pull requests merged into `feat-cmux-next` from
+2026-09-28 to 2026-10-20 (first-parent, up to d080fa059e):
 
 | | low | medium / normal | high |
 | --- | --- | --- | --- |
-| previous rules (paths, 40- and 1,000-line thresholds) | 89 | 493 | 243 (29%) |
-| these rules | 67 | 704 | 54 (6.5%) |
+| previous rules (paths, 40- and 1,000-line thresholds) | 133 | 598 | 304 (29%) |
+| these rules | 90 | 866 | 79 (7.6%) |
 
-The 54 high: 22 add a delete of files or stored rows, 17 touch release, signing or the updater,
-9 auth, 7 socket or relay policy, 2 migrations, 1 the gate. 193 that the previous rules made high
-are normal now, mostly runtime changes over 40 lines and CI routing. 22 that were low are normal
-now: CI scripts that aren't docs or tests.
+Why the 79 are high (a pull request can have more than one reason): 30 add a delete of files or
+stored rows (stores and caches in the daemon, CmuxNext and acpmux that remove files), 20 touch
+release, signing or the updater, 10 auth, 9 socket or relay policy, 7 the gate or its enforcers
+(`gh-merge-green`, `next_batch.py`), 4 a privileged workflow trigger, 4 migrations. 242 that the
+previous rules made high are normal now, mostly runtime changes over 40 lines and CI routing. 42
+that were low are normal now: CI scripts and lockfiles, which aren't docs or tests.
 
 ## Changing a designation
 
