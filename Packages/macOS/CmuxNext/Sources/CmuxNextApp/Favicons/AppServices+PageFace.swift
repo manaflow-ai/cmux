@@ -25,7 +25,6 @@ extension AppServices {
         let incognito = tab.kind == .browser && cache.browserTabs.isIncognitoTab(tab.id)
         let favicon = tab.kind != .browser ? nil
             : browserFavicon(key: tab.id, recordFavicon: incognito ? nil : tab.faviconURL).map { SidebarFavicon($0.cgImage) }
-        let names = WorkspaceAutoNameWiring(services: self).reader
-        return .init(title: names.label(workspace, front: tab, work: work), favicon: favicon)
+        return .init(title: WorkspaceAutoNameWiring(services: self).reader.label(workspace, front: tab, work: work), favicon: favicon)
     }
 }

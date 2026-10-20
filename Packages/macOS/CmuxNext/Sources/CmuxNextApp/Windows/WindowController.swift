@@ -249,12 +249,10 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         connectingView = nil
         DebugTimings.markLaunch("workspace_content_shown")
         titleObservation?.cancel()
-        titleObservation = Task { [weak self] in
-            // Named as its sidebar row is: a workspace on the daemon's default name reads as its
-            // front tab (a torn-off chat's window read "workspace-41").
-            for await title in ObservationStream({ [weak self] in self?.titlebarTitle(workspace) ?? workspace.displayName }) {
-                self?.root.titlebar.title = title
-            }
+        // Named as its sidebar row is (`WorkspaceAutoNameReader.titlebarName`): a workspace on the
+        // daemon's default name reads as its front tab (a torn-off chat's window read "workspace-41").
+        titleObservation = Task { [weak self, names = WorkspaceAutoNameWiring(services: services), selection = state.selection] in
+            for await title in ObservationStream({ names.reader.titlebarName(workspace) { selection.selection(in: $0.id) } }) { self?.root.titlebar.title = title }
         }
         // The new workspace's panes: the coordinator restores its pane and, now that the content is installed, re-applies it.
         controller.didShow()
@@ -265,12 +263,6 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     }
 
     var focusedPane: PaneController? { content?.focusedPane }
-
-    /// What the titlebar names `workspace`: its front tab's name while it keeps the daemon's default (`WorkspaceAutoNameReader.displayName`).
-    private func titlebarTitle(_ workspace: WorkspaceModel) -> String {
-        let front = SidebarMapping.shared.frontTab(workspace, selectedTab: { [state] in state.selection.selection(in: $0.id) })
-        return WorkspaceAutoNameWiring(services: services).reader.displayName(workspace, front: front)
-    }
 
     /// Parks the shown workspace (mounted, paused) while a top page fills the content area.
     func parkContentForPage() {
