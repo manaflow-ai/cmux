@@ -1,4 +1,5 @@
 {
+  "guestCLI": { "useReasonSharedMachine": "តម្រូវ៖ ម៉ាស៊ីននេះត្រូវបានចែករំលែកជាមួយក្រុម" },
   "agentHarness": {
     "title": "រកឃើញការកំណត់រចនាសម្ព័ន្ធ harness",
     "selectionNotice": "ការជ្រើសរើសអ្នកផ្តល់សេវាមិនចាប់ផ្តើម ឬបើកដំណើរការ harness ទាំងនេះទេ។",

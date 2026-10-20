@@ -1335,6 +1335,7 @@ jobs:
         continue-on-error: true
         run: |
           python3 tests/test_app_store_rules.py
+          python3 tests/test_cnx_ios_test_notes_retry.py
           python3 -I scripts/cmux-next/check-app-store-rules.py --source .
 
       - name: Checks job structure

@@ -1299,6 +1299,8 @@ let package = Package(
                 .product(name: "CmuxGhosttyKit", package: "CmuxGhosttyKit"),
                 .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
                 .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
+                // UpdateLoadingIndicatorTests feeds Sparkle's update states.
+                .product(name: "CmuxUpdater", package: "CmuxUpdater"),
                 // ReduceMotionLoopTests builds the vendored Home typing indicators.
                 .product(name: "MessagesLabHome", package: "CmuxMessagesLab"),
                 .product(name: "MessagesLabSidebar", package: "CmuxMessagesLab"),
