@@ -18,6 +18,8 @@ final class CloudService {
     let auth: CloudAuth
     @ObservationIgnored let cloudTeam: CloudTeamSelection
     @ObservationIgnored let teamScope: CloudTeamScope
+    @ObservationIgnored let observedAuthority: CloudObservedAuthority
+    @ObservationIgnored var authoritySession: CloudAuthoritySession?
     @ObservationIgnored let api: CloudAPIClient
     @ObservationIgnored let paths: CloudPaths
     @ObservationIgnored private(set) var hub: CloudTunnelHub?
@@ -33,14 +35,14 @@ final class CloudService {
     @ObservationIgnored var sessionLifecycle: CloudSessionLifecycle?
     @ObservationIgnored var machineScope: String?
     @ObservationIgnored private var lastRefresh: ContinuousClock.Instant?
-    @ObservationIgnored private var observers: [Task<Void, Never>] = []
+    @ObservationIgnored var observers: [Task<Void, Never>] = []
     /// The local side event subscription for `cloud.link.changed` (app link).
     @ObservationIgnored private var linkEvents: UInt64?
     /// The `credential` provider family on the local daemon (cx-wb5.63):
     /// app servers' Cloud API calls, sent with the install token.
     @ObservationIgnored var credentialProvider: CloudCredentialProvider?
     @ObservationIgnored private(set) var isSigningOut = false
-    @ObservationIgnored private var credentialEvents: UInt64?
+    @ObservationIgnored var credentialEvents: UInt64?
     @ObservationIgnored let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.cloud")
     /// The last list or connection failure, for diagnostics and refusals.
     private(set) var lastError: String?
@@ -77,6 +79,7 @@ final class CloudService {
         cloudTeam = CloudTeamSelection(auth: auth, configuration: configuration)
         paths = CloudPaths.standard(bundleID: configuration.bundleID)
         let auth = auth
+        observedAuthority = CloudObservedAuthority(current: { auth.coordinator.isAuthenticatedSessionIdentityCurrent($0) })
         api = CloudAPIClient(
             configuration: configuration,
             tokens: { try await auth.tokens() },
@@ -118,8 +121,14 @@ final class CloudService {
                 try await self.invalidateNativeLink()
             })
         }
-        credentialProvider = CloudCredentialOwner(auth: auth, identity: identity, scope: scope, transport: transport, native: nativeLink).provider
-        if configuration.linkSource == .appServer { sessionLifecycle = makeSessionLifecycle() }
+        let observed = observedAuthority
+        credentialProvider = CloudCredentialOwner(auth: auth, identity: identity,
+            snapshot: { try await observed.snapshot() }, transport: transport, native: nativeLink).provider
+        if configuration.linkSource == .appServer {
+            credentialProvider?.suspend()
+            sessionLifecycle = makeSessionLifecycle()
+            authoritySession = makeAuthoritySession()
+        }
     }
 
     var isSignedIn: Bool { auth.isSignedIn }
@@ -157,9 +166,22 @@ final class CloudService {
         observers.append(Task { [weak self] in
             await self?.observeCloudSessions()
         })
+        if configuration.linkSource == .appServer {
+            // task-owner: observers; local incarnation changes fence independently of startup/HTTP work.
+            observers.append(Task { [weak self, installIdentity] in
+                for await generation in await installIdentity.authorityGenerations() {
+                    guard !Task.isCancelled else { return }
+                    let latest = await installIdentity.authorityGeneration
+                    guard generation == latest,
+                          let self, let identity = self.auth.coordinator.authenticatedSessionIdentity else { continue }
+                    self.authoritySession?.installChanged(identity, generation: generation)
+                }
+            })
+        }
         observers.append(Task { [weak self] in
             for await _ in NotificationCenter.default.notifications(named: NSApplication.didBecomeActiveNotification) {
-                guard let self, let last = self.lastRefresh, last.duration(to: .now) > .seconds(30) else { continue }
+                guard let self else { return }
+                if let last = self.lastRefresh, last.duration(to: .now) <= .seconds(30) { continue }
                 await self.refresh()
             }
         })
@@ -172,6 +194,10 @@ final class CloudService {
         guard disabled != policyDisabled else { return }
         cloudTeam.policyDisabled = disabled
         if disabled {
+            if let identity = auth.coordinator.authenticatedSessionIdentity {
+                authoritySession?.selectionChanged(identity, selection: nil)
+                _ = sessionLifecycle?.authorityChanged(identity, restart: false)
+            }
             for session in machines.cloud {
                 session.daemon.policyBlock.set(true)
                 session.disconnect()
@@ -208,42 +234,6 @@ final class CloudService {
         if let hub { Task { await hub.stop() } }
     }
 
-    /// Serves the `credential` family on the local daemon: answers its
-    /// calls on the connection that sent them, and registers again after
-    /// every handshake of the verified app connection (a reconnected
-    /// connection is a new provider; its calls in flight ended with it).
-    /// Only the app server path uses it: with the legacy link (the release
-    /// and default Debug path) the relay never registers.
-    private func startCredentialProvider() {
-        guard configuration.linkSource == .appServer, let provider = credentialProvider, credentialEvents == nil else { return }
-        let local = machines.local
-        credentialEvents = local.store.sideEvents.subscribe { [weak local] event in
-            guard let connection = local?.connection else { return }
-            provider.handle(event) { result in _ = try await connection.request(result) }
-        }
-        // task-owner: observers; cancelled in stop()
-        observers.append(Task {
-            for await state in ObservationStream({ local.store.connectionState }) {
-                guard case .connected = state, let connection = local.connection else { provider.stop(); continue }
-                let allowed = await connection.userOriginAllowed
-                _ = await provider.register(userOriginAllowed: allowed,
-                    send: { try await connection.request($0) }, invalidate: { try await connection.request($0) })
-            }
-        })
-        let selection = cloudTeam
-        let changes = ObservationStream.current { try? selection.current() }.later
-        // task-owner: observers; closes idle resources even when no Cloud operation follows the change.
-        observers.append(Task { [weak self] in
-            for await _ in changes {
-                guard let self else { return }
-                self.dropAllMachines()
-                if let nativeLink = self.nativeLink { await nativeLink.retire(); continue }
-                guard let connection = local.connection else { provider.stop(); continue }
-                await provider.scopeChanged { try await connection.request($0) }
-            }
-        })
-    }
-
     // MARK: Machine list
 
     /// Fetches `/api/vm` and reconciles sessions: new live machines connect,
@@ -252,8 +242,12 @@ final class CloudService {
         guard let identity = auth.coordinator.authenticatedSessionIdentity,
               isCloudSessionCurrent(identity), unavailableReason == nil else { return }
         lastRefresh = .now
+        if let sessionLifecycle, (try? observedAuthority.snapshot()) == nil {
+            await sessionLifecycle.refresh(identity).value
+            return
+        }
         do {
-            let scope: CloudTeamScope.Snapshot? = configuration.linkSource == .appServer ? try await teamScope.snapshot() : nil
+            let scope: CloudTeamScope.Snapshot? = configuration.linkSource == .appServer ? try observedAuthority.snapshot() : nil
             let list = if let scope { try await appServerMachines(scope: scope) } else { try await api.listMachines() }
             guard isCloudSessionCurrent(identity) else { return }
             if let scope { try await scope.recheck(); try cloudTeam.check(scope) }
@@ -334,7 +328,7 @@ final class CloudService {
         creating += 1
         defer { creating -= 1 }
         let onSent: @MainActor @Sendable () async -> Void = { [weak creation] in creation?.note(.creating) }
-        let scope: CloudTeamScope.Snapshot? = configuration.linkSource == .appServer ? try await teamScope.snapshot() : nil
+        let scope: CloudTeamScope.Snapshot? = configuration.linkSource == .appServer ? try observedAuthority.snapshot() : nil
         let machine: CloudMachine
         if let scope {
             machine = try await appServerCreate(name: name, startedByPerson: startedByPerson, scope: scope, onSent: onSent)

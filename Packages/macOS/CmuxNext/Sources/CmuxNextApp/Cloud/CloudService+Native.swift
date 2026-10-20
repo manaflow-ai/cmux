@@ -16,7 +16,7 @@ extension CloudService {
             return .object(["error": .string("Cloud is not available")])
         }
         do {
-            let scope = try await teamScope.snapshot()
+            let scope = try observedAuthority.snapshot()
             let socket = try await nativeLink.ensure(scope)
             try await scope.recheck(); try cloudTeam.check(scope)
             return .object(["status": .string("running"), "socket": .string(socket)])

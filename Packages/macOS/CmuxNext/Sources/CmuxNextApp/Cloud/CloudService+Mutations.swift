@@ -4,9 +4,9 @@ import os
 
 extension CloudService {
     private func machineMutations(for machineID: String) -> CloudMachineMutations {
-        let api = api, scope = teamScope, selection = cloudTeam
+        let api = api, observed = observedAuthority, selection = cloudTeam
         return CloudMachineMutations(appServer: configuration.linkSource == .appServer,
-            snapshot: { try await scope.snapshot() }, ops: { self.appOps($0) }, check: {
+            snapshot: { try await observed.snapshot() }, ops: { self.appOps($0) }, check: {
                 try selection.check($0)
                 guard self.machineScope == $0.id, self.machines.session(machineID) != nil else {
                     throw CloudTeamScope.Failure.changed

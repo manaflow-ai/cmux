@@ -38,9 +38,14 @@ public struct CloudOwnerAPIClient: Sendable {
 
     /// The app's selected owner scope binds both headers and every response to the same account.
     package init(baseURL: URL, scope: CloudTeamScope) {
+        self.init(baseURL: baseURL, snapshot: { try await scope.snapshot() })
+    }
+
+    /// Operation callers supply the parent's observed capability, including its post-await loss fence.
+    package init(baseURL: URL, snapshot: @escaping @Sendable () async throws -> CloudTeamScope.Snapshot) {
         self.baseURL = baseURL
         requestScope = {
-            let selected = try await scope.snapshot()
+            let selected = try await snapshot()
             return RequestScope(team: selected.team, credential: selected.sessionToken, recheck: selected.recheck)
         }
         session = Self.transport

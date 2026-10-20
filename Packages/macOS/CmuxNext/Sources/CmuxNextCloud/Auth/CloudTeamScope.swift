@@ -22,6 +22,15 @@ package actor CloudTeamScope {
         package let installToken: @Sendable () async throws -> String
         package let sessionToken: @Sendable () async throws -> String
         package let call: @Sendable (_ path: String, _ body: Data) async throws -> Data
+        package let wireLeases: @Sendable () async throws -> [CloudAuthorityWireLease]
+        package let refreshAuthority: @Sendable () async throws -> Snapshot
+        package let reselectAuthority: @Sendable () async throws -> Snapshot
+        let nativeContext: @Sendable () async throws -> NativeInstallContext
+        let installGeneration: UInt64
+    }
+    package struct Binding: Sendable {
+        package let snapshot: @Sendable () async throws -> Snapshot
+        package let reselect: @Sendable () async throws -> Snapshot
     }
     package enum Failure: Error, Equatable { case changed, unavailable, notMember, ssoRequired, invalidIdentity, invalidRequest }
 
@@ -40,6 +49,31 @@ package actor CloudTeamScope {
         let selected = try await selection()
         // This binds the install only; no Cloud operation uses the personal token as a fallback.
         let context = try await identity.accountContext()
+        return try await snapshot(selected, context: context)
+    }
+
+    /// Retain the signed-in record before a listing or authority read can fail; retrying cannot re-register it.
+    package func bind() async throws -> Binding {
+        let selected = try await selection(), context = try await identity.boundAccountContext()
+        try await check(selected, context)
+        return Binding(snapshot: { [weak self] in
+            guard let self else { throw Failure.changed }
+            return try await self.snapshot(selected, context: context)
+        }, reselect: { [weak self] in
+            guard let self else { throw Failure.changed }
+            return try await self.reselect(context)
+        })
+    }
+
+    private func reselect(_ context: NativeInstallContext) async throws -> Snapshot {
+        let next = try await selection()
+        guard next.account == context.account else { throw Failure.changed }
+        return try await snapshot(next, context: context)
+    }
+
+    /// Background authority reconciliation retains the old install and picker selection, without registration recovery.
+    private func snapshot(_ selected: Selection, context: NativeInstallContext) async throws -> Snapshot {
+        try await check(selected, context)
         guard let personal = MacInstallIdentity.team(ofToken: context.token) else { throw Failure.invalidIdentity }
         guard context.account == selected.account else { throw Failure.changed }
         let bearer = try await session()
@@ -71,6 +105,11 @@ package actor CloudTeamScope {
             try await self.check(selected, context)
         }
         let version = try await authority.version()
+        let leases = CloudAuthorityLeaseSource(identity: identity, context: context, selected: scoped,
+            authority: authority, version: version, personal: personal, team: found.id) { [weak self] in
+                guard let self else { throw Failure.changed }
+                try await self.check(selected, context)
+            }
         let binding = try JSONEncoder().encode(["cmux-cloud-scope-v2", instance, context.account, context.install,
             context.environment, context.point, String(context.generation), selected.stackTeam ?? "", String(selected.generation), found.id, version])
         let id = SHA256.hash(data: binding).map { String(format: "%02x", $0) }.joined()
@@ -88,7 +127,21 @@ package actor CloudTeamScope {
         }, call: { [weak self] path, body in
             guard let self else { throw Failure.changed }
             return try await self.call(selected, context, team: found.id, authority: authority, version: version, path: path, body: body)
-        })
+        }, wireLeases: { try await leases.leases() }, refreshAuthority: { [weak self] in
+            guard let self else { throw Failure.changed }
+            return try await self.snapshot(selected, context: context)
+        }, reselectAuthority: { [weak self] in
+            guard let self else { throw Failure.changed }
+            return try await self.reselect(context)
+        }, nativeContext: { [weak self] in
+            guard let self else { throw Failure.changed }
+            try await self.check(selected, context)
+            let token = try await authority.token(version)
+            try await self.check(selected, context)
+            return NativeInstallContext(account: context.account, user: context.user, install: context.install,
+                environment: context.environment, point: context.point, token: token, generation: context.generation,
+                secureStorage: context.secureStorage)
+        }, installGeneration: context.generation)
     }
 
     package func token() async throws -> String {

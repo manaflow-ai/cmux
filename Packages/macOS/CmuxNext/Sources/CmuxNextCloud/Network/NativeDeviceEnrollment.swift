@@ -11,6 +11,8 @@ public actor NativeDeviceEnrollment {
     private let native: any NativeDeviceTransport
     private let nativeOrigin: URL
     private let session: InstallAuthClient.SessionToken
+    private let context: @Sendable () async throws -> NativeInstallContext
+    private let recheck: @Sendable () async throws -> Void
     private let name: String
     private var generation: UInt64 = 0
     private var revoked = false
@@ -20,10 +22,20 @@ public actor NativeDeviceEnrollment {
 
     public init(scope: NativeDeviceScope, identity: MacInstallIdentity, paths: CloudPaths,
                 native: any NativeDeviceTransport, session: @escaping InstallAuthClient.SessionToken, name: String) throws {
+        try self.init(scope: scope, identity: identity, paths: paths, native: native, session: session, name: name,
+            context: { try await identity.nativeContext(team: scope.team) }, recheck: {})
+    }
+
+    /// The app-owned link retains its original install and authority across every refresh and enrollment step.
+    init(scope: NativeDeviceScope, identity: MacInstallIdentity, paths: CloudPaths,
+         native: any NativeDeviceTransport, session: @escaping InstallAuthClient.SessionToken, name: String,
+         context: @escaping @Sendable () async throws -> NativeInstallContext,
+         recheck: @escaping @Sendable () async throws -> Void) throws {
         guard !name.isEmpty, name.utf8.count <= 63, name.first!.isASCII, name.first!.isLetter || name.first!.isNumber,
               name.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || "._ -".contains($0)) }) else { throw NativeDeviceEnrollmentError.invalidScope }
         nativeOrigin = try NativeDeviceScope.canonicalOrigin(native.origin)
         self.scope = scope; self.identity = identity; root = paths.root; self.native = native; self.session = session; self.name = name
+        self.context = context; self.recheck = recheck
     }
 
     public func enroll() async throws -> NativeDeviceBinding {
@@ -44,8 +56,8 @@ public actor NativeDeviceEnrollment {
         if binding == nil { _ = try await enroll() }
         guard let saved, let binding else { throw NativeDeviceEnrollmentError.invalidState }
         try await check(saved.context, epoch)
-        // Every request mints in the immutable backend team, never the personal overload.
-        let context = try await identity.nativeContext(team: scope.team)
+        // Every request retains the immutable backend team, including automatic child refreshes.
+        let context = try await context()
         try await check(context, epoch)
         guard context.account == saved.context.account, context.user == saved.context.user,
               context.install == saved.context.install, context.point == saved.context.point,
@@ -87,12 +99,12 @@ public actor NativeDeviceEnrollment {
         if binding == nil { _ = try await enroll() }
         guard let saved, let binding else { throw NativeDeviceEnrollmentError.invalidState }
         try await check(saved.context, epoch)
-        let context = try await identity.nativeContext(team: scope.team)
+        let context = try await context()
         guard context.account == saved.context.account, context.user == saved.context.user,
               context.install == saved.context.install, context.point == saved.context.point,
               context.environment == saved.context.environment else { throw NativeDeviceEnrollmentError.invalidIdentity }
         try await checkStartup(context: context, epoch: epoch, binding: binding)
-        let target = try await identity.nativeNetworkTarget(team: scope.team, mesh: scope.mesh)
+        let target = try await identity.nativeNetworkTarget(team: scope.team, mesh: scope.mesh, context: context)
         try await checkStartup(context: context, epoch: epoch, binding: binding)
         guard target.scope == scope, target.origin == nativeOrigin else { throw NativeDeviceEnrollmentError.invalidIdentity }
         let policyProof = try await proof("overlay-policy", target: binding.device, context: context)
@@ -168,7 +180,7 @@ public actor NativeDeviceEnrollment {
     }
 
     private func perform(epoch: UInt64) async throws -> NativeDeviceBinding {
-        let context = try await identity.nativeContext(team: scope.team)
+        let context = try await context()
         try await check(context, epoch)
         let parts = ["account": context.user, "install": context.install, "environment": context.environment,
                      "team": scope.team, "tenant": scope.tenant, "mesh": scope.mesh, "native": nativeOrigin.absoluteString]
@@ -229,8 +241,12 @@ public actor NativeDeviceEnrollment {
 
     private func check(_ context: NativeInstallContext, _ epoch: UInt64) async throws {
         guard !revoked, epoch == generation else { throw NativeDeviceEnrollmentError.revoked }
+        guard MacInstallIdentity.team(ofToken: context.token) == scope.team else { throw NativeDeviceEnrollmentError.invalidIdentity }
+        try await recheck()
         try await identity.nativeCheck(context)
+        try await recheck()
         guard !revoked, epoch == generation else { throw NativeDeviceEnrollmentError.revoked }
+        try Task.checkCancellation()
     }
     private func sessionBearer(_ context: NativeInstallContext) async throws -> String {
         let bearer = try await session()

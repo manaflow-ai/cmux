@@ -9,8 +9,10 @@ actor MacTeamAuthOwner: InstallAuthTransport {
     private let user: String
     private let stackUser: String
     private let installPrefix: String
+    private let includeExpiry: Bool
     private var contexts: [String: (install: String, team: String?, prefix: String)] = [:]
     private var denied: Set<String> = []
+    private var denyUnscoped = false
     private var hold = false
     private var holdRevoke = false
     private var pending: CheckedContinuation<Void, Never>?
@@ -19,13 +21,15 @@ actor MacTeamAuthOwner: InstallAuthTransport {
     private(set) var registrations = 0
     private(set) var grants: [[String]] = []
     private(set) var revoked: [String] = []
-    init(user: String = "user_1", stackUser: String = "stack_1", installPrefix: String = "inst_") {
+    init(user: String = "user_1", stackUser: String = "stack_1", installPrefix: String = "inst_", includeExpiry: Bool = false) {
         self.user = user
         self.stackUser = stackUser
         self.installPrefix = installPrefix
+        self.includeExpiry = includeExpiry
     }
 
     func deny(_ team: String) { denied.insert(team) }
+    func denyPersonalRecovery() { denyUnscoped = true }
     func publicKey(_ install: String) -> Data? { keys[install]?.x963Representation }
     func holdNextTeamToken() { hold = true }
     func holdNextRevoke() { holdRevoke = true }
@@ -73,12 +77,14 @@ actor MacTeamAuthOwner: InstallAuthTransport {
         let proof = signature.count == 64 ? try P256.Signing.ECDSASignature(rawRepresentation: signature) : try P256.Signing.ECDSASignature(derRepresentation: signature)
         guard key.isValidSignature(proof, for: Data((context.prefix + nonce).utf8)) else { throw Failure.invalidRequest }
         if let team = context.team, denied.contains(team) { return try reply(["code": "auth.forbidden"], status: 403) }
+        if context.team == nil, denyUnscoped { return try reply(["code": "auth.forbidden"], status: 403) }
         if context.team != nil, hold {
             hold = false
             await withCheckedContinuation { pending = $0; held.continuation.yield(()) }
         }
         let team = context.team ?? "team_" + String(repeating: "c", count: 20)
-        let claims: [String: Any] = ["iss": "https://cmux-api/staging", "sub": user, "inst": context.install, "team": team, "grant": "grant_1", "aud": "api"]
+        var claims: [String: Any] = ["iss": "https://cmux-api/staging", "sub": user, "inst": context.install, "team": team, "grant": "grant_1", "aud": "api"]
+        if includeExpiry { claims["exp"] = Date().addingTimeInterval(600).timeIntervalSince1970 }
         let payload = try JSONSerialization.data(withJSONObject: claims, options: [.sortedKeys]).base64URLEncoded
         return try reply(["access_token": "eyJhbGciOiJFUzI1NiJ9.\(payload).c2ln", "user": user, "install": context.install,
                           "team": team, "grant": "grant_1", "expires_at": Date().addingTimeInterval(600).timeIntervalSince1970 * 1000])

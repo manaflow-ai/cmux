@@ -29,6 +29,10 @@ public actor MacInstallIdentity {
     private var client: InstallAuthClient?
     private var user: String?
     private var generation: UInt64 = 0
+    private var bindingEpoch: UInt64 = 0
+    private var boundRecord: InstallRecord?
+    private var accountToken: String?
+    private var authorityObservers: [UUID: AsyncStream<UInt64>.Continuation] = [:]
     /// A retired account stays closed until its session ends. In-flight
     /// cleanup separately fences rebinding even when unbind clears the latch.
     private var signedOutUsers: Set<String> = []
@@ -47,12 +51,36 @@ public actor MacInstallIdentity {
     public func signedIn(stackUser: String, session: @escaping InstallAuthClient.SessionToken) async throws {
         guard !signedOutUsers.contains(stackUser), signOutTasks[stackUser] == nil else { throw Failure.signedOut }
         if user != stackUser || client == nil { bind(stackUser: stackUser, session: session) }
-        _ = try await installToken()
+        guard let client else { throw Failure.signedOut }
+        let bound = bindingEpoch
+        let token = try await client.installToken()
+        guard bound == bindingEpoch, user == stackUser else { throw Failure.signedOut }
+        accountToken = token
     }
 
     /// The headers every install-token request carries (the client
     /// version, so the owner can refuse a too-old app).
     public nonisolated var requestHeaders: [String: String] { InstallAuthClient.headers(clientVersion: clientVersion) }
+
+    package var authorityGeneration: UInt64 { generation }
+
+    /// Local install incarnation changes close idle parent authority even without a remote wire event.
+    package func authorityGenerations() -> AsyncStream<UInt64> {
+        let id = UUID(), stream = AsyncStream<UInt64>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        authorityObservers[id] = stream.continuation
+        stream.continuation.yield(generation)
+        stream.continuation.onTermination = { [weak self] _ in
+            // task-owner: one actor hop removes this terminated subscription; no work survives it.
+            Task { await self?.removeAuthorityObserver(id) }
+        }
+        return stream.stream
+    }
+
+    private func removeAuthorityObserver(_ id: UUID) { authorityObservers[id] = nil }
+    private func authorityChanged() {
+        generation &+= 1
+        for observer in authorityObservers.values { observer.yield(generation) }
+    }
 
     /// The `team` claim of an install token (the owner's own token over
     /// TLS; read for consistency, never trusted as a credential). Nil when
@@ -97,6 +125,20 @@ public actor MacInstallIdentity {
 
     /// The bound account for session-only owner reads, never implicit Cloud operation authority.
     func accountContext() async throws -> NativeInstallContext { try await context(team: nil) }
+
+    /// Initial app-server scope resolution may read the signed-in record but never refresh or recover it personally.
+    func boundAccountContext() async throws -> NativeInstallContext {
+        let bound = generation
+        guard let client, let account = user, let record = boundRecord, let token = accountToken,
+              let environment = await client.environment else { throw Failure.signedOut }
+        let point = try await store.signer(for: account).publicKeyX963()
+        let context = NativeInstallContext(account: account, user: record.user, install: record.install,
+            environment: environment, point: point.base64EncodedString(), token: token, generation: bound,
+            secureStorage: store.usesSecureEnclave)
+        try await nativeCheck(context)
+        guard accountToken == token, point.count == 65, point.first == 4 else { throw Failure.signedOut }
+        return context
+    }
 
     /// A snapshot retains one scoped client's in-memory refresh cache under the original signer.
     func scopedClient(team: String, context: NativeInstallContext) async throws -> InstallAuthClient {
@@ -186,10 +228,13 @@ public actor MacInstallIdentity {
 
     /// Detaches synchronously before any reset can suspend and allow a new binding.
     private func releaseClient() -> InstallAuthClient? {
-        generation &+= 1
+        bindingEpoch &+= 1
         let dropped = client
         client = nil
         user = nil
+        boundRecord = nil
+        accountToken = nil
+        authorityChanged()
         return dropped
     }
 
@@ -235,18 +280,22 @@ public actor MacInstallIdentity {
     }
 
     private func bind(stackUser: String, session: InstallAuthClient.SessionToken?) {
-        generation &+= 1
-        let bound = generation
+        bindingEpoch &+= 1
+        let bound = bindingEpoch
         user = stackUser
+        boundRecord = store.record(for: stackUser)
+        accountToken = nil
         client = InstallAuthClient(
             transport: transport, signer: store.signer(for: stackUser), sessionToken: session, stackUser: stackUser,
-            deviceName: deviceName, clientVersion: clientVersion, record: store.record(for: stackUser),
+            deviceName: deviceName, clientVersion: clientVersion, record: boundRecord,
             profile: .mac, onRecord: { [weak self] record in await self?.recordChanged(record, for: stackUser, generation: bound) }
         )
+        authorityChanged()
     }
 
     private func recordChanged(_ record: InstallRecord?, for stackUser: String, generation bound: UInt64) {
-        guard bound == generation else { return }
+        guard bound == bindingEpoch, user == stackUser else { return }
         store.saveRecord(record, for: stackUser)
+        if boundRecord != record { boundRecord = record; accountToken = nil; authorityChanged() }
     }
 }

@@ -46,6 +46,7 @@ extension CloudService {
 
     /// Close admission synchronously; local transport stops while an old startup finishes draining.
     private func fenceCloudSession() -> Task<Void, Never> {
+        let authority = authoritySession?.fence()
         credentialProvider?.suspend()
         dropAllMachines()
         hands.stop()
@@ -55,19 +56,28 @@ extension CloudService {
         return Task { [weak self] in
             await self?.endCredentialSession()
             await stopping.value
+            await authority?.value
         }
     }
 
     /// Each awaited startup stage remains bound to the original session.
     private func startCloudSession(_ identity: CloudSessionLifecycle.Identity) async {
-        guard isCloudSessionCurrent(identity), !policyDisabled, !Task.isCancelled else { return }
+        guard isCloudSessionCurrent(identity), mayCallCloud, !Task.isCancelled else { return }
+        if let authoritySession {
+            if authoritySession.beginRegistration(identity) { await installSignedIn() }
+            guard isCloudSessionCurrent(identity), !policyDisabled else { return }
+            do { try await authoritySession.start(identity) }
+            catch {
+                logger.info("Cloud authority observation refused: \(String(describing: error), privacy: .public)")
+                return
+            }
+        }
+        guard isCloudSessionCurrent(identity), !policyDisabled else { return }
         await nativeLink?.resume()
         guard isCloudSessionCurrent(identity), !policyDisabled else { return }
         await beginCredentialSession(identity: identity)
         guard isCloudSessionCurrent(identity), !policyDisabled else { return }
         await hub?.resume()
-        guard isCloudSessionCurrent(identity), !policyDisabled else { return }
-        await installSignedIn()
         guard isCloudSessionCurrent(identity), !policyDisabled else { return }
         hands.start()
         await refresh()
@@ -75,6 +85,7 @@ extension CloudService {
 
     /// A session change closes credentials and local work before unbinding its signer.
     func retireCloudSession(_ reason: CloudSessionLifecycle.Retirement) async {
+        await authoritySession?.retire().value
         dropAllMachines()
         hands.stop()
         await endCredentialSession()
