@@ -1,4 +1,5 @@
 import CmuxNextAgentPane
+import CmuxNextDaemon
 
 extension PaneController {
     /// New Agent Chat: a new agent tab in this pane, selected. It inherits
@@ -30,6 +31,7 @@ extension PaneController {
                       linked: Bool = false, select: Bool = true, then: (@MainActor (String) -> Void)? = nil) -> Bool {
         let open = NewChatPlacement.opening(from: self, placed: newTab == nil, select: select, then: then)
         return services.agentTabs.openTab(in: open.target, session: session, seed: seed, newTab: newTab, spare: spare,
-                                          linked: linked, select: open.select, hidden: open.hidden, then: open.then)
+                                          linked: linked, select: open.select, hidden: open.hidden, split: open.split,
+                                          then: open.then)
     }
 }

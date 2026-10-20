@@ -46,6 +46,12 @@ impl RegistryViewport {
         self.columns.len() == 1 && self.columns[0].rows.len() >= 2
     }
 
+    /// One pinned column (`pinned-dock-alone-v1`): Home's dock with nothing
+    /// beside it, columns mode with one column.
+    pub fn has_lone_pinned_column(&self) -> bool {
+        matches!(self.columns.as_slice(), [column] if column.dock.is_some_and(|dock| dock.pinned))
+    }
+
     /// The form written to `viewport_json`. A lone column with rows is stored
     /// as no viewport at all: the screen layout is already its compat chain,
     /// a build without `rows-v1` reads it as a split tree, and the column
@@ -92,7 +98,7 @@ pub(super) fn validate_registry_viewport(
         }
         return Ok(());
     }
-    if viewport.columns.len() < 2 && !viewport.has_lone_row_column() {
+    if viewport.columns.len() < 2 && !viewport.has_lone_row_column() && !viewport.has_lone_pinned_column() {
         anyhow::bail!("viewport must have at least two columns when active");
     }
     let base_width =
