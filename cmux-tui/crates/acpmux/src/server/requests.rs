@@ -38,16 +38,37 @@ fn resolved_session(
     }
 }
 
-pub(super) async fn handle_notification(hub: &Arc<Hub>, conn: &Arc<Conn>, m: &str, params: Value) {
+pub(super) async fn handle_notification(
+    hub: &Arc<Hub>,
+    conn: &Arc<Conn>,
+    m: &str,
+    mut params: Value,
+) {
     match m {
         method::SESSION_CANCEL => {
+            // Notifications have no response channel, but they still cross
+            // the same origin/ownership boundary as request-form cancels.
+            if conn.origin != Origin::Local
+                && let Err(e) =
+                    super::remote_guard::check(hub, conn.origin, conn.auth, m, &mut params).await
+            {
+                tracing::debug!(conn = %conn.id, "cancel refused: {e}");
+                return;
+            }
             if let Ok(key) = session_key(&params) {
                 if let Ok(s) = hub.resolve(key) {
                     if let Err(e) = hub.cancel(&s).await {
                         tracing::debug!(conn = %conn.id, "cancel: {e}");
                     }
                 } else if let Some((peer, id, _)) = hub.resolve_remote(key) {
-                    let _ = peer.notify(method::SESSION_CANCEL, json!({"sessionId": id})).await;
+                    let mut forwarded = json!({"sessionId": id});
+                    super::remote_guard::mark_forwarded(
+                        conn.origin,
+                        conn.auth,
+                        &params,
+                        &mut forwarded,
+                    );
+                    let _ = peer.notify(method::SESSION_CANCEL, forwarded).await;
                 }
             }
         }

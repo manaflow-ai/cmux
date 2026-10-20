@@ -35,15 +35,21 @@ struct PhoneAccessSettingTests {
         #expect(SettingsSchema.agentRefusedKeys["phone.allowConnections"] == .network)
         #expect(SettingsSchema.agentRefusedKeys["phone.startSessions"] == .network)
         #expect(SettingsSchema.agentRefusedKeys["phone.keepAwake"] == .userOnly)
+        // Workspace names leave the Mac for the Cloud service only when the person turns it on.
+        #expect(SettingsSchema.agentRefusedKeys["phone.cloudReplica"] == .privacy)
     }
 
     @Test func theRowsShowUnderAccountsWithTheDisclosure() throws {
         let accounts = try #require(SettingsPageLayout().categories().first { $0.spec.id == "accounts" })
         let rows = accounts.groups.flatMap(\.rows)
         // Remote Hosting (this Mac for your other devices) has its own card after phone access.
-        #expect(rows == ["phone.allowConnections", "phone.startSessions", "phone.keepAwake", "remoteHosting.enabled"])
+        #expect(rows == ["phone.allowConnections", "phone.startSessions", "phone.keepAwake", "phone.cloudReplica", "remoteHosting.enabled"])
+        // Opt-in until #13742 decides the default.
+        #expect(SettingsSchema.descriptor(for: ["phone", "cloudReplica"])?.defaultValue == .bool(false))
         let toggle = try #require(SettingsSchema.descriptor(for: ["phone", "allowConnections"]))
         #expect(toggle.defaultValue == .bool(false))
         #expect(toggle.help?.contains("is sent to cmux servers") == true)
+        // The cloud copy is the one exception to "not sent": the help names what is stored.
+        #expect(toggle.help?.contains("unread count and whether it is active") == true)
     }
 }

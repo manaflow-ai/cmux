@@ -32,6 +32,7 @@ on:
       - "web/data/model-catalog/**"
       - "Resources/markdown-viewer/viewer-navigation.js"
       - "config/vite-plus/**"
+      - "schemas/sync-motion/**"
       - "scripts/cmux-next/web-bundle-archive.py"
       - "Packages/macOS/CmuxNext/Sources/**/*.xcstrings"
       - ".github/workflows/cmux-next-web-bundle-publish.yml"

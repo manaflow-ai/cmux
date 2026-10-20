@@ -14,7 +14,7 @@ import { EditorEmptyState } from "../../viewer-empty/EditorEmptyState";
 import { viewerEmptyStrings } from "../../viewer-empty/strings";
 import table from "./generated/strings.json";
 import { EditorPage, StatusStore } from "./EditorPage";
-import { EDITOR_FLUSH_OP, EDITOR_KEY_SEQUENCE_OP, EDITOR_OPEN_LINK_OP } from "./host";
+import { APP_ACTION_RUN_OP, EDITOR_FLUSH_OP, EDITOR_KEY_SEQUENCE_OP, EDITOR_OPEN_LINK_OP } from "./host";
 import { isEditorCommand } from "./keys";
 import { applyEditorLook, PREFERENCE_KEYS, resolveEditorSettings } from "./settings";
 import { EditorStore } from "./store";
@@ -125,6 +125,10 @@ export function mountEditorPage(root: HTMLElement, client: PageClient | null = c
         },
         onKeySequence: (pending) => {
           if (client) void client.call(EDITOR_KEY_SEQUENCE_OP, { pending }).catch(() => undefined);
+        },
+        // The one bridge from web code to the native palette: the app's action, run by the host.
+        openCommandPalette: () => {
+          if (client) void client.call(APP_ACTION_RUN_OP, { action: "commandPalette" }).catch(() => undefined);
         },
       });
       view = next;

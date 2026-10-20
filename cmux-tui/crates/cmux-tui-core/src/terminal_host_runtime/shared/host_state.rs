@@ -401,6 +401,11 @@ impl SmartStreamState {
     pub(crate) fn mark_applied(&self, cursor: u64) {
         let prior = self.applied_cursor.fetch_max(cursor, Ordering::AcqRel);
         debug_assert!(prior <= cursor, "smart parser cursor moved backwards");
+        // A subscriber replays only frames after the applied boundary (it
+        // snapshots the rest), so applied frames are never read again: drop
+        // them. Before, every host kept up to 8 MiB / 4096 frames of raw
+        // output it had already parsed for its whole life.
+        self.retained.lock().unwrap().drop_through(cursor.max(prior));
     }
 
     pub(crate) fn close_failed_transition(&self, source_cursor: Option<u64>) {
@@ -458,6 +463,21 @@ impl SmartRetention {
             let Some(frame) = self.frames.pop_front() else { break };
             self.bytes = self.bytes.saturating_sub(retained_frame_bytes(&frame));
             self.dropped_through = frame.sequence;
+        }
+    }
+
+    /// Drops the frames up to `cursor` (the applied boundary). A replay
+    /// asked for from before it reports a retention gap, as for frames the
+    /// bounds dropped, so a racing subscriber resnapshots instead of
+    /// silently missing frames.
+    pub(crate) fn drop_through(&mut self, cursor: u64) {
+        while self.frames.front().is_some_and(|frame| frame.sequence <= cursor) {
+            let Some(frame) = self.frames.pop_front() else { break };
+            self.bytes = self.bytes.saturating_sub(retained_frame_bytes(&frame));
+            self.dropped_through = self.dropped_through.max(frame.sequence);
+        }
+        if self.frames.is_empty() {
+            self.frames.shrink_to(64);
         }
     }
 

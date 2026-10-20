@@ -22,13 +22,13 @@ final class TerminalSizedForChip: NSView {
         wantsLayer = true
         layer?.cornerRadius = 8
         layer?.borderWidth = Metrics.lineWidth(1)
-        label.font = .systemFont(ofSize: 12, weight: .medium)
+        label.font = .systemFont(ofSize: TypeScale.detail, weight: TypeScale.emphasis)
         label.ink = .secondary
         label.lineBreakMode = .byTruncatingTail
         label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         button.bezelStyle = .rounded
         button.controlSize = .small
-        button.font = .systemFont(ofSize: 11, weight: .medium)
+        button.font = .systemFont(ofSize: TypeScale.caption, weight: TypeScale.emphasis)
         button.setAccessibilityLabel(title)
         button.target = self
         button.action = #selector(takeOver)
@@ -95,6 +95,7 @@ final class TerminalSizedForChip: NSView {
         if isHidden, let layer {
             let seconds = Motion.duration(.fadeIn)
             if seconds > 0 {
+                // motion-allow: a fade on Motion's .fadeIn duration and fadeCurve, skipped when Motion says 0
                 let fade = CABasicAnimation(keyPath: "opacity")
                 fade.fromValue = 0
                 fade.toValue = 1

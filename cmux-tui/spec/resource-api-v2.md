@@ -301,6 +301,9 @@ the folder. A workspace without one gets an app-owned agent-home folder for its
 chats; that folder is not stored here. Neither the user's home folder nor a
 folder above it is accepted (`validation.invalid`): an agent there could read
 the whole home folder.
+Every workspace snapshot also carries `extra.key`, the workspace key that its
+terminals and agent chats get as `CMUX_WORKSPACE_ID` (in UUID form), so a client
+can tell which acpmux chats run in a session's workspaces (`cmux agents chat`).
 `workspace.agent_start.get {workspace, cwd?}` (capability
 `workspace-agent-start-v1`, cx-9aps) is the one answer for where a new agent
 chat of the workspace starts: `{cwd, kind, agent_home, skipped?}`. Rules, first
@@ -490,7 +493,9 @@ members by those ids, and an id the stash no longer holds is
 target?, pane?}` reopens them like `closed.reopen` (`here`; a member whose
 own pane is gone opens in `pane`, the pane the user acted from) or in one
 new workspace (`new_workspace`); restored members leave the stash in the
-same commit. App tabs and pages that are not http(s) are never stashed.
+same commit. A restore is all or nothing: when one member cannot reopen,
+the pages it opened close again and every member stays, so a retry opens
+each page once. App tabs and pages that are not http(s) are never stashed.
 `stash.delete` drops members or a stash, `stash.import {source: onetab,
 groups}` stores OneTab groups (http(s) pages only), and `stash.list` never
 shows back/forward history. Changes are `state_upsert`/`state_delete` of

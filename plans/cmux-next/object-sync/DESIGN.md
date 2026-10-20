@@ -665,9 +665,42 @@ Phase 3, slice 1 (2026-10-19): the HostDO replica, backend side.
   stranger; publish, live read, gap request, forwarded op and its settle, an op in flight refused
   when the host goes away, offline status, resume from the replica with the host off, offline
   refusal, a cursor ahead of the replica, another host's stream refused, heads on reconnect).
-- Next slice: the daemon publisher (the Mac's `host:<h>/session` stream from the workspace store,
-  forwarded ops into the daemon's own command path, the per-host replica off switch L4) and the
-  phone's reader through `OwnershipMirror`.
+- The daemon publisher (slice 2, `cmux-tui-cloud-conversations/src/host_replica.rs` and
+  `cmux-tui-core/src/server/cloud_host_replica.rs`, capability `cloud-host-replica-v1`): the
+  verified app leases its install token (`cloud-host-replica-set`); the daemon enrolls the host,
+  publishes `host:<h>/session` (the `list-workspaces` tree) and runs forwarded ops through its own
+  command path. Only `workspace.rename` with fixed fields runs (remote relay default deny), only for
+  the token's user, never for a principal with `agent`; the cloud key is namespaced per user in
+  the daemon's idempotency store. The seq never goes back in one daemon, and a stream the replica
+  does not hold starts at the wall clock (ms), so a reader's cursor from before a purge or a restart
+  is always behind. The off switch L4 is `cloud-host-replica-clear {purge: true}`: the publisher
+  sends `replica.purge`, HostDO refuses the ops in flight, forgets every stream and answers
+  `replica.purged`. A host the cloud removed (410, 4403) stays off for that install until the app
+  clears the replica; close 4000 (another socket of the install) waits for a new lease.
+  Deliberate first step: each event carries the whole tree in `effects.state` (O(tree) per
+  change, the cost section 1 names); diffs per workspace come when the tree has per-object revisions.
+- The owner's delete (slice 3): `host.replica.purge {host}` is a TeamDO op for the host's owner
+  only (no agent, not an orphaned host); it is audited and queues a drop without a tombstone, so
+  HostDO forgets the stored streams and closes every replica socket (4403) also while the Mac is
+  off. The host keeps its id. An open publisher's daemon then stays `forbidden` until the app
+  clears the replica (the off switch or sign-out); a Mac that was off publishes again at its next
+  lease while its own switch is on. Test: `test/host-replica.test.ts` (owner purge with the host
+  off, a stranger refused, the install publishes again).
+- The Swift lease caller (slice 3, `CmuxNextPhoneAccess/CloudHostReplicaFollower.swift`): L4 is
+  `phone.cloudReplica` in Settings > Accounts > Phone Access, opt-in until #13742 decides the
+  default; agents may not change it (`.privacy`). While it is on, the account is signed in, Cloud
+  is allowed and the local daemon serves `cloud-host-replica-v1`, the app leases its install token
+  (`cloud-host-replica-set`, `expires_at` from the JWT); off sends `clear {purge: true}`;
+  sign-out clears; `cloud-host-replica-needed` invalidates the install token and leases again (a
+  purge in flight leases and purges again: a lease resets a pending purge). User defaults name the
+  account whose copy may exist until the daemon that was asked to purge shows `off`, so an off
+  switch set while the app was closed, or a purge that did not finish, still purges later. A
+  daemon restart on the same connection leases again. The daemon asks again every 30 s while its
+  token is refused (a pending purge waits the same way; only a replaced socket, 4000, retries it
+  after a backoff), and paces asks of one reason to one per 30 s across leases. Cost: the old token's socket still
+  closes 4401 at its expiry after an in-place renewal, so each renewal (about every 8 minutes with
+  10-minute install tokens) costs a reconnect and one full snapshot.
+- Next slice: the phone's reader through `OwnershipMirror` (after the cnx-ios fold-in).
 
 Each phase deletes what it replaces in the same change (no twins). Each phase lands on
 `feat-cmux-next` in small slices as soon as its slice is green (Lawrence, 2026-10-18: "cut our

@@ -132,13 +132,13 @@ final class SidebarBridge {
             // Rows come from the feed: this pass reads no row's status; a row reads its tab selection itself.
             let pages = Self.newTabPages(agentTabs, in: machines.local.store), muted = notifications.preferences.mutedWorkspaces
             feed.beginPass(inputs: [pages, muted, DesignSettings.shared.attention.showsOnSidebar] as [AnyHashable])
-            let (sections, launching, failed) = Self.liveSections(
+            let (listed, launching, failed) = Self.liveSections(
                 machines, registry: registry, window: windowState, creations: creations, hidesHome: Self.hidesHome(layout.document),
                 newTabPages: pages, muted: muted,
                 top: .make(layout, machines: machines, room: windowState.profileID.rawValue), pageFace: services.sidebarPageFace,
                 tabTitle: Self.tabTitle(services), rows: feed.rowSource)
             // Not the creates' rows (PendingWorkspaceRows): they draw from the press (its redraws below), and a walk reads them as it shows.
-            return ((sections, services.sidebarCustomization.rowDecorations), launching, failed, SidebarSpaceBar.profiles(machines.local), SidebarProfileKey(windowState.profileID.rawValue),
+            return ((PendingWorkspaceRows.shared.listing(listed, in: windowState.id, machines: machines), services.sidebarCustomization.rowDecorations), launching, failed, SidebarSpaceBar.profiles(machines.local), SidebarProfileKey(windowState.profileID.rawValue),
                     SidebarRows.visibleLayout(layout.document))
         }) { [weak self] value in
             let ((sections, decorations), launching, failed, profiles, active, shown) = value
@@ -268,7 +268,7 @@ final class SidebarBridge {
     static func liveSections(_ machines: MachineRegistry, registry: WindowRegistryStore,
                              window: WindowState, creations: CloudCreations? = nil, hidesHome: Bool = true,
                              newTabPages: Set<String> = [], muted: Set<String> = [],
-                             top: SidebarTopProjection = .legacy, pageFace: @escaping PageFace = { _, _ in nil },
+                             top: SidebarTopProjection = .legacy, pageFace: @escaping PageFace = { _, _, _ in nil },
                              tabTitle: TabTitle? = nil, rows: SidebarMapping.RowSource? = nil) -> ([SidebarRowSection], Bool, Set<MachineID>) {
         var sections = Self.sections(machines, members: registry.members(of: window.id), profile: window.profileID, hidesHome: hidesHome,
                                      selection: window.selection, newTabPages: newTabPages, muted: muted, top: top, pageFace: pageFace,
@@ -295,7 +295,7 @@ final class SidebarBridge {
     static func sections(_ machines: MachineRegistry, members: [String],
                          profile: ProfileID, hidesHome: Bool = true, selection: @autoclosure @escaping () -> TabSelectionMemory = .init(),
                          newTabPages: Set<String> = [], muted: Set<String> = [], top: SidebarTopProjection = .legacy,
-                         pageFace: @escaping PageFace = { _, _ in nil }, tabTitle: TabTitle? = nil, rows: SidebarMapping.RowSource? = nil) -> [SidebarRowSection] {
+                         pageFace: @escaping PageFace = { _, _, _ in nil }, tabTitle: TabTitle? = nil, rows: SidebarMapping.RowSource? = nil) -> [SidebarRowSection] {
         let visible = WindowProfiles.visible(members, profile: profile, machines: machines)
         let filtered = SidebarRowSection.filter(sections(machines, profile: profile, hidesHome: hidesHome, selection: selection(), newTabPages: newTabPages,
                                                          muted: muted, pageFace: pageFace, tabTitle: tabTitle, rows: rows),
@@ -305,8 +305,9 @@ final class SidebarBridge {
 
     /// Whether the workspace list leaves the home workspace out: only while
     /// a Home item shows it, so it is never unreachable from the sidebar.
-    /// The page face of a browser workspace's front tab (`AppServices.sidebarPageFace`).
-    typealias PageFace = (WorkspaceModel, TabModel) -> SidebarMapping.PageFace?
+    /// The page face of a browser workspace's front tab, given the work tab it
+    /// yields its name to (`AppServices.sidebarPageFace`).
+    typealias PageFace = (WorkspaceModel, TabModel, TabModel?) -> SidebarMapping.PageFace?
     /// A tab's name in the sidebar's tab rows, as its strip names it.
     typealias TabTitle = (TabModel) -> String
 
@@ -331,7 +332,7 @@ final class SidebarBridge {
     /// `selection` is read by each row's mapping (lazily), so a tab switch re-maps rows, not the sidebar.
     static func sections(_ machines: MachineRegistry, profile: ProfileID, hidesHome: Bool = true,
                          selection: @autoclosure @escaping () -> TabSelectionMemory = .init(), newTabPages: Set<String> = [], muted: Set<String> = [],
-                         pageFace: @escaping PageFace = { _, _ in nil }, tabTitle: TabTitle? = nil, rows: SidebarMapping.RowSource? = nil) -> [SidebarRowSection] {
+                         pageFace: @escaping PageFace = { _, _, _ in nil }, tabTitle: TabTitle? = nil, rows: SidebarMapping.RowSource? = nil) -> [SidebarRowSection] {
         let showsUnread = DesignSettings.shared.attention.showsOnSidebar
         let selectedTab = { (pane: PaneModel) in selection().selection(in: pane.id) }
         let groupIcon = IconAssetImages.shared.sidebarIcon(owner: machines.local)

@@ -37,6 +37,14 @@ public struct PaneSplitCommand: Sendable {
     /// the reply's surface goes to that close at once, and this throws ``PaneSplitCancelled``, so
     /// nothing focuses or sizes the split the person closed.
     public func sendIntended(on daemon: DaemonService, provisional: ProvisionalPane) async throws -> SurfaceCreated {
+        try await intendNow(on: daemon, provisional: provisional)()
+    }
+
+    /// ``sendIntended(on:provisional:)`` in two steps (Cmd-D, instant-new-surfaces): the
+    /// provisional pane is in the store's visible records when this returns, in the caller's
+    /// turn, so the window can lay it out in the key's frame; the returned work sends the split.
+    @MainActor
+    public func intendNow(on daemon: DaemonService, provisional: ProvisionalPane) -> @MainActor () async throws -> SurfaceCreated {
         let transaction = ClientTransactionID.generate()
         var options = options
         options.paneID = provisional.paneID
@@ -45,13 +53,15 @@ public struct PaneSplitCommand: Sendable {
         options.terminalID = TerminalID(rawValue: provisional.terminalID)
         let pane = pane, direction = direction, sent = options
         let intent = Intent.splitPane(pane: pane, direction: direction, ratio: 0.5, provisional: provisional)
-        let created = await daemon.intend("split", intent, transaction: transaction) { connection in
+        let send = daemon.intendNow("split", intent, transaction: transaction) { connection in
             try await connection.split(pane, direction: direction, options: sent)
         }
-        guard let created else { throw PaneSplitFailure() }
-        daemon.store.creations.noteReply(transaction, surface: created.surface)
-        guard !daemon.store.creations.wasCancelled(transaction) else { throw PaneSplitCancelled() }
-        return created
+        return {
+            guard let created = await send() else { throw PaneSplitFailure() }
+            daemon.store.creations.noteReply(transaction, surface: created.surface)
+            guard !daemon.store.creations.wasCancelled(transaction) else { throw PaneSplitCancelled() }
+            return created
+        }
     }
 
     /// The optimistic split (cx-wb5.72). It was off while keys typed after Cmd+D could be lost;

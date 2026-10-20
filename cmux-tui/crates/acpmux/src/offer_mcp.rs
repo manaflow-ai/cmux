@@ -65,12 +65,18 @@ fn tools() -> Value {
     }])
 }
 
+/// What the server tells the agent once, at `initialize` (MCP `instructions`).
+pub const INSTRUCTIONS: &str = "Work the user did not ask for: suggest it with offer_session (one task) \
+or suggest_tasks (a few at once) and let the user start it; start a session yourself only when the \
+user asked for one.";
+
 /// Runs the server on stdin and stdout.
 pub async fn run() -> Result<()> {
     crate::secret_mcp::serve(
         SERVER_NAME,
         SESSION_ENV,
         tools(),
+        Some(INSTRUCTIONS.to_owned()),
         |daemon, session, params| async move { call(&daemon, &session, &params).await },
     )
     .await

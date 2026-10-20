@@ -1,17 +1,18 @@
-// Link behavior inside the editor: broken-link marks, the hover card and follow cursor, pasting
-// URLs, the link popover (the `link` page command, Cmd-K) and reference-aware link edits. The page
+// Link behavior inside the editor, after Google Docs' link bubble: the caret entering a link shows
+// a bubble under it (its URL, where it goes, Open, Copy link, Edit, Remove), never the pointer
+// passing over it; Edit and the `link` page command (Cmd-K) open a Text and URL form; Option-Return
+// follows the link at the caret; a URL pasted over a selection links it and a typed bare URL links
+// itself. Also broken-link marks, the Cmd follow cursor and reference-aware link edits. The page
 // decides where a followed link goes (main.tsx); this file reports which href the user followed.
 import type { Mark, MarkType, Node as ProseNode } from "@milkdown/kit/prose/model";
-import { Plugin, PluginKey, TextSelection, type EditorState } from "@milkdown/kit/prose/state";
+import { closeHistory } from "@milkdown/kit/prose/history";
+import { Plugin, PluginKey, TextSelection, type EditorState, type Transaction } from "@milkdown/kit/prose/state";
 import { Decoration, DecorationSet, type EditorView } from "@milkdown/kit/prose/view";
 import { $prose } from "@milkdown/kit/utils";
+import type { UiVirtualAnchor } from "../../ui/Popover";
 import { findHeading, headingTargets, parseLink, pastedURL, relativeLinkPaths, type ResolvedLink } from "./links";
 import { RAW_NODE, type ReferenceInfo } from "./sourceMap";
-import type { LinkCardInfo, LinkOverlays } from "./overlays";
-import { HoverIntent } from "../../ui/hoverIntent";
-
-/** The caret's card waits a moment (keyboard, not hover): moving through text shows no flash. */
-const CARET_CARD_DELAY_MS = 250;
+import type { LinkBubbleState, LinkOverlays } from "./overlays";
 
 export type LinkLabel =
   | "followHint"
@@ -24,7 +25,19 @@ export type LinkLabel =
   | "opensFile"
   | "opensMail"
   | "linkPlaceholder"
-  | "footnote";
+  | "footnote"
+  | "bubble"
+  | "open"
+  | "copy"
+  | "copied"
+  | "edit"
+  | "remove"
+  | "text"
+  | "textPlaceholder"
+  | "url"
+  | "apply"
+  | "insertTitle"
+  | "editTitle";
 
 /** What the link features need from the page. */
 export interface LinkHost {
@@ -32,8 +45,10 @@ export interface LinkHost {
   resolved(path: string): ResolvedLink | undefined;
   /** Asks the host about these relative paths (batched; `refreshLinks` runs when they answer). */
   requestLinks(paths: Iterable<string>): void;
-  /** Completion for the popover: workspace paths relative to the file, starting with `prefix`. */
+  /** Completion for the URL field: workspace paths relative to the file, starting with `prefix`. */
   listFiles?(prefix: string): Promise<string[]>;
+  /** Puts text on the clipboard (default: the page's clipboard, see `copyText`). */
+  copyText?(text: string): Promise<void>;
   linkLabel(key: LinkLabel): string;
 }
 
@@ -86,7 +101,7 @@ export function linkState(doc: ProseNode, href: string, host: LinkHost): LinkSta
   return resolved.exists ? "ok" : "broken";
 }
 
-/** The hover card's lines for an href: where it goes, and how to follow it. */
+/** The bubble's lines for an href: where it goes, and how to follow it. */
 export function linkCard(
   doc: ProseNode,
   href: string,
@@ -114,96 +129,317 @@ export function linkCard(
   return { target, detail: link.kind === "file" ? `${host.linkLabel("opensFile")} · ${hint}` : hint, state };
 }
 
+/** How a link is spelled in the file when it is an autolink: a bare URL (GFM) or `<url>`. */
+export type AutolinkSpelling = "literal" | "angle";
+
 /**
- * The hover card and the follow cursor. Hovering a link shows its card; holding Cmd over the
- * editor turns links into pointers (`md-follow`), since Cmd-click follows and a plain click edits.
+ * Copies `text`: the async clipboard, else `fallback` (a hidden textarea the bubble renders) and
+ * the copy command, which a page on a custom scheme still allows during a click.
  */
-export function hoverCardPlugin(host: LinkHost, readOnly: () => boolean, overlays: LinkOverlays) {
+export async function copyText(text: string, fallback: HTMLTextAreaElement | null): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(text);
+    return;
+  } catch {
+    // Not a secure context, or no permission: fall through to the textarea.
+  }
+  if (!fallback) throw new Error("Clipboard API unavailable");
+  fallback.value = text;
+  fallback.select();
+  if (!document.execCommand("copy")) throw new Error("Clipboard copy failed");
+}
+
+/**
+ * The Cmd follow cursor: holding Cmd over the editor turns links into pointers (`md-follow`),
+ * since Cmd-click follows and a plain click places the caret (and shows the bubble).
+ */
+export function followCursorPlugin() {
   return $prose(
     () =>
       new Plugin({
         view(view) {
-          let current: Element | null = null;
-          // What showed the card: the pointer over a link, or the caret inside one.
-          let by: "pointer" | "caret" | null = null;
-          const render = (anchor: Element | null, info: LinkCardInfo | null) =>
-            overlays.setCard(anchor && info ? { anchor, info } : null);
-          // The pointer's card waits the hover delay, then a neighbor link's shows at once
-          // (ui/hoverIntent.ts).
-          const intent = new HoverIntent<Element>({ show: (element) => show(element), hide: () => render(null, null) });
-          const hide = () => {
-            intent.hover(null);
-            current = null;
-            by = null;
-            render(null, null);
-          };
-          const show = (element: Element) => {
-            const href = element.getAttribute("href") ?? "";
-            const info: LinkCardInfo = element.matches("sup[data-type]")
-              ? {
-                  target: `[^${element.getAttribute("data-label") ?? ""}]`,
-                  detail: host.linkLabel("footnote"),
-                  state: "ok",
-                }
-              : linkCard(view.state.doc, href, host, readOnly());
-            render(element, info);
-          };
-          const schedule = (element: Element, source: "pointer" | "caret") => {
-            if (element === current) return;
-            current = element;
-            by = source;
-            intent.hover(element, source === "caret" ? CARET_CARD_DELAY_MS : undefined);
-          };
-          const follow = (on: boolean) => view.dom.classList.toggle("md-follow", on);
-          const over = (event: MouseEvent) => {
-            follow(event.metaKey);
-            const element = (event.target as Element | null)?.closest?.('a[href], sup[data-type="footnote_reference"]');
-            if (element === current) return;
-            if (!element || !view.dom.contains(element)) {
-              if (by === "pointer") hide();
-              return;
-            }
-            schedule(element, "pointer");
-          };
-          // The link around the caret, so keyboard users get the same card.
-          const caretLink = (): Element | null => {
-            const { selection } = view.state;
-            if (!selection.empty || !view.hasFocus()) return null;
-            const range = linkRangeAt(view.state, selection.from);
-            if (!range || range.from === range.to) return null;
-            const { node } = view.domAtPos(range.from + 1);
-            const element = node instanceof Element ? node : node.parentElement;
-            return element?.closest("a[href]") ?? null;
-          };
-          // ui-allow: the editor's follow cursor tracks the Meta key; any other key hides the card.
-          const modifier = (event: KeyboardEvent) => {
-            follow(event.metaKey);
-            if (event.key !== "Meta" && by === "pointer") hide();
-          };
-          view.dom.addEventListener("mousemove", over);
-          view.dom.addEventListener("mouseleave", () => by === "pointer" && hide());
-          addEventListener("keydown", modifier, true); // ui-allow: follow cursor (see above)
-          addEventListener("keyup", modifier, true); // ui-allow: follow cursor (see above)
-          addEventListener("scroll", hide, true);
+          const follow = (event: MouseEvent | KeyboardEvent) => view.dom.classList.toggle("md-follow", event.metaKey);
+          view.dom.addEventListener("mousemove", follow);
+          addEventListener("keydown", follow, true); // ui-allow: the follow cursor tracks the Meta key
+          addEventListener("keyup", follow, true); // ui-allow: the follow cursor tracks the Meta key
           return {
-            update: () => {
-              if (current && !view.dom.contains(current)) hide();
-              const link = caretLink();
-              if (link) schedule(link, "caret");
-              else if (by === "caret") hide();
-            },
             destroy: () => {
-              hide();
-              intent.dispose();
-              view.dom.removeEventListener("mousemove", over);
-              removeEventListener("keydown", modifier, true);
-              removeEventListener("keyup", modifier, true);
-              removeEventListener("scroll", hide, true);
+              view.dom.removeEventListener("mousemove", follow);
+              removeEventListener("keydown", follow, true);
+              removeEventListener("keyup", follow, true);
             },
           };
         },
       }),
   );
+}
+
+/** What the link bubble needs besides the link host. */
+export interface LinkBubbleOptions {
+  host: LinkHost;
+  overlays: LinkOverlays;
+  readOnly(): boolean;
+  /** Follows an href (the page's router; the same as Cmd-click). */
+  openLink(href: string): void;
+}
+
+/** Where the editor finds the bubble its plugin made (for the `link` page command). */
+export interface LinkBubbleSlot {
+  current: LinkBubble | null;
+}
+
+/**
+ * The link bubble (Google Docs' model). The caret entering a link shows the view bubble under it at
+ * once; the pointer passing over a link shows nothing. Option-Return follows the link at the caret,
+ * Escape hides the bubble until the caret leaves that link. The bubble's Edit and the `link` page
+ * command (Cmd-K) open the edit form.
+ */
+export function linkBubblePlugin(options: LinkBubbleOptions, slot: LinkBubbleSlot) {
+  return $prose(
+    () =>
+      new Plugin({
+        props: {
+          handleKeyDown(view, event) {
+            const bubble = slot.current;
+            if (!bubble) return false;
+            if (event.key === "Enter" && event.altKey && !event.metaKey && !event.ctrlKey && !event.shiftKey)
+              return bubble.openAtCaret();
+            if (event.key === "Escape") return bubble.dismiss();
+            return false;
+          },
+        },
+        view(view) {
+          const bubble = new LinkBubble(view, options);
+          slot.current = bubble;
+          const refresh = () => bubble.update();
+          view.dom.addEventListener("focus", refresh);
+          view.dom.addEventListener("blur", refresh);
+          return {
+            update: refresh,
+            destroy: () => {
+              view.dom.removeEventListener("focus", refresh);
+              view.dom.removeEventListener("blur", refresh);
+              bubble.destroy();
+              if (slot.current === bubble) slot.current = null;
+            },
+          };
+        },
+      }),
+  );
+}
+
+interface LinkRange {
+  from: number;
+  to: number;
+  mark?: Mark;
+}
+
+/** The bubble's controller: decides when it shows and carries out its actions. */
+export class LinkBubble {
+  private opened = 0;
+  /** The link the view bubble shows (start and href): one opening while the caret moves or types in it. */
+  private shown: string | null = null;
+  /** What the shown bubble was drawn from, to redraw it in place when the link's text or element changes. */
+  private drawn: { to: number; anchor: Element | null } | null = null;
+  /** The link Escape hid the bubble for, until the caret leaves it. */
+  private dismissed: string | null = null;
+  private editing = false;
+
+  constructor(
+    private readonly view: EditorView,
+    private readonly options: LinkBubbleOptions,
+  ) {}
+
+  /** The link around an empty caret in a focused, editable editor. */
+  private caretLink(): (LinkRange & { mark: Mark }) | null {
+    const { state } = this.view;
+    if (this.options.readOnly() || !state.selection.empty || !this.view.hasFocus()) return null;
+    const range = linkRangeAt(state, state.selection.from);
+    if (!range || range.from === range.to) return null;
+    return range;
+  }
+
+  /** Shows, keeps or hides the view bubble for the caret (every editor update, focus and blur). */
+  update(): void {
+    if (this.editing) return;
+    const range = this.caretLink();
+    const key = range ? `${range.from}:${String(range.mark.attrs.href ?? "")}` : null;
+    if (key !== this.dismissed) this.dismissed = null;
+    if (!range || key === this.dismissed) {
+      this.hide();
+      return;
+    }
+    const same = key === this.shown;
+    if (same && this.drawn?.to === range.to && this.drawn.anchor?.isConnected) return;
+    this.shown = key;
+    this.showView(range, same);
+  }
+
+  private anchorElement(range: LinkRange): Element | null {
+    try {
+      const { node } = this.view.domAtPos(range.from + 1);
+      const element = node instanceof Element ? node : node.parentElement;
+      return element?.closest("a[href]") ?? element ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** A box over `from..to` read when the bubble is placed (it follows layout changes). */
+  private rangeAnchor(range: LinkRange): UiVirtualAnchor {
+    const view = this.view;
+    return {
+      contextElement: view.dom,
+      getBoundingClientRect: () => {
+        let left = 0;
+        let top = 0;
+        let right = 0;
+        let bottom = 0;
+        try {
+          const start = view.coordsAtPos(range.from);
+          const end = view.coordsAtPos(range.to);
+          const sameLine = Math.abs(start.top - end.top) < 2;
+          left = start.left;
+          top = start.top;
+          right = sameLine ? Math.max(end.right, start.left) : start.left;
+          bottom = start.bottom;
+        } catch {
+          const box = view.dom.getBoundingClientRect();
+          ({ left, top, right, bottom } = box);
+        }
+        return DOMRect.fromRect({ x: left, y: top, width: right - left, height: bottom - top });
+      },
+    };
+  }
+
+  private base(range: LinkRange, href: string, keepId = false): Omit<LinkBubbleState, "mode" | "anchor" | "inserting"> {
+    const { host } = this.options;
+    const doc = this.view.state.doc;
+    const card = linkCard(doc, href, host, this.options.readOnly());
+    return {
+      id: keepId ? this.opened : ++this.opened,
+      href,
+      text: doc.textBetween(range.from, range.to, " "),
+      info: card,
+      label: (key) => host.linkLabel(key),
+      suggest: (value) => this.suggest(value),
+      open: () => {
+        if (href) this.options.openLink(href);
+      },
+      copy: (fallback) => {
+        void (host.copyText ? host.copyText(href) : copyText(href, fallback ?? null)).catch(() => {});
+      },
+      edit: () => this.openEdit(range),
+      remove: () => this.remove(range),
+      apply: (text, next) => this.apply(range, text, next),
+      cancel: () => this.closeEdit(),
+    };
+  }
+
+  /** Shows the view bubble; `inPlace` keeps its id (the same link changed), so it redraws without a new fade. */
+  private showView(range: LinkRange & { mark: Mark }, inPlace = false): void {
+    const href = String(range.mark.attrs.href ?? "");
+    const element = this.anchorElement(range);
+    this.drawn = { to: range.to, anchor: element };
+    this.options.overlays.setBubble({
+      ...this.base(range, href, inPlace),
+      mode: "view",
+      anchor: element ?? this.rangeAnchor(range),
+      inserting: false,
+    });
+  }
+
+  /** The edit form on the link at the caret or the selection (the `link` page command, Cmd-K). */
+  editAtSelection(): void {
+    if (this.options.readOnly()) return;
+    const { state } = this.view;
+    const { from, to } = state.selection;
+    const around = linkRangeAt(state, from);
+    const range: LinkRange =
+      around && (state.selection.empty || (from >= around.from && to <= around.to))
+        ? around
+        : { from, to, mark: undefined };
+    this.openEdit(range);
+  }
+
+  private openEdit(range: LinkRange): void {
+    const href = String(range.mark?.attrs.href ?? "");
+    this.editing = true;
+    this.shown = null;
+    this.drawn = null;
+    this.options.overlays.setBubble({
+      ...this.base(range, href),
+      mode: "edit",
+      anchor: this.rangeAnchor(range),
+      inserting: !range.mark,
+    });
+  }
+
+  private closeEdit(): void {
+    if (!this.editing) return;
+    this.editing = false;
+    this.options.overlays.setBubble(null);
+    this.view.focus();
+    this.update();
+  }
+
+  private apply(range: LinkRange, text: string, href: string): void {
+    this.editing = false;
+    this.options.overlays.setBubble(null);
+    applyLinkEdit(this.view, range.from, range.to, text, href.trim(), range.mark);
+    this.view.focus();
+    this.update();
+  }
+
+  private remove(range: LinkRange): void {
+    this.editing = false;
+    this.shown = null;
+    const linkType = this.view.state.schema.marks.link as MarkType;
+    this.view.dispatch(this.view.state.tr.removeMark(range.from, range.to, linkType).scrollIntoView());
+    this.options.overlays.setBubble(null);
+    this.view.focus();
+  }
+
+  /** Option-Return: follows the link at the caret. */
+  openAtCaret(): boolean {
+    const range = this.caretLink();
+    if (!range) return false;
+    const href = String(range.mark.attrs.href ?? "");
+    if (href) this.options.openLink(href);
+    return true;
+  }
+
+  /** Escape: hides the view bubble until the caret leaves this link. */
+  dismiss(): boolean {
+    if (this.editing || !this.shown) return false;
+    this.dismissed = this.shown;
+    this.hide();
+    return true;
+  }
+
+  private hide(): void {
+    if (this.editing) return;
+    this.shown = null;
+    this.drawn = null;
+    if (this.options.overlays.getState().bubble) this.options.overlays.setBubble(null);
+  }
+
+  private async suggest(value: string): Promise<string[]> {
+    if (value.startsWith("#")) {
+      const wanted = value.slice(1).toLowerCase();
+      return headingTargets(this.view.state.doc)
+        .filter((heading) => heading.slug.includes(wanted) || heading.text.toLowerCase().includes(wanted))
+        .map((heading) => `#${heading.slug}`);
+    }
+    const files = this.options.host.listFiles;
+    if (!/^[a-z][a-z0-9+.-]*:/i.test(value) && files) return files(value).catch(() => []);
+    return [];
+  }
+
+  destroy(): void {
+    this.editing = false;
+    this.hide();
+  }
 }
 
 /** Pasting one URL: over a selection it links the selection; alone it inserts it as a link. */
@@ -212,9 +448,11 @@ export function pasteLinkPlugin(readOnly: () => boolean) {
     () =>
       new Plugin({
         props: {
-          handlePaste(view, event) {
+          handlePaste(view, event, slice) {
             if (readOnly()) return false;
-            const url = pastedURL(event.clipboardData?.getData("text/plain") ?? "");
+            const plain =
+              event.clipboardData?.getData("text/plain") || slice.content.textBetween(0, slice.content.size, "\n");
+            const url = pastedURL(plain);
             if (!url) return false;
             const { state } = view;
             const { $from } = state.selection;
@@ -229,6 +467,71 @@ export function pasteLinkPlugin(readOnly: () => boolean) {
                   .addMark(state.selection.from, state.selection.to, mark);
             view.dispatch(tr.scrollIntoView());
             return true;
+          },
+        },
+      }),
+  );
+}
+
+/** A URL at the end of the text before the caret (GFM's `http(s)://` and `www.` autolinks). */
+const TYPED_URL = /(?:^|[\s(*_~])((?:https?:\/\/|www\.)[^\s<>]+)$/i;
+
+/** The URL GFM links in `candidate`: trailing punctuation and unbalanced closing parens dropped. */
+export function trimTypedURL(candidate: string): string {
+  let url = candidate.replace(/[.,:;!?"'*_~]+$/, "");
+  while (url.endsWith(")") && (url.match(/\)/g)?.length ?? 0) > (url.match(/\(/g)?.length ?? 0)) {
+    url = url.slice(0, -1).replace(/[.,:;!?"'*_~]+$/, "");
+  }
+  return url;
+}
+
+/**
+ * The transaction that links the bare URL just before `pos` (typing a space or Return after it),
+ * spelled as a bare URL in the file; null when there is none, it is in code or already linked.
+ */
+export function autolinkBefore(state: EditorState, pos: number): Transaction | null {
+  const link = state.schema.marks.link;
+  const $pos = state.doc.resolve(pos);
+  if (!link || $pos.parent.type.spec.code || !$pos.parent.isTextblock) return null;
+  const before = $pos.parent.textBetween(Math.max(0, $pos.parentOffset - 500), $pos.parentOffset, undefined, "￼");
+  const match = TYPED_URL.exec(before);
+  if (!match) return null;
+  const url = trimTypedURL(match[1]);
+  if (!/^(https?:\/\/[^/\s]+\.[^\s]|https?:\/\/localhost|www\.[^.\s]+\.[^\s])/i.test(url)) return null;
+  const start = pos - match[1].length;
+  const end = start + url.length;
+  let blocked = false;
+  state.doc.nodesBetween(start, end, (node) => {
+    if (node.isText && node.marks.some((mark) => mark.type === link || mark.type.spec.code)) blocked = true;
+  });
+  if (blocked) return null;
+  const href = /^www\./i.test(url) ? `http://${url}` : url;
+  return state.tr.addMark(start, end, link.create({ href, title: null, autolink: "literal" }));
+}
+
+/**
+ * A typed bare URL links itself when a space or Return follows it (Google Docs, GFM). The link is
+ * its own undo step: Cmd-Z right after takes the link (and the space) back, leaving the URL text.
+ */
+export function autolinkPlugin(readOnly: () => boolean) {
+  return $prose(
+    () =>
+      new Plugin({
+        props: {
+          handleTextInput(view, from, to, text) {
+            if (readOnly() || !/^\s$/.test(text) || from !== to) return false;
+            const tr = autolinkBefore(view.state, from);
+            if (!tr) return false;
+            view.dispatch(closeHistory(tr.insertText(text, from, to)));
+            return true;
+          },
+          handleKeyDown(view, event) {
+            if (readOnly() || event.key !== "Enter" || event.altKey || event.metaKey || event.ctrlKey) return false;
+            const { selection } = view.state;
+            if (!selection.empty) return false;
+            const tr = autolinkBefore(view.state, selection.from);
+            if (tr) view.dispatch(closeHistory(tr));
+            return false;
           },
         },
       }),
@@ -263,44 +566,67 @@ export function linkRangeAt(state: EditorState, pos: number): { from: number; to
 }
 
 /**
- * Sets the link on `from..to` to `href` (empty removes it). A reference link keeps its reference:
- * its definition and every link using it get the new URL. With an empty range the href is
- * inserted as linked text.
+ * Applies the edit form: `text` replaces the link's text when it changed (an empty text uses the
+ * URL), `href` sets the link (empty removes it). A reference link keeps its reference: its
+ * definition and every link using it get the new URL. With an empty range the text is inserted as
+ * a new link. One transaction, so one undo step.
  */
-export function applyLink(view: EditorView, from: number, to: number, href: string, existing?: Mark): void {
+export function applyLinkEdit(
+  view: EditorView,
+  from: number,
+  to: number,
+  text: string,
+  href: string,
+  existing?: Mark,
+): void {
   const { state } = view;
   const linkType = state.schema.marks.link as MarkType;
+  if (!href && !existing) return;
+  const current = state.doc.textBetween(from, to, " ");
+  const wanted = text || current || href;
   let tr = state.tr;
+  let end = to;
+  if (wanted !== current) {
+    const marks = (from < to ? state.doc.resolve(from + 1).marks() : state.doc.resolve(from).marks()).filter(
+      (mark) => mark.type !== linkType,
+    );
+    const kept = existing ? [...marks, existing] : marks;
+    tr = tr.replaceWith(from, to, state.schema.text(wanted, kept));
+    end = from + wanted.length;
+  }
   const reference = existing?.attrs.reference as ReferenceInfo | null | undefined;
   if (!href) {
-    tr = tr.removeMark(from, to, linkType);
+    tr = tr.removeMark(from, end, linkType);
   } else if (reference && existing && href !== existing.attrs.href) {
-    tr =
-      updateReference(state, reference, href) ??
-      tr.removeMark(from, to, linkType).addMark(from, to, linkType.create({ href, title: null }));
+    if (!updateReference(tr, reference, href))
+      tr = tr.removeMark(from, end, linkType).addMark(from, end, linkType.create({ href, title: null }));
   } else if (existing && href === existing.attrs.href) {
-    return;
-  } else if (from === to) {
-    tr = tr.insert(from, state.schema.text(href, [linkType.create({ href, title: null })]));
+    if (!tr.docChanged) return;
   } else {
-    tr = tr.removeMark(from, to, linkType).addMark(from, to, linkType.create({ href, title: null }));
+    tr = tr
+      .removeMark(from, end, linkType)
+      .addMark(from, end, linkType.create({ href, title: existing?.attrs.title ?? null }));
   }
-  view.dispatch(tr.scrollIntoView());
+  view.dispatch(tr.setSelection(TextSelection.create(tr.doc, end)).scrollIntoView());
+}
+
+/** Sets the link on `from..to` to `href` (empty removes it), keeping the text. */
+export function applyLink(view: EditorView, from: number, to: number, href: string, existing?: Mark): void {
+  applyLinkEdit(view, from, to, "", href, existing);
 }
 
 const normalizeLabel = (label: string) => label.trim().toLowerCase().replace(/\s+/g, " ");
 
 /**
- * The transaction that points reference `reference` at `href`: the definition block's line and
- * every link mark using that reference. Null when the definition is not in the document.
+ * Points reference `reference` at `href` on `tr`: the definition block's line and every link mark
+ * using that reference. False (and `tr` unchanged) when the definition is not in the document.
  */
-export function updateReference(state: EditorState, reference: ReferenceInfo, href: string) {
-  const linkType = state.schema.marks.link;
+export function updateReference(tr: Transaction, reference: ReferenceInfo, href: string): boolean {
+  const linkType = tr.doc.type.schema.marks.link;
   const id = normalizeLabel(reference.identifier);
-  let tr = state.tr;
-  let updated = false;
   const destination = /[\s<>()]/.test(href) ? `<${href.replace(/>/g, "%3E")}>` : href;
-  state.doc.descendants((node, pos) => {
+  const edits: Array<{ from: number; to: number; text: string }> = [];
+  tr.doc.descendants((node, pos) => {
     if (node.type.name !== RAW_NODE || node.attrs.kind !== "definition") return node.isBlock;
     const text = node.textContent;
     const next = text.replace(
@@ -308,90 +634,22 @@ export function updateReference(state: EditorState, reference: ReferenceInfo, hr
       (line, lead: string, label: string, _url: string) =>
         normalizeLabel(label) === id ? `${lead}${destination}` : line,
     );
-    if (next !== text) {
-      tr = tr.replaceWith(tr.mapping.map(pos + 1), tr.mapping.map(pos + node.nodeSize - 1), state.schema.text(next));
-      updated = true;
-    }
+    if (next !== text) edits.push({ from: pos + 1, to: pos + node.nodeSize - 1, text: next });
     return false;
   });
-  if (!updated) return null;
+  if (edits.length === 0) return false;
+  for (const edit of edits.reverse()) tr.replaceWith(edit.from, edit.to, tr.doc.type.schema.text(edit.text));
+  const marks: Array<{ from: number; to: number; mark: Mark }> = [];
   tr.doc.descendants((node, pos) => {
     if (!node.isText) return true;
     const mark = node.marks.find((candidate) => candidate.type === linkType);
     const ref = mark?.attrs.reference as ReferenceInfo | null | undefined;
-    if (mark && ref && normalizeLabel(ref.identifier) === id) {
-      tr = tr
-        .removeMark(pos, pos + node.nodeSize, linkType)
-        .addMark(pos, pos + node.nodeSize, linkType.create({ ...mark.attrs, href }));
-    }
+    if (mark && ref && normalizeLabel(ref.identifier) === id) marks.push({ from: pos, to: pos + node.nodeSize, mark });
     return false;
   });
-  return tr;
-}
-
-/**
- * The link popover (the `link` page command, Cmd-K): a URL field over the selection with
- * completion of `#headings` and workspace paths (ui Popover + Combobox, linkOverlays.tsx). Enter
- * applies, Escape cancels, focus leaving the field closes it; focus returns to the editor.
- */
-export class LinkPopover {
-  private opened = 0;
-
-  constructor(
-    private readonly view: EditorView,
-    private readonly host: LinkHost,
-    private readonly overlays: LinkOverlays,
-  ) {}
-
-  get open(): boolean {
-    return this.overlays.getState().popover !== null;
-  }
-
-  show(): void {
-    this.close();
-    const { state } = this.view;
-    const { from, to } = state.selection;
-    const around = linkRangeAt(state, from);
-    const range =
-      around && (state.selection.empty || (from >= around.from && to <= around.to))
-        ? around
-        : { from, to, mark: undefined };
-    const coords = this.view.coordsAtPos(range.from);
-    let done = false;
-    const finish = (href: string | null) => {
-      if (done) return;
-      done = true;
-      this.close();
-      if (href !== null) applyLink(this.view, range.from, range.to, href, range.mark);
-      this.view.focus();
-    };
-    this.overlays.setCard(null);
-    this.overlays.setPopover({
-      id: ++this.opened,
-      anchor: { left: coords.left, top: coords.top, right: coords.left, bottom: coords.bottom },
-      initial: String(range.mark?.attrs.href ?? ""),
-      label: this.host.linkLabel("linkPlaceholder"),
-      placeholder: this.host.linkLabel("linkPlaceholder"),
-      suggest: (value) => this.suggest(value),
-      onApply: (href) => finish(href),
-      onCancel: () => finish(null),
-    });
-  }
-
-  private async suggest(value: string): Promise<string[]> {
-    if (value.startsWith("#")) {
-      const wanted = value.slice(1).toLowerCase();
-      return headingTargets(this.view.state.doc)
-        .filter((heading) => heading.slug.includes(wanted) || heading.text.toLowerCase().includes(wanted))
-        .map((heading) => `#${heading.slug}`);
-    }
-    if (!/^[a-z][a-z0-9+.-]*:/i.test(value) && this.host.listFiles) return this.host.listFiles(value).catch(() => []);
-    return [];
-  }
-
-  close(): void {
-    this.overlays.setPopover(null);
-  }
+  for (const { from, to, mark } of marks)
+    tr.removeMark(from, to, linkType).addMark(from, to, linkType.create({ ...mark.attrs, href }));
+  return true;
 }
 
 /** Selects nothing: puts the caret at `pos` (used after following a footnote). */

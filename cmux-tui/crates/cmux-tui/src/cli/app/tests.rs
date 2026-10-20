@@ -154,7 +154,7 @@ fn an_app_socket_of_another_user_is_refused_before_a_request_is_written() {
     assert!(app.join().unwrap()[0].is_empty(), "the client wrote before checking the peer uid");
 }
 
-fn global_for(socket: &std::path::Path) -> GlobalArgs {
+fn global_for(socket: &Path) -> GlobalArgs {
     GlobalArgs {
         app_socket: Some(socket.to_path_buf()),
         output: OutputMode::Quiet,
@@ -825,7 +825,7 @@ fn identify_answer(bundle_id: &str) -> Value {
     json!({ "id": 1, "ok": true, "result": { "app": "cmux-next", "bundle_id": bundle_id, "tag": "occl1-v1" } })
 }
 
-fn app_call(socket: &std::path::Path, words: &[&str]) -> i32 {
+fn app_call(socket: &Path, words: &[&str]) -> i32 {
     let mut command_args = vec!["app", "call"];
     command_args.extend_from_slice(words);
     run(&global_for(socket), parse(&args(&command_args)).unwrap().unwrap())

@@ -125,8 +125,10 @@ macro_rules! home_rule {
   topic (\"Agents & routing\", \"cmux-next app\"): reuse a matching group
   (`cmux --json workspace group list`), or make one (`cmux workspace group
   create --name NAME`) once two related workspaces have none, then `cmux
-  workspace group <group> add --workspace <ws_…>`; subagent workspaces
-  start in \"Chief agents\". Home stays on top, ungrouped. Collapse a group
+  workspace group <group> add --workspace <ws_…>`. A subagent's workspace
+  is named `aN · <title>` and grouped by topic for you: start each spawn
+  task with a `Title: <2-5 words>` line (never \"User (u…)\") and, to pick
+  the group, a `Group: <name>` line. Home stays on top, ungrouped. Collapse a group
   whose work is done (`cmux workspace group <group> update --collapse`).
   Never close or rename the user's workspaces to group them.
 - Git: commit and push straight to the feature branch you work on
@@ -399,7 +401,7 @@ pub fn subagent_blocks(view: &str, task: &str) -> Vec<Value> {
 }
 
 /// Tool descriptions of section 9's `spawn` and `tell`.
-pub const SPAWN_DESCRIPTION: &str = "Start one subagent per task, in parallel, in the background, in `cwd`; answers their ids at once and, for each, the cmux workspace that shows its chat and where it is, or that it has none and why. Tell the user only that. Each subagent sees the view and its task. Each one's report reaches you as a message \"[id] report\" when it finishes. Never wait or poll for them.";
+pub const SPAWN_DESCRIPTION: &str = "Start one subagent per task, in parallel, in the background, in `cwd`; answers their ids at once and, for each, the cmux workspace that shows its chat, its sidebar group and where it is, or that it has none and why. Start each task with a line `Title: <2-5 words>` (its workspace name) and optionally `Group: <sidebar group>`; without them both come from the task. Tell the user only that. Each subagent sees the view and its task. Each one's report reaches you as a message \"[id] report\" when it finishes. Never wait or poll for them.";
 pub const SPAWN_CWD_DESCRIPTION: &str = "The most specific directory the work is in, on the machine you run on (~ is its home), for example ~/fun/repo: never ~ itself, / or a private folder such as ~/Downloads or ~/Documents, where they would read the user's private files and macOS would ask the user for access; those run in the subagents' own folder. The answer says when it does not exist there.";
 pub const TELL_DESCRIPTION: &str = "Send a message to a subagent; a running one reads it between its tool calls, an idle one runs again; a queued or starting one gets it the moment it can (never tell it again). Its report answers it.";
 
