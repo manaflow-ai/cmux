@@ -905,6 +905,10 @@ impl Workspaces for DaemonWorkspaces {
         rename_by_key(&self.daemon, key, name)
     }
 
+    fn locate(&self, key: &str) -> Option<WorkspaceRef> {
+        locate_by_key(&self.daemon, key)
+    }
+
     fn place(&self) -> String {
         // The Chief home's own owner daemon (tabs on `chief:<home id>`): the app shows it
         // as the Chief's machine row.
@@ -938,6 +942,28 @@ pub fn still_running(error: &str) -> bool {
 /// The origin of this host's workspace mutations: the session daemon needs one with every
 /// mutation_id (server.rs workspace_mutation), so a retried create replays instead of doubling.
 const MUTATION_ORIGIN: &str = "optchat-chief";
+
+/// The public id and session name of workspace `key` on the session daemon at
+/// `daemon`: `list-workspaces` carries each workspace's key beside its
+/// `resource_id` (tree_json.rs), and `identify` names the session.
+fn locate_by_key(daemon: &Path, key: &str) -> Option<WorkspaceRef> {
+    use cmux::raw::{Client, ClientConfig};
+    let mut client = Client::connect(ClientConfig::from_socket_path(daemon)).ok()?;
+    let session = client.identify_server().ok().map(|info| info.session);
+    let mut request = serde_json::Map::new();
+    request.insert("cmd".into(), json!("list-workspaces"));
+    let tree = client.request_raw(request).ok();
+    client.close();
+    let id = tree?["workspaces"]
+        .as_array()?
+        .iter()
+        .find(|w| w["key"].as_str() == Some(key))?["resource_id"]
+        .as_str()
+        .filter(|id| id.starts_with("ws_"))?
+        .to_owned();
+    let session = session.filter(|s| !s.is_empty())?;
+    Some(WorkspaceRef { id, session })
+}
 
 /// `rename-workspace` by key on the session daemon at `daemon`.
 /// Closes workspace `key` and ends its terminal (the subagent's shell); the
