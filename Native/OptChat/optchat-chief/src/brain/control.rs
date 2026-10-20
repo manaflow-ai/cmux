@@ -190,6 +190,7 @@ pub(super) fn permission_note(id: &str, request: &Value) -> String {
 impl Brain {
     /// Serves one `control` call.
     pub(super) fn control(&mut self, call: &ControlCall) -> Result<String, String> {
+        self.guard_private_turn_scope("control")?;
         if call.action == "cap" {
             return self.control_cap(call.n.unwrap_or(0) as usize);
         }

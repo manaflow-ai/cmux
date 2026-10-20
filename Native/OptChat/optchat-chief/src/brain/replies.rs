@@ -177,6 +177,7 @@ impl Brain {
     /// The `react` tool: a tapback on the user message of view line
     /// `view_id`, posted at once.
     pub(super) fn react(&mut self, view_id: u64, reaction: &str) -> Result<String, String> {
+        self.guard_private_turn_scope("react")?;
         let kind = self::reaction(reaction)?;
         let message = self.message_of_line("react", view_id)?;
         let name = reaction_name(&kind);
@@ -222,6 +223,7 @@ impl Brain {
     /// The `reply` tool: `text` posted now, in the thread of the user
     /// message of view line `view_id`.
     pub(super) fn reply_now(&mut self, view_id: u64, text: &str) -> Result<String, String> {
+        self.guard_private_turn_scope("reply")?;
         let text = text.trim();
         if text.is_empty() {
             return Err("reply: `text` must be a non-empty text".to_owned());
