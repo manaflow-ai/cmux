@@ -1180,6 +1180,24 @@
       "title" : "Theme Edits",
       "type" : "object"
     },
+    "browser.agentMouse.maxMoveMs" : {
+      "default" : 350,
+      "description" : "The longest time one agent pointer move takes with human motion. Short moves take less.",
+      "maximum" : 1000,
+      "minimum" : 60,
+      "title" : "Longest Agent Pointer Move",
+      "type" : "number"
+    },
+    "browser.agentMouse.motion" : {
+      "default" : "human",
+      "description" : "How an agent moves the pointer in browser tabs. Human moves along a curved path and rests before each click, as a person does, so pages see hover and timing like a person's. Instant jumps to the target and clicks at once.",
+      "enum" : [
+        "human",
+        "instant"
+      ],
+      "title" : "Agent Pointer Motion",
+      "type" : "string"
+    },
     "browser.builtInAdBlocker" : {
       "default" : true,
       "description" : "The full uBlock Origin blocks ads and trackers in Chromium tabs. Takes effect after cmux restarts.",
@@ -3091,6 +3109,75 @@
       "title" : "Show Hover Cards",
       "type" : "boolean"
     },
+    "sidebar.hoverCards.groups.delay" : {
+      "default" : 600,
+      "description" : "How long the pointer rests on a group before its summary card opens.",
+      "maximum" : 5000,
+      "minimum" : 0,
+      "title" : "Group Card Delay",
+      "type" : "number"
+    },
+    "sidebar.hoverCards.groups.maxMembers" : {
+      "default" : 8,
+      "description" : "The most members a group's card lists by name.",
+      "maximum" : 50,
+      "minimum" : 1,
+      "title" : "Group Card Members",
+      "type" : "number"
+    },
+    "sidebar.hoverCards.groups.order" : {
+      "default" : "status",
+      "description" : "Which part of a group's card comes first.",
+      "enum" : [
+        "status",
+        "members",
+        "activity"
+      ],
+      "title" : "Group Card Leads With",
+      "type" : "string"
+    },
+    "sidebar.hoverCards.groups.sections.activity" : {
+      "default" : true,
+      "description" : "Show the member that changed last, and when.",
+      "title" : "Group Card: Latest Activity",
+      "type" : "boolean"
+    },
+    "sidebar.hoverCards.groups.sections.git" : {
+      "default" : true,
+      "description" : "Show the members' git branches.",
+      "title" : "Group Card: Branches",
+      "type" : "boolean"
+    },
+    "sidebar.hoverCards.groups.sections.members" : {
+      "default" : true,
+      "description" : "Show the member count and the members' names.",
+      "title" : "Group Card: Members",
+      "type" : "boolean"
+    },
+    "sidebar.hoverCards.groups.sections.ports" : {
+      "default" : true,
+      "description" : "Show the members' listening ports.",
+      "title" : "Group Card: Ports",
+      "type" : "boolean"
+    },
+    "sidebar.hoverCards.groups.sections.status" : {
+      "default" : true,
+      "description" : "Show how many members work, wait, failed or have unread items.",
+      "title" : "Group Card: Status",
+      "type" : "boolean"
+    },
+    "sidebar.hoverCards.groups.tabGroups" : {
+      "default" : true,
+      "description" : "A summary card opens when the pointer rests on a tab group's chip.",
+      "title" : "Cards on Tab Groups",
+      "type" : "boolean"
+    },
+    "sidebar.hoverCards.groups.workspaceGroups" : {
+      "default" : true,
+      "description" : "A summary card opens when the pointer rests on a workspace group's header.",
+      "title" : "Cards on Workspace Groups",
+      "type" : "boolean"
+    },
     "sidebar.hoverCards.layout" : {
       "default" : "timeline",
       "description" : "What a workspace's hover card shows: its history of prompts and waits, its details, or both.",
@@ -3887,6 +3974,42 @@
       "title" : "Animation Bounce",
       "type" : "string"
     },
+    "ui.animations.cursor" : {
+      "default" : true,
+      "description" : "The agent cursor glides between points and shows click ripples. Off: it jumps and shows no ripple.",
+      "title" : "Animate the Agent Cursor",
+      "type" : "boolean"
+    },
+    "ui.animations.enabled" : {
+      "default" : true,
+      "description" : "Off turns every animation in cmux off: rows, tabs, panes, menus, cards, the agent cursor, spinners and cmux web pages change at once. On, the switches below choose area by area.",
+      "title" : "Play Animations",
+      "type" : "boolean"
+    },
+    "ui.animations.feedback" : {
+      "default" : true,
+      "description" : "Hover and press highlights, focus fades and theme color changes ease in. Off: they change at once.",
+      "title" : "Animate Highlights and Colors",
+      "type" : "boolean"
+    },
+    "ui.animations.home" : {
+      "default" : true,
+      "description" : "The Chief chat, its bubbles, the composer and the Home list move and fade. Off: they change at once.",
+      "title" : "Animate Home and Chats",
+      "type" : "boolean"
+    },
+    "ui.animations.hoverCards" : {
+      "default" : true,
+      "description" : "Hover cards and tooltips fade and slide in. Off: they show and hide at once.",
+      "title" : "Animate Hover Cards",
+      "type" : "boolean"
+    },
+    "ui.animations.indicators" : {
+      "default" : true,
+      "description" : "Spinners turn, status dots pulse and attention flashes blink. Off: they show a still glyph.",
+      "title" : "Animate Spinners and Progress",
+      "type" : "boolean"
+    },
     "ui.animations.newTab" : {
       "default" : true,
       "description" : "A new tab grows into its place in the tab bar. Off shows it there at once.",
@@ -3897,6 +4020,36 @@
       "default" : true,
       "description" : "A new workspace row opens in the sidebar. Off shows it there at once.",
       "title" : "Animate New Workspaces",
+      "type" : "boolean"
+    },
+    "ui.animations.overlays" : {
+      "default" : true,
+      "description" : "Menus, popovers, the command palette, sheets, toasts, notices, find bars and cards fade and slide in and out. Off: they show and hide at once.",
+      "title" : "Animate Menus and Cards",
+      "type" : "boolean"
+    },
+    "ui.animations.panes" : {
+      "default" : true,
+      "description" : "Splits, closes, zooms, dividers, focus rings, drop zones and windows open, close and move with motion. Off: they change at once.",
+      "title" : "Animate Panes and Windows",
+      "type" : "boolean"
+    },
+    "ui.animations.sidebar" : {
+      "default" : true,
+      "description" : "Rows and groups slide when they reorder, open, close, pin or move to the top, and the sidebar slides when it shows or hides. Off: they change at once.",
+      "title" : "Animate the Sidebar",
+      "type" : "boolean"
+    },
+    "ui.animations.tabs" : {
+      "default" : true,
+      "description" : "Tabs grow, shrink and slide when they open, close, reorder or collapse into a group. Off: the tab bar changes at once.",
+      "title" : "Animate Tabs",
+      "type" : "boolean"
+    },
+    "ui.animations.web" : {
+      "default" : true,
+      "description" : "Transitions and animations in cmux's own pages, such as agent chats, New Tab and Markdown. Off: they end at once. Websites are not changed.",
+      "title" : "Animate cmux Web Pages",
       "type" : "boolean"
     },
     "ui.animationSpeed" : {

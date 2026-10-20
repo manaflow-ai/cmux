@@ -153,7 +153,7 @@ final class OmnibarPillView: NSView {
         let ring = state == .editing ? OmnibarStyle.ringWidth : 0
         let glassy = drawsGlass && state != .card
         glass?.isHidden = !glassy
-        Motion.transaction(animated ? fade : nil) {
+        Motion.feedback.transaction(animated ? fade : nil) {
             performWithTheme {
                 let fill: NSColor
                 if glassy {

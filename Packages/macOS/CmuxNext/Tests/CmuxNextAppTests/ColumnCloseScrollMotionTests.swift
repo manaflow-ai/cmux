@@ -74,7 +74,7 @@ struct ColumnCloseScrollMotionTests {
     }
 
     /// The close spring the panes and the camera share (`PaneMotionVariant.standard`).
-    static var closeSpring: SpringParameters { Motion.policy.spring(PaneMotionVariant.standard.closeSpring) }
+    static var closeSpring: SpringParameters { Motion.panes.policy.spring(PaneMotionVariant.standard.closeSpring) }
 
     /// Where a camera on the close spring is after `frames` frames, from `start` toward `end`
     /// (the change itself takes the first, `leadIfPending`).

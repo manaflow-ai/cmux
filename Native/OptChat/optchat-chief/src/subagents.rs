@@ -109,10 +109,52 @@ const TRANSIENT_START_FAILURES: [&str; 3] = [
     "agent host exited before it was ready",
 ];
 
-/// Whether `error` (a failed `session/new`) is worth one more try.
+/// acpmux's error for a harness that exited while it started (`initialize`,
+/// `session/new`), with the stderr line that says why when it has one:
+/// "agent process closed (claude-sr2): <line>" (acpmux hub/turns.rs
+/// `explain_start_failure`).
+const PROCESS_CLOSED: &str = "agent process closed";
+
+/// Words of a stderr reason that a moment later is gone: sr2 or Claude Code
+/// could not reach its gateway in time (acp-chief-issues.md #3, 2026-10-19:
+/// "read rotation: ... context deadline exceeded", "connect: connection
+/// refused", "502").
+const PASSING_REASONS: [&str; 10] = [
+    "deadline exceeded",
+    "timeout",
+    "timed out",
+    "connection refused",
+    "connection reset",
+    "econnrefused",
+    "econnreset",
+    "rotation",
+    "502",
+    "503",
+];
+
+/// Whether `error` (a failed `session/new`) is worth another try: an agent
+/// host that missed its handshake, or a harness that closed while it started
+/// with no reason or a passing one (never one that is not signed in, or
+/// refused its arguments).
 pub fn is_transient_start_failure(error: &str) -> bool {
-    TRANSIENT_START_FAILURES.iter().any(|t| error.contains(t))
+    if TRANSIENT_START_FAILURES.iter().any(|t| error.contains(t)) {
+        return true;
+    }
+    let Some(at) = error.find(PROCESS_CLOSED) else {
+        return false;
+    };
+    let reason = error[at + PROCESS_CLOSED.len()..].trim();
+    if reason.is_empty() {
+        return true;
+    }
+    let reason = reason.to_ascii_lowercase();
+    PASSING_REASONS.iter().any(|w| reason.contains(w))
 }
+
+/// The pauses before the second and third `session/new` of a subagent whose
+/// start failed for a passing reason (``is_transient_start_failure``): sr2
+/// that could not reach its gateway in time usually can a moment later.
+pub const START_RETRY_PAUSES: [Duration; 2] = [Duration::from_secs(1), Duration::from_secs(3)];
 
 /// What one spawn was given: its id and its subagents' ids.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -548,18 +590,30 @@ impl Spawner {
                 s.cwd.display()
             ));
         }
-        let session = match self.agents.new_session(&spec) {
-            // acpmux's agent host can miss its 5 s startup handshake while
-            // the machine is busy (a10, 2026-10-13: "agent host did not
-            // answer hello within 5s"; the same spawn started at once
-            // after). acpmux now replaces such a host once itself
-            // (cx-7gs9r), but not for a remote-origin chain or a host it
-            // could not end. One more try before the subagent counts as failed.
-            Err(e) if is_transient_start_failure(&e) => {
-                (self.log)(&format!("subagent {id}: {e}; starting it once more"));
-                self.agents.new_session(&spec)?
+        // acpmux's agent host can miss its 5 s startup handshake while the
+        // machine is busy (a10, 2026-10-13: "agent host did not answer hello
+        // within 5s"), and sr2 exits while it starts when its gateway is
+        // slow (a198, 2026-10-19: "agent process closed"); the same spawn
+        // a moment later starts. acpmux replaces a slow host once itself
+        // (cx-7gs9r), but not a harness that exited. Up to three tries,
+        // with a pause, before the subagent counts as failed.
+        let mut tries = 0;
+        let session = loop {
+            match self.agents.new_session(&spec) {
+                Err(e) if is_transient_start_failure(&e) && tries < START_RETRY_PAUSES.len() => {
+                    let pause = START_RETRY_PAUSES[tries];
+                    tries += 1;
+                    (self.log)(&format!(
+                        "subagent {id}: {e}; starting it again in {} s (try {})",
+                        pause.as_secs(),
+                        tries + 1
+                    ));
+                    // A deadline-free pause between two starts of one spawn
+                    // worker thread (not a poll): the gateway needs a moment.
+                    std::thread::sleep(pause);
+                }
+                other => break other?,
             }
-            other => other?,
         };
         let admitted = match &peer {
             Some(_) => admitted,
@@ -811,7 +865,8 @@ impl Spawner {
         if let Err(e) = self.settle_view() {
             return fail(&e);
         }
-        let view = self.chat.render_view().text;
+        // The compaction view, as at spawn (acp-chief-issues.md #12).
+        let view = self.chat.render_compact_view().text;
         let task = match &queued.extra {
             Some(extra) => format!(
                 "{}\n\nThe Chief sent this while you were queued:\n\n{extra}",
@@ -1000,17 +1055,17 @@ impl Orchestrator for Spawner {
             ));
         }
         let began = Instant::now();
-        // Section 9: the view at spawn time. In a turn, the turn's own view
-        // and new messages, at once (parity timing 2026-10-09: the settle
-        // waited about 7 s for the compactor to summarize the turn's spawn
-        // call); outside a turn, the view after settle (settle_view).
-        let view = match self.turn_view() {
-            Some(view) => view,
-            None => {
-                self.settle_view()?;
-                self.chat.render_view().text
-            }
-        };
+        // Section 9: the view at spawn time, as the compaction view: the
+        // same tree merged coarser, 16-32 KB instead of the turn's 64-128 KB
+        // (acp-chief-issues.md #12: a subagent's first turn read ~108k
+        // tokens, ~40k of them the whole view; it zooms for detail). In a
+        // turn, at once (parity timing 2026-10-09: the settle waited about
+        // 7 s for the compactor to summarize the turn's spawn call); outside
+        // a turn, after settle (settle_view).
+        if self.turn_view().is_none() {
+            self.settle_view()?;
+        }
+        let view = self.chat.render_compact_view().text;
         let (reply, answer) = channel();
         self.to_brain(Input::SpawnRegister {
             tasks: tasks.clone(),
@@ -1269,6 +1324,17 @@ impl Orchestrator for Spawner {
             .map_err(|_| "the Chief host is stopping".to_owned())?
     }
 
+    fn peers(&self, caller: &str) -> Result<String, String> {
+        let (reply, answer) = channel();
+        self.to_brain(Input::PeerList {
+            caller: caller.to_owned(),
+            reply,
+        })?;
+        answer
+            .recv()
+            .map_err(|_| "the Chief host is stopping".to_owned())?
+    }
+
     fn reply(&self, id: u64, text: &str) -> Result<String, String> {
         let (reply, answer) = channel();
         self.to_brain(Input::Reply {
@@ -1314,6 +1380,26 @@ impl Orchestrator for Spawner {
         self.to_brain(Input::EscalateAuth {
             agent: agent.to_owned(),
             request: request.clone(),
+            reply,
+        })?;
+        answer
+            .recv()
+            .map_err(|_| "the Chief host is stopping".to_owned())?
+    }
+
+    fn peer_tell(
+        &self,
+        from: &str,
+        id: &str,
+        message: &str,
+        key: Option<&str>,
+    ) -> Result<String, String> {
+        let (reply, answer) = channel();
+        self.to_brain(Input::PeerTell {
+            from: from.to_owned(),
+            id: id.to_owned(),
+            message: message.to_owned(),
+            key: key.map(str::to_owned),
             reply,
         })?;
         answer

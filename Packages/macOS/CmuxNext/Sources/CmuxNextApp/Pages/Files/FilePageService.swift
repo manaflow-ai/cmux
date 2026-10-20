@@ -45,6 +45,8 @@ final class FilePageService: InternalPageProvider {
     private var tabs: [String: Tab] = [:]
     /// Markdown table column widths between opens (the file's extended attribute, then an app-side copy).
     private let tableWidths: (any MarkdownTableWidthStoring)?
+    /// Where the markdown tabs keep viewer comments (viewer-comments-DESIGN.md "Comments in the viewer").
+    private let comments: (any MarkdownTableWidthStoring)?
     private(set) lazy var look = FilePageLook(kind: kind, settings: { [weak services] in services?.settings })
     /// The documents of the R96 quit hook (one per file, shared with the other file page).
     let documents: FileQuitDocuments
@@ -67,6 +69,11 @@ final class FilePageService: InternalPageProvider {
         self.services = services
         self.tableWidths = kind == .markdown
             ? tableWidths ?? MarkdownTableWidthRepository(fallback: MarkdownTableWidthRepository.defaultFallbackDirectory())
+            : nil
+        self.comments = kind == .markdown
+            ? MarkdownTableWidthRepository(fallback: MarkdownTableWidthRepository.defaultFallbackDirectory(folder: "MarkdownComments"),
+                                           name: MarkdownTableWidthRepository.commentsAttributeName,
+                                           maxBytes: MarkdownTableWidthRepository.commentsValueLimit)
             : nil
         self.documents = documents
         self.kind = kind
@@ -311,7 +318,8 @@ final class FilePageService: InternalPageProvider {
         let host = FilePageTabHost(service: self, key: key)
         let libraries = Bundle.main.resourceURL.map(PageDescriptor.markdownLibraries(inAppResources:))
         let provider = FilePageProvider(kind: kind, file: tab.file, userChose: tab.userChose, readOnly: tab.readOnly, host: host, clock: clock,
-                                        libraries: libraries, images: images, tableWidths: tableWidths)
+                                        libraries: libraries, images: images, tableWidths: tableWidths,
+                                        comments: comments)
         provider.recoveredText = tab.recoveredText
         let native = AppPageNativeProvider(services: services, page: kind.descriptor)
         let routes = [PageRoute(prefix: kind.namespace + ".", provider: provider), PageRoute(prefix: "cmux.app.", provider: native)]
@@ -320,6 +328,9 @@ final class FilePageService: InternalPageProvider {
             return NSView()
         }
         native.anchor = { [weak page] in page }
+        provider.onCommentsChanged = { [weak page] value in
+            _ = page?.send(command: MarkdownPageCommand.comments, arguments: ["text": .string(value.compactText)])
+        }
         page.onOpenExternal = { [weak self] url in self?.openExternal(url, from: key) }
         page.fileDrop = fileDrop(provider: provider, page: page, key: key)
         // One menu: Copy; Comment…, Quote in Chat, Send to Chief and Send to… on a selection; Reset

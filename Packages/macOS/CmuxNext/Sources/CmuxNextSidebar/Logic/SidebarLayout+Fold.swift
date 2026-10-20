@@ -28,6 +28,10 @@ nonisolated extension SidebarLayout {
         guard o.filterMatches == nil, o.gap == nil, gapY == nil, o.excludedGroup == nil, o.excludedItem == nil,
               !o.showWorkspaceTabs, !o.groupsByFolder, !o.hidesWorkspaces,
               let headerIndex = position(of: .group(group.id)) else { return false }
+        // A nested group or a group holding subgroups (remote-groups-DESIGN.md slice 2): its block holds other groups'
+        // rows, so the full layout places them.
+        guard group.parent == nil,
+              !section.nodes.contains(where: { if case let .group(child) = $0 { child.parent == group.id } else { false } }) else { return false }
         let m = o.minimal ? base.minimal : base
         let header = rows[headerIndex]
         guard header.section == section.id else { return false }
@@ -49,6 +53,8 @@ nonisolated extension SidebarLayout {
         let parent = header.siblingIndex
         var built: [SidebarRow] = []
         var y = header.maxY + m.rowSpacing
+        // Members sit one level in from their header (`make`).
+        let memberDepth = group.depth + 1
         func workspaceRow(_ ws: SidebarWorkspace, at childIndex: Int, last: Bool) {
             let content = o.rowContent(ws, machine: machineLabel)
             let h = m.height(for: content)
@@ -58,6 +64,7 @@ nonisolated extension SidebarLayout {
                 isLastInGroup: last, isCollapsed: false, childCount: 0,
                 groupColor: group.color, tabDisclosure: nil, content: content
             ))
+            built[built.count - 1].depth = memberDepth
             y += h + m.rowSpacing
         }
         if collapsed {
@@ -81,6 +88,7 @@ nonisolated extension SidebarLayout {
                         isLastInGroup: childIndex == members.count - 1,
                         isCollapsed: false, childCount: 0, groupColor: group.color, content: content
                     ))
+                    built[built.count - 1].depth = memberDepth
                     y += h + m.rowSpacing
                 }
             }
