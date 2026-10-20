@@ -81,6 +81,13 @@ Swift/Rust builds and tests stay on the fleet.
   `ThemedBezelButton.keyHint`, web `ui/DialogButton`), never `NSAlert`, `.alert` or `.confirmationDialog`.
 - An escape comment (`// concurrency-allow:`, `// crash-allow:`, `dialog-keys-exempt:`)
   needs a reason that proves the code is safe; it is not a way to pass the gate.
+- Never change a Ghostty-default shortcut without the user's explicit OK. Ghostty's split keys
+  (Cmd-Opt-arrows focus a pane, Cmd-D / Cmd-Shift-D split, Ctrl-Cmd-arrows resize,
+  Cmd-Shift-Return zoom) are reserved in `schemas/keybindings/ghostty-reserved-keys.json`;
+  no other action may take one, in any pane. `GhosttyReservedKeysTests` and the gate's
+  "Ghostty-default keys" check enforce it, and `CMUX_NEXT_CHECKS_SKIP_REASON` does not skip
+  it: only a `Ghostty-defaults-OK: <the user's words>` commit trailer does. (2f3e1f95983 made
+  Cmd-Opt-Left / Right sidebar keys; Lawrence 2026-10-20: "ensure this never happens again".)
 
 ## Swift namespace convention
 
