@@ -65,6 +65,14 @@ use crate::turn::{TurnOutcome, TurnStart};
 /// The start of [`Brain::run`]'s answer when a signal asked the host to stop.
 pub const STOP_REQUESTED: &str = "stop requested";
 
+/// The brain's stop when an update asked the host to hand off when idle
+/// (SIGUSR1): it stopped between turns, so the next host cuts nothing.
+pub const HANDOFF_WHEN_IDLE: &str = "handed off between turns for an update";
+
+/// How long a handoff request waits for the running turn: past it the host
+/// stops anyway and the next host adopts the turn session.
+pub(crate) const HANDOFF_DEADLINE: std::time::Duration = std::time::Duration::from_secs(10 * 60);
+
 pub enum Input {
     Daemon(Box<DaemonEvent>),
     Agents(Box<AgentEvent>),
@@ -256,6 +264,10 @@ pub enum Input {
     Shutdown {
         signal: i32,
     },
+    /// SIGUSR1 to the host: an update replaced the app, so the brain stops
+    /// once no turn runs ([`HANDOFF_WHEN_IDLE`]); the app then hands acpmux
+    /// off and starts the next host.
+    HandoffWhenIdle,
     /// chief.stop: stops the running turn as a newer message does;
     /// answers `{"stopped": bool}`.
     Stop {
@@ -667,6 +679,10 @@ pub struct Brain {
     resume_at: Option<Instant>,
     /// The waits before such a turn runs again (`turns::UPSTREAM_RESUME_BACKOFF`).
     upstream_backoff: Vec<std::time::Duration>,
+    /// An update asked for a handoff: the brain stops between turns, at
+    /// the latest at this deadline.
+    handoff_at: Option<Instant>,
+    handoff_wait: std::time::Duration,
 }
 
 impl Brain {
@@ -776,6 +792,8 @@ impl Brain {
             resume_at: None,
             orphan_wait: None,
             upstream_backoff: turns::UPSTREAM_RESUME_BACKOFF.to_vec(),
+            handoff_at: None,
+            handoff_wait: HANDOFF_DEADLINE,
         };
         // Each cut turn runs again first, on the reference client's note;
         // its messages are in the log already and are not logged again.
@@ -913,10 +931,15 @@ impl Brain {
 
     /// When the outbox timer fires, if armed.
     pub fn next_timer(&self) -> Option<Instant> {
-        [self.outbox_timer, self.resume_at, self.orphan_wait]
-            .into_iter()
-            .flatten()
-            .min()
+        [
+            self.outbox_timer,
+            self.resume_at,
+            self.orphan_wait,
+            self.handoff_at,
+        ]
+        .into_iter()
+        .flatten()
+        .min()
     }
 
     /// Runs until a fatal error; returns it.
@@ -1077,6 +1100,13 @@ impl Brain {
                 (self.log)(&format!("signal {signal}: stopping"));
                 self.fatal = Some(format!("{STOP_REQUESTED} (signal {signal})"));
             }
+            Input::HandoffWhenIdle => {
+                if self.handoff_at.is_none() {
+                    (self.log)("an update asks for a handoff: stopping once no turn runs");
+                    self.handoff_at = Some(Instant::now() + self.handoff_wait);
+                }
+                self.handoff_if_idle();
+            }
             Input::StopSubagent { name, reply } => {
                 let _ = reply.send(self.stop_subagent(&name));
             }
@@ -1173,6 +1203,11 @@ impl Brain {
 
     pub fn on_timer(&mut self) {
         let now = Instant::now();
+        if self.handoff_at.is_some_and(|at| at <= now) && self.fatal.is_none() {
+            (self.log)("the turn ran past the handoff deadline; stopping, the next host adopts it");
+            self.fatal = Some(format!("{HANDOFF_WHEN_IDLE} (deadline)"));
+            return;
+        }
         if self.outbox_timer.is_some_and(|at| at <= now) {
             self.outbox_timer = None;
             self.flush_outbox();
@@ -1183,6 +1218,30 @@ impl Brain {
             self.adopt_orphans(true);
             self.maybe_start_turn();
         }
+    }
+
+    /// Sets how long a handoff request waits for the running turn (tests
+    /// shorten it).
+    pub fn set_handoff_deadline(&mut self, wait: std::time::Duration) {
+        self.handoff_wait = wait;
+    }
+
+    /// A handoff was asked and no turn runs (none in flight, no adopted turn
+    /// session it waits for): the brain stops. True when it stopped.
+    pub(super) fn handoff_if_idle(&mut self) -> bool {
+        if self.handoff_at.is_none() || self.phase != Phase::Idle || self.orphan_wait.is_some() {
+            return false;
+        }
+        if self.fatal.is_none() {
+            (self.log)("no turn runs: handing off for the update");
+            // Replies the agent gap holds back post now, not with the next host.
+            if self.outbox_timer.take().is_some() {
+                self.flush_outbox();
+            }
+            self.save();
+            self.fatal = Some(HANDOFF_WHEN_IDLE.into());
+        }
+        true
     }
 
     fn save(&self) {
