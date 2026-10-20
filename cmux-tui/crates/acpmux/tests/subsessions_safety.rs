@@ -515,3 +515,36 @@ async fn a_family_prompt_never_clears_its_receivers_web_floor() {
     let controls = app.turn_controls(&parent).await;
     assert_eq!(controls.last().map(String::as_str), Some("web"), "{controls:?}");
 }
+
+#[tokio::test]
+async fn outside_its_folder_an_asking_caller_needs_the_persons_own_trust() {
+    let s = Scratch::new("inherited");
+    let own = s.dir("own");
+    // Claude Code and Codex trust the home folder, so `.aws` inherits it.
+    let home = s.dir("home");
+    let aws = s.dir("home/.aws");
+    let key = home.to_string_lossy().into_owned();
+    let claude = json!({"projects": {(key.clone()): {"hasTrustDialogAccepted": true}}});
+    std::fs::write(&s.trust.claude_json, claude.to_string()).unwrap();
+    let codex = format!("[projects.{key:?}]\ntrust_level = \"trusted\"\n");
+    std::fs::write(&s.trust.codex_config, codex).unwrap();
+    // Another chat's agent-home folder, trusted by construction.
+    let other_home = s.dir("agent-home/other");
+    std::fs::write(other_home.join(acpmux::trust::AGENT_HOME_MARKER), "").unwrap();
+    let hub = hub(&s);
+    let mut app = Client::new(&hub);
+    let parent = app.new_session(&own, "fake").await;
+    let mut p = Client::as_session(&hub, &parent).await;
+    for cwd in [&aws, &other_home] {
+        let e = p.refused(START, json!({"prompt": "echo x", "cwd": cwd})).await;
+        assert_eq!(e["data"]["reason"], "subsessions.folder_unknown", "{}: {e}", cwd.display());
+    }
+    assert!(app.open_children(&parent).await.is_empty());
+
+    // A caller in full access may start there.
+    let full = app.new_session(&own, "fake-full").await;
+    let mut f = Client::as_session(&hub, &full).await;
+    for cwd in [&aws, &other_home] {
+        f.ok(START, json!({"prompt": "echo x", "cwd": cwd})).await;
+    }
+}
