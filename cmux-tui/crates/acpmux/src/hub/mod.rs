@@ -5,6 +5,8 @@
 //! `adoption` (resuming a harness's own session), `models_view` (the picker's model lists).
 
 mod adoption;
+mod agent_pairs;
+pub use agent_pairs::PairGuard;
 mod aside;
 pub(crate) mod auto_resume;
 mod btw;
@@ -325,6 +327,8 @@ pub struct Hub {
     pub(super) transfer_lease_changed: Notify,
     /// Secrets agents asked the person for, and their one-use refs (`secrets.rs`).
     pub(super) secrets: secrets::Secrets,
+    /// Agent message pairs and their runaway guard (`agent_pairs.rs`).
+    pub(super) agent_pairs: agent_pairs::AgentPairs,
 }
 
 impl Hub {
@@ -387,6 +391,7 @@ impl Hub {
             auto_resumes: Default::default(),
             transfer_lease_changed: Notify::new(),
             secrets: Default::default(),
+            agent_pairs: Default::default(),
         });
         if let Ok(c) = hub.config.try_read() {
             hub.refresh_web_modes(&c);

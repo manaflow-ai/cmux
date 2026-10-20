@@ -1,0 +1,429 @@
+//! The runaway guard for agent-to-agent messages (`hub/agent_pairs.rs`): two sessions that keep
+//! messaging each other with no tool call or file change in between, or one that keeps sending
+//! the same message, are paused as a pair. A paused pair's messages are held, not delivered, and
+//! both transcripts say so; `_acpmux/agent_pair_resume` (or the person prompting either session)
+//! delivers them in order. Sessions whose turns do work are never paused, however many messages
+//! they exchange: there is no cap per turn.
+
+use acpmux::config::{Config, StoreMode};
+use acpmux::hub::Hub;
+use acpmux::rpc::Message;
+use acpmux::server::{Origin, serve_connection_with};
+use serde_json::{Value, json};
+use std::path::Path;
+use std::sync::Arc;
+use std::time::Duration;
+use tokio::sync::mpsc;
+
+const FAKE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+const RESUME: &str = "_acpmux/agent_pair_resume";
+
+/// The person key the hubs of these tests hold, as a daemon the app started does.
+const PERSON_KEY: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+
+fn hub_in(dir: Option<&Path>) -> Arc<Hub> {
+    let mut cfg: Config = serde_json::from_value(json!({
+        "harnesses": {"fake": {"argv": ["python3", FAKE], "family": "codex"}},
+        "defaultHarness": "fake",
+        "permissionPolicy": "approve-all"
+    }))
+    .unwrap();
+    cfg.store.mode = if dir.is_some() { StoreMode::Local } else { StoreMode::Memory };
+    let store = acpmux::store::open(&cfg.store, dir.unwrap_or(Path::new("/nonexistent"))).unwrap();
+    let hub = Hub::new(cfg, store);
+    let _ = hub.person.install_spawn_key(PERSON_KEY);
+    hub
+}
+
+fn hub() -> Arc<Hub> {
+    hub_in(None)
+}
+
+struct Client(mpsc::Sender<String>, mpsc::Receiver<String>, i64);
+
+impl Client {
+    fn open(hub: &Arc<Hub>) -> Self {
+        Self::open_as(hub, Origin::Local)
+    }
+
+    fn open_as(hub: &Arc<Hub>, origin: Origin) -> Self {
+        let (in_tx, in_rx) = mpsc::channel(64);
+        let (out_tx, out_rx) = mpsc::channel(4096);
+        tokio::spawn(serve_connection_with(hub.clone(), in_rx, out_tx, origin));
+        Self(in_tx, out_rx, 0)
+    }
+
+    async fn reply(&mut self, method: &str, params: Value) -> Value {
+        self.2 += 1;
+        let id = self.2;
+        self.0.send(Message::request(id, method, params).to_line()).await.unwrap();
+        loop {
+            let line = tokio::time::timeout(Duration::from_secs(30), self.1.recv())
+                .await
+                .expect("timed out")
+                .expect("connection closed");
+            let value: Value = serde_json::from_str(&line).unwrap();
+            if value.get("id") == Some(&json!(id)) {
+                return value;
+            }
+        }
+    }
+
+    /// The app's handshake: `initialize`, then the person proof (`hub/person.rs`).
+    async fn person(hub: &Arc<Hub>) -> Self {
+        let mut c = Self::open(hub);
+        let init = c.call("initialize", json!({"protocolVersion": 1})).await;
+        let challenge = &init["_meta"]["acpmux"]["personChallenge"];
+        let proof = acpmux::hub::person::person_proof(
+            PERSON_KEY,
+            acpmux::hub::person::TRANSPORT_UNIX,
+            challenge["nonce"].as_str().unwrap(),
+            challenge["connection"].as_str().unwrap(),
+        )
+        .unwrap();
+        let proved = c.call("_acpmux/person_prove", json!({"proof": proof})).await;
+        assert_eq!(proved["person"], true, "{proved}");
+        c
+    }
+
+    async fn call(&mut self, method: &str, params: Value) -> Value {
+        let value = self.reply(method, params).await;
+        assert!(value.get("error").is_none(), "{method}: {value}");
+        value["result"].clone()
+    }
+
+    async fn new_session(&mut self) -> String {
+        let new = json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": {"harness": "fake"}}});
+        self.call("session/new", new).await["sessionId"].as_str().unwrap().to_owned()
+    }
+
+    /// `from` messages `to` as `cmux agent message` does, and waits for the turn it starts (or
+    /// the refusal): the whole `session/prompt` reply.
+    async fn message(&mut self, from: &str, to: &str, msg_id: &str, text: &str) -> Value {
+        self.message_as(&format!("acp:{from}"), to, msg_id, text, json!({})).await
+    }
+
+    /// A message from the sender address `from` (`acp:<session>`, `cli`, a terminal id), with
+    /// `extra` merged into `_meta.acpmux`.
+    async fn message_as(
+        &mut self,
+        from: &str,
+        to: &str,
+        msg_id: &str,
+        text: &str,
+        extra: Value,
+    ) -> Value {
+        let provenance = json!({"kind": "agent_message", "from": from,
+            "fromName": "agent", "to": format!("acp:{to}"), "msgId": msg_id, "threadId": "t-1"});
+        let mut mux = json!({"promptId": msg_id, "provenance": provenance});
+        for (k, v) in extra.as_object().unwrap() {
+            mux[k] = v.clone();
+        }
+        let params = json!({"sessionId": to, "prompt": [{"type": "text", "text": text}],
+            "_meta": {"acpmux": mux}});
+        self.reply("session/prompt", params).await
+    }
+
+    /// The prompt ids of `session`'s `user_message` records, in order.
+    async fn ran_ids(&mut self, session: &str) -> Vec<String> {
+        let records = self.records(session, "user_message").await;
+        records.iter().filter_map(|m| m["promptId"].as_str().map(str::to_owned)).collect()
+    }
+
+    async fn records(&mut self, session: &str, kind: &str) -> Vec<Value> {
+        let page =
+            self.call("_acpmux/events", json!({"sessionId": session, "kinds": [kind]})).await;
+        page["events"].as_array().unwrap().iter().map(|e| e["msg"].clone()).collect()
+    }
+
+    async fn ran(&mut self, session: &str, prompt_id: &str) -> bool {
+        self.records(session, "user_message").await.iter().any(|m| m["promptId"] == prompt_id)
+    }
+
+    /// Waits until `session`'s log has a `user_message` for `prompt_id` (a spawned release).
+    async fn wait_ran(&mut self, session: &str, prompt_id: &str) {
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
+        while !self.ran(session, prompt_id).await {
+            assert!(tokio::time::Instant::now() < deadline, "{prompt_id} never ran");
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    }
+}
+
+fn held(reply: &Value) -> bool {
+    reply.pointer("/error/data/reason") == Some(&json!("agent_pair.paused"))
+}
+
+/// Ten pure-text replies back and forth, nine of them going back and forth.
+const CHATTER: [&str; 10] = [
+    "what should we do next",
+    "you decide",
+    "no you pick one",
+    "either works for me",
+    "fine by me",
+    "your call then",
+    "alright let us wait",
+    "waiting sounds good",
+    "still waiting here",
+    "same on this side",
+];
+
+/// Ten exchanges back and forth whose turns make no tool call: the tenth is held, both
+/// transcripts record the pause, and the person's resume delivers what was held.
+#[tokio::test]
+async fn sessions_that_message_back_and_forth_without_progress_are_paused() {
+    let hub = hub();
+    let mut c = Client::open(&hub);
+    let (a, b) = (c.new_session().await, c.new_session().await);
+    for (i, text) in CHATTER[..9].iter().enumerate() {
+        let (from, to) = if i % 2 == 0 { (&a, &b) } else { (&b, &a) };
+        let reply = c.message(from, to, &format!("m{i}"), text).await;
+        assert!(reply.get("error").is_none(), "exchange {i} was delivered: {reply}");
+    }
+    // The tenth exchange in a row with no progress trips the guard.
+    let tenth = c.message(&b, &a, "m9", CHATTER[9]).await;
+    assert!(held(&tenth), "the tenth exchange is held: {tenth}");
+    let text = tenth.pointer("/error/message").and_then(Value::as_str).unwrap_or("");
+    assert!(text.contains("resume"), "the sender reads that the user resumes it: {text}");
+    assert!(!c.ran(&a, "m9").await, "a held message does not run");
+    for session in [&a, &b] {
+        let paused = c.records(session, "agent_pair_paused").await;
+        assert_eq!(paused.len(), 1, "{session}: {paused:?}");
+        assert_eq!(paused[0]["reason"], "alternating", "{paused:?}");
+    }
+    let held_records = c.records(&a, "agent_pair_held").await;
+    assert_eq!(held_records.len(), 1, "{held_records:?}");
+    assert_eq!(held_records[0]["promptId"], "m9", "{held_records:?}");
+    // While paused, the pair's later messages are held too, either way.
+    let later = c.message(&a, &b, "m10", "ok").await;
+    assert!(held(&later), "{later}");
+
+    let mut person = Client::person(&hub).await;
+    let resumed = person.call(RESUME, json!({"sessionId": a})).await;
+    assert_eq!(resumed["resumed"], 1, "{resumed}");
+    assert_eq!(resumed["delivered"], 2, "{resumed}");
+    c.wait_ran(&a, "m9").await;
+    c.wait_ran(&b, "m10").await;
+    for session in [&a, &b] {
+        let records = c.records(session, "agent_pair_resumed").await;
+        assert_eq!(records.len(), 1, "{session}: {records:?}");
+        assert_eq!(records[0]["by"], "request", "{records:?}");
+    }
+    // A resumed pair starts counting again.
+    let after = c.message(&a, &b, "m11", "thanks").await;
+    assert!(after.get("error").is_none(), "{after}");
+}
+
+/// The same message three times from one sender to one receiver: the third is held.
+#[tokio::test]
+async fn a_sender_repeating_the_same_message_is_paused() {
+    let hub = hub();
+    let mut c = Client::open(&hub);
+    let (a, b) = (c.new_session().await, c.new_session().await);
+    let first = c.message(&a, &b, "r1", "Please check the build, run 1").await;
+    assert!(first.get("error").is_none(), "{first}");
+    let second = c.message(&a, &b, "r2", "please  check the BUILD, run 2").await;
+    assert!(second.get("error").is_none(), "{second}");
+    let third = c.message(&a, &b, "r3", "Please check the build, run 3").await;
+    assert!(held(&third), "the third near-identical message is held: {third}");
+    let paused = c.records(&b, "agent_pair_paused").await;
+    assert_eq!(paused.len(), 1, "{paused:?}");
+    assert_eq!(paused[0]["reason"], "repeating", "{paused:?}");
+
+    // The person prompting either session resumes the pair and delivers what it held.
+    let mut person = Client::person(&hub).await;
+    person
+        .call(
+            "session/prompt",
+            json!({"sessionId": a, "prompt": [{"type": "text", "text": "stop and summarize"}]}),
+        )
+        .await;
+    c.wait_ran(&b, "r3").await;
+    let resumed = c.records(&b, "agent_pair_resumed").await;
+    assert_eq!(resumed.len(), 1, "{resumed:?}");
+    assert_eq!(resumed[0]["by"], "person", "{resumed:?}");
+}
+
+/// Two sessions whose turns each make a tool call are never paused, however many messages they
+/// exchange and however alike the messages are: there is no cap per turn.
+#[tokio::test]
+async fn sessions_whose_turns_do_work_are_never_paused() {
+    let hub = hub();
+    let mut c = Client::open(&hub);
+    let (a, b) = (c.new_session().await, c.new_session().await);
+    for i in 0..12 {
+        let (from, to) = if i % 2 == 0 { (&a, &b) } else { (&b, &a) };
+        let reply = c.message(from, to, &format!("w{i}"), "do-work on the next step").await;
+        assert!(reply.get("error").is_none(), "exchange {i} was delivered: {reply}");
+    }
+    assert!(c.records(&a, "agent_pair_paused").await.is_empty());
+    assert!(c.records(&b, "agent_pair_paused").await.is_empty());
+}
+
+/// A worker that does work between its status reports to an idle coordinator is never paused,
+/// though the reports read alike: progress in the sender counts too.
+#[tokio::test]
+async fn a_worker_doing_work_between_alike_reports_is_never_paused() {
+    let hub = hub();
+    let mut c = Client::open(&hub);
+    let (worker, coordinator, other) =
+        (c.new_session().await, c.new_session().await, c.new_session().await);
+    for (i, chatter) in CHATTER.iter().enumerate().take(5) {
+        let report = c
+            .message(&worker, &coordinator, &format!("s{i}"), &format!("CI run {i} pending"))
+            .await;
+        assert!(report.get("error").is_none(), "report {i} was delivered: {report}");
+        // The worker's next turn makes a tool call before its next report.
+        let work = c
+            .message(&other, &worker, &format!("k{i}"), &format!("do-work step {i} {chatter}"))
+            .await;
+        assert!(work.get("error").is_none(), "{work}");
+    }
+    assert!(c.records(&coordinator, "agent_pair_paused").await.is_empty());
+}
+
+/// A message whose sender is no acpmux session (the person's `cmux agent message`, which the
+/// cmux daemon stamps `cli`, or a terminal) is never counted or paused.
+#[tokio::test]
+async fn a_sender_that_is_no_session_is_never_paused() {
+    let hub = hub();
+    let mut c = Client::open(&hub);
+    let b = c.new_session().await;
+    for from in ["cli", "term_1234"] {
+        for i in 0..4 {
+            let reply = c
+                .message_as(from, &b, &format!("{from}-{i}"), "please check the build", json!({}))
+                .await;
+            assert!(reply.get("error").is_none(), "{from} message {i} was delivered: {reply}");
+        }
+    }
+    assert!(c.records(&b, "agent_pair_paused").await.is_empty());
+}
+
+/// Only the person resumes a pair: an agent's own unix-socket client may neither call the
+/// resume nor resume it by prompting a session of the pair.
+#[tokio::test]
+async fn an_agent_cannot_resume_its_own_pair() {
+    let hub = hub();
+    let mut c = Client::open(&hub);
+    let (a, b) = (c.new_session().await, c.new_session().await);
+    for i in 0..2 {
+        c.message(&a, &b, &format!("x{i}"), "please check the build").await;
+    }
+    assert!(held(&c.message(&a, &b, "x2", "please check the build").await));
+    let refused = c.reply(RESUME, json!({"sessionId": a})).await;
+    assert!(refused.get("error").is_some(), "a resume that is not the person's: {refused}");
+    c.call(
+        "session/prompt",
+        json!({"sessionId": a, "prompt": [{"type": "text", "text": "go on"}]}),
+    )
+    .await;
+    assert!(held(&c.message(&a, &b, "x3", "something else entirely").await), "still paused");
+    assert!(!c.ran(&b, "x2").await);
+}
+
+/// A message the agent's session refuses before it is recorded is no exchange: retrying it is
+/// never what pauses the pair.
+#[tokio::test]
+async fn a_refused_message_is_not_counted() {
+    let hub = hub();
+    let mut c = Client::open(&hub);
+    let (a, b) = (c.new_session().await, c.new_session().await);
+    for i in 0..3 {
+        // `steerOnly` into a session with no running turn: refused unrecorded.
+        let reply = c
+            .message_as(
+                &format!("acp:{a}"),
+                &b,
+                &format!("f{i}"),
+                "please check the build",
+                json!({"steer": true, "steerOnly": true}),
+            )
+            .await;
+        assert_eq!(
+            reply.pointer("/error/data/reason"),
+            Some(&json!("steer.unavailable")),
+            "refusal {i}: {reply}"
+        );
+    }
+    let reply = c.message(&a, &b, "f3", "please check the build").await;
+    assert!(reply.get("error").is_none(), "{reply}");
+}
+
+/// What a pause held survives a daemon restart, and a resume then delivers it.
+#[tokio::test]
+async fn held_messages_survive_a_restart() {
+    let dir = std::env::temp_dir().join(format!("acpmux-pairs-{}", uuid::Uuid::now_v7()));
+    let hub = hub_in(Some(&dir));
+    let mut c = Client::open(&hub);
+    let (a, b) = (c.new_session().await, c.new_session().await);
+    for i in 0..2 {
+        c.message(&a, &b, &format!("h{i}"), "please check the build").await;
+    }
+    assert!(held(&c.message(&a, &b, "h2", "please check the build").await));
+    hub.shutdown_all().await;
+    drop(c);
+    drop(hub);
+
+    let hub = hub_in(Some(&dir));
+    let mut c = Client::open(&hub);
+    assert!(held(&c.message(&a, &b, "h3", "something else").await), "still paused");
+    let mut person = Client::person(&hub).await;
+    let resumed = person.call(RESUME, json!({"sessionId": b})).await;
+    assert_eq!(resumed["delivered"], 2, "{resumed}");
+    c.wait_ran(&b, "h2").await;
+    c.wait_ran(&b, "h3").await;
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// While a resume delivers what a pair held, a new message in the pair waits behind it.
+#[tokio::test]
+async fn a_new_message_never_overtakes_held_ones() {
+    let hub = hub();
+    let mut c = Client::open(&hub);
+    let (a, b) = (c.new_session().await, c.new_session().await);
+    for i in 0..2 {
+        c.message(&a, &b, &format!("o{i}"), "please check the build").await;
+    }
+    for (i, chatter) in CHATTER.iter().enumerate().take(6).skip(2) {
+        let text = if i == 2 { "please check the build" } else { chatter };
+        assert!(held(&c.message(&a, &b, &format!("o{i}"), text).await));
+    }
+    let mut person = Client::person(&hub).await;
+    person.call(RESUME, json!({"sessionId": a})).await;
+    c.message(&a, &b, "o6", "new after resume").await;
+    c.wait_ran(&b, "o5").await;
+    c.wait_ran(&b, "o6").await;
+    let ids = c.ran_ids(&b).await;
+    let at = |id: &str| ids.iter().position(|x| x == id).unwrap();
+    assert!(at("o5") < at("o6"), "held first: {ids:?}");
+}
+
+/// The Debug Settings toggle off (`ACPMUX_AGENT_PAIR_GUARD=0`): nothing is paused.
+#[tokio::test]
+async fn the_guard_turned_off_pauses_nothing() {
+    let hub = hub();
+    hub.set_agent_pair_guard(acpmux::hub::PairGuard { enabled: false, ..Default::default() });
+    let mut c = Client::open(&hub);
+    let (a, b) = (c.new_session().await, c.new_session().await);
+    for i in 0..12 {
+        let (from, to) = if i % 2 == 0 { (&a, &b) } else { (&b, &a) };
+        let reply = c.message(from, to, &format!("o{i}"), "same words again").await;
+        assert!(reply.get("error").is_none(), "exchange {i} was delivered: {reply}");
+    }
+    assert!(c.records(&a, "agent_pair_paused").await.is_empty());
+}
+
+/// Resuming is the person's on this machine: a remote web client or a peer is refused.
+#[tokio::test]
+async fn a_remote_client_cannot_resume_a_pair() {
+    let hub = hub();
+    let mut c = Client::open(&hub);
+    let a = c.new_session().await;
+    for origin in [Origin::Web, Origin::Peer] {
+        let mut remote = Client::open_as(&hub, origin);
+        let reply = remote.reply(RESUME, json!({"sessionId": a})).await;
+        assert!(reply.get("error").is_some(), "{origin:?}: {reply}");
+    }
+}
