@@ -600,8 +600,6 @@ pub fn run(flags: &Flags, started_ms: u64) -> i32 {
     // A status left by a host that crashed mid-wait says nothing true now.
     let settle = crate::settle_status::SettleStatus::new(&paths.settle_status);
     settle.clear();
-    crate::brain::media::cleanup_stale_outboxes(&paths.session);
-    crate::brain::media::cleanup_stale_outboxes(&paths.root.join("session-shared"));
     // The start-up probe says again when the compactor cannot work.
     settle.compactor_fault(None);
     let started = start(&paths, &home, &daemon_socket, source);
@@ -1544,7 +1542,8 @@ fn start(
     .with_workspaces(workspaces);
     let mut brain = brain;
     brain.set_sub_starter(sub_starter);
-    brain.set_cloud_vms(cloud_vms, std::time::Duration::from_secs(600));
+    let idle = brain.cloud_auto_pause_idle();
+    brain.set_cloud_vms(cloud_vms, idle);
     // No cap on subagents at work unless OPTCHAT_MAX_LIVE_SUBAGENTS sets one.
     brain.set_max_live(crate::subagents::live_limit(
         env(crate::subagents::MAX_LIVE_ENV).as_deref(),

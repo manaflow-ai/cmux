@@ -716,8 +716,6 @@ pub struct Brain {
     tool_stopped: bool,
     /// Fetches link previews for replies' URL lines (None: replies stay text).
     previewer: Option<Arc<dyn crate::link_preview::Fetcher>>,
-    /// Fresh single-use folder this turn may attach generated media from.
-    media_outbox: Option<PathBuf>,
     /// Turns cut in a row by a lost acpmux link (`Brain::turn_cut`): past
     /// `turns::MAX_CUTS` the next one fails as before, never a loop.
     cuts: u32,
@@ -840,7 +838,6 @@ impl Brain {
             sent_keys: std::collections::HashSet::new(),
             tool_stopped: false,
             previewer: None,
-            media_outbox: None,
             cuts: 0,
             resume_at: None,
             orphan_wait: None,

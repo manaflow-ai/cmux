@@ -244,15 +244,16 @@ pub const TURN_DENIED_TOOLS: [&str; 25] = [
     "Workflow",
 ];
 
-/// The cmux MCP tools a Chief turn keeps (cx-68uof, hq-6d 2026-10-16): open
-/// and focus workspaces, panes, tabs, pages and files, answer dialogs, and
-/// follow agents. Chiefs, conversations, memory and subagents are the
+/// The daemon-owned cmux MCP tools a Chief turn keeps (cx-68uof, hq-6d
+/// 2026-10-16): manage its own workspaces/terminals, answer dialogs, and
+/// follow agents. Mac app actions are not authority-scoped and stay denied.
+/// Chiefs, conversations, memory and subagents are the
 /// Chief's own `optchat` server (chiefs, profile, spawn, tell, zoom, date),
 /// which always loads; cmux MCP has no conversation or Chief tools (v2_tools
 /// EXCLUDED). Every other cmux MCP tool is denied in the turn's settings
-/// and stays reachable through the `cmux` CLI. Names: `agents_*` and
-/// `render` (cmux mcp agent tools), `app_<cli words>` (action tools).
-pub const CHIEF_CMUX_TOOLS: [&str; 15] = [
+/// and stays reachable through the `cmux` CLI on its own host. Names:
+/// `agents_*` and `render` (cmux mcp agent tools).
+pub const CHIEF_CMUX_TOOLS: [&str; 11] = [
     "agents_snapshot",
     "agents_workspace_create",
     "agents_workspace_select",
@@ -264,10 +265,6 @@ pub const CHIEF_CMUX_TOOLS: [&str; 15] = [
     "agents_events",
     "agents_wait",
     "render",
-    "app_show_pane",
-    "app_show_tab",
-    "app_tab_new_page",
-    "app_file_open",
 ];
 
 /// The turn presets' env that keeps only acpmux's `cmux` MCP server

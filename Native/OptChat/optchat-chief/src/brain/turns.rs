@@ -576,18 +576,11 @@ impl Brain {
         let at_work = (!conversation_scoped)
             .then(|| self.at_work_line())
             .flatten();
-        super::media::cleanup_turn_outbox(self.media_outbox.take());
-        self.media_outbox = super::media::prepare_turn_outbox(&turn_session_dir);
-        let media_outbox = self
-            .media_outbox
-            .as_ref()
-            .map(|path| format!("<cmux-media-outbox>{}</cmux-media-outbox>", path.display()));
         // The person's Home workspace as it is now: after the view, never logged.
         let tail: Vec<String> = at_work
             .iter()
             .chain(home.iter())
             .chain(resumes.iter())
-            .chain(media_outbox.iter())
             .cloned()
             .collect();
         // Spec 5a: the frozen view and the delta after it (this turn's new
@@ -756,9 +749,6 @@ impl Brain {
         layout["images"] = serde_json::json!(image_count);
         layout["conversation_scoped"] = serde_json::json!(conversation_scoped);
         layout["shared_system"] = serde_json::json!(conversation_scoped);
-        if let Some(block) = &media_outbox {
-            layout["media_outbox"] = serde_json::json!(block);
-        }
         if let Some(line) = &at_work {
             layout["at_work"] = serde_json::json!(line);
         }
@@ -1481,7 +1471,6 @@ impl Brain {
         };
         let main = self.turn_side().is_none();
         self.state.turn = None;
-        super::media::cleanup_turn_outbox(self.media_outbox.take());
         self.stop_wanted = false;
         self.save_with(extra);
         self.flush_outbox();
@@ -1624,7 +1613,6 @@ impl Brain {
         };
         self.trace_end(key, &outcome, false);
         self.turn_view = None;
-        super::media::cleanup_turn_outbox(self.media_outbox.take());
         let main = self.turn_side().is_none();
         let had: Vec<Option<String>> = self
             .state
