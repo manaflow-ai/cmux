@@ -1,6 +1,7 @@
 import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextDesign
+import CmuxNextFloating
 
 extension AppServices {
     /// Start Agent's chat is a standalone agent page in its compact layout

@@ -2175,6 +2175,22 @@ export interface CloudOps {
     }
     readonly result: unknown
   }
+  /** Your message requests: open invites to your verified email from people you are not connected to, newest first (at most 20). trusted marks a sender with your company email domain. */
+  readonly "home.requests.list": {
+    readonly params: Readonly<Record<string, never>>
+    readonly result: {
+      readonly requests: ReadonlyArray<{
+        readonly conversation: ConversationId
+        readonly inviter: string
+        readonly kind: "dm" | "group"
+        readonly title?: string
+        readonly preview: string
+        readonly created_at: string
+        readonly expires_at: string
+        readonly trusted: boolean
+      }>
+    }
+  }
   /** Search Home messages in conversations you are a current human participant of (newest first, with a short Top section). */
   readonly "home.search": {
     readonly params: {
@@ -2425,6 +2441,13 @@ export interface CloudOps {
     readonly params: {
       readonly code: string
       readonly secret: string
+    }
+    readonly result: HomeConversationCommit
+  }
+  /** Accept a message request in Home: the open email invite to your verified email joins you, with no link. Anyone else gets unknown_invite. */
+  readonly "invite.accept_verified": {
+    readonly params: {
+      readonly conversation: ConversationId
     }
     readonly result: HomeConversationCommit
   }
@@ -2698,6 +2721,17 @@ export interface CloudOps {
       readonly seq: number
     }
     readonly result: HomeConversationCommit
+  }
+  /** Hide a message request; with block, also hide and never email later invites from its sender. The sender is not told. */
+  readonly "request.dismiss": {
+    readonly params: {
+      readonly conversation: ConversationId
+      readonly block?: boolean
+    }
+    readonly result: {
+      readonly dismissed: boolean
+      readonly blocked: boolean
+    }
   }
   /** Read one kept run with the body of the automation version that fired it. */
   readonly "run.get": {
@@ -3450,6 +3484,7 @@ export const cloudOpMeta = {
   "firewall.get": { class: "read", owner: "cloud:UserDO", risk: "read" },
   "firewall.list": { class: "read", owner: "cloud:UserDO", risk: "read" },
   "github.issue.comment": { class: "mutation", owner: "cloud:ConnectionDO", risk: "send-external" },
+  "home.requests.list": { class: "read", owner: "cloud:ConversationDO", risk: "read" },
   "home.search": { class: "read", owner: "cloud:planetscale", risk: "read" },
   "home.settings.set": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
   "host.enroll": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-shared" },
@@ -3474,6 +3509,7 @@ export const cloudOpMeta = {
   "integration.policy.set": { class: "mutation", owner: "cloud:ConnectionDO", risk: "mutate-shared" },
   "integration.revoke": { class: "mutation", owner: "cloud:ConnectionDO", risk: "destructive" },
   "invite.accept": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-own" },
+  "invite.accept_verified": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-own" },
   "invite.approve_join": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-shared" },
   "invite.create": { class: "mutation", owner: "cloud:ConversationDO", risk: "send-external" },
   "invite.revoke": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-shared" },
@@ -3500,6 +3536,7 @@ export const cloudOpMeta = {
   "reaction.add": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-shared" },
   "reaction.remove": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-own" },
   "read_cursor.set": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-own" },
+  "request.dismiss": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-own" },
   "run.get": { class: "read", owner: "cloud:SchedulerDO", risk: "read" },
   "run.list": { class: "read", owner: "cloud:SchedulerDO", risk: "read" },
   "server.pair.approve": { class: "mutation", owner: "cloud:PairingDO", risk: "mutate-shared" },

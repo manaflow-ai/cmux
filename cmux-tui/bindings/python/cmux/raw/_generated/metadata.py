@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '2a92c275db7a027c723c340c0ce4726a1392c28e4ff8e8160548cc2669c5ad93'
+IR_SHA256 = '9392cc109f8bc0c8c0f000289c18ad6bb03e6eb1a959c08811fc510fb5f822e0'
 
 
 @dataclass(frozen=True)
@@ -2903,6 +2903,7 @@ COMMANDS = {
         None,
         {
             'bytes': CommandFieldMetadata(None, None),
+            'expect_foreground': CommandFieldMetadata(None, 'send-expect-foreground-v1'),
             'paste': CommandFieldMetadata(7, None),
             'surface': CommandFieldMetadata(None, None),
             'terminal_id': CommandFieldMetadata(None, 'terminal-input-while-creating-v1'),

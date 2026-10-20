@@ -35,7 +35,6 @@ extension TabStripView {
         updateOcclusion()
         if let selected { reveal(selected, animated: !reduceMotion) }
         lastSelectedID = selected
-        overflowHints.update()
         refreshHoverCard()
     }
 
