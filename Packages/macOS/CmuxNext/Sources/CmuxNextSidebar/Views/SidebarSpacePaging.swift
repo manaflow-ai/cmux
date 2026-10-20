@@ -220,6 +220,7 @@ import QuartzCore
         (model.minimal, model.expanded) = (host.model.minimal, host.model.expanded)
         model.detailedStatus = host.model.detailedStatus
         model.showsTimestamps = host.model.showsTimestamps
+        model.groupHeaderDetails = host.model.groupHeaderDetails
         model.activeWorkspaceID = host.model.activeWorkspaceID
         container.frame = page.frame
         container.wantsLayer = true

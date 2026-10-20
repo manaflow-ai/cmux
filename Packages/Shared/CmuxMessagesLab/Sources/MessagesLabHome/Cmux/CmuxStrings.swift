@@ -31,6 +31,10 @@ enum CmuxStrings {
     static var removeAttachment: String {
         String(localized: "home.compose.removeAttachment", defaultValue: "Remove Attachment", table: "CmuxHome", bundle: .module)
     }
+    /// The compose field's send button (its help and accessibility label).
+    static var send: String {
+        String(localized: "home.compose.send", defaultValue: "Send", table: "CmuxHome", bundle: .module)
+    }
     static var copyLink: String {
         String(localized: "home.message.copyLink", defaultValue: "Copy Link", table: "CmuxHome", bundle: .module)
     }
@@ -71,6 +75,11 @@ enum CmuxStrings {
     /// The context menu item on my "Not Delivered" message that sends it again.
     static var tryAgain: String {
         String(localized: "home.menu.tryAgain", defaultValue: "Try Again", table: "CmuxHome", bundle: .module)
+    }
+
+    /// The context menu item that sends a bubble's text to another chat or agent.
+    static var forward: String {
+        String(localized: "home.menu.forward", defaultValue: "Forward…", table: "CmuxHome", bundle: .module)
     }
 
     /// The context menu item on my "Not Delivered" message that drops it.

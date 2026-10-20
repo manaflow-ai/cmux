@@ -35,13 +35,32 @@ public final class BrowserChromeView: NSView {
     }
 
     /// Browser focus mode (the page gets every key but app-level ones):
-    /// a thin gray inset outline around the page.
+    /// a thin gray inset outline around the page and the omnibar's "Focus
+    /// Mode" badge (classic cmux parity).
     public var showsFocusModeIndicator = false {
         didSet {
             guard showsFocusModeIndicator != oldValue else { return }
+            if !showsFocusModeIndicator { focusModeExitArmed = false }
             contentContainer.layer?.borderWidth = Metrics.lineWidth(showsFocusModeIndicator ? 2 : 0)
             updateColors()
+            updateFocusModeBadge()
         }
+    }
+
+    /// The first Escape of focus mode's Esc Esc exit was pressed: the badge
+    /// reads "Esc again to exit".
+    public var focusModeExitArmed = false {
+        didSet { if focusModeExitArmed != oldValue { updateFocusModeBadge() } }
+    }
+
+    /// A click on the focus mode badge: the host leaves focus mode.
+    public var onFocusModeBadgePress: (() -> Void)? {
+        get { addressBar.focusModeBadgeView.onPress }
+        set { addressBar.focusModeBadgeView.onPress = newValue }
+    }
+
+    private func updateFocusModeBadge() {
+        addressBar.setFocusModeBadge(armed: showsFocusModeIndicator ? focusModeExitArmed : nil)
     }
 
     /// The arrow over the whole row (`OmnibarPointer`).
@@ -262,9 +281,10 @@ public final class BrowserChromeView: NSView {
             contentContainer.trailingAnchor.constraint(equalTo: trailingAnchor),
             contentContainer.bottomAnchor.constraint(equalTo: bottomAnchor),
 
-            density.bind(findBar.topAnchor.constraint(equalTo: contentContainer.topAnchor)) { BrowserMetrics.overlayInset },
-            density.bind(findBar.trailingAnchor.constraint(equalTo: contentContainer.trailingAnchor)) { -BrowserMetrics.overlayInset },
-            density.bind(findBar.leadingAnchor.constraint(greaterThanOrEqualTo: contentContainer.leadingAnchor)) { BrowserMetrics.overlayInset },
+            // The shared find pill sits where every pane's does.
+            findBar.topAnchor.constraint(equalTo: contentContainer.topAnchor, constant: FindPillMetrics.inset),
+            findBar.trailingAnchor.constraint(equalTo: contentContainer.trailingAnchor, constant: -FindPillMetrics.inset),
+            findBar.leadingAnchor.constraint(greaterThanOrEqualTo: contentContainer.leadingAnchor, constant: FindPillMetrics.inset),
 
             density.bind(promptBar.topAnchor.constraint(equalTo: contentContainer.topAnchor)) { BrowserMetrics.overlayInset },
             promptBar.centerXAnchor.constraint(equalTo: contentContainer.centerXAnchor),

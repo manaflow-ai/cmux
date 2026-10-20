@@ -115,7 +115,7 @@ import UniformTypeIdentifiers
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 700, height: 900), styleMask: [.titled], backing: .buffered, defer: true)
         window.isReleasedWhenClosed = false
         defer { window.close() }
-        let view = MessagesLabHomeView(store: store, conversation: Self.conversation, me: me, wake: NoWake())
+        let view = MessagesLabHomeView(store: store, conversation: Self.conversation, me: me, wake: NoWake(), replies: .streaming)
         defer { view.stop() }
         view.frame = NSRect(x: 0, y: 0, width: 700, height: 900)
         window.contentView = view
@@ -207,7 +207,7 @@ import UniformTypeIdentifiers
             MessagesWindowView.commitLog = []
             let c0 = Self.cpuMs()
             let f0 = CACurrentMediaTime()
-            store.drafts[Self.conversation] = draft
+            store.showDraft(draft, turn: draft.turn, author: draft.participant, in: Self.conversation)
             projection.refresh()
             token.append(Self.ms(f0))
             var c = 0.0

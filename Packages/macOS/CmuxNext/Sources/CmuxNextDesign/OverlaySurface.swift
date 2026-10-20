@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxTheme
 
 /// An overlay surface drawn in an `OverlayMaterial`, with one shape (a
 /// continuous rounded rect of `cornerRadius`) whatever the material, so the
@@ -10,8 +11,11 @@ public import AppKit
 /// (palette, dialogs, hover cards, find and prompt bars, page info,
 /// popovers) is one of these, made with `Glass.makeOverlayPanel`, and
 /// follows this Mac's material like the overlays without text (the drop
-/// overlay, dock backdrop): themed Liquid Glass, whose tint
-/// (`glassOverlayTintStrength`) keeps its text over busy content.
+/// overlay, dock backdrop). A card (`isCard`: every theme-tone `makeOverlayPanel`)
+/// also lays the ``CardMaterial`` on its glass or blur: the popup surface,
+/// mostly opaque, with a visible rim, so its text keeps 4.5:1 over any
+/// wallpaper or page (Lawrence 2026-10-20: hover cards were "too liquid
+/// glassy"). Overlays without text keep the bare themed glass.
 @MainActor
 public final class OverlaySurfaceView: NSView {
     public private(set) var material: OverlayMaterial
@@ -19,6 +23,10 @@ public final class OverlaySurfaceView: NSView {
     /// Panels take clicks and hovers; a pure overlay (the drop target, a
     /// HUD) lets them through to the views beneath.
     public let isInteractive: Bool
+    /// A floating card that carries text: it draws the ``CardMaterial``
+    /// fill and rim over its glass or blur. Overlays without text (the drop
+    /// target, dock backdrop) are not cards and stay see-through.
+    public let isCard: Bool
     private var materialView: NSView?
     private var tintView: NSView?
     /// How the glass is tinted: the theme's tint, or the shared neutral glass
@@ -41,10 +49,12 @@ public final class OverlaySurfaceView: NSView {
     /// `tone` picks the theme tint (default) or the shared neutral glass with a rim.
     public init(material: OverlayMaterial? = nil, interactive: Bool = false,
                 cornerRadius: CGFloat = Metrics.panelCornerRadius,
+                card: Bool = false,
                 reduceTransparency: ReduceTransparency = .shared, tone: OverlayTone = .theme) {
         self.tone = tone
         materialOverride = material
         isInteractive = interactive
+        isCard = card
         self.cornerRadius = cornerRadius
         self.reduceTransparency = reduceTransparency
         self.material = material ?? Self.systemMaterial(reduceTransparency)
@@ -97,7 +107,24 @@ public final class OverlaySurfaceView: NSView {
         let view: NSView
         switch material {
         case .liquidGlass:
-            let glass = Glass.makePanel(content: contentView, style: .regular, cornerRadius: cornerRadius)
+            // A card's fill sits on the glass, under the content; the glass shows at its rim.
+            let glass: GlassPanelView
+            if isCard {
+                let fill = NSView()
+                fill.wantsLayer = true
+                contentView.translatesAutoresizingMaskIntoConstraints = false
+                fill.addSubview(contentView)
+                NSLayoutConstraint.activate([
+                    contentView.leadingAnchor.constraint(equalTo: fill.leadingAnchor),
+                    contentView.trailingAnchor.constraint(equalTo: fill.trailingAnchor),
+                    contentView.topAnchor.constraint(equalTo: fill.topAnchor),
+                    contentView.bottomAnchor.constraint(equalTo: fill.bottomAnchor),
+                ])
+                glass = Glass.makePanel(content: fill, style: .regular, cornerRadius: cornerRadius)
+                tintView = fill
+            } else {
+                glass = Glass.makePanel(content: contentView, style: .regular, cornerRadius: cornerRadius)
+            }
             glass.translatesAutoresizingMaskIntoConstraints = true
             view = glass
         case .vibrancy:
@@ -160,15 +187,24 @@ public final class OverlaySurfaceView: NSView {
 
     private func applyShape() {
         rimView?.cornerRadius = cornerRadius
+        if isCard, material == .liquidGlass, let layer = tintView?.layer {
+            layer.cornerRadius = cornerRadius
+            layer.cornerCurve = .continuous
+            layer.masksToBounds = true
+            layer.borderWidth = Metrics.lineWidth(Self.cardRimWidth)
+        }
         if let glass = materialView as? GlassPanelView {
             glass.cornerRadius = cornerRadius
         } else if let layer = materialView?.layer {
             layer.cornerRadius = cornerRadius
             layer.cornerCurve = .continuous
             layer.masksToBounds = true
-            layer.borderWidth = Metrics.lineWidth(1 / max(window?.backingScaleFactor ?? 2, 1))
+            layer.borderWidth = Metrics.lineWidth(isCard ? Self.cardRimWidth : 1 / max(window?.backingScaleFactor ?? 2, 1))
         }
     }
+
+    /// A card's rim: one point, a clear line on every display.
+    private static let cardRimWidth: CGFloat = 1
 
     /// Theme colors: the glass tint, or the fallback's Ghostty-derived fill
     /// and hairline. Never an accent color.
@@ -176,19 +212,31 @@ public final class OverlaySurfaceView: NSView {
         let look = tone.style?.look(isDark: themeTokens.isDark)
         rimView?.look = look ?? rimView?.look ?? FloatingGlassStyle.dialog.look(isDark: true)
         performWithTheme {
+            let card = isCard ? cardMaterial : nil
             switch material {
             case .liquidGlass:
                 (materialView as? GlassPanelView)?.tintColor = look?.veil.nsColor ?? overlayTint
+                if let card {
+                    tintView?.layer?.backgroundColor = card.tint.nsColor.cgColor
+                    tintView?.layer?.borderColor = Borders.color(card.rim.nsColor).cgColor
+                }
             case .vibrancy:
-                tintView?.layer?.backgroundColor = (look?.veil.nsColor ?? overlayTint).cgColor
+                tintView?.layer?.backgroundColor = (card?.tint.nsColor ?? look?.veil.nsColor ?? overlayTint).cgColor
                 // The neutral glass's rim replaces the hairline.
-                materialView?.layer?.borderColor = look == nil ? Palette.separator.cgColor : NSColor.clear.cgColor
+                materialView?.layer?.borderColor = look == nil
+                    ? Borders.color(card?.rim.nsColor ?? Palette.separator).cgColor : NSColor.clear.cgColor
             case .opaque:
                 materialView?.layer?.backgroundColor = Palette.popupSurface.cgColor
-                materialView?.layer?.borderColor = Borders.color(Palette.separator).cgColor
+                materialView?.layer?.borderColor = Borders.color(card?.rim.nsColor ?? Palette.separator).cgColor
             }
         }
         applyShape()
+    }
+
+    /// The card material of the theme in effect (call inside `performWithTheme`).
+    private var cardMaterial: CardMaterial {
+        CardMaterial(ThemeContext.active ?? ThemeScope.app.tokens, lift: ChromeTunables.opaqueOverlayLift.value,
+                     minimumOpacity: ChromeTunables.cardOpacity.value)
     }
 
     /// The theme's glass tint, its alpha scaled by the overlay tint
