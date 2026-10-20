@@ -39,8 +39,15 @@ struct FeedCell: View {
         self.item = item
         self.context = context
         self.expanded = expanded
-        _contentHeight = State(initialValue: WebMarkdownRenderer.shared.cachedHeight(markdown: item.markdown, style: .body))
+        let plain = FeedPlainText(item.markdown)
+        inlineText = plain.isInline ? plain.attributed : nil
+        // Native rows never overflow; only web rows need the measured height.
+        _contentHeight = State(initialValue: inlineText == nil
+            ? WebMarkdownRenderer.shared.cachedHeight(markdown: item.markdown, style: .body) : 0)
     }
+
+    /// Short inline text drawn natively instead of in a web view (D10); nil: the web view.
+    private let inlineText: AttributedString?
 
     private var store: FeedStore { context.store }
     private func open() { context.open(item) }
@@ -211,12 +218,24 @@ struct FeedCell: View {
 
     private var bodyView: some View {
         VStack(alignment: .leading, spacing: 6) {
-            WebMarkdownView(
-                markdown: item.markdown, style: .body,
-                collapsedHeight: collapsedHeight, isExpanded: expanded || !isOverflowing,
-                onTap: open
-            ) { height in
-                contentHeight = height
+            Group {
+                if let inlineText {
+                    Text(inlineText)
+                        .font(.body)
+                        .foregroundStyle(.primary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .contentShape(.rect)
+                        .onTapGesture(perform: open)
+                } else {
+                    WebMarkdownView(
+                        markdown: item.markdown, style: .body,
+                        collapsedHeight: collapsedHeight, isExpanded: expanded || !isOverflowing,
+                        onTap: open
+                    ) { height in
+                        contentHeight = height
+                    }
+                }
             }
             .overlay(alignment: .bottom) {
                 if isOverflowing, !expanded {
