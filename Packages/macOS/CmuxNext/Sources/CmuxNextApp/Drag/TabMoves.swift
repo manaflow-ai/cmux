@@ -142,10 +142,11 @@ enum TabMoves {
     /// bottom are edge docks; `mode` nil uses `layout.dockColumnMode`, and
     /// `width` nil a third of the height for a band, half the window for a
     /// left dock, or the width of a new column beside the anchor for a right dock. `role` marks the chat dock
-    /// (dock-column-role-v1; an older daemon drops it).
+    /// (dock-column-role-v1; an older daemon drops it). `pinned` makes it a pinned column in the
+    /// same commit (Home's dock; `pinned-dock-alone-v1` lets a screen's only tab become it alone).
     static func toNewDockColumn(_ tab: TabModel, anchor pane: PaneModel, edge: CmuxNextLayout.DockEdge,
                                   mode: CmuxNextLayout.DockMode? = nil, role: CmuxNextLayout.DockRole? = nil,
-                                  width: Double? = nil, respawn: SplitRespawn? = nil,
+                                  width: Double? = nil, respawn: SplitRespawn? = nil, pinned: Bool = false,
                                   services: AppServices,
                                   transaction: ClientTransactionID = .generate(), completion: @escaping Completion = { _ in }) {
         let daemon = services.machines.daemon(forTab: tab)
@@ -155,7 +156,7 @@ enum TabMoves {
         let surface = tab.surface, paneHandle = pane.handle
         let overlay = mode.map { $0 == .overlay } ?? (DesignSettings.shared.dockColumnMode == .overlay)
         let pin = DockSnapshot(edge: DockSnapshot.Edge(rawValue: edge.rawValue) ?? .right, mode: overlay ? .overlay : .docked,
-                               role: role.map { _ in .agentChat })
+                               role: role.map { _ in .agentChat }, isPinned: pinned)
         // A band's size is a share of the screen height. A left dock (the agent chat dock) takes
         // half the window (cx-ihyx2, Lawrence 2026-10-14: "docked left columns needs to be 50% by
         // default"); a resize is the column's own width and stays. A right dock takes the width a

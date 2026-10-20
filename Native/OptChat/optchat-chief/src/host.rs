@@ -301,6 +301,12 @@ pub fn turn_preset(
             crate::compactor::SUBROUTER_SESSION_KEY_ENV.to_owned(),
             codex_cache_key(home, "turn"),
         );
+        // acpmux sends it as X-Subrouter-Session (sr2 and plain routes too):
+        // a fresh Claude process per turn stays on one account and its cache.
+        env.insert(
+            crate::compactor::SUBROUTER_SESSION_HEADER_ENV.to_owned(),
+            "1".to_owned(),
+        );
     }
     // The reference's Claude Code path: no user settings (user MCP servers,
     // hooks, plugins), no skills or slash commands, only TURN_TOOLS of the
@@ -444,6 +450,9 @@ pub fn session_env(
     {
         session_env.insert("CMUX_SOCKET_PATH".to_owned(), relay);
     }
+    // Its tabs open beside the Chief's chat (the app does not know a turn's
+    // agent session; cmux_env::HOME_CHAT_KEY).
+    session_env.insert(crate::cmux_env::HOME_CHAT_KEY.to_owned(), "1".to_owned());
     session_env.insert(
         "PATH".to_owned(),
         inherited("PATH").unwrap_or_else(|| "/usr/bin:/bin".into()),
@@ -685,7 +694,11 @@ fn start(
     // Who this Chief is in the conversations (membership): its participant
     // and which messages of the owner's other conversations wake it.
     let membership =
-        crate::membership::Membership::from_env(matches!(source, Source::Local { .. }))?;
+        crate::membership::Membership::from_env(matches!(source, Source::Local { .. }))?
+            .with_owner(match &source {
+                Source::Local { .. } => Some(cmux_chief::rules::USER_LOCAL),
+                Source::Cloud { install } => install.user.as_deref(),
+            });
     log(format!(
         "conversations: as {}{}",
         membership.participant,
@@ -926,8 +939,14 @@ fn start(
     }
     if codex_preset.is_some()
         && isolate
-        && let Err(e) =
+        && let Err(e) = (|| {
+            // No turn survives a brain-host restart. Remove every old Codex
+            // transcript/database then recreate the stable config, sign-in
+            // link and installation id that prompt caching needs.
+            crate::codex_home::wipe_codex_home(&paths.turn_codex)?;
             crate::codex_home::prepare_turn_codex_home(paths, &crate::codex_home::user_codex_home())
+                .map_err(std::io::Error::other)
+        })()
     {
         log(format!("the codex turns' CODEX_HOME: {e}"));
     }
@@ -1219,6 +1238,14 @@ fn start(
         Source::Cloud { install } => install.install.clone(),
         Source::Local { .. } => None,
     };
+    // B4 (cloud-subagents-DESIGN.md): the pool tool resumes and pauses
+    // cloud peers' VMs; a no-op until `deploy.sh up` names it in
+    // ~/.config/cloud-subagents/vm-cmd.
+    let cloud_vms: Option<Arc<dyn crate::cloud_vms::CloudVms>> = env("HOME").map(|h| {
+        Arc::new(crate::cloud_vms::CommandVms::in_home(std::path::Path::new(
+            &h,
+        ))) as Arc<dyn crate::cloud_vms::CloudVms>
+    });
     let workspaces: Option<Arc<dyn crate::workspaces::Workspaces>> = if workspaces_off {
         None
     } else if crate::workspaces::AppWorkspaces::from_env(daemon_socket).is_some() {
@@ -1270,7 +1297,16 @@ fn start(
         .with_pinned_harness(sub_set.is_some())
         .with_harness_grant(chief_tools.clone())
         .with_workspaces(workspaces.clone())
-        .with_no_workspace_reason(no_workspace_reason.clone());
+        .with_no_workspace_reason(no_workspace_reason.clone())
+        // OPTCHAT_SUBAGENT_PEER: subagents run on that acpmux peer (a cloud
+        // VM) and take no local slot (plans/cmux-next/cloud-subagents-DESIGN.md).
+        .with_cloud(crate::subagents::CloudPlacement::from_env(
+            env,
+            sub_text.clone(),
+        ))
+        // `control cloud PEER` sets a peer at run time with no env.
+        .with_cloud_text(sub_text.clone())
+        .with_cloud_vms(cloud_vms.clone());
         let spawner = Arc::new(spawner);
         sub_starter = Some(spawner.queue_starter());
         spawner as Arc<dyn crate::tools::Orchestrator>
@@ -1427,10 +1463,18 @@ fn start(
         paths,
         &crate::paths::home_id(home),
     ));
+    let retention =
+        crate::turn_retention::TurnRetention::new(paths, &crate::compactor::user_claude_home());
+    if let Err(e) = retention.cleanup() {
+        log(format!(
+            "cleaning expired turn transcripts at start failed: {e}"
+        ));
+    }
     let persister = crate::persist::Persister::start(
         paths.chat.clone(),
         paths.memory_db.clone(),
         Some(backup),
+        Some(retention),
         brain_log.clone(),
     )
     .map_err(|e| format!("starting the persister: {e}"))?;
@@ -1453,6 +1497,7 @@ fn start(
     .with_workspaces(workspaces);
     let mut brain = brain;
     brain.set_sub_starter(sub_starter);
+    brain.set_cloud_vms(cloud_vms, std::time::Duration::from_secs(600));
     // No cap on subagents at work unless OPTCHAT_MAX_LIVE_SUBAGENTS sets one.
     brain.set_max_live(crate::subagents::live_limit(
         env(crate::subagents::MAX_LIVE_ENV).as_deref(),
@@ -1462,28 +1507,6 @@ fn start(
     // Subagents that stop on a model or network error continue on their own
     // (auto_resume.rs); OPTCHAT_AUTO_RESUME=off turns it off.
     brain.set_auto_resume(crate::auto_resume::ResumePolicy::from_env(env), None);
-    // Agent CLIs in cmux terminals (Claude Code, Codex) that stop on an
-    // error continue the same way (terminal_watch.rs);
-    // OPTCHAT_TERMINAL_RESUME=off turns only that off.
-    if let Some(policy) = crate::auto_resume::ResumePolicy::from_env(env)
-        && !matches!(
-            env("OPTCHAT_TERMINAL_RESUME").as_deref(),
-            Some("off" | "0" | "false" | "no")
-        )
-    {
-        crate::terminal_watch::spawn(
-            policy,
-            Arc::new(crate::terminal_watch::CliTerminals::from_env(env)),
-            Arc::new(crate::auto_resume::TcpProbe::from_env(
-                env,
-                std::env::var_os("HOME")
-                    .map(std::path::PathBuf::from)
-                    .as_deref(),
-            )),
-            tx.clone(),
-            brain_log.clone(),
-        );
-    }
     if let Some(describer) = describer {
         brain.set_describer(describer);
     }

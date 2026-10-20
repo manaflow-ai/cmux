@@ -25,6 +25,22 @@ const reasoningChat = () =>
 const ALBUM_ART =
   "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAACU0lEQVR42tXPCTcTAAAH8P8nkZJyC8uSRUNzX8uRNS0amvvMckSOJkcTOXJHJCJHkyOyHJEjckS8Xr16vXr1en2E9jX+3+D3g5labZ6ttrxx0yorxyYr1zYz1y4jzyEjX5B+yzGtQJha4JRa6JxyW5Rc5JJc7JpULE4scUso9Ui4I4nXeKo03qoyn+t3/eLKA2IrAmMrgmMqpcqqEOW9sGva8GhtRFS1LOq+/GpNpKJGoaiNuvIgOrJOKa+PkdfHXW5QyRrjZQ8TI5qSLjWlhDenhbekh7VmhrZlhbZlh7SrL3bkSB/lSTvzgzsLgroKgx4XBXaXBPSU+vdo/J+U+fWW+z6t9O0Dtb7Kpw/Ueq13P6j11V7PQK2v8RoAtb7WcwDU+jrJIKj1DZLnoNY3XhgCtb7JYxjU+mb3YVDrW91HQK1vdxsFtb5D/ALU+k6xDtT6rvM6UOu7XcdAre9xeQlqfa/LOKj1fecmQK3vF02AWj8gmgS1ftB5CtT6obOvQK0fcZoGtX7UEKDW687MgFo/JnwNav24cBbU+klHPaj1U6f1oNZPC96AWj8jmAO1ftZhHtR6vf08qPVz9gug1i/YLYJav3jqLaj1S7ZLoNYvGwLU+hWbZVDr16zfgVq/br0Cav2G1Sqo9ZuWq6DWb1msgVq/Y7EOav2u+XtQ6/fMNkCt3zcEqPUHJzdBrT888QHU+s+mW6DWfzHdBrX+6/FtUOu/meyAWv/dZBfU+h/HPoJa//PoHqj1v4z3QK3/bbwPav2fI59Arf9rdABq/T+jw/8n7vrBWnViYgAAAABJRU5ErkJggg==";
 
+/// What plays, as the host pushes it (`nowPlaying`): Spotify's track with its art.
+const nowPlayingTrack = (playing: boolean) => ({
+  title: "Weightless",
+  artist: "Marconi Union",
+  artwork: ALBUM_ART,
+  playing,
+  position: 132,
+  duration: 480,
+  rate: 1,
+  positionDate: Date.now(),
+  canPrevious: true,
+  canNext: true,
+  source: "Spotify",
+  labels: { play: "Play", pause: "Pause", previous: "Previous Track", next: "Next Track" },
+});
+
 const newTab = (fields: Record<string, unknown> = {}) => ({
   newTab: {
     layout: "b",
@@ -207,6 +223,43 @@ export default agentPaneEntry({
       Object.entries(composerStatePlays(".nt-field")).map(([state, variant]) => [
         `composer-${state}`,
         { ...variant, ready: newTab(), snapshot: reasoningChat() },
+      ]),
+    ),
+    // The mic never leaves the box (Leo 2026-10-19, as Claude Code's): the prompt shrinks instead.
+    // The box holds the prompt, the mic and Send; the model, effort and permission mode sit in the
+    // quiet row under it. `composer-mic` at the stage's width, `composer-mic-narrow` with the page
+    // squeezed to 300 px (a narrow split pane).
+    ...Object.fromEntries(
+      (
+        [
+          ["composer-mic", 0],
+          ["composer-mic-narrow", 300],
+        ] as const
+      ).map(([name, width]) => [
+        name,
+        {
+          note: width
+            ? "The New Tab composer squeezed to 300 px: the mic and Send stay in the box, the prompt shrinks; the quiet row under it keeps the mode, model and effort."
+            : "The New Tab composer: the box holds the prompt, the mic and Send; under it the quiet row with the permission mode on the left and the model and effort on the right.",
+          // Cards, the page an unset template shows (the first dot), draws Claude Code's split; the
+          // Default template (the second dot) keeps the chips in its box.
+          ready: newTab({ template: "cards" }),
+          snapshot: reasoningChat(),
+          play: async (ctx: PlayContext) => {
+            await ctx.waitFor(() => ctx.document.querySelector(".nt-field") !== null);
+            if (width) ctx.document.body.style.maxWidth = `${width}px`;
+            await ctx.waitFor(() => {
+              const box = ctx.document.querySelector(".nt-box")?.getBoundingClientRect();
+              const mic = ctx.document.querySelector(".nt-box .acpmux-mic")?.getBoundingClientRect();
+              const send = ctx.document.querySelector(".nt-box .acpmux-send")?.getBoundingClientRect();
+              if (!box || !mic || !send || mic.width < 12 || send.width < 12) return false;
+              if (width && box.width > width) return false;
+              return mic.right <= send.left + 0.5 && send.right <= box.right + 0.5 && mic.left >= box.left;
+            });
+            if (!ctx.document.querySelector(".nt-foot .acpmux-model"))
+              throw new Error("the model chip is not in the quiet row under the box");
+          },
+        },
       ]),
     ),
     "chats-unavailable": {
@@ -480,26 +533,13 @@ export default agentPaneEntry({
       },
     },
     "now-playing": {
-      note: "Now Playing: what plays on this Mac (Spotify here), large under the create actions, with its artwork, level bars and Play or Pause; the controls ask the host, and a pause stills the bars.",
+      note: "Now Playing, playing: what plays on this Mac (Spotify here) in one soft card under the create actions: rounded artwork, the title in the primary color and the artist in the secondary one, quiet level bars, a thin progress line, and compact Previous, Pause (the one filled control) and Next. The controls ask the host, and a pause stills the bars.",
       ready: newTab(),
       snapshot: noChat(manySessions(2)),
       native: { "nowPlaying.command": null },
       play: async (ctx) => {
-        const track = (playing: boolean) => ({
-          title: "Weightless",
-          artist: "Marconi Union",
-          artwork: ALBUM_ART,
-          playing,
-          position: 132,
-          duration: 480,
-          rate: 1,
-          positionDate: Date.now(),
-          canPrevious: true,
-          canNext: true,
-          labels: { play: "Play", pause: "Pause", previous: "Previous Track", next: "Next Track" },
-        });
         const bridge = ctx.document.defaultView?.cmuxAcpmuxBridge;
-        bridge?.applyNowPlaying?.(track(true));
+        bridge?.applyNowPlaying?.(nowPlayingTrack(true));
         await ctx.waitFor(() => ctx.document.querySelector(".nt-player[data-playing=true]") !== null);
         await ctx.click({ role: "button", name: "Pause" });
         await ctx.waitFor(() =>
@@ -507,10 +547,94 @@ export default agentPaneEntry({
             (call) => call.method === "nowPlaying.command" && call.params?.command === "playPause",
           ),
         );
-        bridge?.applyNowPlaying?.(track(false));
+        bridge?.applyNowPlaying?.(nowPlayingTrack(false));
         await ctx.waitFor(() => ctx.document.querySelector(".nt-player[data-playing=false]") !== null);
-        bridge?.applyNowPlaying?.(track(true));
+        bridge?.applyNowPlaying?.(nowPlayingTrack(true));
         await ctx.waitFor(() => ctx.document.querySelector(".nt-player[data-playing=true]") !== null);
+      },
+    },
+    "now-playing-paused": {
+      note: "Now Playing, paused: Play is the filled control, the level bars rest low and dimmer, and the progress line holds still.",
+      ready: newTab(),
+      snapshot: noChat(manySessions(2)),
+      native: { "nowPlaying.command": null },
+      play: async (ctx) => {
+        ctx.document.defaultView?.cmuxAcpmuxBridge?.applyNowPlaying?.(nowPlayingTrack(false));
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-player[data-playing=false]") !== null);
+      },
+    },
+    "now-playing-no-artwork": {
+      note: "Now Playing without artwork (a browser tab or a stream without art): a music note on the card's fill in the artwork's rounded slot; no progress line without a known length.",
+      ready: newTab(),
+      snapshot: noChat(manySessions(2)),
+      native: { "nowPlaying.command": null },
+      play: async (ctx) => {
+        const { artwork: _artwork, duration: _duration, ...track } = nowPlayingTrack(true);
+        ctx.document.defaultView?.cmuxAcpmuxBridge?.applyNowPlaying?.({
+          ...track,
+          title: "Lo-fi beats to code to",
+          artist: "YouTube",
+        });
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-player[data-artwork=false]") !== null);
+      },
+    },
+    "now-playing-long-title": {
+      note: "Now Playing with a long title and artist: each stays on one line and ends in an ellipsis; the card keeps its width and the level bars and controls keep their place.",
+      ready: newTab(),
+      snapshot: noChat(manySessions(2)),
+      native: { "nowPlaying.command": null },
+      play: async (ctx) => {
+        ctx.document.defaultView?.cmuxAcpmuxBridge?.applyNowPlaying?.({
+          ...nowPlayingTrack(true),
+          title:
+            "Symphony No. 9 in D Minor, Op. 125 \u201cChoral\u201d: IV. Presto \u2013 Allegro assai \u2013 Alla marcia",
+          artist: "Berliner Philharmoniker, Herbert von Karajan, Gundula Janowitz, Hilde R\u00f6ssel-Majdan",
+        });
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-player") !== null);
+      },
+    },
+    "now-playing-menu": {
+      note: "Now Playing's right-click menu (Shift-F10 too): Pause, Next, Previous, Open in Spotify, then Hide Now Playing and Now Playing Settings\u2026 after a separator. Next is disabled here: the source has no next track.",
+      ready: newTab(),
+      snapshot: noChat(manySessions(2)),
+      native: { "nowPlaying.command": null },
+      play: async (ctx) => {
+        ctx.document.defaultView?.cmuxAcpmuxBridge?.applyNowPlaying?.({ ...nowPlayingTrack(true), canNext: false });
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-player") !== null);
+        await ctx.contextMenu({ selector: ".nt-player-title" });
+        await ctx.waitFor(() => ctx.document.querySelector('.ui-context-menu [role="menuitem"]') !== null);
+      },
+    },
+    "now-playing-off": {
+      note: "Show Now Playing on New Tab off (or nothing plays): the host sends no track, so the page draws no card and keeps no space; it is the plain New Tab page from the first frame.",
+      ready: newTab(),
+      snapshot: noChat(manySessions(2)),
+      native: { "nowPlaying.command": null },
+      play: async (ctx) => {
+        ctx.document.defaultView?.cmuxAcpmuxBridge?.applyNowPlaying?.(null);
+        await ctx.waitFor(
+          () => ctx.document.querySelector(".nt-screen") !== null && ctx.document.querySelector(".nt-player") === null,
+        );
+      },
+    },
+    "now-playing-hidden": {
+      note: "After Hide Now Playing: the card is gone and one quiet line says it is hidden and can come back in Settings, with Undo; the next New Tab page draws nothing and keeps no space.",
+      ready: newTab(),
+      snapshot: noChat(manySessions(2)),
+      native: { "nowPlaying.command": null },
+      play: async (ctx) => {
+        const bridge = ctx.document.defaultView?.cmuxAcpmuxBridge;
+        bridge?.applyNowPlaying?.(nowPlayingTrack(true));
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-player") !== null);
+        await ctx.contextMenu({ selector: ".nt-player-title" });
+        await ctx.click({ role: "menuitem", name: "Hide Now Playing" });
+        await ctx.waitFor(() =>
+          galleryNativeCalls(ctx.document).some(
+            (call) => call.method === "nowPlaying.command" && call.params?.command === "hide",
+          ),
+        );
+        bridge?.applyNowPlaying?.(null);
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-player-note") !== null);
       },
     },
     "typed-prompt": {
@@ -786,12 +910,12 @@ export default agentPaneEntry({
       },
     },
     "template-cards": {
-      note: "Cards template, the default (u2851, from a scrawl of Aside's New Tab page): one rounded field with the Search | Ask switch, the project and agent chips under it, three tall chat cards.",
+      note: "Cards template, the default and the first dot (u2851): Claude Code's split, the project strip heading the card, the box with the prompt, the Search | Ask switch, the mic and Send, the mode, model and effort in the quiet row under it, then three tall chat cards.",
       ready: newTab({ template: "cards" }),
       snapshot: noChat(manySessions(6)),
     },
     "template-cards-search": {
-      note: "Cards template in Search: the chip row steps aside and the suggestions show under the field.",
+      note: "Cards template in Search: the box keeps the mic and Send, and the suggestions open under the quiet row, never over its chips.",
       ready: newTab({ template: "cards" }),
       snapshot: noChat(manySessions(6)),
       play: async (ctx) => {

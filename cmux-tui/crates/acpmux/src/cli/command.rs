@@ -260,6 +260,10 @@ pub enum Command {
     /// Every chat on this device, from every harness: list, open, roots. Also `cmux chats …`.
     #[command(subcommand)]
     Chats(crate::cli::chats::ChatsCmd),
+    /// Background processes agents left running (dev servers, watchers):
+    /// list, show (everything one printed, live with --follow), kill.
+    #[command(subcommand, alias = "ps")]
+    Process(crate::cli::process::ProcessCmd),
     /// Everything else about one session: info, cancel, stop, rename, fork, set, allow, deny, answer, export, import, tail.
     #[command(subcommand, alias = "s")]
     Session(SessionCmd),

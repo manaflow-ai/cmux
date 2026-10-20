@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Chief list and host switch: 4 variants</title>
+<style>
+:root{color-scheme:dark}
+body{margin:0;background:#141416;color:#e8e8ea;font:13px -apple-system,BlinkMacSystemFont,"SF Pro Text",sans-serif;padding:24px}
+h1{font-size:18px;margin:0 0 4px}
+p.lead{color:#9a9aa0;margin:0 0 20px;max-width:900px}
+.grid{display:grid;grid-template-columns:repeat(2,minmax(420px,1fr));gap:20px}
+.card{background:#1d1d20;border:1px solid #2c2c31;border-radius:14px;padding:16px}
+.card.rec{border-color:#3d7cff;box-shadow:0 0 0 1px #3d7cff55}
+.card h2{font-size:14px;margin:0 0 2px;display:flex;gap:8px;align-items:center}
+.badge{font-size:11px;background:#3d7cff;color:#fff;border-radius:999px;padding:1px 8px}
+.why{color:#9a9aa0;margin:0 0 12px}
+.app{display:flex;gap:12px;background:#101012;border-radius:10px;padding:12px;min-height:250px}
+.side{width:190px}
+.pins{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:10px}
+.tile{text-align:center;font-size:11px;color:#d6d6da}
+.av{width:44px;height:44px;border-radius:50%;margin:0 auto 4px;display:flex;align-items:center;justify-content:center;font-weight:600;background:linear-gradient(#5b5b63,#3a3a40)}
+.av.chief{background:linear-gradient(135deg,#2fd0e0,#5b5cf0)}
+.tag{color:#8e8e93}
+.main{color:#7fb0ff}
+.row{display:flex;gap:8px;align-items:center;padding:6px 4px;border-radius:8px}
+.row .av{width:30px;height:30px;margin:0;font-size:11px}
+.row .t{font-weight:600}.row .s{color:#8e8e93;font-size:11px}
+.sec{color:#8e8e93;font-size:11px;text-transform:uppercase;letter-spacing:.04em;margin:6px 4px}
+.chat{flex:1;background:#18181b;border-radius:8px;padding:10px;position:relative}
+.hdr{display:flex;flex-direction:column;align-items:center;gap:2px;margin-bottom:10px}
+.pill{background:#2a2a2f;border-radius:999px;padding:2px 10px;font-weight:600}
+.sub{color:#8e8e93;font-size:11px}
+.link{color:#4c8dff}
+.bubble{background:#2a2a2f;border-radius:14px;padding:6px 10px;margin:4px 0;max-width:80%}
+.pop{position:absolute;top:60px;left:50%;transform:translateX(-50%);width:230px;background:#26262b;border:1px solid #38383e;border-radius:12px;padding:10px;box-shadow:0 8px 24px #0008}
+.pop .n{font-weight:600}
+.menu{position:absolute;top:44px;left:50%;transform:translateX(-50%);width:200px;background:#26262b;border:1px solid #38383e;border-radius:8px;padding:4px}
+.menu div{padding:4px 8px;border-radius:5px}.menu .on{background:#3d7cff}
+.star{color:#ffd60a}
+</style></head><body>
+<h1>Chief list and host switch</h1>
+<p class="lead">Asked: no floating "Chief | Chief (Mac mini)" segmented control, one clearly main Chief, every other Chief with a proper name and where it runs, and no Chief listed twice just because it has two hosts. All four use the same model (<code>HomeChiefRoster</code>): the Hosted Chief, the Mac mini Chief and this Mac's Chief are one entry. They differ only in where the host is shown and switched. <b>A is shipped.</b></p>
+<div class="grid">
+
+<div class="card rec"><h2>A · Tag in the list, switch in the card <span class="badge">Recommended · shipped</span></h2>
+<p class="why">The list draws "Main" or the host after the name. The card under the name pill says where the Chief runs and has a "Switch to …" link. Nothing covers the chat, and it fits the vendored list row with no new view.</p>
+<div class="app"><div class="side"><div class="pins">
+<div class="tile"><div class="av chief">C</div>Chief · <span class="main">Main</span></div>
+<div class="tile"><div class="av">U</div>Unii · <span class="tag">This Mac</span></div>
+<div class="tile"><div class="av">R</div>Research · <span class="tag">Cloud</span></div></div>
+<div class="row"><div class="av">A</div><div><div class="t">Ada</div><div class="s">see you at 3</div></div></div></div>
+<div class="chat"><div class="hdr"><div class="av chief" style="width:36px;height:36px">C</div><div class="pill">Chief ›</div></div>
+<div class="bubble">Merged #22385; nightly is building on cmux15.</div>
+<div class="pop"><div class="n">Chief</div><div class="sub">Runs in the cloud</div><div class="link">Switch to cmux20</div><hr style="border-color:#38383e"><div class="sub">Harness · Model · Effort …</div></div></div></div></div>
+
+<div class="card"><h2>B · "Chiefs" section with a second line</h2>
+<p class="why">A "Chiefs" section of two-line rows: the name, then "Main · Cloud" or "This Mac". Easiest to read, but it needs a new row type in the vendored MessagesLab list and gives up the pinned grid.</p>
+<div class="app"><div class="side"><div class="sec">Chiefs</div>
+<div class="row"><div class="av chief">C</div><div><div class="t">Chief <span class="star">★</span></div><div class="s">Main · Cloud</div></div></div>
+<div class="row"><div class="av">U</div><div><div class="t">Unii</div><div class="s">This Mac</div></div></div>
+<div class="row"><div class="av">R</div><div><div class="t">Research</div><div class="s">Cloud</div></div></div>
+<div class="sec">Messages</div><div class="row"><div class="av">A</div><div><div class="t">Ada</div><div class="s">see you at 3</div></div></div></div>
+<div class="chat"><div class="hdr"><div class="av chief" style="width:36px;height:36px">C</div><div class="pill">Chief ›</div><div class="sub">Cloud · <span class="link">Switch…</span></div></div>
+<div class="bubble">Merged #22385; nightly is building on cmux15.</div></div></div></div>
+
+<div class="card"><h2>C · Host subtitle in the chat header</h2>
+<p class="why">A quiet "Running in the cloud · Switch…" under the pill opens a small menu of hosts. Easy to find, but it adds a permanent line to every Chief chat even when there is only one host.</p>
+<div class="app"><div class="side"><div class="pins">
+<div class="tile"><div class="av chief">C</div>Chief</div><div class="tile"><div class="av">U</div>Unii</div><div class="tile"><div class="av">R</div>Research</div></div></div>
+<div class="chat"><div class="hdr"><div class="av chief" style="width:36px;height:36px">C</div><div class="pill">Chief ›</div><div class="sub">Running in the cloud · <span class="link">Switch…</span></div></div>
+<div class="menu" style="top:84px"><div class="on">✓ Cloud</div><div>cmux20 (Mac mini)</div></div></div></div></div>
+
+<div class="card"><h2>D · Hover card only</h2>
+<p class="why">The list shows names and a star on the main Chief. The host and the switch appear only in the tile's hover card. It is the quietest, but the host is hidden until you hover, and keyboard users cannot find it.</p>
+<div class="app"><div class="side"><div class="pins">
+<div class="tile"><div class="av chief">C</div>Chief <span class="star">★</span></div><div class="tile"><div class="av">U</div>Unii</div><div class="tile"><div class="av">R</div>Research</div></div>
+<div class="pop" style="position:relative;top:0;left:0;transform:none;width:170px"><div class="n">Chief ★ Main</div><div class="sub">Runs in the cloud</div><div class="link">Switch to cmux20</div></div></div>
+<div class="chat"><div class="hdr"><div class="av chief" style="width:36px;height:36px">C</div><div class="pill">Chief ›</div></div><div class="bubble">Merged #22385.</div></div></div></div>
+
+</div></body></html>

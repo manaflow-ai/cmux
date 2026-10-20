@@ -530,9 +530,10 @@ Enter), `hover`, `source` (keyboard or mouse), `pointer` (last pointer location 
   and YouTube, Wikipedia and GitHub, by host (`youtube.com`). The keyword with Tab or a space
   starts a session with no extension: no rows, the chip says "Search YouTube", Enter searches
   there (with no text, it opens the site). An extension's own keyword wins over an engine's.
-- Opt-Cmd-F in a browser tab (`browser.focusSearch`, Chrome's Search the Web) focuses the
-  address bar in a session of the default engine. Outside a browser tab it stays Search All
-  Windows.
+- Search the Web (`browser.focusSearch`, Chrome's `IDC_FOCUS_SEARCH`) focuses the address bar
+  in a session of the default engine. It has no default key: Opt-Cmd-F stays Search All
+  Windows everywhere (a default key moves only with the user's OK); run it from the palette or
+  bind it in cmux.json.
 - `browser.omnibar.showFullURLs` (the field's menu: Always Show Full URLs) makes the resting
   text the full URL, so nothing elides. The menu also has Manage Search Engines… (Settings).
 - Enter on a scheme-less address that loads over https (`example.com`) marks the load an

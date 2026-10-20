@@ -150,8 +150,8 @@ public struct TabStripMetrics: Equatable, Sendable {
         titleMinVisibleWidth = TabTunables.titleMinVisibleWidth.value
         stripHeight = Metrics.tabStripHeight
         tabHeight = Metrics.tabHeight
-        // The strip's edges are the content border's edges (the chrome line).
-        stripHorizontalPadding = PaneChromeMetrics.pillLeading
+        // The first and last pills keep the gap above them to the strip's ends (the chrome line).
+        stripHorizontalPadding = Metrics.paneChromeInset
         stripTopOutset = Metrics.stripTopOutset
         newTabButtonWidth = Metrics.controlHeight
         scrollFadeWidth = TabTunables.scrollFadeWidth.value

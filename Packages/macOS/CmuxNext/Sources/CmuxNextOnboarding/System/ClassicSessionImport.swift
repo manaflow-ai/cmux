@@ -3,11 +3,15 @@ public import Foundation
 /// Errors produced while reading a classic cmux session snapshot.
 public enum ClassicSessionImportError: Error, LocalizedError, Equatable, Sendable {
     case snapshotTooLarge(actualBytes: Int, maximumBytes: Int)
+    /// The file is JSON but not a session object (a damaged or foreign file).
+    case notASnapshot
 
     public var errorDescription: String? {
         switch self {
         case .snapshotTooLarge:
             "The classic cmux session snapshot is too large to read."
+        case .notASnapshot:
+            "The classic cmux session file is not a session snapshot."
         }
     }
 }
@@ -93,16 +97,78 @@ public nonisolated struct ClassicSessionImporter: Sendable {
         return try Data(contentsOf: fileURL, options: [.mappedIfSafe])
     }
 
+    /// The whole saved session, window by window; nil when classic has no snapshot.
+    public func readSnapshot() throws -> ClassicSessionSnapshot? {
+        guard let data = try readData() else { return nil }
+        return try decodeSnapshot(data)
+    }
+
     /// Decodes topology, names, directories, titles, pages, agent sessions,
     /// scrollback and where each workspace ran from a classic snapshot.
     public func decode(_ data: Data) throws -> [ClassicSessionWorkspace] {
-        let root = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
-        let workspaces = ((root["windows"] as? [[String: Any]]) ?? []).flatMap { window in
-            let manager = window["tabManager"] as? [String: Any] ?? window["tab_manager"] as? [String: Any] ?? [:]
-            return (manager["workspaces"] as? [[String: Any]]) ?? []
+        try decodeSnapshot(data).workspaces
+    }
+
+    /// Decodes the snapshot with its windows, groups, and each workspace's
+    /// key, color, pin and group. Names are made unique across all windows.
+    public func decodeSnapshot(_ data: Data) throws -> ClassicSessionSnapshot {
+        guard let root = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw ClassicSessionImportError.notASnapshot
         }
-        let names = Self.names(workspaces.map(Self.clues))
-        return zip(workspaces, names).map { Self.workspace($0, name: $1) }
+        let windows = (root["windows"] as? [[String: Any]]) ?? []
+        let managers = windows.map { window in
+            window["tabManager"] as? [String: Any] ?? window["tab_manager"] as? [String: Any] ?? [:]
+        }
+        let perWindow = managers.map { ($0["workspaces"] as? [[String: Any]]) ?? [] }
+        var names = Self.names(perWindow.flatMap { $0 }.map(Self.clues))[...]
+        let decoded = zip(windows, zip(managers, perWindow)).map { window, pair in
+            let (manager, workspaces) = pair
+            let mine = names.prefix(workspaces.count)
+            names = names.dropFirst(workspaces.count)
+            return ClassicSessionWindow(
+                id: window["windowId"] as? String ?? window["window_id"] as? String,
+                frame: Self.rect(window["frame"]),
+                selectedWorkspace: (manager["selectedWorkspaceIndex"] as? NSNumber)?.intValue
+                    ?? (manager["selected_workspace_index"] as? NSNumber)?.intValue,
+                workspaces: zip(workspaces, mine).map { Self.workspace($0, name: $1) },
+                groups: ((manager["workspaceGroups"] as? [[String: Any]]) ?? (manager["workspace_groups"] as? [[String: Any]]) ?? [])
+                    .compactMap(Self.group))
+        }
+        return ClassicSessionSnapshot(version: (root["version"] as? NSNumber)?.intValue ?? 1,
+                                      createdAt: (root["createdAt"] as? NSNumber)?.doubleValue, windows: decoded)
+    }
+
+    private static func rect(_ value: Any?) -> CGRect? {
+        guard let value = value as? [String: Any],
+              let x = (value["x"] as? NSNumber)?.doubleValue, let y = (value["y"] as? NSNumber)?.doubleValue,
+              let width = (value["width"] as? NSNumber)?.doubleValue, let height = (value["height"] as? NSNumber)?.doubleValue,
+              width > 0, height > 0 else { return nil }
+        return CGRect(x: x, y: y, width: width, height: height)
+    }
+
+    private static func group(_ value: [String: Any]) -> ClassicSessionGroup? {
+        guard let id = value["id"] as? String, !id.isEmpty else { return nil }
+        let color = (value["customColor"] as? String ?? value["custom_color"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        let icon = (value["iconSymbol"] as? String ?? value["icon_symbol"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        return ClassicSessionGroup(id: id, name: value["name"] as? String ?? "",
+                                   collapsed: value["isCollapsed"] as? Bool ?? value["is_collapsed"] as? Bool ?? false,
+                                   pinned: value["isPinned"] as? Bool ?? value["is_pinned"] as? Bool ?? false,
+                                   color: color, icon: icon)
+    }
+
+    /// The workspace's identity across classic saves.
+    static func key(_ value: [String: Any], name: String) -> String {
+        for field in ["stableId", "stable_id", "workspaceId", "workspace_id"] {
+            if let id = value[field] as? String, !id.isEmpty { return id }
+        }
+        // No id (a very old snapshot): its folder, its name and its panels.
+        let panels = ((value["panels"] as? [[String: Any]]) ?? []).compactMap { $0["id"] as? String }
+        let parts = [directory(value), name] + panels
+        var hash: UInt64 = 0xcbf29ce484222325
+        for byte in parts.joined(separator: "\u{1f}").utf8 {
+            hash = (hash ^ UInt64(byte)) &* 0x100000001b3
+        }
+        return "derived:" + String(hash, radix: 16)
     }
 
     private static func directory(_ value: [String: Any]) -> String {
@@ -124,11 +190,23 @@ public nonisolated struct ClassicSessionImporter: Sendable {
             var seen = Set<String>()
             let tabs = panelEntries.filter { seen.insert($0.0).inserted }.map { $0.1 }
             return ClassicSessionWorkspace(name: name, workingDirectory: cwd, layout: .pane(ClassicSessionPane(tabs: tabs)),
-                                           remote: Self.remote(value), cloudVM: Self.cloudVM(value), leftOutPanels: leftOutPanels)
+                                           remote: Self.remote(value), cloudVM: Self.cloudVM(value), leftOutPanels: leftOutPanels,
+                                           key: Self.key(value, name: name), color: Self.color(value),
+                                           pinned: value["isPinned"] as? Bool ?? false, groupID: Self.groupID(value))
         }
         let layout = Self.layout(layoutValue, panels: panelMap)
         return ClassicSessionWorkspace(name: name, workingDirectory: cwd, layout: layout,
-                                       remote: Self.remote(value), cloudVM: Self.cloudVM(value), leftOutPanels: leftOutPanels)
+                                       remote: Self.remote(value), cloudVM: Self.cloudVM(value), leftOutPanels: leftOutPanels,
+                                       key: Self.key(value, name: name), color: Self.color(value),
+                                       pinned: value["isPinned"] as? Bool ?? false, groupID: Self.groupID(value))
+    }
+
+    private static func color(_ value: [String: Any]) -> String? {
+        (value["customColor"] as? String ?? value["custom_color"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+    }
+
+    private static func groupID(_ value: [String: Any]) -> String? {
+        (value["groupId"] as? String ?? value["group_id"] as? String).flatMap { $0.isEmpty ? nil : $0 }
     }
 
     /// A terminal or browser panel as a tab; nil for a panel nothing here can

@@ -114,6 +114,11 @@ await requireBrowserLane("editor-page.test.ts", async () => {
 
   async function openEditor(page: Page, target: string, options: { highlighted?: boolean } = {}) {
     await page.goto(`${base}/editor?file=${encodeURIComponent(target)}`);
+    await editorReady(page, options);
+  }
+
+  /** Waits until the page now loaded shows its file in Monaco. */
+  async function editorReady(page: Page, options: { highlighted?: boolean } = {}) {
     await page.waitForFunction(
       () =>
         document.documentElement.dataset.cmuxEditorBoot === "ready" &&
@@ -481,7 +486,8 @@ await requireBrowserLane("editor-page.test.ts", async () => {
           null,
           { timeout: 60_000, polling: 10 },
         );
-        await openEditor(page, target);
+        // The same document: a second goto would load a new one and drop the request.
+        await editorReady(page);
         await page.waitForFunction(() => window.__cmuxEditor!.view()!.monacoEditor.hasTextFocus(), null, {
           timeout: 5_000,
         });

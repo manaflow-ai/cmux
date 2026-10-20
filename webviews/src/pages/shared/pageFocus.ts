@@ -3,7 +3,8 @@
 // this document, or none. With none, keys reach the body and typing goes nowhere. `contentFocus`
 // focuses the page's primary input at that moment, only when nothing else in the page has focus, so
 // a clicked field, an open find widget or a restored element keeps the keyboard. A request that
-// comes before the input exists (a lazy editor) is kept and applied once when it mounts.
+// comes before the input exists (a lazy editor) is kept until focus takes: at mount, on the next
+// frame, and on each `retry()` (the page shows its document).
 
 /** Something that takes the keyboard: the page's primary input (`MonacoView`, a text field). */
 export interface Focusable {
@@ -18,6 +19,8 @@ export interface ContentFocus {
   request(): void;
   /** The primary input exists now (or went away: null); a kept request applies to it. */
   mount(target: Focusable | null): void;
+  /** The input can take focus now (its document is shown): a kept request applies again. */
+  retry(): void;
   /** Stops listening to the window. */
   dispose(): void;
 }
@@ -33,7 +36,11 @@ export function nothingFocused(doc: Document): boolean {
  * `win`'s `focus` event (WebKit's signal for the web view becoming first responder in a key
  * window); call `request()` for the host's `focusContent` command.
  */
-export function contentFocus(win: Window = window, doc: Document = document): ContentFocus {
+export function contentFocus(
+  win: Window = window,
+  doc: Document = document,
+  nextFrame: (run: () => void) => void = (run) => win.requestAnimationFrame(run),
+): ContentFocus {
   let target: Focusable | null = null;
   let pending = false;
   const request = () => {
@@ -41,12 +48,13 @@ export function contentFocus(win: Window = window, doc: Document = document): Co
       pending = false;
       return;
     }
-    if (target) {
-      pending = false;
-      target.focus();
-    } else {
-      pending = true;
-    }
+    target?.focus();
+    // Kept until it takes: an input still loading its document (Monaco before its model) takes no
+    // focus yet; `retry` and the next frame try again, and any focus in the page ends the request.
+    pending = nothingFocused(doc);
+  };
+  const retry = () => {
+    if (target && pending) request();
   };
   const onFocus = () => request();
   win.addEventListener("focus", onFocus);
@@ -54,8 +62,10 @@ export function contentFocus(win: Window = window, doc: Document = document): Co
     request,
     mount(next) {
       target = next;
-      if (next && pending) request();
+      retry();
+      if (next && pending) nextFrame(retry);
     },
+    retry,
     dispose() {
       win.removeEventListener("focus", onFocus);
     },

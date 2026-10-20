@@ -223,7 +223,7 @@ public final class BrowserChromeView: NSView {
             navigation.centerYAnchor.constraint(equalTo: addressBar.centerYAnchor),
             density.bind(addressBar.leadingAnchor.constraint(equalTo: navigation.trailingAnchor)) { OmnibarStyle.barMargin },
             density.bind(addressBar.topAnchor.constraint(equalTo: toolbar.topAnchor)) { [weak self] in // R101 gaps
-                OmnibarStyle.toolbarTopPadding(scale: self?.window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2)
+                OmnibarStyle.barTop(scale: self?.window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2)
             },
             density.bind(extensionSlot.leadingAnchor.constraint(equalTo: addressBar.trailingAnchor)) { OmnibarStyle.barMargin },
             density.bind(toolbarButtons.leadingAnchor.constraint(equalTo: extensionSlot.trailingAnchor)) { BrowserMetrics.buttonSpacing },
@@ -325,7 +325,7 @@ public final class BrowserChromeView: NSView {
         addressBar.allowsChromiumSchemes = tab.engineKind == .cef
         extensionToolbar.bind(tab)
         toolbarButtons.bind(tab)
-        bindOmniboxKeywords(tab)
+        addressBar.bindKeywords(of: tab)
         if !findBar.isHidden {
             old?.clearFind()
             findBar.isHidden = true
@@ -367,7 +367,9 @@ public final class BrowserChromeView: NSView {
     /// A move to a screen with another scale snaps the toolbar gap again.
     public override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
-        if !isToolbarHidden { toolbarHeight.constant = currentToolbarHeight }
+        // Every scale-snapped value, not only the row height: the omnibar's top was computed
+        // before the view had a window, at the main screen's scale (1 pt off on a 1x display).
+        density.reapply()
     }
 
     public override func layout() {
