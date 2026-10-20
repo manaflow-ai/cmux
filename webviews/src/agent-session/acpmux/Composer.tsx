@@ -1431,6 +1431,7 @@ export function Composer({
                   className="acpmux-send acpmux-cancel"
                   data-escape-armed={escapeStop.armed ? "" : undefined}
                   aria-label={t(escapeStop.armed ? COMPOSER_LABELS.escapeAgainToStop : COMPOSER_LABELS.stop)}
+                  // tooltip-allow: names the icon-only Stop, and once armed says to press the Esc it shows again.
                   title={t(escapeStop.armed ? COMPOSER_LABELS.escapeAgainToStop : COMPOSER_LABELS.stop)}
                   onClick={stopTurn}
                 >

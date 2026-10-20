@@ -212,7 +212,6 @@ export function SummaryBody({
               type="button"
               className="acpmux-summary-row acpmux-summary-link"
               data-state={task.state}
-              title={t("bgTask.showOutput")}
               onClick={() => {
                 onFollow?.();
                 void openProcessTerminal(task.id);

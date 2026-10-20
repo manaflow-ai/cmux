@@ -33,6 +33,8 @@ public final class QuickComposerPanel: NSPanel, QuickComposerWindow, NSWindowDel
         isFloatingPanel = true
         level = .floating
         hidesOnDeactivate = false
+        // Not hidden with cmux (⌘H, Hide Others): Start Agent from Any App orders it in without unhiding the app.
+        canHide = false
         becomesKeyOnlyIfNeeded = false
         isMovableByWindowBackground = true
         isReleasedWhenClosed = false
