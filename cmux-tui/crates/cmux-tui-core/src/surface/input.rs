@@ -39,9 +39,9 @@ impl Surface {
         }
         let mut runtime = pty.runtime.lock().unwrap();
         match &mut *runtime {
-            PtyRuntime::Local { writer, .. } => {
-                writer.write_all(bytes)?;
-                writer.flush()
+            PtyRuntime::Local { writer, master, .. } => {
+                let master = master.as_deref().map(|master| master as &dyn MasterPty);
+                crate::pty_input_room::write_input(master, writer.as_mut(), bytes).map(|_| ())
             }
             #[cfg(any(unix, windows))]
             PtyRuntime::Hosted(host) => host.send(MessageKind::Input, bytes),
