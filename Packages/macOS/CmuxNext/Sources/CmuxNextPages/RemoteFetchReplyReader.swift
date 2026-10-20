@@ -10,7 +10,9 @@ import Foundation
 /// Content-Encoding the request did not offer, a repeated, conflicting or malformed
 /// Content-Length, a status other than 2xx or a redirect, a wire or decoded body over the cap
 /// (checked while reading and while decoding), a body shorter than its Content-Length or a chunked
-/// body without its last chunk at the close.
+/// body without its last chunk at the close. HTML discovery can explicitly allow a prefix:
+/// identity encoding only, at most ``maximumBody`` bytes, stopping at the cap even if the
+/// Content-Length or chunked framing declares more. Shorter replies still need valid framing.
 nonisolated struct RemoteFetchReplyReader {
     nonisolated struct Refusal: Error, Equatable, CustomStringConvertible {
         let reason: String
@@ -23,6 +25,8 @@ nonisolated struct RemoteFetchReplyReader {
     static let redirects: Set<Int> = [301, 302, 303, 307, 308]
 
     let maximumBody: Int
+    /// HTML discovery may stop at a prefix without requiring the body's closing framing.
+    private let allowsTruncation: Bool
     private var message = CFHTTPMessageCreateEmpty(nil, false).takeRetainedValue()
     /// Interim (1xx) replies skipped before the final one.
     private var interim = 0
@@ -34,9 +38,10 @@ nonisolated struct RemoteFetchReplyReader {
     private var isChunked = false
     private var chunked: RemoteFetchChunkedBody
 
-    init(maximumBody: Int) {
+    init(maximumBody: Int, allowsTruncation: Bool = false) {
         self.maximumBody = maximumBody
-        chunked = RemoteFetchChunkedBody(maximumBody: maximumBody)
+        self.allowsTruncation = allowsTruncation
+        chunked = RemoteFetchChunkedBody(maximumBody: maximumBody, allowsTruncation: allowsTruncation)
     }
 
     /// Adds received bytes; true once the reply is complete (its Content-Length arrived), when the
@@ -44,7 +49,7 @@ nonisolated struct RemoteFetchReplyReader {
     mutating func append(_ data: Data) throws(Refusal) -> Bool {
         if isChunked { return try chunked.append(data) }
         if let head {
-            body.append(data)
+            body.append(allowsTruncation ? Data(data.prefix(max(0, maximumBody - body.count))) : data)
             return try checkBody(head.length)
         }
         raw.append(data)
@@ -72,14 +77,19 @@ nonisolated struct RemoteFetchReplyReader {
             return received.isEmpty ? false : try append(received)
         }
         let checked = try Self.checkHead(message, headerBlock: raw.prefix(headerBytes))
-        if let length = checked.length, length > maximumBody { throw Refusal(reason: "Content-Length over the cap", overCap: true) }
+        if allowsTruncation {
+            let coding = checked.headers["content-encoding"]?.trimmingCharacters(in: .whitespaces).lowercased() ?? "identity"
+            guard coding == "identity" else { throw Refusal(reason: "encoded HTML prefix") }
+        } else if let length = checked.length, length > maximumBody {
+            throw Refusal(reason: "Content-Length over the cap", overCap: true)
+        }
         head = checked
         raw = Data()
         if checked.headers["transfer-encoding"] != nil {
             isChunked = true
             return try chunked.append(received)
         }
-        body = received
+        body = allowsTruncation ? Data(received.prefix(maximumBody)) : received
         return try checkBody(head?.length)
     }
 
@@ -88,10 +98,14 @@ nonisolated struct RemoteFetchReplyReader {
         guard let head else { throw Refusal(reason: "no complete headers") }
         let wire: Data
         if isChunked {
-            guard chunked.isComplete else { throw Refusal(reason: "chunked body without its last chunk") }
+            guard chunked.isComplete || (allowsTruncation && chunked.output.count == maximumBody) else {
+                throw Refusal(reason: "chunked body without its last chunk")
+            }
             wire = chunked.output
         } else if let length = head.length {
-            guard body.count >= length else { throw Refusal(reason: "body shorter than its Content-Length") }
+            guard body.count >= length || (allowsTruncation && body.count == maximumBody) else {
+                throw Refusal(reason: "body shorter than its Content-Length")
+            }
             wire = body.prefix(length)
         } else {
             wire = body
@@ -104,6 +118,7 @@ nonisolated struct RemoteFetchReplyReader {
     }
 
     private func checkBody(_ length: Int?) throws(Refusal) -> Bool {
+        if allowsTruncation && body.count == maximumBody { return true }
         if let length { return body.count >= length }
         guard body.count <= maximumBody else { throw Refusal(reason: "body over the cap", overCap: true) }
         return false

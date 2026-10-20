@@ -81,17 +81,35 @@ public actor AgentPaneSourceIcons {
             let fetch = fetch
             let decode = decode
             let id = entry.id
-            // task-owner: this queue; the slot covers both network work and off-main image decoding.
+            // task-owner: this queue; one slot covers the entire fallback chain and off-main decoding.
             running[id] = Task.detached(priority: .utility) {
-                let result = await fetch.fetch(url)
-                let body: Data?
-                switch result {
-                case .success(let response): body = Task.isCancelled ? nil : decode(response.body)
-                case .failure: body = nil
-                }
+                let body = await Self.load(url, fetch: fetch, decode: decode)
                 await self.finish(url, id: id, body: body)
             }
         }
+    }
+
+    /// Runs under the queue's one transport owner, so each hop inherits its cancellation.
+    private static func load(_ url: URL, fetch: GuardedRemoteFetch, decode: @Sendable (Data) -> Data?) async -> Data? {
+        if case .success(let response) = await fetch.fetch(url), !Task.isCancelled,
+           let png = decode(response.body) { return Task.isCancelled ? nil : png }
+        guard !Task.isCancelled, var home = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return nil }
+        home.path = "/"
+        home.query = nil
+        home.fragment = nil
+        guard let pageURL = home.url else { return nil }
+        var htmlFetch = fetch
+        htmlFetch.maximumBytes = 256 * 1024
+        htmlFetch.accept = GuardedRemoteFetch.htmlAccept
+        htmlFetch.allowsTruncation = true
+        guard case .success(let page) = await htmlFetch.fetch(pageURL), !Task.isCancelled else { return nil }
+        let candidates = AgentPaneSourceIconHTML().candidates(in: page.body, pageURL: page.finalURL ?? pageURL)
+        for candidate in candidates.prefix(2) {
+            guard !Task.isCancelled else { return nil }
+            if case .success(let response) = await fetch.fetch(candidate), !Task.isCancelled,
+               let png = decode(response.body) { return Task.isCancelled ? nil : png }
+        }
+        return nil
     }
 
     private func finish(_ url: URL, id: UUID, body: Data?) {
