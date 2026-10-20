@@ -20,34 +20,54 @@ use std::os::fd::RawFd;
 
 use cmux_pty::MasterPty;
 
-/// Writes `payload` to the PTY child of `master` through `writer`. Returns
-/// false when the payload was dropped instead.
+/// Writes `payload` to the PTY child of `master` through `writer`, unless
+/// [`admits`] drops it. Returns false when the payload was dropped.
 pub(crate) fn write_input(
     master: Option<&dyn MasterPty>,
     writer: &mut dyn Write,
     payload: &[u8],
 ) -> io::Result<bool> {
+    if let Some(master) = master
+        && !admits(master, payload)
+    {
+        return Ok(false);
+    }
+    writer.write_all(payload)?;
+    writer.flush()?;
+    Ok(true)
+}
+
+/// Whether `payload` goes to the PTY child of `master` now: any input but
+/// wheel and motion reports, and those only while the child's input queue
+/// has room for all of them. Never blocks.
+pub(crate) fn admits(master: &dyn MasterPty, payload: &[u8]) -> bool {
     #[cfg(unix)]
-    {
-        write_input_fd(master.and_then(|master| master.as_raw_fd()), writer, payload)
-    }
+    let master_fd = master.as_raw_fd();
     #[cfg(not(unix))]
-    {
+    let master_fd = {
         let _ = master;
-        writer.write_all(payload)?;
-        writer.flush()?;
-        Ok(true)
-    }
+        None
+    };
+    admits_fd(master_fd, payload)
+}
+
+#[cfg(unix)]
+type MasterFd = RawFd;
+#[cfg(not(unix))]
+type MasterFd = ();
+
+fn admits_fd(master_fd: Option<MasterFd>, payload: &[u8]) -> bool {
+    !is_lossy_mouse_input(payload) || lossy_input_fits(master_fd, payload.len())
 }
 
 /// [`write_input`] for the PTY master `master_fd`.
-#[cfg(unix)]
+#[cfg(all(test, unix))]
 pub(crate) fn write_input_fd(
     master_fd: Option<RawFd>,
     writer: &mut dyn Write,
     payload: &[u8],
 ) -> io::Result<bool> {
-    if is_lossy_mouse_input(payload) && !lossy_input_fits(master_fd, payload.len()) {
+    if !admits_fd(master_fd, payload) {
         return Ok(false);
     }
     writer.write_all(payload)?;
@@ -67,9 +87,11 @@ const KEY_ROOM_BYTES: usize = 128;
 
 /// Whether `len` more bytes of wheel or motion reports fit in the child's
 /// input queue, keeping [`KEY_ROOM_BYTES`] free. On macOS `FIONREAD` on the
-/// master counts the bytes the child has not read yet.
+/// master counts the bytes the child has not read yet. A child in canonical
+/// mode is counted by its finished lines only, so cooked input is not capped;
+/// programs that ask for mouse reports read raw.
 #[cfg(target_os = "macos")]
-fn lossy_input_fits(master_fd: Option<RawFd>, len: usize) -> bool {
+fn lossy_input_fits(master_fd: Option<MasterFd>, len: usize) -> bool {
     let Some(fd) = master_fd else {
         return true;
     };
@@ -80,10 +102,10 @@ fn lossy_input_fits(master_fd: Option<RawFd>, len: usize) -> bool {
     usize::try_from(pending).unwrap_or(0) + len <= INPUT_QUEUE_BYTES - KEY_ROOM_BYTES
 }
 
-/// Linux reads a backed-up queue in chunks as large as crossterm's buffer,
-/// which it never takes for a short read.
-#[cfg(all(unix, not(target_os = "macos")))]
-fn lossy_input_fits(_master_fd: Option<RawFd>, _len: usize) -> bool {
+/// Elsewhere every report is written as before: the cut has not been seen
+/// or reproduced off macOS, whose queue is the smallest.
+#[cfg(not(target_os = "macos"))]
+fn lossy_input_fits(_master_fd: Option<MasterFd>, _len: usize) -> bool {
     true
 }
 
