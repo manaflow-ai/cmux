@@ -980,6 +980,8 @@ pub struct Harness {
 }
 
 pub fn settings(dir: &Path) -> Settings {
+    std::fs::create_dir_all(dir.join("session")).unwrap();
+    std::fs::create_dir_all(dir.join("session-shared")).unwrap();
     Settings {
         session_dir: dir.join("session"),
         shared_session_dir: dir.join("session-shared"),
