@@ -96,6 +96,12 @@ pub struct AddParams {
     /// KEY -> a plain non-secret value, `keychain:NAME` or `env:VAR`.
     pub env: BTreeMap<String, String>,
     pub replace: bool,
+    /// Endpoint examples: the endpoint's base URL.
+    pub base_url: Option<String>,
+    /// Endpoint examples: the model id.
+    pub model: Option<String>,
+    /// Endpoint examples: the Keychain item that holds the key.
+    pub keychain_item: Option<String>,
 }
 
 impl AddParams {
@@ -143,6 +149,9 @@ impl AddParams {
             example: text("example")?,
             env,
             replace: params.get("replace").and_then(Value::as_bool).unwrap_or(false),
+            base_url: text("baseUrl")?,
+            model: text("model")?,
+            keychain_item: text("keychainItem")?,
         })
     }
 }
@@ -483,6 +492,25 @@ pub fn restore(
     ensure_dir(&dir)?;
     move_file(&from, &to)?;
     Ok(Restored { id, path: to })
+}
+
+/// What `secret_set` stored (never the value).
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SecretStored {
+    pub id: String,
+    pub key: String,
+}
+
+/// Not built yet.
+pub fn secret_set(
+    id: &str,
+    key: &str,
+    _value: &str,
+    _cfg: &Config,
+    _store: &dyn Fn(&crate::cli::harness_secret::StoreCommand) -> anyhow::Result<()>,
+) -> Result<SecretStored, AdminError> {
+    Err(AdminError::Failed(format!("not built: {id} {key}")))
 }
 
 /// The daemon's `_acpmux/harness/doctor` answer: each step as `{name, ok,
