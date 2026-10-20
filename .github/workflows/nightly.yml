@@ -2911,7 +2911,7 @@ jobs:
             # Only files with a Mach-O or fat magic reach `file` (one process
             # each); the per-file scan of the whole bundle took 90 s.
             fat="$(find "$APP" -type f -print0 | python3 scripts/list-macho-candidates.py \
-              | xargs -0 -I{} sh -c 'if file -b "$1" | grep -q "Mach-O universal"; then echo "$1"; fi' _ {})"
+              | xargs -0 sh -c 'for f do if file -b "$f" | grep -q "Mach-O universal"; then echo "$f"; fi; done' sh)"
             if [ -n "$fat" ]; then
               echo "Fat Mach-O files remain after thinning:" >&2
               echo "$fat" >&2

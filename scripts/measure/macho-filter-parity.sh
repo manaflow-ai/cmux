@@ -16,7 +16,7 @@ old="$(find "$app" -type f -exec sh -c 'file -b "$1" | grep -q "Mach-O universal
 old_s=$((SECONDS - t))
 t=$SECONDS
 new="$(find "$app" -type f -print0 | python3 scripts/list-macho-candidates.py \
-  | xargs -0 -I{} sh -c 'if file -b "$1" | grep -q "Mach-O universal"; then echo "$1"; fi' _ {} | sort)"
+  | xargs -0 sh -c 'for f do if file -b "$f" | grep -q "Mach-O universal"; then echo "$f"; fi; done' sh | sort)"
 new_s=$((SECONDS - t))
 t=$SECONDS
 all_macho_old="$(find "$app" -type f -exec sh -c 'file -b "$1" | grep -q "Mach-O" && echo "$1"' _ {} \; | sort)"

@@ -45,6 +45,12 @@ list_files() {
   fi
 }
 
+# A missing python3 would make the filtered list silently empty.
+if [ -z "${CMUX_FILE_TOOL:-}" ] && ! command -v python3 >/dev/null; then
+  echo "error: python3 is required to list the bundle's Mach-O files" >&2
+  exit 1
+fi
+
 thinned=0
 kept=0
 while IFS= read -r -d '' path; do
