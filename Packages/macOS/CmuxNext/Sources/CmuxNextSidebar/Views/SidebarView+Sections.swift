@@ -145,12 +145,12 @@ extension SidebarViewComponents {
     /// `updateBands()` first.
     func layoutBands(top y: CGFloat, footerHeight: CGFloat) -> NSRect {
         let b = bounds
-        // The footer section takes its full height, never capped or scrolled.
-        let pinned = footerRegion.layoutResult.height
-        footerRegion.frame = NSRect(x: 0, y: b.height - pinned, width: b.width, height: pinned)
+        // The footer section takes its full height, never capped or scrolled, over the bottom margin.
+        let pinned = footerRegion.layoutResult.height, inset = SidebarStyle.bottomInset
+        footerRegion.frame = NSRect(x: 0, y: b.height - inset - pinned, width: b.width, height: pinned)
         // Pinned item sections above and below the list, each capped at
         // its share of the height (then it scrolls inside).
-        let available = max(0, b.height - y - footerHeight - pinned)
+        let available = max(0, b.height - y - footerHeight - pinned - inset)
         let look = SidebarSectionTunables.currentLook
         let (aboveHeight, belowHeight) = SidebarBandHeights.resolve(
             above: aboveRegion.layoutResult, below: belowRegion.layoutResult, available: available,

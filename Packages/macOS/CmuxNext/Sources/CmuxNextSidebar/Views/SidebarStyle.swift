@@ -42,6 +42,9 @@ enum SidebarStyle {
     /// the display density.
     static var avatarDiameter: CGFloat { iconBox }
     static var footerHeight: CGFloat { Metrics.sidebarRowHeightWithSubtitle - Metrics.space2 }
+    /// The margin under everything the sidebar draws (Leo 2026-10-20: the account row, the last
+    /// rows and the scroller sat on the window's bottom edge): space4, as the agent composer's.
+    static var bottomInset: CGFloat { Metrics.space4 }
     static var autoscrollZone: CGFloat { Metrics.sidebarRowHeight }
     static var dragThreshold: CGFloat { Metrics.space2 }
     /// Rows realized past each edge of the visible list. A scroll draws rows as they come in
