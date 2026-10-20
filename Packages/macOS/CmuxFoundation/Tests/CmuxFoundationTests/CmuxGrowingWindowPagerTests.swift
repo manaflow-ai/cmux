@@ -14,11 +14,10 @@ struct CmuxGrowingWindowPagerTests {
         let hidden = Set(0..<40)
         let windows = Recorder<Range<Int>>()
 
-        let page = await CmuxGrowingWindowPager.snapshotPage(
+        let page = await CmuxGrowingWindowPager(cap: 1500).snapshotPage(
             candidateCount: 200,
             offset: 5,
             limit: 10,
-            cap: 1500,
             grows: true,
             parse: { range in
                 windows.append(range)
@@ -37,11 +36,10 @@ struct CmuxGrowingWindowPagerTests {
         // search are dropped, so a short window is not the end of the snapshot.
         let windows = Recorder<Range<Int>>()
 
-        let page = await CmuxGrowingWindowPager.snapshotPage(
+        let page = await CmuxGrowingWindowPager(cap: 1500).snapshotPage(
             candidateCount: 400,
             offset: 0,
             limit: 20,
-            cap: 1500,
             grows: true,
             parse: { range in
                 windows.append(range)
@@ -61,23 +59,23 @@ struct CmuxGrowingWindowPagerTests {
         let unfiltered = Recorder<Range<Int>>()
         let odd = Recorder<Range<Int>>()
 
-        let short = await CmuxGrowingWindowPager.snapshotPage(
-            candidateCount: 50, offset: 0, limit: 30, cap: 1500, grows: true,
+        let short = await CmuxGrowingWindowPager(cap: 1500).snapshotPage(
+            candidateCount: 50, offset: 0, limit: 30, grows: true,
             parse: { exhausted.append($0); return Array($0) },
             isIncluded: { $0 != 0 }
         )
-        _ = await CmuxGrowingWindowPager.snapshotPage(
-            candidateCount: 10_000, offset: 0, limit: 100, cap: 120, grows: true,
+        _ = await CmuxGrowingWindowPager(cap: 120).snapshotPage(
+            candidateCount: 10_000, offset: 0, limit: 100, grows: true,
             parse: { capped.append($0); return [Int]() },
             isIncluded: { _ in true }
         )
-        _ = await CmuxGrowingWindowPager.snapshotPage(
-            candidateCount: 10_000, offset: 0, limit: 30, cap: 1500, grows: false,
+        _ = await CmuxGrowingWindowPager(cap: 1500).snapshotPage(
+            candidateCount: 10_000, offset: 0, limit: 30, grows: false,
             parse: { unfiltered.append($0); return [Int]() },
             isIncluded: { _ in true }
         )
-        _ = await CmuxGrowingWindowPager.snapshotPage(
-            candidateCount: 101, offset: 0, limit: 50, cap: 1500, grows: false,
+        _ = await CmuxGrowingWindowPager(cap: 1500).snapshotPage(
+            candidateCount: 101, offset: 0, limit: 50, grows: false,
             parse: { odd.append($0); return [Int]() },
             isIncluded: { _ in true }
         )
@@ -95,10 +93,9 @@ struct CmuxGrowingWindowPagerTests {
     func prefixPageReadsTwiceThePage() async {
         let reads = Recorder<Int>()
 
-        let page = await CmuxGrowingWindowPager.prefixPage(
+        let page = await CmuxGrowingWindowPager(cap: 1500).prefixPage(
             offset: 0,
             limit: 30,
-            cap: 1500,
             startsSmall: true,
             read: { limit in
                 reads.append(limit)
@@ -117,10 +114,9 @@ struct CmuxGrowingWindowPagerTests {
         // a short page takes one more read at the cap rather than doubling.
         let reads = Recorder<Int>()
 
-        let page = await CmuxGrowingWindowPager.prefixPage(
+        let page = await CmuxGrowingWindowPager(cap: 1500).prefixPage(
             offset: 10,
             limit: 10,
-            cap: 1500,
             startsSmall: true,
             read: { limit in
                 reads.append(limit)
@@ -138,13 +134,13 @@ struct CmuxGrowingWindowPagerTests {
         let capped = Recorder<Int>()
         let exhausted = Recorder<Int>()
 
-        let none = await CmuxGrowingWindowPager.prefixPage(
-            offset: 0, limit: 30, cap: 100, startsSmall: true,
+        let none = await CmuxGrowingWindowPager(cap: 100).prefixPage(
+            offset: 0, limit: 30, startsSmall: true,
             read: { capped.append($0); return Array(0..<$0) },
             isIncluded: { _ in false }
         )
-        let rest = await CmuxGrowingWindowPager.prefixPage(
-            offset: 0, limit: 30, cap: 1500, startsSmall: true,
+        let rest = await CmuxGrowingWindowPager(cap: 1500).prefixPage(
+            offset: 0, limit: 30, startsSmall: true,
             read: { exhausted.append($0); return Array(0..<min($0, 50)) },
             isIncluded: { $0 != 0 }
         )
@@ -161,10 +157,9 @@ struct CmuxGrowingWindowPagerTests {
         // reads one page, so its short result is not the end of the source.
         let reads = Recorder<Int>()
 
-        let page = await CmuxGrowingWindowPager.prefixPage(
+        let page = await CmuxGrowingWindowPager(cap: 1500).prefixPage(
             offset: 0,
             limit: 15,
-            cap: 1500,
             startsSmall: true,
             read: { limit in
                 reads.append(limit)
@@ -181,10 +176,9 @@ struct CmuxGrowingWindowPagerTests {
     func prefixPageEndsAfterTheCapRead() async {
         let reads = Recorder<Int>()
 
-        let page = await CmuxGrowingWindowPager.prefixPage(
+        let page = await CmuxGrowingWindowPager(cap: 1500).prefixPage(
             offset: 0,
             limit: 30,
-            cap: 1500,
             startsSmall: true,
             read: { limit in
                 reads.append(limit)
@@ -203,10 +197,9 @@ struct CmuxGrowingWindowPagerTests {
         // first read would only repeat that work.
         let reads = Recorder<Int>()
 
-        let page = await CmuxGrowingWindowPager.prefixPage(
+        let page = await CmuxGrowingWindowPager(cap: 1500).prefixPage(
             offset: 0,
             limit: 30,
-            cap: 1500,
             startsSmall: false,
             read: { limit in
                 reads.append(limit)

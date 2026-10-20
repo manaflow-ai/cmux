@@ -1678,10 +1678,9 @@ final class SessionIndexStore: ObservableObject {
                 isIncluded: isIncluded
             )
         }
-        return await CmuxGrowingWindowPager.prefixPage(
+        return await CmuxGrowingWindowPager(cap: searchMaxFiles).prefixPage(
             offset: safeOffset,
             limit: safeLimit,
-            cap: searchMaxFiles,
             startsSmall: needle.isEmpty,
             read: { sourceLimit in
                 await loadRawAgentEntries(
@@ -1919,11 +1918,10 @@ final class SessionIndexStore: ObservableObject {
         // (offset+limit) matches afterwards. Cap at searchMaxFiles. A filtered
         // page keeps inspecting later windows of the same snapshot.
         let includes = isIncluded ?? { _ in true }
-        return await CmuxGrowingWindowPager.snapshotPage(
+        return await CmuxGrowingWindowPager(cap: searchMaxFiles).snapshotPage(
             candidateCount: candidates.count,
             offset: offset,
             limit: limit,
-            cap: searchMaxFiles,
             grows: isIncluded != nil,
             parse: { range in
                 let window = Array(candidates[range])

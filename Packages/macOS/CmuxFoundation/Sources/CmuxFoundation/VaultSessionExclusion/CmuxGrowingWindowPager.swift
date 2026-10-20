@@ -4,18 +4,24 @@ import Foundation
 /// consume the requested window, and the work grows with the request: each
 /// page starts at twice `offset + limit` and reads more only while too few
 /// rows pass the filter, bounded by `cap`.
-public enum CmuxGrowingWindowPager {
+public struct CmuxGrowingWindowPager: Sendable {
+    /// The most rows one page may inspect, unless the page itself is larger.
+    public let cap: Int
+
+    public init(cap: Int) {
+        self.cap = cap
+    }
+
     /// Pages a candidate snapshot that is discovered once. The first window is
     /// twice the page; with `grows`, each later window doubles the inspected
     /// prefix and parses only candidates not yet inspected, until
     /// `offset + limit` rows pass `isIncluded` or the snapshot (bounded by
     /// `cap`) is spent. `parse` may drop candidates, so a short window is not
     /// the end of the snapshot.
-    public static func snapshotPage<Element>(
+    public func snapshotPage<Element>(
         candidateCount: Int,
         offset: Int,
         limit: Int,
-        cap: Int,
         grows: Bool,
         parse: (Range<Int>) async -> [Element],
         isIncluded: (Element) -> Bool
@@ -41,10 +47,9 @@ public enum CmuxGrowingWindowPager {
     /// those rows pass `isIncluded`; without it, `cap` once. A short first
     /// read does not end the page, because some readers return less for one
     /// request size (Antigravity reads one history page for its preview size).
-    public static func prefixPage<Element>(
+    public func prefixPage<Element>(
         offset: Int,
         limit: Int,
-        cap: Int,
         startsSmall: Bool,
         read: (Int) async -> [Element],
         isIncluded: (Element) -> Bool
@@ -64,7 +69,7 @@ public enum CmuxGrowingWindowPager {
     }
 
     /// `min(2 * value, bound)`, written so the doubling cannot overflow.
-    private static func doubled(_ value: Int, upTo bound: Int) -> Int {
+    private func doubled(_ value: Int, upTo bound: Int) -> Int {
         value > bound / 2 ? bound : value * 2
     }
 }
