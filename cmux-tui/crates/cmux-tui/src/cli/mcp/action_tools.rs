@@ -113,7 +113,7 @@ pub(super) fn from_list(list: &Value) -> (Vec<ActionTool>, Vec<Exclusion>) {
             exclude("Another action has the same tool name.");
             continue;
         }
-        tools.push(ActionTool { name, id, cli_name, descriptor: action.clone() });
+        tools.push(ActionTool { name, id, cli_name, descriptor: kept_fields(action) });
     }
     (tools, excluded)
 }
@@ -137,6 +137,26 @@ pub(super) fn tool_name(cli_name: &str) -> Option<String> {
         }
     }
     (name.len() > "app_".len() && name.len() <= 64).then_some(name)
+}
+
+/// The action fields a tool reads: its description, input schema and call
+/// routing. Each agent chat runs its own server for its whole life, so the
+/// app's other fields (keywords, surfaces, menus, shortcuts: about three
+/// quarters of `action.list`) would be held once per agent.
+const KEPT_FIELDS: [&str; 7] =
+    ["title", "destructive", "focuses", "requires", "unavailable_reason", "targets", "arguments"];
+
+fn kept_fields(action: &Value) -> Value {
+    let kept = KEPT_FIELDS
+        .iter()
+        .filter_map(|key| {
+            action
+                .get(*key)
+                .filter(|value| !value.is_null())
+                .map(|value| ((*key).to_owned(), value.clone()))
+        })
+        .collect();
+    Value::Object(kept)
 }
 
 fn arguments(action: &Value) -> impl Iterator<Item = &Value> {

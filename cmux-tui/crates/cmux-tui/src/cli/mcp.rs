@@ -334,6 +334,23 @@ fn serve(global: GlobalArgs, code_mode: bool) -> i32 {
     server.run(io::stdin().lock(), &output)
 }
 
+/// Returns the pages freed by a dropped `action.list` answer (megabytes of
+/// JSON tree) to the system. Every agent's server parses one, and macOS keeps
+/// freed small-allocation pages dirty, in the process's footprint, until
+/// memory pressure.
+fn release_freed_memory() {
+    #[cfg(target_os = "macos")]
+    {
+        unsafe extern "C" {
+            fn malloc_zone_pressure_relief(zone: *mut std::ffi::c_void, goal: usize) -> usize;
+        }
+        // SAFETY: a null zone means every zone; goal 0 releases what it can.
+        unsafe {
+            malloc_zone_pressure_relief(std::ptr::null_mut(), 0);
+        }
+    }
+}
+
 /// `cmux mcp tools [--json]`: what `serve` offers and what it leaves out.
 fn list_tools(global: GlobalArgs) -> i32 {
     let output = global.output;
@@ -529,6 +546,8 @@ impl<B: Backend> Server<B> {
             Ok(list) => {
                 (self.actions, self.action_exclusions) = action_tools::from_list(&list);
                 self.actions_loaded = true;
+                drop(list);
+                release_freed_memory();
             }
             Err(failure) => {
                 let message = failure.error["message"].as_str().unwrap_or("no answer");
