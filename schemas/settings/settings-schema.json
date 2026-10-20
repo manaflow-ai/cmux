@@ -59,7 +59,7 @@
               "layout.dockColumnMode",
               "layout.frameOrientation",
               "layout.rows",
-              "layout.focusPaneOnScroll",
+              "layout.focusFollowsMouse",
               "layout.minimumPaneWidth",
               "layout.minimumPaneHeight",
               "layout.newPanePlacement",
@@ -160,6 +160,17 @@
             "title" : {
               "key" : "settings.group.files",
               "text" : "Files"
+            }
+          },
+          {
+            "key" : "settings.group.screenshots",
+            "rows" : [
+              "screenshots.findTools",
+              "screenshots.folders"
+            ],
+            "title" : {
+              "key" : "settings.group.screenshots",
+              "text" : "Screenshots"
             }
           },
           {
@@ -273,6 +284,8 @@
             "key" : "settings.group.densityMotion",
             "rows" : [
               "appearance.density",
+              "appearance.customDensity",
+              "appearance.customDensities",
               "app.uiScale",
               "appearance.metrics.chromeFontSize",
               "appearance.metrics.sidebarWidth",
@@ -316,6 +329,7 @@
             "key" : "settings.group.windowBackground",
             "rows" : [
               "appearance.background",
+              "appearance.paneBackgrounds",
               "appearance.backgroundOpacity",
               "appearance.backgroundBlur"
             ],
@@ -374,10 +388,13 @@
               "sidebar.groupBy",
               "sidebar.showSpaces",
               "sidebar.showProfileControl",
+              "sidebar.showSearchButton",
               "sidebar.minimal",
               "sidebar.density",
               "sidebar.detailedStatusIcons",
               "sidebar.showTimestamps",
+              "sidebar.groupHeader.memberCount",
+              "sidebar.groupHeader.unreadCount",
               "sidebar.minimalMode",
               "sidebar.cards.tips",
               "sidebar.side",
@@ -392,6 +409,16 @@
               "sidebar.hoverCards.sections.git",
               "sidebar.hoverCards.sections.ports",
               "sidebar.hoverCards.maxRows",
+              "sidebar.hoverCards.groups.workspaceGroups",
+              "sidebar.hoverCards.groups.tabGroups",
+              "sidebar.hoverCards.groups.delay",
+              "sidebar.hoverCards.groups.order",
+              "sidebar.hoverCards.groups.maxMembers",
+              "sidebar.hoverCards.groups.sections.status",
+              "sidebar.hoverCards.groups.sections.members",
+              "sidebar.hoverCards.groups.sections.activity",
+              "sidebar.hoverCards.groups.sections.git",
+              "sidebar.hoverCards.groups.sections.ports",
               "sidebar.nowPlaying.enabled",
               "home.channelsEnabled"
             ],
@@ -482,7 +509,8 @@
         ],
         "id" : "appearance",
         "lead" : [
-          "backdrops"
+          "backdrops",
+          "density"
         ],
         "symbol" : "paintbrush",
         "title" : {
@@ -877,6 +905,7 @@
             "key" : "settings.group.engine",
             "rows" : [
               "browser.defaultEngine",
+              "browser.siteEngines",
               "browser.newTabPage"
             ],
             "title" : {
@@ -929,7 +958,9 @@
           {
             "key" : "settings.group.agentInput",
             "rows" : [
-              "browser.showAgentCursor"
+              "browser.showAgentCursor",
+              "browser.agentMouse.motion",
+              "browser.agentMouse.maxMoveMs"
             ],
             "title" : {
               "key" : "settings.group.agentInput",
@@ -992,7 +1023,8 @@
               "browser.hibernation",
               "browser.hibernationExclusions",
               "browser.hibernatePinnedTabs",
-              "browser.freezeHiddenTabs"
+              "browser.freezeHiddenTabs",
+              "browser.keepNeighborTabsAwake"
             ],
             "title" : {
               "key" : "settings.group.memory",
@@ -1984,12 +2016,20 @@
     },
     {
       "accepts" : [
+        "afterCurrent",
         "end",
-        "afterCurrent"
+        "start"
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
       "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.newTabPositionAfterCurrent",
+            "text" : "After the Current Tab"
+          },
+          "value" : "afterCurrent"
+        },
         {
           "title" : {
             "key" : "settings.choice.newTabPositionEnd",
@@ -1999,16 +2039,16 @@
         },
         {
           "title" : {
-            "key" : "settings.choice.newTabPositionAfterCurrent",
-            "text" : "After the Current Tab"
+            "key" : "settings.choice.newTabPositionStart",
+            "text" : "At the Start"
           },
-          "value" : "afterCurrent"
+          "value" : "start"
         }
       ],
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "end",
+      "default" : "afterCurrent",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.tabs",
@@ -2028,6 +2068,9 @@
         "right",
         "end",
         "after",
+        "start",
+        "first",
+        "beginning",
         "insert"
       ],
       "kind" : "choice",
@@ -4907,31 +4950,33 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : true,
+      "default" : false,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.columns",
         "text" : "Columns"
       },
       "help" : {
-        "key" : "settings.layout.focusPaneOnScroll.help",
-        "text" : "Scrolling over a pane focuses it. Momentum and scrolling within a second of typing leave focus where it is."
+        "key" : "settings.layout.focusFollowsMouse.help",
+        "text" : "Moving the pointer onto a pane or scrolling over it focuses that pane. Off keeps focus where you type until you click. Momentum and the first second after typing never move focus."
       },
       "kept_on_reset_all" : false,
-      "key" : "layout.focusPaneOnScroll",
+      "key" : "layout.focusFollowsMouse",
       "keywords" : [
         "focus",
         "scroll",
         "wheel",
         "trackpad",
         "pane",
-        "follows mouse"
+        "follows mouse",
+        "hover",
+        "pointer"
       ],
       "kind" : "toggle",
       "page_hidden" : false,
       "path" : [
         "layout",
-        "focusPaneOnScroll"
+        "focusFollowsMouse"
       ],
       "refuses" : [
         "true",
@@ -4940,12 +4985,12 @@
       ],
       "section" : "general",
       "summary" : {
-        "key" : "settings.layout.focusPaneOnScroll.summary",
-        "text" : "Scrolling a pane focuses it"
+        "key" : "settings.layout.focusFollowsMouse.summary",
+        "text" : "Hovering or scrolling a pane focuses it"
       },
       "title" : {
-        "key" : "settings.layout.focusPaneOnScroll",
-        "text" : "Focus Pane on Scroll"
+        "key" : "settings.layout.focusFollowsMouse",
+        "text" : "Focus Follows Mouse"
       },
       "validation" : "portable"
     },
@@ -6778,7 +6823,7 @@
         true,
         false
       ],
-      "agent_refusal" : null,
+      "agent_refusal" : "privacy",
       "agent_settable" : false,
       "consumers" : [
         "cmux-next"
@@ -6832,7 +6877,7 @@
           "~/notes"
         ]
       ],
-      "agent_refusal" : null,
+      "agent_refusal" : "privacy",
       "agent_settable" : false,
       "consumers" : [
         "cmux-next"
@@ -10188,6 +10233,76 @@
     },
     {
       "accepts" : [
+        "shared",
+        "perPane"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.paneBackgrounds.shared",
+            "text" : "One for the Window"
+          },
+          "value" : "shared"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.paneBackgrounds.perPane",
+            "text" : "One per Pane"
+          },
+          "value" : "perPane"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "shared",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.windowBackground",
+        "text" : "Window Background"
+      },
+      "help" : {
+        "key" : "settings.appearance.paneBackgrounds.help",
+        "text" : "One background behind the whole window, or a copy in each pane. A pane's own background (right-click a pane) shows either way."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.paneBackgrounds",
+      "keywords" : [
+        "background",
+        "wallpaper",
+        "pane",
+        "split",
+        "per pane",
+        "each pane",
+        "backdrop",
+        "art"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "paneBackgrounds"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : {
+        "key" : "settings.appearance.paneBackgrounds.summary",
+        "text" : "One background or one per pane"
+      },
+      "title" : {
+        "key" : "settings.appearance.paneBackgrounds",
+        "text" : "Pane Backgrounds"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         true,
         false
       ],
@@ -10551,12 +10666,22 @@
     },
     {
       "accepts" : [
+        "ultraCompact",
         "compact",
-        "comfortable"
+        "cozy",
+        "comfortable",
+        "spacious"
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
       "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.ultraCompact",
+            "text" : "Ultra-compact"
+          },
+          "value" : "ultraCompact"
+        },
         {
           "title" : {
             "key" : "settings.choice.compact",
@@ -10566,10 +10691,24 @@
         },
         {
           "title" : {
+            "key" : "settings.choice.cozy",
+            "text" : "Cozy"
+          },
+          "value" : "cozy"
+        },
+        {
+          "title" : {
             "key" : "settings.choice.comfortable",
             "text" : "Comfortable"
           },
           "value" : "comfortable"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.spacious",
+            "text" : "Spacious"
+          },
+          "value" : "spacious"
         }
       ],
       "consumers" : [
@@ -10581,12 +10720,21 @@
         "key" : "settings.group.densityMotion",
         "text" : "Density and Motion"
       },
-      "help" : null,
+      "help" : {
+        "key" : "settings.appearance.density.help",
+        "text" : "Row height, padding, corners, icons and text size together. Compact is the default."
+      },
       "kept_on_reset_all" : false,
       "key" : "appearance.density",
       "keywords" : [
         "size",
-        "spacing"
+        "spacing",
+        "compact",
+        "comfortable",
+        "cozy",
+        "spacious",
+        "dense",
+        "font"
       ],
       "kind" : "choice",
       "page_hidden" : false,
@@ -10606,6 +10754,119 @@
         "text" : "Density"
       },
       "validation" : "portable"
+    },
+    {
+      "accepts" : [
+
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.densityMotion",
+        "text" : "Density and Motion"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "appearance.customDensity",
+      "keywords" : [
+        "density",
+        "custom"
+      ],
+      "kind" : "text",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "customDensity"
+      ],
+      "refuses" : [
+        1,
+        true,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.appearance.customDensity",
+        "text" : "Custom Density"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        [
+
+        ],
+        [
+          {
+            "fontSize" : 11.5,
+            "id" : "my-tight",
+            "level" : -0.25,
+            "name" : "My Tight",
+            "tokens" : {
+              "sidebarRowHeight" : 22
+            }
+          }
+        ]
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : [
+
+      ],
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.densityMotion",
+        "text" : "Density and Motion"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "appearance.customDensities",
+      "keywords" : [
+        "density",
+        "custom"
+      ],
+      "kind" : "text",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "customDensities"
+      ],
+      "refuses" : [
+        "my-tight",
+        [
+          {
+
+          }
+        ],
+        [
+          {
+            "id" : "Bad Id",
+            "name" : "x"
+          }
+        ],
+        [
+          {
+            "id" : "a",
+            "level" : "1",
+            "name" : "A"
+          }
+        ]
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.appearance.customDensities",
+        "text" : "Custom Densities"
+      },
+      "validation" : "domain:custom_densities"
     },
     {
       "accepts" : [
@@ -12249,6 +12510,571 @@
       "title" : {
         "key" : "settings.focusRing.showWhenSinglePane",
         "text" : "Show With One Pane"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.motion",
+        "text" : "Motion"
+      },
+      "help" : {
+        "key" : "settings.ui.animations.enabled.help",
+        "text" : "Off turns every animation in cmux off: rows, tabs, panes, menus, cards, the agent cursor, spinners and cmux web pages change at once. On, the switches below choose area by area."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "ui.animations.enabled",
+      "keywords" : [
+        "motion",
+        "animation",
+        "animations",
+        "no animations",
+        "disable animations",
+        "reduce motion",
+        "instant"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "ui",
+        "animations",
+        "enabled"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.ui.animations.enabled",
+        "text" : "Play Animations"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.motion",
+        "text" : "Motion"
+      },
+      "help" : {
+        "key" : "settings.ui.animations.sidebar.help",
+        "text" : "Rows and groups slide when they reorder, open, close, pin or move to the top, and the sidebar slides when it shows or hides. Off: they change at once."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "ui.animations.sidebar",
+      "keywords" : [
+        "motion",
+        "animation",
+        "sidebar",
+        "row",
+        "group",
+        "reorder",
+        "pin",
+        "move to top"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "ui",
+        "animations",
+        "sidebar"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.ui.animations.sidebar",
+        "text" : "Animate the Sidebar"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.motion",
+        "text" : "Motion"
+      },
+      "help" : {
+        "key" : "settings.ui.animations.tabs.help",
+        "text" : "Tabs grow, shrink and slide when they open, close, reorder or collapse into a group. Off: the tab bar changes at once."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "ui.animations.tabs",
+      "keywords" : [
+        "motion",
+        "animation",
+        "tab",
+        "tab bar",
+        "reorder",
+        "group"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "ui",
+        "animations",
+        "tabs"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.ui.animations.tabs",
+        "text" : "Animate Tabs"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.motion",
+        "text" : "Motion"
+      },
+      "help" : {
+        "key" : "settings.ui.animations.panes.help",
+        "text" : "Splits, closes, zooms, dividers, focus rings, drop zones and windows open, close and move with motion. Off: they change at once."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "ui.animations.panes",
+      "keywords" : [
+        "motion",
+        "animation",
+        "pane",
+        "split",
+        "zoom",
+        "window",
+        "divider",
+        "focus ring"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "ui",
+        "animations",
+        "panes"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.ui.animations.panes",
+        "text" : "Animate Panes and Windows"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.motion",
+        "text" : "Motion"
+      },
+      "help" : {
+        "key" : "settings.ui.animations.overlays.help",
+        "text" : "Menus, popovers, the command palette, sheets, toasts, notices, find bars and cards fade and slide in and out. Off: they show and hide at once."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "ui.animations.overlays",
+      "keywords" : [
+        "motion",
+        "animation",
+        "menu",
+        "popover",
+        "palette",
+        "toast",
+        "card",
+        "sheet",
+        "find bar"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "ui",
+        "animations",
+        "overlays"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.ui.animations.overlays",
+        "text" : "Animate Menus and Cards"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.motion",
+        "text" : "Motion"
+      },
+      "help" : {
+        "key" : "settings.ui.animations.hoverCards.help",
+        "text" : "Hover cards and tooltips fade and slide in. Off: they show and hide at once."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "ui.animations.hoverCards",
+      "keywords" : [
+        "motion",
+        "animation",
+        "hover card",
+        "tooltip",
+        "preview"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "ui",
+        "animations",
+        "hoverCards"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.ui.animations.hoverCards",
+        "text" : "Animate Hover Cards"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.motion",
+        "text" : "Motion"
+      },
+      "help" : {
+        "key" : "settings.ui.animations.home.help",
+        "text" : "The Chief chat, its bubbles, the composer and the Home list move and fade. Off: they change at once."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "ui.animations.home",
+      "keywords" : [
+        "motion",
+        "animation",
+        "home",
+        "chief",
+        "chat",
+        "bubble",
+        "messages"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "ui",
+        "animations",
+        "home"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.ui.animations.home",
+        "text" : "Animate Home and Chats"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.motion",
+        "text" : "Motion"
+      },
+      "help" : {
+        "key" : "settings.ui.animations.cursor.help",
+        "text" : "The agent cursor glides between points and shows click ripples. Off: it jumps and shows no ripple."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "ui.animations.cursor",
+      "keywords" : [
+        "motion",
+        "animation",
+        "cursor",
+        "agent",
+        "computer use",
+        "ripple"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "ui",
+        "animations",
+        "cursor"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.ui.animations.cursor",
+        "text" : "Animate the Agent Cursor"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.motion",
+        "text" : "Motion"
+      },
+      "help" : {
+        "key" : "settings.ui.animations.indicators.help",
+        "text" : "Spinners turn, status dots pulse and attention flashes blink. Off: they show a still glyph."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "ui.animations.indicators",
+      "keywords" : [
+        "motion",
+        "animation",
+        "spinner",
+        "progress",
+        "pulse",
+        "flash",
+        "loading",
+        "status"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "ui",
+        "animations",
+        "indicators"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.ui.animations.indicators",
+        "text" : "Animate Spinners and Progress"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.motion",
+        "text" : "Motion"
+      },
+      "help" : {
+        "key" : "settings.ui.animations.feedback.help",
+        "text" : "Hover and press highlights, focus fades and theme color changes ease in. Off: they change at once."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "ui.animations.feedback",
+      "keywords" : [
+        "motion",
+        "animation",
+        "hover",
+        "highlight",
+        "focus",
+        "color",
+        "theme",
+        "transition"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "ui",
+        "animations",
+        "feedback"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.ui.animations.feedback",
+        "text" : "Animate Highlights and Colors"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.motion",
+        "text" : "Motion"
+      },
+      "help" : {
+        "key" : "settings.ui.animations.web.help",
+        "text" : "Transitions and animations in cmux's own pages, such as agent chats, New Tab and Markdown. Off: they end at once. Websites are not changed."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "ui.animations.web",
+      "keywords" : [
+        "motion",
+        "animation",
+        "web",
+        "page",
+        "css",
+        "transition",
+        "new tab",
+        "markdown",
+        "agent chat"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "ui",
+        "animations",
+        "web"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.ui.animations.web",
+        "text" : "Animate cmux Web Pages"
       },
       "validation" : "portable"
     },
@@ -19456,6 +20282,57 @@
       "consumers" : [
         "cmux-next"
       ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.showSearchButton.help",
+        "text" : "A magnifying glass after the profile button searches workspaces, tabs, history, agent chats, settings and commands. Off, Search stays in the command palette."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.showSearchButton",
+      "keywords" : [
+        "sidebar",
+        "search",
+        "find",
+        "magnifying glass",
+        "everything",
+        "footer",
+        "hide",
+        "show"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "showSearchButton"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sidebar.showSearchButton",
+        "text" : "Show Search Button"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : false,
       "default_label" : null,
       "group" : {
@@ -19682,6 +20559,110 @@
       "title" : {
         "key" : "settings.sidebar.showTimestamps",
         "text" : "Show Timestamps"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.groupHeader.memberCount.help",
+        "text" : "A collapsed group shows how many workspaces it holds after its name. Off, it shows only its loading spinner."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.groupHeader.memberCount",
+      "keywords" : [
+        "sidebar",
+        "group",
+        "groups",
+        "count",
+        "members",
+        "workspaces",
+        "number",
+        "header"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "groupHeader",
+        "memberCount"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sidebar.groupHeader.memberCount",
+        "text" : "Show Group Member Count"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.groupHeader.unreadCount.help",
+        "text" : "A collapsed group shows how many unread notifications its workspaces have. Off, it shows only its loading spinner."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.groupHeader.unreadCount",
+      "keywords" : [
+        "sidebar",
+        "group",
+        "groups",
+        "unread",
+        "badge",
+        "notifications",
+        "count",
+        "header"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "groupHeader",
+        "unreadCount"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sidebar.groupHeader.unreadCount",
+        "text" : "Show Group Unread Count"
       },
       "validation" : "portable"
     },
@@ -20775,6 +21756,556 @@
       "title" : {
         "key" : "settings.sidebar.hoverCards.maxRows",
         "text" : "Workspace Card History Lines"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.hoverCards.groups.workspaceGroups.help",
+        "text" : "A summary card opens when the pointer rests on a workspace group's header."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.hoverCards.groups.workspaceGroups",
+      "keywords" : [
+        "hover",
+        "card",
+        "group",
+        "workspace",
+        "summary"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "hoverCards",
+        "groups",
+        "workspaceGroups"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sidebar.hoverCards.groups.workspaceGroups",
+        "text" : "Cards on Workspace Groups"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.hoverCards.groups.tabGroups.help",
+        "text" : "A summary card opens when the pointer rests on a tab group's chip."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.hoverCards.groups.tabGroups",
+      "keywords" : [
+        "hover",
+        "card",
+        "group",
+        "tab",
+        "summary"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "hoverCards",
+        "groups",
+        "tabGroups"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sidebar.hoverCards.groups.tabGroups",
+        "text" : "Cards on Tab Groups"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        0,
+        5000,
+        2500
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 600,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.hoverCards.groups.delay.help",
+        "text" : "How long the pointer rests on a group before its summary card opens."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.hoverCards.groups.delay",
+      "keywords" : [
+        "hover",
+        "card",
+        "group",
+        "delay",
+        "milliseconds"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "hoverCards",
+        "groups",
+        "delay"
+      ],
+      "range" : {
+        "max" : 5000,
+        "min" : 0,
+        "placeholder" : 0,
+        "step" : 100,
+        "unit" : "milliseconds"
+      },
+      "refuses" : [
+        -5000,
+        10000,
+        "1"
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sidebar.hoverCards.groups.delay",
+        "text" : "Group Card Delay"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "status",
+        "members",
+        "activity"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.groupCardStatus",
+            "text" : "Status"
+          },
+          "value" : "status"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.groupCardMembers",
+            "text" : "Members"
+          },
+          "value" : "members"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.groupCardActivity",
+            "text" : "Latest Activity"
+          },
+          "value" : "activity"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "status",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.hoverCards.groups.order.help",
+        "text" : "Which part of a group's card comes first."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.hoverCards.groups.order",
+      "keywords" : [
+        "hover",
+        "card",
+        "group",
+        "order",
+        "first"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "hoverCards",
+        "groups",
+        "order"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sidebar.hoverCards.groups.order",
+        "text" : "Group Card Leads With"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        1,
+        50,
+        25.5
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 8,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.hoverCards.groups.maxMembers.help",
+        "text" : "The most members a group's card lists by name."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.hoverCards.groups.maxMembers",
+      "keywords" : [
+        "hover",
+        "card",
+        "group",
+        "members",
+        "count"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "hoverCards",
+        "groups",
+        "maxMembers"
+      ],
+      "range" : {
+        "max" : 50,
+        "min" : 1,
+        "placeholder" : 1,
+        "step" : 1,
+        "unit" : "count"
+      },
+      "refuses" : [
+        -48,
+        99,
+        "1"
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sidebar.hoverCards.groups.maxMembers",
+        "text" : "Group Card Members"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.hoverCards.groups.sections.status.help",
+        "text" : "Show how many members work, wait, failed or have unread items."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.hoverCards.groups.sections.status",
+      "keywords" : [
+        "hover",
+        "card",
+        "group",
+        "status",
+        "working",
+        "waiting",
+        "unread"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "hoverCards",
+        "groups",
+        "sections",
+        "status"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sidebar.hoverCards.groups.sections.status",
+        "text" : "Group Card: Status"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.hoverCards.groups.sections.members.help",
+        "text" : "Show the member count and the members' names."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.hoverCards.groups.sections.members",
+      "keywords" : [
+        "hover",
+        "card",
+        "group",
+        "members",
+        "workspaces",
+        "tabs",
+        "names"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "hoverCards",
+        "groups",
+        "sections",
+        "members"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sidebar.hoverCards.groups.sections.members",
+        "text" : "Group Card: Members"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.hoverCards.groups.sections.activity.help",
+        "text" : "Show the member that changed last, and when."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.hoverCards.groups.sections.activity",
+      "keywords" : [
+        "hover",
+        "card",
+        "group",
+        "activity",
+        "latest",
+        "recent"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "hoverCards",
+        "groups",
+        "sections",
+        "activity"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sidebar.hoverCards.groups.sections.activity",
+        "text" : "Group Card: Latest Activity"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.hoverCards.groups.sections.git.help",
+        "text" : "Show the members' git branches."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.hoverCards.groups.sections.git",
+      "keywords" : [
+        "hover",
+        "card",
+        "group",
+        "git",
+        "branch"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "hoverCards",
+        "groups",
+        "sections",
+        "git"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sidebar.hoverCards.groups.sections.git",
+        "text" : "Group Card: Branches"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.hoverCards.groups.sections.ports.help",
+        "text" : "Show the members' listening ports."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.hoverCards.groups.sections.ports",
+      "keywords" : [
+        "hover",
+        "card",
+        "group",
+        "ports",
+        "server"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "hoverCards",
+        "groups",
+        "sections",
+        "ports"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sidebar.hoverCards.groups.sections.ports",
+        "text" : "Group Card: Ports"
       },
       "validation" : "portable"
     },
@@ -25518,7 +27049,7 @@
       },
       "help" : {
         "key" : "settings.browser.defaultEngine.help",
-        "text" : "New browser tabs open in this engine."
+        "text" : "Browser tabs and cmux pages, such as History and Apps, open in this engine."
       },
       "kept_on_reset_all" : false,
       "key" : "browser.defaultEngine",
@@ -25542,7 +27073,76 @@
       "summary" : null,
       "title" : {
         "key" : "settings.browser.defaultEngine",
-        "text" : "Default Engine"
+        "text" : "Browser Engine"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        {
+
+        },
+        {
+          "*" : "★",
+          "Work" : ""
+        }
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : {
+        "amazon.com/gp/video" : "webkit",
+        "disneyplus.com" : "webkit",
+        "hulu.com" : "webkit",
+        "max.com" : "webkit",
+        "music.apple.com" : "webkit",
+        "netflix.com" : "webkit",
+        "primevideo.com" : "webkit",
+        "spotify.com" : "webkit",
+        "tv.apple.com" : "webkit"
+      },
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.engine",
+        "text" : "Engine"
+      },
+      "help" : {
+        "key" : "settings.browser.siteEngines.help",
+        "text" : "Sites that always open in one engine: a site, such as spotify.com, and chromium or webkit. Spotify, Netflix and other protected media sites open in WebKit, because their media does not play in Chromium."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.siteEngines",
+      "keywords" : [
+        "drm",
+        "widevine",
+        "spotify",
+        "netflix",
+        "site",
+        "webkit",
+        "chromium"
+      ],
+      "kind" : "string_map",
+      "page_hidden" : false,
+      "path" : [
+        "browser",
+        "siteEngines"
+      ],
+      "refuses" : [
+        "★",
+        [
+
+        ],
+        {
+          "Work" : 1
+        }
+      ],
+      "section" : "browser",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.browser.siteEngines",
+        "text" : "Site Engines"
       },
       "validation" : "portable"
     },
@@ -25688,6 +27288,130 @@
       "title" : {
         "key" : "settings.browser.showAgentCursor",
         "text" : "Show Agent Cursor"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "human",
+        "instant"
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.agentMouseHuman",
+            "text" : "Human"
+          },
+          "value" : "human"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.agentMouseInstant",
+            "text" : "Instant"
+          },
+          "value" : "instant"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "human",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentInput",
+        "text" : "Agent Input"
+      },
+      "help" : {
+        "key" : "settings.browser.agentMouseMotion.help",
+        "text" : "How an agent moves the pointer in browser tabs. Human moves along a curved path and rests before each click, as a person does, so pages see hover and timing like a person's. Instant jumps to the target and clicks at once."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.agentMouse.motion",
+      "keywords" : [
+        "agent",
+        "mouse",
+        "pointer",
+        "cursor",
+        "human",
+        "motion",
+        "automation"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "browser",
+        "agentMouse",
+        "motion"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "browser",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.browser.agentMouseMotion",
+        "text" : "Agent Pointer Motion"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        60,
+        1000,
+        530
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 350,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentInput",
+        "text" : "Agent Input"
+      },
+      "help" : {
+        "key" : "settings.browser.agentMouseMaxMove.help",
+        "text" : "The longest time one agent pointer move takes with human motion. Short moves take less."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.agentMouse.maxMoveMs",
+      "keywords" : [
+        "agent",
+        "mouse",
+        "pointer",
+        "speed",
+        "duration"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "browser",
+        "agentMouse",
+        "maxMoveMs"
+      ],
+      "range" : {
+        "max" : 1000,
+        "min" : 60,
+        "placeholder" : 60,
+        "step" : 10,
+        "unit" : "milliseconds"
+      },
+      "refuses" : [
+        -880,
+        1940,
+        "1"
+      ],
+      "section" : "browser",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.browser.agentMouseMaxMove",
+        "text" : "Longest Agent Pointer Move"
       },
       "validation" : "portable"
     },
@@ -25982,6 +27706,65 @@
       "title" : {
         "key" : "settings.browser.freezeHiddenTabs",
         "text" : "Freeze Hidden Tabs"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        0,
+        3,
+        1.5
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 1,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.memory",
+        "text" : "Memory"
+      },
+      "help" : {
+        "key" : "settings.browser.keepNeighborTabsAwake.help",
+        "text" : "Tabs on each side of the shown tab stay loaded and running, so switching to them is instant. 0 turns it off. Memory pressure and Low Power Mode turn it off."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.keepNeighborTabsAwake",
+      "keywords" : [
+        "neighbor",
+        "adjacent",
+        "preload",
+        "warm",
+        "instant",
+        "switch",
+        "hibernation",
+        "freeze"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "browser",
+        "keepNeighborTabsAwake"
+      ],
+      "range" : {
+        "max" : 3,
+        "min" : 0,
+        "placeholder" : 0,
+        "step" : 1,
+        "unit" : "count"
+      },
+      "refuses" : [
+        -3,
+        6,
+        "1"
+      ],
+      "section" : "browser",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.browser.keepNeighborTabsAwake",
+        "text" : "Keep Neighbor Tabs Awake"
       },
       "validation" : "portable"
     },
@@ -26864,6 +28647,7 @@
     },
     {
       "accepts" : [
+        "linkPlacement",
         "backgroundTab",
         "foregroundTab",
         "newWindow",
@@ -26873,6 +28657,13 @@
       "agent_refusal" : null,
       "agent_settable" : true,
       "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.link.linkPlacement",
+            "text" : "Same as Open Links and Files"
+          },
+          "value" : "linkPlacement"
+        },
         {
           "title" : {
             "key" : "settings.choice.link.backgroundTab",
@@ -26912,7 +28703,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "backgroundTab",
+      "default" : "linkPlacement",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.links",
@@ -26951,6 +28742,7 @@
     },
     {
       "accepts" : [
+        "linkPlacement",
         "backgroundTab",
         "foregroundTab",
         "newWindow",
@@ -26960,6 +28752,13 @@
       "agent_refusal" : null,
       "agent_settable" : true,
       "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.link.linkPlacement",
+            "text" : "Same as Open Links and Files"
+          },
+          "value" : "linkPlacement"
+        },
         {
           "title" : {
             "key" : "settings.choice.link.backgroundTab",
@@ -27038,6 +28837,7 @@
     },
     {
       "accepts" : [
+        "linkPlacement",
         "backgroundTab",
         "foregroundTab",
         "newWindow",
@@ -27047,6 +28847,13 @@
       "agent_refusal" : null,
       "agent_settable" : true,
       "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.link.linkPlacement",
+            "text" : "Same as Open Links and Files"
+          },
+          "value" : "linkPlacement"
+        },
         {
           "title" : {
             "key" : "settings.choice.link.backgroundTab",
@@ -27124,6 +28931,7 @@
     },
     {
       "accepts" : [
+        "linkPlacement",
         "backgroundTab",
         "foregroundTab",
         "newWindow",
@@ -27133,6 +28941,13 @@
       "agent_refusal" : null,
       "agent_settable" : true,
       "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.link.linkPlacement",
+            "text" : "Same as Open Links and Files"
+          },
+          "value" : "linkPlacement"
+        },
         {
           "title" : {
             "key" : "settings.choice.link.backgroundTab",
@@ -27211,6 +29026,7 @@
     },
     {
       "accepts" : [
+        "linkPlacement",
         "backgroundTab",
         "foregroundTab",
         "newWindow",
@@ -27220,6 +29036,13 @@
       "agent_refusal" : null,
       "agent_settable" : true,
       "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.link.linkPlacement",
+            "text" : "Same as Open Links and Files"
+          },
+          "value" : "linkPlacement"
+        },
         {
           "title" : {
             "key" : "settings.choice.link.backgroundTab",

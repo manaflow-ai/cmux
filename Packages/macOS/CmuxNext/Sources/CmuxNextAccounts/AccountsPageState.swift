@@ -123,13 +123,13 @@ extension AccountsModel {
     }
 
     /// Runs one page gesture. Returns the failure text of a Keychain save (the page shows it in
-    /// the paste form), else nil. A secret is never kept or logged here.
+    /// the paste form) or why Sign In Again did not start, else nil. A secret is never kept or logged here.
     @discardableResult
     public func perform(_ action: AccountsPageAction) async -> String? {
         switch action {
         case .refresh: refresh()
         case .signInToCmux: services.signInToCmux()
-        case .reauthenticate(let provider): reauthenticate(provider)
+        case .reauthenticate(let provider): return await performReauthenticate(provider)
         case .addKey(let provider): pasteTarget = provider
         case .deleteSavedKey(let provider): deleteSavedKey(for: provider)
         case .connect(let provider): connect(provider)
@@ -207,6 +207,7 @@ extension AccountsModel {
         guard let detection = row.detection else { return nil }
         let display = detection.account?.display
         let parts = [display, detection.plan == display ? nil : detection.plan, detection.detail,
+                     detection.note.map(AccountsStrings.note),
                      detection.sources.first.map { AccountsStrings.source($0.label) }]
         let text = parts.compactMap { $0 }.joined(separator: " · ")
         return text.isEmpty ? nil : text
