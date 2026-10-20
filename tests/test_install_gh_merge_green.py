@@ -119,7 +119,7 @@ class InstallGhMergeGreenTests(unittest.TestCase):
     def test_an_in_place_edit_of_the_snapshot_is_restored_before_running(self):
         self.assert_ok(self.install())
         script = (self.home / "current" / "scripts" / "gh-merge-green").resolve()
-        self.assertFalse(os.access(script, os.W_OK), "snapshot files are installed read-only")
+        self.assertEqual(script.stat().st_mode & 0o222, 0, "snapshot files are installed read-only")
         script.chmod(0o755)
         script.write_text("#!/usr/bin/env bash\nif then\n")
 
@@ -127,7 +127,7 @@ class InstallGhMergeGreenTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout, "v1 owner/repo#2\n")
         self.assertIn("edited in place", result.stderr)
-        self.assertFalse(os.access(script, os.W_OK))
+        self.assertEqual(script.stat().st_mode & 0o222, 0)
 
     def test_update_installs_a_newer_origin_main_only_after_its_tests_pass(self):
         self.assert_ok(self.install())
@@ -169,6 +169,45 @@ class InstallGhMergeGreenTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("not on origin/main", result.stderr)
         self.assertFalse((self.bin / "gh-merge-green").exists())
+
+    def test_refuses_a_lookalike_origin_host(self):
+        del self.env["GH_MERGE_GREEN_INSTALL_ANY_ORIGIN"]
+        self.run_ok("git", "remote", "set-url", "origin", "https://evilgithub.com/manaflow-ai/cmux.git", cwd=self.clone)
+        result = self.install()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("origin is not github.com/manaflow-ai/cmux", result.stderr)
+        self.assertFalse((self.bin / "gh-merge-green").exists())
+
+    def test_refuses_a_main_commit_without_the_launcher(self):
+        self.run_ok("git", "rm", "--quiet", LAUNCHER, cwd=self.clone)
+        self.run_ok("git", "commit", "--quiet", "-m", "no launcher", cwd=self.clone)
+        self.run_ok("git", "push", "--quiet", "origin", "HEAD:main", cwd=self.clone)
+        result = self.install()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("has no scripts/gh-merge-green-pinned", result.stderr)
+        self.assertFalse((self.bin / "gh-merge-green").exists())
+
+    def test_a_failed_forced_reinstall_keeps_the_working_command(self):
+        self.assert_ok(self.install())
+        live = (self.home / "current").resolve()
+        self.env["GH_MERGE_GREEN_INSTALL_TESTS"] = "tests.test_missing_module_fails"
+        (self.clone / "tests" / "test_missing_module_fails.py").write_text("raise SystemExit(1)\n")
+        self.run_ok("git", "add", "-A", cwd=self.clone)
+        self.run_ok("git", "commit", "--quiet", "-m", "red test", cwd=self.clone)
+        self.run_ok("git", "push", "--quiet", "origin", "HEAD:main", cwd=self.clone)
+        result = self.install("--force")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual((self.home / "current").resolve(), live)
+        self.assertEqual(self.gh_merge_green("x#5").stdout, "v1 x#5\n")
+
+    def test_launcher_stops_when_the_snapshot_cannot_be_verified(self):
+        self.assert_ok(self.install())
+        snapshot = (self.home / "current").resolve()
+        (snapshot / ".git").rename(snapshot / ".git-moved")
+        result = self.gh_merge_green("x#6")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("cannot verify the pinned install", result.stderr)
+        self.assertEqual(result.stdout, "")
 
     def test_replaces_the_old_checkout_symlink(self):
         self.bin.mkdir()

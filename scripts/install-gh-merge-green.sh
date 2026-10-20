@@ -31,7 +31,6 @@ PINNED_PATHS=(scripts/gh-merge-green scripts/ci scripts/gh-merge-green-pinned sc
 SPARSE_PATTERNS=(/scripts/ /tests/ /.github/)
 DEFAULT_TESTS="tests.test_gh_merge_green tests.test_gh_merge_green_revert tests.test_base_red_excuse tests.test_merge_fast_gate tests.test_merge_freeze tests.test_pr_proof_section tests.test_install_gh_merge_green"
 KEEP_SNAPSHOTS=3
-LOCK_STALE_SECONDS=1800
 
 say() { printf 'install-gh-merge-green: %s\n' "$*" >&2; }
 die() { say "error: $*"; exit 1; }
@@ -57,19 +56,36 @@ fingerprint() { # REPO REV: the object ids of the pinned paths at REV
   printf '%s\n' "$out"
 }
 
+# The lock is a directory that already holds its owner's pid when it appears:
+# it is built under a private name and renamed into place, which fails while
+# another lock exists. A lock whose owner has exited is renamed away (only one
+# contender wins that rename) and removed. Only the owner releases its lock.
+rename_dir() { python3 -c 'import os, sys; os.rename(sys.argv[1], sys.argv[2])' "$1" "$2" 2>/dev/null; }
+
 acquire_lock() { # exit 0 when held, 1 when another live installer holds it
-  local lock="$GMG_HOME/lock" pid
+  local lock="$GMG_HOME/lock" mine="$GMG_HOME/lock.new.$$" stale="$GMG_HOME/lock.stale.$$" pid _
   mkdir -p "$GMG_HOME"
-  if ! mkdir "$lock" 2>/dev/null; then
-    pid="$(cat "$lock/pid" 2>/dev/null || true)"
-    if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null && [ "$(age_seconds "$lock")" -lt "$LOCK_STALE_SECONDS" ]; then
-      return 1
+  rm -rf "$mine"
+  mkdir "$mine" && echo "$$" > "$mine/pid"
+  for _ in 1 2; do
+    if [ ! -e "$lock" ] && rename_dir "$mine" "$lock"; then
+      trap 'release_lock' EXIT
+      return 0
     fi
-    rm -rf "$lock"
-    mkdir "$lock" 2>/dev/null || return 1
-  fi
-  echo "$$" > "$lock/pid"
-  trap 'rm -rf "$GMG_HOME/lock"' EXIT
+    pid="$(cat "$lock/pid" 2>/dev/null || true)"
+    if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+      break
+    fi
+    [ -n "$pid" ] || break  # the lock is mid-rename by another installer
+    rename_dir "$lock" "$stale" && rm -rf "$stale"
+  done
+  rm -rf "$mine"
+  return 1
+}
+
+release_lock() {
+  [ "$(cat "$GMG_HOME/lock/pid" 2>/dev/null)" = "$$" ] || return 0
+  rename_dir "$GMG_HOME/lock" "$GMG_HOME/lock.done.$$" && rm -rf "$GMG_HOME/lock.done.$$"
 }
 
 saved() { cat "$GMG_HOME/$1" 2>/dev/null || true; }
@@ -150,8 +166,11 @@ cmd_install() {
     die "--repo is not a git checkout"
   # Worktrees are added from the main checkout of that repository.
   repo="$(git -C "$repo/.." rev-parse --show-toplevel 2>/dev/null || dirname "$repo")"
+  # Exact URLs only: a lookalike host (evilgithub.com) must not be fetched and tested.
   case "$(git -C "$repo" remote get-url origin 2>/dev/null)" in
-    *github.com[/:]manaflow-ai/cmux|*github.com[/:]manaflow-ai/cmux.git) ;;
+    https://github.com/manaflow-ai/cmux|https://github.com/manaflow-ai/cmux.git) ;;
+    git@github.com:manaflow-ai/cmux|git@github.com:manaflow-ai/cmux.git) ;;
+    ssh://git@github.com/manaflow-ai/cmux|ssh://git@github.com/manaflow-ai/cmux.git) ;;
     *) [ "${GH_MERGE_GREEN_INSTALL_ANY_ORIGIN:-0}" = 1 ] || die "$repo's origin is not github.com/manaflow-ai/cmux" ;;
   esac
   acquire_lock || { say "another install is running; leaving it to finish"; return 0; }
@@ -167,6 +186,11 @@ cmd_install() {
   main="$(git -C "$repo" rev-parse refs/remotes/origin/main)"
   git -C "$repo" merge-base --is-ancestor "$sha" "$main" ||
     die "$sha is not on origin/main; only reviewed main commits are installed"
+  local entry
+  for entry in scripts/gh-merge-green scripts/gh-merge-green-pinned scripts/install-gh-merge-green.sh; do
+    git -C "$repo" cat-file -e "$sha:$entry" 2>/dev/null ||
+      die "${sha:0:10} has no $entry, so it cannot be installed this way"
+  done
 
   if [ "$force" = 0 ] && [ -d "$GMG_HOME/current" ] &&
      [ "$(fingerprint "$repo" "$sha")" = "$(fingerprint "$GMG_HOME/current" HEAD)" ]; then
@@ -177,8 +201,9 @@ cmd_install() {
     return 0
   fi
 
-  snap="$GMG_HOME/snapshots/$sha"
-  remove_snapshot "$repo" "$snap"
+  # A fresh directory every time: the live snapshot is never removed or rebuilt
+  # in place, so a failed or forced install leaves the working command alone.
+  snap="$GMG_HOME/snapshots/$sha-$(date +%Y%m%d%H%M%S)-$$"
   git -C "$repo" worktree add --quiet --detach --no-checkout "$snap" "$sha"
   git -C "$snap" sparse-checkout set --no-cone "${SPARSE_PATTERNS[@]}"
   git -C "$snap" checkout --quiet --detach "$sha"
@@ -189,10 +214,13 @@ cmd_install() {
   fi
   # Tests may leave caches behind; the snapshot must match its commit exactly.
   git -C "$snap" clean -fdxq
-  git -C "$snap" diff --quiet HEAD || die "snapshot $snap differs from ${sha:0:10} after its tests"
+  if ! git -C "$snap" diff --quiet HEAD; then
+    remove_snapshot "$repo" "$snap"
+    die "snapshot for ${sha:0:10} differs from its commit after its tests; kept the current install"
+  fi
   set_files_writable "$snap" -w
   git -C "$repo" worktree lock --reason "gh-merge-green pinned install (scripts/install-gh-merge-green.sh)" "$snap"
-  replace_link "snapshots/$sha" "$GMG_HOME/current"
+  replace_link "snapshots/${snap##*/}" "$GMG_HOME/current"
   printf '%s\n' "$sha" > "$GMG_HOME/checked"
   rm -f "$GMG_HOME/failed"
   link_bin "$bin"

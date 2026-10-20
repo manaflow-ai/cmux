@@ -23,6 +23,11 @@ export GH_MERGE_GREEN_NO_AUTO_UPDATE=1
 pinned_paths=(scripts/gh-merge-green scripts/ci scripts/gh-merge-green-pinned scripts/install-gh-merge-green.sh)
 diff_status=0
 git -C "$snap" diff --quiet HEAD -- "${pinned_paths[@]}" 2>/dev/null || diff_status=$?
+if [ "$diff_status" -gt 1 ]; then
+  printf 'gh-merge-green: cannot verify the pinned install %s against git (git diff exited %s); reinstall with: %s install --force\n' \
+    "$snap" "$diff_status" "$installer" >&2
+  exit 1
+fi
 if [ "$diff_status" = 1 ]; then
   printf 'gh-merge-green: warning: the pinned install %s was edited in place; restoring it from git. Change gh-merge-green in a worktree and land it on main instead.\n' "$snap" >&2
   if ! "$installer" repair "$snap" >&2; then
