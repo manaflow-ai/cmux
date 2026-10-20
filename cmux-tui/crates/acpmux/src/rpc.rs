@@ -215,6 +215,9 @@ pub mod method {
     /// Stop one of a session's background subagents (a Claude background
     /// agent or workflow): `{sessionId, subagentSessionId}`.
     pub const MUX_SUBAGENT_STOP: &str = "_acpmux/subagent_stop";
+    /// To an agent (notification): a steer it has not read waits for its next tool boundary; stop
+    /// the running tool so it reads it now, and go on with the turn (`hub/steer_end.rs`).
+    pub const MUX_STEER_NOW: &str = "_acpmux/steer_now";
     pub const MUX_QUEUE_REMOVE: &str = "_acpmux/queue_remove";
     pub const MUX_QUEUE_EDIT: &str = "_acpmux/queue_edit";
     /// An agent message's sender takes it back (`hub/withdraw.rs`).
