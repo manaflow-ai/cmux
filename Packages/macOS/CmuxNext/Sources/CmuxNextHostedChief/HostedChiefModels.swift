@@ -22,6 +22,22 @@ public nonisolated struct CloudChief: Sendable, Equatable {
     public var rev: Int
     public var brainPlace: BrainPlace?
 
+    /// - Parameters:
+    ///   - id: The chief's id.
+    ///   - displayName: Its name.
+    ///   - isDefault: It is the user's default chief.
+    ///   - mainConversation: Its main conversation, when it has one.
+    ///   - rev: The record's revision.
+    ///   - brainPlace: The paired server that answers as it; nil runs it in the cloud.
+    public init(id: String, displayName: String, isDefault: Bool, mainConversation: String?, rev: Int, brainPlace: BrainPlace? = nil) {
+        self.id = id
+        self.displayName = displayName
+        self.isDefault = isDefault
+        self.mainConversation = mainConversation
+        self.rev = rev
+        self.brainPlace = brainPlace
+    }
+
     /// One `HomeChief` value; nil when a required field is missing.
     public static func parse(_ value: Any?) -> CloudChief? {
         guard let value = value as? [String: Any], let id = value["id"] as? String,
@@ -62,6 +78,14 @@ public nonisolated struct HomeCloudChiefs: Sendable, Equatable {
 
     /// Both exist: the Chief tab offers the switch.
     public var canSwitch: Bool { hosted?.mainConversation != nil && placed?.mainConversation != nil }
+
+    /// The other host the Chief's card offers on `conversation`: the placed
+    /// Chief on the Hosted Chief's card and back; nil unless both exist and
+    /// `conversation` is one of them.
+    public func otherHost(of conversation: String) -> HomeChiefChoice? {
+        _ = conversation
+        return nil
+    }
 
     /// The active chief with no machine placed: the default one, else the first.
     public static func hosted(in chiefs: [CloudChief]) -> CloudChief? {

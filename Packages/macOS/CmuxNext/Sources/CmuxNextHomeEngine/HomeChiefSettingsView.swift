@@ -40,6 +40,11 @@ public final class HomeChiefSettingsView: NSView {
     var shownName = ""
     /// Where the brain runs, under the name: this Mac or the paired server.
     let place = ThemedLabel(labelWithString: "")
+    /// "Switch to …": the same Chief on its other host (Lawrence 2026-10-19 replaced the floating
+    /// "Chief | Chief (Mac mini)" segmented control with this quiet link under where it runs).
+    let hostSwitch = NSButton(title: "", target: nil, action: nil)
+    /// The place line the app set (``setHost(place:switchTo:)``); nil keeps the engine's own line.
+    var hostPlace: String?
     let harness = ThemedPopUpButton(frame: .zero, pullsDown: false)
     let model = ThemedPopUpButton(frame: .zero, pullsDown: false)
     let effort = ThemedPopUpButton(frame: .zero, pullsDown: false)
@@ -68,6 +73,8 @@ public final class HomeChiefSettingsView: NSView {
     public var onAvatar: () -> Void = {}
     /// Show Memory: runs "Chief: Open Memory Inspector".
     public var onShowMemory: () -> Void = {}
+    /// "Switch to …" under where the Chief runs: the app moves the Chief tab to the other host.
+    public var onSwitchHost: () -> Void = {}
     /// The brain took a pick (harness, model or effort): the Home list reads the Chiefs' engines again.
     public var onEngineChanged: () -> Void = {}
     /// The content's height changed (the disclosure, a failure note, new stats):
@@ -173,8 +180,21 @@ public final class HomeChiefSettingsView: NSView {
             brain.stringValue = String(format: HomeEngineStrings.brainFormat, muxHome.path)
         }
         for view in localViews { view.isHidden = !source.isLocal }
-        place.stringValue = source.place.map { String(format: HomeEngineStrings.runsOnServerFormat, $0) } ?? HomeEngineStrings.runsHere
+        place.stringValue = hostPlace ?? source.place.map { String(format: HomeEngineStrings.runsOnServerFormat, $0) } ?? HomeEngineStrings.runsHere
         return refresh()
+    }
+
+    /// Where this Chief runs and the other host it can switch to.
+    ///
+    /// - Parameters:
+    ///   - place: The line under the name ("Runs in the cloud"); nil keeps the engine's own line.
+    ///   - switchTo: The other host's label ("cmux20", "Cloud"); nil hides the switch.
+    public func setHost(place: String?, switchTo: String?) {
+        _ = (place, switchTo)
+    }
+
+    @objc func switchHost() {
+        onSwitchHost()
     }
 
     /// The conversation's title, shown in the name field.

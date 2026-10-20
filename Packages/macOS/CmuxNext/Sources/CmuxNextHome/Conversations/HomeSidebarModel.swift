@@ -42,6 +42,13 @@ public struct HomeSidebarItem: Hashable, Sendable, Identifiable {
     /// A Chief that runs on another engine than the default: that engine's name
     /// ("UniiChat", "Codex"; ``ChiefBackend/badge(for:)``); nil otherwise.
     public var backendBadge: String?
+    /// The user's main Chief (``HomeChiefRoster/main``): pinned first, tagged "Main".
+    public var isMainChief = false
+    /// Where this Chief runs (``HomeChiefRoster/places``); nil for a conversation that is not a Chief's.
+    public var place: HomeChiefPlace?
+    /// The tag the list draws after the name: "Main", else where the Chief runs, then a
+    /// non-default engine ("Unii · This Mac · UniiChat" reads as name, then this tag).
+    public var listBadge: String?
     /// What VoiceOver reads.
     public var accessibilityLabel: String
 }
@@ -64,28 +71,33 @@ public struct HomeSidebarModel: Hashable, Sendable {
     /// `chiefHarnesses`: each Chief's engine by participant id, for the rows' badges.
     public init(rows: [InboxRow], pins: HomePins, me: ParticipantID?, query: String = "", contacts: [HomeContact] = [],
                 unreadMarks: Set<ConversationID> = [], chiefAvatar: HomeChiefAvatar? = nil, chiefHarnesses: [String: String] = [:],
+                chiefRoster: HomeChiefRoster = HomeChiefRoster(),
                 now: Date = Date(), calendar: Calendar = .current, locale: Locale = .current) {
         let (pinnedRows, rest) = pins.split(rows)
         self.init(pinned: pinnedRows, rest: rest, all: rows, me: me, query: query, contacts: contacts, unreadMarks: unreadMarks,
-                  chiefAvatar: chiefAvatar, chiefHarnesses: chiefHarnesses, now: now, calendar: calendar, locale: locale)
+                  chiefAvatar: chiefAvatar, chiefHarnesses: chiefHarnesses, chiefRoster: chiefRoster, now: now, calendar: calendar,
+                  locale: locale)
     }
 
     /// The list in an order made elsewhere (the owner's `home-inbox` rows): `rows` in list order, the
     /// pinned grid is the rows in `pinned` in that order, the other rows follow in that order.
     public init(ordered rows: [InboxRow], pinned: Set<ConversationID>, me: ParticipantID?, query: String = "",
                 contacts: [HomeContact] = [], unreadMarks: Set<ConversationID> = [], chiefAvatar: HomeChiefAvatar? = nil,
-                chiefHarnesses: [String: String] = [:], now: Date = Date(), calendar: Calendar = .current, locale: Locale = .current) {
+                chiefHarnesses: [String: String] = [:], chiefRoster: HomeChiefRoster = HomeChiefRoster(), now: Date = Date(),
+                calendar: Calendar = .current, locale: Locale = .current) {
         self.init(pinned: rows.filter { pinned.contains($0.id) }, rest: rows.filter { !pinned.contains($0.id) }, all: rows, me: me,
                   query: query, contacts: contacts, unreadMarks: unreadMarks, chiefAvatar: chiefAvatar, chiefHarnesses: chiefHarnesses,
-                  now: now, calendar: calendar, locale: locale)
+                  chiefRoster: chiefRoster, now: now, calendar: calendar, locale: locale)
     }
 
     private init(pinned pinnedRows: [InboxRow], rest: [InboxRow], all rows: [InboxRow], me: ParticipantID?, query: String,
                  contacts: [HomeContact], unreadMarks: Set<ConversationID>, chiefAvatar: HomeChiefAvatar?,
-                 chiefHarnesses: [String: String], now: Date, calendar: Calendar, locale: Locale) {
+                 chiefHarnesses: [String: String], chiefRoster: HomeChiefRoster, now: Date, calendar: Calendar, locale: Locale) {
         let needle = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        // The main Chief's other hosts are the same Chief: one entry, its card switches hosts.
         let match = { (row: InboxRow) in needle.isEmpty || row.matches(needle, me: me) }
-        let pinnedRows = pinnedRows.filter(match), rest = rest.filter(match)
+        let pinnedRows = pinnedRows.filter(match)
+        let rest = rest.filter(match)
         let item = { (row: InboxRow, pinned: Bool) in
             var item = HomeSidebarItem(row: row, pinned: pinned, markedUnread: unreadMarks.contains(row.id), me: me, now: now,
                                        calendar: calendar, locale: locale)
