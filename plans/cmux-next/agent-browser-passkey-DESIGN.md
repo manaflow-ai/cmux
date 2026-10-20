@@ -71,7 +71,7 @@ page to the person at the right moment.
 | Case | Before | After |
 | --- | --- | --- |
 | Agent's own tab in the column | it | it (unchanged) |
-| Read verb (`snapshot`, `screenshot`, `state`, `wait`, `tabs`), no own tab | lease the shown tab | the shown tab, **no lease** (`shared: true`) |
+| Read verb (`snapshot`, `screenshot`, `state`, `wait`, `tabs`, `text`, `value`) or `passkey` (it only asks the person), no own tab | lease the shown tab | the shown tab, **no lease** (`shared: true`) |
 | Any other verb, no own tab, no URL | lease the shown tab | `user_tab` error naming the tab and its URL: "open your own tab: `cmux browser right navigate <url>`" |
 | `take: true` (`--take`, only when the person asked) | n/a | lease the shown tab as before |
 | URL given, no own tab | new tab, selected | new tab; **unselected when the person's focus is in that pane** (`background: true`) |
