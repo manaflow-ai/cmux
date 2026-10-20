@@ -501,6 +501,13 @@ pub(super) fn run(global: &GlobalArgs, command: AppCommand) -> i32 {
     }
 }
 
+/// `cmux <noun> move-to-window --new [flags]` is the spelling of
+/// `cmux <noun> move-to-new-window [flags]`: the action name and flags to run.
+/// `None` for every other command.
+pub(super) fn new_window_spelling(_name: &str, _args: &[String]) -> Option<(String, Vec<String>)> {
+    None
+}
+
 /// Runs `<noun> <verb…> [--flags]` as the app action with that CLI name.
 /// `None` when no app answers or the app has no CLI action by that name, so
 /// the caller reports its own usage error. One connection, one `action.run`.
