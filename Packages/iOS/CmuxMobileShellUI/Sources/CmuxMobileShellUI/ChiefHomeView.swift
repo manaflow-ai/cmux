@@ -22,6 +22,7 @@ struct ChiefHomeView: View {
     @State private var requestInFlight = false
     @State private var errorMessage: String?
     @State private var query = ""
+    @State private var changeCursor: String?
 
     private var pinnedConversation: MobileChiefConversation? {
         conversations.first(where: \.pinned) ?? conversations.first
@@ -137,11 +138,14 @@ struct ChiefHomeView: View {
                     ))
                 }
             }
-            // The Mac-owned Chief inbox has no push event topic yet. Refresh
-            // when Home becomes active; the list also supports pull-to-refresh.
+            // Keep the Home list current while it is visible. The Mac holds
+            // this request until its owner cursor changes, so previews, unread
+            // counts, working state and in-place card updates arrive without
+            // a fixed polling cadence.
             .task(id: scenePhase) {
                 guard scenePhase == .active else { return }
                 await load()
+                await waitForChanges()
             }
             .navigationDestination(for: MobileChiefConversation.self) { conversation in
                 ChiefConversationDestination(client: client, conversation: conversation)
@@ -165,7 +169,9 @@ struct ChiefHomeView: View {
             isLoading = false
         }
         do {
-            var rows = try await client.conversations()
+            let snapshot = try await client.conversationsSnapshot()
+            changeCursor = snapshot.changeCursor
+            var rows = snapshot.conversations
             var startupFailure: String?
             if rows.isEmpty {
                 let status = try? await client.status()
@@ -191,6 +197,29 @@ struct ChiefHomeView: View {
             errorMessage = startupFailure
         } catch {
             errorMessage = String(describing: error)
+        }
+    }
+
+    private func waitForChanges() async {
+        guard changeCursor != nil else { return }
+        while !Task.isCancelled {
+            do {
+                let snapshot = try await client.conversationsSnapshot(
+                    afterCursor: changeCursor,
+                    waitForChange: true
+                )
+                guard !Task.isCancelled else { return }
+                changeCursor = snapshot.changeCursor ?? changeCursor
+                conversations = snapshot.conversations.sorted {
+                    if $0.pinned != $1.pinned { return $0.pinned && !$1.pinned }
+                    return $0.updatedAt > $1.updatedAt
+                }
+                errorMessage = nil
+            } catch {
+                guard !Task.isCancelled else { return }
+                errorMessage = String(describing: error)
+                return
+            }
         }
     }
 

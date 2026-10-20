@@ -9,22 +9,22 @@ import Foundation
 /// visible, then refreshes its newest page so the generic Messages UI remains
 /// live without a fixed polling cadence.
 final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
-    private static func backendText(_ key: String, _ fallback: String) -> String {
-        String(localized: key, defaultValue: fallback, bundle: .module)
-    }
-    private static let deselectUnsupported = backendText("mobile.chief.error.deselectUnsupported", "Chief cards cannot be deselected")
-    private static let openQuestionSheet = backendText("mobile.chief.error.openQuestionSheet", "Open the Chief question sheet to answer this card")
-    private static let cardAlreadyAnswered = backendText("mobile.chief.error.cardAlreadyAnswered", "That Chief card is already being answered")
-    private static let approvalAlreadyAnswered = backendText("mobile.chief.error.approvalAlreadyAnswered", "That approval was already answered")
-    private static let questionAlreadyAnswered = backendText("mobile.chief.error.questionAlreadyAnswered", "That question was already answered")
-    private static let optionUnavailable = backendText("mobile.chief.error.optionUnavailable", "That question option is no longer available")
-    private static let answeredCardMissing = backendText("mobile.chief.error.answeredCardMissing", "Chief did not return the answered card")
-    private static let questionNotWaiting = backendText("mobile.chief.error.questionNotWaiting", "That Chief question is no longer waiting")
-    private static let answerRequired = backendText("mobile.chief.error.answerRequired", "Choose an answer before submitting")
-    private static let answeredQuestionMissing = backendText("mobile.chief.error.answeredQuestionMissing", "Chief did not return the answered question")
+    private static let deselectUnsupported = String(localized: "mobile.chief.error.deselectUnsupported", defaultValue: "Chief cards cannot be deselected", bundle: .module)
+    private static let openQuestionSheet = String(localized: "mobile.chief.error.openQuestionSheet", defaultValue: "Open the Chief question sheet to answer this card", bundle: .module)
+    private static let cardAlreadyAnswered = String(localized: "mobile.chief.error.cardAlreadyAnswered", defaultValue: "That Chief card is already being answered", bundle: .module)
+    private static let approvalAlreadyAnswered = String(localized: "mobile.chief.error.approvalAlreadyAnswered", defaultValue: "That approval was already answered", bundle: .module)
+    private static let questionAlreadyAnswered = String(localized: "mobile.chief.error.questionAlreadyAnswered", defaultValue: "That question was already answered", bundle: .module)
+    private static let optionUnavailable = String(localized: "mobile.chief.error.optionUnavailable", defaultValue: "That question option is no longer available", bundle: .module)
+    private static let answeredCardMissing = String(localized: "mobile.chief.error.answeredCardMissing", defaultValue: "Chief did not return the answered card", bundle: .module)
+    private static let questionNotWaiting = String(localized: "mobile.chief.error.questionNotWaiting", defaultValue: "That Chief question is no longer waiting", bundle: .module)
+    private static let answerRequired = String(localized: "mobile.chief.error.answerRequired", defaultValue: "Choose an answer before submitting", bundle: .module)
+    private static let answeredQuestionMissing = String(localized: "mobile.chief.error.answeredQuestionMissing", defaultValue: "Chief did not return the answered question", bundle: .module)
 
     private static func unsupportedBackendText(_ operation: String) -> String {
-        backendText("mobile.chief.error.unsupported", "Chief does not support \(operation)")
+        String(
+            format: String(localized: "mobile.chief.error.unsupported", defaultValue: "Chief does not support %@", bundle: .module),
+            operation
+        )
     }
 
     /// Synthetic poll option used to open the full multi-question composer.
@@ -32,6 +32,7 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
     private let client: MobileChiefClient
     private let conversationID: String
     private let fallbackTitle: String
+    private let clock: any Clock<Duration>
     // Concurrency carve-out: ConversationBackend exposes synchronous lifecycle
     // methods while its polling task is asynchronous, so state needs one small
     // critical section instead of an actor hop from every callback.
@@ -83,9 +84,7 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
         self.client = client
         self.conversationID = conversationID
         self.fallbackTitle = title
-        // Kept in the initializer for source compatibility with early test
-        // harnesses; refresh scheduling is now owned by the Chief event wait.
-        _ = clock
+        self.clock = clock
     }
 
     func events() -> AsyncStream<ConversationBackendEvent> {
@@ -409,6 +408,7 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
         var connected = false
         var reportedFailure = false
         var lastSeq: UInt64 = 0
+        var changeCursor: String?
         var publishedInfo: ConversationInfo?
         var publishedMeID: String?
         while !Task.isCancelled && !isClosed {
@@ -417,9 +417,13 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
                     conversation: conversationID,
                     limit: 200,
                     afterSeq: first ? nil : lastSeq,
+                    afterCursor: first ? nil : changeCursor,
                     waitForChange: !first
                 )
                 guard !Task.isCancelled, !isClosed else { return }
+                if let cursor = result.changeCursor {
+                    changeCursor = cursor
+                }
                 let pollMessages = try await messagesCoveringGap(result, afterSeq: lastSeq)
                 let mappedInfo = info(from: pollMessages)
                 if first {
@@ -505,10 +509,14 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
                     continuation.yield(.disconnected(reason: String(describing: error)))
                     reportedFailure = true
                 }
-                // The next lifecycle/reconnect event creates a fresh backend
-                // stream. Retrying here would turn a transport failure into a
-                // busy polling loop with no owner event to wake it.
-                return
+                // Keep the stream alive across transient transport failures.
+                // The injected clock makes this bounded retry deterministic in
+                // tests and avoids a tight loop when the Mac is unavailable.
+                do {
+                    try await clock.sleep(for: .seconds(3))
+                } catch {
+                    return
+                }
             }
         }
     }
@@ -719,6 +727,29 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
     /// legacy text field is empty. Keep work progress visible in the generic
     /// transcript instead of reducing it to an unhelpful "Work" label.
     static func displayText(from message: MobileChiefMessage) -> String {
+        let workParts = message.partPayloads.compactMap(\.work)
+        if !workParts.isEmpty {
+            var text = message.text
+            for work in workParts {
+                let title = work.title.trimmingCharacters(in: .whitespacesAndNewlines)
+                let status = work.status.trimmingCharacters(in: .whitespacesAndNewlines)
+                let preview = work.preview?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                let detail = [status, preview].filter { !$0.isEmpty }.joined(separator: " · ")
+                let rendered = detail.isEmpty ? title : "\(title) · \(detail)"
+                let legacyCandidates = [preview, title].filter { !$0.isEmpty }
+                if let legacy = legacyCandidates.first(where: { text.range(of: $0) != nil }),
+                   let range = text.range(of: legacy) {
+                    text.replaceSubrange(range, with: rendered)
+                } else if text.isEmpty {
+                    text = rendered
+                } else if text == title || text == preview {
+                    text = rendered
+                } else {
+                    text += "\(text.isEmpty ? "" : " · ")\(rendered)"
+                }
+            }
+            return text
+        }
         if !message.text.isEmpty { return message.text }
         guard !message.partPayloads.isEmpty else {
             return message.parts.map { $0.replacingOccurrences(of: "_", with: " ").capitalized }
@@ -797,12 +828,14 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
     }
 
     private func publish(_ message: ConversationMessage, on continuation: AsyncStream<ConversationBackendEvent>.Continuation) {
-        let eventSeq = withState { state -> Int in
+        withState { state in
             if state.eventSeq < Int.max { state.eventSeq += 1 }
             state.eventSeq = max(state.eventSeq, message.seq ?? 0)
-            return state.eventSeq
+            // Assigning the sequence and yielding it under the same lock
+            // preserves event order when concurrent poll/history tasks publish
+            // updates for the same conversation.
+            continuation.yield(.message(message, eventSeq: state.eventSeq))
         }
-        continuation.yield(.message(message, eventSeq: eventSeq))
     }
 
     private func readState(from result: MobileChiefReadResult, fallbackHead: UInt64) -> ConversationReadState {

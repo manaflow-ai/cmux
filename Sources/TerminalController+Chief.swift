@@ -165,16 +165,30 @@ extension TerminalController {
                 let status = try await v2MainAsync { ChiefService.shared.controlStatus() }
                 return .ok(Self.chiefPayload(status))
             case .conversations:
+                let owner = try await chiefOwner()
+                let cursor = await owner.changeCursor
                 let rows = try await ChiefService.shared.controlConversations()
-                return .ok(["conversations": rows.map { Self.chiefPayload($0) }])
+                return .ok(["conversations": rows.map { Self.chiefPayload($0) }, "change_cursor": cursor] as [String: Any])
+            case .conversationsAfter(let previousCursor):
+                let owner = try await chiefOwner()
+                await Self.waitForChiefCursor(owner: owner, after: previousCursor)
+                try Task.checkCancellation()
+                let cursor = await owner.changeCursor
+                let rows = try await ChiefService.shared.controlConversations()
+                return .ok(["conversations": rows.map { Self.chiefPayload($0) }, "change_cursor": cursor] as [String: Any])
             case .read(let conversation, let beforeSeq, let limit):
                 let owner = try await chiefOwner()
                 let id = conversation.map(ConversationID.init(_:)) ?? ChiefConversationOwner.defaultConversationID
                 return try await Self.chiefRead(owner: owner, conversation: id, beforeSeq: beforeSeq, limit: limit)
-            case .readAfter(let conversation, let afterSeq, let limit):
+            case .readAfter(let conversation, let afterSeq, let limit, let afterCursor):
                 let owner = try await chiefOwner()
                 let id = conversation.map(ConversationID.init(_:)) ?? ChiefConversationOwner.defaultConversationID
-                await Self.waitForChiefChange(owner: owner, conversation: id, afterSeq: afterSeq)
+                if let afterCursor {
+                    await Self.waitForChiefCursor(owner: owner, after: afterCursor)
+                } else {
+                    await Self.waitForChiefChange(owner: owner, conversation: id, afterSeq: afterSeq)
+                }
+                try Task.checkCancellation()
                 return try await Self.chiefRead(owner: owner, conversation: id, beforeSeq: nil, limit: limit)
             case .markRead(let conversation, let upToSeq):
                 let owner = try await chiefOwner()
@@ -400,6 +414,15 @@ extension TerminalController {
 
     // MARK: - Helpers
 
+    private nonisolated static func waitForChiefCursor(owner: ChiefConversationOwner, after cursor: String) async {
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask { await owner.waitForChange(after: cursor) }
+            group.addTask { try? await ContinuousClock().sleep(for: Self.chiefReadWaitDuration) }
+            _ = await group.next()
+            group.cancelAll()
+        }
+    }
+
     /// Waits for the owner's own event stream instead of making mobile
     /// clients wake on a fixed timer. The initial inbox snapshot is ignored
     /// unless it already proves that the requested cursor is stale.
@@ -445,6 +468,7 @@ extension TerminalController {
         beforeSeq: UInt64?,
         limit: Int
     ) async throws -> V2CallResult {
+        let cursor = await owner.changeCursor
         let summary = try await chiefOwnerCall { try await owner.snapshot(of: id, tail: 1) }
         let messages: [ChiefControlMessage]
         let hasMore: Bool
@@ -468,7 +492,7 @@ extension TerminalController {
         return .ok(["conversation": id.rawValue, "working": working,
                     "messages": messages.map { chiefPayload($0) }, "has_more": hasMore,
                     "last_read_seq": readCursor, "unread_count": unreadCount,
-                    "head_seq": headSeq] as [String: Any])
+                    "head_seq": headSeq, "change_cursor": cursor] as [String: Any])
     }
 
     /// The owner, awaited off the main actor: only starting the service hops

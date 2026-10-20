@@ -295,6 +295,8 @@ public struct MobileChiefReadResult: Codable, Equatable, Sendable {
     public let lastReadSeq: UInt64?
     public let unreadCount: Int?
     public let headSeq: UInt64?
+    /// Opaque owner change cursor. Older hosts omit this field.
+    public let changeCursor: String?
     /// True when another page exists before the oldest returned message.
     /// Older hosts omit this field and therefore remain a bounded, newest-page
     /// reader to older phones.
@@ -307,7 +309,8 @@ public struct MobileChiefReadResult: Codable, Equatable, Sendable {
         hasMore: Bool = false,
         lastReadSeq: UInt64? = nil,
         unreadCount: Int? = nil,
-        headSeq: UInt64? = nil
+        headSeq: UInt64? = nil,
+        changeCursor: String? = nil
     ) {
         self.conversation = conversation
         self.working = working
@@ -316,11 +319,13 @@ public struct MobileChiefReadResult: Codable, Equatable, Sendable {
         self.lastReadSeq = lastReadSeq
         self.unreadCount = unreadCount
         self.headSeq = headSeq
+        self.changeCursor = changeCursor
     }
 
     private enum CodingKeys: String, CodingKey {
         case conversation, working, messages, hasMore = "has_more"
         case lastReadSeq = "last_read_seq", unreadCount = "unread_count", headSeq = "head_seq"
+        case changeCursor = "change_cursor"
     }
 
     public init(from decoder: any Decoder) throws {
@@ -332,6 +337,7 @@ public struct MobileChiefReadResult: Codable, Equatable, Sendable {
         lastReadSeq = try c.decodeIfPresent(UInt64.self, forKey: .lastReadSeq)
         unreadCount = try c.decodeIfPresent(Int.self, forKey: .unreadCount)
         headSeq = try c.decodeIfPresent(UInt64.self, forKey: .headSeq)
+        changeCursor = try c.decodeIfPresent(String.self, forKey: .changeCursor)
     }
 }
 
@@ -409,8 +415,26 @@ public actor MobileChiefClient {
     }
 
     public func conversations() async throws -> [MobileChiefConversation] {
-        let result = try await request("chief.conversations", params: [:], as: MobileChiefConversationsResult.self)
-        return result.conversations
+        let snapshot = try await conversationsSnapshot()
+        return snapshot.conversations
+    }
+
+    /// Reads the Home conversation snapshot and its opaque owner change cursor.
+    /// With `waitForChange`, the Mac holds the request until the inbox or any
+    /// conversation row changes, so Home can stay fresh without a timer.
+    public func conversationsSnapshot(
+        afterCursor: String? = nil,
+        waitForChange: Bool = false
+    ) async throws -> MobileChiefConversationSnapshot {
+        var params: [String: Any] = [:]
+        if let afterCursor { params["after_cursor"] = afterCursor }
+        if waitForChange { params["wait_for_change"] = true }
+        return try await request(
+            "chief.conversations",
+            params: params,
+            timeoutNanoseconds: waitForChange ? Self.readWaitTimeoutNanoseconds : nil,
+            as: MobileChiefConversationSnapshot.self
+        )
     }
 
     public func read(
@@ -418,12 +442,14 @@ public actor MobileChiefClient {
         beforeSeq: UInt64? = nil,
         limit: Int = 20,
         afterSeq: UInt64? = nil,
+        afterCursor: String? = nil,
         waitForChange: Bool = false
     ) async throws -> MobileChiefReadResult {
         var params: [String: Any] = ["limit": max(1, min(limit, 200))]
         if let conversation { params["conversation"] = conversation }
         if let beforeSeq { params["before_seq"] = beforeSeq }
         if let afterSeq { params["after_seq"] = afterSeq }
+        if let afterCursor { params["after_cursor"] = afterCursor }
         if waitForChange { params["wait_for_change"] = true }
         return try await request(
             "chief.read",
@@ -502,8 +528,25 @@ public actor MobileChiefClient {
     }
 }
 
-private struct MobileChiefConversationsResult: Decodable {
-    let conversations: [MobileChiefConversation]
+public struct MobileChiefConversationSnapshot: Codable, Equatable, Sendable {
+    public let conversations: [MobileChiefConversation]
+    public let changeCursor: String?
+
+    public init(conversations: [MobileChiefConversation] = [], changeCursor: String? = nil) {
+        self.conversations = conversations
+        self.changeCursor = changeCursor
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case conversations
+        case changeCursor = "change_cursor"
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        conversations = try c.decodeIfPresent([MobileChiefConversation].self, forKey: .conversations) ?? []
+        changeCursor = try c.decodeIfPresent(String.self, forKey: .changeCursor)
+    }
 }
 
 public struct MobileChiefStopResult: Codable, Equatable, Sendable {

@@ -61,6 +61,7 @@ public actor ChiefConversationOwner {
     let allowRules: ChiefAllowRules
     let contextProvider: ChiefTurnContextProvider
     let now: @Sendable () -> Date
+    let clock: any Clock<Duration>
     let blobs: ChiefBlobStore
 
     var conversations: [ConversationID: ChiefConversationState] = [:]
@@ -70,8 +71,17 @@ public actor ChiefConversationOwner {
     var ledger: [IdempotencyKey: (op: HomeOp, result: HomeOpResult)] = [:]
     var subscribers: [UUID: AsyncStream<HomeEvent>.Continuation] = [:]
     var workingSubscribers: [UUID: AsyncStream<Set<ConversationID>>.Continuation] = [:]
+    /// Opaque cursor for control clients. It changes for in-place card edits
+    /// and working-state changes as well as new messages, and never survives
+    /// an owner restart. Read it before taking a snapshot so a concurrent
+    /// mutation can only cause an extra refresh, never a missed update.
+    public private(set) var changeCursor = UUID().uuidString
     var running: [ConversationID: ChiefRunningTurn] = [:]
     var pending: [ConversationID: [ChiefPendingTurn]] = [:]
+    /// A failed read-cursor write must not strand the FIFO queue. There is at
+    /// most one retry task per conversation, and it is cancelled once the
+    /// queued turn starts or the owner shuts down.
+    var readCursorRetryTasks: [ConversationID: Task<Void, Never>] = [:]
     /// Each conversation's last finished turn (``lastTurnStats(in:)``).
     var lastTurns: [ConversationID: ChiefTurnStats] = [:]
     /// Conversations whose stopped turn waits for the brain's interrupt; no turn starts there meanwhile.
@@ -96,27 +106,31 @@ public actor ChiefConversationOwner {
     /// - Throws: A file system error when the home's directories cannot be created. A
     ///   damaged or unreadable conversation file never throws (``loadProblems``).
     public init(
-                home: ChiefHome,
-                brain: any ChiefBrain,
-                userDisplayName: String? = nil,
-                allowRules: ChiefAllowRules = ChiefAllowRules(),
-                now: @escaping @Sendable () -> Date = { Date() },
-                context: @escaping ChiefTurnContextProvider) throws {
+        home: ChiefHome,
+        brain: any ChiefBrain,
+        userDisplayName: String? = nil,
+        allowRules: ChiefAllowRules = ChiefAllowRules(),
+        now: @escaping @Sendable () -> Date = { Date() },
+        clock: any Clock<Duration> = ContinuousClock(),
+        context: @escaping ChiefTurnContextProvider
+    ) throws {
         allowRules.load(home)
         let people = Self.participants(userDisplayName: userDisplayName)
         let loaded = try Self.loadConversations(home: home, me: people.me, chief: people.chief, now: now)
         self.init(home: home, brain: brain, allowRules: allowRules, me: people.me, chief: people.chief,
-                  now: now, context: context, loaded: loaded)
+                  now: now, clock: clock, context: context, loaded: loaded)
     }
 
     init(home: ChiefHome, brain: any ChiefBrain, allowRules: ChiefAllowRules = ChiefAllowRules(), me: Participant, chief: Participant,
-         now: @escaping @Sendable () -> Date, context: @escaping ChiefTurnContextProvider,
+         now: @escaping @Sendable () -> Date, clock: any Clock<Duration> = ContinuousClock(),
+         context: @escaping ChiefTurnContextProvider,
          loaded: ChiefLoadedConversations) {
         self.home = home
         self.brain = brain
         self.allowRules = allowRules
         self.contextProvider = context
         self.now = now
+        self.clock = clock
         self.blobs = ChiefBlobStore(root: home.blobsDirectory)
         self.me = me
         self.chief = chief
@@ -164,6 +178,8 @@ public actor ChiefConversationOwner {
 
     /// Ends every turn, ends every subscription and shuts the brain down.
     public func shutdown() async {
+        for task in readCursorRetryTasks.values { task.cancel() }
+        readCursorRetryTasks.removeAll()
         pending.removeAll()
         let turns = running
         for id in turns.keys { finishTurn(id, failure: nil, stopped: true, startNext: false) }
@@ -176,7 +192,19 @@ public actor ChiefConversationOwner {
     }
 
     func publish(_ event: HomeEvent) {
+        changeCursor = UUID().uuidString
         for continuation in subscribers.values { continuation.yield(event) }
+    }
+
+    /// Waits until any Chief state has changed since the caller's snapshot.
+    /// Subscription and the initial cursor check share the actor, closing the
+    /// gap between reading a snapshot and beginning the next long poll.
+    public func waitForChange(after cursor: String) async {
+        guard changeCursor == cursor else { return }
+        let stream = events()
+        for await _ in stream {
+            if Task.isCancelled || changeCursor != cursor { return }
+        }
     }
 
     func notifyWorking() {

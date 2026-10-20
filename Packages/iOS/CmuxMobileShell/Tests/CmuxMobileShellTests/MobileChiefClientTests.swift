@@ -14,6 +14,7 @@ struct MobileChiefClientTests {
               "conversation":"chief-main",
               "working":true,
               "has_more":true,
+              "change_cursor":"cursor-7",
               "messages":[{
                 "id":"m-1",
                 "seq":7,
@@ -37,6 +38,7 @@ struct MobileChiefClientTests {
         #expect(result.conversation == "chief-main")
         #expect(result.working)
         #expect(result.hasMore)
+        #expect(result.changeCursor == "cursor-7")
         #expect(result.messages == [
             MobileChiefMessage(
                 id: "m-1",
@@ -116,6 +118,13 @@ struct MobileChiefClientTests {
         #expect(row.id == "c-1")
         #expect(row.title == "c-1")
         #expect(row.preview.isEmpty)
+
+        let snapshot = try coding.decode(
+            MobileChiefConversationSnapshot.self,
+            from: Data("{\"conversations\":[{\"id\":\"c-1\"}],\"change_cursor\":\"cursor-1\"}".utf8)
+        )
+        #expect(snapshot.conversations.map(\.id) == ["c-1"])
+        #expect(snapshot.changeCursor == "cursor-1")
     }
 
     @Test

@@ -13,11 +13,13 @@ enum ChiefControlRequest: Equatable, Sendable {
     case status
     /// `chief.conversations`: every Chief conversation.
     case conversations
+    /// `chief.conversations` waiting for a change to the last snapshot.
+    case conversationsAfter(cursor: String)
     /// `chief.read`: the newest `limit` messages, or a page before `beforeSeq`.
     case read(conversation: String?, beforeSeq: UInt64?, limit: Int)
     /// `chief.read` waiting on the owner's event stream until the conversation
     /// changes after `afterSeq`. This keeps mobile refreshes event-driven.
-    case readAfter(conversation: String?, afterSeq: UInt64, limit: Int)
+    case readAfter(conversation: String?, afterSeq: UInt64, limit: Int, afterCursor: String? = nil)
     /// `chief.mark_read`: advances the signed-in user's read cursor.
     case markRead(conversation: String?, upToSeq: UInt64)
     /// `chief.stop`: stops the running turn of one conversation.
@@ -97,6 +99,12 @@ enum ChiefControlRequest: Equatable, Sendable {
         case "chief.status":
             return .status
         case "chief.conversations":
+            let cursor = try optionalString(params, "after_cursor", maxLength: 200)
+            if try optionalBool(params, "wait_for_change") == true {
+                guard let cursor else { throw ChiefControlParamError.missing("after_cursor") }
+                return .conversationsAfter(cursor: cursor)
+            }
+            guard cursor == nil else { throw ChiefControlParamError.invalid("after_cursor") }
             return .conversations
         case "chief.read":
             let limit = try optionalInt(params, "limit") ?? defaultReadLimit
@@ -106,11 +114,13 @@ enum ChiefControlRequest: Equatable, Sendable {
             let afterSeq = try optionalInt(params, "after_seq")
             if let afterSeq, afterSeq < 0 { throw ChiefControlParamError.invalid("after_seq") }
             let waitForChange = try optionalBool(params, "wait_for_change") ?? false
+            let afterCursor = try optionalString(params, "after_cursor", maxLength: 200)
             if waitForChange {
                 guard beforeSeq == nil, let afterSeq else { throw ChiefControlParamError.invalid("after_seq") }
                 return .readAfter(conversation: try conversation(params), afterSeq: UInt64(afterSeq),
-                                  limit: min(limit, maxReadLimit))
+                                  limit: min(limit, maxReadLimit), afterCursor: afterCursor)
             }
+            guard afterCursor == nil else { throw ChiefControlParamError.invalid("after_cursor") }
             guard afterSeq == nil else { throw ChiefControlParamError.invalid("after_seq") }
             return .read(conversation: try conversation(params),
                          beforeSeq: beforeSeq.map { UInt64($0) },

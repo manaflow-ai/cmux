@@ -98,13 +98,13 @@ import Testing
         "gh run list --limit 5",
         "gh pr list --json number,title | jq length",
         // plain read-only tools
-        "ls -la",
+        "ls /Users/tester/src/app",
         "pwd",
         "date",
         "which cmux",
         "cat README.md | head -20",
         "grep -rn TODO Sources | wc -l",
-        "rg -l ChiefToolPolicy",
+        "rg -l ChiefToolPolicy /Users/tester/src/app",
         // shell wrappers (Claude and Codex)
         "/bin/zsh -lc 'cmux tree --json'",
         "/bin/zsh -lc 'cmux tree --all 2>&1 | head -100'",
@@ -242,6 +242,9 @@ import Testing
         "rg --pre ./run.sh pattern",
         "rg --pre=sh pattern",
         "date -s 2020-01-01",
+        "ls -la",
+        "rg -l ChiefToolPolicy",
+        "grep -r TODO",
         // git and gh that change things
         "git push origin main",
         "git commit -m x",
@@ -471,6 +474,16 @@ import Testing
         ] {
             #expect(!ChiefToolPolicy.autoAllowsCommand(command, home: home.path), "expected approval: \(command)")
         }
+    }
+
+    @Test func searchReadersRequireSafeRootsUnlessTheyFilterPipeInput() {
+        #expect(!ChiefToolPolicy.autoAllowsCommand("ls -la", home: Self.home))
+        #expect(!ChiefToolPolicy.autoAllowsCommand("rg -l ChiefToolPolicy", home: Self.home))
+        #expect(!ChiefToolPolicy.autoAllowsCommand("grep -r TODO", home: Self.home))
+        #expect(ChiefToolPolicy.autoAllowsCommand("rg -l ChiefToolPolicy /Users/tester/src/app", home: Self.home))
+        #expect(ChiefToolPolicy.autoAllowsCommand("grep -r TODO /Users/tester/src/app", home: Self.home))
+        #expect(ChiefToolPolicy.autoAllowsCommand("cmux tree | grep -c workspace", home: Self.home))
+        #expect(ChiefToolPolicy.autoAllowsCommand("cmux tree | rg -l workspace", home: Self.home))
     }
 
     @Test(arguments: allowed)

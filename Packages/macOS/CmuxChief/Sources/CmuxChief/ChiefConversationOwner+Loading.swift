@@ -37,6 +37,7 @@ extension ChiefConversationOwner {
                             userDisplayName: String? = nil,
                             allowRules: ChiefAllowRules = ChiefAllowRules(),
                             now: @escaping @Sendable () -> Date = { Date() },
+                            clock: any Clock<Duration> = ContinuousClock(),
                             context: @escaping ChiefTurnContextProvider) async throws -> ChiefConversationOwner {
         allowRules.load(home)
         let loaded = try await Task.detached(priority: .userInitiated) {
@@ -45,7 +46,7 @@ extension ChiefConversationOwner {
         }.value
         return ChiefConversationOwner(home: home, brain: brain, allowRules: allowRules,
                                       me: loaded.0.me, chief: loaded.0.chief, now: now,
-                                      context: context, loaded: loaded.1)
+                                      clock: clock, context: context, loaded: loaded.1)
     }
 
     /// The user and the default Chief.

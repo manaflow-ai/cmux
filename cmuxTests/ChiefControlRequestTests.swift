@@ -18,6 +18,9 @@ import Testing
     @Test func simpleMethodsTakeNoParams() {
         #expect(parse("chief.status") == .success(.status))
         #expect(parse("chief.conversations") == .success(.conversations))
+        #expect(parse("chief.conversations", ["after_cursor": "cursor-1", "wait_for_change": true])
+            == .success(.conversationsAfter(cursor: "cursor-1")))
+        #expect(parse("chief.conversations", ["after_cursor": "cursor-1"]) == .failure(.invalid("after_cursor")))
         #expect(parse("chief.mark_read") == .failure(.missing("up_to_seq")))
         #expect(parse("chief.mark_read", ["up_to_seq": 7, "conversation": "conv_x"])
             == .success(.markRead(conversation: "conv_x", upToSeq: 7)))
@@ -115,6 +118,8 @@ import Testing
     @Test func readAfterRequiresAnExclusiveCursorWait() {
         #expect(parse("chief.read", ["after_seq": 7, "wait_for_change": true])
             == .success(.readAfter(conversation: nil, afterSeq: 7, limit: 20)))
+        #expect(parse("chief.read", ["after_seq": 7, "after_cursor": "cursor-1", "wait_for_change": true])
+            == .success(.readAfter(conversation: nil, afterSeq: 7, limit: 20, afterCursor: "cursor-1")))
         #expect(parse("chief.read", ["after_seq": 0, "wait_for_change": true, "limit": 500])
             == .success(.readAfter(conversation: nil, afterSeq: 0, limit: 200)))
         #expect(parse("chief.read", ["after_seq": 7]) == .failure(.invalid("after_seq")))
@@ -123,6 +128,7 @@ import Testing
             == .failure(.invalid("after_seq")))
         #expect(parse("chief.read", ["after_seq": -1, "wait_for_change": true])
             == .failure(.invalid("after_seq")))
+        #expect(parse("chief.read", ["after_cursor": "cursor-1"]) == .failure(.invalid("after_cursor")))
     }
 
     @Test func debugActions() {

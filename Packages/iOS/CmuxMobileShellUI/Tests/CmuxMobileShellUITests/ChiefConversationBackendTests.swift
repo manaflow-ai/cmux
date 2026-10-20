@@ -8,6 +8,31 @@ import Testing
 @Suite
 struct ChiefConversationBackendTests {
     @Test
+    func workMessageRendersTitleStatusAndPreviewAlongsideLegacyText() {
+        let message = MobileChiefMessage(
+            id: "work-message",
+            seq: 1,
+            authorID: "agent_chief",
+            author: "Chief",
+            authorKind: "chief",
+            text: "Building",
+            at: Date(),
+            parts: ["work"],
+            partPayloads: [MobileChiefPart(
+                kind: "work",
+                work: MobileChiefWork(
+                    session: "session-1",
+                    title: "Ship it",
+                    status: "running",
+                    preview: "Building"
+                )
+            )]
+        )
+
+        #expect(ChiefConversationBackend.displayText(from: message) == "Ship it · running · Building")
+    }
+
+    @Test
     func pendingApprovalProjectsToPoll() {
         let message = MobileChiefMessage(
             id: "approval-message",

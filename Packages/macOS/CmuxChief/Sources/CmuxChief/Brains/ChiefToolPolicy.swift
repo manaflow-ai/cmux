@@ -99,13 +99,14 @@ enum ChiefToolPolicy {
         home: String = NSHomeDirectory()
     ) -> Bool {
         let line = unwrapShell(command)
-        guard let stages = ChiefShellLexer.stages(of: line), !stages.isEmpty else { return false }
-        for stage in stages {
+        guard let stages = ChiefShellLexer.stagesWithPipeInput(of: line), !stages.isEmpty else { return false }
+        for (stage, inputFromPipe) in stages {
             // `$HOME`-style expansion could smuggle flags past the checks.
             if stage.contains(where: \.expands) { return false }
             let words = stage.map(\.text)
             // The user's "Always Allow" rules (an approval card's menu) cover their program and subcommand.
-            guard autoAllowsSimpleCommand(words, home: home) || (allowRules?.allows(words) ?? false) else { return false }
+            guard autoAllowsSimpleCommand(words, home: home, inputFromPipe: inputFromPipe)
+                || (allowRules?.allows(words) ?? false) else { return false }
         }
         return true
     }
@@ -179,7 +180,11 @@ enum ChiefToolPolicy {
     ]
 
     /// Whether one simple command (quotes removed) runs without asking.
-    static func autoAllowsSimpleCommand(_ words: [String], home: String = NSHomeDirectory()) -> Bool {
+    static func autoAllowsSimpleCommand(
+        _ words: [String],
+        home: String = NSHomeDirectory(),
+        inputFromPipe: Bool = false
+    ) -> Bool {
         // A bare program name only: `/tmp/x/cmux` is not the cmux CLI.
         guard let program = words.first else { return false }
         let args = Array(words.dropFirst())
@@ -187,7 +192,7 @@ enum ChiefToolPolicy {
         case "cmux":
             return autoAllowsCmux(args)
         case _ where plainReadOnlyPrograms.contains(program):
-            return autoAllowsPlainReadOnly(program, args: args, home: home)
+            return autoAllowsPlainReadOnly(program, args: args, home: home, inputFromPipe: inputFromPipe)
         case "date":
             return !args.contains { $0 == "-s" || $0.hasPrefix("--set") }
         case "git":
@@ -205,10 +210,13 @@ enum ChiefToolPolicy {
     /// Chief's home, then checked after symlink resolution. Treating patterns
     /// and scripts as operands is intentionally conservative: a false approval
     /// is worse than asking for a harmless filter.
-    private static func autoAllowsPlainReadOnly(_ program: String, args: [String], home: String) -> Bool {
+    private static func autoAllowsPlainReadOnly(
+        _ program: String,
+        args: [String],
+        home: String,
+        inputFromPipe: Bool
+    ) -> Bool {
         switch program {
-        case "rg":
-            guard !args.contains(where: { $0 == "--pre" || $0.hasPrefix("--pre=") }) else { return false }
         case "sort":
             guard autoAllowsSort(args) else { return false }
         case "uniq":
@@ -233,16 +241,100 @@ enum ChiefToolPolicy {
                 paths.append(arg)
             }
         }
-        return !pathArguments.contains { path in
+        let checkedPaths: [String]
+        let usesSearchRoot = ["ls", "rg", "grep"].contains(program)
+        if usesSearchRoot {
+            guard let operands = searchOperands(program, args: args, inputFromPipe: inputFromPipe) else { return false }
+            checkedPaths = operands
+        } else {
+            checkedPaths = pathArguments
+        }
+        return !checkedPaths.contains { path in
             let absolute = path.hasPrefix("/") || path == "~" || path.hasPrefix("~/")
                 ? path
                 : URL(fileURLWithPath: home, isDirectory: true)
                     .appendingPathComponent(path, isDirectory: false).path
-            // `ls` reveals directory entries, so use the stricter search
-            // policy; listing `~` would otherwise expose credential-store names
-            // even though the directory itself is not a secret file.
-            return program == "ls" ? !paths.allowsSearch(absolute) : !paths.allowsRead(absolute)
+            // Directory readers/searchers must use the stricter root policy;
+            // listing or recursively scanning `~` exposes credential stores
+            // even when the directory itself is not a secret file.
+            return usesSearchRoot ? !paths.allowsSearch(absolute) : !paths.allowsRead(absolute)
         }
+    }
+
+    /// Parse only the search flags whose operand behavior we model. Unknown
+    /// flags (including pattern files, pre-processors and symlink following)
+    /// ask rather than hiding a file access in an option's value.
+    private static func searchOperands(_ program: String, args: [String], inputFromPipe: Bool) -> [String]? {
+        let isListing = program == "ls"
+        let shortFlags = isListing ? "1aAbBcCdFfGghiklmnopqRrSstTuUwWx" : "iInNwFxvcqsoHhZUPaSlLrR"
+        let longFlags: Set<String> = isListing
+            ? ["--all", "--almost-all", "--directory", "--human-readable", "--recursive", "--reverse"]
+            : ["--ignore-case", "--case-sensitive", "--smart-case", "--line-number", "--no-line-number",
+               "--word-regexp", "--line-regexp", "--fixed-strings", "--invert-match", "--count",
+               "--files-with-matches", "--files-without-match", "--only-matching", "--quiet",
+               "--with-filename", "--no-filename", "--no-heading", "--heading", "--text",
+               "--hidden", "--no-ignore", "--no-ignore-vcs", "--no-config", "--null", "--null-data",
+               "--recursive", "--files"]
+        var operands: [String] = []
+        var hasPattern = false
+        var listsFiles = isListing
+        var recursive = false
+        var onlyOperands = false
+        var index = 0
+        while index < args.count {
+            let arg = args[index]
+            index += 1
+            if onlyOperands || arg == "-" || !arg.hasPrefix("-") {
+                operands.append(arg)
+                continue
+            }
+            if arg == "--" { onlyOperands = true; continue }
+            if !isListing, arg == "-e" || arg == "--regexp" {
+                guard index < args.count else { return nil }
+                index += 1
+                hasPattern = true
+                continue
+            }
+            if !isListing, arg.hasPrefix("--regexp=") { hasPattern = true; continue }
+            if arg.hasPrefix("--") {
+                guard longFlags.contains(arg) else { return nil }
+                if arg == "--files" {
+                    guard program == "rg" else { return nil }
+                    listsFiles = true
+                }
+                if arg == "--recursive" { recursive = true }
+                continue
+            }
+            var flags = arg.dropFirst()
+            while let flag = flags.first {
+                flags = flags.dropFirst()
+                if !isListing, flag == "e" {
+                    if flags.isEmpty {
+                        guard index < args.count else { return nil }
+                        index += 1
+                    }
+                    hasPattern = true
+                    break
+                }
+                guard shortFlags.contains(flag) else { return nil }
+                // ripgrep -L follows symlinks; grep -R dereferences them.
+                if (program == "rg" && flag == "L") || (program == "grep" && flag == "R") { return nil }
+                if !isListing, flag == "r" || flag == "R" { recursive = true }
+            }
+        }
+        // `grep` and `rg` consume their first positional operand as the
+        // pattern unless `-e/--regexp` supplied it. `-l` changes the output,
+        // not that positional grammar. `rg --files` is the one mode with no
+        // pattern at all.
+        if !isListing && !listsFiles && !hasPattern {
+            guard !operands.isEmpty else { return nil }
+            operands.removeFirst()
+        }
+        if operands.isEmpty && (isListing || listsFiles || recursive || !inputFromPipe) {
+            // These forms search the current directory, which is Chief home.
+            return nil
+        }
+        return operands
     }
 
     /// A read-only `cmux` command (``cmuxReadOnlyCommands``) with no word that asks.
