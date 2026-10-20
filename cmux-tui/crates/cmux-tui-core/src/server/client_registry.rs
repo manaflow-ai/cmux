@@ -671,6 +671,14 @@ impl ClientRegistry {
         Ok((record.name.clone(), record.kind.clone()))
     }
 
+    /// The client's declared API revision (server/api_revision_wire.rs).
+    pub(super) fn set_api_revision(&self, client: u64, revision: u32) -> anyhow::Result<()> {
+        let state = self.state.lock().unwrap();
+        let record =
+            state.clients.get(&client).ok_or_else(|| anyhow::anyhow!("unknown client {client}"))?;
+        record.writer.api_revision.declare(revision)
+    }
+
     /// Merge identity fields: absent fields keep their previous value.
     pub(super) fn set_sizing_identity(&self, client: u64, identity: ClientIdentityWire) {
         let mut state = self.state.lock().unwrap();

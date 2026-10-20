@@ -177,9 +177,9 @@ env:
   # Build numbers stay above it.
   NIGHTLY_NEXT_LEGACY_FEED_BASE: https://files-next.cmux.com/nightly-next
   # cmux-next's own version line (CFBundleShortVersionString
-  # <this>-nightly.<build>); main's nightly and RC keep the project version.
-  # scripts/ci/nightly_version.py owns the rule.
-  NIGHTLY_NEXT_MARKETING_VERSION: "1.0.0"
+  # <V>-nightly.<build>) comes from cmux-tui/Cargo.toml [workspace.package]
+  # (`scripts/ci/nightly_version.py next-base`), the version the bundled CLIs
+  # print too; main's nightly and RC keep the project version.
   NIGHTLY_NEXT_R2_BUCKET: cmux-nightly-next
   NIGHTLY_NEXT_R2_PREFIX: nightly-next/next/
   # SUPublicEDKey of the cmux-next track. The build refuses a
@@ -1596,16 +1596,23 @@ jobs:
       attestations: write
       id-token: write
     needs: [decide, resolve-nightly-cmux-tui-client]
-    # Every run gets its own build slot, so no push ever replaces another. A
-    # shared nightly-next slot (1 running + 1 pending, newer replaces pending)
-    # turned every push into a "cancelled" run once its holder, run 39217096519,
-    # sat queued for a Blacksmith runner that never came (2026-10-19: six
-    # nightly-next runs cancelled without ever getting a runner). nightly-next
-    # builds now queue FIFO on the dedicated warm runner
-    # (CI_NIGHTLY_NEXT_TRUSTED_RUNNER), which serializes them; with its warm
-    # DerivedData an intermediate head costs an incremental build, not 90 min.
+    # Build slot. Attempt 1 of a nightly-next push that takes the dedicated
+    # warm runner (the same condition as its runs-on below) shares one slot:
+    # one build runs, at most one waits, and a newer push replaces the waiting
+    # build, so the newest promoted head builds next and older heads are skipped
+    # instead of queuing. Per-run slots (de5912c9fe41) queued every push FIFO
+    # on the one runner; at a push every ~10 min, a waiting build passed the
+    # owned-pool rescue's 930 s stuck limit, was cancelled and re-run on
+    # Blacksmith, and waited there over an hour (2026-10-19: runs 39318999424,
+    # 39320477722 and 39329116254). A slot-held job is "pending", never
+    # "queued", so the rescue does not see it; it watches only the running
+    # holder. The first shared slot (#21917) failed because its holder sat
+    # queued on Blacksmith before the warm runner existed: every other route
+    # (Blacksmith, retries, dispatch, fast, main, a missing variable) keeps a
+    # slot per run, so a rescued re-run on Blacksmith never holds this slot.
+    # report-nightly-failure drops a build replaced here before it started.
     concurrency:
-      group: nightly-build-app-${{ github.run_id }}
+      group: ${{ github.repository == 'manaflow-ai/cmux' && github.event_name == 'push' && github.ref == 'refs/heads/nightly-next' && github.run_attempt == 1 && needs.decide.outputs.fast_build != 'true' && vars.CI_PR_POOL_OWNED == '1' && vars.CI_NIGHTLY_NEXT_TRUSTED_POOL != '' && vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER != '' && 'nightly-next-build-app-warm' || format('nightly-build-app-{0}', github.run_id) }}
       cancel-in-progress: false
     outputs:
       daemon_build: ${{ steps.resume.outputs.build || steps.remote_daemon.outputs.build }}
@@ -2203,7 +2210,7 @@ jobs:
           build="${GITHUB_RUN_ID}$(printf '%02d' "${GITHUB_RUN_ATTEMPT:-1}")"
           track="${{ needs.decide.outputs.track }}"
           version="$(python3 scripts/ci/nightly_version.py marketing --track "$track" \
-            --project-version "$base_version" --build "$build" --next-base "$NIGHTLY_NEXT_MARKETING_VERSION")"
+            --project-version "$base_version" --build "$build" --next-base "$(python3 scripts/ci/nightly_version.py next-base)")"
           if [[ "$track" == "nightly-next" && "${{ needs.decide.outputs.should_publish }}" == "true" ]]; then
             # cmux-next and main's NIGHTLY install as the same app, so a published
             # cmux-next build must be above every build on both feeds: no feed
@@ -3752,6 +3759,13 @@ jobs:
           test -d "$CHANNEL_APP_PATH"
           /usr/bin/codesign --verify --deep --strict --verbose=2 "$CHANNEL_APP_PATH"
 
+      # cmux-next: the app's CFBundleShortVersionString and every bundled
+      # CLI's `--version` say the cmux-next version (cmux-tui/Cargo.toml
+      # [workspace.package]); a 0.1.0 `cmux` inside a 1.0.0 app fails here.
+      - name: Verify version surfaces
+        if: env.TRACK == 'nightly-next'
+        run: ./scripts/cmux-next/check-version-surfaces.sh "$CHANNEL_APP_PATH"
+
 
 
       # sign-cmux-bundle.sh ran only the static sidecar checks while the
@@ -4943,9 +4957,9 @@ jobs:
             } >> "$GITHUB_STEP_SUMMARY"
           fi
 
-  # Post-publication lane (cx-x7hwx): the build publish-nightly-identity-legacy
-  # copies, if any: the
-  # newest build on the cmux NEXT feed when it is newer than the old feed's.
+  # Post-publication lane (cx-x7hwx): picks the build publish-nightly-identity-legacy
+  # copies, if any: the newest build on the cmux NEXT feed when it is newer than
+  # the old feed's.
   # Linux, seconds; the macOS job starts only when there is work.
   legacy-identity-target:
     needs: [decide, publish-nightly, publish-release-notes]
@@ -6173,6 +6187,7 @@ jobs:
       pull-requests: write
     env:
       NIGHTLY_BUILD: ${{ needs.build-nightly-app.outputs.daemon_build }}
+      NIGHTLY_VERSION: ${{ needs.build-nightly-app.outputs.daemon_version }}
       HEAD_SHA: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
       PUBLISHED_SHA: ${{ needs.decide.outputs.published_sha }}
     steps:
@@ -6191,7 +6206,7 @@ jobs:
           if [ "$PUBLISHED_SHA" = "$HEAD_SHA" ]; then echo "Empty span."; exit 0; fi
           python3 scripts/ci/published_in_comments.py --repo "$GITHUB_REPOSITORY" \
             --since "$PUBLISHED_SHA" --head "$HEAD_SHA" \
-            --name "cmux NEXT nightly 1.0.0-nightly.$NIGHTLY_BUILD" \
+            --name "cmux NEXT nightly $NIGHTLY_VERSION" \
             --url "https://github.com/$GITHUB_REPOSITORY/releases/tag/nightly-next"
 
   # Keep one open issue per failed publication boundary. A stale channel tag
@@ -6215,6 +6230,7 @@ jobs:
       contents: read
     env:
       NIGHTLY_BUILD: ${{ needs.build-nightly-app.outputs.daemon_build }}
+      NIGHTLY_VERSION: ${{ needs.build-nightly-app.outputs.daemon_version }}
       HEAD_SHA: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
       # The commit published before this run (decide reads it from the release
       # body before publish-nightly moves the nightly-next tag to HEAD_SHA).
@@ -6263,7 +6279,7 @@ jobs:
           fi
           if [ "$since" = "$HEAD_SHA" ]; then since=""; fi
           python3 scripts/cmux-next/release-notes.py build --build "$NIGHTLY_BUILD" \
-            --short "1.0.0-nightly.$NIGHTLY_BUILD" --date "$(date -u +%Y-%m-%d)" \
+            --short "$NIGHTLY_VERSION" --date "$(date -u +%Y-%m-%d)" \
             --head "$HEAD_SHA" --since "$since" --out notes
           # Extend the published index only when its signature verifies.
           previous=""

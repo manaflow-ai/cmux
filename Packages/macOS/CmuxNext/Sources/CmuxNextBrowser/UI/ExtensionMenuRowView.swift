@@ -18,7 +18,7 @@ final class ExtensionMenuRowView: PopupRowView {
         extensionID = info.id
         isPinned = info.isPinned
         let pinButton = NSButton(image: NSImage(), target: nil, action: nil)
-        let moreButton = NSButton(image: NSImage.icon(.actionMore, size: 14), target: nil, action: nil)
+        let moreButton = NSButton(image: NSImage.icon(.browserToolbarMore, size: 16), target: nil, action: nil)
         self.pinButton = pinButton
         self.moreButton = moreButton
         let iconView = NSImageView(image: icon ?? NSImage())
@@ -79,7 +79,7 @@ final class ExtensionMenuRowView: PopupRowView {
     @objc func more() { onMore?() }
 
     private func updatePin() {
-        pinButton.image = NSImage.icon(isPinned ? .statePinned : .actionPin, size: 14)
+        pinButton.image = NSImage.icon(isPinned ? .browserToolbarUnpin : .browserToolbarPin, size: 16)
         pinButton.setAccessibilityLabel(isPinned ? Strings.extensionMenuTitle(.unpin) : Strings.extensionMenuTitle(.pin))
         pinButton.themedToolTip = pinButton.accessibilityLabel()
         pinButton.contentTintColor = isPinned ? .labelColor : .secondaryLabelColor

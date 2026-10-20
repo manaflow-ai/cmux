@@ -28,14 +28,21 @@ extension NowPlayingSource {
 
 extension SidebarModel {
     /// Shows `source` on the Now Playing card while `enabled` (the App passes
-    /// `sidebar.nowPlaying.enabled`, on by default).
-    /// The source runs while `enabled` (`NowPlayingSource.run`).
-    public func followNowPlaying(_ source: any NowPlayingSource, enabled: @escaping @MainActor () -> Bool) -> Task<Void, Never> {
+    /// `sidebar.nowPlaying.enabled`, off by default) and `dismissal` does not hide it.
+    /// The source runs while `enabled` (`NowPlayingSource.run`), and the New Tab page's player
+    /// shows the same track (`NewTabNowPlaying`), hidden card or not.
+    public func followNowPlaying(_ source: any NowPlayingSource, dismissal: NowPlayingCardDismissal? = nil,
+                                 enabled: @escaping @MainActor () -> Bool) -> Task<Void, Never> {
         Task { [weak self] in
-            for await followed in ObservationStream({ enabled() ? NowPlayingFollowed.on(source.nowPlaying) : .off }) {
+            // The hide state is read with the source, so a Hide or a Show reaches the card at once.
+            for await (followed, _) in ObservationStream({
+                (enabled() ? NowPlayingFollowed.on(source.nowPlaying) : .off, dismissal.map { [$0.hiddenMedia ?? "", "\($0.hiddenUntilRelaunch)"] })
+            }) {
                 guard let self else { return }
                 source.run(followed != .off)
-                if self.nowPlaying != followed.nowPlaying { self.nowPlaying = followed.nowPlaying }
+                let card = dismissal.map { $0.card(for: followed.nowPlaying, from: source) } ?? followed.nowPlaying
+                if self.nowPlaying != card { self.nowPlaying = card }
+                NewTabNowPlaying.show(followed.nowPlaying, from: source)
             }
         }
     }
