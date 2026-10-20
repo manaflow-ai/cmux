@@ -73,6 +73,26 @@ def test_pull_request_target_jobs_never_receive_oidc() -> None:
     assert checked >= 5, "no pull_request_target workflows were inspected"
 
 
+def test_dispatchable_jobs_with_external_credentials_use_environments() -> None:
+    checked = 0
+    for path in sorted(WORKFLOWS.glob("*.yml")):
+        document = yaml.load(path.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
+        if "workflow_dispatch" not in (document.get("on") or {}):
+            continue
+        for job_name, job in (document.get("jobs") or {}).items():
+            rendered = yaml.dump(job)
+            names = set(re.findall(r"secrets\.([A-Z][A-Z0-9_]*)", rendered)) - {"GITHUB_TOKEN"}
+            inherited = job.get("secrets") == "inherit"
+            if not names and not inherited:
+                continue
+            checked += 1
+            assert job.get("environment"), (
+                f"{path.name} {job_name} can receive external credentials without an environment"
+            )
+            assert not inherited, f"{path.name} {job_name} inherits every caller secret"
+    assert checked >= 50, "dispatchable credential consumers were not comprehensively inspected"
+
+
 def test_cloud_dogfood_keeps_the_public_installer_out_of_the_secret_job() -> None:
     jobs = workflow("cloud-vm-dogfood.yml")["jobs"]
     smoke = jobs["public-installer-smoke"]
@@ -154,6 +174,7 @@ def test_vendored_stack_auth_records_origin_patch_and_license_status() -> None:
 if __name__ == "__main__":
     test_secret_dispatch_jobs_use_branch_restricted_environments_and_ephemeral_runners()
     test_pull_request_target_jobs_never_receive_oidc()
+    test_dispatchable_jobs_with_external_credentials_use_environments()
     test_cloud_dogfood_keeps_the_public_installer_out_of_the_secret_job()
     test_ci_and_deployment_container_images_are_digest_pinned()
     test_vendored_stack_auth_records_origin_patch_and_license_status()
