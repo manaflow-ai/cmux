@@ -93,33 +93,45 @@ public struct WorktreeSeedRepository: Sendable {
     }
 
     /// The physical path of `url`, following every symlink along it, including
-    /// a chain of links and links in the target's parents. A missing component
-    /// ends the lookups and the rest is kept as written, so a dangling link
-    /// still resolves to where it points.
+    /// a chain of links and links in the target's parents. Lookups stop at the
+    /// first component that does not exist, and the rest is kept as written,
+    /// so a dangling link still resolves to where it points.
+    ///
+    /// A `..` after a missing component returns `nil`. What it climbs out of
+    /// is not known until that component exists: created later as a symlink,
+    /// `future/../x` would leave the tree, so it cannot be judged inside now.
     ///
     /// The path is kept as components and normalized lexically. Foundation's
     /// path standardization is not purely lexical: it drops a leading `/private`
     /// on Darwin, which would turn `/private/var/...` back into the `/var/...`
-    /// it was just resolved from. Returns `nil` when a chain of links does not
-    /// end within `maximumSymlinkResolutions`, which covers cycles and links
+    /// it was just resolved from. Also returns `nil` when a chain of links does
+    /// not end within `maximumSymlinkResolutions`, which covers cycles and links
     /// that expand into themselves.
     private static func resolvedPath(_ url: URL) -> String? {
         var pending = url.path.split(separator: "/").map(String.init)
         var resolved: [String] = []
         var resolutions = 0
+        var reachedMissingComponent = false
         while !pending.isEmpty {
             let component = pending.removeFirst()
             switch component {
             case "", ".":
                 continue
             case "..":
+                guard !reachedMissingComponent else { return nil }
                 if !resolved.isEmpty { resolved.removeLast() }
                 continue
             default:
                 break
             }
             let candidate = "/" + (resolved + [component]).joined(separator: "/")
-            guard let destination = try? FileManager.default.destinationOfSymbolicLink(atPath: candidate) else {
+            guard !reachedMissingComponent,
+                  let destination = try? FileManager.default.destinationOfSymbolicLink(atPath: candidate) else {
+                // Not a link here, so `fileExists` (which follows links) only
+                // asks whether this component is present.
+                if !reachedMissingComponent, !FileManager.default.fileExists(atPath: candidate) {
+                    reachedMissingComponent = true
+                }
                 resolved.append(component)
                 continue
             }

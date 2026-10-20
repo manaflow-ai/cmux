@@ -31,14 +31,6 @@ struct AgentSessionCloseJournal: Sendable {
             guard !sessionID.isEmpty,
                   AgentJournalEventDraft.isValidSlug(kind),
                   seen.insert("\(kind)\u{0}\(sessionID)").inserted else { continue }
-            // Closing the surface is a terminal signal even when the agent
-            // died before its SessionEnd hook could run. Remove any Feed
-            // approval cards and needs-input overlays immediately; the
-            // journal append below remains the durable lifecycle record.
-            FeedCoordinator.shared.invalidateSemanticRequests(
-                source: kind,
-                sessionId: sessionID
-            )
             let draft = AgentJournalEventDraft(
                 kind: .sessionEnded,
                 occurredAtMs: occurredAtMs,
@@ -89,7 +81,8 @@ extension AgentSessionPanelHost {
         var endedSessions: [(kind: String, sessionID: String)] = []
         for binding in agentSessionBindingsForClose(panelId: panelId) where binding.isAgentHookBinding {
             guard let kind = binding.kind?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
-                  let sessionID = binding.checkpointId else { continue }
+                  let sessionID = binding.checkpointId?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !sessionID.isEmpty else { continue }
             endedSessions.append((kind, sessionID))
         }
         let restoredAgents = [
@@ -107,8 +100,9 @@ extension AgentSessionPanelHost {
         guard !endedSessions.isEmpty else { return }
         // Feed decisions belong to every hook-backed agent, including kinds
         // that do not yet participate in crash recovery. A pane close is a
-        // terminal signal for their approval cards even when no SessionEnd
-        // hook can arrive.
+        // terminal signal for their approval cards and needs-input overlays
+        // even when no SessionEnd hook can arrive, so they are cleared here,
+        // once, and the journal only records the end.
         var seen = Set<String>()
         for session in endedSessions where seen.insert("\(session.kind)\u{0}\(session.sessionID)").inserted {
             FeedCoordinator.shared.invalidateSemanticRequests(

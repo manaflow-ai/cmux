@@ -140,6 +140,7 @@ import {
   OBSERVED_DESTROY_CLEANUP_METADATA_KEY,
   PROVIDER_CREATE_CLEANUP_PENDING_FAILURE_CODE,
   PROVIDER_CREATE_UNAVAILABLE_FAILURE_CODE,
+  UNEXPECTED_WAKE_CLAIM_METADATA_KEY,
   VmRepository,
   vmRepositoryLiveShape,
   type BeginCreateResult,
@@ -327,6 +328,12 @@ export const PAUSE_OPERATION_TIMEOUT_MS = 30_000;
 const UNEXPECTED_WAKE_CONFIRM_MS = 120_000;
 /** Longer than one cron run, so an overlapping run cannot claim the same wake. */
 const UNEXPECTED_WAKE_CLAIM_TTL_MS = 5 * 60 * 1000;
+/**
+ * Woken machines one cron run re-pauses; the rest wait for the next run, ten
+ * minutes later. The 120 s confirmation plus two waves of ten at about 75 s
+ * each stays inside the route's 300 s `maxDuration`.
+ */
+export const UNEXPECTED_WAKE_REPAUSE_LIMIT = 20;
 const RESIZE_PENDING_RECOVERY_AFTER_MS = 15 * 60 * 1000;
 const RESIZE_UNCONFIRMED_RECOVERY_AFTER_MS = 30 * 60 * 1000;
 const PREVIEW_ENDPOINT_LEASE_TTL_MS = 12 * 60 * 60 * 1000;
@@ -3558,11 +3565,20 @@ function settleUnexpectedWakes(
   return Effect.gen(function* () {
     if (!firstPass.includes("unexpected_wake")) return firstPass as ProviderStatusReconcileOutcome[];
     if (options.confirmMs > 0) yield* Effect.sleep(options.confirmMs);
+    // Wakes past the cap stay paused rows for the next run to find again. A
+    // row another run claimed is left to it without counting toward the cap.
+    const nowMs = Date.now();
+    let woken = 0;
     return yield* Effect.forEach(
       firstPass,
-      (outcome, index) => outcome === "unexpected_wake"
-        ? repauseUnexpectedWake(repo, providers, getStatus, candidates[index]!, options.modelPlane)
-        : Effect.succeed(outcome),
+      (outcome, index) => {
+        if (outcome !== "unexpected_wake") return Effect.succeed(outcome);
+        if (hasFreshRepauseClaim(candidates[index]!, nowMs)) return Effect.succeed("skipped" as const);
+        woken += 1;
+        return woken > UNEXPECTED_WAKE_REPAUSE_LIMIT
+          ? Effect.succeed("skipped" as const)
+          : repauseUnexpectedWake(repo, providers, getStatus, candidates[index]!, options.modelPlane);
+      },
       { concurrency: 10 },
     );
   });
@@ -3598,7 +3614,6 @@ function repauseUnexpectedWake(
       const claimed = yield* repo.claimUnexpectedWakeRepause({
         id: current.id,
         providerVmId,
-        nowMs: Date.now(),
         ttlMs: UNEXPECTED_WAKE_CLAIM_TTL_MS,
       }).pipe(Effect.either);
       if (claimed._tag === "Left") return yield* relabel(current);
@@ -3694,12 +3709,62 @@ function resumeAfterLostRace(
 ): Effect.Effect<void, never> {
   const resume = providers.resume;
   if (!resume) return Effect.void;
-  return resume(vm.provider, providerVmId).pipe(
-    Effect.timeout(PAUSE_OPERATION_TIMEOUT_MS),
-    Effect.tapError(() => Effect.logWarning("Could not resume a machine a re-pause raced", { vmId: vm.id, providerVmId })),
-    Effect.catchAll(() => Effect.void),
-    Effect.asVoid,
-  );
+  return Effect.gen(function* () {
+    // The re-pause zeroed a Go machine's runtime budget; give it back first.
+    if (vm.billingPlanId === "go" && !(yield* restoreGoRuntimeBudget(providers, vm, providerVmId))) return;
+    yield* resume(vm.provider, providerVmId).pipe(
+      Effect.timeout(PAUSE_OPERATION_TIMEOUT_MS),
+      Effect.tapError((cause) => Effect.logWarning("Could not resume a machine a re-pause raced", {
+        event: "cloud_vm.repause_race.resume_failed",
+        vmId: vm.id,
+        providerVmId,
+        cause,
+      })),
+      Effect.catchAll(() => Effect.void),
+    );
+  });
+}
+
+/** False when the Go allowance is used up, so the machine stays paused. */
+function restoreGoRuntimeBudget(
+  providers: VmProviderGatewayShape,
+  vm: CloudVmRow,
+  providerVmId: string,
+): Effect.Effect<boolean, never> {
+  return Effect.gen(function* () {
+    const usage = yield* Effect.tryPromise(() => getGoVmUsage(vm.userId)).pipe(Effect.either);
+    if (usage._tag === "Left") {
+      yield* Effect.logWarning("Could not read Go usage for a machine a re-pause raced", {
+        event: "cloud_vm.repause_race.go_usage_unreadable",
+        vmId: vm.id,
+        providerVmId,
+        cause: usage.left,
+      });
+      return true;
+    }
+    if (usage.right && usage.right.remainingSeconds <= 0) {
+      yield* Effect.logWarning("Left a raced Go machine paused: its allowance is used up", {
+        event: "cloud_vm.repause_race.go_allowance_exhausted",
+        vmId: vm.id,
+        providerVmId,
+      });
+      return false;
+    }
+    const remainingSeconds = usage.right?.remainingSeconds ?? null;
+    yield* Effect.gen(function* () {
+      yield* setRuntimeBudget(providers, vm, providerVmId, remainingSeconds);
+    }).pipe(
+      Effect.timeout(PAUSE_OPERATION_TIMEOUT_MS),
+      Effect.tapError((cause) => Effect.logWarning("Could not restore the runtime budget of a machine a re-pause raced", {
+        event: "cloud_vm.repause_race.go_budget_failed",
+        vmId: vm.id,
+        providerVmId,
+        cause,
+      })),
+      Effect.catchAll(() => Effect.void),
+    );
+    return true;
+  });
 }
 
 function boundedVmStatusReconcileLimit(limit: number | undefined): number {
@@ -4046,6 +4111,7 @@ function preflightResumeIfSuspended(
         if (!recorded) {
           return yield* Effect.fail(new VmNotFoundError({ vmId: providerVmId }));
         }
+        yield* resumeIfRepauseClaimed(repo, providers, vm, providerVmId);
       }
       return false;
     }
@@ -4068,6 +4134,35 @@ function preflightResumeIfSuspended(
     if (reserved) yield* recordResumeUsageEvent(repo, vm, resumeSource);
     return true;
   });
+}
+
+/**
+ * The status cron may be pausing this woken machine again. Its post-pause
+ * re-read gives the machine back when it sees `running`, but the write above
+ * can land after that read. While a claim is fresh, resume here too; resuming
+ * a running machine is a no-op. The row is re-read after the write so a claim
+ * taken while this open ran counts as well. The machine already ran and is
+ * recorded running, so this skips the budget check, and a failure must not
+ * pause it: `resumeUntilRunning` would, so this is a bare best-effort resume.
+ */
+function resumeIfRepauseClaimed(
+  repo: VmRepositoryShape,
+  providers: VmProviderGatewayShape,
+  vm: CloudVmRow,
+  providerVmId: string,
+): Effect.Effect<void, never> {
+  return Effect.gen(function* () {
+    const current = yield* readWokenRow(repo, vm, providerVmId);
+    const row = current._tag === "Right" && current.right ? current.right : vm;
+    if (!hasFreshRepauseClaim(row, Date.now())) return;
+    yield* resumeAfterLostRace(providers, row, providerVmId);
+  });
+}
+
+function hasFreshRepauseClaim(vm: CloudVmRow, nowMs: number): boolean {
+  const metadata = vm.providerMetadata as Record<string, unknown> | null;
+  const claimedAtMs = Number(metadata?.[UNEXPECTED_WAKE_CLAIM_METADATA_KEY]);
+  return Number.isFinite(claimedAtMs) && claimedAtMs >= nowMs - UNEXPECTED_WAKE_CLAIM_TTL_MS;
 }
 
 function withResumeOnSuspendedAfterFailure<A>(
@@ -5765,7 +5860,7 @@ function requireAccessibleUserVm(input: ExistingVmAccessInput) {
   });
 }
 
-function requireUserVm(input: ExistingVmAccessInput) {
+export function requireUserVm(input: ExistingVmAccessInput) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
     const vm = yield* repo.findUserVm({
