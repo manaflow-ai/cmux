@@ -15,6 +15,12 @@ export interface HomeSettings {
    * now; read once message requests (16.4) exist.
    */
   readonly email_requests: boolean
+  /**
+   * DESIGN (home-messaging-invites) 2.4: a person whose verified email has the same company
+   * domain (never a public mailbox domain) reaches this user directly, as a teammate would;
+   * off sends them to message requests.
+   */
+  readonly trust_same_domain: boolean
 }
 
 /**
@@ -23,7 +29,7 @@ export interface HomeSettings {
  * `anyone`, which allows the base reach rule (a shared team or a connection)
  * without narrowing it.
  */
-export const DEFAULT_HOME_SETTINGS: HomeSettings = { discoverable_by_email: false, discoverable_by_phone: false, allow_requests_from: "anyone", email_requests: true }
+export const DEFAULT_HOME_SETTINGS: HomeSettings = { discoverable_by_email: false, discoverable_by_phone: false, allow_requests_from: "anyone", email_requests: true, trust_same_domain: true }
 
 export type HomeSettingsResult = { readonly ok: true; readonly settings: HomeSettings } | { readonly ok: false; readonly code: "invalid_settings" }
 
@@ -40,17 +46,18 @@ export const homeSettingsOf = (current: Partial<HomeSettings> | undefined): Home
     discoverable_by_email: pick("discoverable_by_email", flag),
     discoverable_by_phone: pick("discoverable_by_phone", flag),
     allow_requests_from: pick("allow_requests_from", (v) => ALLOW_REQUESTS_FROM.includes(v as AllowRequestsFrom)),
-    email_requests: pick("email_requests", flag)
+    email_requests: pick("email_requests", flag),
+    trust_same_domain: pick("trust_same_domain", flag)
   }
 }
 
-/** `home.settings.set {discoverable_by_email?, discoverable_by_phone?, allow_requests_from?, email_requests?}`: a partial update; at least one field. */
+/** `home.settings.set {discoverable_by_email?, discoverable_by_phone?, allow_requests_from?, email_requests?, trust_same_domain?}`: a partial update; at least one field. */
 export const reduceHomeSettings = (current: HomeSettings | undefined, params: unknown): HomeSettingsResult => {
   const base = homeSettingsOf(current)
   if (typeof params !== "object" || params === null) return { ok: false, code: "invalid_settings" }
-  const { discoverable_by_email: email, discoverable_by_phone: phone, allow_requests_from: allow, email_requests: requests } = params as Record<string, unknown>
-  if (email === undefined && phone === undefined && allow === undefined && requests === undefined) return { ok: false, code: "invalid_settings" }
-  if ([email, phone, requests].some((flag) => flag !== undefined && typeof flag !== "boolean")) return { ok: false, code: "invalid_settings" }
+  const { discoverable_by_email: email, discoverable_by_phone: phone, allow_requests_from: allow, email_requests: requests, trust_same_domain: domain } = params as Record<string, unknown>
+  if (email === undefined && phone === undefined && allow === undefined && requests === undefined && domain === undefined) return { ok: false, code: "invalid_settings" }
+  if ([email, phone, requests, domain].some((flag) => flag !== undefined && typeof flag !== "boolean")) return { ok: false, code: "invalid_settings" }
   if (allow !== undefined && !ALLOW_REQUESTS_FROM.includes(allow as AllowRequestsFrom)) return { ok: false, code: "invalid_settings" }
   return {
     ok: true,
@@ -58,7 +65,8 @@ export const reduceHomeSettings = (current: HomeSettings | undefined, params: un
       discoverable_by_email: (email as boolean | undefined) ?? base.discoverable_by_email,
       discoverable_by_phone: (phone as boolean | undefined) ?? base.discoverable_by_phone,
       allow_requests_from: (allow as AllowRequestsFrom | undefined) ?? base.allow_requests_from,
-      email_requests: (requests as boolean | undefined) ?? base.email_requests
+      email_requests: (requests as boolean | undefined) ?? base.email_requests,
+      trust_same_domain: (domain as boolean | undefined) ?? base.trust_same_domain
     }
   }
 }

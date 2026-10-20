@@ -113,9 +113,8 @@ Retry `send` with the same `id`; a duplicate is safe, while changed content for 
 id conflict. Bound bodies and metadata, bound wait time, and acknowledge only as the recipient.
 
 Mailbox state is local to one daemon. Use only the local Unix or LocalApp trust boundary with an
-attached sender or recipient. The mailbox auth follow-up adds a fail-closed refusal for Web and
-Peer origins (`mailbox_remote_refused`); until that fix is present on the daemon being driven,
-there is no safe remote mailbox route. Do not mistake attachment alone for remote authorization or
+attached sender or recipient. The daemon refuses Web and Peer origins with
+`mailbox_remote_refused`, so there is no remote mailbox route. Do not mistake attachment alone for remote authorization or
 route raw mailbox calls through a different origin. Federation needs a route that preserves sender
 identity and delivery scope.
 

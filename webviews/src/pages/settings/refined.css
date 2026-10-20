@@ -143,6 +143,30 @@
 :root[data-settings-look="refined"] .settings .theme-caption { margin-top: 12px; font-size: var(--text-detail); }
 :root[data-settings-look="refined"] .settings .theme-preview { border-radius: 8px; }
 
+/* A narrow pane stacks the categories over the content (layout.css): these refined rules outrank
+   that block, so the stacked shape is restated here (macOS 15 tester, 2026-10-19: the category strip
+   kept the column's side border, padding and 30 px rows, the content its left-cut card). */
+@media (max-width: 600px) {
+  :root[data-settings-look="refined"] .settings > .sidebar {
+    padding: 10px 12px 8px;
+    gap: 8px;
+    border-right: 0;
+    border-bottom: 1px solid var(--polish-edge);
+  }
+
+  :root[data-settings-look="refined"] .settings .section-link {
+    min-height: 0;
+    padding: 4px 8px;
+  }
+
+  :root[data-settings-look="refined"] .settings > .content {
+    margin: 0 6px 6px;
+    border-left: 1px solid var(--polish-edge);
+    border-top: 0;
+    border-radius: 0 0 12px 12px;
+  }
+}
+
 @media (max-width: 640px) {
   :root[data-settings-look="refined"]:has(.settings) { --sidebar-width: 156px; }
   :root[data-settings-look="refined"] .settings > .content { padding: 20px 12px 32px; }

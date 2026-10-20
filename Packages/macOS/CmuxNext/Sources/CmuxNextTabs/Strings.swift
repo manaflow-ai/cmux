@@ -6,12 +6,6 @@ enum Strings {
     static var axNewTab: String { String(localized: "tabs.ax.newTab", defaultValue: "New Tab", bundle: .module) }
     /// A pane's "…" at the tab bar's trailing end (`PaneToolbarView`).
     static var paneMore: String { String(localized: "paneToolbar.more", defaultValue: "More", bundle: .module) }
-    /// The one-time hint at a crowded strip's trailing end (`TabOverflowHintView`, cx-kp9b4).
-    static var overflowHint: String {
-        String(localized: "tabs.overflowHint", defaultValue: "Tabs are at their minimum width. Use scrolling tabs?", bundle: .module)
-    }
-    static var overflowHintUse: String { String(localized: "tabs.overflowHint.use", defaultValue: "Use Scrolling Tabs", bundle: .module) }
-    static var overflowHintDismiss: String { String(localized: "tabs.overflowHint.dismiss", defaultValue: "Dismiss", bundle: .module) }
     static var axClose: String { String(localized: "tabs.ax.close", defaultValue: "Close Tab", bundle: .module) }
     static func axOnMachine(_ name: String) -> String {
         String(localized: "tabs.ax.onMachine", defaultValue: "on \(name)", bundle: .module)

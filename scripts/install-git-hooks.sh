@@ -46,8 +46,11 @@ case "$PYTHON3_BIN" in
 esac
 install -m 0755 scripts/git-hooks/pre-commit "$TRUSTED_HOOK_DIR/pre-commit"
 install -m 0755 scripts/git-hooks/post-merge "$TRUSTED_HOOK_DIR/post-merge"
+# pre-push always runs the web lint; its namespace autofix part runs only when
+# the --namespace-fix helpers below are installed.
+install -m 0755 scripts/git-hooks/pre-push "$TRUSTED_HOOK_DIR/pre-push"
+install -m 0644 scripts/web_lint_prepush.py "$TRUSTED_HOOK_DIR/web_lint_prepush.py"
 if (( NAMESPACE_FIX )); then
-    install -m 0755 scripts/git-hooks/pre-push "$TRUSTED_HOOK_DIR/pre-push"
     install -m 0755 scripts/lint_swift_namespaces.py "$TRUSTED_HOOK_DIR/lint_swift_namespaces.py"
     install -m 0644 scripts/swift_source_mask.py "$TRUSTED_HOOK_DIR/swift_source_mask.py"
 fi
@@ -65,6 +68,7 @@ chmod 0644 "$TRUSTED_HOOK_DIR/python3-path"
 # shellcheck disable=SC2016 # printed literally, for the contributor's hook to expand
 printf -v TRUSTED_PRE_COMMIT '%q "$@" || exit $?' "$TRUSTED_HOOK_DIR/pre-commit"
 printf -v TRUSTED_POST_MERGE '%q "$@" || exit $?' "$TRUSTED_HOOK_DIR/post-merge"
+printf -v TRUSTED_PRE_PUSH '%q "$@" || exit $?' "$TRUSTED_HOOK_DIR/pre-push"
 printf -v TRUSTED_HOOKS_CONFIG 'git config core.hooksPath %q' "$TRUSTED_HOOK_DIR"
 warn_manual_wiring() {
     local hooks_dir="$1"
@@ -79,6 +83,11 @@ warn_manual_wiring() {
         echo "this line to $hooks_dir/post-merge as well:"
         echo ""
         echo "    $TRUSTED_POST_MERGE"
+        echo ""
+        echo "To run the web lint before each push (the checks CI runs on feat-cmux-next),"
+        echo "add this line to $hooks_dir/pre-push:"
+        echo ""
+        echo "    $TRUSTED_PRE_PUSH"
         echo ""
         echo "Or use only the trusted clone-local hooks in this clone (your existing"
         echo "hooks then stop running here): $TRUSTED_HOOKS_CONFIG"

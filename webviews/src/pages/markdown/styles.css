@@ -476,6 +476,16 @@ body {
   height: auto;
 }
 
+/* Ondine's monochrome diagrams take the page's colors (its defaults are black on white). */
+.md-diagram svg.ondine {
+  --ondine-fg: var(--page-text);
+  --ondine-bg: var(--page-elevated);
+  --ondine-muted: var(--page-text-2);
+  --ondine-line: var(--page-text-2);
+  --ondine-border: var(--page-text-2);
+  --ondine-surface-alt: color-mix(in srgb, var(--page-text) 8%, var(--page-elevated));
+}
+
 .md-code-diagram pre {
   display: none;
   border-top: 1px solid var(--cmux-md-border-color);
@@ -983,7 +993,7 @@ body {
 
 .md-reading-segment[data-checked] {
   background: var(--page-elevated);
-  box-shadow: 0 0 0 0.5px var(--page-separator);
+  box-shadow: 0 0 0 var(--cmux-hairline, 0.5px) var(--page-separator);
 }
 
 .md-reading-segment:has(input:focus-visible) {
@@ -1007,26 +1017,26 @@ body {
    so the `markdown` color settings still win over them. */
 :root[data-cmux-md-theme="light"] {
   color-scheme: light;
-  --page-text: #1d1d1f;
-  --page-text-2: #6e6e73;
-  --page-text-3: #8e8e93;
-  --page-text-disabled: #8e8e93;
-  --page-separator: #d2d2d7;
-  --page-hover: rgb(0 0 0 / 0.05);
-  --page-selection: rgb(0 0 0 / 0.08);
-  --page-elevated: #ffffff;
-  background: #ffffff;
+  --page-text: #1d1d1f; /* theme-fixed: markdown.theme paper, the same whatever the app theme */
+  --page-text-2: #6e6e73; /* theme-fixed: markdown.theme paper, the same whatever the app theme */
+  --page-text-3: #8e8e93; /* theme-fixed: markdown.theme paper, the same whatever the app theme */
+  --page-text-disabled: #8e8e93; /* theme-fixed: markdown.theme paper, the same whatever the app theme */
+  --page-separator: #d2d2d7; /* theme-fixed: markdown.theme paper, the same whatever the app theme */
+  --page-hover: rgb(0 0 0 / 0.05); /* theme-fixed: markdown.theme paper, the same whatever the app theme */
+  --page-selection: rgb(0 0 0 / 0.08); /* theme-fixed: markdown.theme paper, the same whatever the app theme */
+  --page-elevated: #ffffff; /* theme-fixed: markdown.theme paper, the same whatever the app theme */
+  background: #ffffff; /* theme-fixed: markdown.theme paper, the same whatever the app theme */
 }
 
 :root[data-cmux-md-theme="dark"] {
   color-scheme: dark;
-  --page-text: #e6e6e6;
-  --page-text-2: #a8a8a8;
-  --page-text-3: #808080;
-  --page-text-disabled: #808080;
-  --page-separator: #3a3a3a;
-  --page-hover: rgb(255 255 255 / 0.06);
-  --page-selection: rgb(255 255 255 / 0.1);
-  --page-elevated: #2a2a2a;
-  background: #1c1c1e;
+  --page-text: #e6e6e6; /* theme-fixed: markdown.theme paper, the same whatever the app theme */
+  --page-text-2: #a8a8a8; /* theme-fixed: markdown.theme paper, the same whatever the app theme */
+  --page-text-3: #808080; /* theme-fixed: markdown.theme paper, the same whatever the app theme */
+  --page-text-disabled: #808080; /* theme-fixed: markdown.theme paper, the same whatever the app theme */
+  --page-separator: #3a3a3a; /* theme-fixed: markdown.theme paper, the same whatever the app theme */
+  --page-hover: rgb(255 255 255 / 0.06); /* theme-fixed: markdown.theme paper, the same whatever the app theme */
+  --page-selection: rgb(255 255 255 / 0.1); /* theme-fixed: markdown.theme paper, the same whatever the app theme */
+  --page-elevated: #2a2a2a; /* theme-fixed: markdown.theme paper, the same whatever the app theme */
+  background: #1c1c1e; /* theme-fixed: markdown.theme paper, the same whatever the app theme */
 }
