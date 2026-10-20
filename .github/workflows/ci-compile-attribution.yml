@@ -52,6 +52,7 @@ concurrency:
 jobs:
   analyze:
     name: Analyze
+    environment: ci-attribution-agent
     if: ${{ github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || github.event.workflow_run.head_branch == 'main' && contains(fromJSON('["push","workflow_dispatch"]'), github.event.workflow_run.event) && contains(fromJSON('[".github/workflows/seed-derived-data.yml",".github/workflows/main-compile-probe.yml"]'), github.event.workflow_run.path)) }}
     # Analysis only reads trusted main history and the Actions/PR APIs. It
     # needs no secret or write token, so use the shared Linux runner pool.
@@ -112,6 +113,7 @@ jobs:
           retention-days: 14
 
   report:
+    environment: ci-attribution-agent
     # The headline is the job name, so the webhook feed carries the culprit.
     name: ${{ needs.analyze.outputs.headline || 'report' }}
     needs: analyze
@@ -190,6 +192,7 @@ jobs:
 
   fix:
     name: Fix forward or revert
+    environment: ci-attribution-agent
     needs: [analyze, report]
     if: ${{ needs.analyze.outputs.state == 'red' && needs.analyze.outputs.fix == 'true' && !inputs.dry_run && !inputs.head }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: holds the Claude token and the fix PR App key; CI_TRUSTED_RUNNER picks Blacksmith (default) or GitHub-hosted
