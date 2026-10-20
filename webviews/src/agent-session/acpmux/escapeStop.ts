@@ -26,7 +26,28 @@ export function escapeStopPress(armedAt: number | undefined, now: number, double
   return { stop: false, armedAt: now };
 }
 
-const MODIFIERS = new Set(["Shift", "Control", "Alt", "Meta", "CapsLock", "Fn"]);
+const MODIFIERS = new Set([
+  "Shift",
+  "Control",
+  "Alt",
+  "AltGraph",
+  "Meta",
+  "CapsLock",
+  "Fn",
+  "Dead",
+  "Process",
+  "Unidentified",
+]);
+
+/// Where an Esc that reaches the page counts as a press: a question card, which never answers on
+/// Esc and leaves it to the double press (plans/cmux-next/agent-questions.md), or a page with
+/// nothing focused. Other controls (sidebar rows, tooltips, the minimap) use Esc for themselves
+/// without claiming it, so it is not a press there.
+export function countsPageEscape(target: EventTarget | null): boolean {
+  if (!(target instanceof Element)) return true;
+  if (target === target.ownerDocument.body || target === target.ownerDocument.documentElement) return true;
+  return target.closest(".acpmux-question") !== null;
+}
 
 export type EscapeStop = {
   /// Whether the first press armed the stop: Stop shows the Esc hint.
@@ -118,8 +139,8 @@ export function useEscapeStop({
     };
   }, [armed]);
 
-  // An Esc no control took, with focus outside the composer. Menus, pickers, popovers and cards
-  // that own Esc prevent it or stop it on their element; the composer's own Esc is prevented too.
+  // An Esc no control took, on a question card or with nothing focused (countsPageEscape). Menus,
+  // pickers and popovers that own Esc prevent it or stop it; the composer's own Esc is prevented.
   // The decision waits until the whole dispatch is over (a microtask would run between listeners),
   // and the key stays unclaimed, so the pane's own listeners still see it as the card left it.
   useEffect(() => {
@@ -129,6 +150,7 @@ export function useEscapeStop({
       if (event.key !== "Escape" || event.defaultPrevented) return;
       if (event.isComposing || event.keyCode === 229) return;
       if (event.shiftKey || event.altKey || event.metaKey || event.ctrlKey) return;
+      if (!countsPageEscape(event.target)) return;
       const timer = window.setTimeout(() => {
         timers.delete(timer);
         if (!event.defaultPrevented) pressRef.current(event.repeat);
