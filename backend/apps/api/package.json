@@ -11,6 +11,7 @@
     "deploy:development": "bash ../../scripts/deploy-worker.sh development"
   },
   "dependencies": {
+    "@cmux/vm": "workspace:*",
     "@cmux/db": "workspace:*",
     "@cmux/home-core": "workspace:*",
     "@cmux/ownership": "workspace:*",

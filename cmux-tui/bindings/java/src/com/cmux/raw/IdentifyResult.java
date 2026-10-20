@@ -16,8 +16,10 @@ public final class IdentifyResult implements WireValue {
     private final Field<String> buildId;
     private final Field<List<String>> capabilities;
     private final Field<String> cliPath;
+    private final Field<String> crateVersion;
     private final String generation;
     private final Field<String> ghosttyCommit;
+    private final Field<String> install;
     private final Field<String> launchSnapshotPath;
     private final Field<Boolean> lifecycleReady;
     private final Field<List<String>> machineCapabilities;
@@ -31,6 +33,7 @@ public final class IdentifyResult implements WireValue {
     private final String session;
     private final Field<String> sessionId;
     private final UInt64 terminalRevision;
+    private final Field<String> updateCommand;
     private final String version;
     private final UInt64 workspaceRevision;
 
@@ -40,9 +43,11 @@ public final class IdentifyResult implements WireValue {
         this.buildId = builder.buildId;
         this.capabilities = builder.capabilities.map(value -> List.copyOf(value));
         this.cliPath = builder.cliPath;
+        this.crateVersion = builder.crateVersion;
         if (!builder.generationSet) throw new IllegalArgumentException("generation is required");
         this.generation = Wire.nonNull(builder.generation, "generation");
         this.ghosttyCommit = builder.ghosttyCommit;
+        this.install = builder.install;
         this.launchSnapshotPath = builder.launchSnapshotPath;
         this.lifecycleReady = builder.lifecycleReady;
         this.machineCapabilities = builder.machineCapabilities.map(value -> List.copyOf(value));
@@ -61,6 +66,7 @@ public final class IdentifyResult implements WireValue {
         this.sessionId = builder.sessionId;
         if (!builder.terminalRevisionSet) throw new IllegalArgumentException("terminal_revision is required");
         this.terminalRevision = Wire.nonNull(builder.terminalRevision, "terminal_revision");
+        this.updateCommand = builder.updateCommand;
         if (!builder.versionSet) throw new IllegalArgumentException("version is required");
         this.version = Wire.nonNull(builder.version, "version");
         if (!builder.workspaceRevisionSet) throw new IllegalArgumentException("workspace_revision is required");
@@ -75,9 +81,11 @@ public final class IdentifyResult implements WireValue {
     public Field<String> buildId() { return buildId; }
     public Field<List<String>> capabilities() { return capabilities; }
     public Field<String> cliPath() { return cliPath; }
+    public Field<String> crateVersion() { return crateVersion; }
     public Long daemonHandoff() { return 1L; }
     public String generation() { return generation; }
     public Field<String> ghosttyCommit() { return ghosttyCommit; }
+    public Field<String> install() { return install; }
     public Field<String> launchSnapshotPath() { return launchSnapshotPath; }
     public Field<Boolean> lifecycleReady() { return lifecycleReady; }
     public Field<List<String>> machineCapabilities() { return machineCapabilities; }
@@ -91,6 +99,7 @@ public final class IdentifyResult implements WireValue {
     public String session() { return session; }
     public Field<String> sessionId() { return sessionId; }
     public UInt64 terminalRevision() { return terminalRevision; }
+    public Field<String> updateCommand() { return updateCommand; }
     public String version() { return version; }
     public UInt64 workspaceRevision() { return workspaceRevision; }
 
@@ -119,6 +128,10 @@ public final class IdentifyResult implements WireValue {
         if (!Wire.isMissing(rawCliPath)) {
             builder.cliPath(rawCliPath == null ? null : Wire.string(rawCliPath, "IdentifyResult.cli_path"));
         }
+        Object rawCrateVersion = Wire.optional(object, "crate_version");
+        if (!Wire.isMissing(rawCrateVersion)) {
+            builder.crateVersion(rawCrateVersion == null ? null : Wire.string(rawCrateVersion, "IdentifyResult.crate_version"));
+        }
         Object rawDaemonHandoff = Wire.required(object, "daemon_handoff");
         ProtocolSupport.literal(rawDaemonHandoff, 1L, "IdentifyResult.daemon_handoff");
         Object rawGeneration = Wire.required(object, "generation");
@@ -126,6 +139,10 @@ public final class IdentifyResult implements WireValue {
         Object rawGhosttyCommit = Wire.optional(object, "ghostty_commit");
         if (!Wire.isMissing(rawGhosttyCommit)) {
             builder.ghosttyCommit(rawGhosttyCommit == null ? null : Wire.string(rawGhosttyCommit, "IdentifyResult.ghostty_commit"));
+        }
+        Object rawInstall = Wire.optional(object, "install");
+        if (!Wire.isMissing(rawInstall)) {
+            builder.install(rawInstall == null ? null : Wire.string(rawInstall, "IdentifyResult.install"));
         }
         Object rawLaunchSnapshotPath = Wire.optional(object, "launch_snapshot_path");
         if (!Wire.isMissing(rawLaunchSnapshotPath)) {
@@ -169,6 +186,10 @@ public final class IdentifyResult implements WireValue {
         }
         Object rawTerminalRevision = Wire.required(object, "terminal_revision");
         builder.terminalRevision(Wire.uint64(rawTerminalRevision, "IdentifyResult.terminal_revision"));
+        Object rawUpdateCommand = Wire.optional(object, "update_command");
+        if (!Wire.isMissing(rawUpdateCommand)) {
+            builder.updateCommand(rawUpdateCommand == null ? null : Wire.string(rawUpdateCommand, "IdentifyResult.update_command"));
+        }
         Object rawVersion = Wire.required(object, "version");
         builder.version(Wire.string(rawVersion, "IdentifyResult.version"));
         Object rawWorkspaceRevision = Wire.required(object, "workspace_revision");
@@ -185,9 +206,11 @@ public final class IdentifyResult implements WireValue {
         Wire.put(object, "build_id", buildId);
         Wire.put(object, "capabilities", capabilities);
         Wire.put(object, "cli_path", cliPath);
+        Wire.put(object, "crate_version", crateVersion);
         Wire.put(object, "daemon_handoff", 1L);
         Wire.put(object, "generation", generation);
         Wire.put(object, "ghostty_commit", ghosttyCommit);
+        Wire.put(object, "install", install);
         Wire.put(object, "launch_snapshot_path", launchSnapshotPath);
         Wire.put(object, "lifecycle_ready", lifecycleReady);
         Wire.put(object, "machine_capabilities", machineCapabilities);
@@ -201,6 +224,7 @@ public final class IdentifyResult implements WireValue {
         Wire.put(object, "session", session);
         Wire.put(object, "session_id", sessionId);
         Wire.put(object, "terminal_revision", terminalRevision);
+        Wire.put(object, "update_command", updateCommand);
         Wire.put(object, "version", version);
         Wire.put(object, "workspace_revision", workspaceRevision);
         return Collections.unmodifiableMap(object);
@@ -209,11 +233,11 @@ public final class IdentifyResult implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof IdentifyResult that)) return false;
-        return Objects.equals(apiRevision, that.apiRevision) && Objects.equals(buildCommit, that.buildCommit) && Objects.equals(buildId, that.buildId) && Objects.equals(capabilities, that.capabilities) && Objects.equals(cliPath, that.cliPath) && Objects.equals(generation, that.generation) && Objects.equals(ghosttyCommit, that.ghosttyCommit) && Objects.equals(launchSnapshotPath, that.launchSnapshotPath) && Objects.equals(lifecycleReady, that.lifecycleReady) && Objects.equals(machineCapabilities, that.machineCapabilities) && Objects.equals(machineId, that.machineId) && Objects.equals(machineName, that.machineName) && Objects.equals(machinePlatform, that.machinePlatform) && Objects.equals(minApiRevision, that.minApiRevision) && Objects.equals(pid, that.pid) && Objects.equals(protocol, that.protocol) && Objects.equals(registryId, that.registryId) && Objects.equals(session, that.session) && Objects.equals(sessionId, that.sessionId) && Objects.equals(terminalRevision, that.terminalRevision) && Objects.equals(version, that.version) && Objects.equals(workspaceRevision, that.workspaceRevision);
+        return Objects.equals(apiRevision, that.apiRevision) && Objects.equals(buildCommit, that.buildCommit) && Objects.equals(buildId, that.buildId) && Objects.equals(capabilities, that.capabilities) && Objects.equals(cliPath, that.cliPath) && Objects.equals(crateVersion, that.crateVersion) && Objects.equals(generation, that.generation) && Objects.equals(ghosttyCommit, that.ghosttyCommit) && Objects.equals(install, that.install) && Objects.equals(launchSnapshotPath, that.launchSnapshotPath) && Objects.equals(lifecycleReady, that.lifecycleReady) && Objects.equals(machineCapabilities, that.machineCapabilities) && Objects.equals(machineId, that.machineId) && Objects.equals(machineName, that.machineName) && Objects.equals(machinePlatform, that.machinePlatform) && Objects.equals(minApiRevision, that.minApiRevision) && Objects.equals(pid, that.pid) && Objects.equals(protocol, that.protocol) && Objects.equals(registryId, that.registryId) && Objects.equals(session, that.session) && Objects.equals(sessionId, that.sessionId) && Objects.equals(terminalRevision, that.terminalRevision) && Objects.equals(updateCommand, that.updateCommand) && Objects.equals(version, that.version) && Objects.equals(workspaceRevision, that.workspaceRevision);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(apiRevision, buildCommit, buildId, capabilities, cliPath, generation, ghosttyCommit, launchSnapshotPath, lifecycleReady, machineCapabilities, machineId, machineName, machinePlatform, minApiRevision, pid, protocol, registryId, session, sessionId, terminalRevision, version, workspaceRevision); }
+    public int hashCode() { return Objects.hash(apiRevision, buildCommit, buildId, capabilities, cliPath, crateVersion, generation, ghosttyCommit, install, launchSnapshotPath, lifecycleReady, machineCapabilities, machineId, machineName, machinePlatform, minApiRevision, pid, protocol, registryId, session, sessionId, terminalRevision, updateCommand, version, workspaceRevision); }
 
     @Override
     public String toString() { return "IdentifyResult" + toWire(); }
@@ -224,9 +248,11 @@ public final class IdentifyResult implements WireValue {
         private Field<String> buildId = Field.omitted();
         private Field<List<String>> capabilities = Field.omitted();
         private Field<String> cliPath = Field.omitted();
+        private Field<String> crateVersion = Field.omitted();
         private String generation;
         private boolean generationSet;
         private Field<String> ghosttyCommit = Field.omitted();
+        private Field<String> install = Field.omitted();
         private Field<String> launchSnapshotPath = Field.omitted();
         private Field<Boolean> lifecycleReady = Field.omitted();
         private Field<List<String>> machineCapabilities = Field.omitted();
@@ -245,6 +271,7 @@ public final class IdentifyResult implements WireValue {
         private Field<String> sessionId = Field.omitted();
         private UInt64 terminalRevision;
         private boolean terminalRevisionSet;
+        private Field<String> updateCommand = Field.omitted();
         private String version;
         private boolean versionSet;
         private UInt64 workspaceRevision;
@@ -270,6 +297,10 @@ public final class IdentifyResult implements WireValue {
             this.cliPath = Field.ofNullable(value);
             return this;
         }
+        public Builder crateVersion(String value) {
+            this.crateVersion = Field.ofNullable(value);
+            return this;
+        }
         public Builder generation(String value) {
             this.generation = value;
             this.generationSet = true;
@@ -277,6 +308,10 @@ public final class IdentifyResult implements WireValue {
         }
         public Builder ghosttyCommit(String value) {
             this.ghosttyCommit = Field.ofNullable(value);
+            return this;
+        }
+        public Builder install(String value) {
+            this.install = Field.ofNullable(value);
             return this;
         }
         public Builder launchSnapshotPath(String value) {
@@ -334,6 +369,10 @@ public final class IdentifyResult implements WireValue {
         public Builder terminalRevision(UInt64 value) {
             this.terminalRevision = value;
             this.terminalRevisionSet = true;
+            return this;
+        }
+        public Builder updateCommand(String value) {
+            this.updateCommand = Field.ofNullable(value);
             return this;
         }
         public Builder version(String value) {
