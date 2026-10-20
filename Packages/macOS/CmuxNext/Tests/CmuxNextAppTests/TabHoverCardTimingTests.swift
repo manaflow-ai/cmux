@@ -113,7 +113,7 @@ import Testing
         #expect(s.shows("c"), "the open card did not swap to the next tab at once")
     }
 
-    @Test func theCardStaysWithThePointerOnItAndLeavingTheTabElsewhereHidesIt() async throws {
+    @Test func theCardStaysWithThePointerOnItAndFadesOutAtOnceOffIt() async throws {
         let s = Self.strip()
         defer { s.tearDown() }
         try await Self.open("a", s)
@@ -125,9 +125,18 @@ import Testing
         s.clock.advance(by: HoverCardTiming.reshowWindow + .milliseconds(100))
         try await Self.settle()
         #expect(s.shows("a"), "the card hid with the pointer resting on it")
-        // Off the card, past its far edge (the strip is flipped: y grows down): it hides at once.
-        s.move(to: CGPoint(x: card.midX, y: card.maxY + 40))
-        #expect(!s.showsAny, "the card stayed after the pointer left it")
+        // Off the card and off the strip: it fades out on this move, with no grace timer first.
+        s.move(to: CGPoint(x: s.strip.bounds.midX, y: s.strip.bounds.minY - 120))
+        #expect(!s.showsAny, "the card stayed after the pointer left it: \(s.coordinator.report["phase"] ?? "-")")
+        let panel = try #require(s.coordinator.panel)
+        #expect(!panel.isShowingCard, "the fade did not start on the move off the card")
+        let fade = Motion.duration(.fadeOut)
+        let start = ContinuousClock.now
+        while panel.isVisible, panel.alphaValue > 0.001, ContinuousClock.now - start < .seconds(fade + 1) {
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        #expect(!panel.isVisible || panel.alphaValue <= 0.001, "the card was still at alpha \(panel.alphaValue)")
+        #expect(ContinuousClock.now - start <= .seconds(fade + 0.25), "the fade ran past its \(fade) s")
         // Back onto a tab within the grace: its card at once.
         s.move(to: try s.center("b"))
         #expect(s.shows("b"), "a tab reached within the grace waited for the delay")
