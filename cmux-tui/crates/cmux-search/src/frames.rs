@@ -23,9 +23,23 @@ impl ScreenFrames {
     /// Whether `frame` (the screen text of `terminal`) should be indexed;
     /// when it should, it becomes the terminal's last kept frame.
     pub fn offer(&mut self, terminal: &str, frame: &str) -> bool {
-        // Red: dedupe is not written yet.
-        let _ = (terminal, frame, &self.last, MIN_CHANGED_LINES, hash);
-        false
+        let lines: Vec<u64> = frame.lines().map(|line| hash(line.trim_end())).collect();
+        if lines.iter().all(|&line| line == hash("")) {
+            return false;
+        }
+        let keep = match self.last.get(terminal) {
+            None => true,
+            Some(previous) => {
+                let longest = previous.len().max(lines.len());
+                let changed =
+                    (0..longest).filter(|&index| previous.get(index) != lines.get(index)).count();
+                changed >= MIN_CHANGED_LINES
+            }
+        };
+        if keep {
+            self.last.insert(terminal.to_owned(), lines);
+        }
+        keep
     }
 
     /// Forgets `terminal` (closed).

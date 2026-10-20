@@ -259,9 +259,17 @@ impl SearchEngine {
 
     /// The best `query.limit` hits over names and content, best first.
     pub fn search(&self, query: &Query) -> SearchResult {
-        // Red: the query path is not written yet.
-        let _ = (query, parse_words, Self::search_names, Self::search_content);
-        SearchResult::default()
+        let started = Instant::now();
+        let words = parse_words(&query.text);
+        if words.is_empty() || query.limit == 0 {
+            return SearchResult { took: started.elapsed(), ..SearchResult::default() };
+        }
+        let mut hits = self.search_names(&words, query);
+        let (content, partial) = self.search_content(&words, query, started);
+        hits.extend(content);
+        hits.sort_by(|a, b| b.score.total_cmp(&a.score).then(b.at_ms.cmp(&a.at_ms)));
+        hits.truncate(query.limit);
+        SearchResult { hits, partial, took: started.elapsed() }
     }
 
     fn search_names(&self, words: &[Vec<u8>], query: &Query) -> Vec<Hit> {
