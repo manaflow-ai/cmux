@@ -23,6 +23,7 @@ members = [
     "crates/cmux-cloud-cli",
     "crates/cmux-conversation",
     "crates/cmux-chief",
+    "crates/cmux-workflow",
     "bindings/rust",
     "bindings/rust-sidebar",
     "bindings/rust-daemon-client",

@@ -1,0 +1,21 @@
+[package]
+name = "cmux-workflow"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Native cmux workflows: a code-mode script over agents and machine steps, with a journal, resume, output schemas and a stall policy"
+
+[dependencies]
+jsonschema = { workspace = true }
+rquickjs = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints]
+workspace = true
