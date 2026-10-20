@@ -172,9 +172,25 @@ public final class HomeNativeTranscriptView: NSView {
     }
 
     /// The header avatar's picture, over its text; nil shows the text.
+    /// The header's picture as given; it always shows still (its first frame). MessagesLab's
+    /// header redraws the picture into its clipped disc, where a GIF cannot move, so
+    /// `home.chiefPictureMotion` governs the Home pages' pictures, not this one.
     public var avatarPicture: NSImage? {
-        get { transcript.avatarPicture }
-        set { transcript.avatarPicture = newValue }
+        get { givenAvatar }
+        set {
+            givenAvatar = newValue
+            transcript.avatarPicture = newValue.map(Self.firstFrame)
+        }
+    }
+    private var givenAvatar: NSImage?
+
+    /// An animated picture's first frame as a still image; any other picture as it is.
+    static func firstFrame(_ image: NSImage) -> NSImage {
+        guard let rep = image.representations.lazy.compactMap({ $0 as? NSBitmapImageRep }).first,
+              (rep.value(forProperty: .frameCount) as? Int ?? 1) > 1 else { return image }
+        rep.setProperty(.currentFrame, withValue: 0)
+        guard let frame = rep.cgImage else { return image }
+        return NSImage(cgImage: frame, size: image.size)
     }
 
     /// The name pill's VoiceOver help.
