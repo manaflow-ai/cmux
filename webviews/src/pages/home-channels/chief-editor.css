@@ -212,6 +212,10 @@
 }
 .ce-grant-items,
 .ce-byo-kinds {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
   display: flex;
   flex-wrap: wrap;
   gap: 4px 16px;

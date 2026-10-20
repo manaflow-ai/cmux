@@ -5,7 +5,7 @@
 // sent. The host then runs a real hello turn (doctor, prompt) and the page shows Checking…, then
 // that it answered, or the step that failed and its fix; the editor saves a new harness only
 // after its check passed.
-import { useEffect, useId, useState, type InputHTMLAttributes, type KeyboardEvent } from "react";
+import { useEffect, useId, useState, type InputHTMLAttributes } from "react";
 import type { Strings } from "../shared/i18n";
 import { describeError, type ChiefEditorService } from "./chiefEditing";
 import {
@@ -317,16 +317,10 @@ function BringYourOwn({
       className="ce-byo"
       data-chief-byo=""
       aria-busy={busy || undefined}
-      // Return in a field adds this backend; it never saves the Chief (the page's form).
-      onKeyDown={(event: KeyboardEvent<HTMLFieldSetElement>) => {
-        if (event.key !== "Enter" || (event.target as HTMLElement).tagName !== "INPUT") return;
-        event.preventDefault();
-        event.stopPropagation();
-        void submit();
-      }}
+      // Return in a field adds this backend (ChiefPage's submit clicks the Add button).
     >
       <legend className="ce-label">{t("chief.byo.title")}</legend>
-      <span className="ce-byo-kinds" role="radiogroup" aria-label={t("chief.byo.kind")}>
+      <fieldset className="ce-byo-kinds" aria-label={t("chief.byo.kind")}>
         {kinds.map(([value, label]) => (
           <label key={value} className="ce-grant-item">
             <input
@@ -341,7 +335,7 @@ function BringYourOwn({
             <span>{label}</span>
           </label>
         ))}
-      </span>
+      </fieldset>
       {text(t("chief.byo.name"), name, setName, { placeholder: t("chief.byo.namePlaceholder"), maxLength: 64 })}
       {endpoint ? (
         <>
@@ -384,6 +378,7 @@ function BringYourOwn({
         <button
           type="button"
           className="ce-button primary"
+          data-chief-byo-add=""
           disabled={!complete || busy}
           onClick={() => void submit()}
         >

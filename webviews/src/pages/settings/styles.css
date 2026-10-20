@@ -1185,7 +1185,7 @@ mark {
   cursor: default;
 }
 .chiefs-row:hover {
-  background: var(--polish-hover, color-mix(in srgb, CanvasText 5%, transparent));
+  background: var(--input-bg);
 }
 .chiefs-row .row-main {
   flex: 1;
@@ -1203,7 +1203,7 @@ mark {
   height: 28px;
   border-radius: 7px;
   overflow: hidden;
-  background: color-mix(in srgb, CanvasText 8%, transparent);
+  background: var(--input-bg);
 }
 .chiefs-picture img {
   width: 100%;
