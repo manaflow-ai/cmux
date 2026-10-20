@@ -152,7 +152,8 @@ await requireBrowserLane("markdown-selection-drag.test.ts", async () => {
       test("Cmd-A selects the document and reveals no syntax", async () => {
         const page = await open(engine);
         await park(page);
-        await page.keyboard.press("Meta+a");
+        // Cmd-A on the Mac; on the Linux runners ProseMirror's Select All is Ctrl-A.
+        await page.keyboard.press("ControlOrMeta+a");
         await rest(page);
         expect(await revealed(page)).toBe(0);
         expect(await page.locator(".md-prose .md-math-inline").count()).toBe(1);

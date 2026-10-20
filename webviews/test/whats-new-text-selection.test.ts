@@ -121,7 +121,7 @@ await requireBrowserLane("whats-new-text-selection.test.ts", async () => {
 
       test("the Updated card's changes select with a drag and a double-click, and fire nothing", async () => {
         const page = await open("updated");
-        // The top change is the card's headline (e98d3a1ad827); the next ones are its bullets.
+        // The top change is the card's headline and the rest are its bullets (e98d3a1ad827).
         await dragAcross(page, ".wn-card-headline");
         expect(await selection(page)).toContain("groups at a");
         expect(await calls(page)).toEqual({ openChangelog: 0, dismiss: 0 });
@@ -133,8 +133,8 @@ await requireBrowserLane("whats-new-text-selection.test.ts", async () => {
         expect(await calls(page)).toEqual({ openChangelog: 0, dismiss: 0 });
         expect(await page.locator(".wn-card").count()).toBe(1);
 
-        // Its eyebrow and the count of the rest are text too. The eyebrow reads "Nightly · Oct 19";
-        // the raw build is only its tooltip.
+        // Its eyebrow and the count of the rest are text too.
+        // The eyebrow says "Nightly · Oct 19"; the raw build is only its tooltip (e98d3a1ad827).
         await dragAcross(page, ".wn-card-eyebrow");
         expect(await selection(page)).toContain("Oct 19");
         await page.close();
@@ -162,7 +162,7 @@ await requireBrowserLane("whats-new-text-selection.test.ts", async () => {
             height: li.getBoundingClientRect().height,
             line: parseFloat(getComputedStyle(li).lineHeight),
           }));
-        // The headline takes the first change, so the bullets are the short one, then the long one.
+        // The bullets start after the headline's change: "Wide tables…", then the long one.
         const short = await metrics(0);
         const long = await metrics(1);
         // One line for a short title; two lines (not one, not three) for the long one.

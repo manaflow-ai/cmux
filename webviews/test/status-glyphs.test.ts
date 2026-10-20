@@ -23,10 +23,12 @@ await requireBrowserLane("status-glyphs.test.ts", async () => {
   const { createServer } = await import("vite");
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
   let browser: Browser | undefined;
-  // The Codex-like set (Leo's team, 2026-10-14): its states' glyphs, in order (working, waiting,
-  // permission, done, error). A wait is the attention dot (no talk bubble, Lawrence 2026-10-20), so
-  // waiting and done share the dot and differ by color.
+  // The Codex-like set (Leo's team, 2026-10-14): its states' glyphs, in order (idle, waiting,
+  // permission, done, error). A wait is the attention dot, no talk bubble (3207401535b6), so the
+  // set draws the dot twice: the wait's in the warning color, done's in Codex's blue.
   const CODEX = ["idle", "dot", "shieldLine", "dot", "info"];
+  const CODEX_WAITING = 1;
+  const CODEX_DONE = 3;
   const url = (variant: string, scheme: string) =>
     `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}/gallery/frame.html?entry=ui.status-glyphs&variant=${variant}&colorScheme=${scheme}`;
 
@@ -122,13 +124,16 @@ await requireBrowserLane("status-glyphs.test.ts", async () => {
       [9, 10, 0],
       [10, 10, 1],
     ],
+    // The attention dot (301bd2794ea1): a disc of radius 6 at the center, its extremes on pixel edges.
     waiting: [
       [10, 3, 0],
       [10, 4, 1],
-      [3, 10, 0],
-      [4, 10, 1],
       [10, 15, 1],
       [10, 16, 0],
+      [3, 10, 0],
+      [4, 10, 1],
+      [15, 10, 1],
+      [16, 10, 0],
     ],
     permission: [
       [1, 6, 0],
@@ -166,7 +171,7 @@ await requireBrowserLane("status-glyphs.test.ts", async () => {
     ["codex-wallpaper", "dark"],
   ] as const) {
     for (const scale of [1, 2]) {
-      test(`${variant} ${scheme} @${scale}x: Codex-like line glyphs, a blue done dot, still, apart by shape or color`, async () => {
+      test(`${variant} ${scheme} @${scale}x: Codex-like line glyphs, a blue done dot, still, apart by shape`, async () => {
         const { pixels, glyphs: drawn } = await glyphs(variant, scheme, scale);
         expect(drawn.map((glyph) => glyph.name)).toEqual(CODEX);
         for (const glyph of drawn) {
@@ -177,19 +182,19 @@ await requireBrowserLane("status-glyphs.test.ts", async () => {
           const inked = ink(glyph.alpha).length / (pixels * pixels);
           if (glyph.name !== "dot") expect(`${glyph.name} ink ${inked < 0.4}`).toBe(`${glyph.name} ink true`);
         }
-        // Codex's blue for done, and the wait's attention dot is not that blue; the error's red is the
-        // theme's danger color, never the permission grey.
-        const [, waiting, permission, done, error] = drawn.map((glyph) => glyph.color);
-        expect(done).toBe("rgb(57, 130, 245)");
-        expect(waiting).not.toBe(done);
-        expect(error).not.toBe(permission);
+        // Codex's blue for done; the wait's dot and the error's red are other colors.
+        const color = (name: string) => drawn.find((glyph) => glyph.name === name)!.color;
+        const waiting = drawn[CODEX_WAITING]!.color;
+        expect(drawn[CODEX_DONE]!.color).toBe("rgb(57, 130, 245)");
+        expect(waiting).not.toBe(drawn[CODEX_DONE]!.color);
+        expect(color("info")).not.toBe(waiting);
         // The error's ring holds an i the still work ring lacks: 10 whole pixels at 1x, 16 at 2x (a
         // 2x2 dot and a 2x6 stem), and the two differ in color too (grey and red). Other pairs: 10 and 30.
         const least = (a: string, b: string) => (scale === 1 ? 10 : [a, b].sort().join("/") === "idle/info" ? 16 : 30);
         for (let i = 0; i < drawn.length; i++) {
           for (let j = i + 1; j < drawn.length; j++) {
-            // The waiting and done dots share a shape; their colors differ (above).
-            if (drawn[i]!.name === drawn[j]!.name) continue;
+            // The wait's dot and done's are one shape, told apart by color (checked above).
+            if (i === CODEX_WAITING && j === CODEX_DONE) continue;
             const count = differ(drawn[i]!.alpha, drawn[j]!.alpha);
             expect(`${drawn[i]!.name}/${drawn[j]!.name} ${count >= least(drawn[i]!.name, drawn[j]!.name)}`).toBe(
               `${drawn[i]!.name}/${drawn[j]!.name} true`,

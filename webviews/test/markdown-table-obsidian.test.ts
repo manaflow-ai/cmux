@@ -169,7 +169,7 @@ await requireBrowserLane("markdown-table-obsidian.test.ts", async () => {
         // The page sends the width to the host (cmux.markdown.setTableWidths) after the drag, and the
         // gallery host stores it a task later: reload only once it has, or the reload races the write.
         await page.waitForFunction(() =>
-          Object.keys(localStorage).some((key) => key.startsWith("cmux.gallery.markdown.tableWidths:")),
+          Object.keys(sessionStorage).some((key) => key.startsWith("cmux.gallery.markdown.tableWidths:")),
         );
 
         await load(page);

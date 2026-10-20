@@ -62,6 +62,17 @@ export async function mountMarkdownPage(state: MarkdownPageVariant, context: Sta
       ...(context.env.fontFamily && { family: context.env.fontFamily }),
       ...(context.env.fontSize && { size: context.env.fontSize }),
     };
+  // The app keeps a file's table column widths with the file (`cmux.markdown.setTableWidths`, its
+  // xattr) and sends them back in the config. Here the tab's session storage stands in, so the
+  // widths outlive a reload of the frame as they outlive a reopen in the app.
+  const widthsKey = (path: string) => `cmux.gallery.markdown.tableWidths:${path}`;
+  const tableWidths = (path: string): unknown => {
+    try {
+      return JSON.parse(sessionStorage.getItem(widthsKey(path)) ?? "null");
+    } catch {
+      return null;
+    }
+  };
   const config = (path: string) => {
     const file = files.get(path);
     if (!file) throw new HostError("cmux.markdown.not_found", path);
@@ -69,6 +80,7 @@ export async function mountMarkdownPage(state: MarkdownPageVariant, context: Sta
       path,
       text: file.text,
       hash: file.hash,
+      tableWidths: tableWidths(path),
       readOnly: state.readOnly === true,
       githubRepository: state.githubRepository,
       assetBase: "/__gallery/none/",
@@ -76,19 +88,7 @@ export async function mountMarkdownPage(state: MarkdownPageVariant, context: Sta
       settings,
       themeCSS: state.themeCSS ?? "",
       appearance: context.appearance,
-      ...(widths(path) !== undefined && { tableWidths: widths(path) }),
     };
-  };
-  // The app keeps a file's table column widths with the file (its extended attribute) and sends
-  // them back in the config; here the frame's storage stands in, so they outlive a reload.
-  const widthsKey = (path: string) => `cmux.gallery.markdown.tableWidths:${path}`;
-  const widths = (path: string): unknown => {
-    try {
-      const saved = localStorage.getItem(widthsKey(path));
-      return saved === null ? undefined : JSON.parse(saved);
-    } catch {
-      return undefined;
-    }
   };
   const dir = state.path.replace(/[^/]*$/, "");
   const host = installMockHost(
@@ -118,12 +118,12 @@ export async function mountMarkdownPage(state: MarkdownPageVariant, context: Sta
       "cmux.markdown.openLink": () => null,
       "cmux.markdown.setTableWidths": (params: { path: string; value: unknown }) => {
         try {
-          if (params.value === null) localStorage.removeItem(widthsKey(params.path));
-          else localStorage.setItem(widthsKey(params.path), JSON.stringify(params.value));
+          if (params.value) sessionStorage.setItem(widthsKey(params.path), JSON.stringify(params.value));
+          else sessionStorage.removeItem(widthsKey(params.path));
         } catch {
-          // A refused storage only loses the widths on the next reload.
+          // Refused storage only loses the widths on the next reload.
         }
-        return { attribute: true, fallback: true };
+        return null;
       },
       "cmux.markdown.recents": () => ({
         items: Object.keys(state.files ?? {}).map((path, index) => ({

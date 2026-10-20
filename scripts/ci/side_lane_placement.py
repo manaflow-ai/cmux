@@ -43,7 +43,8 @@ contains(' <key> ') matches whole keys only:
 - `blacksmith_12_jobs`, `blacksmith_6_jobs` and `retry_runner`: the jobs no idle
   mini took that Blacksmith 12 vCPU, then 6 vCPU, has a free slot for now (and
   whose queue is not stalled), and the Blacksmith label of the bot's overflow
-  attempt (next_macos_cascade.py);
+  attempt while one has a free slot, else empty (next_macos_cascade.py; the
+  workflow reads it as `free_retry_runner`);
 - `hosted_jobs` and `hosted_runner`: the overflow hosted macos-26 takes, and
   that label when it takes any (next_macos_cascade.py).
 """
