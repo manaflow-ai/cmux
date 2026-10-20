@@ -315,6 +315,7 @@ final class AppServices {
             let target = ActionTargetRef(kind: .browserProfile, id: browserProfiles.profileID(ofTab: tab))
             return self.registry.makeContextMenu(for: .browserProfile, target: target)
         }
+        cache.browserTabs.browserEnabled = { [weak self] in self?.settings?.snapshot.linkRouting.browserEnabled ?? true }
         cache.browserTabs.resolveProfile = { [weak self] pane, explicit in
             guard let self else { return explicit }
             return browserProfiles.profileForNewTab(in: pane.handle, on: machines.daemon(forPane: pane), explicit: explicit)

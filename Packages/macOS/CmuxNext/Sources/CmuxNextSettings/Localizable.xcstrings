@@ -129201,6 +129201,270 @@
           }
         }
       }
+    },
+    "settings.browser.enabled": {
+      "comment": "Settings row in Browser > Opening Links: turns the cmux browser on or off.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enable cmux Browser"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تفعيل متصفح cmux"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Omogući cmux preglednik"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Slå cmux-browser til"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-Browser aktivieren"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Activar el navegador de cmux"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Activer le navigateur cmux"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Attiva il browser di cmux"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux ブラウザを有効にする"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បើកកម្មវិធីរុករក cmux"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 브라우저 사용"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Slå på cmux-nettleser"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Włącz przeglądarkę cmux"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ativar o navegador do cmux"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Включить браузер cmux"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เปิดใช้เบราว์เซอร์ cmux"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Tarayıcısını Etkinleştir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Увімкнути браузер cmux"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bật trình duyệt cmux"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "启用 cmux 浏览器"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "啟用 cmux 瀏覽器"
+          }
+        }
+      }
+    },
+    "settings.browser.enabled.help": {
+      "comment": "Help text of the Enable cmux Browser settings row.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When off, cmux opens no browser tabs for web pages and every link opens in your default browser."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "عند إيقافه، لا يفتح cmux علامات تبويب متصفح لصفحات الويب، ويُفتح كل رابط في متصفحك الافتراضي."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kada je isključeno, cmux ne otvara kartice preglednika za web stranice i svaki link se otvara u vašem zadanom pregledniku."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Når den er slået fra, åbner cmux ingen browserfaner til websider, og alle links åbnes i din standardbrowser."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wenn aus, öffnet cmux keine Browser-Tabs für Webseiten, und jeder Link öffnet sich in deinem Standardbrowser."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Si está desactivado, cmux no abre pestañas de navegador para páginas web y cada enlace se abre en tu navegador predeterminado."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Désactivé, cmux n’ouvre aucun onglet de navigateur pour les pages web et chaque lien s’ouvre dans votre navigateur par défaut."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Se disattivato, cmux non apre schede del browser per le pagine web e ogni link si apre nel browser predefinito."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "オフにすると、cmux は Web ページのブラウザタブを開かず、すべてのリンクがデフォルトのブラウザで開きます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ពេលបិទ cmux មិនបើកផ្ទាំងកម្មវិធីរុករកសម្រាប់ទំព័របណ្ដាញទេ ហើយតំណនីមួយៗបើកក្នុងកម្មវិធីរុករកលំនាំដើមរបស់អ្នក។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "끄면 cmux가 웹 페이지용 브라우저 탭을 열지 않고 모든 링크가 기본 브라우저에서 열립니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Når den er av, åpner ikke cmux nettleserfaner for nettsider, og alle lenker åpnes i standardnettleseren din."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gdy wyłączone, cmux nie otwiera kart przeglądarki dla stron internetowych, a każdy link otwiera się w domyślnej przeglądarce."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Quando desativado, o cmux não abre abas de navegador para páginas da web e todo link abre no seu navegador padrão."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Если выключено, cmux не открывает вкладки браузера для веб-страниц, и каждая ссылка открывается в браузере по умолчанию."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เมื่อปิด cmux จะไม่เปิดแท็บเบราว์เซอร์สำหรับหน้าเว็บ และทุกลิงก์จะเปิดในเบราว์เซอร์เริ่มต้นของคุณ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kapalıyken cmux web sayfaları için tarayıcı sekmesi açmaz ve her bağlantı varsayılan tarayıcınızda açılır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Якщо вимкнено, cmux не відкриває вкладки браузера для вебсторінок, і кожне посилання відкривається у браузері за замовчуванням."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Khi tắt, cmux không mở tab trình duyệt cho trang web và mọi liên kết mở trong trình duyệt mặc định của bạn."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "关闭后，cmux 不会为网页打开浏览器标签页，所有链接都会在你的默认浏览器中打开。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "關閉後，cmux 不會為網頁開啟瀏覽器分頁，所有連結都會在你的預設瀏覽器中開啟。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
