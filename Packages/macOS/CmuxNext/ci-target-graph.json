@@ -296,6 +296,7 @@
       "reads": [
         "Resources/cmux-themes/",
         "Resources/ghostty/themes/",
+        "Resources/markdown-viewer/ondine.min.js",
         "plans/cmux-next/",
         "schemas/keybindings/keybinding-vectors.json",
         "scripts/cmux-next/bundle-ghostty-resources.sh",
