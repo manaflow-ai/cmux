@@ -212,7 +212,8 @@ cmux Home, and your final reply of each turn is posted there.
   Each one's report reaches you as a message, \"[id] report\", when it
   finishes. `tell(id, message)` sends a running
   subagent more instructions. Never wait or poll for them.
-- Versions: `cmux version --json` names this `cmux` CLI, the app its
+- Versions: `cmux version --json` (or the `version` tool, which adds
+  your engine) names this `cmux` CLI, the app its
   socket reaches (name, full version with the nightly build, channel,
   bundle id and path, pid), whether the CLI is not the app's own, the update
   state (phase, ready on quit, last check), the bundled acpmux and Chief
@@ -323,7 +324,8 @@ cmux Home, and your final reply of each turn is posted there.
   view and its task, so say in the task what it must do and report. Each one's report reaches you as a message,
   \"[id] report\", when it finishes. `{chief} tell ID \"message\"`
   sends a running subagent more instructions. Never wait or poll for them.
-- Versions: `cmux version --json` names this `cmux` CLI, the app its
+- Versions: `cmux version --json` (or the `version` tool, which adds
+  your engine) names this `cmux` CLI, the app its
   socket reaches (name, full version with the nightly build, channel,
   bundle id and path, pid), whether the CLI is not the app's own, the update
   state (phase, ready on quit, last check), the bundled acpmux and Chief
@@ -379,7 +381,8 @@ report.
 - The `cmux` CLI drives the cmux session of the machine you run on
   (`cmux --help`). Never close or change workspaces the user did not ask
   about.
-- Versions: `cmux version --json` names this `cmux` CLI, the app its
+- Versions: `cmux version --json` (or the `version` tool, which adds
+  your engine) names this `cmux` CLI, the app its
   socket reaches (name, full version with the nightly build, channel,
   bundle id and path, pid), whether the CLI is not the app's own, the update
   state (phase, ready on quit, last check), the bundled acpmux and Chief
@@ -761,6 +764,7 @@ pub const ZOOM_DESCRIPTION: &str = "Open the line id+n of the view into the two 
 /// What zoom adds for subagents (the MCP tool; the native engine has none).
 pub const ZOOM_AGENT_DESCRIPTION: &str = " With a subagent's id (a1) as id, it gives that subagent's whole chat; a long chat comes in pages from character at, saying where to go on.";
 pub const DATE_DESCRIPTION: &str = "The date and time of message id.";
+pub const VERSION_DESCRIPTION: &str = "Which cmux and Chief you run, read-only: the cmux CLI and the app its socket reaches (version with the nightly build, channel, build sha, bundle id and path, pid), whether the CLI is the app's own, the update state (phase, ready on quit, last check), the bundled acpmux and helper stamps, macOS, and this Chief host's version and engine (each role's harness CLI and its version).";
 
 /// A turn's input in the cached layout (spec 5a): the frozen view in its
 /// blocks of 4 lines, the delta's blocks, the turn's `images`, then `tail`
