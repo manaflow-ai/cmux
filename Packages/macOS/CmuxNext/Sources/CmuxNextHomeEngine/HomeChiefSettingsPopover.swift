@@ -40,8 +40,12 @@ public final class HomeChiefSettingsPopover {
 
     /// The window whose Home answers `home.toggleChiefSettings`: the key window, else the frontmost
     /// visible one (`ordered` front to back; a CLI run while another app is in front), else none.
+    /// A child panel with the keys (this popover itself, a feed or composer popup) stands for the
+    /// window it belongs to, so a second toggle closes the popover it opened.
     public static func toggleTarget(key: NSWindow?, ordered: [NSWindow]) -> NSWindow? {
-        key ?? ordered.first { $0.isVisible }
+        var window = key
+        while let parent = window?.parent { window = parent }
+        return window ?? ordered.first { $0.isVisible }
     }
 
     /// Whether the Home in `window` answers a toggle posted for `target` (``toggleTarget(key:ordered:)``'s

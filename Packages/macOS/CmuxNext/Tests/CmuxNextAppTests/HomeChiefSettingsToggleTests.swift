@@ -18,8 +18,20 @@ import Testing
     /// With no key window (a CLI run while another app is in front) the frontmost visible window
     /// takes it, and with none on screen no Home does.
     @Test func withoutAKeyWindowTheFrontVisibleOneTakesIt() {
-        let hidden = Self.window()
+        let (hidden, shown) = (Self.window(), Self.window())
         #expect(HomeChiefSettingsPopover.toggleTarget(key: nil, ordered: [hidden]) == nil)
+        shown.orderFrontRegardless()
+        defer { shown.orderOut(nil) }
+        #expect(HomeChiefSettingsPopover.toggleTarget(key: nil, ordered: [hidden, shown]) === shown)
+    }
+
+    /// The open popover is a child panel with the keys: it stands for its window, so a second
+    /// toggle reaches the Home that opened it and closes it.
+    @Test func aChildPanelWithTheKeysStandsForItsWindow() {
+        let (home, popover) = (Self.window(), Self.window())
+        home.addChildWindow(popover, ordered: .above)
+        defer { home.removeChildWindow(popover) }
+        #expect(HomeChiefSettingsPopover.toggleTarget(key: popover, ordered: []) === home)
     }
 
     @Test func onlyTheHomeInTheTargetWindowAnswers() {
