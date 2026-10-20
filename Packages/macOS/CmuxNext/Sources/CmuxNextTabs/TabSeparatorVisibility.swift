@@ -6,10 +6,11 @@ struct TabSeparatorVisibility {
     /// shows only when neither neighbor is selected, hovered or dragged, so
     /// each of those tabs hides the separators on both of its sides. The
     /// separator before + has one neighbor tab, the last one. Indices
-    /// outside the row are ignored.
-    static func visibleSeparators(tabCount: Int, selected: Int?, hovered: Int?, dragged: Int?) -> Set<Int> {
+    /// outside the row are ignored. `multiSelected`: the other tabs of a multi-selection, which
+    /// draw a fill too.
+    static func visibleSeparators(tabCount: Int, selected: Int?, hovered: Int?, dragged: Int?, multiSelected: Set<Int> = []) -> Set<Int> {
         guard tabCount > 0 else { return [] }
-        let emphasized = Set([selected, hovered, dragged].compactMap(\.self))
+        let emphasized = Set([selected, hovered, dragged].compactMap(\.self)).union(multiSelected)
         var visible: Set<Int> = []
         for index in 0..<tabCount where !emphasized.contains(index) && !emphasized.contains(index + 1) {
             visible.insert(index)
@@ -28,7 +29,8 @@ struct TabSeparatorVisibility {
             tabCount: row.count,
             selected: index(of: strip.model.selectedID),
             hovered: index(of: strip.hoveredID),
-            dragged: index(of: strip.drag?.id) ?? index(of: TabStripView.placeholderID)
+            dragged: index(of: strip.drag?.id) ?? index(of: TabStripView.placeholderID),
+            multiSelected: Set(strip.model.multiSelection.ids.compactMap { index(of: $0) })
         )
         let shown = strip.metrics.showsSeparators ? Set(visible.map { row[$0].id }) : []
         for slot in strip.result.slots {

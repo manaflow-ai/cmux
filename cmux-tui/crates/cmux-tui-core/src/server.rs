@@ -170,6 +170,7 @@ use resource_trust::{
     conversation_resource_client, handles_resource_connection_operation,
     trusted_local_resource_client,
 };
+mod api_revision_wire;
 mod conversation_tabs_wire;
 mod conversations;
 mod detached_terminals;
@@ -192,13 +193,11 @@ mod cmd_attach;
 mod cmd_browser;
 #[cfg(test)]
 use cmd_browser::browser_provider_registration;
+mod cmd_frontend;
 mod cmd_panes;
 mod cmd_profiles;
 mod cmd_screens;
 mod cmd_server;
-#[cfg(test)]
-use cmd_server::{stamped_build_commit, stamped_ghostty_commit};
-mod cmd_frontend;
 mod cmd_sizing;
 use cmd_sizing::{optional_surface_size, paired_surface_size};
 mod cmd_subscribe;
@@ -260,7 +259,9 @@ use terminal_snapshot::{attach_overflow_json, handle_attach_send_error, report_a
 mod capabilities;
 pub use capabilities::build_capabilities;
 mod daemon_build;
-pub use daemon_build::{DAEMON_BUILD_CAPABILITY, DaemonBuild, install_daemon_build};
+pub use daemon_build::{
+    BuildStamp, DAEMON_BUILD_CAPABILITY, DaemonBuild, install_build_stamp, install_daemon_build,
+};
 mod socket_path;
 #[cfg(test)]
 use socket_path::default_socket_path_in_runtime_dir;
@@ -535,6 +536,12 @@ pub const SESSION_JOURNAL_PROTOCOL_VERSION: u32 = PER_SURFACE_CLIENT_SIZING_PROT
 pub const TERMINAL_LIFECYCLE_PROTOCOL_VERSION: u32 = 11;
 pub const LIFECYCLE_READINESS_PROTOCOL_VERSION: u32 = 12;
 pub const PROTOCOL_VERSION: u32 = LIFECYCLE_READINESS_PROTOCOL_VERSION;
+
+/// The API revisions this build speaks: `(current, oldest it translates)`
+/// (server/api_revision_wire.rs, cmux-tui/spec/api-compat.json).
+pub fn api_revision_range() -> (u32, u32) {
+    api_revision_wire::identify_fields()
+}
 mod protocol_key;
 #[cfg(test)]
 use protocol_key::PROTOCOL_KEY_TEXT_MAX_BYTES;
@@ -671,6 +678,10 @@ enum Command {
     Identify {
         #[serde(default)]
         machine_metadata: bool,
+        /// Adds `api_revision`, `min_api_revision`, `crate_version`,
+        /// `install` and `update_command` (server/api_revision_wire.rs).
+        #[serde(default)]
+        revisions: bool,
     },
     BrowserHostProvider,
     SubscribeActivity,
@@ -757,6 +768,17 @@ enum Command {
         device_name: Option<String>,
         #[serde(default)]
         device_id: Option<String>,
+        /// The API revision the client reads and writes
+        /// (server/api_revision_wire.rs). Absent: revision 12.
+        #[serde(default)]
+        api_revision: Option<u32>,
+        /// The client's release (`cmux --version`), for refusals and logs.
+        #[serde(default)]
+        version: Option<String>,
+        /// How the client was installed (`npm`, `pypi`, `app`, `other`),
+        /// so a refusal names its update command.
+        #[serde(default)]
+        install: Option<String>,
     },
     ListClients,
     /// Read the machine-level model spend readout hosted by this daemon.
@@ -889,22 +911,8 @@ enum Command {
         #[serde(default)]
         rows: Option<u16>,
     },
-    Send {
-        /// The terminal surface; or `terminal_id` (exactly one).
-        #[serde(default)]
-        surface: Option<SurfaceId>,
-        /// `terminal-input-while-creating-v1`: the host terminal id, also of a terminal still
-        /// being created (the input is queued for it, `mux::creating_input`).
-        #[serde(default)]
-        terminal_id: Option<String>,
-        #[serde(default)]
-        text: Option<String>,
-        /// Base64-encoded raw bytes, written verbatim to the pty.
-        #[serde(default)]
-        bytes: Option<String>,
-        #[serde(default)]
-        paste: bool,
-    },
+    /// `send`: write input to a terminal.
+    Send(cmd_terminal_io::SendParams),
     ReadScreen {
         surface: SurfaceId,
     },
@@ -1701,6 +1709,8 @@ enum Command {
     /// `ws-listen` (`ws-listen-v1`, server/page_listener.rs): open the owner's page listener.
     WsListen(page_listener::WsListenParams),
     CloudInboxList(cloud_conversations::InboxListParams),
+    /// `cloud-requests-list`: the person's message requests (no fields).
+    CloudRequestsList(cloud_conversations::NoParams),
     CloudConversationSnapshot(cloud_conversations::SnapshotParams),
     CloudConversationHistory(cloud_conversations::HistoryParams),
     CloudConversationThread(cloud_conversations::ThreadParams),
@@ -2199,8 +2209,8 @@ impl Command {
             | Self::ReattachView { surface, .. }
             | Self::NoteSizeActivity { surface, .. }
             | Self::ScrollSurface { surface, .. } => Some(*surface),
+            Self::Send(send) => send.surface,
             Self::AttachSurface { surface, .. }
-            | Self::Send { surface, .. }
             | Self::Notify { surface, .. }
             | Self::ListAgents { surface, .. }
             | Self::Subscribe { surface, .. }
@@ -2217,7 +2227,7 @@ impl Command {
         matches!(
             self,
             Self::ClearHistory { .. }
-                | Self::Send { .. }
+                | Self::Send(_)
                 | Self::SendKey { .. }
                 | Self::BrowserFramePresented { .. }
                 | Self::BrowserMouse { .. }
@@ -2540,7 +2550,7 @@ pub use restoring::RestoringServer;
 use websocket_listener::handle_websocket_connection;
 pub use websocket_listener::{
     WebSocketAccess, WebSocketServer, parse_websocket_origin, serve_websocket,
-    serve_websocket_with_access, serve_websocket_with_pages,
+    serve_websocket_with_access, serve_websocket_with_keepalive, serve_websocket_with_pages,
 };
 
 #[cfg(test)]

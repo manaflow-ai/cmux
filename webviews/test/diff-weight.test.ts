@@ -52,12 +52,6 @@ function renderRows(css: string) {
   return { weight };
 }
 
-function tintPercent(css: string, variable: string): number {
-  const match = css.match(new RegExp(`${variable}:\\s*color-mix\\(in srgb, [^;]*? (\\d+)%, transparent\\)`));
-  if (!match) throw new Error(`no tint for ${variable}`);
-  return Number(match[1]);
-}
-
 describe("diffs draw at the regular weight with calm tints", () => {
   test("code, line numbers and the file header compute to the normal weight", async () => {
     for (const [name, css] of Object.entries(await surfaces())) {
@@ -71,12 +65,12 @@ describe("diffs draw at the regular weight with calm tints", () => {
   test("both surfaces tint a changed row the same low amount, the changed word a step above", async () => {
     const all = Object.values(await surfaces());
     const rows = all.map((css) =>
-      tintPercent(
+      drawnTintPercent(
         css,
         '(?:--diffs-bg-addition-override|\\[data-line\\]\\[data-line-type="change-addition"\\] \\{ --diffs-line-bg)',
       ),
     );
-    const words = all.map((css) => tintPercent(css, "--diffs-bg-addition-emphasis-override"));
+    const words = all.map((css) => drawnTintPercent(css, "--diffs-bg-addition-emphasis-override"));
     expect(new Set(rows).size).toBe(1);
     expect(new Set(words).size).toBe(1);
     expect(rows[0]).toBeLessThanOrEqual(16);
@@ -103,5 +97,58 @@ describe("Diff Colors stays ordered under the calmer tints", () => {
     // Both modes take the same row tint (diffWeight.ts) of their own color: Muted's dimmer green
     // makes the quieter row, and Theme, the default, draws the calmer 14% tint itself.
     expect(channel(muted)).toBeLessThan(channel(theme));
+  });
+});
+
+/** A tint's percent as drawn: a `var(--x, N%)` percent resolves against the page root first. */
+function drawnTintPercent(css: string, variable: string): number {
+  const match = css.match(
+    new RegExp(`${variable}:\\s*color-mix\\(in srgb, [^;]*? (\\d+%|var\\((--[\\w-]+), (\\d+)%\\)), transparent\\)`),
+  );
+  if (!match) throw new Error(`no tint for ${variable}`);
+  if (!match[2]) return Number.parseFloat(match[1]);
+  const set = dom.window.document.documentElement.style.getPropertyValue(match[2]).trim();
+  return Number.parseFloat(set || match[3]);
+}
+
+describe("Muted is clearly quieter than Theme", () => {
+  // Leo (2026-10-15): with Theme's calmer 14% row tint, Muted (its color 40% toward the page)
+  // read almost like Theme. Muted's own row and word tints sit a fixed margin under Theme's on
+  // the diff viewer page and the agent pane's diff cards alike.
+  const MARGIN = 5;
+  const ROW =
+    '(?:--diffs-bg-addition-override|\\[data-line\\]\\[data-line-type="change-addition"\\] \\{ --diffs-line-bg)';
+  const WORD = "--diffs-bg-addition-emphasis-override";
+
+  test("on the diff viewer page", async () => {
+    const { applyDiffViewerAppearance, setDiffChangeColors } = await import("../src/appearance");
+    const { codeViewUnsafeCSS } = await import("../src/pierre-options");
+    applyDiffViewerAppearance({
+      themes: { dark: { background: "#000000", foreground: "#ffffff", palette: { "2": "#50e050" } } },
+    });
+    const css = codeViewUnsafeCSS();
+    setDiffChangeColors("theme");
+    const theme = { row: drawnTintPercent(css, ROW), word: drawnTintPercent(css, WORD) };
+    setDiffChangeColors("muted");
+    const muted = { row: drawnTintPercent(css, ROW), word: drawnTintPercent(css, WORD) };
+    setDiffChangeColors("theme");
+    expect(theme).toEqual({ row: 14, word: 22 });
+    expect(muted.row).toBeLessThanOrEqual(theme.row - MARGIN);
+    expect(muted.word).toBeLessThanOrEqual(theme.word - MARGIN);
+    expect(muted.word).toBeGreaterThan(muted.row);
+  });
+
+  test("on the agent pane's diff cards", async () => {
+    const { applyHostEvent } = await import("../src/agent-session/acpmux/pageHost");
+    const { diffUnsafeCSS } = await import("../src/agent-session/acpmux/diffTheme");
+    applyHostEvent({ kind: "diffColors", value: "theme" });
+    const theme = { row: drawnTintPercent(diffUnsafeCSS, ROW), word: drawnTintPercent(diffUnsafeCSS, WORD) };
+    applyHostEvent({ kind: "diffColors", value: "muted" });
+    const muted = { row: drawnTintPercent(diffUnsafeCSS, ROW), word: drawnTintPercent(diffUnsafeCSS, WORD) };
+    applyHostEvent({ kind: "diffColors", value: "theme" });
+    expect(theme).toEqual({ row: 14, word: 22 });
+    expect(muted.row).toBeLessThanOrEqual(theme.row - MARGIN);
+    expect(muted.word).toBeLessThanOrEqual(theme.word - MARGIN);
+    expect(muted.word).toBeGreaterThan(muted.row);
   });
 });

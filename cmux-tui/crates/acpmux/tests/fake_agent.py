@@ -23,6 +23,9 @@ long as a real agent's, for checks that refuse short ones).
 
 FAKE_EXIT_AFTER_NEW=1: the agent exits once its session starts, before any prompt.
 
+FAKE_DIE_AT_START=<text>: on `initialize` the agent prints <text> to stderr and
+exits 1 without answering, as a harness wrapper that refuses to start does.
+
 FAKE_CODEX_STORE=1 (with CODEX_HOME): Codex's own store, as codex-acp keeps it:
 each session is <CODEX_HOME>/sessions/YYYY/MM/DD/rollout-<time>-<uuid>.jsonl,
 a session_meta line, then per prompt task_started, the user message and
@@ -46,6 +49,8 @@ cancelled = set()
 failed_once = set()
 # Sessions whose "net-down" prompt cut the connection for good (auto-resume tests).
 net_down = set()
+# Sessions whose "net-flaky" prompt left one more prompt to fail (auto-resume tests).
+net_flaky = set()
 next_id = 100
 pending = {}
 # Sessions this process created or finished loading.
@@ -255,6 +260,11 @@ def handle_prompt(rid, params):
     # Connection-loss simulation for auto-resume tests. "net-fail-once: X" fails that prompt
     # with a transport error once per session; "net-down" fails it and every later prompt of
     # the session the same way. Any other prompt after a net-fail-once is answered as usual.
+    # "net-fail-then-exit" fails with that transport error, then the agent exits.
+    if text == "net-fail-then-exit":
+        send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "stream disconnected before completion: error sending request for url (https://relay.invalid/responses)"}})
+        time.sleep(0.05)
+        os._exit(0)
     # "net-refused-later" waits a moment, then fails with a refused connection.
     if text == "net-refused-later":
         time.sleep(0.5)
@@ -269,6 +279,19 @@ def handle_prompt(rid, params):
                 cancelled.discard(sid)
                 break
             time.sleep(0.05)
+        send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "stream disconnected before completion: error sending request for url (https://relay.invalid/responses)"}})
+        return
+    # "net-flaky: X" streams a moment, then fails with that transport error; the session's next
+    # prompt fails the same way, and later ones are answered as usual. The wait leaves a test
+    # time to queue a prompt behind it on a loaded machine.
+    if text.startswith("net-flaky:"):
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "flaky "}})
+        time.sleep(3.0)
+        net_flaky.add(sid)
+        send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "stream disconnected before completion: error sending request for url (https://relay.invalid/responses)"}})
+        return
+    if sid in net_flaky:
+        net_flaky.discard(sid)
         send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "stream disconnected before completion: error sending request for url (https://relay.invalid/responses)"}})
         return
     if text.startswith("net-down"):
@@ -646,6 +669,29 @@ def handle_prompt(rid, params):
             time.sleep(0.05)
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
+    # "parallel-tools: PATH" starts two tool calls at once, titled with their
+    # input the way Claude Code's adapter titles them. The second ends first;
+    # the first ends once the test writes to the FIFO at PATH.
+    if text.startswith("parallel-tools:"):
+        update(sid, {"sessionUpdate": "tool_call", "toolCallId": "slow-1", "kind": "execute", "status": "pending",
+                     "title": "curl -H 'Authorization: Bearer fake-secret' https://example.invalid"})
+        update(sid, {"sessionUpdate": "tool_call", "toolCallId": "fast-1", "kind": "read", "status": "pending",
+                     "title": "Read /home/fake/secret-notes.txt"})
+        update(sid, {"sessionUpdate": "tool_call_update", "toolCallId": "fast-1", "status": "completed"})
+        with open(text[len("parallel-tools:"):].strip()) as gate:
+            gate.read()
+        update(sid, {"sessionUpdate": "tool_call_update", "toolCallId": "slow-1", "status": "completed"})
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "both done"}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    # "thoughts: N" streams N thought chunks in one burst, then a short answer.
+    if text.startswith("thoughts:"):
+        send_all([{"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": sid, "update": {
+            "sessionUpdate": "agent_thought_chunk", "content": {"type": "text", "text": "."}}}}
+            for _ in range(int(text[len("thoughts:"):].strip()))])
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "thought through"}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
     if text == "slow":
         for i in range(3):
             if sid in cancelled:
@@ -699,6 +745,10 @@ def main():
         m = msg["method"]
         rid = msg.get("id")
         params = msg.get("params") or {}
+        if m == "initialize" and os.environ.get("FAKE_DIE_AT_START"):
+            sys.stderr.write(os.environ["FAKE_DIE_AT_START"] + "\n")
+            sys.stderr.flush()
+            sys.exit(1)
         if m in ("session/new", "session/load", "session/fork"):
             LAST_MCP_SERVERS = params.get("mcpServers")
         # FAKE_PICKER=1: a harness with session/set_model and an "effort" option (no model

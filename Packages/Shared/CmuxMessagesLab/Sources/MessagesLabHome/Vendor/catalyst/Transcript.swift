@@ -533,6 +533,12 @@ final class RowCell: UICollectionViewCell {
     /// The typing row's insert time (RowSpec model time) that its dots and breathing run from (-inf: none).
     var typingInsertedAt = -Double.infinity
     let receiptOld = CALayer()
+    /// cmux: the transcript's text-selection highlight over this row's glyphs, in the cell's own coordinates
+    /// (TranscriptSelection.refresh sets its path). Inside the row it rides every motion the row makes (its springs,
+    /// a container or page motion, a scroll pace), so a new message or a growing reply never moves it off the text
+    /// (a highlight over the rows landed at the row's end place at once while the row sprang there: Lawrence
+    /// 2026-10-19, "a layout shift for the highlight thing ... janky and disjoint"). Joins the tree on first use.
+    let selectionHighlight = CAShapeLayer()
     /// Long text rows: tiles and the three-slice bubble (TiledBubble.swift).
     var tiled: TiledBody?
     /// Markdown rows: scrollable blocks and copy buttons (MarkdownOverlay.swift).
@@ -616,10 +622,14 @@ final class RowCell: UICollectionViewCell {
         let noActions: [String: CAAction] = ["contents": NSNull(), "bounds": NSNull(), "position": NSNull(), "path": NSNull(),
                                              "hidden": NSNull(), "opacity": NSNull(), "strokeEnd": NSNull(), "transform": NSNull()]
         appliedScale = renderScale
-        for l in [fillContainer, fillGradient, fillMask, fillMaskImage, bitmap, connector, connectorLine, typingContainer, typingClip, typingBody, receiptOld] {
+        for l in [fillContainer, fillGradient, fillMask, fillMaskImage, bitmap, connector, connectorLine, typingContainer, typingClip, typingBody, receiptOld, selectionHighlight] {
             l.actions = noActions
             l.contentsScale = renderScale
         }
+        selectionHighlight.fillColor = TranscriptSelection.highlightFill
+        selectionHighlight.compositingFilter = "screenBlendMode"
+        // Over the bitmap, the long-text tiles, the markdown blocks and the receipt (added after it or not).
+        selectionHighlight.zPosition = 100
         typingBody.actions = noActions.merging(["fillColor": NSNull()]) { a, _ in a }
         fillMaskImage.actions = noActions.merging(["contentsCenter": NSNull()]) { a, _ in a }
         typingBody.frame = RowDraw.typingBubble
@@ -686,10 +696,21 @@ final class RowCell: UICollectionViewCell {
         key = ""
         // A bitmap kept in a live resize is not the row's own: the next configure draws it, even for the same row.
         if liveKept { liveKept = false; spec = nil }
+        setSelectionHighlight(nil)
         tiled?.detach(self)
         markdownOverlay?.detach()
         CustomRows.host?.detach(self)
         dropWant()
+    }
+
+    /// cmux: draws the selection highlight (`selectionHighlight`), nil for none. The path is in this cell's
+    /// coordinates.
+    func setSelectionHighlight(_ path: CGPath?) {
+        if path == nil, selectionHighlight.path == nil { return }
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        if path != nil, selectionHighlight.superlayer !== contentView.layer { contentView.layer.addSublayer(selectionHighlight) }
+        selectionHighlight.path = path
+        CATransaction.commit()
     }
 
     func clearAnimations() {
@@ -715,6 +736,7 @@ final class RowCell: UICollectionViewCell {
             case let .receipt(b, r): return b + " " + r
             case let .label(text, _, _): return text
             case let .notice(text): return text
+            case let .senderName(name): return name // cmux: a group chat's sender name
             default: return nil
             }
         }
@@ -772,14 +794,14 @@ final class RowCell: UICollectionViewCell {
         let showingThisRow = key == spec.key && bitmap.contents != nil
         let rescaled = appliedScale != renderScale
         let repaint = palette != Fixture.paletteGeneration || rescaled
-        if key != spec.key { clearAnimations(); applied = []; motionChecked = -1; key = spec.key; fillReachBelow = 0 }
+        if key != spec.key { clearAnimations(); applied = []; motionChecked = -1; key = spec.key; fillReachBelow = 0; setSelectionHighlight(nil) }
         if let w = pendingWant, w != spec { dropWant() }
         if repaint {
             palette = Fixture.paletteGeneration
             appliedScale = renderScale
             CATransaction.begin(); CATransaction.setDisableActions(true)
             // A scale change: every layer this cell owns follows its window view's scale.
-            for l in [fillContainer, fillGradient, fillMask, fillMaskImage, bitmap, connector, connectorLine, typingContainer, typingClip, typingBody, receiptOld] {
+            for l in [fillContainer, fillGradient, fillMask, fillMaskImage, bitmap, connector, connectorLine, typingContainer, typingClip, typingBody, receiptOld, selectionHighlight] {
                 l.contentsScale = renderScale
             }
             // The breathing body's clip rounds to the screen's device pixels: a running clip starts again on the new
@@ -1185,8 +1207,11 @@ final class RowCell: UICollectionViewCell {
         box.position = CGPoint(x: c.x - 20 + box.anchorPoint.x * size.width, y: c.y - 20 + box.anchorPoint.y * size.height)
         box.contentsScale = renderScale
         badgeTop = c.y - 20
-        fill.colors = Fixture.gradientStops.map { Fixture.gradientColor($0.1, $0.2).cgColor }
-        fill.locations = Fixture.gradientStops.map { NSNumber(value: Double($0.0 / (Fixture.gradientHeight * 2))) }
+        // cmux: my tapback's disc is the sent bubbles' fill (the theme style's, else the measured blue).
+        let stops: [(CGFloat, CGColor)] = Fixture.themedGradient?.map { ($0.0, $0.1.cgColor) }
+            ?? Fixture.gradientStops.map { ($0.0, Fixture.gradientColor($0.1, $0.2).cgColor) }
+        fill.colors = stops.map(\.1)
+        fill.locations = stops.map { NSNumber(value: Double($0.0 / (Fixture.gradientHeight * 2))) }
         RowCell.placeFill(fill, windowTop: contentWindowY + badgeTop, width: size.width, span: fillSpan, reachBelow: fillReachBelow)
         if let holder = fill.superlayer, let mask = holder.mask as? CAShapeLayer {
             holder.frame = CGRect(origin: .zero, size: size)
@@ -1374,7 +1399,7 @@ final class RowCell: UICollectionViewCell {
         case let .label(_, outgoing, _), let .replies(_, _, outgoing): return outgoing
         case .receipt: return true
         case let .threadPreview(pv): return pv.outgoing
-        case .separator, .unsent, .typing, .notice: return false
+        case .separator, .unsent, .typing, .notice, .senderName: return false // cmux: senderName
         }
     }
     /// The x (view pt) of the row's anchored side for a cell at `frame` (snapRow, the send morph's landing place): the
@@ -1469,10 +1494,12 @@ final class RowCell: UICollectionViewCell {
     /// down to this bubble: an arc that hangs from the root and a vertical
     /// stroke whose bottom stays 8.5 pt above this bubble. When the two rows
     /// move apart, the arc and the stroke's height animate (no path animation).
-    private var connectorState: (CGFloat?, CGFloat, Bool, CGFloat)?
+    private var connectorState: (CGFloat?, CGFloat, Bool, CGFloat, CGFloat)?
     func setConnector(top: CGFloat?, bottom: CGFloat, mirrored: Bool) {
-        let state = (top, bottom, mirrored, spec?.width ?? 0)
-        if let c = connectorState, c.0 == state.0, c.1 == state.1, c.2 == state.2, c.3 == state.3 { return }
+        // cmux: a group chat's incoming reply sits right of the avatar column; its connector moves with it.
+        let indent: CGFloat = { if !mirrored, case let .part(p)? = spec?.kind { return p.cmuxIndent }; return 0 }()
+        let state = (top, bottom, mirrored, spec?.width ?? 0, indent)
+        if let c = connectorState, c.0 == state.0, c.1 == state.1, c.2 == state.2, c.3 == state.3, c.4 == state.4 { return }
         connectorState = state
         CATransaction.begin(); CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
@@ -1485,7 +1512,7 @@ final class RowCell: UICollectionViewCell {
             contentView.layer.insertSublayer(connector, at: 0)
             contentView.layer.insertSublayer(connectorLine, at: 1)
         }
-        let r: CGFloat = 19, x: CGFloat = 34.25, endX: CGFloat = 63
+        let r: CGFloat = 19, x: CGFloat = 34.25 + indent, endX: CGFloat = 63 + indent // cmux: + indent
         let cx = x + r, cy = top + r
         let w = spec?.width ?? 628
         let p = UIBezierPath()

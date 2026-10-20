@@ -220,6 +220,22 @@ pub enum Command {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true, required = true)]
         command: Vec<String>,
     },
+    /// Be an ACP agent backed by a UniiChat server (uniichat.com or your own
+    /// `unii serve`), over UniiChat's own protocol: streaming, stop, images.
+    /// Signs in with the token `unii login` keeps. In a profile:
+    /// `args = ["uniichat-agent"]`.
+    UniichatAgent {
+        /// The server; default `$UNII_URL`, else https://uniichat.com.
+        #[arg(long)]
+        url: Option<String>,
+        /// Where `unii` keeps its sign-ins; default `$UNII_HOME`, else ~/.unii.
+        #[arg(long)]
+        home: Option<std::path::PathBuf>,
+        /// Send every text block of a prompt (UniiChat keeps its own memory,
+        /// so by default only the last one: a Chief turn's new messages).
+        #[arg(long)]
+        whole_prompt: bool,
+    },
     /// Print the dashboard URL and open it in the browser.
     Web {
         /// Only print the URL.
@@ -417,6 +433,7 @@ pub enum HarnessCmd {
         folder: Option<PathBuf>,
     },
     /// Write a new profile file into ~/.config/cmux/harnesses and check it.
+    #[command(after_help = crate::cli::harness::add_help())]
     Add {
         /// Profile id (file name); default: the example's id or the command's name.
         id: Option<String>,
@@ -426,9 +443,24 @@ pub enum HarnessCmd {
         /// acp (Agent Client Protocol over stdio) or terminal (a CLI/TUI without ACP).
         #[arg(long, default_value = "acp")]
         protocol: String,
-        /// Start from a shipped example: claude, codex, opencode, pi, gemini, aider.
+        /// Start from a shipped example: claude, codex, opencode, pi, gemini, aider, or your
+        /// own model endpoint: anthropic-endpoint, openai-endpoint (with --base-url, --model).
         #[arg(long)]
         example: Option<String>,
+        /// anthropic-endpoint / openai-endpoint: the endpoint's base URL (https; http only
+        /// to localhost or 127.0.0.1).
+        #[arg(long)]
+        base_url: Option<String>,
+        /// anthropic-endpoint / openai-endpoint: the model id the endpoint serves.
+        #[arg(long)]
+        model: Option<String>,
+        /// anthropic-endpoint / openai-endpoint: the Keychain item that holds the key
+        /// (default: cmux-harness/ID/KEY, which `cmux harness secret set ID KEY` writes).
+        #[arg(long)]
+        keychain_item: Option<String>,
+        /// anthropic-endpoint / openai-endpoint: the name the model picker shows.
+        #[arg(long)]
+        name: Option<String>,
         /// Replace an existing file.
         #[arg(long)]
         force: bool,
