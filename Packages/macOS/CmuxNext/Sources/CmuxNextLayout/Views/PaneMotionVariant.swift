@@ -6,7 +6,7 @@ public import CmuxNextDesign
 /// The standard choice preserves the shipping motion until dogfood selects a preset.
 public nonisolated enum PaneMotionVariant: String, Sendable, CaseIterable, TunableChoice {
     /// The close spring (`exit`) and the zoom spring (`zoom`), both critically damped (DESIGN.md
-    /// 2026-10-18 "Spring").
+    /// 2026-10-18 "Spring"), and the split spring (`split`).
     case standard
     /// Short, critically damped movement with no overshoot.
     case crisp
@@ -25,6 +25,15 @@ public nonisolated enum PaneMotionVariant: String, Sendable, CaseIterable, Tunab
         switch self {
         case .standard: .exit
         case .crisp: .disappear
+        case .softLanding: .settle
+        }
+    }
+
+    /// A split's spring: the new pane growing in while its chain makes room.
+    var splitSpring: MotionSpring {
+        switch self {
+        case .standard: .split
+        case .crisp: .move
         case .softLanding: .settle
         }
     }

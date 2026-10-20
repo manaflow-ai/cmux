@@ -159,7 +159,7 @@ public final class LayoutModel {
     /// Receives every intent. Set by the App (or `MockLayoutSource`).
     @ObservationIgnored public var intentHandler: (@MainActor (LayoutIntent) -> Void)?
 
-    @ObservationIgnored private var splitOverrides: [SplitID: Override] = [:]
+    @ObservationIgnored var splitOverrides: [SplitID: Override] = [:]
     /// Until this uptime, a ratio-only change is an explicit equalize the screens spring (Lawrence 2026-10-16).
     @ObservationIgnored public private(set) var explicitReflowUntil: TimeInterval = 0
     static let explicitReflowWindow: TimeInterval = 0.6
@@ -168,7 +168,7 @@ public final class LayoutModel {
     @ObservationIgnored private var widthOverrides: [ColumnID: Override] = [:]
 
 
-    private struct Override {
+    struct Override {
         var value: Double
         var transaction: LayoutTransactionID
         var ended = false
