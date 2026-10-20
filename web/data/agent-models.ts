@@ -54,7 +54,7 @@ const CODEX_REASONING_EFFORTS: AgentModelChoice[] = [
 
 export const agentModelCatalog = {
   schemaVersion: 1,
-  updatedAt: "2026-08-17T00:00:00.000Z",
+  updatedAt: "2026-10-20T00:00:00.000Z",
   providers: {
     claude: {
       defaultModel: "claude-sonnet-5",
@@ -156,18 +156,19 @@ export const agentModelCatalog = {
       ],
     },
     minimax: {
-      defaultModel: "MiniMax-M3",
+      defaultModel: "MiniMax-M3.1-Flash",
       models: [
+        {
+          id: "MiniMax-M3.1-Flash",
+          label: "MiniMax M3.1 Flash",
+          contextWindow: 1000000,
+          supportsOneMillion: true,
+        },
         {
           id: "MiniMax-M3",
           label: "MiniMax M3",
           contextWindow: 1000000,
           supportsOneMillion: true,
-        },
-        {
-          id: "MiniMax-M2.7",
-          label: "MiniMax M2.7",
-          contextWindow: 204800,
         },
       ],
     },
