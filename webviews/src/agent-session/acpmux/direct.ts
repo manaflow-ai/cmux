@@ -44,6 +44,7 @@ import { SubagentFold } from "./subagents/subagentFold";
 import { WORKSPACE_CONTEXT } from "./workspaceContext";
 import { BOOKMARKS_KIND, bookmarksHeard } from "./threadMinimap/bookmarks";
 import { type StartMode, startModeChanged } from "./startMode";
+import { sameSessionStart, sessionStartOf } from "./conversation/sessionStart";
 
 export type AcpmuxHostConfig = {
   protocolVersion: number;
@@ -147,6 +148,9 @@ const COMMANDS_KIND = "available_commands_update";
 const USAGE_KIND = "usage_update";
 /// The agent's own change of a config option (a reasoning level, a model): the whole option list.
 const CONFIG_KIND = "config_option_update";
+const SESSION_INFO_KIND = "session_info_update";
+/// The chat's one session start row (conversation/SessionStartNote.tsx).
+const SESSION_START_ROW = "session-start";
 /// A record that opens a turn: older pages split before one, so each holds whole turns. A steer
 /// joins the running turn, so it opens none.
 const startsTurn = (event: EventRecord) =>
@@ -1770,6 +1774,26 @@ export class AcpmuxDirectClient {
       if (!Array.isArray(update.configOptions) || (event.seq && event.seq < this.configSeq)) return;
       this.summary = { ...this.summary, configOptions: update.configOptions };
       if (event.seq) this.configSeq = event.seq;
+      return;
+    }
+    // Claude Code names its version and model on every turn's init line: one row, where the
+    // session first said so, that a later line with other facts (a restart on a new version, a
+    // model switch) updates in place.
+    const start =
+      update?.sessionUpdate === SESSION_INFO_KIND
+        ? sessionStartOf(update, { harness: this.summary?.harness, cwd: this.summary?.cwd })
+        : undefined;
+    if (start) {
+      const existing = this.rows.get(SESSION_START_ROW);
+      if (sameSessionStart(existing?.sessionStart, start)) return;
+      this.rows.set(SESSION_START_ROW, {
+        id: SESSION_START_ROW,
+        version: (existing?.version ?? 0) + 1,
+        at: existing?.at ?? event.at,
+        seq: existing?.seq ?? event.seq,
+        kind: "sessionStart",
+        sessionStart: start,
+      });
       return;
     }
     if (event.dir === "mux") {

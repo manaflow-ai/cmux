@@ -44,3 +44,10 @@ import Testing
         #expect(small.registrableDomain(of: "a.b.zz") == "b.zz")
     }
 }
+
+extension PublicSuffixListTests {
+    /// A missing list must fail closed: with only the default rule, "co.uk" would be a site.
+    @Test func anEmptyListDecidesNothing() {
+        #expect(PublicSuffixList(listText: "").registrableDomain(of: "www.bbc.co.uk") == nil)
+    }
+}

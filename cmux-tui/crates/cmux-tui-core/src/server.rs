@@ -192,13 +192,11 @@ mod cmd_attach;
 mod cmd_browser;
 #[cfg(test)]
 use cmd_browser::browser_provider_registration;
+mod cmd_frontend;
 mod cmd_panes;
 mod cmd_profiles;
 mod cmd_screens;
 mod cmd_server;
-#[cfg(test)]
-use cmd_server::{stamped_build_commit, stamped_ghostty_commit};
-mod cmd_frontend;
 mod cmd_sizing;
 use cmd_sizing::{optional_surface_size, paired_surface_size};
 mod cmd_subscribe;
@@ -260,7 +258,9 @@ use terminal_snapshot::{attach_overflow_json, handle_attach_send_error, report_a
 mod capabilities;
 pub use capabilities::build_capabilities;
 mod daemon_build;
-pub use daemon_build::{DAEMON_BUILD_CAPABILITY, DaemonBuild, install_daemon_build};
+pub use daemon_build::{
+    BuildStamp, DAEMON_BUILD_CAPABILITY, DaemonBuild, install_build_stamp, install_daemon_build,
+};
 mod socket_path;
 #[cfg(test)]
 use socket_path::default_socket_path_in_runtime_dir;
@@ -2526,7 +2526,7 @@ pub use restoring::RestoringServer;
 use websocket_listener::handle_websocket_connection;
 pub use websocket_listener::{
     WebSocketAccess, WebSocketServer, parse_websocket_origin, serve_websocket,
-    serve_websocket_with_access, serve_websocket_with_pages,
+    serve_websocket_with_access, serve_websocket_with_keepalive, serve_websocket_with_pages,
 };
 
 #[cfg(test)]

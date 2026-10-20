@@ -486,6 +486,13 @@ viewer has no runtime CDN dependency.
 - **Copyright:** Copyright (c) 2014-2024 Knut Sveidqvist and Mermaid contributors
 - **Source:** https://github.com/mermaid-js/mermaid/releases/tag/mermaid%4011.4.1
 
+### Ondine
+
+- **Version:** 0.0.1 (`Resources/markdown-viewer/ondine.min.js`, built by `scripts/cmux-next/vendor-ondine.mjs`)
+- **License:** MIT License (`Resources/markdown-viewer/ondine.LICENSE`)
+- **Copyright:** Copyright (c) 2025-present wevm contributors
+- **Source:** https://github.com/wevm/ondine (npm `ondine@0.0.1`, built from commit f662aa795b91bf2dfc7162f48035be3884201193)
+
 ### Vega
 
 - **Version:** 5.30.0
