@@ -68,9 +68,7 @@ struct SidebarGroupFlow {
     /// Called after each sidebar update: opens a waiting group editor.
     func openPendingEditor() {
         // On the sidebar document the group shows as its item (`itm_g_<id>`).
-        guard let pending = editor.pending else { return }
-        let id = bridge.model.groupID(personal: pending.rawValue)
-        guard bridge.model.group(id) != nil else { return }
+        guard let pending = editor.pending, case let id = bridge.model.groupID(personal: pending.rawValue), bridge.model.group(id) != nil else { return }
         editor.pending = nil
         bridge.container.beginRename(group: id)
         // No editor came up (a drag, a row out of view): a group made empty does not wait for one.
@@ -205,7 +203,8 @@ struct SidebarGroupFlow {
         // A group made empty that is about to get a member (New Workspace in
         // Group, or an action from its full menu) does not go when the editor closes.
         // Delete, Ungroup and Close end the group themselves (no second delete).
-        let local = Self.personalID(group)
+        // On the sidebar document a group from the personal store shows as its item (`itm_g_<id>`).
+        let local = WorkspaceGroupID(rawValue: SidebarDocStore.personalGroupID(item: group.rawValue))
         // The emoji picker (Set Icon) and the color panel edit it after the editor closes.
         if ["workspaceGroup.newWorkspace", SidebarContainerView.moreActionsItem, SidebarContainerView.keepGroupItem,
             "workspaceGroup.setIcon", "workspaceGroup.delete", "workspaceGroup.ungroup", "workspaceGroup.closeWorkspaces"].contains(item) {
@@ -216,11 +215,5 @@ struct SidebarGroupFlow {
         let target = editor.created[local] ?? local
         let invocation = ActionInvocation(target: ActionTargetRef(kind: .workspaceGroup, id: target.rawValue), origin: .user)
         _ = bridge.services.registry.perform(ActionID(rawValue: item), invocation: invocation)
-    }
-
-    /// The personal group a sidebar group id names: on the sidebar document a
-    /// group from the personal store shows as its item (`itm_g_<id>`).
-    static func personalID(_ group: CmuxNextSidebar.GroupID) -> WorkspaceGroupID {
-        WorkspaceGroupID(rawValue: SidebarDocStore.personalGroupID(item: group.rawValue))
     }
 }

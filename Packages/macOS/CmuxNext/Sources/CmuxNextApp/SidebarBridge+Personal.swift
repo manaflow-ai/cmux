@@ -29,7 +29,7 @@ extension SidebarBridge {
         case .createGroup(let group, let name, let color, let ids, _, let collapsed, _):
             groupFlow.create(group, name: name, color: color, ids, collapsed: collapsed, room: state.profileID, intent)
         case .groupEditorEnded(let group):
-            groupFlow.editorEnded(SidebarGroupFlow.personalID(group))
+            groupFlow.editorEnded(WorkspaceGroupID(rawValue: SidebarDocStore.personalGroupID(item: group.rawValue)))
         case .renameGroup(let group, let name):
             groupFlow.edit(group, name: name, intent)
         case .setGroupColor(let group, let color):

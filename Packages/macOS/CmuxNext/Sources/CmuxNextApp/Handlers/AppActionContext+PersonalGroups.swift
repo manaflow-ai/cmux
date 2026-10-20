@@ -17,9 +17,7 @@ extension AppActionContext {
     func personalGroup(_ invocation: ActionInvocation) throws -> WorkspaceGroupModel {
         let explicit = [invocation.target, invocation["group"]?.targetValue].compactMap { $0 }.first { $0.kind == .workspaceGroup }
         if let explicit {
-            let own = WorkspaceGroupID(rawValue: explicit.id)
-            let item = WorkspaceGroupID(rawValue: SidebarDocStore.personalGroupID(item: explicit.id))
-            guard let group = personal.group(own) ?? personal.group(item) else {
+            guard let group = personal.group(.init(rawValue: explicit.id)) ?? personal.group(.init(rawValue: SidebarDocStore.personalGroupID(item: explicit.id))) else {
                 throw ActionFailure.notFound(RefusalStrings.noWorkspaceGroup(explicit.id))
             }
             return group

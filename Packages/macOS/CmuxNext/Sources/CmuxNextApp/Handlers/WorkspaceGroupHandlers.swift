@@ -43,11 +43,10 @@ enum WorkspaceGroupHandlers {
             let sidebar = try WorkspaceVerbHandlers.sidebar(showing: workspace, context)
             let ids = try WindowMembershipHandlers.workspaces(invocation, context).map(SidebarWorkspaceID.init)
             // The drag's rule (SidebarEdits.canMove): a group holds one machine row's workspaces.
-            let shown = sidebar.model.groupID(personal: group.id.rawValue)
-            guard SidebarEdits.canMove(ids, toGroup: shown, in: sidebar.model.sections) else {
+            guard SidebarEdits.canMove(ids, toGroup: sidebar.model.groupID(personal: group.id.rawValue), in: sidebar.model.sections) else {
                 throw ActionFailure(message: RefusalStrings.groupOnAnotherMachine)
             }
-            sidebar.handle(.move(ids, toGroup: shown))
+            sidebar.handle(.move(ids, toGroup: sidebar.model.groupID(personal: group.id.rawValue)))
         })
         registry.bind("removeWorkspaceFromGroup", requires: DaemonCapabilities.shared.profiles, daemon: home, run: { invocation in
             guard context.usesPersonalGroups else { throw ActionFailure(message: home.personalStateUnavailableReason) }

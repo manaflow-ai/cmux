@@ -18,8 +18,7 @@ extension IconHistory {
         inActiveWindow(ctx) { id, update in
             let target = ActionInvocation(target: ActionTargetRef(kind: .workspaceGroup, id: id))
             guard let group = try? ctx.group(target) else { return false }
-            let sidebar = try ctx.sidebar()
-            sidebar.handle(.setGroupIcon(sidebar.model.groupID(personal: group.id.rawValue), update.icon))
+            try ctx.sidebar().handle(.setGroupIcon(ctx.sidebar().model.groupID(personal: group.id.rawValue), update.icon))
             return true
         }
     }

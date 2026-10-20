@@ -67,6 +67,5 @@ struct SidebarDocShownGroupIDTests {
     @Test func itemIDsMapBackToPersonalIDs() {
         #expect(SidebarDocStore.personalGroupID(item: "itm_g_g1") == "g1")
         #expect(SidebarDocStore.personalGroupID(item: "doc-made") == "doc-made")
-        #expect(SidebarGroupFlow.personalID(CmuxNextSidebar.GroupID("itm_g_g1")).rawValue == "g1")
     }
 }
