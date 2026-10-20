@@ -46,6 +46,8 @@ import Testing
         view.apply(WindowBackdrop(Self.tokens(blur: 20), selection: work), tint: .black)
         let blur = (view.artView.layer?.filters as? [CIFilter])?.first { $0.name == "CIGaussianBlur" }
         #expect((blur?.value(forKey: kCIInputRadiusKey) as? NSNumber)?.doubleValue == 20)
+        // The video over the art blurs the same way.
+        #expect((view.videoView.layer?.filters as? [CIFilter])?.contains { $0.name == "CIGaussianBlur" } == true)
         view.apply(WindowBackdrop(Self.tokens(blur: 0), selection: work), tint: .black)
         #expect((view.artView.layer?.filters ?? []).isEmpty)
     }

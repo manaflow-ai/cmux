@@ -373,8 +373,11 @@ public final class WindowMaterialView: NSView {
         artBlurRadius = radius
         for view in [artView, videoView as NSView] {
             if radius > 0 { view.layerUsesCoreImageFilters = true }
+            // Clamped first: the blur then reads the edge pixels past the edge, not transparency,
+            // so the picture keeps no translucent rim.
             view.layer?.filters = radius > 0
-                ? [CIFilter(name: "CIGaussianBlur", parameters: [kCIInputRadiusKey: radius])].compactMap { $0 } : nil
+                ? [CIFilter(name: "CIAffineClamp"), CIFilter(name: "CIGaussianBlur", parameters: [kCIInputRadiusKey: radius])]
+                    .compactMap { $0 } : nil
         }
     }
 
