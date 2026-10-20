@@ -36,7 +36,7 @@ Status column: `todo`, `done <sha>`, `skip (<owner>)`.
 | 8 | Feature Flags | `help.featureFlags` | needs app capability `feature-flags` | Handlers/SettingsHandlers.swift | S | todo |
 | 9 | Mark agent chat unread | `palette.toggleTabUnread` on a read agent chat | Marking as unread is not available yet | Handlers/TabHandlers+More.swift | S | todo |
 | 10 | Restore Previous App Launch | `reopenPreviousSession` | needs daemon capability `closed-history-v1` | Handlers/WorkspaceHandlers.swift | M | done 9ed6bc901ed |
-| 11 | Toggle Full Width Tab | `palette.toggleFullWidthTab` | needs full-width tab support in the tab strip | Handlers/TabHandlers+More.swift | M | todo |
+| 11 | Toggle Full Width Tab | `palette.toggleFullWidthTab` | needs full-width tab support in the tab strip | Handlers/TabHandlers+More.swift | M | done 034aa40ca6f |
 | 12 | Sleepy Mode | `palette.sleepyMode` | needs app capability `sleepy-mode` | Handlers/WindowHandlers.swift | M | done f7ac14bca75 (left: classic theme/mascot/colors settings section, Low Power toggle, pets) |
 | 13 | Task Manager (2) | `palette.openTaskManager`, `taskManager.killProcess` | needs app capability `task-manager` | Handlers/WindowHandlers.swift | M | done f4c2e82984 (test) + next commit (fix); Kill Process ends local processes only, a remote machine's processes are refused |
 | 14 | Workspace description (2) | `editWorkspaceDescription`, `palette.clearWorkspaceDescription` | needs daemon capability `workspace-description-v1` | Handlers/WorkspaceMetadataHandlers.swift | M (Rust + app) | done 4656386e677 |
@@ -56,7 +56,7 @@ Status column: `todo`, `done <sha>`, `skip (<owner>)`.
 | 28 | React Grab | `toggleReactGrab` | React Grab injection is not ported | Handlers/BrowserHandlers.swift | M | done 2bdb267f752 |
 | 29 | VS Code inline (3) | `palette.openFolderInVSCodeInline`, `palette.vscodeServeWebStop`, `palette.vscodeServeWebRestart` | inline VS Code server is not ported | Handlers/WorkspaceHandlers.swift, Handlers/BrowserHandlers.swift | L | done b3e95eba7ab |
 | 30 | Upgrade to cmux Pro | `palette.pro.upgrade` | needs app capability `account-billing` | Handlers/SettingsHandlers.swift | M (billing: open the web billing page only, no money flow) | todo |
-| 31 | Canvas layout (15) | `toggleCanvasLayout`, `canvasOverview`, `canvasTidy`, `canvasRevealFocusedPane`, `canvasZoomIn/Out/Reset`, `canvasAlign{Left,Right,Top,Bottom}`, `canvasEqualize{Widths,Heights}`, `canvasDistribute{Horizontally,Vertically}` | needs canvas layout | Handlers/PaneHandlers+Verbs.swift | L (new layout engine) | todo |
+| 31 | Canvas layout (15) | `toggleCanvasLayout`, `canvasOverview`, `canvasTidy`, `canvasRevealFocusedPane`, `canvasZoomIn/Out/Reset`, `canvasAlign{Left,Right,Top,Bottom}`, `canvasEqualize{Widths,Heights}`, `canvasDistribute{Horizontally,Vertically}` | needs canvas layout | Handlers/PaneHandlers+Verbs.swift | L (new layout engine) | done 37e5e83a42a |
 
 Not counted as unavailable: `hibernateUnsupported` (a real per-page condition: a page that cannot
 keep its history refuses to hibernate), and per-invocation refusals with a target (no pane to the

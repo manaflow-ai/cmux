@@ -116,11 +116,17 @@ final class AppServices {
     private(set) lazy var sidebarCustomization = SidebarCustomizationService(client: apps.client) { [weak self] in self?.apps.presence.isPresented($0) == true }
     /// The Tasks page and its mirror of the local Tasks owner (plans/cmux-next/tasks.md).
     private(set) lazy var tasks = TasksPageService(services: self)
-    /// Phone tabs: simulators and real iPhones, recordings, feedback to Chief (plans/cmux-next/phone.md).
+    /// Phone tabs: iOS simulators, Android emulators and real phones, recordings, feedback to Chief
+    /// (plans/cmux-next/phone.md, simulators-DESIGN.md).
     private(set) lazy var phones: PhoneService = {
         let folder = SidebarSnapshotFile.buildDirectory(launch: environment.launch).appending(path: "phone", directoryHint: .isDirectory)
-        return PhoneService(backend: XcodePhoneBackend(), recordings: folder.appending(path: "recordings", directoryHint: .isDirectory),
-                            scratch: FileManager.default.temporaryDirectory.appending(path: "cmux-phone", directoryHint: .isDirectory))
+        // One SimulatorKit host serves the iOS backend's input and the phone tabs' live screens.
+        let simulatorKit = SimulatorKitHID(developerDirectory: SimulatorKitHID.selectedDeveloperDirectory())
+        let backend = PlatformPhoneBackend(ios: XcodePhoneBackend(hid: simulatorKit),
+                                           android: AndroidSDK.locate().map { AndroidPhoneBackend(sdk: $0) })
+        return PhoneService(backend: backend, recordings: folder.appending(path: "recordings", directoryHint: .isDirectory),
+                            scratch: FileManager.default.temporaryDirectory.appending(path: "cmux-phone", directoryHint: .isDirectory),
+                            live: simulatorKit)
     }()
     private(set) lazy var phoneFeedback = PhoneChiefFeedback(home: home)
     /// The Task Manager page and Kill Process (`TaskManagerPageService`).
@@ -129,6 +135,8 @@ final class AppServices {
     private(set) lazy var workspaceTodo = WorkspaceTodoPageService(services: self)
     /// The viewers' recents, the cmux picker, the diff, markdown and editor tabs (R89, S4, S6, S7).
     private(set) lazy var viewers = ViewerService(services: self)
+    /// Where a link or path the person opens lands (`layout.linkPlacement`): beside its pane.
+    private(set) lazy var linkOpener = LinkOpener(services: self)
     /// The cmux server menu bar item (DEV and NIGHTLY prototype; plans/cmux-next/server.md 14).
     private(set) lazy var serverMenuBar = ServerMenuBarController.app(services: self)
     /// Home: local conversations with the mux (plans/cmux-next/home.md).
@@ -151,6 +159,8 @@ final class AppServices {
     )
     /// Each pane's own Hide Tab Bar choice (`PaneTabBarChoices`).
     let paneTabBars = PaneTabBarChoices()
+    /// The panes in Full Width Tab mode (`PaneFullWidthTabs`).
+    let paneFullWidthTabs = PaneFullWidthTabs()
     /// Pane controller mounts and releases in any window (`PaneMounts`).
     let paneMounts = PaneMounts()
     /// The new tab screen's Search | Ask mode and last agent, and what `!` typed ahead.

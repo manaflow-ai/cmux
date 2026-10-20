@@ -39,7 +39,8 @@ extension TabStripView {
             availableWidth: viewportWidth,
             style: model.style,
             metrics: metrics,
-            closingModeWidth: closingModeWidth
+            closingModeWidth: closingModeWidth,
+            fullWidthTab: model.showsSelectedFullWidth ? model.selectedID : nil
         )
         // A new tab (Cmd-T, +, a script's tab) with `ui.animations.newTab` off is there at once, at its
         // slot and full width, and the tabs make room for it in the same frame. A drag or a torn-out

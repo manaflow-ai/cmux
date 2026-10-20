@@ -209,7 +209,9 @@ impl CloudPlacement {
         env: impl Fn(&str) -> Option<String>,
         instructions: String,
     ) -> Option<CloudPlacement> {
-        let peer = env(PEER_ENV).map(|p| p.trim().to_owned()).filter(|p| !p.is_empty())?;
+        let peer = env(PEER_ENV)
+            .map(|p| p.trim().to_owned())
+            .filter(|p| !p.is_empty())?;
         Some(CloudPlacement {
             peer,
             dir: env("OPTCHAT_SUBAGENT_PEER_DIR")
@@ -406,8 +408,8 @@ impl Spawner {
         // catalog, so it does not apply there.
         let admitted = match &peer {
             Some(_) => crate::harness_gate::Admitted::peer(&s.harness),
-            None => crate::harness_gate::admit_live(&*self.agents, &s.harness).map_err(
-                |reason| {
+            None => {
+                crate::harness_gate::admit_live(&*self.agents, &s.harness).map_err(|reason| {
                     crate::harness_gate::trace_refusal(
                         &self.trace,
                         "subagent",
@@ -415,8 +417,8 @@ impl Spawner {
                         &reason,
                     );
                     crate::harness_gate::refusal(&reason)
-                },
-            )?,
+                })?
+            }
         };
         // No mark of ours in a subagent's first message: Claude Code marks
         // its two system blocks and the last two messages of every later
@@ -1086,6 +1088,30 @@ impl Orchestrator for Spawner {
     fn control(&self, request: crate::tools::ControlCall) -> Result<String, String> {
         let (reply, answer) = channel();
         self.send(Input::Control { request, reply })?;
+        answer
+            .recv()
+            .map_err(|_| "the Chief host is stopping".to_owned())?
+    }
+
+    fn react(&self, id: u64, reaction: &str) -> Result<String, String> {
+        let (reply, answer) = channel();
+        self.send(Input::React {
+            id,
+            reaction: reaction.to_owned(),
+            reply,
+        })?;
+        answer
+            .recv()
+            .map_err(|_| "the Chief host is stopping".to_owned())?
+    }
+
+    fn reply(&self, id: u64, text: &str) -> Result<String, String> {
+        let (reply, answer) = channel();
+        self.send(Input::Reply {
+            id,
+            text: text.to_owned(),
+            reply,
+        })?;
         answer
             .recv()
             .map_err(|_| "the Chief host is stopping".to_owned())?

@@ -11,6 +11,8 @@ enum HomeConversationStrings {
     static var newMessage: String { String(localized: "home.list.newMessage", defaultValue: "New Message…", bundle: .module) }
     static var newChief: String { String(localized: "home.list.newChief", defaultValue: "New Chief…", bundle: .module) }
     static var invite: String { String(localized: "home.list.invite", defaultValue: "Invite to cmux-next…", bundle: .module) }
+    /// Group info's Invite by Email… after a `not_reachable` refusal.
+    static var inviteByEmail: String { String(localized: "home.groupInfo.inviteByEmail", defaultValue: "Invite by Email…", bundle: .module) }
     static var empty: String {
         String(localized: "home.list.empty", defaultValue: "No conversations yet. Start one with New Message.", bundle: .module)
     }

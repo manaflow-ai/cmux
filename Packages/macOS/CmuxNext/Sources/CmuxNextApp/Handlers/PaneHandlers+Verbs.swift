@@ -6,7 +6,7 @@ import CmuxNextDesign
 import CmuxNextLayout
 
 // Swap, close, rename, flash, workspace font size, and pane kinds this
-// build does not have (canvas, simulator, sidebar-as-pane), which are bound
+// build does not have (simulator, sidebar-as-pane), which are bound
 // with a typed reason instead of left unbound.
 extension PaneHandlers {
     static func bindPaneVerbs(into registry: ActionRegistry, context ctx: AppActionContext) {
@@ -127,15 +127,10 @@ extension PaneHandlers {
     }
 
     private static func bindUnported(_ registry: ActionRegistry) {
-        let canvas = RefusalStrings.canvasUnported
-        for id: ActionID in ["toggleCanvasLayout", "canvasOverview", "canvasTidy", "canvasRevealFocusedPane", "canvasZoomIn",
-                             "canvasZoomOut", "canvasZoomReset", "canvasAlignLeft", "canvasAlignRight", "canvasAlignTop",
-                             "canvasAlignBottom", "canvasEqualizeWidths", "canvasEqualizeHeights",
-                             "canvasDistributeHorizontally", "canvasDistributeVertically"] {
-            registry.bindUnavailable(id, reason: canvas)
-        }
         let simulator = RefusalStrings.simulatorUnported
-        for id: ActionID in ["palette.newSimulatorPane", "simulatorHome", "simulatorRotateLeft", "simulatorRotateRight",
+        // palette.newSimulatorPane opens the phone tab (PhoneHandlers). The keyboard-only simulator
+        // actions wait for a focused-phone context (simulatorFocused; plans/cmux-next/simulators-DESIGN.md).
+        for id: ActionID in ["simulatorHome", "simulatorRotateLeft", "simulatorRotateRight",
                              "simulatorToggleAppearance", "simulatorToggleSoftwareKeyboard"] {
             registry.bindUnavailable(id, reason: simulator)
         }

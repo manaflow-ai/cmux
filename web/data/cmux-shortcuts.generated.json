@@ -506,6 +506,47 @@
           "aliases": []
         },
         {
+          "id": "home.newMessage",
+          "title": {
+            "en": "New Message…",
+            "ar": "رسالة جديدة…",
+            "bs": "Nova poruka…",
+            "da": "Ny besked…",
+            "de": "Neue Nachricht …",
+            "es": "Nuevo mensaje…",
+            "fr": "Nouveau message…",
+            "it": "Nuovo messaggio…",
+            "ja": "新規メッセージ…",
+            "km": "សារថ្មី…",
+            "ko": "새로운 메시지…",
+            "no": "Ny melding …",
+            "pl": "Nowa wiadomość…",
+            "pt-BR": "Nova mensagem…",
+            "ru": "Новое сообщение…",
+            "th": "ข้อความใหม่…",
+            "tr": "Yeni Mesaj…",
+            "uk": "Нове повідомлення…",
+            "vi": "Tin nhắn mới…",
+            "zh-CN": "新信息…",
+            "zh-TW": "新訊息…"
+          },
+          "shortcut": null,
+          "chord": null,
+          "aliases": [
+            {
+              "keys": [
+                {
+                  "key": "n",
+                  "modifiers": [
+                    "cmd"
+                  ]
+                }
+              ],
+              "when": "topPage == home || surfaceKind == home || surfaceKind == home-dock"
+            }
+          ]
+        },
+        {
           "id": "focusHistoryBack",
           "title": {
             "en": "Go Back",
@@ -5339,6 +5380,41 @@
             "key": "r",
             "modifiers": [
               "shift",
+              "cmd"
+            ]
+          },
+          "chord": null,
+          "aliases": []
+        },
+        {
+          "id": "browser.focusSearch",
+          "title": {
+            "en": "Search the Web",
+            "ar": "البحث في الويب",
+            "bs": "Pretraži web",
+            "da": "Søg på nettet",
+            "de": "Im Web suchen",
+            "es": "Buscar en la Web",
+            "fr": "Rechercher sur le Web",
+            "it": "Cerca sul Web",
+            "ja": "ウェブを検索",
+            "km": "ស្វែងរកលើបណ្ដាញ",
+            "ko": "웹 검색",
+            "no": "Søk på nettet",
+            "pl": "Szukaj w sieci",
+            "pt-BR": "Pesquisar na Web",
+            "ru": "Поиск в интернете",
+            "th": "ค้นหาเว็บ",
+            "tr": "Web’de Ara",
+            "uk": "Пошук в інтернеті",
+            "vi": "Tìm kiếm trên web",
+            "zh-CN": "搜索网页",
+            "zh-TW": "搜尋網頁"
+          },
+          "shortcut": {
+            "key": "f",
+            "modifiers": [
+              "opt",
               "cmd"
             ]
           },

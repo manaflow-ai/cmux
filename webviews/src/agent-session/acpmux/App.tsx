@@ -15,6 +15,7 @@ import { flushSync } from "react-dom";
 import { chiefEnvelope } from "./conversation/chiefEnvelope";
 import { QueryClientProvider, useIsFetching, useQueryClient } from "@tanstack/react-query";
 import { applyAgentTheme } from "../shared/theme";
+import { isAgentMotionOff } from "../shared/motion";
 import {
   layoutConversation,
   type ConversationLayout,
@@ -863,7 +864,7 @@ const transcriptHasFloatingCopy = (row: AcpmuxRow) =>
 /// content that grew at the latest row glides in. Glides stack (`composite: "add"`): two started
 /// before one paint move the text by their sum. None under Reduce Motion.
 function glide(node: HTMLElement | null, step: number): void {
-  if (!node || typeof node.animate !== "function") return;
+  if (isAgentMotionOff() || !node || typeof node.animate !== "function") return;
   if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
   node.animate([{ transform: `translateY(${step}px)` }, { transform: "translateY(0px)" }], {
     duration: GLIDE_MS,
@@ -3133,11 +3134,13 @@ function AcpmuxPane() {
             const tool = item.tool;
             if (!tool) return false;
             if (tool.diffs?.length || tool.kind === "fetch" || tool.kind === "think") return true;
+            // Wakeups and cron jobs arrive as kind "other", named by their title (the summary's
+            // scheduled() list reads them the same way).
+            if (/^(?:ScheduleWakeup|CronCreate)\b/.test(tool.title) && tool.status !== "failed") return true;
             if (tool.kind !== "execute") return false;
+            // Claude's raw input arrives as JSON (`"run_in_background":true`).
             const command = `${tool.command ?? ""} ${tool.inputSummary ?? ""}`;
-            return /run_in_background\s*[=:]\s*true|gh\s+pr\s+(?:create|merge|close)|(?:ScheduleWakeup|CronCreate)\b/.test(
-              command,
-            );
+            return /run_in_background["']?\s*[=:]\s*true|gh\s+pr\s+(?:create|merge|close)/.test(command);
           })),
     );
   }, [snapshot.rows]);

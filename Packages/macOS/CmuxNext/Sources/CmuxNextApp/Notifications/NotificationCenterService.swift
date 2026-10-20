@@ -247,7 +247,9 @@ final class NotificationCenterService {
         desktop.withdraw(banners.removeValue(forKey: tab.id) ?? [])
         let surface = tab.surface
         let driver = feedDriver
-        services?.daemon.send("ack-tab-notifications") { connection in
+        // Read now (dots, badges, Cmd-Opt-U); the tree's echo settles it, a failed ack rolls it back.
+        tab.expectNotificationRead()
+        services?.daemon.send("ack-tab-notifications", onFailure: { _ in tab.dropExpectedNotificationRead() }) { connection in
             let reply = try await connection.acknowledgeNotifications(of: surface)
             // Items that already moved are read in the cloud (B5).
             if let refused = reply.refused, !refused.isEmpty { await driver?.acknowledged(refused) }
