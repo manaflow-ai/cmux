@@ -123,10 +123,12 @@ if [[ $ci_asc == 1 ]]; then
   [[ -n "${ASC_KEY_ID:-}" && -n "${ASC_ISSUER_ID:-}" && -f "${ASC_PRIVATE_KEY_PATH:-}" ]] \
     || { echo "error: CNX_CI_ASC=1 needs ASC_KEY_ID, ASC_ISSUER_ID and ASC_PRIVATE_KEY_PATH" >&2; exit 2; }
   asc_key_id=$ASC_KEY_ID asc_issuer=$ASC_ISSUER_ID
-  asc_() { asc "$@"; }
+  asc_cmd=(asc)
 else
-  asc_() { asc --profile "$asc_profile" --strict-auth "$@"; }
+  asc_cmd=(asc --profile "$asc_profile" --strict-auth)
 fi
+# The asc command line; set-test-notes.sh runs it in a child process, where a function is not visible.
+asc_() { "${asc_cmd[@]}" "$@"; }
 log() { printf '\n==> %s\n' "$*"; }
 die() { echo "error: $*" >&2; exit 1; }
 json() { python3 -I -c "$1" 2>/dev/null; }  # reads one JSON document on stdin (asc may append warnings)
@@ -362,6 +364,8 @@ fi
 check_app() {  # <CnxApp.app>
   local app=$1 info="$1/Info.plist" bad=()
   bash "$script_dir/check-production-binary.sh" "$app" "$bundle_id" "$binary_mode"
+  # What App Store Connect rejects only after the upload (ITMS-90626, 90683, ...).
+  python3 -I "$repo/scripts/cmux-next/check-app-store-rules.py" --app "$app" || die "$app breaks an App Store review rule"
   [[ "$(plutil -extract CNXStackEnvironment raw "$info" 2>/dev/null)" == "$stack_env" ]] || bad+=("CNXStackEnvironment (want '$stack_env')")
   [[ "$(plutil -extract CFBundleShortVersionString raw "$info")" == "$marketing" ]] || bad+=("CFBundleShortVersionString")
   [[ "$(plutil -extract CFBundleVersion raw "$info")" == "$build_number" ]] || bad+=("CFBundleVersion")
@@ -510,9 +514,10 @@ open(sys.argv[1],"w").write(k if k.endswith("\n") else k+"\n")' "$private/AuthKe
       || { tail -20 "$out/logs/process.json"; die "build $build_number did not finish processing"; }
     if [[ -n "$what_to_test" ]]; then
       # App Store Connect makes the en-US entry on processing: update it.
-      asc_ builds test-notes update --app "$app_id" --build-number "$build_number" --platform IOS --locale en-US \
-        --whats-new "$what_to_test" --output json > "$out/logs/notes.json" 2>&1 \
-        || { tail -20 "$out/logs/notes.json"; die "could not set What to Test for $build_number"; }
+      # Retries Apple 5xx; a failure only warns (the build is already uploaded).
+      bash "$script_dir/set-test-notes.sh" "$out/logs/notes.json" -- \
+        "${asc_cmd[@]}" builds test-notes update --app "$app_id" --build-number "$build_number" --platform IOS --locale en-US \
+        --whats-new "$what_to_test" --output json
     fi
     notes+=("Uploaded to $app_name at $(date -u +%Y-%m-%dT%H:%M:%SZ); processed. Add What to Test notes from cnx-ios/verify/testflight-metadata.md.")
   fi

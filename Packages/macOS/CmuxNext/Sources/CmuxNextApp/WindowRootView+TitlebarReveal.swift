@@ -19,7 +19,7 @@ extension WindowRootView {
         titlebarReveal.onChange = { [weak self] revealed in
             guard let self else { return }
             let glass = trafficLightsGlass
-            Motion.animate(.hover, in: glass) { glass.animator().alphaValue = revealed && self.titlebarReveal.state.pointerInside ? 1 : 0 }
+            Motion.feedback.animate(.hover, in: glass) { glass.animator().alphaValue = revealed && self.titlebarReveal.state.pointerInside ? 1 : 0 }
         }
         // The pointer over the sidebar shows its chrome: its + button and these buttons above it.
         sidebar.sidebarView.onChromeRevealChange = { [weak self] revealed in

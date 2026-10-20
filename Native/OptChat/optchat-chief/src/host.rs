@@ -552,6 +552,11 @@ pub fn run(flags: &Flags, started_ms: u64) -> i32 {
         .map(PathBuf::from)
         .unwrap_or_else(mux_home);
     let _ = HOST_HOME.set(home.clone());
+    // A moved Chief answers from its new host only (chief-migration-DESIGN.md 4).
+    if let Some(why) = crate::migrate::refusal(&home) {
+        eprintln!("optchat-chief host: {why}");
+        return crate::migrate::MOVED_EXIT;
+    }
     let source = match conversation_source(flags) {
         Ok(source) => source,
         Err(why) => {
@@ -575,6 +580,8 @@ pub fn run(flags: &Flags, started_ms: u64) -> i32 {
         Ok(lock) => {
             // A stop mark an earlier host of this home left says nothing now.
             crate::lock::clear_stopping(&paths.host_lock);
+            // The app may ask this host to hand off when idle (SIGUSR1).
+            crate::lock::mark_handoff_when_idle(&paths.host_lock);
             lock
         }
         Err(LockError::Held) => {
@@ -606,6 +613,11 @@ pub fn run(flags: &Flags, started_ms: u64) -> i32 {
         return 0;
     }
     match started {
+        Ok(fatal) if fatal.starts_with(crate::brain::HANDOFF_WHEN_IDLE) => {
+            // The app hands acpmux off and starts the next host.
+            log(format!("stopping: {fatal}"));
+            0
+        }
         Ok(fatal) => {
             log(format!("stopping: {fatal}"));
             1
@@ -881,6 +893,11 @@ fn start(
         chiefs_tool: chief_tools.grant().allows("chiefs"),
     };
     session_dir::write(paths, &setup).map_err(|e| format!("writing the session directory: {e}"))?;
+    // The skills cmux ships, shared by every Chief (skills.rs); a failure
+    // costs only the skill, never the host.
+    if let Err(e) = crate::skills::install_builtin(&crate::skills::shared_dir(&paths.home)) {
+        eprintln!("optchat-chief: installing the shipped Chief skills: {e}");
+    }
     // Section 9: every subagent's directory and system prompt.
     let sub_tools = if sub_family == Family::Claude {
         crate::prompt::Tools::Mcp
@@ -1460,9 +1477,10 @@ fn start(
     };
     let brain_log: crate::brain::Log = Arc::new(|line: &str| log(line));
     // Section 10: persist after each turn.
+    // The backup repository follows a moved Chief (migrate.rs backup_id).
     let backup = crate::backup::Backup::new(crate::backup::BackupConfig::for_home(
         paths,
-        &crate::paths::home_id(home),
+        &crate::migrate::backup_id(home),
     ));
     let retention =
         crate::turn_retention::TurnRetention::new(paths, &crate::compactor::user_claude_home());
@@ -1579,6 +1597,11 @@ fn start(
 
 const STOP_SIGNALS: [libc::c_int; 3] = [libc::SIGTERM, libc::SIGINT, libc::SIGHUP];
 
+/// An update's "hand off when idle" (the app, `ChiefHostStop`): the brain
+/// stops between turns and the host exits without ending its acpmux, which
+/// the app then hands off.
+const HANDOFF_SIGNAL: libc::c_int = libc::SIGUSR1;
+
 /// The write end of the stop pipe, for the signal handler.
 static STOP_PIPE: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(-1);
 
@@ -1607,7 +1630,7 @@ fn catch_stop_signals() -> Option<std::fs::File> {
         unsafe { libc::fcntl(fd, libc::F_SETFD, libc::FD_CLOEXEC) };
     }
     STOP_PIPE.store(fds[1], std::sync::atomic::Ordering::Relaxed);
-    for signal in STOP_SIGNALS {
+    for signal in STOP_SIGNALS.into_iter().chain([HANDOFF_SIGNAL]) {
         // SAFETY: a zeroed sigaction with a valid handler and an empty mask.
         unsafe {
             let mut action = std::mem::zeroed::<libc::sigaction>();
@@ -1723,6 +1746,19 @@ fn watch_stop_signals() {
             let mut byte = [0u8; 1];
             while pipe.read_exact(&mut byte).is_ok() {
                 let signal = libc::c_int::from(byte[0]);
+                if signal == HANDOFF_SIGNAL {
+                    let running = BRAIN_RUNNING.load(std::sync::atomic::Ordering::SeqCst);
+                    let sent = running
+                        && STOP_TX
+                            .get()
+                            .is_some_and(|tx| tx.send(Input::HandoffWhenIdle).is_ok());
+                    if !sent {
+                        // No turn can run yet: hand off now; the app stops acpmux.
+                        log("handoff requested before the brain runs: exiting");
+                        std::process::exit(0);
+                    }
+                    continue;
+                }
                 STOPPING.store(true, std::sync::atomic::Ordering::SeqCst);
                 let running = BRAIN_RUNNING.load(std::sync::atomic::Ordering::SeqCst);
                 let sent = running
@@ -1919,10 +1955,12 @@ pub fn probe_notice(route: CompactRoute, error: &str) -> Option<String> {
     ))
 }
 
-/// The read-only memory inspector (inspect/http.rs) on 127.0.0.1, its
-/// address and token in `optchat/inspector.json` for the app. Off with
-/// `OPTCHAT_INSPECTOR=0`; a failure only logs (the Chief runs without it).
-/// Returns the inspector for the tools socket's `inspect` tool too.
+/// The memory inspector for the tools socket's `inspect` tool (the app's
+/// native Memory Inspector asks through its daemon), with the owner's
+/// change book (`inspect/edit.rs`). Off with `OPTCHAT_INSPECTOR=0`. The old
+/// web page on 127.0.0.1 (inspect/http.rs, its address and token in
+/// `optchat/inspector.json`) starts only with `OPTCHAT_INSPECTOR_WEB=1`, the
+/// fallback; a failure only logs (the Chief runs without it).
 fn start_inspector(
     paths: &Paths,
     chat: &Arc<OptChat>,
@@ -1932,12 +1970,20 @@ fn start_inspector(
     if env("OPTCHAT_INSPECTOR").as_deref() == Some("0") {
         return None;
     }
-    let inspector = Arc::new(crate::inspect::Inspector::new(
-        chat.clone(),
-        paths.traces.clone(),
-        paths.settle_status.clone(),
-        system_text.to_owned(),
-    ));
+    let editor = crate::inspect::edit::Editor::open(chat.clone(), &paths.root);
+    let inspector = Arc::new(
+        crate::inspect::Inspector::new(
+            chat.clone(),
+            paths.traces.clone(),
+            paths.settle_status.clone(),
+            system_text.to_owned(),
+        )
+        .with_editor(editor),
+    );
+    if env("OPTCHAT_INSPECTOR_WEB").as_deref() != Some("1") {
+        log("memory inspector: native (through the daemon); web page off");
+        return Some(inspector);
+    }
     let started = crate::inspect::http::new_secret().and_then(|token| {
         let bind = std::net::SocketAddr::from(([127, 0, 0, 1], 0));
         crate::inspect::http::start(inspector.clone(), bind, token)

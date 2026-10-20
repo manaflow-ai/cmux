@@ -145,7 +145,25 @@ extension LayoutRootView {
         draggingUpdated(sender)
     }
 
+    /// A URL another app (or a web page) drags here, when the App takes link drops.
+    private func linkURL(from info: any NSDraggingInfo) -> URL? {
+        guard linkDropHandler != nil, tabID(from: info) == nil else { return nil }
+        return (info.draggingPasteboard.readObjects(forClasses: [NSURL.self], options: nil) as? [URL])?.first
+    }
+
     override public func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        if let url = linkURL(from: sender) {
+            // A link from outside: the same zones as a tab; the App says which it can open.
+            guard let target = updateTabDrag(TabID("link-drop"), locationInWindow: sender.draggingLocation) else {
+                hideHighlight()
+                return []
+            }
+            guard linkDropHandler?(url, target, false) == true else {
+                hideTabDragHighlight()
+                return []
+            }
+            return .copy
+        }
         guard let tab = tabID(from: sender), updateTabDrag(tab, locationInWindow: sender.draggingLocation) != nil else {
             hideHighlight()
             return []
@@ -158,6 +176,12 @@ extension LayoutRootView {
     }
 
     override public func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
+        if let url = linkURL(from: sender) {
+            let target = updateTabDrag(TabID("link-drop"), locationInWindow: sender.draggingLocation)
+            cancelTabDrag()
+            guard let target else { return false }
+            return linkDropHandler?(url, target, true) == true
+        }
         guard let tab = tabID(from: sender) else { return false }
         return endTabDrag(tab, locationInWindow: sender.draggingLocation) != nil
     }

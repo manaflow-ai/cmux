@@ -264,6 +264,7 @@ import { checkpointStrings } from "./checkpoints/strings";
 import { QUICK_MESSAGES, readSurface, useEscapeToDismiss, type PaneSurface } from "./paneSurface";
 import { QuickSurface } from "./QuickSurface";
 import { contextAttachment, floatingStatus, type QuickFloating } from "./FloatingChat";
+import { designSelectionChips, designSelectionRemovals } from "./designSelection";
 import { setFloatingState, useFloatingState } from "./floatingState";
 import { FailedPrompt } from "./FailedPrompt";
 import { ReplayScreen } from "./replay/ReplayScreen";
@@ -343,6 +344,9 @@ declare global {
       revealTurn?(turnId: string): void;
       /// A dictation change from the host (CmuxNextAgentPane AgentPaneDictation), spliced at the prompt's cursor.
       dictation?(update: DictationUpdate): void;
+      /// A design mode highlight from a browser pane (CmuxNextAgentPane AgentPaneDesignSelection):
+      /// its chips join the composer and go with the next message (designSelection.ts).
+      designSelection?(selection: unknown): void;
     };
     cmuxAcpmuxRegistry?: {
       register(
@@ -4151,6 +4155,11 @@ function AcpmuxPane() {
       },
       dictation(update) {
         deliverDictation(update);
+      },
+      designSelection(selection) {
+        const removals = designSelectionRemovals(selection);
+        if (removals.length) composerHandle.current?.detach(removals);
+        for (const chip of designSelectionChips(selection)) composerHandle.current?.attach(chip);
       },
     };
     // On the shared page host the host pushes arrive as events once the bridge exists.
