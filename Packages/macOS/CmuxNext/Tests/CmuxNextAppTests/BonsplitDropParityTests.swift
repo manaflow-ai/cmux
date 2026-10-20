@@ -129,6 +129,39 @@ struct BonsplitDropParityTests {
         #expect(SplitLeftover(kind: .conversation) == .nothing)
     }
 
+    // MARK: Even splits
+
+    /// A drop that splits B in A|B gives three equal panes with `layout.splitSizing` even, as a
+    /// keyboard split does (it used to leave A 50%, B 25%, new 25%).
+    @Test func aDropSplitEvensThePanesAlongItsAxis() {
+        let model = LayoutModel(screens: [LayoutScreen(id: "s", name: "s", layout: .splits(
+            .split("x", axis: .horizontal, ratio: 0.5, a: .leaf("a"), b: .leaf("b"))))], activeScreenID: "s", focusedPane: "a")
+        model.splitSizingOverride = .even
+        let changes = model.splitSizingChanges(splitting: "b", axis: .horizontal)
+        #expect(changes.count == 1 && changes.first?.split == "x")
+        #expect(abs((changes.first?.ratio ?? 0) - 1.0 / 3) < 1e-9)
+        model.splitSizingOverride = .halve
+        #expect(model.splitSizingChanges(splitting: "b", axis: .horizontal).isEmpty)
+    }
+
+    /// The pane the drop empties closes in the same move: the even shares leave it out, as the
+    /// drop preview does (`DropPreviewLayout` with even sizing).
+    @Test func aDropSplitEvensWithoutThePaneItEmpties() {
+        let model = LayoutModel(screens: [LayoutScreen(id: "s", name: "s", layout: .splits(
+            .split("x", axis: .horizontal, ratio: 0.5, a: .leaf("a"),
+                   b: .split("y", axis: .horizontal, ratio: 0.5, a: .leaf("b"), b: .leaf("c")))))], activeScreenID: "s", focusedPane: "a")
+        model.splitSizingOverride = .even
+        // Without the emptied pane `a`, splitting `c` leaves b, c and the new pane a third each.
+        let changes = model.splitSizingChanges(splitting: "c", axis: .horizontal, removing: "a")
+        #expect(changes.map(\.split) == ["y"])
+        #expect(abs((changes.first?.ratio ?? 0) - 1.0 / 3) < 1e-9)
+        let preview = DropPreviewLayout(splitting: "c", zone: .right, in: .splits(
+            .split("x", axis: .horizontal, ratio: 0.5, a: .leaf("a"),
+                   b: .split("y", axis: .horizontal, ratio: 0.5, a: .leaf("b"), b: .leaf("c")))), removing: "a", evenSizing: true)
+        guard case let .splits(.split(id, _, ratio, _, _))? = preview?.layout else { Issue.record("no preview"); return }
+        #expect(id == "y" && abs(ratio - 1.0 / 3) < 1e-9)
+    }
+
     // MARK: Harness
 
     final class Panes: LayoutPaneContentProvider {
