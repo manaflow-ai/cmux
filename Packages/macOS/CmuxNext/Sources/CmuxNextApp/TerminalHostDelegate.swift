@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextCompat
+import CmuxNextDaemon
 import CmuxNextPages
 import CmuxNextSettings
 import CmuxNextTerminal
@@ -74,7 +75,7 @@ final class TerminalHostDelegate: TerminalSessionDelegate {
     /// files the code editor page and a folder Finder; a path that exists nowhere opens nothing.
     func terminalSession(_ session: TerminalSession, openLink text: String) -> Bool {
         let request = linkRequest(session), cwd = cwd(of: session)
-        let allowsLocalFiles = services.map { allowsLocalFiles(session, services: $0) } ?? false
+        let allowsLocalFiles = services.map { self.allowsLocalFiles(session, services: $0) } ?? false
         Task { @MainActor [weak self] in
             let target = await Task.detached(priority: .userInitiated) {
                 TerminalLinkResolver.resolve(text, cwd: cwd, allowsLocalFiles: allowsLocalFiles)
@@ -101,7 +102,7 @@ final class TerminalHostDelegate: TerminalSessionDelegate {
     /// or a path that names a file or folder (``TerminalLinkResolver``, the click's own rule).
     func terminalSessionLinkCheck(_ session: TerminalSession) -> TerminalLinkCheck? {
         let start = services.flatMap { services in target(of: session, in: services).flatMap { services.cache.tabModel($0.id)?.cwd } }
-        let allowsLocalFiles = services.map { allowsLocalFiles(session, services: $0) } ?? false
+        let allowsLocalFiles = services.map { self.allowsLocalFiles(session, services: $0) } ?? false
         return { text, cwd in TerminalLinkResolver.resolve(text, cwd: cwd ?? start, allowsLocalFiles: allowsLocalFiles) != nil }
     }
 
