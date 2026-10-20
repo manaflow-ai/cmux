@@ -91,6 +91,8 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
         // first one keeps its empty placeholder, a drop target).
         let listsAnyMachineRow = sections.contains { $0.machine != nil && !$0.nodes.isEmpty }
         var previousWasMachine = false
+        // A block brings the band's own padding: the list's top padding goes after the blocks, as below the band.
+        var previousWasBlock = false
         var shownEmptyMachine = false
 
         func visible(_ ws: SidebarWorkspace) -> Bool {
@@ -130,6 +132,9 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                     // valid target); a group emptied by the filter hides.
                     if filtering && children.isEmpty { continue }
                     nodes.append((node, children))
+                case let .item(item):
+                    // A link or app row matches no workspace filter.
+                    if !filtering && item.id != o.excludedItem { nodes.append((node, [])) }
                 }
             }
 
@@ -137,18 +142,37 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
             let gapHere = o.gap?.section == section.id
             if nodes.isEmpty && filtering { continue }
             if isPinned && nodes.isEmpty && !o.showEmptyPinned && !gapHere { continue }
+            // A document section (sidebar-v2) draws its items in its own arrangement (one block row, its
+            // region draws the header), then its groups as list rows; collapsed, only the block shows.
+            let isDocSection = section.isDocSection
+            var docID: String?
+            if case let .custom(custom) = section.kind { docID = custom.id }
+            let blockHeight = docID.flatMap { o.blockHeights[$0] } ?? 0
+            if let docID, o.collapsedDocSections.contains(docID) { nodes = [] }
+            let emptyDropZone = docID != nil && o.showEmptyPinned && !filtering // any document section takes a drop during a drag
+            if isDocSection && nodes.isEmpty && blockHeight == 0 && !gapHere && !emptyDropZone { continue }
 
             let flat = o.flattensMachines && section.machine != nil
             if flat && nodes.isEmpty && !gapHere && (listsAnyMachineRow || shownEmptyMachine) { continue }
             if flat && nodes.isEmpty { shownEmptyMachine = true }
-            // Consecutive computers in one list read as one list: no gap.
-            if !firstSection && !(flat && previousWasMachine) { y += m.sectionSpacing }
+            // Consecutive computers in one list read as one list: no gap. A block brings its own padding.
+            if firstSection && blockHeight > 0 { y -= m.topPadding }
+            if !firstSection && !(flat && previousWasMachine) && blockHeight == 0 { y += previousWasBlock ? m.topPadding : m.sectionSpacing }
             firstSection = false
+            previousWasBlock = blockHeight > 0 && nodes.isEmpty
             previousWasMachine = section.machine != nil
+            if let docID, blockHeight > 0 {
+                rows.append(SidebarRow(
+                    key: .block(docID), y: y, height: blockHeight, section: section.id,
+                    group: nil, siblingIndex: 0, parentIndex: nil, isLastInGroup: false,
+                    isCollapsed: false, childCount: 0, groupColor: nil
+                ))
+                y += blockHeight
+            }
             // Headers stay for the pinned area and for one section per
             // computer (`sidebar.groupByComputer`, opt-in), never in one list.
-            let showsHeader = section.machine == nil
-                || (!flat && (machineCount > 1 || o.showsSoleMachineHeader))
+            let showsHeader = !isDocSection && (section.machine == nil
+                || (!flat && (machineCount > 1 || o.showsSoleMachineHeader)))
             // The computer a row names in one list (never this Mac), with its
             // status when it cannot connect.
             let machineLabel = Self.machineLabel(section, options: o)
@@ -169,7 +193,7 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
             if nodes.isEmpty {
                 if gapHere {
                     openGapIfNeeded(section: section.id, group: nil, index: 0)
-                } else {
+                } else if blockHeight == 0 || (emptyDropZone && docID.map(o.emptyDocSections.contains) == true) {
                     rows.append(SidebarRow(
                         key: .emptySection(section.id), y: y, height: m.emptySectionHeight, section: section.id,
                         group: nil, siblingIndex: 0, parentIndex: nil, isLastInGroup: false,
@@ -205,14 +229,31 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                             y += m.tabRowHeight + m.rowSpacing
                         }
                     }
+                case let .item(item):
+                    let content = WorkspaceRowContent() // one line, as a compact workspace row
+                    let h = m.height(for: content)
+                    rows.append(SidebarRow(
+                        key: .item(item.id), y: y, height: h, section: section.id,
+                        group: nil, siblingIndex: index, parentIndex: nil, isLastInGroup: false,
+                        isCollapsed: false, childCount: 0, groupColor: nil, content: content
+                    ))
+                    y += h + m.rowSpacing
                 case let .group(group):
+                    // The member rows in document order: workspaces with the group's link, tab and app items
+                    // (an item matches no workspace filter; a dragged item leaves its slot).
+                    let shown = Set(entry.children.map(\.id))
+                    let members = group.members.filter { member in
+                        switch member {
+                        case let .workspace(ws): shown.contains(ws.id)
+                        case let .item(item): !filtering && item.id != o.excludedItem
+                        }
+                    }
                     let groupCollapsed = group.isCollapsed && !filtering
-                    var header = SidebarRow(
+                    let header = SidebarRow(
                         key: .group(group.id), y: y, height: m.groupHeaderHeight, section: section.id,
                         group: group.id, siblingIndex: index, parentIndex: nil, isLastInGroup: false,
-                        isCollapsed: groupCollapsed, childCount: entry.children.count, groupColor: group.color
+                        isCollapsed: groupCollapsed, childCount: members.count, groupColor: group.color
                     )
-                    header.isThinHeader = o.minimal
                     rows.append(header)
                     y += m.groupHeaderHeight + m.rowSpacing
                     if groupCollapsed {
@@ -220,7 +261,7 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                         // of a collapsed group. This preserves orientation and
                         // selection without reopening the rest of the group.
                         guard let activeID = o.activeWorkspaceID,
-                              let childIndex = entry.children.firstIndex(where: { $0.id == activeID }),
+                              let childIndex = members.firstIndex(where: { if case let .workspace(ws) = $0 { ws.id == activeID } else { false } }),
                               let ws = entry.children.first(where: { $0.id == activeID }) else { return }
                         let content = o.rowContent(ws, machine: machineLabel)
                         let h = m.height(for: content)
@@ -233,14 +274,28 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                         y += h + m.rowSpacing
                         return
                     }
-                    for (childIndex, ws) in entry.children.enumerated() {
+                    for (childIndex, member) in members.enumerated() {
                         openGapIfNeeded(section: section.id, group: group.id, index: childIndex)
+                        guard case let .workspace(ws) = member else {
+                            guard case let .item(item) = member else { continue }
+                            // A link, tab or app member: the listed item's row (`.item`), indented under the group's line.
+                            let content = WorkspaceRowContent()
+                            let h = m.height(for: content)
+                            rows.append(SidebarRow(
+                                key: .item(item.id), y: y, height: h, section: section.id,
+                                group: group.id, siblingIndex: childIndex, parentIndex: index,
+                                isLastInGroup: childIndex == members.count - 1,
+                                isCollapsed: false, childCount: 0, groupColor: group.color, content: content
+                            ))
+                            y += h + m.rowSpacing
+                            continue
+                        }
                         let content = o.rowContent(ws, machine: machineLabel)
-                    let h = m.height(for: content)
+                        let h = m.height(for: content)
                         rows.append(SidebarRow(
                             key: .workspace(ws.id), y: y, height: h, section: section.id,
                             group: group.id, siblingIndex: childIndex, parentIndex: index,
-                            isLastInGroup: childIndex == entry.children.count - 1,
+                            isLastInGroup: childIndex == members.count - 1,
                             isCollapsed: false, childCount: 0, groupColor: group.color,
                             tabDisclosure: disclosure(ws), content: content
                         ))
@@ -257,12 +312,13 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                             }
                         }
                     }
-                    openGapIfNeeded(section: section.id, group: group.id, index: entry.children.count)
+                    openGapIfNeeded(section: section.id, group: group.id, index: members.count)
                     y += m.groupBottomPadding
                 }
             }
+            // Group by Folder lists groups and document items (links, tabs, apps) as they are.
             func isGroup(_ entry: (node: SidebarNode, children: [SidebarWorkspace])) -> Bool {
-                if case .group = entry.node { true } else { false }
+                if case .workspace = entry.node { false } else { true }
             }
 
             let byFolder = o.groupsByFolder && section.machine != nil && machineCount == 1 && !filtering

@@ -26,12 +26,15 @@ public struct HomeCachedSend: Hashable, Sendable, Codable {
     public var failed: Bool
     /// The thread the send replies in (nil: the conversation itself).
     public var threadRoot: MessageID?
+    /// The message of the thread it answers (nil: the root; HomeOp.sendMessage `parent`).
+    public var parent: MessageID?
 
     public init(key: IdempotencyKey, conversation: ConversationID, parts: [MessagePart], issuedAt: Date, failed: Bool,
-                threadRoot: MessageID? = nil) {
+                threadRoot: MessageID? = nil, parent: MessageID? = nil) {
         self.key = key
         self.conversation = conversation
         self.threadRoot = threadRoot
+        self.parent = parent
         self.parts = parts
         self.issuedAt = issuedAt
         self.failed = failed
@@ -44,17 +47,17 @@ public struct HomeCachedSend: Hashable, Sendable, Codable {
     /// The cached form of a logged send, nil for one the cache does not keep
     /// (acknowledged, still uploading, or with a non-text part).
     init?(_ entry: PendingIntent) {
-        guard case .sendMessage(let conversation, let parts, let threadRoot) = entry.intent.op, !entry.isUploading,
+        guard case .sendMessage(let conversation, let parts, let threadRoot, let parent) = entry.intent.op, !entry.isUploading,
               parts.allSatisfy({ if case .text = $0 { true } else { false } }) else { return nil }
         if case .acknowledged = entry.state { return nil }
         let failed = if case .failed = entry.state { true } else { false }
         self.init(key: entry.intent.key, conversation: conversation, parts: parts, issuedAt: entry.intent.issuedAt, failed: failed,
-                  threadRoot: threadRoot)
+                  threadRoot: threadRoot, parent: parent)
     }
 
     /// The intent this send restores into the log.
     var intent: HomeIntent {
-        HomeIntent(key: key, op: .sendMessage(conversation: conversation, parts: parts, threadRoot: threadRoot), issuedAt: issuedAt)
+        HomeIntent(key: key, op: .sendMessage(conversation: conversation, parts: parts, threadRoot: threadRoot, parent: parent), issuedAt: issuedAt)
     }
 }
 

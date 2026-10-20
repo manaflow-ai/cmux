@@ -22,9 +22,11 @@ public nonisolated enum WindowKind: String, CaseIterable, Sendable {
         switch self {
         case .main:
             WindowKindTraits(isMain: true, close: .contentFirst, surface: .content, hidesMinimizeAndZoom: false)
-        case .onboarding, .browserPopup:
+        case .onboarding:
             WindowKindTraits(isMain: false, close: .window, surface: .backdrop, hidesMinimizeAndZoom: true)
-        case .settings, .debugSettings, .appStore, .devTools, .pageInfo, .terminalDebug, .browserDebug:
+        // A browser popup has all three traffic lights, like Chrome's popup
+        // window (`BrowserNativeWidgetMac`: Titled|Closable|Miniaturizable|Resizable).
+        case .browserPopup, .settings, .debugSettings, .appStore, .devTools, .pageInfo, .terminalDebug, .browserDebug:
             WindowKindTraits(isMain: false, close: .window, surface: .backdrop, hidesMinimizeAndZoom: false)
         }
     }

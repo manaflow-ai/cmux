@@ -53,6 +53,8 @@ const paths: Record<string, ReactNode> = {
       <path d="M4.4 4.7h.01M4.4 11.3h.01" />
     </>
   ),
+  // The code editor category (Settings > Code Editor).
+  "chevron.left.forwardslash.chevron.right": <path d="M5.2 4.4 1.8 8l3.4 3.6M10.8 4.4 14.2 8l-3.4 3.6M9.2 2.8 6.8 13.2" />,
   curlybraces: (
     <path d="M5.6 2.2c-1.6 0-2 .7-2 2v1.4c0 1-.5 1.9-1.6 2.4 1.1.5 1.6 1.4 1.6 2.4v1.4c0 1.3.4 2 2 2M10.4 2.2c1.6 0 2 .7 2 2v1.4c0 1 .5 1.9 1.6 2.4-1.1.5-1.6 1.4-1.6 2.4v1.4c0 1.3-.4 2-2 2" />
   ),
@@ -87,6 +89,9 @@ const paths: Record<string, ReactNode> = {
       <circle cx="7" cy="7" r="4.4" />
       <path d="m10.3 10.3 3.6 3.6" />
     </>
+  ),
+  "icloud.and.arrow.down": (
+    <path d="M4.6 12.6h6.9a2.7 2.7 0 0 0 .4-5.4 4 4 0 0 0-7.7-.9 3.2 3.2 0 0 0 .4 6.3ZM8 6.8v4M6.5 9.4 8 10.9l1.5-1.5" />
   ),
   chevron: <path d="m4.5 6.2 3.5 3.6 3.5-3.6" />,
   xmark: <path d="m4.5 4.5 7 7M11.5 4.5l-7 7" />,

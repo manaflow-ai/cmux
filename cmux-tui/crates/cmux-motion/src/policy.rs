@@ -3,7 +3,7 @@
 
 use crate::{
     AnimationSwitches, MotionBounce, MotionFade, MotionKind, MotionLoop, MotionSpeed, MotionSpring,
-    SpringParameters,
+    MotionTween, SpringParameters,
 };
 
 /// Resolves tokens for one speed setting, Reduce Motion state and set of
@@ -95,6 +95,16 @@ impl MotionPolicy {
         }
         let scaled = token.base() * self.scale();
         if self.reduce_motion { scaled.min(MotionFade::Crossfade.base()) } else { scaled }
+    }
+
+    /// Seconds of a tween; 0 applies at once: speed `off`, Reduce Motion
+    /// (Chrome's strip animations are 0 ms under it) or the token's kind
+    /// switched off. `normal` is 1.5x.
+    pub fn tween(&self, token: MotionTween) -> f64 {
+        if !self.animates_movement() || token.kind().is_some_and(|k| !self.animations.enabled(k)) {
+            return 0.;
+        }
+        token.base().duration * self.scale()
     }
 
     /// Seconds that stand in for a spring when only a timed API exists:

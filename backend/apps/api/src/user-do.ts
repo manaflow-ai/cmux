@@ -1,6 +1,6 @@
 import type { Domain, EventFrame, OpFrame, OwnerEngine, OwnerFrame, Principal } from "@cmux/ownership"
 import { isMachineInstallKind } from "./machine-installs.ts"
-import { conversation as homeConversation, inbox as homeInbox, user as homeUser } from "@cmux/home-core"
+import { conversation as homeConversation, inbox as homeInbox, invites, user as homeUser } from "@cmux/home-core"
 import { challengeMessagePrefix, type PushTarget } from "@cmux/protocol"
 import * as quota from "./home-attachment-quota.ts"
 import { deliverKrlNotices, krlDueAt, type KrlRetry } from "./user-krl.ts"
@@ -127,13 +127,11 @@ export class UserDO extends OwnerDO<UserState> {
   override async submit(entity: string, principal: Principal, frame: OpFrame): Promise<SubmitResult> {
     if (principal.agent === undefined) return super.submit(entity, principal, frame)
     const key = typeof frame.idempotency_key === "string" ? frame.idempotency_key : ""
-    return {
-      frames: [
-        { t: "reject", tx: "", idempotency_key: key, code: "auth.forbidden", message: "a chief token cannot change the owner's account", retryable: false, replayed: false },
-        { t: "request-settled", tx: "", idempotency_key: key, stream: `user:${entity}`, sequence: 0, ok: false }
-      ]
-    }
+    return { frames: [{ t: "reject", tx: "", idempotency_key: key, code: "auth.forbidden", message: "a chief token cannot change the owner's account", retryable: false, replayed: false },
+      { t: "request-settled", tx: "", idempotency_key: key, stream: `user:${entity}`, sequence: 0, ok: false }] }
   }
+  /** A Chief's own chief.create / chief.update from its Cloud brain (brain-chiefs.ts; DO RPC, no route reaches it): user-chief.ts `viaChief`. */
+  async chiefManage(entity: string, agent: string, frame: OpFrame): Promise<SubmitResult> { return super.submit(entity, { identity: `agent:${agent} via chief`, kind: "agent", agent, user: entity }, frame) }
 
   private closeRetryAt: number | null = null // Retry time of a socket close that failed (socket-registry.ts); memory only.
 
@@ -443,6 +441,11 @@ export class UserDO extends OwnerDO<UserState> {
     this.submitSystem("push.target.drop", { token, reason }, `drop:${token}:${engine.currentSeq}`)
   }
 
+  /** Message request trust (home-routes.ts): the domain of this user's verified email, or null. Never the address itself. */
+  async homeVerifiedEmailDomain(entity: string): Promise<string | null> {
+    const u = this.existing()?.currentState.user
+    return u && u.id === entity && u.email_verified ? invites.emailDomain(u.email) : null
+  }
   async stackUserOf(entity: string): Promise<string | null> { const u = this.existing()?.currentState.user; return u && u.id === entity ? u.stack_user_id : null } // CloudDO: the owner's Stack user id (cloud-coderouter-edge.ts)
   /** For other owners (TeamDO): is this install active, and what does its grant allow? */
   async installGrant(entity: string, install: string, grant: string, agent?: string): Promise<{ ok: true; op_classes: ReadonlyArray<string>; kind: string; email: string | null; email_verified: boolean; bound_machine?: string; sso_team?: string } | { ok: false }> {
@@ -469,6 +472,34 @@ export class UserDO extends OwnerDO<UserState> {
     sql.exec(`DELETE FROM auth_challenges WHERE expires_at < ?`, now)
     sql.exec(`INSERT INTO auth_challenges (nonce, install, expires_at) VALUES (?, ?, ?)`, nonce, install, now + CHALLENGE_TTL_MS)
     return { ok: true, nonce, expires_at: now + CHALLENGE_TTL_MS }
+  }
+
+  /**
+   * A hand's ephemeral frames (hand-do.ts: `hand-approval-pending`, `hand-approval-settled`) to this
+   * person's own subscribed sockets: a person's session or app install, never a Chief token or a
+   * machine install. Never committed (GET /v1/hands/<hand>/approvals is the read after a reconnect).
+   */
+  async handFrame(entity: string, frame: { readonly t: "hand-approval-pending" | "hand-approval-settled" } & Record<string, unknown>): Promise<void> {
+    const text = JSON.stringify(frame)
+    for (const ws of this.ctx.getWebSockets()) {
+      const a = ws.deserializeAttachment() as Attachment | null
+      if (!a?.subscribed || a.principal.user !== entity || a.principal.agent !== undefined || isMachineInstallKind(a.principal.install_kind)) continue
+      if (!this.socketLive(ws, a)) continue
+      try {
+        ws.send(text)
+      } catch {}
+    }
+  }
+
+  /** The key of one of this person's active app installs (mac or ios), for a person proof (hand-levels.ts); null otherwise. */
+  async personKey(entity: string, install: string): Promise<JsonWebKey | null> {
+    const engine = this.existing()
+    if (!engine || engine.stream !== `user:${entity}`) return null
+    const state = engine.currentState
+    const inst = state.installs[install]
+    if (!state.user || !inst || inst.revoked_at !== null || (inst.kind !== "mac" && inst.kind !== "ios")) return null
+    const grant = state.grants[inst.grant]
+    return grant && grant.revoked_at === null ? (inst.public_jwk as JsonWebKey) : null
   }
 
   /** One-time challenge + ES256 signature by the install key + revocation check. */

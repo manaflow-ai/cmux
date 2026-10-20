@@ -20,13 +20,31 @@ impl Hub {
         profile: &HarnessProfile,
         env: &mut std::collections::BTreeMap<String, String>,
     ) -> Result<Option<String>, RpcError> {
-        let (dir, state) = routes::places(&*self.config.read().await);
-        let family = crate::config::derive_family(&meta.harness, profile);
-        let bindings = routes::bindings(&state);
         let workspace = meta.session_env.get("CMUX_WORKSPACE_ID").map(String::as_str);
+        self.apply_route_for(&meta.harness, Some(&meta.id), workspace, profile, env).await
+    }
+
+    /// [`Self::apply_route`] for a spawn of harness `harness` that may not
+    /// be a chat: without a session (a one-shot `_acpmux/complete`) only the
+    /// profile's, family's or global route applies.
+    pub(super) async fn apply_route_for(
+        &self,
+        harness: &str,
+        session: Option<&str>,
+        workspace: Option<&str>,
+        profile: &HarnessProfile,
+        env: &mut std::collections::BTreeMap<String, String>,
+    ) -> Result<Option<String>, RpcError> {
+        let (dir, state) = routes::places(&*self.config.read().await);
+        let family = crate::config::derive_family(harness, profile);
+        let mut bindings = routes::bindings(&state);
+        // No chat: no chat binding applies.
+        if session.is_none() {
+            bindings.chats.clear();
+        }
         // A profile's own route (the `cmux` harness) replaces a family or
         // global binding; a chat or workspace binding still wins.
-        let bound = routes::bound_route(&bindings, &meta.id, workspace, &family);
+        let bound = routes::bound_route(&bindings, session.unwrap_or_default(), workspace, &family);
         let profile_route = profile.env.get(routes::PROFILE_ROUTE_KEY).cloned();
         let Some((id, scope)) = (match (bound, profile_route) {
             (Some((id, scope)), _) if matches!(scope, "chat" | "workspace") => Some((id, scope)),
@@ -213,7 +231,7 @@ impl Hub {
         message: &str,
     ) -> Option<Value> {
         let lower = message.to_lowercase();
-        let route_class = super::turns::is_limit_error(message)
+        let route_class = super::turn_errors::is_limit_error(message)
             || [
                 "500",
                 "502",

@@ -49,7 +49,7 @@ nonisolated enum PaneActionCatalog: ActionCatalogGroup {
                 symbol: "arrow.up.left.and.down.right.magnifyingglass", surfaces: [.palette, .keyboard, .contextMenu],
                 targets: [.pane], cliName: "pane toggle-zoom"
             ),
-            // Show Tab Bar (cx-soza): the pane's own choice over `tabs.tabBar.<kind>`; checked while shown.
+            // Show Tab Bar (cx-soza): the pane's own choice; the palette and menu read Hide Tab Bar while shown.
             ActionDescriptor(
                 id: "pane.toggleTabBar",
                 title: String(localized: "action.pane.toggleTabBar", defaultValue: "Show Tab Bar", bundle: .module),

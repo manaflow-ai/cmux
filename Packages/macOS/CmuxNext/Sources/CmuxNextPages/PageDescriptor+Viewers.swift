@@ -121,14 +121,16 @@ public extension PageDescriptor {
         nativeOps: [PageNativeOp.actionRun, PageNativeOp.clipboardWrite],
         commands: PageNativeOp.commands.union(DiffPageCommand.all),
         csp: PageCSP(connect: ["cmux-page://cmux.diff"], script: ["'wasm-unsafe-eval'"]),
-        entry: diffEntry, dynamicPrefixes: ["__patch"])
+        entry: diffEntry, dynamicPrefixes: ["__patch"],
+        // Push (cmux.diff.git.push) acts on one click: not on a click that only brings the window forward.
+        acceptsFirstMouse: false)
 
     /// The markdown page (diff-host.md S6): the strict CSP (Vega uses vega-interpreter, code
     /// highlighting Shiki's JavaScript engine), with images and libraries from its own origin.
     static let markdown = PageDescriptor(
         id: "cmux.markdown", resource: diffResource, namespaces: ["cmux.markdown."],
         nativeOps: [PageNativeOp.clipboardWrite],
-        commands: PageNativeOp.commands.union(MarkdownPageCommand.all), entry: markdownEntry,
+        commands: PageNativeOp.commands.union(MarkdownPageCommand.all), csp: PageCSP(inlineScript: false), entry: markdownEntry,
         dynamicPrefixes: [MarkdownPageResource.asset, MarkdownPageResource.library, MarkdownPageResource.remoteImage])
 
     /// The code editor page (diff-host.md "Editor page", Monaco): the strict CSP plus

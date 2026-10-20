@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "3ed4675e0da8dc1564f14fbf58781a06559fea2fb3f14245c0ef3ec57626da36";
+inline constexpr std::string_view kProtocolIrSha256 = "2a92c275db7a027c723c340c0ce4726a1392c28e4ff8e8160548cc2669c5ad93";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -60,6 +60,7 @@ struct ConversationReactionKind;
 struct ConversationSearchHit;
 struct ConversationSummary;
 struct ConversationTabRecord;
+struct ConversationTabSplit;
 struct ConversationTextRun;
 struct ConversationThreadResolution;
 struct ConversationThreadState;
@@ -86,6 +87,9 @@ struct GuestUrlOpenResult;
 struct GuestUrlSubscribeResult;
 struct HistorySearchHit;
 struct HistorySearchRange;
+enum class HomeChiefState;
+enum class HomeInboxKind;
+struct HomeInboxRow;
 struct Id;
 struct IdMapping;
 struct IdentifyResult;
@@ -101,10 +105,12 @@ struct ListAgentsResult;
 struct ListTerminalsResult;
 struct LivePane;
 struct MachineListeningTcpResult;
+struct MachinePlatform;
 struct MachineUsage;
 struct MachineUsageResult;
 struct MintTerminalRendererResult;
 struct MoveTerminalResult;
+enum class NameSource;
 struct NewRowResult;
 struct NoteSizeActivityResult;
 enum class NotificationLevel;
@@ -263,13 +269,18 @@ struct CloudAttachmentReadResult;
 struct CloudAttachmentUploadRequest;
 struct CloudAttachmentUploadResult;
 struct CloudConversationHistoryRequest;
+struct CloudConversationLiveRequest;
 struct CloudConversationOpRequest;
 struct CloudConversationRunRequest;
 struct CloudConversationRunsRequest;
 struct CloudConversationSnapshotRequest;
 struct CloudConversationSubscribeRequest;
 struct CloudConversationThreadRequest;
+struct CloudConversationTypingRequest;
 struct CloudConversationUnsubscribeRequest;
+struct CloudHostReplicaClearRequest;
+struct CloudHostReplicaSetRequest;
+struct CloudHostReplicaStatusRequest;
 struct CloudInboxListRequest;
 struct CloudInboxOpRequest;
 struct CloudInboxSubscribeRequest;
@@ -305,6 +316,9 @@ struct ConversationLinkResolveRequest;
 struct ConversationLinkResolveResult;
 struct ConversationListRequest;
 struct ConversationListResult;
+struct ConversationLiveRequest;
+struct ConversationLiveResult;
+struct ConversationLivePublishRequest;
 struct ConversationOpRequest;
 struct ConversationOpResult;
 struct ConversationRunRequest;
@@ -360,6 +374,8 @@ struct GetFrontendProjectionRequest;
 struct GetSizeStateRequest;
 struct HistorySearchRequest;
 struct HistorySearchResult;
+struct HomeInboxRequest;
+struct HomeInboxResult;
 struct IdentifyRequest;
 struct IdsRequest;
 struct ImportBookmarksRequest;
@@ -533,6 +549,8 @@ struct WsListenRequest;
 struct ZoomPaneRequest;
 struct ActivityChangedEvent;
 struct AgentChangedEvent;
+struct AgentInventoryChangedEvent;
+struct AgentInventoryWatchEndedEvent;
 struct AgentPresenceChangedEvent;
 struct BellEvent;
 struct BookmarksChangedEvent;
@@ -543,8 +561,11 @@ struct ClientChangedEvent;
 struct ClientDetachedEvent;
 struct ClientListInvalidatedEvent;
 struct CloudConversationChangedEvent;
+struct CloudConversationLiveEvent;
 struct CloudConversationResyncedEvent;
 struct CloudConversationRunChangedEvent;
+struct CloudConversationTypingEvent;
+struct CloudHostReplicaNeededEvent;
 struct CloudInboxChangedEvent;
 struct CloudInboxResetEvent;
 struct CloudMuxResyncedEvent;
@@ -556,6 +577,7 @@ struct ConfigReloadRequestedEvent;
 struct ConversationChangedEvent;
 struct ConversationDraftEvent;
 struct ConversationInboxChangedEvent;
+struct ConversationLiveEvent;
 struct ConversationRunChangedEvent;
 struct ConversationTypingEvent;
 struct DaemonShutdownEvent;
@@ -725,6 +747,20 @@ struct AgentChangedEvent {
     friend bool operator==(const AgentChangedEvent&, const AgentChangedEvent&) = default;
 };
 
+struct AgentInventoryChangedEvent {
+    std::string machine{};
+    std::uint64_t revision{};
+    std::string watch_id{};
+    friend bool operator==(const AgentInventoryChangedEvent&, const AgentInventoryChangedEvent&) = default;
+};
+
+struct AgentInventoryWatchEndedEvent {
+    std::string machine{};
+    std::string reason{};
+    std::string watch_id{};
+    friend bool operator==(const AgentInventoryWatchEndedEvent&, const AgentInventoryWatchEndedEvent&) = default;
+};
+
 enum class AgentPresenceActivity {
     thinking,
     editing,
@@ -875,6 +911,7 @@ struct BellEvent {
 
 struct BindConversationTabSessionRequest {
     std::optional<std::string> expected_session{};
+    Field<std::string> harness{};
     std::string session{};
     Id surface{};
     friend bool operator==(const BindConversationTabSessionRequest&, const BindConversationTabSessionRequest&) = default;
@@ -1494,6 +1531,7 @@ struct CloseWorkspaceRequest {
     Field<std::string> mutation_id{};
     Field<std::string> origin{};
     Field<CloseReason> reason{};
+    std::optional<bool> report_closed_ids{};
     Field<Id> workspace{};
     friend bool operator==(const CloseWorkspaceRequest&, const CloseWorkspaceRequest&) = default;
 };
@@ -1598,6 +1636,18 @@ struct CloudConversationHistoryRequest {
     friend bool operator==(const CloudConversationHistoryRequest&, const CloudConversationHistoryRequest&) = default;
 };
 
+struct CloudConversationLiveEvent {
+    std::optional<std::string> account{};
+    std::string conversation{};
+    std::optional<JsonValue> frame{};
+    friend bool operator==(const CloudConversationLiveEvent&, const CloudConversationLiveEvent&) = default;
+};
+
+struct CloudConversationLiveRequest {
+    std::string conversation{};
+    friend bool operator==(const CloudConversationLiveRequest&, const CloudConversationLiveRequest&) = default;
+};
+
 struct CloudConversationOpRequest {
     Field<std::string> conversation{};
     std::string idempotency_key{};
@@ -1659,9 +1709,47 @@ struct CloudConversationThreadRequest {
     friend bool operator==(const CloudConversationThreadRequest&, const CloudConversationThreadRequest&) = default;
 };
 
+struct CloudConversationTypingEvent {
+    std::optional<std::string> account{};
+    std::string conversation{};
+    bool on{};
+    std::string participant{};
+    friend bool operator==(const CloudConversationTypingEvent&, const CloudConversationTypingEvent&) = default;
+};
+
+struct CloudConversationTypingRequest {
+    std::string conversation{};
+    bool on{};
+    friend bool operator==(const CloudConversationTypingRequest&, const CloudConversationTypingRequest&) = default;
+};
+
 struct CloudConversationUnsubscribeRequest {
     std::string conversation{};
     friend bool operator==(const CloudConversationUnsubscribeRequest&, const CloudConversationUnsubscribeRequest&) = default;
+};
+
+struct CloudHostReplicaClearRequest {
+    std::optional<bool> purge{};
+    friend bool operator==(const CloudHostReplicaClearRequest&, const CloudHostReplicaClearRequest&) = default;
+};
+
+struct CloudHostReplicaNeededEvent {
+    Field<std::uint64_t> expires_at{};
+    std::string reason{};
+    friend bool operator==(const CloudHostReplicaNeededEvent&, const CloudHostReplicaNeededEvent&) = default;
+};
+
+struct CloudHostReplicaSetRequest {
+    std::string api_base_url{};
+    Field<std::string> client_version{};
+    std::uint64_t expires_at{};
+    std::string host_name{};
+    std::string install_token{};
+    friend bool operator==(const CloudHostReplicaSetRequest&, const CloudHostReplicaSetRequest&) = default;
+};
+
+struct CloudHostReplicaStatusRequest {
+    friend bool operator==(const CloudHostReplicaStatusRequest&, const CloudHostReplicaStatusRequest&) = default;
 };
 
 struct CloudInboxChangedEvent {
@@ -2172,6 +2260,29 @@ struct ConversationListResult {
     friend bool operator==(const ConversationListResult&, const ConversationListResult&) = default;
 };
 
+struct ConversationLiveEvent {
+    std::string conversation{};
+    std::optional<JsonValue> frame{};
+    friend bool operator==(const ConversationLiveEvent&, const ConversationLiveEvent&) = default;
+};
+
+struct ConversationLivePublishRequest {
+    std::string conversation{};
+    std::optional<JsonValue> frame{};
+    friend bool operator==(const ConversationLivePublishRequest&, const ConversationLivePublishRequest&) = default;
+};
+
+struct ConversationLiveRequest {
+    std::string conversation{};
+    friend bool operator==(const ConversationLiveRequest&, const ConversationLiveRequest&) = default;
+};
+
+struct ConversationLiveResult {
+    std::string conversation{};
+    std::vector<JsonValue> runs{};
+    friend bool operator==(const ConversationLiveResult&, const ConversationLiveResult&) = default;
+};
+
 struct ConversationOpRequest {
     Field<std::string> actor{};
     std::string conversation{};
@@ -2272,6 +2383,13 @@ struct ConversationSnapshotResult {
     std::vector<ConversationMessage> messages{};
     std::optional<std::vector<ConversationThreadSummary>> threads{};
     friend bool operator==(const ConversationSnapshotResult&, const ConversationSnapshotResult&) = default;
+};
+
+struct ConversationTabSplit {
+    std::string direction{};
+    Field<std::string> pane_id{};
+    Field<std::string> split_id{};
+    friend bool operator==(const ConversationTabSplit&, const ConversationTabSplit&) = default;
 };
 
 struct ConversationThreadRequest {
@@ -2618,6 +2736,7 @@ struct LayoutSplit {
     SplitDirection dir{};
     float ratio{};
     std::optional<Id> split{};
+    std::optional<std::string> split_id{};
     friend bool operator==(const LayoutSplit&, const LayoutSplit&) = default;
 };
 
@@ -2955,6 +3074,49 @@ struct HistorySearchResult {
     friend bool operator==(const HistorySearchResult&, const HistorySearchResult&) = default;
 };
 
+enum class HomeChiefState {
+    working,
+    waiting,
+    idle,
+};
+
+enum class HomeInboxKind {
+    chief,
+    direct,
+    channel,
+    group,
+};
+
+struct HomeInboxRequest {
+    Field<std::vector<std::string>> owners{};
+    friend bool operator==(const HomeInboxRequest&, const HomeInboxRequest&) = default;
+};
+
+struct HomeInboxRow {
+    std::string activity_at{};
+    std::optional<std::string> chief{};
+    std::optional<HomeChiefState> chief_state{};
+    std::string id{};
+    HomeInboxKind kind{};
+    std::optional<std::string> last_author{};
+    bool marked_unread{};
+    bool muted{};
+    std::string name{};
+    std::string owner{};
+    std::optional<std::uint64_t> pin_position{};
+    bool pinned{};
+    std::optional<std::string> preview{};
+    std::uint64_t unread{};
+    friend bool operator==(const HomeInboxRow&, const HomeInboxRow&) = default;
+};
+
+struct HomeInboxResult {
+    std::string cloud{};
+    std::string me{};
+    std::vector<HomeInboxRow> rows{};
+    friend bool operator==(const HomeInboxResult&, const HomeInboxResult&) = default;
+};
+
 enum class IdMappingKind {
     workspace,
     screen,
@@ -2970,7 +3132,14 @@ struct IdMapping {
 };
 
 struct IdentifyRequest {
+    std::optional<bool> machine_metadata{};
     friend bool operator==(const IdentifyRequest&, const IdentifyRequest&) = default;
+};
+
+struct MachinePlatform {
+    std::string arch{};
+    std::string os{};
+    friend bool operator==(const MachinePlatform&, const MachinePlatform&) = default;
 };
 
 struct IdentifyResult {
@@ -2982,7 +3151,10 @@ struct IdentifyResult {
     Field<std::string> ghostty_commit{};
     Field<std::string> launch_snapshot_path{};
     std::optional<bool> lifecycle_ready{};
+    std::optional<std::vector<std::string>> machine_capabilities{};
+    std::optional<std::string> machine_id{};
     std::optional<std::string> machine_name{};
+    std::optional<MachinePlatform> machine_platform{};
     std::uint32_t pid{};
     std::uint32_t protocol{};
     std::string registry_id{};
@@ -3083,7 +3255,12 @@ struct KittyImageAlias {
 };
 
 struct LayoutChangedEvent {
+    std::optional<Id> active_pane{};
+    std::optional<Layout> layout{};
     Id screen{};
+    std::optional<std::string> transaction{};
+    std::optional<Id> workspace{};
+    Field<Id> zoomed_pane{};
     friend bool operator==(const LayoutChangedEvent&, const LayoutChangedEvent&) = default;
 };
 
@@ -3625,6 +3802,11 @@ struct MoveWorkspaceToGroupRequest {
     friend bool operator==(const MoveWorkspaceToGroupRequest&, const MoveWorkspaceToGroupRequest&) = default;
 };
 
+enum class NameSource {
+    user,
+    auto_,
+};
+
 struct NewBrowserTabRequest {
     Field<std::uint16_t> cols{};
     Field<Id> pane{};
@@ -3644,6 +3826,7 @@ struct NewConversationTabRequest {
     Field<Id> pane{};
     Field<std::string> route{};
     Field<std::uint16_t> rows{};
+    Field<ConversationTabSplit> split{};
     Field<std::string> transaction{};
     Field<Id> workspace{};
     friend bool operator==(const NewConversationTabRequest&, const NewConversationTabRequest&) = default;
@@ -4163,11 +4346,14 @@ struct RenameSurfaceRequest {
 
 struct RenameWorkspaceRequest {
     Field<std::string> expected_generation{};
+    Field<std::string> expected_name_revision{};
     Field<std::uint64_t> expected_revision{};
     Field<std::string> key{};
     Field<std::string> mutation_id{};
     std::string name{};
     Field<std::string> origin{};
+    std::optional<bool> release{};
+    Field<NameSource> source{};
     Field<Id> workspace{};
     friend bool operator==(const RenameWorkspaceRequest&, const RenameWorkspaceRequest&) = default;
 };
@@ -4678,6 +4864,7 @@ struct SetColumnDockRequest {
     Field<std::string> mode{};
     Id pane{};
     Field<bool> permanent{};
+    Field<bool> pinned{};
     Field<std::string> role{};
     Field<std::uint64_t> transaction{};
     friend bool operator==(const SetColumnDockRequest&, const SetColumnDockRequest&) = default;
@@ -4957,6 +5144,7 @@ struct SplitRequest {
     Field<std::string> pane_id{};
     Field<std::uint16_t> rows{};
     Field<std::vector<std::string>> shell_args{};
+    Field<std::string> split_id{};
     Field<std::string> tab_id{};
     Field<std::string> terminal_id{};
     Field<std::string> url{};
@@ -5323,6 +5511,8 @@ struct Workspace {
     Id id{};
     std::optional<std::string> key{};
     std::string name{};
+    std::optional<std::string> name_revision{};
+    std::optional<NameSource> name_source{};
     std::vector<Screen> screens{};
     std::optional<std::string> short_id{};
     friend bool operator==(const Workspace&, const Workspace&) = default;
@@ -5605,6 +5795,7 @@ struct WorkspaceMovedEvent {
 
 struct WorkspaceMutationResult {
     std::optional<bool> changed{};
+    std::optional<std::vector<std::string>> closed_ids{};
     std::string generation{};
     std::uint64_t index{};
     std::string key{};
@@ -5916,6 +6107,12 @@ struct Codec<ConversationTabRecord> {
 };
 
 template <>
+struct Codec<ConversationTabSplit> {
+    static Result<Json> encode(const ConversationTabSplit& value);
+    static Result<ConversationTabSplit> decode(const Json& value);
+};
+
+template <>
 struct Codec<ConversationTextRun> {
     static Result<Json> encode(const ConversationTextRun& value);
     static Result<ConversationTextRun> decode(const Json& value);
@@ -6072,6 +6269,24 @@ struct Codec<HistorySearchRange> {
 };
 
 template <>
+struct Codec<HomeChiefState> {
+    static Result<Json> encode(const HomeChiefState& value);
+    static Result<HomeChiefState> decode(const Json& value);
+};
+
+template <>
+struct Codec<HomeInboxKind> {
+    static Result<Json> encode(const HomeInboxKind& value);
+    static Result<HomeInboxKind> decode(const Json& value);
+};
+
+template <>
+struct Codec<HomeInboxRow> {
+    static Result<Json> encode(const HomeInboxRow& value);
+    static Result<HomeInboxRow> decode(const Json& value);
+};
+
+template <>
 struct Codec<Id> {
     static Result<Json> encode(const Id& value);
     static Result<Id> decode(const Json& value);
@@ -6162,6 +6377,12 @@ struct Codec<MachineListeningTcpResult> {
 };
 
 template <>
+struct Codec<MachinePlatform> {
+    static Result<Json> encode(const MachinePlatform& value);
+    static Result<MachinePlatform> decode(const Json& value);
+};
+
+template <>
 struct Codec<MachineUsage> {
     static Result<Json> encode(const MachineUsage& value);
     static Result<MachineUsage> decode(const Json& value);
@@ -6183,6 +6404,12 @@ template <>
 struct Codec<MoveTerminalResult> {
     static Result<Json> encode(const MoveTerminalResult& value);
     static Result<MoveTerminalResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<NameSource> {
+    static Result<Json> encode(const NameSource& value);
+    static Result<NameSource> decode(const Json& value);
 };
 
 template <>
@@ -7134,6 +7361,12 @@ struct Codec<CloudConversationHistoryRequest> {
 };
 
 template <>
+struct Codec<CloudConversationLiveRequest> {
+    static Result<Json> encode(const CloudConversationLiveRequest& value);
+    static Result<CloudConversationLiveRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<CloudConversationOpRequest> {
     static Result<Json> encode(const CloudConversationOpRequest& value);
     static Result<CloudConversationOpRequest> decode(const Json& value);
@@ -7170,9 +7403,33 @@ struct Codec<CloudConversationThreadRequest> {
 };
 
 template <>
+struct Codec<CloudConversationTypingRequest> {
+    static Result<Json> encode(const CloudConversationTypingRequest& value);
+    static Result<CloudConversationTypingRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<CloudConversationUnsubscribeRequest> {
     static Result<Json> encode(const CloudConversationUnsubscribeRequest& value);
     static Result<CloudConversationUnsubscribeRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<CloudHostReplicaClearRequest> {
+    static Result<Json> encode(const CloudHostReplicaClearRequest& value);
+    static Result<CloudHostReplicaClearRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<CloudHostReplicaSetRequest> {
+    static Result<Json> encode(const CloudHostReplicaSetRequest& value);
+    static Result<CloudHostReplicaSetRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<CloudHostReplicaStatusRequest> {
+    static Result<Json> encode(const CloudHostReplicaStatusRequest& value);
+    static Result<CloudHostReplicaStatusRequest> decode(const Json& value);
 };
 
 template <>
@@ -7383,6 +7640,24 @@ template <>
 struct Codec<ConversationListResult> {
     static Result<Json> encode(const ConversationListResult& value);
     static Result<ConversationListResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<ConversationLiveRequest> {
+    static Result<Json> encode(const ConversationLiveRequest& value);
+    static Result<ConversationLiveRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<ConversationLiveResult> {
+    static Result<Json> encode(const ConversationLiveResult& value);
+    static Result<ConversationLiveResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<ConversationLivePublishRequest> {
+    static Result<Json> encode(const ConversationLivePublishRequest& value);
+    static Result<ConversationLivePublishRequest> decode(const Json& value);
 };
 
 template <>
@@ -7713,6 +7988,18 @@ template <>
 struct Codec<HistorySearchResult> {
     static Result<Json> encode(const HistorySearchResult& value);
     static Result<HistorySearchResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<HomeInboxRequest> {
+    static Result<Json> encode(const HomeInboxRequest& value);
+    static Result<HomeInboxRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<HomeInboxResult> {
+    static Result<Json> encode(const HomeInboxResult& value);
+    static Result<HomeInboxResult> decode(const Json& value);
 };
 
 template <>
@@ -8754,6 +9041,18 @@ struct Codec<AgentChangedEvent> {
 };
 
 template <>
+struct Codec<AgentInventoryChangedEvent> {
+    static Result<Json> encode(const AgentInventoryChangedEvent& value);
+    static Result<AgentInventoryChangedEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<AgentInventoryWatchEndedEvent> {
+    static Result<Json> encode(const AgentInventoryWatchEndedEvent& value);
+    static Result<AgentInventoryWatchEndedEvent> decode(const Json& value);
+};
+
+template <>
 struct Codec<AgentPresenceChangedEvent> {
     static Result<Json> encode(const AgentPresenceChangedEvent& value);
     static Result<AgentPresenceChangedEvent> decode(const Json& value);
@@ -8814,6 +9113,12 @@ struct Codec<CloudConversationChangedEvent> {
 };
 
 template <>
+struct Codec<CloudConversationLiveEvent> {
+    static Result<Json> encode(const CloudConversationLiveEvent& value);
+    static Result<CloudConversationLiveEvent> decode(const Json& value);
+};
+
+template <>
 struct Codec<CloudConversationResyncedEvent> {
     static Result<Json> encode(const CloudConversationResyncedEvent& value);
     static Result<CloudConversationResyncedEvent> decode(const Json& value);
@@ -8823,6 +9128,18 @@ template <>
 struct Codec<CloudConversationRunChangedEvent> {
     static Result<Json> encode(const CloudConversationRunChangedEvent& value);
     static Result<CloudConversationRunChangedEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<CloudConversationTypingEvent> {
+    static Result<Json> encode(const CloudConversationTypingEvent& value);
+    static Result<CloudConversationTypingEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<CloudHostReplicaNeededEvent> {
+    static Result<Json> encode(const CloudHostReplicaNeededEvent& value);
+    static Result<CloudHostReplicaNeededEvent> decode(const Json& value);
 };
 
 template <>
@@ -8889,6 +9206,12 @@ template <>
 struct Codec<ConversationInboxChangedEvent> {
     static Result<Json> encode(const ConversationInboxChangedEvent& value);
     static Result<ConversationInboxChangedEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<ConversationLiveEvent> {
+    static Result<Json> encode(const ConversationLiveEvent& value);
+    static Result<ConversationLiveEvent> decode(const Json& value);
 };
 
 template <>

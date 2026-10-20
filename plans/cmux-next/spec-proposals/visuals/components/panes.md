@@ -11,7 +11,7 @@ Panes sit in columns separated by columnGap (6/8). Each pane has padding (2/4; p
 | default | paneBorder hairline (1/scale), radius paneCornerRadius; hidden while a ring or attention ring draws | Views/PaneOverlayView.swift:193 (`PaneOverlayView.update`), :229 (`applyColors`) |
 | focused | focus ring (below) when >1 pane and the indicator marks the border | Views/ScreenContentView.swift:255-260 (`ScreenContentView.updateChrome`) |
 | unfocused | tabs subtler (tabs page); optional dim: opaque contentBackground at 0.14, only when dimming is on or (borders none and indicator border) | ScreenContentView.swift:263-264; PaneOverlayView.swift:194, :230 |
-| attention | ring in attention (or the notification color), width 2; blink style (default): 2 blinks over 0.6 s (0.3 s each, the `flash` loop), then persists. Pulse style: opacity 1 → 0.3 on the 1.8 s pulse period for `duration` (3 s). Reduce Motion: one fade in | PaneOverlayView.swift:200-219 (`applyAttention`); CmuxNextDesign/Motion/Motion+Attention.swift:14-50 (`Motion.attentionAnimation`); CmuxNextDesign/AttentionSettings.swift (`AttentionSettings`) |
+| attention | ring in attention (or the notification color), width 2; blink style (default): 2 blinks over 1.0 s (0.5 s each, the `flash` loop), then persists. Pulse style: opacity 1 → 0.3 on the 1.8 s pulse period for `duration` (3 s). Reduce Motion: one fade in | PaneOverlayView.swift:200-219 (`applyAttention`); CmuxNextDesign/Motion/Motion+Attention.swift:14-50 (`Motion.attentionAnimation`); CmuxNextDesign/AttentionSettings.swift (`AttentionSettings`) |
 | drop target | drop overlay (below) | |
 | unfocused window | no change | |
 

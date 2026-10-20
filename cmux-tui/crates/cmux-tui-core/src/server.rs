@@ -102,6 +102,7 @@ pub const ATTACH_INITIAL_SIZE_CAPABILITY: &str = "attach-initial-size";
 mod apps;
 #[cfg(unix)]
 pub use apps::start_apps_when_ready;
+pub use cmd_workspaces::WORKSPACE_NAME_SOURCE_CAPABILITY;
 #[cfg(unix)]
 mod browser_runtime;
 #[path = "server/image_paste.rs"]
@@ -120,6 +121,10 @@ pub use loopback_forward::{
     AuditReporter as LoopbackAuditReporter, LOOPBACK_FORWARD_CAPABILITY, LoopbackForwardPolicy,
 };
 mod admission;
+#[cfg(unix)]
+mod agent_cli_job;
+#[cfg(unix)]
+mod agent_inventory;
 #[cfg(unix)]
 mod agent_session_attach;
 #[cfg(unix)]
@@ -155,7 +160,9 @@ pub(crate) mod clipboard_read;
 mod close_tabs_command;
 mod cloud_attachments;
 mod cloud_conversations;
+pub mod cloud_host_replica;
 mod conversation_attachments;
+mod conversation_live;
 mod conversation_resource;
 mod conversation_runs;
 mod resource_trust;
@@ -236,6 +243,7 @@ use responses::{
     send_response,
 };
 use screen_json::screen_json;
+pub(crate) use screen_json::screen_layout_json;
 mod group_outcome_json;
 use group_outcome_json::{
     pane_tab_group_json, screen_group_outcome_json, tab_drag_outcome_json, tab_group_outcome_json,
@@ -250,6 +258,7 @@ mod terminal_resources;
 mod terminal_snapshot;
 use terminal_snapshot::{attach_overflow_json, handle_attach_send_error, report_attach_overflow};
 mod capabilities;
+pub use capabilities::build_capabilities;
 mod daemon_build;
 pub use daemon_build::{DAEMON_BUILD_CAPABILITY, DaemonBuild, install_daemon_build};
 mod socket_path;
@@ -265,6 +274,7 @@ pub(crate) mod activity;
 mod browser_input;
 mod chief_control;
 mod chief_inspect;
+mod chief_manage;
 mod chief_registry_resource;
 mod participant_avatars;
 pub use chief_inspect::take_tools_socket_from_env as take_chief_tools_socket_from_env;
@@ -282,11 +292,21 @@ pub const VIEWPORT_COLUMN_RESIZE_CAPABILITY: &str = "viewport-column-resize-v1";
 /// `set-column-dock` and the optional `Screen.columns[].dock` field: at
 /// most one viewport column per edge stays pinned while the others scroll.
 pub const DOCK_COLUMNS_CAPABILITY: &str = "dock-columns-v1";
+/// `layout-changed` carries the screen's layout fields, its workspace and
+/// the transaction of the request that caused it (events.md
+/// `layout-changed`): a frontend patches that one screen.
+pub const LAYOUT_DELTA_CAPABILITY: &str = "layout-delta-v1";
 /// A docked column marked permanent stays docked on its edge for every
 /// client: `set-column-dock` takes `permanent`, and an undock, another edge,
 /// a replacement or a close or move that would remove it answers
 /// `dock-column-permanent`.
 pub const PERMANENT_DOCK_CAPABILITY: &str = "permanent-dock-v1";
+/// A docked column marked pinned (the Home dock) keeps its first tab: no
+/// close, move out or reorder away from the first place, and it takes no
+/// other tab unless its `allow_tabs` is on. `set-column-dock` takes `pinned`;
+/// `column.update` takes `pinned` and `allow_tabs`; refusals answer
+/// `dock-column-pinned`.
+pub const PINNED_DOCK_CAPABILITY: &str = "pinned-dock-v1";
 /// Top and bottom docks: `set-column-dock` and `move-tab-to-column` accept
 /// edges `top` and `bottom`, sent back as `Screen.columns[].dock`.
 pub const EDGE_DOCKS_CAPABILITY: &str = "edge-docks-v1";
@@ -411,6 +431,10 @@ pub const WORKSPACE_PIN_CAPABILITY: &str = "workspace-pin-v1";
 /// The manual workspace unread mark: `marked_unread` on
 /// `set-workspace-metadata` and the `marked_unread` workspace field.
 pub const NOTIFICATION_MARK_UNREAD_CAPABILITY: &str = "notification-mark-unread-v1";
+/// The manual tab unread mark: `marked_unread` on `tab.update` and the tab
+/// resource's `extra.marked_unread`. It needs no notification; clients clear
+/// it when the person views the tab.
+pub const TAB_MARK_UNREAD_CAPABILITY: &str = "tab-mark-unread-v1";
 /// Tab metadata in the raw tree: `set-tab-pinned` with pinned-first order,
 /// `Tab.pinned`, `Tab.cwd`, `Tab.git_branch`, `Tab.git_detached`, and the `tab-changed` delta.
 pub const TAB_METADATA_CAPABILITY: &str = "tab-metadata-v1";
@@ -519,19 +543,8 @@ pub(crate) use protocol_key::{
     decode_terminal_host_clear_history, encode_terminal_host_clear_history,
 };
 
-/// `machine-usage` result and `machine-usage-changed` payload body: `usage`
-/// is the readout object or null when the daemon has none.
-fn machine_usage_json(usage: Option<&MachineUsage>) -> Value {
-    json!({
-        "usage": usage.map(|usage| json!({
-            "vm_id": usage.vm_id,
-            "period_days": usage.period_days,
-            "total_tokens": usage.total_tokens,
-            "api_equivalent_usd": usage.api_equivalent_usd,
-            "as_of": usage.as_of,
-        })),
-    })
-}
+mod wire_values;
+use wire_values::{default_renderer_capability_ttl_ms, json_line_payload_len, machine_usage_json};
 
 #[derive(Deserialize)]
 struct Request {
@@ -655,7 +668,10 @@ impl DetachNotice {
 #[derive(Deserialize)]
 #[serde(tag = "cmd", rename_all = "kebab-case")]
 enum Command {
-    Identify,
+    Identify {
+        #[serde(default)]
+        machine_metadata: bool,
+    },
     BrowserHostProvider,
     SubscribeActivity,
     /// Private, connection-scoped guest-to-frontend OS browser opening.
@@ -1382,6 +1398,10 @@ enum Command {
         /// `permanent-dock-v1`: mark the column permanent (never cleared once set).
         #[serde(default)]
         permanent: Option<bool>,
+        /// `pinned-dock-v1`: mark the column pinned (the Home dock; never
+        /// cleared once set). Its `allow_tabs` changes only with `column.update`.
+        #[serde(default)]
+        pinned: Option<bool>,
         #[serde(default)]
         role: Option<String>,
         #[serde(default)]
@@ -1659,6 +1679,8 @@ enum Command {
     ConversationThread(conversations::ThreadParams),
     ConversationLinkResolve(conversations::LinkResolveParams),
     ConversationInboxOp(conversations::InboxOpParams),
+    /// The Home list rows (`home-inbox-v1`, server/conversations.rs).
+    HomeInbox(conversations::HomeInboxParams),
     ConversationSearch(conversations::SearchParams),
     /// The history search index (`history-search-v1`, server/history_search.rs).
     HistorySearch(history_search::HistorySearchParams),
@@ -1667,15 +1689,16 @@ enum Command {
     ConversationDraft(conversations::DraftParams),
     ConversationBind(conversations::BindParams),
     ConversationAgentToken(conversations::AgentTokenParams),
-    /// Cloud conversations proxy (`cloud-conversations-v1`,
-    /// server/cloud_conversations.rs).
+    /// Cloud conversations proxy and host replica (server/cloud_conversations.rs and so on).
     CloudSessionSet(cloud_conversations::SessionSetParams),
     CloudSessionClear,
     CloudSessionStatus,
+    CloudHostReplicaSet(cloud_host_replica::HostReplicaSetParams),
+    CloudHostReplicaClear(cloud_host_replica::HostReplicaClearParams),
+    CloudHostReplicaStatus,
     /// `page-credential` (`page-credential-v1`, server/page_credential.rs).
     PageCredential(page_credential::PageCredentialParams),
-    /// `ws-listen` (`ws-listen-v1`, server/page_listener.rs): open the
-    /// owner's loopback page listener on request.
+    /// `ws-listen` (`ws-listen-v1`, server/page_listener.rs): open the owner's page listener.
     WsListen(page_listener::WsListenParams),
     CloudInboxList(cloud_conversations::InboxListParams),
     CloudConversationSnapshot(cloud_conversations::SnapshotParams),
@@ -1690,13 +1713,13 @@ enum Command {
     CloudInboxUnsubscribe,
     CloudConversationSubscribe(cloud_conversations::TargetParams),
     CloudConversationUnsubscribe(cloud_conversations::TargetParams),
-    /// The leased chief's MuxDO wake queue (`mux:<agent>`, agent from the
-    /// chief token), and the ack of handled wakes.
+    CloudConversationLive(cloud_conversations::TargetParams),
+    CloudConversationTyping(cloud_conversations::TypingParams),
+    /// The leased chief's MuxDO wake queue (`mux:<agent>`) and the ack of handled wakes.
     CloudMuxSubscribe(cloud_conversations::NoParams),
     CloudMuxUnsubscribe(cloud_conversations::NoParams),
     CloudMuxAck(cloud_conversations::MuxAckParams),
-    /// Local conversation attachments (`local-attachments-v1`,
-    /// server/conversation_attachments.rs).
+    /// Local conversation attachments (`local-attachments-v1`, server/conversation_attachments.rs).
     ConversationAttachmentUpload(conversation_attachments::UploadParams),
     ConversationAttachmentRead(conversation_attachments::ReadParams),
     ConversationAttachmentLink(conversation_attachments::LinkParams),
@@ -1707,6 +1730,8 @@ enum Command {
     ConversationRunAppend(conversation_runs::AppendParams),
     ConversationRuns(conversation_runs::RunsParams),
     ConversationRun(conversation_runs::RunParams),
+    ConversationLivePublish(conversation_live::PublishParams),
+    ConversationLive(conversation_live::LiveParams),
     ConversationImport(conversations::ImportParams),
     /// Create a room. A caller-chosen `profile` id makes a retry idempotent.
     CreateProfile {
@@ -1967,6 +1992,11 @@ enum Command {
         /// at commit time (`workspace_not_empty` otherwise).
         #[serde(default)]
         if_empty: bool,
+        /// With `end_terminals`: answer `closed_ids`, the closed groups the
+        /// close stored. Opt-in: older raw decoders refuse an unknown result
+        /// field (Python `unexpected fields`).
+        #[serde(default)]
+        report_closed_ids: bool,
         #[serde(flatten)]
         mutation: MutationRequest,
     },
@@ -1996,11 +2026,8 @@ enum Command {
         name: String,
     },
     RenameWorkspace {
-        #[serde(default)]
-        workspace: Option<WorkspaceId>,
-        #[serde(default)]
-        key: Option<String>,
-        name: String,
+        #[serde(flatten)]
+        request: cmd_workspaces::WorkspaceRenameRequest,
         #[serde(flatten)]
         mutation: MutationRequest,
     },
@@ -2517,13 +2544,9 @@ pub use websocket_listener::{
 };
 
 #[cfg(test)]
-fn handle_connection(mux: Arc<Mux>, stream: Box<dyn transport::Stream>) {
-    handle_connection_with_permit(mux, stream, Arc::new(RenderService::new()), None);
-}
-
-fn json_line_payload_len(line: &str) -> usize {
-    line.strip_suffix('\n').map_or(line.len(), str::len)
-}
+mod test_dispatch;
+#[cfg(test)]
+use test_dispatch::{handle_connection, handle_message};
 
 mod disconnect;
 pub use disconnect::detach_control_client;
@@ -2533,14 +2556,6 @@ use disconnect::{
     disconnect_client, kick_client, own_view_detach_target, size_state_event_json,
     size_state_for_client,
 };
-
-#[cfg(test)]
-fn handle_message(mux: &Arc<Mux>, client: u64, message: &str, writer: &MessageWriter) -> bool {
-    match serde_json::from_str::<Request>(message) {
-        Ok(request) => handle_request(mux, client, request, writer),
-        Err(error) => send_bad_request(writer, message, &error),
-    }
-}
 
 mod journal_filter;
 #[cfg(test)]
@@ -2593,17 +2608,30 @@ use connection_frame::{
     handle_request_with_cancellation, pairing_request, zeroize_string,
 };
 
-fn node_json(node: &Node, active_pane: PaneId) -> Value {
+/// One layout node. `split_ids`: the public ids of the splits
+/// (`State::resource_indexes`); a split with one carries it as `split_id`
+/// (`split-client-split-id-v1`).
+fn node_json(
+    node: &Node,
+    active_pane: PaneId,
+    split_ids: &HashMap<SplitId, crate::resource::SplitPublicId>,
+) -> Value {
     match node {
         Node::Leaf(id) => json!({ "type": "leaf", "pane": id }),
-        Node::Split { id, dir, ratio, a, b } => json!({
-            "type": "split",
-            "split": id,
-            "dir": match dir { SplitDir::Right => "right", SplitDir::Down => "down" },
-            "ratio": ratio,
-            "a": node_json(a, active_pane),
-            "b": node_json(b, active_pane),
-        }),
+        Node::Split { id, dir, ratio, a, b } => {
+            let mut value = json!({
+                "type": "split",
+                "split": id,
+                "dir": match dir { SplitDir::Right => "right", SplitDir::Down => "down" },
+                "ratio": ratio,
+                "a": node_json(a, active_pane, split_ids),
+                "b": node_json(b, active_pane, split_ids),
+            });
+            if let Some(public_id) = split_ids.get(id) {
+                value["split_id"] = json!(public_id);
+            }
+            value
+        }
         Node::Stack { panes, expanded } => json!({
             "type": "stack",
             "panes": panes.as_slice(),
@@ -2637,10 +2665,6 @@ fn layout_request_to_spec(layout: LayoutRequest) -> anyhow::Result<LayoutSpec> {
             Ok(LayoutSpec::Stack { pane_count: panes.len(), expanded_index })
         }
     }
-}
-
-fn default_renderer_capability_ttl_ms() -> u64 {
-    30_000
 }
 
 mod tree_json;
@@ -2715,7 +2739,7 @@ fn list_workspaces_reply(mux: &Mux) -> anyhow::Result<Value> {
     let (registry_id, generation) = mux.registry_identity();
     workspaces["registry_id"] = json!(registry_id);
     workspaces["generation"] = json!(generation);
-    workspaces["terminal_revision"] = json!(mux.terminal_registry_snapshot()?.revision);
+    workspaces["terminal_revision"] = json!(mux.terminal_registry_revision()?);
     Ok(workspaces)
 }
 
@@ -2731,6 +2755,10 @@ mod loopback_forward_tests;
 #[cfg(all(test, unix))]
 #[path = "server/agent_session_attach_tests.rs"]
 mod agent_session_attach_tests;
+
+#[cfg(all(test, unix))]
+#[path = "server/agent_inventory_tests.rs"]
+mod agent_inventory_tests;
 
 #[cfg(all(test, unix))]
 #[path = "server/image_paste_tests.rs"]
@@ -2757,6 +2785,9 @@ mod device_kind_tests;
 #[cfg(test)]
 #[path = "server/dock_columns_tests.rs"]
 mod dock_columns_tests;
+#[cfg(test)]
+#[path = "server/pinned_columns_tests.rs"]
+mod pinned_columns_tests;
 
 #[cfg(test)]
 #[path = "server/rows_tests.rs"]

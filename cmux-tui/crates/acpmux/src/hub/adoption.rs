@@ -136,6 +136,9 @@ impl Hub {
         adopt: &AdoptRequest,
         agent: &str,
     ) -> Result<(), RpcError> {
+        super::titles::keep_adopted_title(
+            &mut session.meta.lock().unwrap_or_else(|e| e.into_inner()),
+        );
         if session.meta().agent_session_id.as_deref() == Some(adopt.agent_session_id.as_str()) {
             return Ok(());
         }

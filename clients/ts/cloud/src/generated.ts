@@ -1721,7 +1721,7 @@ export interface CloudOps {
       readonly revision: string
     }
   }
-  /** Promote a Mac conversation (home-messaging.md section 22). The first call names its source; the Worker derives the id from the signed-in user and the source. Later calls send {id, after_seq, messages}. At most 500 messages and 1 MiB per batch. */
+  /** Promote a Mac conversation (home-messaging.md section 22). The first call names its source; the Worker derives the id from the signed-in user and the source. Later calls send {id, after_seq, messages}. At most 500 messages and 1 MiB per batch. {id, fill: true, source, messages} instead fills the owner's own empty chief conversation (a Mac Chief's history into the hosted Chief's main conversation); continuations and the commit are the same. */
   readonly "conversation.import": {
     readonly params: {
       readonly id?: ConversationId
@@ -1734,6 +1734,7 @@ export interface CloudOps {
       readonly title?: string
       readonly participants?: ReadonlyArray<HomeParticipantInput>
       readonly after_seq?: number
+      readonly fill?: boolean
       readonly messages: ReadonlyArray<unknown>
       readonly read_cursors?: unknown
     }
@@ -2174,6 +2175,22 @@ export interface CloudOps {
     }
     readonly result: unknown
   }
+  /** Your message requests: open invites to your verified email from people you are not connected to, newest first (at most 20). trusted marks a sender with your company email domain. */
+  readonly "home.requests.list": {
+    readonly params: Readonly<Record<string, never>>
+    readonly result: {
+      readonly requests: ReadonlyArray<{
+        readonly conversation: ConversationId
+        readonly inviter: string
+        readonly kind: "dm" | "group"
+        readonly title?: string
+        readonly preview: string
+        readonly created_at: string
+        readonly expires_at: string
+        readonly trusted: boolean
+      }>
+    }
+  }
   /** Search Home messages in conversations you are a current human participant of (newest first, with a short Top section). */
   readonly "home.search": {
     readonly params: {
@@ -2227,6 +2244,15 @@ export interface CloudOps {
   }
   /** Remove a host from the team directory (its owner or a team admin). */
   readonly "host.remove": {
+    readonly params: {
+      readonly host: HostId
+    }
+    readonly result: {
+      readonly host: HostId
+    }
+  }
+  /** Delete the cloud copy of a host's read replica (its owner only), also while the host is off. The host stays enrolled; it publishes again only while its own app keeps the replica on. */
+  readonly "host.replica.purge": {
     readonly params: {
       readonly host: HostId
     }
@@ -2415,6 +2441,13 @@ export interface CloudOps {
     readonly params: {
       readonly code: string
       readonly secret: string
+    }
+    readonly result: HomeConversationCommit
+  }
+  /** Accept a message request in Home: the open email invite to your verified email joins you, with no link. Anyone else gets unknown_invite. */
+  readonly "invite.accept_verified": {
+    readonly params: {
+      readonly conversation: ConversationId
     }
     readonly result: HomeConversationCommit
   }
@@ -2688,6 +2721,17 @@ export interface CloudOps {
       readonly seq: number
     }
     readonly result: HomeConversationCommit
+  }
+  /** Hide a message request; with block, also hide and never email later invites from its sender. The sender is not told. */
+  readonly "request.dismiss": {
+    readonly params: {
+      readonly conversation: ConversationId
+      readonly block?: boolean
+    }
+    readonly result: {
+      readonly dismissed: boolean
+      readonly blocked: boolean
+    }
   }
   /** Read one kept run with the body of the automation version that fired it. */
   readonly "run.get": {
@@ -3440,10 +3484,12 @@ export const cloudOpMeta = {
   "firewall.get": { class: "read", owner: "cloud:UserDO", risk: "read" },
   "firewall.list": { class: "read", owner: "cloud:UserDO", risk: "read" },
   "github.issue.comment": { class: "mutation", owner: "cloud:ConnectionDO", risk: "send-external" },
+  "home.requests.list": { class: "read", owner: "cloud:ConversationDO", risk: "read" },
   "home.search": { class: "read", owner: "cloud:planetscale", risk: "read" },
   "home.settings.set": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
   "host.enroll": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-shared" },
   "host.remove": { class: "mutation", owner: "cloud:TeamDO", risk: "destructive" },
+  "host.replica.purge": { class: "mutation", owner: "cloud:TeamDO", risk: "destructive" },
   "inbox.archive": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
   "inbox.dm_peer": { class: "read", owner: "cloud:UserDO", risk: "read" },
   "inbox.list": { class: "read", owner: "cloud:UserDO", risk: "read" },
@@ -3463,6 +3509,7 @@ export const cloudOpMeta = {
   "integration.policy.set": { class: "mutation", owner: "cloud:ConnectionDO", risk: "mutate-shared" },
   "integration.revoke": { class: "mutation", owner: "cloud:ConnectionDO", risk: "destructive" },
   "invite.accept": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-own" },
+  "invite.accept_verified": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-own" },
   "invite.approve_join": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-shared" },
   "invite.create": { class: "mutation", owner: "cloud:ConversationDO", risk: "send-external" },
   "invite.revoke": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-shared" },
@@ -3489,6 +3536,7 @@ export const cloudOpMeta = {
   "reaction.add": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-shared" },
   "reaction.remove": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-own" },
   "read_cursor.set": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-own" },
+  "request.dismiss": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-own" },
   "run.get": { class: "read", owner: "cloud:SchedulerDO", risk: "read" },
   "run.list": { class: "read", owner: "cloud:SchedulerDO", risk: "read" },
   "server.pair.approve": { class: "mutation", owner: "cloud:PairingDO", risk: "mutate-shared" },

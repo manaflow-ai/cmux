@@ -35,6 +35,7 @@ extension PaletteController {
             scope: .root
         )
         page.mergesSectionsWhenTyping = true
+        page.queryItems = goToRows()
         return previewingActions(page)
     }
 
@@ -98,16 +99,31 @@ extension PaletteController {
         )
     }
 
+    /// Go to Workspace (Cmd-P): the workspaces, and once the user types the
+    /// sidebar groups, panes and tabs too, ranked in one list.
     public func workspacesPage() -> PalettePageSpec? {
         guard let source = sources.workspaces else { return nil }
-        return PalettePageSpec(
+        var providers: [any PaletteProvider] = [WorkspacePaletteProvider(source: source, showsItemsForEmptyQuery: true)]
+        if let navigation = sources.navigation { providers.append(NavigationPaletteProvider(source: navigation)) }
+        var page = PalettePageSpec(
             id: "workspaces",
             title: PaletteStrings.workspacesTitle,
-            placeholder: PaletteStrings.workspacesPlaceholder,
+            placeholder: sources.navigation == nil ? PaletteStrings.workspacesPlaceholder : PaletteStrings.goToAnythingPlaceholder,
             symbol: "rectangle.stack",
-            providers: [WorkspacePaletteProvider(source: source, showsItemsForEmptyQuery: true)],
+            providers: providers,
             showsRecent: true
         )
+        page.mergesSectionsWhenTyping = sources.navigation != nil
+        page.queryItems = goToRows()
+        return page
+    }
+
+    /// Open and Ask Agent rows for a typed path or web address, first in
+    /// Cmd-P and Cmd-Shift-P; nil without a go-to source.
+    func goToRows() -> (@MainActor (String) -> [PaletteItem])? {
+        guard sources.goTo != nil else { return nil }
+        let rows = GoToPaletteRows()
+        return { [weak self] query in rows.items(query, source: self?.sources.goTo) }
     }
 
     public func tabsPage() -> PalettePageSpec? {

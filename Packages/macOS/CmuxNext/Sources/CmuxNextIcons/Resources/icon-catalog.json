@@ -385,6 +385,18 @@
    "family": "browser"
   },
   {
+   "name": "browser.toolbar.downloads",
+   "meaning": "Browser toolbar Downloads button (the Chrome arrow into a tray)",
+   "sf": "arrow.down.to.line",
+   "family": "browser.toolbar"
+  },
+  {
+   "name": "browser.toolbar.extensions",
+   "meaning": "Browser toolbar Extensions button (the Chrome puzzle)",
+   "sf": "puzzlepiece.extension",
+   "family": "browser.toolbar"
+  },
+  {
    "name": "browserprofile.badge",
    "meaning": "Browser profile badge (initial/emoji)",
    "sf": "questionmark.square.dashed",

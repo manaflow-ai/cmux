@@ -31,6 +31,12 @@ enum HomeConversationStrings {
     static var mentioned: String { String(localized: "home.list.mentioned", defaultValue: "Mentions you", bundle: .module) }
     static var pinnedLabel: String { String(localized: "home.list.pinnedLabel", defaultValue: "Pinned", bundle: .module) }
     static var invitedLabel: String { String(localized: "home.list.invitedLabel", defaultValue: "Waiting for them to join", bundle: .module) }
+    /// The quiet line under the list for the Cloud rows' state (`home-inbox` `cloud`): only `unavailable`
+    /// has one (hq-6d 2026-10-15: signed out shows nothing; the account menu already says so).
+    static func cloudNote(_ state: String?) -> String? {
+        guard state == "unavailable" else { return nil }
+        return String(localized: "home.list.cloudUnavailable", defaultValue: "Cloud conversations are not available right now.", bundle: .module)
+    }
     static var untitled: String { String(localized: "home.list.untitled", defaultValue: "Conversation", bundle: .module) }
 
     // MARK: New Message
@@ -136,7 +142,8 @@ enum HomeConversationStrings {
         }
     }
 
-    /// A refused invite's reason as the user reads it (the owner's codes).
+    /// A refused invite's reason as the user reads it (the owner's codes). A code with no
+    /// sentence of its own reads as the generic failure: a raw code is never shown.
     static func inviteRefusal(_ code: String) -> String {
         switch code {
         case "invite.blocked", "invite.recipient_limited":
@@ -147,7 +154,8 @@ enum HomeConversationStrings {
         case "home.not_configured":
             String(localized: "home.outcome.inviteUnavailable", defaultValue: "Invites aren’t available on this server.",
                    bundle: .module)
-        default: code
+        default:
+            String(localized: "home.outcome.failed", defaultValue: "That didn’t work. Try again.", bundle: .module)
         }
     }
 }

@@ -8,7 +8,7 @@ job's summary lists each tier and the reason for it.
 | Tier | Check (job) | Runs when the PR changes | Runner |
 | --- | --- | --- | --- |
 | checks | `cmux-next checks` (god files, concurrency, crash safety, string tables, script tests, package conventions, tier routing) | any cmux-next path | Linux (Blacksmith) |
-| generated | `cmux-next generated files` (action catalog, surfaces and inventory; CI target graph) | the CmuxNext package, `plans/cmux-next/`, the generators | mini |
+| generated | `cmux-next generated files` (action catalog, surfaces and inventory; CI target graph; settings exports, their source stamp and the defaults snapshot) | the CmuxNext package, `plans/cmux-next/`, the settings exports, the generators | mini |
 | swift canary | `cmux-next Swift canary` (Debug SwiftPM build of the changed production targets) | production Swift files under `Packages/macOS/CmuxNext/Sources/` only | mini, placed first |
 | native | `cmux-next Release compile (Xcode 26)` | any `.swift` file under `Packages/macOS/CmuxNext/` (other Swift or app sources: `full-ci` and pushes) | mini |
 | scheme | `cmux app scheme compile (Debug)` | the app host, Xcode project, CLI, resources, webviews, local packages CmuxNext uses, an executable target | mini |
@@ -20,7 +20,7 @@ webviews app, the agent-pane bundle (`CmuxNextAgentPane/Resources/agent-pane/`)
 or docs, and no Swift test reads it, only `cmux-next checks` runs here. ci-web
 type-checks, lints and tests the sources, and `build-agent-pane-web.sh --check`
 proves the committed bundle matches them; the bundle is a `.copy` resource, so
-the app takes it without a compile. gallery-pr diffs the touched entries. A
+the app takes it without a compile. An explicitly requested local gallery matrix can diff the touched entries. A
 `dev-build` PR still compiles its dogfood app.
 
 The Swift canary is the pull-request gate for a small package-only Swift diff.
@@ -48,9 +48,12 @@ inputs such as `plans/cmux-next/`, and every file a Swift test reads.
 Every tier runs on:
 
 - a pull request labeled `full-ci`. Use it on a batch integration PR, so the
-  heavy suites run once for the batch before it merges;
-- every `feat-cmux-next` push (a superseded push skips its Mac jobs, so a burst
-  of merges is checked once at its newest commit). When a push job fails,
+  heavy suites run once for the batch before it merges, and on any PR whose
+  Swift tests must run before it merges: nothing else runs them;
+- every `feat-cmux-next` push, except `swift test`: push CI is the app build
+  (Release compile and app scheme compile), so a merged PR's Swift suites run
+  only on a `full-ci` PR or a dispatch. A superseded push skips its Mac jobs, so
+  a burst of merges is checked once at its newest commit. When a push job fails,
   `cmux-next push attribution` comments on each PR merged since that job last
   passed on a push. The owning lane fixes forward;
 - a change to the manifest, the target graph, the router, the workflow or the
@@ -116,6 +119,18 @@ regenerates them and uploads the patch. On a same-repository PR,
 
 The new commit starts a fresh run. Pull before your next push.
 
+The settings exports (`schemas/settings/settings-schema.json`, `docs/mdm/*`)
+come from Swift tests, so `defaults_guard.py check-fresh` cannot compare them
+with the Swift sources directly. It recomputes the source stamp
+`schemas/settings-export/settings-schema.sources.sha256` (a SHA-256 of
+`CmuxNextSettings` and the two export tests) and fails when the sources moved
+without a re-export. `cmux-next generated files` then runs
+`scripts/cmux-next/regenerate-settings-exports.sh` and
+`defaults_guard.py snapshot` and adds the files to the patch. On
+`feat-cmux-next`, the base autofix's Mac job runs the same script after a
+settings change and commits the exports and the snapshot, so a lane does not
+have to run the export itself.
+
 ## Measurements
 
 Before (#17470, a UI-only PR, run 37402420094):
@@ -153,3 +168,34 @@ takes 2.1 min, and SwiftPM links every test target into one bundle, so each
 shard pays the 2.6 min build again and asks for one more mini. The 10.4 min
 on #17470 was contention on a busy mini. Selecting only the affected targets
 reduces that contention, and sharding would add to it.
+
+## Measuring test builds
+
+The `swift-test`, `daemon-test` and `generated-files` jobs wrap their explicit
+`swift build --build-tests` command with `scripts/ci/swiftpm_build_metrics.py`.
+Each uploads a `cmux-next-build-metrics-<role>-<attempt>` artifact containing
+`<role>.json` and the streamed `<role>.log`, including after a failed build.
+The step summary reports build-step wall time and recognized SwiftPM progress
+events. This does not measure compiler CPU or later builds a test or generator
+script may invoke.
+
+Compare `build_inputs_sha256` to find candidates for a shared build. It covers
+the whole tracked working repository (recipe and dependency pins included) and
+generated package inputs outside `.build` and dependency stores. Clean files
+use Git object IDs; changed and generated inputs use their bytes. The separate
+`compatibility_sha256` includes the toolchain, selected build environment,
+absolute package path and resolved workspace state. The combined
+`build_identity_sha256` binds both; these diagnostic identities do not authorize
+product reuse. An unavailable source identity or dirty submodule leaves the
+candidate identity null. `measurement_setup_seconds` reports collection overhead
+separately from `build_step_seconds`.
+Missing toolchain metadata leaves the compatibility identity null; the combined
+identity is null whenever either component is unknown.
+
+`scratch_before` and `scratch_after` report the linked scratch key and existing
+build markers. Warm state does not prove a cache hit; `cache_hit` stays null.
+`web_bundle_restore` records the existing restore action's outcome and hit
+output separately. Compile/module event counts use `swiftpm-progress/v1`;
+zero events mean no recognized progress was observed, not proof of zero compile
+work or a cache hit. Matching candidate identities and elapsed times identify
+possible duplicate build steps, not measured redundant compiler CPU.

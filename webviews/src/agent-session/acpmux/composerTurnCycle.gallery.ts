@@ -142,7 +142,6 @@ export default agentPaneEntry({
     { selector: ".acpmux-composer-box" },
     { selector: ".acpmux-composer-prompt" },
     { selector: ".acpmux-composer-bar" },
-    { selector: ".acpmux-composer-context" },
   ],
   covers: [
     "agent-session/acpmux/Composer.tsx#Composer",

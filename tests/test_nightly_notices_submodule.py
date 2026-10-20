@@ -18,9 +18,7 @@ ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github/workflows/nightly.yml"
 CHECKERS = ("verify-app-bundle-licenses.sh", "notarize-nightly-dmg.sh", "resume-nightly-notarization.sh")
 INIT = "init-submodule.sh ghostty-next"
-# hq-a3 owns this job (cx-x7hwx). It has the same gap; reported to them rather
-# than edited here.
-EXEMPT = {"publish-nightly-identity-legacy"}
+EXEMPT: set[str] = set()
 
 text = WORKFLOW.read_text()
 jobs_text = text[text.index("\njobs:\n"):]

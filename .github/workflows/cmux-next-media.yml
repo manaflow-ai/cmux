@@ -1,9 +1,9 @@
 name: cmux-next media
 
 # Screenshots and a short video of each cmux-next UI pull request, posted in
-# one sticky comment (scripts/cmux-next/media/publish.py). The tour builds the
-# merge base and head as separate tagged dev apps on an owned Mac's gui runner,
-# launches each, drives them through the bundled cmux CLI
+# the `tour` part of the PR's status comment (scripts/cmux-next/media/publish.py).
+# The tour builds the merge base and head as separate tagged dev apps on an
+# owned Mac's gui runner, launches each, drives them through the bundled cmux CLI
 # (scripts/cmux-next/media/tour.py), and captures every affected step. Path
 # mapping selects New Tab, agent-pane, or core interactions from the changed
 # files. Tours are data in scripts/cmux-next/media/tours.
@@ -41,6 +41,8 @@ on:
       - 'Packages/macOS/CmuxNext/Tests/**'
       - 'webviews/**'
       - 'agent-chat/**'
+      # A change to a tour tours it (path_map.py maps tours/<name>.json to <name>).
+      - 'scripts/cmux-next/media/tours/**'
   pull_request:
     branches: [feat-cmux-next]
     types: [opened, synchronize, reopened, ready_for_review, labeled]
@@ -50,6 +52,7 @@ on:
       - 'Packages/macOS/CmuxNext/Tests/**'
       - 'webviews/**'
       - 'agent-chat/**'
+      - 'scripts/cmux-next/media/tours/**'
   workflow_dispatch:
 
 permissions: {}
@@ -103,6 +106,10 @@ jobs:
     timeout-minutes: 120
     permissions:
       contents: read
+    # is_ui tells the publish job a UI tour ran, so a capture that died before
+    # writing capture-receipt.json is reported, not shown as "no media".
+    outputs:
+      is_ui: ${{ steps.scope.outputs.is_ui }}
     env:
       CMUX_CI_XCODE_APP: ${{ (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CMUX_CI_XCODE_APP_PR || '' }}
       # GhosttyKit comes prebuilt; the ghostty CLI helper zig build is skipped.
@@ -230,11 +237,20 @@ jobs:
       - name: Build base and head tagged apps
         id: build
         if: steps.scope.outputs.is_ui == 'true'
+        # A warm tag's DerivedData keeps the explicit module Xcode precompiled
+        # from GhosttyNextKit's ghostty.h and does not rebuild it for a new pin
+        # ("ghostty.h has been modified since the module file", job
+        # 117892119256). The stamp clears those modules only when a binary
+        # pin changed since the tag's last good build.
         run: |
           set -euo pipefail
+          stamp="$GITHUB_WORKSPACE/scripts/ci/media_module_cache_stamp.py"
           build_one() {
             local dir="$1" tag="$2" log="$3" output="$4" app
+            local derived="$HOME/Library/Developer/Xcode/DerivedData/cmux-$tag"
+            python3 "$stamp" clear --source "$dir" --derived-data "$derived"
             (cd "$dir" && ./scripts/reload.sh --tag "$tag" --no-global-cli-links) 2>&1 | tee "$log"
+            python3 "$stamp" record --source "$dir" --derived-data "$derived"
             app="$(awk '/^App path:/ { getline; sub(/^ +/, ""); print; exit }' "$log")"
             if [ -z "$app" ] || [ ! -d "$app" ]; then
               app="$(find "$HOME/Library/Developer/Xcode/DerivedData/cmux-$tag/Build/Products/Debug" -maxdepth 1 -name '*.app' -print -quit)"
@@ -307,6 +323,7 @@ jobs:
           persist-credentials: false
           sparse-checkout: |
             scripts/pr-media.py
+            scripts/ci/pr_status.py
             scripts/cmux-next/media/publish.py
           sparse-checkout-cone-mode: false
 
@@ -371,6 +388,7 @@ jobs:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           ROUTE_REASON: ${{ needs.route.outputs.reason }}
           TOUR_RESULT: ${{ needs.tour.result }}
+          TOUR_IS_UI: ${{ needs.tour.outputs.is_ui }}
         run: |
           set -euo pipefail
           note=""
@@ -400,6 +418,10 @@ jobs:
           PY
             )"
             note="$capture_note"
+          elif [ "$TOUR_IS_UI" = true ] && [ "$TOUR_RESULT" = success ]; then
+            # Capture is continue-on-error, so the tour job stays green when it
+            # exits before writing a receipt.
+            note="The capture step failed before writing a receipt; see the run log."
           fi
           case "$TOUR_RESULT" in
             skipped) note="The tour did not run: $ROUTE_REASON. ${note}" ;;

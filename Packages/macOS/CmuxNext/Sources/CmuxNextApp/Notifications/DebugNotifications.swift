@@ -8,6 +8,8 @@ import CmuxNextSettings
 /// banner click path (`DesktopNotifier.open`), for windows no one can click;
 /// `{"action": "reply", "surface": <handle>, "id": <banner id>, "text": <text>}` runs a reply
 /// banner's Send (`DesktopNotifier.reply`).
+/// `{"action": "allow" | "deny", "surface": <handle>, "id": <banner id>}` runs an approval
+/// banner's Allow once or Deny (`DesktopNotifier.approve`).
 /// `{"action": "dismiss_highlight", "workspace": <id>}` hides that
 /// workspace's attention rings until a newer notification (cx-epgo).
 enum DebugNotifications {
@@ -21,6 +23,10 @@ enum DebugNotifications {
         if params["action"]?.stringValue == "reply", let text = params["text"]?.stringValue {
             let surface = params["surface"]?.doubleValue.map { UInt64($0) }
             center.desktop.reply(id: params["id"]?.stringValue ?? "", surface: surface, text: text)
+        }
+        if let action = params["action"]?.stringValue, action == "allow" || action == "deny" {
+            let surface = params["surface"]?.doubleValue.map { UInt64($0) }
+            center.desktop.approve(id: params["id"]?.stringValue ?? "", surface: surface, allow: action == "allow")
         }
         let store = services.daemon.store
         // `{"action": "dismiss_highlight", "workspace": <id>}`: the Dismiss Highlight path (cx-epgo).
@@ -79,7 +85,7 @@ enum DebugNotifications {
             "id": .string(banner.id), "title": .string(banner.title),
             "subtitle": banner.subtitle.map(JSONValue.string) ?? .null, "body": .string(banner.body),
             "surface": banner.surface.map { .number(Double($0)) } ?? .null,
-            "reply": .bool(banner.reply),
+            "reply": .bool(banner.reply), "approval": .bool(banner.approval),
             "attachment": banner.attachment.map { data in
                 ["bytes": .number(Double(data.count)), "png_base64": .string(data.base64EncodedString())]
             } ?? .null,

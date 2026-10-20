@@ -51,7 +51,7 @@ enum TerminalTabContent {
     static func make(_ tab: TabModel, in pane: PaneController) -> TabContent {
         let services = pane.services, daemon = pane.daemon
         let entry = BenchSpans.measure("terminal.surface") { services.cache.terminal(for: tab, daemon: daemon) }
-        services.themes.terminalDidMount(entry)
+        services.themes.catchUp(entry, fresh: true)
         TabRestart.offer(on: entry, tab: tab, daemon: daemon, registry: services.registry)
         return .terminal(entry)
     }

@@ -11,7 +11,10 @@
 //! orientation on the tab (`tab_state.emulation_json`), and every tab
 //! snapshot shows the resolved values as `extra.emulation`: the numbers an
 //! engine applies, and for Chromium the exact DevTools calls Chrome's device
-//! mode sends. Frontends apply that record and decide nothing.
+//! mode sends. Frontends apply that record and decide nothing. A tab can
+//! instead fit a desktop layout (`browser.tab.emulate {fit: "16:9"}`): the
+//! record then names the aspect and the width bounds (`mode: "fit"`), and
+//! the engine sizes the layout from its view (`resolve_fit`).
 
 use std::sync::OnceLock;
 
@@ -20,6 +23,10 @@ use serde_json::{Map, Value, json};
 
 /// `browser.devices.*`, `browser.tab.emulate*` and `extra.emulation`.
 pub const CAPABILITY: &str = "browser-devices-v1";
+/// `fit` on `browser.tab.emulate` and the `mode: "fit"` record (cx-va1wd).
+pub const FIT_CAPABILITY: &str = "browser-fit-v1";
+/// A fixed layout width as `fit` ("1280") and `fit.value` (cx-2ftlq).
+pub const FIT_WIDTH_CAPABILITY: &str = "browser-fit-width-v1";
 /// The resource kind of the custom device list on `session.events`.
 pub(crate) const RESOURCE: &str = "browser_device";
 /// The id of the one custom device list.
@@ -190,19 +197,34 @@ pub(crate) enum EmulationChange {
         custom: Option<Value>,
         orientation: Option<String>,
     },
+    /// Fit a desktop layout into the tab's view (`fit`): of aspect `W:H`
+    /// ("16:9") at the view's height, or of a fixed CSS width ("1280").
+    Fit(String),
     Clear,
 }
 
 /// The stored emulation of a tab after `change`: `{device, orientation}`,
-/// the device object copied in, so the tab keeps it when the list changes.
+/// the device object copied in, so the tab keeps it when the list changes,
+/// or `{fit: {aspect: [W, H]}}` for a fit.
 /// `None` clears. Errors start with "bad request: ".
 pub(crate) fn stored_emulation(
     transaction: &Transaction<'_>,
     tab_id: &str,
     change: &EmulationChange,
 ) -> anyhow::Result<Option<String>> {
-    let EmulationChange::Set { device, custom, orientation } = change else {
-        return Ok(None);
+    let (device, custom, orientation) = match change {
+        EmulationChange::Clear => return Ok(None),
+        EmulationChange::Fit(value) => {
+            let stored = match parse_fit_width(value) {
+                Some(width) => json!({"fit": {"width": width?}}),
+                None => {
+                    let (width, height) = parse_aspect(value)?;
+                    json!({"fit": {"aspect": [width, height]}})
+                }
+            };
+            return Ok(Some(serde_json::to_string(&stored)?));
+        }
+        EmulationChange::Set { device, custom, orientation } => (device, custom, orientation),
     };
     let device = match (device, custom) {
         (Some(_), Some(_)) => anyhow::bail!("bad request: give device or custom, not both"),
@@ -397,6 +419,103 @@ fn check(device: &Value) -> Result<(), String> {
     Ok(())
 }
 
+/// The narrowest and widest desktop layout width a fit uses, in CSS px:
+/// 1024 is the usual desktop breakpoint, 1920 a 1080p desktop.
+const FIT_MIN_WIDTH: i64 = 1024;
+const FIT_MAX_WIDTH: i64 = 1920;
+/// The largest side of a fit's aspect ratio ("16:9", "21:9", "4:3").
+const FIT_MAX_ASPECT_SIDE: i64 = 64;
+
+/// The narrowest and widest fixed layout width of a fit (`fit: "1280"`).
+const FIT_FIXED_MIN: i64 = 640;
+const FIT_FIXED_MAX: i64 = 3840;
+
+/// A fixed-width fit ("1280"): `None` when `text` is not a bare number
+/// (then it is an aspect ratio), an error when the number is out of range.
+fn parse_fit_width(text: &str) -> Option<anyhow::Result<i64>> {
+    let text = text.trim();
+    if text.is_empty() || !text.chars().all(|c| c.is_ascii_digit()) {
+        return None;
+    }
+    Some(text.parse::<i64>().ok().filter(|v| (FIT_FIXED_MIN..=FIT_FIXED_MAX).contains(v)).ok_or_else(|| {
+        anyhow::anyhow!(
+            "bad request: a fixed fit width is {FIT_FIXED_MIN} to {FIT_FIXED_MAX} CSS px, such as 1280"
+        )
+    }))
+}
+
+/// "W:H" (or "WxH") as whole numbers of 1 to 64 whose ratio is 1:4 to 4:1.
+fn parse_aspect(text: &str) -> anyhow::Result<(i64, i64)> {
+    let bad = || {
+        anyhow::anyhow!(
+            "bad request: fit takes an aspect ratio W:H such as 16:9 (whole numbers of 1 to {FIT_MAX_ASPECT_SIDE}, at most 4:1 either way) or a layout width of {FIT_FIXED_MIN} to {FIT_FIXED_MAX} CSS px such as 1280"
+        )
+    };
+    let (width, height) = text.trim().split_once([':', 'x', 'X']).ok_or_else(bad)?;
+    let side = |value: &str| {
+        value.trim().parse::<i64>().ok().filter(|v| (1..=FIT_MAX_ASPECT_SIDE).contains(v))
+    };
+    let (width, height) = (side(width).ok_or_else(bad)?, side(height).ok_or_else(bad)?);
+    if width > height * 4 || height > width * 4 {
+        return Err(bad());
+    }
+    Ok((width, height))
+}
+
+/// `extra.emulation` of a stored fit `{"fit": {"aspect": [W, H]}}` (or
+/// `{"fit": {"width": N}}`: min_width = max_width = N, so the layout is N CSS
+/// px wide whatever the view's height; `fit.value` names which): a desktop
+/// layout as wide as the view would be at aspect W:H at its height (between
+/// `min_width` and `max_width` CSS px), scaled down to the view's width; the
+/// layout's height is the view's height over that scale, so the page fills
+/// the whole view. A view at least that wide shows the page as is. The
+/// engine computes the numbers from its view size; the calls carry zeros
+/// for width, height and scale.
+fn resolve_fit(fit: &Value) -> Option<Value> {
+    let (value, text, width, height, min_width, max_width) = match fit.get("width") {
+        Some(fixed) => {
+            let fixed = fixed.as_i64().filter(|v| (FIT_FIXED_MIN..=FIT_FIXED_MAX).contains(v))?;
+            (fixed.to_string(), "16:9".to_string(), 16, 9, fixed, fixed)
+        }
+        None => {
+            let aspect = fit.get("aspect")?.as_array()?;
+            let [width, height] = aspect.as_slice() else { return None };
+            let text = format!("{}:{}", width.as_i64()?, height.as_i64()?);
+            let (width, height) = parse_aspect(&text).ok()?;
+            (text.clone(), text, width, height, FIT_MIN_WIDTH, FIT_MAX_WIDTH)
+        }
+    };
+    let metrics = json!({
+        "width": 0,
+        "height": 0,
+        "deviceScaleFactor": 0,
+        "mobile": false,
+        "scale": 1,
+        "dontSetVisibleSize": true,
+    });
+    Some(json!({
+        "mode": "fit",
+        "fit": {
+            "value": value,
+            "aspect": text,
+            "aspect_width": width,
+            "aspect_height": height,
+            "min_width": min_width,
+            "max_width": max_width,
+        },
+        "device_scale_factor": 0,
+        "mobile": false,
+        "touch": false,
+        "user_agent": "",
+        "chromium_calls": [
+            {"method": "Emulation.setDeviceMetricsOverride", "params": metrics},
+            {"method": "Emulation.setUserAgentOverride", "params": {"userAgent": ""}},
+            {"method": "Emulation.setTouchEmulationEnabled", "params": {"enabled": false}},
+            {"method": "Emulation.setEmitTouchEventsForMouse", "params": {"enabled": false}},
+        ],
+    }))
+}
+
 /// The user agent with Chrome's version in place of "%s", as DevTools
 /// patches it (`patchUserAgentWithChromeVersion`): the first "%s" is the
 /// reduced version "<major>.0.0.0", the second "<major>.0.100.0".
@@ -432,6 +551,9 @@ fn patch_metadata(value: &Value, major: &str) -> Value {
 /// `{device, orientation}`, or `None` when it does not resolve.
 pub(crate) fn resolve(stored: &str) -> Option<Value> {
     let stored: Value = serde_json::from_str(stored).ok()?;
+    if let Some(fit) = stored.get("fit") {
+        return resolve_fit(fit);
+    }
     let device = stored.get("device")?;
     check(device).ok()?;
     let orientation = pick_orientation(device, stored.get("orientation")?.as_str()).ok()?;
