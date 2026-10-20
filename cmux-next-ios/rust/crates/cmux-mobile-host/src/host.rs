@@ -134,7 +134,12 @@ pub async fn run(config: HostConfig) -> Result<()> {
     }
     // Phones keep their WireGuard sessions when the Mac changes networks.
     tokio::spawn(crate::netwatch::run());
-    crate::media_session::spawn_test_signals();
+    // Test-only signal hooks, never in a normal install: only when the state
+    // folder holds a `test-signals` file a rig created (PR #22555 review).
+    if crate::config::default_state_dir().join("test-signals").exists() {
+        tracing::warn!("test signals on (SIGUSR1 media black hole, SIGUSR2 media kill)");
+        crate::media_session::spawn_test_signals();
+    }
     let mut backoff = Duration::from_secs(1);
     loop {
         control::emit(&Event::Connecting);

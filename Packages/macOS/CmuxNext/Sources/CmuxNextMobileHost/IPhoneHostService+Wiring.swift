@@ -33,7 +33,7 @@ extension IPhoneHostService {
                      acpmuxEnvironment: AcpmuxEnvironment? = nil,
                      agentTabHost: @escaping @MainActor () -> String? = { nil },
                      newChatPicks: @escaping @MainActor @Sendable () -> NewChatPicks = { NewChatPicks() },
-                     chief: @escaping @MainActor () async -> ChiefPlacement? = { nil },
+                     chief: (@MainActor () async -> ChiefPlacement?)? = nil,
                      settings: @escaping @MainActor @Sendable () -> SettingsController?,
                      bundleID: String?, computerName: @escaping @Sendable () async -> String,
                      processEnvironment: [String: String] = ProcessInfo.processInfo.environment) {

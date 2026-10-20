@@ -857,7 +857,10 @@ public final class LiveCoordinator {
             self.terminals.removeAll { $0.session == nil }
             let tree = self.workspaces.tree
             for terminal in self.terminals {
+                // Only this Mac's terminals: another Mac's would resolve their ids
+                // here, get terminal_not_found and end for good (PR #22555 review).
                 guard let session = terminal.session,
+                      terminal.macID == nil || terminal.macID == macID,
                       DaemonTerminalSession.shouldReattach(surface: session.surface, terminalID: session.terminalID, tree: tree)
                 else { continue }
                 session.reconnect()

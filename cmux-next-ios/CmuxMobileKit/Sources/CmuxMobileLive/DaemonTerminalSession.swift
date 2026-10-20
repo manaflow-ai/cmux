@@ -250,6 +250,9 @@ public final class DaemonTerminalSession: TerminalSession {
         case surface(Int)
         /// The Mac has no such terminal (closed).
         case gone
+        /// The terminal's process exited (or it was tombstoned) while no
+        /// surface shows it: say so at once instead of retrying (PR #22555 review).
+        case exited(code: Int?)
         /// Known but on no surface yet (a daemon still adopting its terminal
         /// hosts after a restart): try again later.
         case notYet
@@ -265,20 +268,26 @@ public final class DaemonTerminalSession: TerminalSession {
         }
         let data = object["data"] as? [String: Any] ?? object
         if let surface = data["surface"] as? Int { return .surface(surface) }
+        if let lifecycle = data["lifecycle"] as? String, lifecycle == "exited" || lifecycle == "tombstoned" {
+            return .exited(code: (data["exit"] as? [String: Any])?["code"] as? Int)
+        }
         return data.keys.contains("surface") ? .notYet : .unknown
     }
 
     /// The terminal is no longer on the Mac: say so and stop, never wait
     /// "Reattaching…" forever.
-    private func terminalGone() {
+    private func terminalGone(exitCode: Int? = nil, exited: Bool = false) {
         guard handler != nil, !ended else { return }
         ended = true
         attached = false
-        log.notice("surface \(self.surface, privacy: .public): terminal \(self.terminalID ?? "-", privacy: .public) is no longer on the Mac")
+        log.notice("surface \(self.surface, privacy: .public): terminal \(self.terminalID ?? "-", privacy: .public) is no longer on the Mac (exited=\(exited, privacy: .public))")
         if let client { self.client = nil; Task { await client.close() } }
-        emitText("\r\n\u{1B}[2m[This terminal is no longer open on the Mac]\u{1B}[0m\r\n")
+        let line = exited
+            ? "[The terminal's process exited\(exitCode.map { " (code \($0))" } ?? "")]"
+            : "[This terminal is no longer open on the Mac]"
+        emitText("\r\n\u{1B}[2m\(line)\u{1B}[0m\r\n")
         handler?(.connection(.attached))
-        handler?(.exited(code: 0))
+        handler?(.exited(code: Int32(clamping: exitCode ?? 0)))
     }
 
     // MARK: Attach
@@ -304,6 +313,9 @@ public final class DaemonTerminalSession: TerminalSession {
                     log.notice("surface \(self.surface, privacy: .public): terminal \(terminalID, privacy: .public) is now surface \(moved, privacy: .public)")
                     surface = moved
                     lineParser = DaemonTerminalEventParser(surface: moved)
+                case .exited(let code):
+                    terminalGone(exitCode: code, exited: true)
+                    return
                 case .gone where attachRetries + 1 >= reattachBackoff.count:
                     terminalGone()
                     return
@@ -436,7 +448,13 @@ public final class DaemonTerminalSession: TerminalSession {
                 return
             }
             if everAttached {
-                // Retries ran out: say what happened and how to go on.
+                // Retries ran out: say what happened and how to go on. The failed
+                // attach's channel closes now, not at the next reconnect (PR #22555 review).
+                if let client = self.client { self.client = nil; Task { await client.close() } }
+                eventTask?.cancel()
+                eventTask = nil
+                inbox?.close()
+                inbox = nil
                 gaveUp = true
                 emitText("\r\n\u{1B}[2m[Can't reattach: \(lastError ?? "no answer from the Mac"). Type to try again.]\u{1B}[0m\r\n")
             } else {

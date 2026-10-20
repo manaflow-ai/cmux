@@ -104,6 +104,8 @@ export type AcpmuxRow = {
   inFlight?: boolean;
   /// The live turn's latest row, whose last thought may still stream (conversation/turns.ts).
   live?: boolean;
+  /// A running turn's status line: the title of the call in flight, which it names (WorkingFor.tsx).
+  doing?: string;
   /// A "Worked for" disclosure of a turn without timing reads "N previous messages" (conversation/turns.ts).
   previous?: number;
   /// A prompt queued behind a harness switch (its id there), which offers Cancel (harnessSwitch.ts).
@@ -323,6 +325,8 @@ export type AcpmuxSnapshot = {
   /// prompt (acpmux `queue_order` with `next`).
   queue: QueuedPrompt[];
   permission?: AcpmuxPermission;
+  /// How many more asks wait behind `permission`, answered one at a time; absent when none do.
+  permissionsWaiting?: number;
   secret?: AcpmuxSecretAsk;
   /** `unavailable`: why acpmux will not run that model (its backend refused it), or that harness
    * (its launcher check or its model probe failed). */
