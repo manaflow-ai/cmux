@@ -38,8 +38,8 @@ test("the page shows None and every character, None chosen while the pet is off"
   expect(checked(pet)).toBe("none");
   expect(pet.dataset.enabled).toBe("false");
   // The card draws both rows: no plain toggle or menu for them below it.
-  expect(page.container.querySelector('[data-key="home.chiefPetEnabled"]')).toBeNull();
-  expect(page.container.querySelector('[data-key="home.chiefPetMascot"]')).toBeNull();
+  expect(page.container.querySelector('.row[data-row-key="home.chiefPetEnabled"]')).toBeNull();
+  expect(page.container.querySelector('.row[data-row-key="home.chiefPetMascot"]')).toBeNull();
   page.unmount();
 });
 

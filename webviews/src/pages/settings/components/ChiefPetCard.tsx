@@ -3,9 +3,10 @@
 // card with its name and a line about it, and None, which hides the pet. It draws the category's
 // two rows (`home.chiefPetEnabled`, `home.chiefPetMascot`), so SectionView leaves them out of the
 // group list; search, the palette and `cmux settings` still reach them.
-import { useSettingsState, useStore } from "../context";
+import { useRowState, useStore, type RowState } from "../context";
 import { Icon } from "../icons";
 import { t } from "../strings";
+import { RowStatus } from "./SettingRow";
 
 export const CHIEF_PET_ENABLED = "home.chiefPetEnabled";
 export const CHIEF_PET_MASCOT = "home.chiefPetMascot";
@@ -53,14 +54,22 @@ function Rail() {
 
 export function ChiefPetCard() {
   const store = useStore();
-  const { rows, readable } = useSettingsState();
-  const enabled = rows.get(CHIEF_PET_ENABLED)?.value === true;
-  const value = rows.get(CHIEF_PET_MASCOT)?.value;
+  const shown = useRowState(CHIEF_PET_ENABLED);
+  const character = useRowState(CHIEF_PET_MASCOT);
+  // As SettingRow: no writes before the owner's values arrive, while disconnected, or to a managed key.
+  const locked = (state: RowState) => !state.connected || !state.readable || state.managed !== null;
+  const toggleLocked = locked(shown);
+  const gridLocked = toggleLocked || locked(character);
+  const enabled = shown.value === true;
+  const value = character.value;
   const mascot = CHIEF_PET_MASCOTS.find((entry) => entry.id === value) ?? CHIEF_PET_MASCOTS[0];
   const selected = enabled ? mascot.id : "none";
   const choose = (id: string) => {
     if (id === "none") return void store.set(CHIEF_PET_ENABLED, false);
-    void store.set(CHIEF_PET_MASCOT, id).then(() => (enabled ? undefined : store.set(CHIEF_PET_ENABLED, true)));
+    // A refused character write leaves the pet as it was.
+    void store
+      .set(CHIEF_PET_MASCOT, id)
+      .then((result) => (result.ok && !enabled ? store.set(CHIEF_PET_ENABLED, true) : undefined));
   };
   return (
     <section className="group chief-pet" data-card="chief-pet" data-enabled={enabled ? "true" : "false"}>
@@ -70,24 +79,26 @@ export function ChiefPetCard() {
           type="button"
           className="button"
           data-action="chief-pet-toggle"
-          disabled={!readable}
+          disabled={toggleLocked}
           onClick={() => void store.set(CHIEF_PET_ENABLED, !enabled)}
         >
           {enabled ? t("settingsPage.chiefPet.hide") : t("settingsPage.chiefPet.show")}
         </button>
       </div>
+      <RowStatus settingKey={CHIEF_PET_ENABLED} state={shown} />
       <div className="chief-pet-preview" data-enabled={enabled ? "true" : "false"}>
         <img className="chief-pet-art" src={mascot.art} alt={t(`settings.choice.chiefPetMascot.${mascot.id}`)} />
         <Rail />
       </div>
       <h3 className="group-title">{t("settingsPage.chiefPet.pets")}</h3>
+      <RowStatus settingKey={CHIEF_PET_MASCOT} state={character} />
       <div className="chief-pet-grid" data-row-key={CHIEF_PET_MASCOT}>
         <button
           type="button"
           aria-pressed={selected === "none"}
           className="chief-pet-choice"
           data-pet="none"
-          disabled={!readable}
+          disabled={toggleLocked}
           onClick={() => choose("none")}
         >
           <span className="chief-pet-choice-art chief-pet-none">
@@ -103,7 +114,7 @@ export function ChiefPetCard() {
             aria-pressed={selected === entry.id}
             className="chief-pet-choice"
             data-pet={entry.id}
-            disabled={!readable}
+            disabled={gridLocked}
             onClick={() => choose(entry.id)}
           >
             <span className="chief-pet-choice-art">
