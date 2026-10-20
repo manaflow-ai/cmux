@@ -4,6 +4,7 @@ import CmuxNextDesign
 @testable import CmuxNextSidebar
 @testable import CmuxNextUpdater
 import CmuxUpdater
+import CmuxNextActions
 import Foundation
 import Testing
 
@@ -150,5 +151,53 @@ import Testing
         let notice = SidebarCardFeed.noticeCard(updater, registry: nil)
         #expect(notice?.title == UpdaterStrings.installingUpdate)
         #expect(notice?.progress == .indeterminate)
+    }
+
+    /// Lawrence 2026-10-20 (msg 4657): an automatic check and download
+    /// (`updates.checkAutomatically`, `updates.downloadAutomatically`) shows
+    /// no loading card; only the badge's staged update card once it is ready.
+    @Test func anAutomaticUpdateShowsNoLoadingCard() {
+        let updater = Self.updater()
+        for phase in Self.attemptPhases.dropLast() {
+            updater.debugIndicatorPhase = phase
+            updater.syncFlowPhase()
+            #expect(updater.card == nil, "a background update showed the loading card at \(phase)")
+            #expect(SidebarCardFeed.noticeCard(updater, registry: nil)?.id != SidebarCardFeed.updateCardID,
+                    "a background update took the notice slot at \(phase)")
+        }
+        updater.debugIndicatorPhase = .ready(version: "1.0.1")
+        updater.syncFlowPhase()
+        #expect(updater.card == nil)
+        #expect(updater.readyCard != nil, "the staged update shows no badge card")
+    }
+
+    /// The same phases after the person ran Check for Updates (menu or
+    /// Cmd+Shift+P, `palette.checkForUpdates`) show the loading card.
+    @Test func checkForUpdatesFromTheCommandShowsTheLoadingCard() {
+        let updater = Self.updater()
+        let registry = ActionRegistry(catalog: ActionCatalog.all, aliases: ActionCatalog.legacyAliases)
+        UpdateHandlers.bind(into: registry, updater: updater)
+        #expect(registry.perform("palette.checkForUpdates", invocation: ActionInvocation(origin: .user)))
+        for phase in Self.attemptPhases {
+            updater.debugIndicatorPhase = phase
+            updater.syncFlowPhase()
+            #expect(updater.card != nil, "the person's update showed no loading card at \(phase)")
+        }
+    }
+
+    static func updater() -> UpdaterService {
+        let identity = UpdateBuildIdentity(bundleIdentifier: "com.cmuxterm.app.debug.update-loading", shortVersion: "1.0.0",
+                                           build: "100", minimumSystemVersion: nil,
+                                           infoFeedURL: "https://files-next.cmux.com/nightly-next/appcast-arm64.xml", hasPublicKey: false)
+        let defaults = UserDefaults(suiteName: "UpdateLoadingIndicatorTests.\(UUID().uuidString)")!
+        let updater = UpdaterService(identity: identity, policy: ManagedUpdatePolicy { false }, prober: UpdateProber(fetcher: NoFeed()),
+                                     defaults: defaults, enableSparkle: false, recordsUpdates: false)
+        updater.announcementsFetch = false
+        return updater
+    }
+
+    /// A feed that never reaches the network.
+    struct NoFeed: AppcastFetching {
+        func fetch(_ url: URL) async throws -> Data { throw URLError(.notConnectedToInternet) }
     }
 }
