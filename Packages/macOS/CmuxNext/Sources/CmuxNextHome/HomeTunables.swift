@@ -26,5 +26,12 @@ public nonisolated struct HomeTunables {
         help: "A flight recorder dump also saves about 0.5 s of captures of the window (pictures of your conversation). Needs Flight recorder.",
         default: devDefault, code: "HomeTunables.flightRecorderCaptures")
 
-    public static var all: [TunableDescriptor] { [flightRecorder.descriptor, flightRecorderCaptures.descriptor] }
+    /// The empty Chief conversation's hero (`HomeFirstRunHero`): the Chief's character and what it
+    /// does, over the rows. On by default (Leo 2026-10-19); off is the rows-only panel from before.
+    public static let firstRunHero = Tunable<Bool>.toggle(
+        "home.firstRun.hero", section, "Chief front page hero",
+        help: "The empty Chief conversation shows the Chief's character and two lines about what it does above its rows. Off shows only the rows.",
+        default: true, code: "HomeTunables.firstRunHero")
+
+    public static var all: [TunableDescriptor] { [flightRecorder.descriptor, flightRecorderCaptures.descriptor, firstRunHero.descriptor] }
 }
