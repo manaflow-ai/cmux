@@ -135,18 +135,15 @@ class NeverQueueBehindBlacksmithTests(unittest.TestCase):
         choice = picker.pick(self.state(self.FULL))
         self.assertEqual(choice.label, "glaeda-std-xcode-26.6")
         self.assertTrue(choice.owned)
-        # No free Blacksmith slot for the rescue either: its attempt 3 repeats the owned label.
-        self.assertEqual(choice.retry_label, "")
-        self.assertEqual(picker.write_outputs(choice, 2)["retry_runner"], "glaeda-std-xcode-26.6")
+        # retry_runner stays Blacksmith: ci-macos.yml sends it the jobs the minis cannot run.
+        self.assertTrue(choice.retry_label.startswith("blacksmith-"))
+        self.assertTrue(picker.write_outputs(choice, 2)["retry_runner"].startswith("blacksmith-"))
 
     def test_a_free_blacksmith_slot_still_takes_the_overflow(self):
         free = (pool(picker.BLACKSMITH[0], 5, 3), *self.FULL[1:])
         self.assertEqual(picker.pick(self.state(free)).label, picker.BLACKSMITH[0])
 
-    def test_an_owned_pick_retries_only_on_a_free_blacksmith_label(self):
-        state = self.state(self.FULL, owned=(pool("glaeda-std-xcode-26.6", 8, free=4),))
-        choice = picker.pick(state)
-        self.assertEqual((choice.label, choice.retry_label), ("glaeda-std-xcode-26.6", ""))
+    def test_an_owned_pick_retries_on_a_free_blacksmith_label_first(self):
         state = self.state((self.FULL[0], pool(picker.BLACKSMITH[1], 10, 2), self.FULL[2]),
                            owned=(pool("glaeda-std-xcode-26.6", 8, free=4),))
         self.assertEqual(picker.pick(state).retry_label, picker.BLACKSMITH[1])

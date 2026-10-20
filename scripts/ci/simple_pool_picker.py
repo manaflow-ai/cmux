@@ -23,10 +23,10 @@ its queue is moving (stalled(), the cmux-next cascade's rule). With no owned
 pool free and no free, moving Blacksmith slot, the run waits on the first
 eligible owned pool instead of a Blacksmith queue (2026-10-20:
 blacksmith-12vcpu-macos-26 queued 5+ hours, about 95 PRs behind 318 queued
-runs). The rescue's retry_runner follows the same rule: a free Blacksmith
-label, else empty, and write_outputs() then repeats the owned label. Only a
-run with no owned pool to wait on (a fork, owned pools off, an unread runner
-list) still takes the least-loaded Blacksmith label.
+runs). Only a run with no owned pool to wait on (a fork, owned pools off, an
+unread runner list) still takes the least-loaded Blacksmith label. An owned
+pick's retry_runner stays a Blacksmith label (_retry_label): it also carries
+the jobs the minis cannot run.
 """
 
 from __future__ import annotations
@@ -243,22 +243,21 @@ def _xcode_version(path: str) -> tuple[int, ...]:
 
 
 def _retry_label(state: State, owned: Pool) -> str:
-    """A Blacksmith rescue image with the owned pool's Xcode when known, only while it has a free, moving slot.
+    """Choose a Blacksmith rescue image with the owned pool's Xcode when known.
 
-    "" when none has one: write_outputs() then gives the rescue the owned label again, so a
-    re-run waits behind the fleet rather than in a full Blacksmith queue.
+    It stays a Blacksmith label even when every one is full: ci-macos.yml also sends an owned
+    run's jobs the minis cannot run (the SDK 15 helper build, for one) to pr_retry_runner, so an
+    owned label here would fail them. A free, moving label comes first (_pick_blacksmith).
     """
-    if not state.overflow_enabled:
-        return state.fallback
     wanted = _xcode_version(owned.xcode_app)
     if wanted:
         matching = tuple(pool for pool in state.blacksmith if _xcode_version(pool.xcode_app) == wanted)
         if matching:
-            free = _free_blacksmith(dataclasses.replace(state, blacksmith=matching))
-            return free.label if free else ""
-    free = _free_blacksmith(dataclasses.replace(
+            lane = _pick_blacksmith(dataclasses.replace(state, blacksmith=matching))
+            return lane.label if lane.label and not lane.blocked else state.fallback
+    lane = _pick_blacksmith(dataclasses.replace(
         state, blacksmith=tuple(pool for pool in state.blacksmith if not pool.xcode_app)))
-    return free.label if free else ""
+    return lane.label if lane.label and not lane.blocked else state.fallback
 
 
 def _free_blacksmith(state: State) -> Pool | None:
