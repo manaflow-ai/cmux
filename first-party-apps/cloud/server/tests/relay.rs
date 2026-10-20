@@ -15,6 +15,24 @@ fn call() -> WireCall {
     }
 }
 
+#[test]
+fn cloud_scope_parent_notice_interrupts_a_relay_and_precedes_queued_work() {
+    let input = concat!(
+        "{\"type\":\"op\",\"id\":\"queued\",\"op\":\"cloud.machine.list\"}\n",
+        "{\"type\":\"scope.invalidate\"}\n",
+        "{\"type\":\"relay.result\",\"id\":\"r1\",\"ok\":true,\"value\":{\"stale\":true}}\n",
+    );
+    let mut out = Vec::new();
+    let mut relay = HostRelay::new(Cursor::new(input), &mut out);
+    assert!(matches!(relay.call(&call()), Err(RelayError::Unavailable(_))));
+    // An op cannot issue more owner I/O until the loop has applied the notice.
+    assert!(matches!(relay.call(&call()), Err(RelayError::Unavailable(_))));
+    assert_eq!(relay.next_message().unwrap().unwrap()["type"], "scope.invalidate");
+    assert_eq!(relay.next_message().unwrap().unwrap()["id"], "queued");
+    drop(relay);
+    assert_eq!(out.split(|b| *b == b'\n').filter(|line| !line.is_empty()).count(), 1);
+}
+
 fn first_line(out: &[u8]) -> Value {
     serde_json::from_slice(out.split(|b| *b == b'\n').next().expect("line")).expect("JSON")
 }

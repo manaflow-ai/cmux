@@ -56,7 +56,7 @@ actor NativeDeviceTestWorld: InstallAuthTransport, NativeDeviceTransport {
     static func team(_ tenant: String) -> String { "team_" + digest("stack-team:\(project):\(tenant)") }
     private static func digest(_ value: String) -> String { String(SHA256.hash(data: Data(value.utf8)).map { String(format: "%02x", $0) }.joined().prefix(20)) }
     static func session(_ account: String = "stack_1", project: String = NativeDeviceTestWorld.project) -> String {
-        let bytes = try! JSONSerialization.data(withJSONObject: ["sub": account, "iss": "https://api.stack-auth.com/api/v1/projects/\(project)"])
+        let bytes = try! JSONSerialization.data(withJSONObject: ["sub": account, "iss": "https://api.stack-auth.com/api/v1/projects/\(project)"], options: [.sortedKeys])
         return "e30.\(bytes.base64URLEncoded).sig"
     }
     private func claims(_ token: String) throws -> [String: String] {

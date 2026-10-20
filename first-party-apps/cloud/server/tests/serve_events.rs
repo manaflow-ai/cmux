@@ -17,6 +17,33 @@ use std::net::{Ipv4Addr, SocketAddr, TcpStream};
 
 const FIXTURES: &[&str] = &["vm-get"];
 
+#[test]
+fn cloud_scope_parent_notice_closes_an_idle_forward_and_its_carrier() {
+    let mut host = Host::start(FIXTURES);
+    let forward =
+        host.op("1", "cloud.port.forward", json!({"machine": "vm-alpha01", "port": 3000}), "f-1");
+    let addr = local(&forward);
+    TcpStream::connect(addr).expect("the forward was listening");
+    assert_eq!(host.spawner.spawns(), 1);
+    host.send(&json!({"type": "scope.invalidate"}));
+    // Input stays open and no later operation wakes or changes the server.
+    loop {
+        let line = host.next().expect("scope invalidation is applied while idle");
+        if line["type"] == "scope.invalidated" {
+            break;
+        }
+    }
+    assert!(TcpStream::connect(addr).is_err(), "the old forward listener is closed");
+    let log = host.spawner.log();
+    assert_eq!(log.terminated.len(), 1);
+    assert_eq!(log.terminated[0].machine, "vm-alpha01");
+    drop(log);
+    assert!(
+        host.exited_within(std::time::Duration::from_secs(2)),
+        "the old scope cannot process later queued events"
+    );
+}
+
 fn link_changed(line: &Value) -> bool {
     line["type"] == "event" && line["event"] == "cloud.link.changed"
 }

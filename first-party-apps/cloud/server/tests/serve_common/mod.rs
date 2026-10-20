@@ -72,6 +72,7 @@ pub struct Host {
     pub cloud: FakeControlPlane,
     pub spawner: FakeSpawner,
     serving: Option<JoinHandle<io::Result<()>>>,
+    exited: Receiver<()>,
 }
 
 impl Host {
@@ -93,13 +94,19 @@ impl Host {
             BufReader::new(Input { lines, pending: Vec::new() }),
             Output { lines: sink, partial: Vec::new() },
         );
-        let serving = std::thread::spawn(move || serve_with(relay, attach, edge));
+        let (ended, exited) = channel();
+        let serving = std::thread::spawn(move || {
+            let result = serve_with(relay, attach, edge);
+            let _ = ended.send(());
+            result
+        });
         Self {
             input: Some(input),
             output,
             cloud: FakeControlPlane::with(fixtures),
             spawner,
             serving: Some(serving),
+            exited,
         }
     }
 
@@ -112,6 +119,11 @@ impl Host {
     /// Ends the host's input (the client goes away); the loop then ends.
     pub fn close_input(&mut self) {
         drop(self.input.take());
+    }
+
+    /// Waits for the actual serve thread to end while the host's input stays open.
+    pub fn exited_within(&mut self, wait: Duration) -> bool {
+        self.exited.recv_timeout(wait).is_ok()
     }
 
     /// The next line that is not a relay request; relay requests are
@@ -128,6 +140,11 @@ impl Host {
                 Err(RecvTimeoutError::Timeout | RecvTimeoutError::Disconnected) => return None,
             };
             let line: Value = serde_json::from_str(&line).expect("JSON line");
+            if line["type"] == "relay.session" {
+                self.send(&json!({"type": "relay.session", "id": line["id"], "signed_in": self.cloud.wire.signed_in,
+                    "team": "team_t0000000000000000001", "scope": "a".repeat(64)}));
+                continue;
+            }
             if line["type"] == "relay.op" {
                 let call = WireCall {
                     op: line["op"].as_str().expect("op").to_owned(),

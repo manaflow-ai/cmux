@@ -29,9 +29,10 @@ public actor MacInstallIdentity {
     private var client: InstallAuthClient?
     private var user: String?
     private var generation: UInt64 = 0
-    /// Set by ``signOut(stackUser:session:)`` until the session ends
-    /// (``unbind()``): a late sign-in callback registers nothing.
-    private var signingOut = false
+    /// A retired account stays closed until its session ends. In-flight
+    /// cleanup separately fences rebinding even when unbind clears the latch.
+    private var signedOutUsers: Set<String> = []
+    private var signOutTasks: [String: Task<Void, Never>] = [:]
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "cloud.install")
 
     public init(store: MacInstallStore, transport: any InstallAuthTransport, deviceName: String, clientVersion: String?) {
@@ -44,7 +45,7 @@ public actor MacInstallIdentity {
     /// The user signed in: binds them and registers (or reuses) the install
     /// at once by minting one token, so a later relay call does not wait.
     public func signedIn(stackUser: String, session: @escaping InstallAuthClient.SessionToken) async throws {
-        guard !signingOut else { throw Failure.signedOut }
+        guard !signedOutUsers.contains(stackUser), signOutTasks[stackUser] == nil else { throw Failure.signedOut }
         if user != stackUser || client == nil { bind(stackUser: stackUser, session: session) }
         _ = try await installToken()
     }
@@ -91,9 +92,26 @@ public actor MacInstallIdentity {
     }
 
     func nativeContext(team: String) async throws -> NativeInstallContext {
+        try await context(team: team)
+    }
+
+    /// The bound account for session-only owner reads, never implicit Cloud operation authority.
+    func accountContext() async throws -> NativeInstallContext { try await context(team: nil) }
+
+    /// A snapshot retains one scoped client's in-memory refresh cache under the original signer.
+    func scopedClient(team: String, context: NativeInstallContext) async throws -> InstallAuthClient {
+        try await nativeCheck(context)
+        return InstallAuthClient(transport: transport, signer: store.signer(for: context.account), sessionToken: nil,
+            stackUser: context.account, deviceName: deviceName, clientVersion: clientVersion,
+            record: InstallRecord(user: context.user, install: context.install), profile: .mac,
+            team: team, expectedEnvironment: context.environment)
+    }
+
+    private func context(team: String?) async throws -> NativeInstallContext {
         guard let client, let stackUser = user else { throw Failure.signedOut }
         let bound = generation
-        let token = try await installToken(team: team)
+        let token: String
+        if let team { token = try await installToken(team: team) } else { token = try await installToken() }
         guard let record = await client.currentRecord, let environment = await client.environment else { throw Failure.signedOut }
         let point = try await store.signer(for: stackUser).publicKeyX963()
         guard bound == generation, user == stackUser, await client.currentRecord == record, point.count == 65, point.first == 4 else { throw Failure.signedOut }
@@ -102,9 +120,9 @@ public actor MacInstallIdentity {
     }
 
     func nativeCheck(_ context: NativeInstallContext) async throws {
-        guard context.generation == generation, context.account == user, !signingOut,
+        guard context.generation == generation, context.account == user, !signedOutUsers.contains(context.account),
               await client?.currentRecord == InstallRecord(user: context.user, install: context.install) else { throw Failure.signedOut }
-        guard context.generation == generation, context.account == user, !signingOut else { throw Failure.signedOut }
+        guard context.generation == generation, context.account == user, !signedOutUsers.contains(context.account) else { throw Failure.signedOut }
     }
 
     func nativeSign(_ message: String, context: NativeInstallContext) async throws -> String {
@@ -156,17 +174,23 @@ public actor MacInstallIdentity {
     /// elsewhere): stop minting. The key and record stay, so a sign-in of the
     /// same user reuses the install and a later sign-out can still revoke it.
     public func unbind() async {
-        signingOut = false
+        signedOutUsers.removeAll()
         await drop()
     }
 
     /// Stops the bound client: no record write, no token from a mint in flight.
     private func drop() async {
+        let dropped = releaseClient()
+        await dropped?.reset()
+    }
+
+    /// Detaches synchronously before any reset can suspend and allow a new binding.
+    private func releaseClient() -> InstallAuthClient? {
         generation &+= 1
         let dropped = client
         client = nil
         user = nil
-        await dropped?.reset()
+        return dropped
     }
 
     /// Sign-out of `stackUser` (needs the Stack session still): revokes the
@@ -174,13 +198,27 @@ public actor MacInstallIdentity {
     /// one never bound, then always rotates the user's key and forgets the
     /// record, so this Mac never mints for that install again, also when the
     /// revoke failed or a registration was still in flight. Until the session
-    /// ends (``unbind()``) no sign-in registers.
+    /// ends (``unbind()``) this account cannot register again. A different
+    /// account's client and key are independent of the retiring account.
     public func signOut(stackUser signedOutUser: String, session: @escaping InstallAuthClient.SessionToken) async {
-        signingOut = true
-        await drop()
+        if let ending = signOutTasks[signedOutUser] { await ending.value; return }
+        signedOutUsers.insert(signedOutUser)
+        let dropped = user == signedOutUser ? releaseClient() : nil
+        let record = store.record(for: signedOutUser)
+        // task-owner: signOutTasks; concurrent calls join it, including across unbind.
+        let ending = Task {
+            await dropped?.reset()
+            await revokeInstall(stackUser: signedOutUser, record: record, session: session)
+        }
+        signOutTasks[signedOutUser] = ending
+        await ending.value
+        signOutTasks[signedOutUser] = nil
+    }
+
+    private func revokeInstall(stackUser signedOutUser: String, record: InstallRecord?, session: @escaping InstallAuthClient.SessionToken) async {
         let client = InstallAuthClient(
             transport: transport, signer: store.signer(for: signedOutUser), sessionToken: session, stackUser: signedOutUser,
-            deviceName: deviceName, clientVersion: clientVersion, record: store.record(for: signedOutUser), profile: .mac
+            deviceName: deviceName, clientVersion: clientVersion, record: record, profile: .mac
         )
         do {
             try await client.revoke()

@@ -13,18 +13,36 @@ public import Foundation
 /// redirect is followed, and nothing is retried.
 public struct CloudOwnerAPIClient: Sendable {
     public typealias AccessToken = @Sendable () async throws -> String
-    /// The cmux team (`team_…`) whose machine this is: the install token's team claim.
+    /// The selected cmux team (`team_…`) whose machine this is. Nil refuses before credentials are read.
     public typealias TeamID = @Sendable () async -> String?
 
     public let baseURL: URL
-    let accessToken: AccessToken
-    let teamID: TeamID
+    private struct RequestScope: Sendable {
+        let team: String
+        let credential: AccessToken
+        let recheck: @Sendable () async throws -> Void
+    }
+    private let requestScope: @Sendable () async throws -> RequestScope
     let session: URLSession
 
     public init(baseURL: URL, accessToken: @escaping AccessToken, teamID: @escaping TeamID) {
         self.baseURL = baseURL
-        self.accessToken = accessToken
-        self.teamID = teamID
+        requestScope = {
+            guard let team = await teamID(), !team.isEmpty else { throw CloudAPIError.notSignedIn }
+            return RequestScope(team: team, credential: accessToken, recheck: {
+                guard await teamID() == team else { throw CloudAPIError.notSignedIn }
+            })
+        }
+        session = Self.transport
+    }
+
+    /// The app's selected owner scope binds both headers and every response to the same account.
+    package init(baseURL: URL, scope: CloudTeamScope) {
+        self.baseURL = baseURL
+        requestScope = {
+            let selected = try await scope.snapshot()
+            return RequestScope(team: selected.team, credential: selected.sessionToken, recheck: selected.recheck)
+        }
         session = Self.transport
     }
 
@@ -67,8 +85,10 @@ public struct CloudOwnerAPIClient: Sendable {
             throw CloudAPIError.transport("not a Cloud machine id")
         }
         let path = "/v1/cloud/machines/\(machine)/acpmux/\(action)"
+        let scope = try await requestScope()
         let access: String
-        do { access = try await accessToken() } catch { throw CloudAPIError.notSignedIn }
+        do { access = try await scope.credential() } catch { throw CloudAPIError.notSignedIn }
+        try await scope.recheck()
         guard let url = URL(string: baseURL.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/")) + path) else {
             throw CloudAPIError.transport("bad path \(path)")
         }
@@ -79,7 +99,7 @@ public struct CloudOwnerAPIClient: Sendable {
         // records every other header and the URL, so no other header, no query and no path part
         // that could hold a key may ever be added here.
         request.setValue("Bearer \(access)", forHTTPHeaderField: "Authorization")
-        if let team = await teamID() { request.setValue(team, forHTTPHeaderField: "x-cmux-team") }
+        request.setValue(scope.team, forHTTPHeaderField: "x-cmux-team")
         switch body {
         case let .stream(stream, length, contentType):
             request.setValue(contentType, forHTTPHeaderField: "Content-Type")
@@ -101,6 +121,7 @@ public struct CloudOwnerAPIClient: Sendable {
         } catch {
             throw CloudAPIError.transport(error.localizedDescription)
         }
+        try await scope.recheck()
         guard let http = response as? HTTPURLResponse else { throw CloudAPIError.transport("no HTTP response") }
         // The Worker's shape: {ok: true, value} or {ok: false, error: {code, message}}.
         let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]

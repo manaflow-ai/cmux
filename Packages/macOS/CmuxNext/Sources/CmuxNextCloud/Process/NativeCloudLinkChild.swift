@@ -28,6 +28,7 @@ package actor NativeCloudLinkChild {
     private var generation: UInt64 = 0
     private var starting: Task<String, any Error>?
     private var serving: Task<Void, Never>?
+    private var stopping: Task<Void, Never>?
     private var child: ChildProcess?
     private var stream: NativeBrokerStream?
     private var socket: String?
@@ -40,8 +41,18 @@ package actor NativeCloudLinkChild {
     }
 
     package func socketPath() async throws -> String {
+        if let stopping {
+            await stopping.value
+            if self.stopping == stopping { self.stopping = nil }
+        }
         if let socket, child?.isRunning == true { return socket }
         if let starting { return try await starting.value }
+        if child != nil || serving != nil || stream != nil {
+            await stop()
+            if let socket, child?.isRunning == true { return socket }
+            if let starting { return try await starting.value }
+        }
+        generation &+= 1
         let epoch = generation
         let task = Task { try await self.launch(epoch: epoch) }
         starting = task
@@ -50,11 +61,26 @@ package actor NativeCloudLinkChild {
     }
 
     package func stop() async {
+        if let stopping { await stopping.value; return }
         generation &+= 1
-        starting?.cancel(); serving?.cancel(); serving = nil
-        child?.terminateProcessOnly(); child = nil; socket = nil
-        await stream?.close(); stream = nil
+        let starting = starting, serving = serving
+        self.starting = nil; self.serving = nil
+        starting?.cancel(); serving?.cancel()
+        let process = child
+        process?.terminateProcessOnly(); child = nil; socket = nil
+        let transport = stream; stream = nil
+        let task = Task { () -> Void in
+            await transport?.close()
+            _ = await starting?.result
+            _ = await serving?.value
+            _ = await process?.waitForExit()
+        }
+        stopping = task
+        await task.value
+        if stopping == task { stopping = nil }
     }
+
+    package func currentSocketPath() -> String? { child?.isRunning == true ? socket : nil }
 
     private func check(_ epoch: UInt64) throws {
         try Task.checkCancellation()
@@ -118,8 +144,10 @@ package actor NativeCloudLinkChild {
             process.terminateProcessOnly()
             if child === process {
                 child = nil; socket = nil
-                await stream?.close(); stream = nil
+                let transport = stream; stream = nil
+                await transport?.close()
             }
+            if let pid = process.pid, pid > 0 { _ = await process.waitForExit() }
             throw error
         }
     }
@@ -149,6 +177,7 @@ package actor NativeCloudLinkChild {
 
     private func ended(epoch: UInt64) async {
         guard epoch == generation else { return }
+        serving = nil // The serving task cannot join itself.
         await stop()
     }
 

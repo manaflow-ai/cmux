@@ -57,6 +57,8 @@ pub enum WireReply {
 pub struct SessionStatus {
     pub signed_in: bool,
     pub team: Option<String>,
+    #[serde(skip)]
+    pub scope: Option<String>,
 }
 
 /// Why the relay could not make the call at all, or lost its answer.
@@ -75,4 +77,33 @@ pub trait ControlPlane {
     fn call(&mut self, call: &WireCall) -> Result<WireReply, RelayError>;
 
     fn session(&mut self) -> Result<SessionStatus, RelayError>;
+
+    /// Routing metadata from the last checked session, kept off public session responses.
+    /// Once a server sees a Native binding, losing it cannot select the global hub again.
+    fn native_link(&self) -> Option<super::NativeLink> {
+        None
+    }
+
+    /// Starts only this checked scope's local Native transport, not a VM or serving role.
+    fn ensure_native_link(&mut self) -> Result<(), RelayError> {
+        Err(RelayError::Unavailable("the parent cannot start a Native link".into()))
+    }
+
+    /// Every transport refreshes session authority before any operation or replay.
+    /// Older transports without a scope fail closed.
+    fn request_scope(&mut self, _: bool) -> Result<Option<String>, RelayError> {
+        let session = self.session()?;
+        if !session.signed_in {
+            return Err(RelayError::NotSignedIn);
+        }
+        session
+            .scope
+            .filter(|s| {
+                s.len() == 64 && s.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+            })
+            .map(Some)
+            .ok_or_else(|| {
+                RelayError::Unavailable("the parent did not report a valid Cloud scope".into())
+            })
+    }
 }

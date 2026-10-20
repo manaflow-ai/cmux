@@ -56,6 +56,7 @@ struct CloudCredentialRelayRefusalTests {
     /// Sends one provider line through the app's provider; returns its answer.
     static func answer(_ line: Data, relay: CloudCredentialRelay) async throws -> AppsProviderResultRequest {
         let provider = CloudCredentialProvider(relay: relay)
+        _ = await provider.register(userOriginAllowed: true, send: { _ in .object(["native_link_binding": .number(1)]) }, invalidate: { _ in .object(["servers": .number(0)]) })
         let (results, sink) = AsyncStream.makeStream(of: AppsProviderResultRequest.self)
         provider.handle(DaemonEvent.decode(name: AppsProviderCall.eventName, line: line)) { result in
             sink.yield(result)

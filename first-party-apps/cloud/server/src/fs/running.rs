@@ -22,6 +22,10 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::mpsc::{Receiver, Sender, channel};
 
+#[cfg(test)]
+#[path = "running_scope_tests.rs"]
+mod scope_tests;
+
 /// Transfers that may run at once.
 pub const MAX_TRANSFERS: usize = 4;
 /// Every transfer slot is taken: retry when one ends.
@@ -126,6 +130,19 @@ pub(crate) struct Transfers {
 }
 
 impl Transfers {
+    /// A scope change cancels old work and removes its history without publishing a late pull.
+    pub(crate) fn forget_scope(&mut self) {
+        for running in self.running.values_mut() {
+            running.cancel.cancel();
+            if running.direction == Direction::Pull {
+                let _ = std::fs::remove_file(&running.landing);
+            }
+        }
+        self.running.clear();
+        self.events.clear();
+        self.history.clear();
+    }
+
     pub(crate) fn new() -> Self {
         let (sender, receiver) = channel();
         Self {
@@ -221,6 +238,11 @@ impl Transfers {
         let spawned =
             std::thread::Builder::new().name("cmux-cloud-transfer".into()).spawn(move || {
                 let result = transfer.run(&job, &cancel);
+                // The loop can already have forgotten this scope. Remove a pull's
+                // landing after its last possible write, even when nobody keeps the job.
+                if cancel.is_cancelled() && job.direction == Direction::Pull {
+                    let _ = std::fs::remove_file(&job.local);
+                }
                 // A closed channel means the server is gone: nothing waits.
                 if done.send(Done { id: worker_id, result }).is_ok()
                     && let Some(wake) = wake

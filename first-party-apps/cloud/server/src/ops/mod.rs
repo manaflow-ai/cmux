@@ -8,6 +8,7 @@ mod machine;
 mod machine_projection;
 mod migration;
 mod plan;
+mod scope;
 mod snapshot;
 
 pub use declared::{backend_ops, declared_errors};
@@ -214,6 +215,9 @@ fn kind_of(name: &str) -> Kind {
 /// machine. One request at a time.
 pub struct Server<C> {
     control_plane: C,
+    session_scope: Option<String>,
+    scope_answers: Vec<(Value, Result<Value, CloudError>)>,
+    pending_scopes: std::collections::HashMap<String, String>,
     projection: Projection,
     ledger: Ledger,
     attach: crate::link::Attach,
@@ -251,6 +255,9 @@ impl<C: ControlPlane> Server<C> {
     ) -> Self {
         Self {
             control_plane,
+            session_scope: None,
+            scope_answers: Vec::new(),
+            pending_scopes: std::collections::HashMap::new(),
             projection: Projection::default(),
             ledger: Ledger::default(),
             attach,
@@ -365,16 +372,26 @@ impl<C: ControlPlane> Server<C> {
     /// Runs one request. A signed-out answer also forgets every
     /// replayable result and every cached link fact of the old session.
     pub fn handle(&mut self, request: &Request) -> Result<Value, CloudError> {
-        let outcome = self.handle_signed(request);
+        let admitted = admit(request)?;
+        self.check_scope(request)?;
+        let original = self.session_scope.clone();
+        let outcome = self.handle_signed(request, admitted);
+        self.check_scope(request)?;
+        if self.session_scope != original {
+            return Err(scope::changed());
+        }
         if outcome.as_ref().is_err_and(|e| e.code == codes::AUTH_REQUIRED) {
-            self.ledger.clear();
-            self.attach.infos.clear();
+            self.forget_scope();
         }
         outcome
     }
 
-    fn handle_signed(&mut self, request: &Request) -> Result<Value, CloudError> {
-        let Admitted { name, args, key } = admit(request)?;
+    fn handle_signed(
+        &mut self,
+        request: &Request,
+        admitted: Admitted,
+    ) -> Result<Value, CloudError> {
+        let Admitted { name, args, key } = admitted;
         let Some(key) = key.as_deref() else {
             return self.run(name, &args, request, None);
         };

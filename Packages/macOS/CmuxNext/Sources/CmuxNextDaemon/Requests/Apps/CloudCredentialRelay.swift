@@ -47,10 +47,21 @@ public nonisolated struct CloudCredentialRelay: Sendable {
     public struct Session: Sendable, Equatable {
         public var signedIn: Bool
         public var team: String?
+        public var account: String?
+        public var generation: UInt64
+        public var scope: String?
+        public var requiresScope: Bool
+        public var nativeLink: CloudCredentialNativeLink?
 
-        public init(signedIn: Bool, team: String?) {
+        public init(signedIn: Bool, team: String?, account: String? = nil, generation: UInt64 = 0, scope: String? = nil, requiresScope: Bool = false,
+                    nativeLink: CloudCredentialNativeLink? = nil) {
             self.signedIn = signedIn
             self.team = team
+            self.account = account
+            self.generation = generation
+            self.scope = scope
+            self.requiresScope = requiresScope
+            self.nativeLink = nativeLink
         }
     }
 
@@ -68,15 +79,18 @@ public nonisolated struct CloudCredentialRelay: Sendable {
     let session: @Sendable () async -> Session
     /// The ops the app server may have sent (``bundledServedOps()`` in the app).
     let allowedOps: @Sendable () async -> Set<String>
+    let ensureNative: (@Sendable (String) async throws -> Void)?
 
     public init(post: @escaping Post, token: @escaping @Sendable () async throws -> String,
                 invalidate: @escaping @Sendable () async -> Void, session: @escaping @Sendable () async -> Session,
-                allowedOps: @escaping @Sendable () async -> Set<String>) {
+                allowedOps: @escaping @Sendable () async -> Set<String>,
+                ensureNative: (@Sendable (String) async throws -> Void)? = nil) {
         self.post = post
         self.token = token
         self.invalidate = invalidate
         self.session = session
         self.allowedOps = allowedOps
+        self.ensureNative = ensureNative
     }
 
     /// Answers one provider call of the `credential` family.
@@ -86,8 +100,23 @@ public nonisolated struct CloudCredentialRelay: Sendable {
         }
         switch call.op {
         case Self.sessionOp:
-            let state = await session()
-            return Answer(ok: true, body: .object(["signed_in": .bool(state.signedIn), "team": state.team.map(JSONValue.string) ?? .null]))
+            var state = await session()
+            if call.params["ensure_native"]?.boolValue == true {
+                guard state.signedIn else { return Self.notSignedIn }
+                guard let expected = call.params["expected_scope"]?.stringValue, state.scope == expected,
+                      let ensureNative else { return Self.sessionChanged }
+                do { try await ensureNative(expected) }
+                catch { return Self.failure("owner.unreachable", "the selected Cloud link could not start", retryable: true) }
+                state = await session()
+                guard state.scope == expected else { return Self.sessionChanged }
+            }
+            var body: [String: JSONValue] = ["signed_in": .bool(state.signedIn), "team": state.team.map(JSONValue.string) ?? .null]
+            if let scope = state.scope { body["scope"] = .string(scope) }
+            if let native = state.nativeLink {
+                guard state.scope == native.scope else { return Self.sessionChanged }
+                body["native_link"] = native.value
+            }
+            return Answer(ok: true, body: .object(body))
         case Self.relayOp:
             return await relay(call.params)
         default:
@@ -105,7 +134,10 @@ public nonisolated struct CloudCredentialRelay: Sendable {
         guard Self.mayRelay(op, allowed: await allowedOps()) else {
             return Self.failure("credential.op_refused", "the credential relay never sends \(op)")
         }
-        guard await session().signedIn else { return Self.notSignedIn }
+        let original = await session()
+        guard original.signedIn else { return Self.notSignedIn }
+        if original.requiresScope && original.scope == nil { return Self.failure("owner.unreachable", "the Cloud scope is unavailable", retryable: true) }
+        if let scope = original.scope, params["expected_scope"]?.stringValue != scope { return Self.sessionChanged }
         let key = params["idempotency_key"]?.stringValue
         var envelope: [String: JSONValue] = ["op": .string(op), "params": params["params"] ?? .object([:])]
         let path: String
@@ -120,14 +152,22 @@ public nonisolated struct CloudCredentialRelay: Sendable {
             return Self.failure("validation.invalid", "credential.relay params are not JSON")
         }
         do {
-            var reply = try await post(path, body, try await token())
+            var bearer = try await token()
+            guard await session() == original else { return Self.sessionChanged }
+            var reply = try await post(path, body, bearer)
+            guard await session() == original else { return Self.sessionChanged }
             if reply.status == 401 {
                 // A stale token: mint once more, then the Worker's answer stands.
                 await invalidate()
-                reply = try await post(path, body, try await token())
+                guard await session() == original else { return Self.sessionChanged }
+                bearer = try await token()
+                guard await session() == original else { return Self.sessionChanged }
+                reply = try await post(path, body, bearer)
+                guard await session() == original else { return Self.sessionChanged }
             }
             return Self.answer(status: reply.status, body: reply.body)
         } catch {
+            guard await session() == original else { return Self.sessionChanged }
             if await !session().signedIn { return Self.notSignedIn }
             return Self.failure("owner.unreachable", "the cmux API did not answer", retryable: true)
         }
@@ -165,6 +205,7 @@ public nonisolated struct CloudCredentialRelay: Sendable {
     }
 
     static let notSignedIn = failure("not_signed_in", "sign in to cmux")
+    static let sessionChanged = failure("credential.session_changed", "the Cloud session changed", retryable: true)
 
     static func failure(_ code: String, _ message: String, retryable: Bool = false) -> Answer {
         Answer(ok: false, body: .object(["code": .string(code), "message": .string(message), "retryable": .bool(retryable)]))

@@ -133,6 +133,8 @@ impl Drop for ReaderGuard {
 }
 
 enum Input<R> {
+    /// EOF or a read failure was already observed, including by a relay call.
+    Closed,
     /// Read on the caller's thread (tests and direct use).
     Direct(R),
     /// The serve loop's inbox: host lines and wakes, in arrival order.
@@ -158,6 +160,10 @@ pub struct HostRelay<R, W> {
     frame_overflow: bool,
     /// A relay call read a wake and dropped it ([`Self::next_step`]).
     wake_dropped: bool,
+    expected_scope: Option<String>,
+    native_link: Option<super::NativeLink>,
+    /// A parent invalidation interrupts a relay and takes priority over already queued work.
+    scope_invalidated: bool,
 }
 
 /// Team wire events a relay call keeps waiting. They are kept in order and
@@ -191,12 +197,18 @@ impl<R: BufRead, W: Write> HostRelay<R, W> {
             frame_lines: 0,
             frame_overflow: false,
             wake_dropped: false,
+            expected_scope: None,
+            native_link: None,
+            scope_invalidated: false,
         }
     }
 
     /// The next host message that is not a relay answer: queued ones first.
     /// `None` at end of input. Wakes are skipped (only the serve loop takes them).
     pub fn next_message(&mut self) -> std::io::Result<Option<Value>> {
+        if std::mem::take(&mut self.scope_invalidated) {
+            return Ok(Some(json!({"type": "scope.invalidate"})));
+        }
         if let Some(m) = self.pop_queued() {
             return Ok(Some(m));
         }
@@ -206,6 +218,9 @@ impl<R: BufRead, W: Write> HostRelay<R, W> {
     /// The serve loop's next step: a queued or new host message, or a wake.
     /// `None` at end of input.
     pub(crate) fn next_step(&mut self) -> std::io::Result<Option<Next>> {
+        if std::mem::take(&mut self.scope_invalidated) {
+            return Ok(Some(Next::Message(json!({"type": "scope.invalidate"}))));
+        }
         if let Some(m) = self.pop_queued() {
             return Ok(Some(Next::Message(m)));
         }
@@ -214,15 +229,20 @@ impl<R: BufRead, W: Write> HostRelay<R, W> {
         if std::mem::take(&mut self.wake_dropped) {
             return Ok(Some(Next::Wake));
         }
-        match &mut self.input {
-            Input::Direct(reader) => Ok(read_json_line(reader)?.map(Next::Message)),
+        let next = match &mut self.input {
+            Input::Closed => Ok(None),
+            Input::Direct(reader) => read_json_line(reader).map(|line| line.map(Next::Message)),
             Input::Inbox(inbox) => match inbox.recv() {
                 Ok(Inbound::Host(line)) => Ok(line?.map(Next::Message)),
                 Ok(Inbound::Wake) => Ok(Some(Next::Wake)),
                 // The reader thread ended without an end-of-input item.
                 Err(_) => Ok(None),
             },
+        };
+        if matches!(next, Ok(None) | Err(_)) {
+            self.input = Input::Closed;
         }
+        next
     }
 
     /// The oldest kept line, with the counts kept in step.
@@ -251,21 +271,29 @@ impl<R: BufRead, W: Write> HostRelay<R, W> {
     /// call is not lost: it becomes a [`Next::Wake`] after the call (the
     /// waker sends no second wake while one is pending).
     fn read_line(&mut self) -> std::io::Result<Option<Value>> {
-        match &mut self.input {
+        let line = match &mut self.input {
+            Input::Closed => Ok(None),
             Input::Direct(reader) => read_json_line(reader),
             Input::Inbox(inbox) => loop {
                 match inbox.recv() {
-                    Ok(Inbound::Host(line)) => return line,
+                    Ok(Inbound::Host(line)) => break line,
                     // Kept as a flag: the loop takes the events after the
                     // call ([`Self::next_step`]).
                     Ok(Inbound::Wake) => self.wake_dropped = true,
-                    Err(_) => return Ok(None),
+                    Err(_) => break Ok(None),
                 }
             },
+        };
+        if matches!(line, Ok(None) | Err(_)) {
+            self.input = Input::Closed;
         }
+        line
     }
 
     fn exchange(&mut self, mut request: Value) -> Result<Value, RelayError> {
+        if self.scope_invalidated {
+            return Err(RelayError::Unavailable("the parent invalidated the Cloud scope".into()));
+        }
         self.next_id += 1;
         let id = format!("r{}", self.next_id);
         request["id"] = json!(id);
@@ -276,6 +304,13 @@ impl<R: BufRead, W: Write> HostRelay<R, W> {
                 .read_line()
                 .map_err(|e| RelayError::Unavailable(e.to_string()))?
                 .ok_or_else(|| RelayError::Unavailable("the host closed the channel".into()))?;
+            if message["type"] == "scope.invalidate" {
+                self.expected_scope = None;
+                self.scope_invalidated = true;
+                return Err(RelayError::Unavailable(
+                    "the parent invalidated the Cloud scope".into(),
+                ));
+            }
             let is_answer = message["type"].as_str().is_some_and(|t| t.starts_with("relay."));
             if !is_answer {
                 self.hold(message).map_err(|e| RelayError::Unavailable(e.to_string()))?;
@@ -400,7 +435,7 @@ impl<R: BufRead + Send + 'static, W: Write> HostRelay<R, W> {
     /// the inbox, and returns the waker that link events use. The thread
     /// ends at end of input (or when the loop is gone). Called once.
     pub(crate) fn into_inbox(mut self) -> std::io::Result<(Self, Waker)> {
-        if matches!(self.input, Input::Inbox(_)) {
+        if !matches!(self.input, Input::Direct(_)) {
             return Err(std::io::Error::other("the host reader thread already runs"));
         }
         let (sender, inbox) = sync_channel(INBOX_LINES);
@@ -453,6 +488,9 @@ impl<R: BufRead, W: Write> ControlPlane for HostRelay<R, W> {
     fn call(&mut self, call: &WireCall) -> Result<WireReply, RelayError> {
         let mut request = serde_json::to_value(call).expect("WireCall serializes");
         request["type"] = json!("relay.op");
+        if let Some(scope) = &self.expected_scope {
+            request["expected_scope"] = json!(scope);
+        }
         let answer = self.exchange(request)?;
         match answer["ok"].as_bool() {
             Some(true) => Ok(WireReply::Result(WireResult {
@@ -469,11 +507,58 @@ impl<R: BufRead, W: Write> ControlPlane for HostRelay<R, W> {
         }
     }
 
+    fn request_scope(&mut self, _: bool) -> Result<Option<String>, RelayError> {
+        self.expected_scope = None;
+        let session = self.session()?;
+        if !session.signed_in {
+            return Err(RelayError::NotSignedIn);
+        }
+        let scope = session
+            .scope
+            .filter(|s| {
+                s.len() == 64 && s.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+            })
+            .ok_or_else(|| {
+                RelayError::Unavailable("the parent did not report a valid Cloud scope".into())
+            })?;
+        self.expected_scope = Some(scope.clone());
+        Ok(Some(scope))
+    }
+
     fn session(&mut self) -> Result<SessionStatus, RelayError> {
+        self.native_link = None;
         let answer = self.exchange(json!({ "type": "relay.session" }))?;
+        self.native_link =
+            super::NativeLink::decode(answer.get("native_link"), answer["scope"].as_str())?;
         Ok(SessionStatus {
             signed_in: answer["signed_in"].as_bool().unwrap_or(false),
             team: answer["team"].as_str().map(str::to_owned),
+            scope: answer["scope"].as_str().map(str::to_owned),
         })
+    }
+
+    fn native_link(&self) -> Option<super::NativeLink> {
+        self.native_link.clone()
+    }
+
+    fn ensure_native_link(&mut self) -> Result<(), RelayError> {
+        let scope = self
+            .expected_scope
+            .clone()
+            .ok_or_else(|| RelayError::Unavailable("no checked Cloud scope".into()))?;
+        self.native_link = None;
+        let answer = self.exchange(
+            json!({"type": "relay.session", "ensure_native": true, "expected_scope": scope}),
+        )?;
+        if answer["signed_in"] != true || answer["scope"].as_str() != Some(scope.as_str()) {
+            return Err(RelayError::Unavailable(
+                "the Cloud scope changed during Native startup".into(),
+            ));
+        }
+        self.native_link = super::NativeLink::decode(answer.get("native_link"), Some(&scope))?;
+        if !matches!(self.native_link, Some(super::NativeLink::Ready(_))) {
+            return Err(RelayError::Unavailable("the selected Cloud link is not running".into()));
+        }
+        Ok(())
     }
 }

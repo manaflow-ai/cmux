@@ -79,7 +79,7 @@ enum Command {
         #[serde(default)]
         payload: Value,
     },
-    #[serde(rename = "apps-run")]
+    #[serde(rename = "apps-run", alias = "apps-run-scoped")]
     Run {
         app: String,
         op: String,
@@ -87,6 +87,9 @@ enum Command {
         args: Value,
         #[serde(default)]
         idempotency_key: Option<String>,
+        /// Restrictive request context, never authority. The scoped command requires it.
+        #[serde(default)]
+        expected_scope: Option<String>,
         /// A palette/keybinding invocation's own token (origin user only).
         #[serde(default)]
         gesture: Option<String>,
@@ -108,6 +111,8 @@ enum Command {
     /// The Mac app serves ops the daemon does not own (app-op-routing.md).
     #[serde(rename = "apps-provider-register")]
     ProviderRegister { families: Vec<String> },
+    #[serde(rename = "apps-provider-scope-changed")]
+    ProviderScopeChanged,
     #[serde(rename = "apps-provider-result")]
     ProviderResult {
         request_id: u64,
@@ -247,7 +252,18 @@ pub(super) fn try_handle(
     if !cmd.starts_with("apps-") {
         return None;
     }
+    let scoped = cmd == "apps-run-scoped";
     let id = value.get("id").cloned();
+    if scoped && value.get("expected_scope").and_then(Value::as_str).is_none() {
+        return Some(reply(
+            writer,
+            id,
+            Err(crate::apps::ApiError::new(
+                "apps.invalid_scope",
+                "a scoped run requires expected_scope",
+            )),
+        ));
+    }
     let request = match serde_json::from_value::<Request>(value) {
         Ok(request) => request,
         Err(e) => {
@@ -351,7 +367,7 @@ pub(super) fn try_handle(
         Command::Dispatch { mount_id, node, event, payload } => {
             supervisor.dispatch(client, &mount_id, &node, &event, payload, user)
         }
-        Command::Run { app, op, args, idempotency_key, gesture } => {
+        Command::Run { app, op, args, idempotency_key, gesture, expected_scope } => {
             let writer = writer.clone();
             supervisor.run(
                 crate::apps::RunRequest {
@@ -359,6 +375,7 @@ pub(super) fn try_handle(
                     op,
                     args,
                     idempotency_key,
+                    expected_scope,
                     origin,
                     gesture,
                     caller: Some(crate::apps::Caller {
@@ -375,6 +392,9 @@ pub(super) fn try_handle(
         Command::Logs { app, follow } => Ok(supervisor.logs(client, &app, follow)),
         Command::ProviderRegister { families } => {
             supervisor.register_provider(client, claim_for(mux, client), families)
+        }
+        Command::ProviderScopeChanged => {
+            supervisor.provider_scope_changed(client, claim_for(mux, client))
         }
         Command::ProviderResult { request_id, ok, body } => {
             supervisor.provider_result(client, request_id, ok, body)

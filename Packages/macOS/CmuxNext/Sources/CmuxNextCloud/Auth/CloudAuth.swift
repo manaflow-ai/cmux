@@ -136,7 +136,7 @@ public final class CloudAuth {
         await browserSignIn.beginSignIn().value
     }
 
-    public func signOut() async { await browserSignIn.signOut() }
+    public func signOut(ifGeneration generation: UInt64? = nil) async { await browserSignIn.signOut(ifGeneration: generation) }
 
     /// Whether `url` is a sign-in callback this build accepts, in any form
     /// (`<scheme>://auth-callback`, `<scheme>:auth-callback`), so URL

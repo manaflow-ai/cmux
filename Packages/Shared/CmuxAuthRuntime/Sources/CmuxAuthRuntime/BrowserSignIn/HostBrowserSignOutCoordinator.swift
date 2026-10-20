@@ -4,18 +4,21 @@ import Foundation
 final class HostBrowserSignOutCoordinator {
     private let beginSignOut: @MainActor @Sendable () -> Void
     private let localSignOut: @MainActor @Sendable () async -> Void
-    private let signOut: @Sendable () async -> Void
+    private let signOut: @MainActor @Sendable (UInt64?) async -> Void
+    private let currentGeneration: @MainActor @Sendable () -> UInt64
     private var nextOperationID: UInt64 = 0
     private var activeOperation: (id: UInt64, task: Task<Void, Never>)?
 
     init(
         beginSignOut: @escaping @MainActor @Sendable () -> Void,
         localSignOut: @escaping @MainActor @Sendable () async -> Void,
-        signOut: @escaping @Sendable () async -> Void
+        currentGeneration: @escaping @MainActor @Sendable () -> UInt64,
+        signOut: @escaping @MainActor @Sendable (UInt64?) async -> Void
     ) {
         self.beginSignOut = beginSignOut
         self.localSignOut = localSignOut
         self.signOut = signOut
+        self.currentGeneration = currentGeneration
     }
 
     func joinActive() async -> Bool {
@@ -24,17 +27,18 @@ final class HostBrowserSignOutCoordinator {
         return true
     }
 
-    func run() async {
+    func run(ifGeneration expectedGeneration: UInt64? = nil) async {
         if let activeOperation {
             await activeOperation.task.value
             return
         }
         nextOperationID &+= 1
         let operationID = nextOperationID
-        let task = Task { @MainActor [beginSignOut, localSignOut, signOut] in
+        let task = Task { @MainActor [beginSignOut, localSignOut, signOut, currentGeneration] in
+            if let expectedGeneration, expectedGeneration != currentGeneration() { return }
             beginSignOut()
             async let localCleanup: Void = localSignOut()
-            await signOut()
+            await signOut(expectedGeneration)
             await localCleanup
         }
         activeOperation = (operationID, task)

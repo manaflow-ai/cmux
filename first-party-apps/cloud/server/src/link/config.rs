@@ -114,6 +114,16 @@ impl LinkPaths {
     }
 }
 
+impl super::Attach {
+    /// Global registration changes do not change the rest of the trusted host configuration.
+    fn remember_host_paths(&mut self, paths: LinkPaths) -> bool {
+        self.host_paths.replace(paths.clone()).is_some_and(|mut old| {
+            old.hub_socket = paths.hub_socket.clone();
+            old != paths
+        })
+    }
+}
+
 impl<C: ControlPlane> Server<C> {
     /// Sends the first `link.get` when no details are known (the serve
     /// loop calls this once before its first op).
@@ -178,7 +188,18 @@ impl<C: ControlPlane> Server<C> {
                 // carry anything, so every live link ends (the next connect
                 // after a hub comes back opens a new one).
                 let attach = self.attach_mut();
+                let mut base = value.clone();
+                base["hub_socket"] = json!("/");
+                let base_changed = LinkPaths::decode(&base)
+                    .ok()
+                    .is_some_and(|paths| attach.remember_host_paths(paths));
                 attach.link = LinkConfig::NoHub;
+                if matches!(attach.native_link, Some(crate::api::NativeLink::Ready(_))) {
+                    if base_changed {
+                        attach.supervisor.disconnect_all("the host link configuration changed");
+                    }
+                    return;
+                }
                 attach.supervisor.pump();
                 attach.supervisor.disconnect_all("the cmux link is not running");
                 return;
@@ -190,6 +211,15 @@ impl<C: ControlPlane> Server<C> {
             }
         };
         let attach = self.attach_mut();
+        let base_changed = attach.remember_host_paths(paths.clone());
+        if attach.native_link.is_some() {
+            attach.link = LinkConfig::Ready(paths);
+            // Global hub changes cannot respawn a Native carrier through another transport.
+            if base_changed {
+                attach.supervisor.disconnect_all("the host link configuration changed");
+            }
+            return;
+        }
         let previous = std::mem::replace(&mut attach.link, LinkConfig::Ready(paths.clone()));
         if previous == LinkConfig::Ready(paths.clone()) {
             return;
@@ -213,10 +243,31 @@ impl<C: ControlPlane> Server<C> {
 
     /// The details a connect uses now, or the typed reason it cannot run.
     pub(crate) fn link_paths(&mut self) -> Result<LinkPaths, CloudError> {
+        if self.attach().native_link == Some(crate::api::NativeLink::Unavailable) {
+            self.ensure_native_link()?;
+        }
         let unavailable = |message: &str, retryable: bool| CloudError {
             retryable,
             ..CloudError::new(LINK_UNAVAILABLE, message)
         };
+        if let Some(native) = &self.attach().native_link {
+            match native {
+                crate::api::NativeLink::Unavailable => {
+                    return Err(unavailable("the selected Cloud team's link is not running", true));
+                }
+                crate::api::NativeLink::Ready(socket) => {
+                    let base = match &self.attach().link {
+                        LinkConfig::Ready(paths) => Some(paths.clone()),
+                        LinkConfig::NoHub => self.attach().host_paths.clone(),
+                        _ => None,
+                    };
+                    if let Some(mut paths) = base {
+                        paths.hub_socket = socket.clone();
+                        return Ok(paths);
+                    }
+                }
+            }
+        }
         match self.attach().link.clone() {
             LinkConfig::Ready(paths) => Ok(paths),
             LinkConfig::Unrequested => Err(unavailable(

@@ -49,6 +49,10 @@ pub struct Attach {
     /// The link details from the host (`cmux.host.link.get`). Until they
     /// are `Ready`, connect answers a typed error.
     pub(crate) link: config::LinkConfig,
+    /// Valid host-owned binary/directories, retained even when its global hub is absent.
+    pub(crate) host_paths: Option<LinkPaths>,
+    /// A checked parent Native route is sticky: losing it cannot restore the global hub.
+    pub(crate) native_link: Option<crate::api::NativeLink>,
     /// The last overlay host id of each machine, so a link-details change
     /// respawns a live link without a new backend call.
     pub(crate) hosts: BTreeMap<String, String>,
@@ -95,7 +99,9 @@ impl Attach {
         check_kinds(&kinds).expect("valid kinds");
         Self {
             supervisor: LinkSupervisor::new(spawner),
-            link: paths.map_or(config::LinkConfig::Unrequested, config::LinkConfig::Ready),
+            link: paths.clone().map_or(config::LinkConfig::Unrequested, config::LinkConfig::Ready),
+            host_paths: paths,
+            native_link: None,
             hosts: BTreeMap::new(),
             paused_restarts: BTreeSet::new(),
             infos: info::InfoCache::default(),

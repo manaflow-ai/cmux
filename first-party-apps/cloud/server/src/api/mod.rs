@@ -8,7 +8,10 @@ pub(crate) mod events;
 pub mod host;
 mod ledger;
 pub mod models;
+mod native_link;
 mod relay;
+#[cfg(test)]
+mod relay_eof_tests;
 mod serve;
 mod wire;
 
@@ -19,6 +22,7 @@ pub use control_plane::{
 pub use error::{CloudError, codes};
 pub(crate) use ledger::Ledger;
 pub use ledger::upstream_key;
+pub use native_link::NativeLink;
 pub use relay::{HOST_FRAME_LINES, HostRelay, RELAY_QUEUE_LINES};
 pub(crate) use serve::event_line;
 pub use serve::{OP_CANCELLED, serve, serve_with};

@@ -7,19 +7,28 @@ actor MacTeamAuthOwner: InstallAuthTransport {
     enum Failure: Error { case invalidRequest }
     private var keys: [String: P256.Signing.PublicKey] = [:]
     private let user: String
+    private let stackUser: String
+    private let installPrefix: String
     private var contexts: [String: (install: String, team: String?, prefix: String)] = [:]
     private var denied: Set<String> = []
     private var hold = false
+    private var holdRevoke = false
     private var pending: CheckedContinuation<Void, Never>?
-    private let held = AsyncStream<Void>.makeStream()
+    private let held = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
     private(set) var requestedTeams: [String] = []
     private(set) var registrations = 0
     private(set) var grants: [[String]] = []
-    init(user: String = "user_1") { self.user = user }
+    private(set) var revoked: [String] = []
+    init(user: String = "user_1", stackUser: String = "stack_1", installPrefix: String = "inst_") {
+        self.user = user
+        self.stackUser = stackUser
+        self.installPrefix = installPrefix
+    }
 
     func deny(_ team: String) { denied.insert(team) }
     func publicKey(_ install: String) -> Data? { keys[install]?.x963Representation }
     func holdNextTeamToken() { hold = true }
+    func holdNextRevoke() { holdRevoke = true }
     func waitUntilHeld() async { var iterator = held.stream.makeAsyncIterator(); _ = await iterator.next() }
     func release() { pending?.resume(); pending = nil }
 
@@ -30,13 +39,23 @@ actor MacTeamAuthOwner: InstallAuthTransport {
         }
         if path == "/v1/ops" {
             guard bearer == "test-session" else { throw Failure.invalidRequest }
-            if body["op"] as? String == "user.ensure" { return try reply(["ok": true, "value": ["id": user, "stack_user_id": "stack_1"]]) }
+            if body["op"] as? String == "user.ensure" { return try reply(["ok": true, "value": ["id": user, "stack_user_id": stackUser]]) }
+            if body["op"] as? String == "install.revoke", let params = body["params"] as? [String: Any],
+               let install = params["install"] as? String, keys[install] != nil {
+                if holdRevoke {
+                    holdRevoke = false
+                    await withCheckedContinuation { pending = $0; held.continuation.yield(()) }
+                }
+                revoked.append(install)
+                keys[install] = nil
+                return try reply(["ok": true, "value": [:]])
+            }
             guard body["op"] as? String == "install.register", let params = body["params"] as? [String: Any],
                   let jwk = params["public_jwk"] as? [String: String], let x = jwk["x"].flatMap(Data.init(base64URLEncoded:)),
                   let y = jwk["y"].flatMap(Data.init(base64URLEncoded:)) else { throw Failure.invalidRequest }
             registrations += 1
             grants.append(params["op_classes"] as? [String] ?? [])
-            let install = "inst_\(registrations)"
+            let install = "\(installPrefix)\(registrations)"
             keys[install] = try P256.Signing.PublicKey(x963Representation: Data([4]) + x + y)
             return try reply(["ok": true, "value": ["id": install]])
         }

@@ -138,6 +138,10 @@ pub(super) struct Server {
     pub spec: ServerSpec,
     /// Calls by wire id; every one waits for its `result` line.
     pub pending: HashMap<String, Responder>,
+    pub expected_scopes: HashMap<String, String>,
+    pub scope_ready: bool,
+    pub scope_probe: Option<TimerId>,
+    pub scoped_queued: Vec<(String, Vec<u8>)>,
     /// Wire ids of pending calls admitted with origin user: while one is in
     /// flight, a relay line may claim origin user (`relay.rs`).
     pub user_ops: HashSet<String>,
@@ -389,6 +393,7 @@ impl Supervisor {
         mut args: Value,
         origin: Origin,
         idempotency_key: Option<String>,
+        expected_scope: Option<String>,
         op_call: Option<u64>,
         respond: Responder,
     ) -> Vec<Out> {
@@ -422,6 +427,11 @@ impl Supervisor {
             "type": "op", "id": id, "op": op, "args": args, "origin": origin,
             "idempotency_key": idempotency_key,
         });
+        let scoped = expected_scope.is_some();
+        if let Some(scope) = expected_scope {
+            message["expected_scope"] = json!(scope);
+            server.expected_scopes.insert(id.clone(), scope);
+        }
         if let Some(token) = open_token {
             message["open_token"] = json!(token);
         }
@@ -432,6 +442,8 @@ impl Supervisor {
         }
         if server.stopping {
             server.queued.push((id.clone(), message));
+        } else if scoped {
+            self.queue_scoped_locked(inner, app, id.clone(), message);
         } else {
             server.process.send(message);
         }
@@ -498,6 +510,10 @@ impl Supervisor {
                 process: Arc::new(process),
                 spec,
                 pending: HashMap::new(),
+                expected_scopes: HashMap::new(),
+                scope_ready: false,
+                scope_probe: None,
+                scoped_queued: Vec::new(),
                 user_ops: HashSet::new(),
                 queued: Vec::new(),
                 next_id: 0,
@@ -528,6 +544,11 @@ impl Supervisor {
             return vec![];
         };
         server.stopping = true;
+        if let Some(timer) = server.scope_probe.take() {
+            self.timers.cancel(timer);
+        }
+        server.scoped_queued.clear();
+        server.expected_scopes.clear();
         if let Some(timer) = server.idle.take() {
             self.timers.cancel(timer);
         }
@@ -618,6 +639,14 @@ impl Supervisor {
                 }
                 return;
             }
+            if value["type"] == "scope.ready" {
+                self.scope_ready_locked(&mut inner, app, &value);
+                return;
+            }
+            if value["type"] == "scope.invalidated" {
+                // Cleanup acknowledgment only; it never admits a request or changes authority.
+                return;
+            }
             if value["t"] == "host.request" {
                 // The scope is read under the lock; the folder checks run after it is released.
                 let allowed = Self::host_op_allowed(&inner, app, "cmux.host.link.get");
@@ -636,7 +665,17 @@ impl Supervisor {
                     let id = value["id"].as_str().unwrap_or_default();
                     server.user_ops.remove(id);
                     let Some(respond) = server.pending.remove(id) else { return };
-                    let result = if value["ok"] == true {
+                    let expected_scope = server.expected_scopes.remove(id);
+                    let result = if value["ok"] == true
+                        && expected_scope
+                            .as_deref()
+                            .is_some_and(|scope| value["expected_scope"].as_str() != Some(scope))
+                    {
+                        Err(ApiError::new(
+                            "apps.scope_unsupported",
+                            "the app server did not acknowledge the request scope",
+                        ))
+                    } else if value["ok"] == true {
                         Ok(json!({ "value": value.get("result").cloned().unwrap_or(Value::Null) }))
                     } else {
                         Err(ApiError::from_body(&value["error"], "command.failed"))
@@ -707,7 +746,10 @@ impl Supervisor {
                 return;
             }
             let mut server = inner.servers.remove(app).expect("server");
-            for timer in [server.idle.take(), server.kill.take()].into_iter().flatten() {
+            for timer in [server.idle.take(), server.kill.take(), server.scope_probe.take()]
+                .into_iter()
+                .flatten()
+            {
                 self.timers.cancel(timer);
             }
             let queued: Vec<(String, Vec<u8>)> = std::mem::take(&mut server.queued);
@@ -775,13 +817,23 @@ impl Supervisor {
         };
         match started {
             Ok(mut outs) => {
-                let server = inner.servers.get_mut(app).expect("started");
                 // Queued calls keep their wire ids; new ones never reuse them.
-                server.next_id = next_id;
+                inner.servers.get_mut(app).expect("started").next_id = next_id;
                 for (id, message) in queued {
                     if let Some(respond) = pending.remove(&id) {
-                        server.pending.insert(id, respond);
-                        server.process.send(message);
+                        let scope = serde_json::from_slice::<Value>(&message)
+                            .ok()
+                            .and_then(|line| line["expected_scope"].as_str().map(str::to_owned));
+                        let server = inner.servers.get_mut(app).expect("started");
+                        if let Some(scope) = &scope {
+                            server.expected_scopes.insert(id.clone(), scope.clone());
+                        }
+                        server.pending.insert(id.clone(), respond);
+                        if scope.is_some() {
+                            self.queue_scoped_locked(inner, app, id, message);
+                        } else {
+                            server.process.send(message);
+                        }
                     }
                 }
                 outs.extend(pending.into_values().map(|respond| {

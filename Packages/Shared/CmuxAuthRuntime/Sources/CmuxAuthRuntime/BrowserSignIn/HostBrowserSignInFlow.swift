@@ -110,7 +110,8 @@ public final class HostBrowserSignInFlow {
         signOutCoordinator = HostBrowserSignOutCoordinator(
             beginSignOut: beginSignOut,
             localSignOut: localSignOut,
-            signOut: { await coordinator.signOut(onSignedOut: onSignedOut) }
+            currentGeneration: { coordinator.authSessionGeneration },
+            signOut: { await coordinator.signOut(ifGeneration: $0, onSignedOut: onSignedOut) }
         )
     }
 
@@ -255,13 +256,16 @@ public final class HostBrowserSignInFlow {
     }
 
     /// Sign out and prevent a late callback from resurrecting the session.
-    public func signOut() async {
+    /// A supplied generation keeps delayed teardown from clearing a replacement session.
+    public func signOut(ifGeneration expectedGeneration: UInt64? = nil) async {
+        if let expectedGeneration, expectedGeneration != coordinator.authSessionGeneration { return }
         if await signOutCoordinator.joinActive() { return }
+        if let expectedGeneration, expectedGeneration != coordinator.authSessionGeneration { return }
         log.log("auth.browser.signOut.begin signingIn=\(isSigningIn) activeAttempt=\(activeAttemptID.map(String.init) ?? "nil") generation=\(signOutGeneration)")
         signOutGeneration &+= 1
         lastFailure = nil
         cancelActiveAttempt()
-        await signOutCoordinator.run()
+        await signOutCoordinator.run(ifGeneration: expectedGeneration)
         log.log("auth.browser.signOut.end generation=\(signOutGeneration)")
     }
 

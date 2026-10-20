@@ -35,6 +35,7 @@
 //! App hosts never reach the `credential` family (`provider.rs`).
 
 use serde_json::{Value, json};
+use std::time::Duration;
 
 use super::provider::{
     self, Ending, MAX_OUTSTANDING, MAX_PARAMS_BYTES, ProviderCall, Target, deadline_ms,
@@ -81,6 +82,23 @@ fn provider_call(line: &Value) -> Result<(&'static str, Value), Value> {
         ));
     }
     if line["type"] == "relay.session" {
+        if line["ensure_native"] == true {
+            let valid = line["expected_scope"].as_str().is_some_and(|scope| {
+                scope.len() == 64
+                    && scope.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+            });
+            if !valid {
+                return Err(relay_error(
+                    id,
+                    "validation.invalid",
+                    "Native startup needs its checked Cloud scope",
+                ));
+            }
+            return Ok((
+                "credential.session",
+                json!({"ensure_native": true, "expected_scope": line["expected_scope"]}),
+            ));
+        }
         return Ok(("credential.session", json!({})));
     }
     let invalid = |why: &str| relay_error(id, "validation.invalid", why);
@@ -115,6 +133,14 @@ fn provider_call(line: &Value) -> Result<(&'static str, Value), Value> {
         }
         Some(_) => return Err(invalid("relay.op origin is not a known origin")),
     }
+    if let Some(scope) = line.get("expected_scope").filter(|v| !v.is_null()) {
+        if !scope.as_str().is_some_and(|s| {
+            s.len() == 64 && s.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+        }) {
+            return Err(invalid("relay.op expected_scope must be a lowercase SHA-256 identifier"));
+        }
+        forwarded["expected_scope"] = scope.clone();
+    }
     Ok(("credential.relay", forwarded))
 }
 
@@ -132,12 +158,18 @@ pub(super) fn relay_reply(id: &Value, session: bool, ending: Ending) -> Value {
         return relay_error(id, "not_signed_in", message);
     }
     match (session, ok) {
-        (true, true) => json!({
-            "type": "relay.session",
-            "id": id,
-            "signed_in": body["signed_in"].as_bool().unwrap_or(false),
-            "team": body["team"].as_str(),
-        }),
+        (true, true) => {
+            let mut reply = json!({"type": "relay.session", "id": id,
+                "signed_in": body["signed_in"].as_bool().unwrap_or(false), "team": body["team"].as_str()});
+            if let Some(scope) = body["scope"].as_str() {
+                reply["scope"] = json!(scope);
+            }
+            // Keep malformed bindings visible too: the consumer must refuse them, never silently fall back.
+            if let Some(native) = body.get("native_link") {
+                reply["native_link"] = native.clone();
+            }
+            reply
+        }
         (true, false) => relay_error(
             id,
             "unavailable",
@@ -224,7 +256,11 @@ impl Supervisor {
         let version =
             inner.catalog.packages.get(app).map(|p| p.version.clone()).unwrap_or_default();
 
-        let deadline = self.config.provider_deadline;
+        let deadline = if params["ensure_native"] == true {
+            self.config.provider_deadline.max(Duration::from_secs(120))
+        } else {
+            self.config.provider_deadline
+        };
         inner.next_provider_request += 1;
         let request_id = inner.next_provider_request;
         let me = self.me.clone();
@@ -285,5 +321,61 @@ impl Supervisor {
                 )
             })
             .collect()
+    }
+}
+
+#[cfg(test)]
+mod scope_tests {
+    use super::*;
+
+    #[test]
+    fn cloud_scope_native_provider_binding_survives_the_relay_without_credentials() {
+        for socket in [Value::Null, json!("/tmp/owned-native.sock")] {
+            let scope = "a".repeat(64);
+            let native = json!({"version": 1, "scope": scope, "socket": socket});
+            let reply = relay_reply(
+                &json!("native"),
+                true,
+                Ending::Answer {
+                    ok: true,
+                    body: json!({"signed_in": true, "team": "team_a", "scope": scope,
+                    "native_link": native, "token": "never-export-this-test-value"}),
+                },
+            );
+            assert_eq!(reply["native_link"], native);
+            assert!(reply.get("token").is_none());
+        }
+    }
+
+    #[test]
+    fn cloud_scope_native_provider_start_is_scoped_without_extra_execution_params() {
+        let scope = "a".repeat(64);
+        let (_, params) = provider_call(&json!({"type": "relay.session", "id": "ensure",
+            "ensure_native": true, "expected_scope": scope, "command": "must-not-forward"}))
+        .unwrap();
+        assert_eq!(params, json!({"ensure_native": true, "expected_scope": scope}));
+        assert!(
+            provider_call(&json!({"type": "relay.session", "id": "bad", "ensure_native": true,
+            "expected_scope": "not-a-scope"}))
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn cloud_scope_provider_roundtrip_keeps_request_and_session_context() {
+        let scope = "a".repeat(64);
+        let (_, params) = provider_call(&json!({"type": "relay.op", "id": "r1",
+            "op": "cloud.machine.list", "params": {}, "expected_scope": scope}))
+        .unwrap();
+        assert_eq!(params["expected_scope"], scope);
+        let reply = relay_reply(
+            &json!("r2"),
+            true,
+            Ending::Answer {
+                ok: true,
+                body: json!({"signed_in": true, "team": "team_a", "scope": scope}),
+            },
+        );
+        assert_eq!(reply["scope"], scope);
     }
 }

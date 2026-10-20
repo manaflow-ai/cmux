@@ -53,12 +53,18 @@ pub fn serve_with<R: BufRead + Send + 'static, W: Write>(
     server.request_link_details();
     send_events(&mut server, &waker)?;
     while let Some(next) = server.control_plane_mut().next_step()? {
+        let invalidated =
+            matches!(&next, Next::Message(message) if message["type"] == "scope.invalidate");
         if let Next::Message(message) = next
             && let Some(answer) = answer(&mut server, message)
         {
             server.control_plane_mut().send(&answer)?;
         }
         send_events(&mut server, &waker)?;
+        // The parent retires this process, rather than reusing its queued events in a new scope.
+        if invalidated {
+            break;
+        }
     }
     Ok(())
 }
@@ -81,10 +87,21 @@ fn answer<R: BufRead, W: Write>(
     }
     let id = message.get("id").cloned().unwrap_or(Value::Null);
     Some(match message.get("type").and_then(Value::as_str) {
+        Some("scope.invalidate") => {
+            server.parent_scope_changed();
+            json!({"type": "scope.invalidated"})
+        }
+        Some("scope.probe") => json!({"type": "scope.ready", "id": id}),
         // A connect never waits here for its link: its result goes out
         // later, from `send_events`, when the link is up or ended.
         Some("op") => match serde_json::from_value::<Request>(message) {
-            Ok(request) => result_line(id.clone(), server.handle_from_loop(&request, &id)?),
+            Ok(request) => {
+                let Some(outcome) = server.handle_from_loop(&request, &id) else {
+                    server.remember_pending_scope(&id);
+                    return None;
+                };
+                scoped_result_line(id.clone(), request.expected_scope, outcome)
+            }
             Err(e) => invalid(id, &e.to_string()),
         },
         // The host's caller dropped the request (op.cancel): a running or
@@ -92,10 +109,11 @@ fn answer<R: BufRead, W: Write>(
         // unknown or finished id gets no line.
         Some("op.cancel") => {
             return server.cancel_op(&id).then(|| {
-                result_line(
-                    id,
+                let (scope, outcome) = server.finish_pending_scope(
+                    &id,
                     Err(CloudError::new(OP_CANCELLED, "The request was cancelled by its caller")),
-                )
+                );
+                scoped_result_line(id, scope, outcome)
             });
         }
         // A team wire event (api::events): it changes the projection, its
@@ -146,7 +164,8 @@ fn send_events<R: BufRead, W: Write>(
     // Connects whose link is now up or ended: each result before the link
     // line of the same change (the order a waiting connect had).
     for (id, outcome) in server.take_settled() {
-        server.control_plane_mut().send(&result_line(id, outcome))?;
+        let (scope, outcome) = server.finish_pending_scope(&id, outcome);
+        server.control_plane_mut().send(&scoped_result_line(id, scope, outcome))?;
     }
     // Carrier changes (up, down, revoked) that arrived by now. This pumps
     // the supervisor; the reconcile below reads that same state.
@@ -212,6 +231,18 @@ fn transfer_line(event: &crate::fs::TransferEvent) -> Value {
     event_line("cloud.file.transfer.changed", data)
 }
 
+fn scoped_result_line(
+    id: Value,
+    scope: Option<String>,
+    outcome: Result<Value, CloudError>,
+) -> Value {
+    let mut line = result_line(id, outcome);
+    if let Some(scope) = scope {
+        line["expected_scope"] = json!(scope);
+    }
+    line
+}
+
 fn result_line(id: Value, outcome: Result<Value, CloudError>) -> Value {
     match outcome {
         Ok(result) => json!({ "type": "result", "id": id, "ok": true, "result": result }),
@@ -222,4 +253,18 @@ fn result_line(id: Value, outcome: Result<Value, CloudError>) -> Value {
 fn invalid(id: Value, why: &str) -> Value {
     json!({ "type": "result", "id": id, "ok": false,
         "error": { "code": "cmux.cloud.invalid_request", "message": why, "retryable": false } })
+}
+
+#[cfg(test)]
+mod scope_probe_tests {
+    use super::*;
+    use std::io::Cursor;
+
+    #[test]
+    fn cloud_scope_probe_confirms_the_protocol_without_borrowing_authority() {
+        let relay = HostRelay::new(Cursor::new(Vec::<u8>::new()), Vec::<u8>::new());
+        let mut server = Server::new(relay);
+        let response = answer(&mut server, json!({"type": "scope.probe", "id": "scope-7"}));
+        assert_eq!(response, Some(json!({"type": "scope.ready", "id": "scope-7"})));
+    }
 }

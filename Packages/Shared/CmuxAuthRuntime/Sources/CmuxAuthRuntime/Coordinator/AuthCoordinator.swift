@@ -537,14 +537,17 @@ public final class AuthCoordinator {
     ///   was refresh-only), because by the time it runs the live token store
     ///   is already empty; it runs before the Stack session revocation so the
     ///   server still honors those credentials. Defaults to a no-op.
+    /// - Parameter expectedGeneration: When supplied, refuse before any local effect if the session changed.
     /// - Parameter teardownTimeout: How long the best-effort server teardown
     ///   (hook + revocation) may run before it is cancelled so a hanging call
     ///   can't hold `signOut()` open. Sleeps on the injected clock so tests
     ///   drive the deadline with virtual time. Defaults to 5 seconds.
     public func signOut(
+        ifGeneration expectedGeneration: UInt64? = nil,
         onSignedOut: @escaping @Sendable (_ accessToken: String?, _ refreshToken: String?) async -> Void = { _, _ in },
         teardownTimeout: Duration = .seconds(5)
     ) async {
+        if let expectedGeneration, expectedGeneration != sessionGeneration { return }
         isCapturingSignOutCredentials = true
         defer { finishSignOutCredentialCapture() }
         // Cancel in-flight sign-in exchanges FIRST: the SDK's token-write

@@ -76,6 +76,33 @@ struct ActiveTeamTests {
         #expect(active.id == "b")
     }
 
+    @Test func switchingAwayAndBackInvalidatesTheOriginalSelection() async throws {
+        let source = Source(teams: ["a", "b"], selected: "a")
+        let active = ActiveTeam(source: source), original = active.generation
+        try await active.select("a")
+        #expect(active.generation == original)
+        try await active.select("b")
+        try await active.select("a")
+        #expect(active.id == "a")
+        #expect(active.generation != original)
+    }
+
+    @Test func aFailedSavePreservesTheSelectionGeneration() async {
+        let source = Source(teams: ["a", "b"], selected: "a")
+        source.saveFailure = SaveFailed()
+        let active = ActiveTeam(source: source), original = active.generation
+        await #expect(throws: SaveFailed.self) { try await active.select("b") }
+        #expect(active.generation == original)
+    }
+
+    @Test func changingAndRestoringTheManagedTeamInvalidatesOldSelections() {
+        let active = ActiveTeam(source: Source(teams: ["a", "b"], selected: "a")), original = active.generation
+        active.managedTeamID = "b"
+        active.managedTeamID = nil
+        #expect(active.id == "a")
+        #expect(active.generation != original)
+    }
+
     @Test func aRefusedSaveKeepsTheCurrentTeam() async {
         let source = Source(teams: ["a", "b"], selected: "a")
         source.saveFailure = SaveFailed()
