@@ -127,6 +127,18 @@ impl Membership {
         cmux_chief::rules::is_owner_message_as(summary, message, &self.owner)
     }
 
+    /// Whether only this Chief and its owner (including the owner's paired
+    /// participants) take part. A turn in any shared conversation must not
+    /// receive the Chief's cross-conversation memory by default.
+    pub fn is_private_conversation(&self, summary: &Summary) -> bool {
+        summary.participants.iter().all(|participant| {
+            participant.id == self.participant
+                || (participant.kind == ParticipantKind::Human
+                    && (participant.id == self.owner
+                        || participant.person.as_deref() == Some(self.owner.as_str())))
+        })
+    }
+
     pub fn is_default(&self) -> bool {
         self.participant == AGENT_MUX
     }
