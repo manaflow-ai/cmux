@@ -42,6 +42,16 @@ impl PastTool {
                 }
             }
         }
+        // An edit that failed changed nothing: its files keep no +/- counts.
+        if failed
+            && let Some(changes) =
+                self.call.pointer_mut("/rawInput/changes").and_then(Value::as_array_mut)
+        {
+            for change in changes.iter_mut().filter_map(Value::as_object_mut) {
+                change.remove("additions");
+                change.remove("deletions");
+            }
+        }
         self.ended_at = at.or(self.ended_at);
     }
 }
@@ -270,12 +280,22 @@ fn joined(lines: &[String]) -> String {
 
 /// A Codex file change (`FileChange`, or an older patch event): one edit over its files, each
 /// hunk an ACP `diff` of its lines, the call's input naming each file with its +/- counts (the
-/// edited-files card's numbers). A hunk too big to draw is shown as the diff's text.
-fn codex_file_change(id: &str, value: &Value, status: &str, at: Option<u64>) -> Option<PastTool> {
+/// edited-files card's numbers). A hunk too big to draw is shown as the diff's text. A hunk is
+/// part of its file, not the whole of it, so its diff says so (`_meta.acpmux.fragment`): the
+/// card's Undo needs whole-file texts. A change that failed (declined, or a patch that did not
+/// apply) changed nothing: it keeps its files and its error, but no diffs or counts.
+fn codex_file_change(
+    id: &str,
+    value: &Value,
+    status: &str,
+    error: Option<&str>,
+    at: Option<u64>,
+) -> Option<PastTool> {
     let files = changes(value);
     if files.is_empty() {
         return None;
     }
+    let failed = status == "failed";
     let mut content = Vec::new();
     let mut locations = Vec::new();
     let mut summary = Vec::new();
@@ -300,7 +320,7 @@ fn codex_file_change(id: &str, value: &Value, status: &str, at: Option<u64>) -> 
                     content.push(text_content(&format!("{target}\n{}", change.text)));
                 }
                 for hunk in &parts {
-                    content.push(json!({"type": "diff", "path": target, "oldText": joined(&hunk.old), "newText": joined(&hunk.new)}));
+                    content.push(json!({"type": "diff", "path": target, "oldText": joined(&hunk.old), "newText": joined(&hunk.new), "_meta": {"acpmux": {"fragment": true}}}));
                 }
                 // A location's line numbers its file's diffs: only one hunk starts there.
                 locations.push(match parts.as_slice() {
@@ -310,7 +330,11 @@ fn codex_file_change(id: &str, value: &Value, status: &str, at: Option<u64>) -> 
                 parts.iter().fold((0, 0), |(a, d), h| (a + h.additions, d + h.deletions))
             }
         };
-        let mut entry = json!({"path": target, "type": change.kind, "additions": additions, "deletions": deletions});
+        let mut entry = json!({"path": target, "type": change.kind});
+        if !failed {
+            entry["additions"] = json!(additions);
+            entry["deletions"] = json!(deletions);
+        }
         if change.move_path.is_some() {
             entry["from"] = json!(change.path);
         }
@@ -318,7 +342,9 @@ fn codex_file_change(id: &str, value: &Value, status: &str, at: Option<u64>) -> 
     }
     // An edit too big to draw shows its files' diffs as text.
     let mut content = Value::Array(content);
-    if oversize(&content) {
+    if failed {
+        content = error.map(text_content).into_iter().collect();
+    } else if oversize(&content) {
         content = files
             .iter()
             .map(|c| {
@@ -390,7 +416,10 @@ pub fn codex_tool(record: &Value, at: Option<u64>) -> Option<(Result<PastTool, T
             let id = s(item, "id")?;
             let tool = match s(item, "type")? {
                 "CommandExecution" => codex_command(id, item, at)?,
-                "FileChange" => codex_file_change(id, item.get("changes")?, status(item), at)?,
+                "FileChange" => {
+                    let error = s(item, "stderr").filter(|t| !t.is_empty());
+                    codex_file_change(id, item.get("changes")?, status(item), error, at)?
+                }
                 "McpToolCall" => codex_mcp(id, item, at),
                 "Extension" if s(item, "kind") == Some("web.search") => {
                     let query = s(item, "query").unwrap_or("");
@@ -411,7 +440,10 @@ pub fn codex_tool(record: &Value, at: Option<u64>) -> Option<(Result<PastTool, T
         }
         "patch_apply_begin" => {
             let id = s(payload, "call_id")?;
-            Some((Ok(codex_file_change(id, payload.get("changes")?, "completed", at)?), false))
+            Some((
+                Ok(codex_file_change(id, payload.get("changes")?, "completed", None, at)?),
+                false,
+            ))
         }
         "patch_apply_end" => {
             let id = s(payload, "call_id")?;
@@ -420,16 +452,16 @@ pub fn codex_tool(record: &Value, at: Option<u64>) -> Option<(Result<PastTool, T
             } else {
                 "completed"
             };
+            let error = s(payload, "stderr").filter(|t| state == "failed" && !t.is_empty());
             if let Some(tool) =
-                payload.get("changes").and_then(|c| codex_file_change(id, c, state, at))
+                payload.get("changes").and_then(|c| codex_file_change(id, c, state, error, at))
             {
                 return Some((Ok(tool), false));
             }
             let mut done = json!({"status": state});
-            if state == "failed"
-                && let Some(text) = s(payload, "stderr").filter(|t| !t.is_empty())
-            {
-                done["content"] = json!([text_content(text)]);
+            if state == "failed" {
+                // The begin event's diffs never applied: the error, or nothing, replaces them.
+                done["content"] = error.map(text_content).into_iter().collect();
             }
             Some((Err(ToolResult { id: id.to_owned(), done }), false))
         }

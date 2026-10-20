@@ -38,28 +38,46 @@ await requireBrowserLane("agent-pane-adopted-tool-calls.test.ts", async () => {
     kind: string;
     msg: unknown;
   }[];
-  const events = replay.map((record) => ({ sessionId: CHAT, ...record }));
-  const lastSeq = events.at(-1)!.seq;
-  const session = {
-    sessionId: CHAT,
-    cwd: "/home/dev/demo",
-    title: "Bump the version",
-    harness: "codex",
-    family: "codex",
-    status: "idle",
-    turnCount: 1,
-    updatedAt: events.at(-1)!.at,
-  };
-  function answer(method: string): unknown {
+  // The same turn, its edit recorded as a patch whose files only its input names: no diffs and
+  // no locations, as an edit too big to draw or a harness that sends no diff content.
+  const PATCH_CHAT = "0190a000-0000-7000-8000-0000000000f8";
+  const patchOnly = replay.map((record) => {
+    const update = (record.msg as { params?: { update?: Record<string, unknown> } }).params?.update;
+    if (!update || (update.toolCallId !== "exec-4" && update.kind !== "edit")) return record;
+    const { locations: _locations, content: _content, ...rest } = update;
+    const params = (record.msg as { params: Record<string, unknown> }).params;
+    return { ...record, msg: { ...(record.msg as object), params: { ...params, update: rest } } };
+  });
+  const chats = new Map(
+    [
+      [CHAT, replay],
+      [PATCH_CHAT, patchOnly],
+    ].map(([id, records]) => {
+      const events = (records as typeof replay).map((record) => ({ sessionId: id as string, ...record }));
+      const session = {
+        sessionId: id as string,
+        cwd: "/home/dev/demo",
+        title: "Bump the version",
+        harness: "codex",
+        family: "codex",
+        status: "idle",
+        turnCount: 1,
+        updatedAt: events.at(-1)!.at,
+      };
+      return [id as string, { session, events, lastSeq: events.at(-1)!.seq }];
+    }),
+  );
+  function answer(method: string, params: { sessionId?: string } = {}): unknown {
+    const chat = chats.get(params.sessionId ?? CHAT) ?? chats.get(CHAT)!;
     switch (method) {
       case "initialize":
         return { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [], operations: [] } } };
       case "_acpmux/watch":
-        return { sessions: [session] };
+        return { sessions: [...chats.values()].map((c) => c.session) };
       case "_acpmux/attach":
-        return { session, lastSeq, events };
+        return { session: chat.session, lastSeq: chat.lastSeq, events: chat.events };
       case "_acpmux/events":
-        return { events: [], hasMore: false, lastSeq };
+        return { events: [], hasMore: false, lastSeq: chat.lastSeq };
       default:
         return null;
     }
@@ -68,14 +86,14 @@ await requireBrowserLane("agent-pane-adopted-tool-calls.test.ts", async () => {
   let daemon: ReturnType<typeof Bun.serve> | undefined;
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
   let browser: Browser | undefined;
-  const url = () => {
+  const url = (chat = CHAT) => {
     const { port } = vite!.httpServer!.address() as { port: number };
     const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
-    return `http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${CHAT}`;
+    return `http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${chat}`;
   };
-  const open = async (): Promise<Page> => {
+  const open = async (chat = CHAT): Promise<Page> => {
     const page = await browser!.newPage({ viewport: { width: 900, height: 900 } });
-    await page.goto(url());
+    await page.goto(url(chat));
     await page.getByText(ANSWER).waitFor();
     return page;
   };
@@ -88,9 +106,9 @@ await requireBrowserLane("agent-pane-adopted-tool-calls.test.ts", async () => {
       },
       websocket: {
         message(ws, raw) {
-          const message = JSON.parse(String(raw)) as { id?: number; method: string };
+          const message = JSON.parse(String(raw)) as { id?: number; method: string; params?: { sessionId?: string } };
           if (message.id !== undefined)
-            ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result: answer(message.method) }));
+            ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result: answer(message.method, message.params) }));
         },
       },
     });
@@ -142,6 +160,13 @@ await requireBrowserLane("agent-pane-adopted-tool-calls.test.ts", async () => {
     expect(lines).toEqual(["git status --short", "grep -n '^version' Cargo.toml", "sed -n 1,8p CHANGELOG.md"]);
     // The answer stays outside the fold, after the work.
     await page.getByText(ANSWER).waitFor();
+    await page.close();
+  });
+
+  test("a patch whose files only its input names counts each file, not one", async () => {
+    const page = await open(PATCH_CHAT);
+    await page.locator("button.cv-worked").click();
+    await page.getByRole("button", { name: "Edited files, ran commands" }).waitFor();
     await page.close();
   });
 });

@@ -427,6 +427,76 @@ async fn adopt_replays_a_codex_turns_commands_and_file_edits() {
     let _ = std::fs::remove_dir_all(root);
 }
 
+/// A reopened Codex turn whose patch failed shows the failed edit and its error, but none of
+/// the edits it proposed: they never applied, so the pane draws no diff and counts no lines.
+/// A hunk that did apply is marked as part of its file (`_meta.acpmux.fragment`), so the
+/// edited-files card never offers a whole-file Undo it cannot do.
+#[tokio::test]
+async fn adopt_replays_a_failed_codex_patch_without_its_edits() {
+    let (hub, mut c, root, project, chat) = adopt_setup().await;
+    let rollout =
+        root.join(format!("codex/sessions/2026/10/02/rollout-2026-10-02T09-00-00-{chat}.jsonl"));
+    let cwd = project.to_string_lossy().into_owned();
+    let change = |id: &str, status: &str, stderr: &str| {
+        json!({"timestamp": "2026-10-02T10:00:10.000Z", "type": "event_msg", "payload": {
+            "type": "item_completed", "thread_id": chat, "turn_id": "turn-1",
+            "item": {"type": "FileChange", "id": id, "status": status,
+                "changes": {format!("{cwd}/Cargo.toml"): {"type": "update", "move_path": null,
+                    "unified_diff": "@@ -3,1 +3,1 @@\n-version = \"1.2.0\"\n+version = \"1.3.0\"\n"}},
+                "stdout": "", "stderr": stderr}}})
+    };
+    let lines = [
+        json!({"timestamp": "2026-10-02T09:59:59.900Z", "type": "session_meta", "payload": {"id": chat, "cwd": cwd, "originator": "Codex Desktop", "cli_version": "0.163.0"}}),
+        json!({"timestamp": "2026-10-02T09:59:59.950Z", "type": "event_msg", "payload": {"type": "task_started", "turn_id": "turn-1"}}),
+        json!({"timestamp": "2026-10-02T10:00:00.000Z", "type": "response_item", "payload": {"type": "message", "role": "user", "content": [{"type": "input_text", "text": "Bump the version"}], "internal_chat_message_metadata_passthrough": {"content_item_kinds": ["user.text"]}}}),
+        change("patch-1", "failed", "patch rejected: Cargo.toml changed on disk"),
+        change("patch-2", "completed", ""),
+        json!({"timestamp": "2026-10-02T10:00:20.000Z", "type": "response_item", "payload": {"type": "message", "role": "assistant", "phase": "final_answer", "content": [{"type": "output_text", "text": "Bumped it on the second try."}]}}),
+        json!({"timestamp": "2026-10-02T10:00:20.100Z", "type": "event_msg", "payload": {"type": "task_complete", "turn_id": "turn-1"}}),
+    ];
+    let text: String = lines.iter().map(|l| format!("{l}\n")).collect();
+    std::fs::write(&rollout, text).unwrap();
+    backdate(&rollout);
+
+    let s = c.request(method::SESSION_NEW, adopt("fakecodex", &chat)).await.unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    let events = replayed(&hub, &id);
+    let call = |id: &str, kind: &str| {
+        events
+            .iter()
+            .filter(|e| e.kind == kind)
+            .map(update_of)
+            .find(|u| u["toolCallId"] == id)
+            .cloned()
+            .unwrap_or_else(|| panic!("no {kind} for {id}: {events:#?}"))
+    };
+    let cargo = project.join("Cargo.toml").to_string_lossy().into_owned();
+
+    let failed = call("patch-1", "tool_call_update");
+    assert_eq!(failed["status"], "failed");
+    assert_eq!(
+        failed["content"],
+        json!([{"type": "content", "content": {"type": "text", "text": "patch rejected: Cargo.toml changed on disk"}}])
+    );
+    assert_eq!(
+        call("patch-1", "tool_call")["rawInput"]["changes"],
+        json!([{"path": cargo, "type": "update"}])
+    );
+
+    let applied = call("patch-2", "tool_call_update");
+    assert_eq!(applied["status"], "completed");
+    assert_eq!(
+        applied["content"],
+        json!([{"type": "diff", "path": cargo, "oldText": "version = \"1.2.0\"\n", "newText": "version = \"1.3.0\"\n", "_meta": {"acpmux": {"fragment": true}}}])
+    );
+    assert_eq!(
+        call("patch-2", "tool_call")["rawInput"]["changes"],
+        json!([{"path": cargo, "type": "update", "additions": 1, "deletions": 1}])
+    );
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
 /// Checks (or with `ACPMUX_UPDATE_FIXTURES=1` rewrites) the pane's adopted-turn fixture: the
 /// replayed records with the machine-specific folder and ids made stable, and numbered from 1
 /// (`seq`, and the `turnSeq` that names the turn's start).
