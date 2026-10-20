@@ -686,7 +686,7 @@ Phase 3, slice 1 (2026-10-19): the HostDO replica, backend side.
   clears the replica (the off switch or sign-out); a Mac that was off publishes again at its next
   lease while its own switch is on. Test: `test/host-replica.test.ts` (owner purge with the host
   off, a stranger refused, the install publishes again).
-- The Swift lease caller (slice 3, `CmuxNextApp/Cloud/CloudHostReplicaFollower.swift`): L4 is
+- The Swift lease caller (slice 3, `CmuxNextPhoneAccess/CloudHostReplicaFollower.swift`): L4 is
   `phone.cloudReplica` in Settings > Accounts > Phone Access, opt-in until #13742 decides the
   default; agents may not change it (`.privacy`). While it is on, the account is signed in, Cloud
   is allowed and the local daemon serves `cloud-host-replica-v1`, the app leases its install token

@@ -60,7 +60,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `computerUse.driver` | string | `"legacy"` | `legacy`, `upstream` | Computer Use Driver. Legacy runs the current cmux Computer Use helper. Upstream runs the new helper built on the upstream Cua Driver; macOS asks for its permissions separately. |
 | `freeModel.enabled` | boolean | `true` |  | Free AI Model Without Sign-In. Lets agents use the free cmux AI model while you are signed out. The first time an agent uses it, cmux proves to the Cloud service that this is a real Mac. Sign in for more models and higher limits. |
 | `sessions.keepAwake` | string | `"pluggedIn"` | `off`, `pluggedIn`, `always` | Keep Mac Awake While Agents Work. Stops idle sleep while an agent on this Mac is working. Your display can still turn off, and closing the lid still puts the Mac to sleep. |
-| `phone.allowConnections` | boolean | `false` |  | Let Your Phone Use This Mac. So your phone can find this Mac, cmux registers with its servers this Mac's name, device ID and platform, the app's bundle ID, version and build channel, the Mac's relay address and connection key, and your account and team IDs. Workspace names, folders, full paths and terminal output go only over the encrypted link to your phone. None of that, and no branch name or repo URL, is sent to cmux servers. |
+| `phone.allowConnections` | boolean | `false` |  | Let Your Phone Use This Mac. So your phone can find this Mac, cmux registers with its servers this Mac's name, device ID and platform, the app's bundle ID, version and build channel, the Mac's relay address and connection key, and your account and team IDs. Workspace names, folders, full paths and terminal output go only over the encrypted link to your phone. None of that, and no branch name or repo URL, is sent to cmux servers. Exception: while “Show This Mac's Workspaces on Your Phone While It's Off” is on, cmux servers store each workspace's ID, resource ID, short ID, name, name revision, group, color, icon, pinned state, unread mark, unread count and whether it is active. |
 | `phone.startSessions` | boolean | `true` |  | Let Your Phone Start New Workspaces. Off, your phone can still follow, type into and answer what's already running. |
 | `phone.keepAwake` | string | `"pluggedIn"` | `off`, `pluggedIn`, `always` | Keep Mac Awake for Your Phone. A sleeping Mac can't be reached from your phone until it wakes. Closing the lid still puts the Mac to sleep. |
 | `phone.cloudReplica` | boolean | `false` |  | Show This Mac's Workspaces on Your Phone While It's Off. cmux stores this Mac's workspace names, colors and unread counts so your phone can show them while the Mac is off. A workspace name can be a folder's name. No paths, tab titles or terminal output. Turning this off deletes the copy. |
@@ -178,13 +178,14 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `diff.lineNumbers` | boolean | `true` |  | Line Numbers |
 | `diff.showBackgrounds` | boolean | `true` |  | Change Backgrounds |
 | `diff.expandUnchanged` | boolean | `false` |  | Expand Unchanged Lines |
-| `markdown.layout.width` | real | `72` | 40 to 160 | Text Width. The widest a line of text gets, in characters. Wide tables and code scroll sideways in their own box. |
+| `markdown.layout.width` | real | `72` | 30 to 1000 | Text Width. The widest a line of text gets, in characters (30 to 1000). On a wider window the text stays centered with margins. Wide tables and code scroll sideways in their own box. |
 | `markdown.layout.fullWidth` | boolean | `false` |  | Full Width. Text fills the whole pane instead of the text width. |
 | `markdown.font.size` | real | `16` | 8 to 40 | Default Font Size. The text size every markdown viewer opens at. Cmd-= and Cmd-- change it in one viewer; Cmd-0 goes back to this size. |
 | `markdown.font.preset` | string | `"system"` | `system`, `serif`, `mono` | Font |
 | `markdown.font.lineHeight` | real | `1.6` | 1 to 2.4 | Line Height |
 | `markdown.spacing.paragraph` | real | `1` | 0 to 3 | Paragraph Spacing. The gap after each paragraph, as a share of the text size. |
-| `markdown.code.blockSize` | real | `14` | 8 to 32 | Code Font Size |
+| `markdown.code.scale` | real | `0.875` | 0.6 to 1.25 | Code Font Size. Code as a share of the text size. A monospaced font looks bigger than the text font at the same size, so code is a little smaller by default. |
+| `markdown.code.blockSize` | real |  | 8 to 32 | Code Block Size |
 | `markdown.tables` | string | `"scroll"` | `scroll`, `wrap` | Wide Tables |
 | `markdown.theme` | string | `"app"` | `app`, `light`, `dark` | Page Theme |
 | `terminal.fontFamily` | string |  |  | Font Family. A monospaced font installed on this Mac. |
@@ -261,7 +262,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `sidebar.steppingWraps` | boolean | `true` |  | Wrap Around. Past the last item, the next item is the first again. |
 | `sidebar.hoverCards.enabled` | boolean | `true` |  | Show Hover Cards. A card with details opens when the pointer rests on a workspace or a tab. |
 | `sidebar.hoverCards.delay` | real | `250` | 0 to 5000 | Hover Card Delay. How long the pointer rests on a workspace or a tab before its card opens. While a card shows, the next one opens at once. |
-| `sidebar.nowPlaying.enabled` | boolean | `true` |  | Show Now Playing. A player for what is playing, at the bottom of the sidebar and on the new chat page. |
+| `sidebar.nowPlaying.enabled` | boolean | `false` |  | Show Now Playing. A player for what is playing, at the bottom of the sidebar and on the new chat page. |
 | `appearance.colorTransition.enabled` | boolean | `true` |  | Animate Color Changes. Workspace, theme and color changes blend from the old colors to the new ones. Off: they change at once. |
 | `appearance.colorTransition.duration` | real | `200` | 0 to 2000 | Color Change Duration. How long a color change takes. 0 changes colors at once. |
 | `appearance.colorTransition.curve` | string | `"easeOut"` | `easeOut`, `easeInOut`, `linear`, `spring`, `cubicBezier` | Color Change Curve. How a color change moves over its duration. Spring uses Spring Response and Spring Damping; Custom uses the four Bezier values. |

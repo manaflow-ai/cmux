@@ -55,6 +55,18 @@ const LINK_LABELS: Record<LinkLabel, string> = {
   opensMail: L.opensMail,
   linkPlaceholder: L.linkPlaceholder,
   footnote: L.footnote,
+  bubble: L.linkBubble,
+  open: L.linkOpen,
+  copy: L.linkCopy,
+  copied: L.linkCopied,
+  edit: L.linkEdit,
+  remove: L.linkRemove,
+  text: L.linkText,
+  textPlaceholder: L.linkTextPlaceholder,
+  url: L.linkURL,
+  apply: L.linkApply,
+  insertTitle: L.linkInsertTitle,
+  editTitle: L.linkEditTitle,
 };
 
 function editorHost(
@@ -107,6 +119,9 @@ function editorHost(
   };
 }
 
+/** The code block size in pixels the Reading Settings wrote before code became a share of the text. */
+const LEGACY_CODE_BLOCK_SIZE_KEY = "markdown.code.blockSize";
+
 /**
  * The Reading Settings popover's writes: each option is its `markdown.*` key through the store's one
  * settings write path. A new text size is the default size, so this viewer goes back to the
@@ -116,10 +131,13 @@ function readingActions(store: MarkdownStore, zoom: MarkdownFontZoom): ReadingSe
   return {
     set(option, value) {
       store.setPreference(MARKDOWN_READING[option].key, value);
+      // A fixed code block size (cmux.json, or the old Reading Settings row) would hide the change.
+      if (option === "codeScale") store.setPreference(LEGACY_CODE_BLOCK_SIZE_KEY, null);
       if (option === "fontSize") zoom.run("zoomReset");
     },
     reset() {
       for (const option of Object.values(MARKDOWN_READING)) store.setPreference(option.key, null);
+      store.setPreference(LEGACY_CODE_BLOCK_SIZE_KEY, null);
       zoom.run("zoomReset");
     },
   };

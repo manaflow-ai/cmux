@@ -23,8 +23,11 @@
   --cmux-md-h5-size: 1em;
   --cmux-md-h6-size: 0.9em;
   --cmux-md-code-font-family: var(--cmux-diff-code-font-family, ui-monospace, SFMono-Regular, Menlo, monospace);
-  --cmux-md-code-inline-size: 0.88em;
-  --cmux-md-code-block-size: 14px;
+  /* Code is a share of the body text size (GitHub uses 85%): a monospaced font looks bigger than the
+     body font at the same size, so code stays a little smaller whatever the text size is. */
+  --cmux-md-code-scale: 0.875;
+  --cmux-md-code-inline-size: calc(var(--cmux-md-code-scale) * 1em);
+  --cmux-md-code-block-size: calc(var(--cmux-md-font-size) * var(--cmux-md-code-scale));
   --cmux-md-code-line-height: 1.55;
   --cmux-md-code-background: color-mix(in srgb, var(--page-text) 5%, transparent);
   --cmux-md-code-radius: 6px;
@@ -615,7 +618,8 @@ body {
   text-decoration-color: var(--cmux-md-link-broken-color);
 }
 
-.md-link-card,
+/* The link bubble (Google Docs' model): under the link at the caret, never on hover. */
+.md-link-bubble,
 .md-link-popover {
   position: fixed;
   z-index: 20;
@@ -630,31 +634,104 @@ body {
   font-size: var(--cmux-md-popover-font-size);
 }
 
-.md-link-card {
-  pointer-events: none;
+.md-link-bubble {
+  min-width: 220px;
+  padding: 4px 4px 6px 8px;
+  pointer-events: auto;
 }
 
-.md-link-card[hidden] {
-  display: none;
+.md-link-bubble-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
-.md-link-card-target {
+.md-link-bubble-target {
+  display: inline-flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 2px 0;
+  border: 0;
+  background: none;
+  color: var(--cmux-md-link-color);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+.md-link-bubble-target:hover .md-link-bubble-url {
+  text-decoration: underline;
+}
+
+.md-link-bubble-url {
+  overflow: hidden;
   font-family: var(--cmux-md-code-font-family);
-  overflow-wrap: anywhere;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.md-link-card-detail {
-  margin-top: 2px;
+.md-link-bubble-actions {
+  display: inline-flex;
+  flex: 0 0 auto;
+  gap: 2px;
+}
+
+.md-link-glyph {
+  flex: 0 0 auto;
+}
+
+.md-link-bubble-detail {
+  margin-top: 1px;
   color: var(--cmux-md-muted-color);
 }
 
-.md-link-card[data-state="broken"] .md-link-card-detail {
+.md-link-bubble[data-state="broken"] .md-link-bubble-detail,
+.md-link-bubble[data-state="broken"] .md-link-bubble-target {
   color: var(--cmux-md-link-broken-color);
 }
 
 .md-link-popover {
   width: 360px;
-  padding: 6px;
+  padding: 8px;
+}
+
+.md-link-form {
+  display: grid;
+  gap: 6px;
+}
+
+.md-link-field {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  align-items: start;
+  gap: 8px;
+}
+
+.md-link-field-label {
+  min-width: 3em;
+  padding-top: 5px;
+  color: var(--cmux-md-muted-color);
+}
+
+.md-link-form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.md-link-text {
+  font-family: var(--cmux-md-font-family);
+}
+
+.md-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 .md-link-input {
@@ -765,6 +842,103 @@ body {
   width: 100%;
   margin: 0;
   accent-color: var(--page-text-2);
+}
+
+/* The text width row (WidthField.tsx): a typed number field with a unit and a small stepper, the
+   preset menu beside it, and the label that scrubs the value when dragged (as in Figma). */
+.md-width-scrub {
+  cursor: ew-resize;
+  user-select: none;
+  touch-action: none;
+}
+
+.md-width-controls {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  min-width: 0;
+}
+
+.md-width-field {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  height: 22px;
+  padding-left: 6px;
+  border-radius: 5px;
+  background: var(--page-hover);
+  box-shadow: inset 0 0 0 0.5px var(--page-separator);
+}
+
+.md-width-field:focus-within {
+  box-shadow: inset 0 0 0 1.5px var(--cmux-accent, var(--page-text-2));
+}
+
+.md-width-field[data-invalid] {
+  box-shadow: inset 0 0 0 1.5px var(--cmux-md-error-color);
+}
+
+.md-width-field[data-dimmed] .md-width-input,
+.md-width-field[data-dimmed] .md-width-unit {
+  color: var(--page-text-3);
+}
+
+.md-width-input {
+  flex: 1 1 auto;
+  width: 0;
+  min-width: 3ch;
+  padding: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--page-text);
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.md-width-unit {
+  padding: 0 4px 0 3px;
+  color: var(--page-text-2);
+}
+
+.md-width-stepper {
+  display: flex;
+  flex-direction: column;
+  align-self: stretch;
+  border-left: 0.5px solid var(--page-separator);
+}
+
+.md-width-stepper button {
+  flex: 1 1 0;
+  display: grid;
+  place-items: center;
+  width: 16px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--page-text-2);
+  font-size: var(--text-caption);
+  line-height: 1;
+  cursor: default;
+}
+
+.md-width-stepper button:hover {
+  background: var(--page-hover);
+  color: var(--page-text);
+}
+
+.md-width-presets {
+  flex: 0 0 auto;
+}
+
+.md-width-approx {
+  grid-column: 1 / -1;
+  color: var(--page-text-3);
+  font-size: var(--text-caption);
+  font-variant-numeric: tabular-nums;
 }
 
 .md-reading-check {

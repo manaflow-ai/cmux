@@ -2,14 +2,14 @@
 // schemas/settings/source/now-playing.json. Do not edit; edit the JSON and rerun.
 
 extension NowPlayingSettings {
-    /// `sidebar.nowPlaying.enabled`: On by default. Off: no Now Playing card in the sidebar and no player on the new chat page.
+    /// `sidebar.nowPlaying.enabled`: Off by default. Off: no Now Playing card in the sidebar and no player on the new chat page; a tab playing sound shows only its speaker in the tab strip.
     public nonisolated static let enabledPath = ["sidebar", "nowPlaying", "enabled"]
-    public nonisolated static let enabledDefault = true
+    public nonisolated static let enabledDefault = false
 }
 
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
 nonisolated enum NowPlayingSettingsSchema {
-    /// The Now Playing player (Austin's idea, Leo 2026-10-18): on by default, and the user can hide it.
+    /// The Now Playing player (Austin's idea, Leo 2026-10-18): off by default since 2026-10-19 (Lawrence did not want the card in the sidebar); the user can turn it on.
     static var descriptors: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.sidebar", "Sidebar")
         return [
