@@ -52,7 +52,11 @@ pub fn prepare_turn_outbox(session_dir: &Path) -> Option<PathBuf> {
 
 fn prepare_turn_outbox_result(session_dir: &Path) -> std::io::Result<PathBuf> {
     use ring::rand::SecureRandom as _;
-    let session = open_directory_chain(session_dir)?;
+    // Resolve trusted system aliases such as macOS `/var -> /private/var`
+    // once. Every attacker-controlled component below the session stays
+    // descriptor-relative and O_NOFOLLOW.
+    let session_dir = std::fs::canonicalize(session_dir)?;
+    let session = open_directory_chain(&session_dir)?;
     let base_name = c".cmux-media";
     // SAFETY: `session` and `base_name` are valid descriptors/strings. A
     // pre-existing entry is opened below with O_NOFOLLOW before it is used.
@@ -113,8 +117,9 @@ pub fn cleanup_turn_outbox(path: Option<PathBuf>) {
 /// A stopped/crashed host owns no live turn outbox. Called only after taking
 /// the per-Chief host lock.
 pub fn cleanup_stale_outboxes(session_dir: &Path) {
-    let base = session_dir.join(".cmux-media");
-    cleanup_turn_outbox(Some(base));
+    if let Ok(session_dir) = std::fs::canonicalize(session_dir) {
+        cleanup_turn_outbox(Some(session_dir.join(".cmux-media")));
+    }
 }
 
 /// The absolute local path a Markdown link target names, in `<…>` or not.
@@ -456,6 +461,7 @@ mod tests {
         let session = dir.path().join("session");
         std::fs::create_dir(&session).unwrap();
         let outbox = prepare_turn_outbox_result(&session).unwrap();
+        let session = std::fs::canonicalize(session).unwrap();
         assert_eq!(outbox.parent(), Some(session.join(".cmux-media").as_path()));
         assert!(outbox.is_dir());
         cleanup_turn_outbox(Some(outbox));
