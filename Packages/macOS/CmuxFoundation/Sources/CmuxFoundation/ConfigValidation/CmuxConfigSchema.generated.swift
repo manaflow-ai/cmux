@@ -483,18 +483,18 @@ enum CmuxEmbeddedConfigSchema {
     },
     "vault": {
       "title": "vault",
-      "description": "Vault session restore agent registrations. cmux includes Pi by default; use this section to add or override JSONL-backed coding agents without an app update.",
+      "description": "Vault session restore agent registrations and session filters. cmux includes Pi by default; use this section to add or override JSONL-backed coding agents without an app update, or to hide sessions from Vault.",
       "type": "object",
       "additionalProperties": false,
       "properties": {
         "hideClaudeSDKSessions": {
           "type": "boolean",
           "default": false,
-          "description": "Hide Claude Code transcripts whose entrypoint starts with sdk-, which are usually non-interactive Agent SDK runs."
+          "description": "Hide Claude Code transcripts whose entrypoint starts with sdk-, which are usually non-interactive Agent SDK runs. Any config that sets it to true turns it on; a project config cannot turn it off."
         },
         "exclude": {
           "type": "array",
-          "description": "Session rules to omit from Vault. A rule matches when every field it contains matches; agent, folder, and entrypoint support * and ?, while labelPattern (or pattern) supports the same wildcards or a regular expression.",
+          "description": "Session rules to omit from Vault. A rule matches when every field it contains matches; agent, folder, and entrypoint support * and ?, while labelPattern (or pattern) supports the same wildcards, or a regular expression when prefixed with re:.",
           "items": {
             "type": "object",
             "additionalProperties": false,
@@ -518,12 +518,12 @@ enum CmuxEmbeddedConfigSchema {
               "labelPattern": {
                 "type": "string",
                 "pattern": "\\S",
-                "description": "Session label pattern to exclude. Supports * and ?, or a regular expression; prefix with re: to make regular-expression intent explicit."
+                "description": "Session label pattern to exclude. Supports * and ? wildcards matched against the whole label; prefix with re: for a case-insensitive regular expression that may match anywhere in the label."
               },
               "pattern": {
                 "type": "string",
                 "pattern": "\\S",
-                "description": "Alias for labelPattern: a session label pattern using * and ?, or a regular expression."
+                "description": "Alias for labelPattern: a session label pattern using * and ?, or a regular expression when prefixed with re:."
               }
             }
           },

@@ -1516,17 +1516,19 @@ final class SessionIndexStore: ObservableObject {
     ) async -> [SessionEntry] {
         switch scope {
         case .agent(let a):
+            let trimmedCwd = currentDirectory?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let scopedCwd = trimmedCwd?.isEmpty == false ? trimmedCwd : nil
             let cwdFilter: String?
             if case .registered = a {
-                let scopedCwd = currentDirectory?.trimmingCharacters(in: .whitespacesAndNewlines)
-                cwdFilter = scopedCwd?.isEmpty == false ? scopedCwd : nil
+                cwdFilter = scopedCwd
             } else if a == .grok {
-                let scopedCwd = currentDirectory?.trimmingCharacters(in: .whitespacesAndNewlines)
-                cwdFilter = scopedCwd?.isEmpty == false ? scopedCwd : nil
+                cwdFilter = scopedCwd
             } else {
                 cwdFilter = nil
             }
-            let registry = await Self.vaultAgentRegistry(workingDirectory: cwdFilter)
+            // Session filters come from the current folder's project config
+            // for every agent, even those whose listing is not folder-scoped.
+            let registry = await Self.vaultAgentRegistry(workingDirectory: scopedCwd)
             return await Self.searchAgent(
                 needle: needle, agent: a, cwdFilter: cwdFilter,
                 offset: 0, limit: limit, errorBag: bag, registry: registry,
@@ -1639,7 +1641,7 @@ final class SessionIndexStore: ObservableObject {
         let safeOffset = max(0, offset)
         let safeLimit = max(0, limit)
         guard safeLimit > 0 else { return [] }
-        guard registry.hasSessionExclusions else {
+        guard registry.hasSessionExclusions(for: agent) else {
             return await loadRawAgentEntries(
                 needle: needle,
                 agent: agent,
@@ -1652,25 +1654,52 @@ final class SessionIndexStore: ObservableObject {
             )
         }
 
-        // Read one bounded source snapshot from the beginning when exclusions
-        // are active. A filtered page cannot use the source offset directly:
-        // excluded recent sessions must not consume the requested result window.
-        // Keeping this to one source load also avoids rescanning and resorting
-        // the same session files once per page of filtered results.
-        let sourcePage = await loadRawAgentEntries(
-            needle: needle,
-            agent: agent,
-            cwdFilter: cwdFilter,
-            offset: 0,
-            limit: searchMaxFiles,
-            errorBag: errorBag,
-            registry: registry,
-            ampSessionRepository: ampSessionRepository
+        let exclusionMatchers = registry.compiledSessionExclusions(for: agent)
+        return await filteredSourcePage(
+            offset: safeOffset,
+            limit: safeLimit,
+            ceiling: max(safeOffset + safeLimit, searchMaxFiles),
+            load: { sourceLimit in
+                await loadRawAgentEntries(
+                    needle: needle,
+                    agent: agent,
+                    cwdFilter: cwdFilter,
+                    offset: 0,
+                    limit: sourceLimit,
+                    errorBag: errorBag,
+                    registry: registry,
+                    ampSessionRepository: ampSessionRepository
+                )
+            },
+            isIncluded: { !registry.excludes($0, matchers: exclusionMatchers) }
         )
-        if Task.isCancelled { return [] }
-        let exclusionMatchers = registry.compiledSessionExclusions
-        let matches = sourcePage.filter { !registry.excludes($0, matchers: exclusionMatchers) }
-        return Array(matches.dropFirst(safeOffset).prefix(safeLimit))
+    }
+
+    /// Pages a filtered view of one agent's sessions. A filtered page cannot
+    /// use the source offset directly: excluded recent sessions must not
+    /// consume the requested window. Reads restart from the newest session and
+    /// double until `offset + limit` sessions survive the filter, the source
+    /// runs out, or `ceiling` is reached, so the first page of a lightly
+    /// filtered agent reads a few dozen sessions rather than the whole cap.
+    nonisolated static func filteredSourcePage(
+        offset: Int,
+        limit: Int,
+        ceiling: Int,
+        load: (Int) async -> [SessionEntry],
+        isIncluded: (SessionEntry) -> Bool
+    ) async -> [SessionEntry] {
+        let target = offset + limit
+        guard limit > 0, ceiling > 0 else { return [] }
+        var sourceLimit = target >= ceiling / 2 ? ceiling : target * 2
+        while true {
+            let sourcePage = await load(sourceLimit)
+            if Task.isCancelled { return [] }
+            let matches = sourcePage.filter(isIncluded)
+            if matches.count >= target || sourcePage.count < sourceLimit || sourceLimit >= ceiling {
+                return Array(matches.dropFirst(offset).prefix(limit))
+            }
+            sourceLimit = sourceLimit >= ceiling / 2 ? ceiling : sourceLimit * 2
+        }
     }
 
 #if compiler(>=6.2)

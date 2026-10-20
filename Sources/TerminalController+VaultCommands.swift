@@ -283,7 +283,10 @@ extension TerminalController {
                 data: nil
             ))
         }
+        // An explicit session id names a session the caller already knows,
+        // so Vault display filters must not turn it into not_found.
         let registry = await SessionIndexStore.vaultAgentRegistry(workingDirectory: nil)
+            .withoutSessionExclusions
         let deep = await SessionIndexStore.searchAgent(
             needle: "",
             agent: agent,

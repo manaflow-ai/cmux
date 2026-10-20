@@ -510,12 +510,27 @@ struct CmuxVaultAgentRegistry: Sendable {
         registrations.first { $0.id == id }
     }
 
-    var hasSessionExclusions: Bool {
-        hideClaudeSDKSessions || !sessionExclusions.isEmpty
+    /// Whether any filter can hide a session of `agent`. Agents no rule can
+    /// match keep their direct offset reads instead of a filtered page.
+    func hasSessionExclusions(for agent: SessionAgent) -> Bool {
+        (hideClaudeSDKSessions && agent == .claude)
+            || sessionExclusions.contains { $0.applies(to: agent) }
     }
 
     var compiledSessionExclusions: [CmuxVaultSessionExclusionMatcher] {
         sessionExclusions.map(CmuxVaultSessionExclusionMatcher.init)
+    }
+
+    func compiledSessionExclusions(for agent: SessionAgent) -> [CmuxVaultSessionExclusionMatcher] {
+        sessionExclusions
+            .filter { $0.applies(to: agent) }
+            .map(CmuxVaultSessionExclusionMatcher.init)
+    }
+
+    /// The same agent registrations with every session filter removed, for
+    /// lookups that name one session explicitly.
+    var withoutSessionExclusions: CmuxVaultAgentRegistry {
+        CmuxVaultAgentRegistry(registrations: registrations)
     }
 
     func excludes(_ entry: SessionEntry) -> Bool {

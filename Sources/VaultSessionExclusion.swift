@@ -97,17 +97,30 @@ struct CmuxVaultSessionExclusion: Codable, Hashable, Sendable {
         value: String,
         compiledRegex: NSRegularExpression?
     ) -> Bool {
-        if globMatches(pattern, value: value, caseInsensitive: true) {
-            return true
-        }
-        let expression = pattern.hasPrefix("re:") ? String(pattern.dropFirst(3)) : pattern
-        guard !expression.isEmpty else {
-            return false
+        guard let expression = regexExpression(pattern) else {
+            return globMatches(pattern, value: value, caseInsensitive: true)
         }
         let regex = compiledRegex ?? (try? NSRegularExpression(pattern: expression, options: [.caseInsensitive]))
         guard let regex else { return false }
         let range = NSRange(value.startIndex..<value.endIndex, in: value)
         return regex.firstMatch(in: value, options: [], range: range) != nil
+    }
+
+    /// The regular expression of a `re:` label pattern, or nil for a wildcard
+    /// pattern. Only the prefix opts into regex matching, so `Draft*` means
+    /// "starts with Draft" rather than an unanchored `/Draft*/`.
+    fileprivate static func regexExpression(_ pattern: String) -> String? {
+        guard pattern.hasPrefix("re:") else { return nil }
+        let expression = String(pattern.dropFirst(3))
+        return expression.isEmpty ? nil : expression
+    }
+
+    /// Whether this rule can match a session of `agent`; a rule without an
+    /// agent matcher applies to every agent.
+    func applies(to agent: SessionAgent) -> Bool {
+        guard let pattern = self.agent else { return true }
+        return Self.globMatches(pattern, value: agent.rawValue, caseInsensitive: true)
+            || Self.globMatches(pattern, value: agent.displayName, caseInsensitive: true)
     }
 
     /// Matches shell-style `*` and `?` wildcards in linear time.
@@ -120,14 +133,14 @@ struct CmuxVaultSessionExclusion: Codable, Hashable, Sendable {
         var starValueIndex = 0
 
         while valueIndex < valueScalars.count {
-            if patternIndex < patternScalars.count,
-               patternScalars[patternIndex] == valueScalars[valueIndex] || patternScalars[patternIndex] == "?" {
-                patternIndex += 1
-                valueIndex += 1
-            } else if patternIndex < patternScalars.count, patternScalars[patternIndex] == "*" {
+            if patternIndex < patternScalars.count, patternScalars[patternIndex] == "*" {
                 starIndex = patternIndex
                 starValueIndex = valueIndex
                 patternIndex += 1
+            } else if patternIndex < patternScalars.count,
+               patternScalars[patternIndex] == valueScalars[valueIndex] || patternScalars[patternIndex] == "?" {
+                patternIndex += 1
+                valueIndex += 1
             } else if let starIndex, starValueIndex < valueScalars.count {
                 patternIndex = starIndex + 1
                 starValueIndex += 1
@@ -148,18 +161,14 @@ struct CmuxVaultSessionExclusion: Codable, Hashable, Sendable {
 /// `NSRegularExpression` is thread-safe for matching, so this value can cross
 /// the nonisolated search boundary without recompiling the rule for each entry.
 struct CmuxVaultSessionExclusionMatcher: Sendable {
-    private let exclusion: CmuxVaultSessionExclusion
+    let exclusion: CmuxVaultSessionExclusion
     private let labelRegex: NSRegularExpression?
 
     init(_ exclusion: CmuxVaultSessionExclusion) {
         self.exclusion = exclusion
-        if let labelPattern = exclusion.labelPattern {
-            let expression = labelPattern.hasPrefix("re:")
-                ? String(labelPattern.dropFirst(3))
-                : labelPattern
-            labelRegex = expression.isEmpty
-                ? nil
-                : try? NSRegularExpression(pattern: expression, options: [.caseInsensitive])
+        if let labelPattern = exclusion.labelPattern,
+           let expression = CmuxVaultSessionExclusion.regexExpression(labelPattern) {
+            labelRegex = try? NSRegularExpression(pattern: expression, options: [.caseInsensitive])
         } else {
             labelRegex = nil
         }

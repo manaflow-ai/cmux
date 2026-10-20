@@ -9,8 +9,14 @@ with filters in the same `vault` section. `hideClaudeSDKSessions` hides Claude
 transcripts whose `entrypoint` begins with `sdk-`. Each `exclude` rule is an AND
 of the fields it contains; multiple rules are ORed. Agent ids, folders, and
 entrypoints accept `*` and `?` wildcards. `labelPattern` (or its shorter `pattern`
-alias) matches the session label with those wildcards or with a regular expression;
-prefixing with `re:` makes the regular-expression intent explicit.
+alias) matches the whole session label with those wildcards; prefix it with `re:`
+for a case-insensitive regular expression that may match anywhere in the label.
+
+Filters in the global config apply everywhere. Filters in a project's
+`cmux.json` apply while Vault is scoped to that project folder, and add to the
+global filters: a project can turn `hideClaudeSDKSessions` on but not off. Filters
+only change what Vault lists; a `vault.*` socket call that names a session by id
+still finds it.
 
 ```jsonc
 {
