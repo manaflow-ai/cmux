@@ -12,7 +12,12 @@ extension CEFRuntime {
             shim?.contextMenuDone(token, -1, 0)
             return
         }
-        let all = BrowserContextMenuItem.decodeList(itemsJSON)
+        var all = BrowserContextMenuItem.decodeList(itemsJSON)
+        // Chrome draws each extension's icon on its row; CEF's model has none.
+        if BrowserExtensionMenuIcons.hasExtensionRows(all) {
+            all = BrowserExtensionMenuIcons(sources: extensionMenuSources(browser: browser)).annotate(all)
+        }
+        all = BrowserContextMenuItem.withChromeIcons(all)
         let target = BrowserContextMenuTarget.chromium(paramsJSON)
         let location = CGPoint(x: x, y: y)
         let done: (Int?) -> Void = { [weak self] id in self?.shim?.contextMenuDone(token, Int32(id ?? -1), 0) }
