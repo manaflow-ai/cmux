@@ -11,6 +11,18 @@ struct WorkspacePinFlags {
     var supportsPin: (DaemonService) -> Bool = { $0.supports(DaemonCapabilities.shared.workspacePin) }
     let send: (DaemonService, WorkspaceKey, Bool) -> Void
 
+    /// The app's flags: each workspace's daemon in `machines`, written with `set-workspace-metadata`.
+    static func live(_ machines: MachineRegistry) -> WorkspacePinFlags {
+        WorkspacePinFlags(owner: { machines.workspace(id: $0) }, send: { daemon, key, pinned in
+            daemon.send("set-workspace-metadata") { _ = try await $0.setWorkspaceMetadata(key, pinned: pinned) }
+        })
+    }
+
     /// Sets the flag of each workspace in `ids` whose daemon's flag is not `pinned` yet.
-    func mirror(_ ids: [String], pinned: Bool) {}
+    func mirror(_ ids: [String], pinned: Bool) {
+        for id in ids {
+            guard let (workspace, daemon) = owner(id), let key = workspace.key, workspace.pinned != pinned, supportsPin(daemon) else { continue }
+            send(daemon, key, pinned)
+        }
+    }
 }

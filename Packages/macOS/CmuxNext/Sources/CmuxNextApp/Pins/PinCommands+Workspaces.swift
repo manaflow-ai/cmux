@@ -33,7 +33,9 @@ extension PinCommands {
     /// capability on its daemon).
     func setWorkspacePinned(_ id: String, pinned: Bool, origin: ActionOrigin) throws {
         if let store = SidebarDocStore.current, store.isActive, let item = SidebarDocWiring.item(workspace: id, context.services.machines) {
-            return pinned ? store.pin([item], title: PinStrings.pinWorkspace) : store.unpin([item], title: PinStrings.unpinWorkspace)
+            pinned ? store.pin([item], title: PinStrings.pinWorkspace) : store.unpin([item], title: PinStrings.unpinWorkspace)
+            // The document is the home daemon's: the workspace's own daemon (any session) gets the flag too.
+            return WorkspacePinFlags.live(context.services.machines).mirror([id], pinned: pinned)
         }
         if pinsAreTiles {
             guard let ref = refs.ref(forWorkspace: id) else { throw ActionFailure(message: PinStrings.workspaceCannotPin) }
@@ -58,7 +60,10 @@ extension PinCommands {
         let title = pinned ? PinStrings.pinWorkspace : PinStrings.unpinWorkspace
         if let store = SidebarDocStore.current, store.isActive {
             let items = ids.compactMap { SidebarDocWiring.item(workspace: $0, context.services.machines) }
-            if items.count == ids.count { return pinned ? store.pin(items, title: title) : store.unpin(items, title: title) }
+            if items.count == ids.count {
+                pinned ? store.pin(items, title: title) : store.unpin(items, title: title)
+                return WorkspacePinFlags.live(context.services.machines).mirror(ids, pinned: pinned)
+            }
         }
         if pinsAreTiles {
             let pins = try ids.map { id in
