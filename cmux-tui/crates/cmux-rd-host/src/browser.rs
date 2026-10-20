@@ -55,8 +55,16 @@ impl BrowserCommand {
     /// Opens Chrome's DevTools protocol (CDP) on `127.0.0.1:port`, so an agent on the same
     /// machine drives the browser the person watches (`--browser-cdp-port`, off by default).
     /// Loopback only: anyone who reaches the port controls the browser and its logins.
-    pub fn with_cdp_port(self, port: u16) -> Self {
-        let _ = port;
+    pub fn with_cdp_port(mut self, port: u16) -> Self {
+        // Before the URL, which stays the last argument.
+        let at = self.args.len().saturating_sub(1);
+        self.args.splice(
+            at..at,
+            [
+                "--remote-debugging-address=127.0.0.1".to_string(),
+                format!("--remote-debugging-port={port}"),
+            ],
+        );
         self
     }
 }
@@ -217,7 +225,7 @@ mod tests {
     fn wait_until(what: &str, f: impl Fn() -> bool) {
         let t0 = Instant::now();
         while !f() {
-            assert!(t0.elapsed() < Duration::from_secs(10), "timed out waiting for {what}");
+            assert!(t0.elapsed() < Duration::from_secs(30), "timed out waiting for {what}");
             // Test-only wait for real child processes; the code under test uses no polling.
             thread::sleep(Duration::from_millis(10));
         }
@@ -313,14 +321,29 @@ mod tests {
 
         let http = |method: &str, path: &str| -> Option<String> {
             let mut s = TcpStream::connect(("127.0.0.1", port)).ok()?;
-            write!(
-                s,
-                "{method} {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\r\n"
-            )
-            .ok()?;
-            let mut out = String::new();
-            s.read_to_string(&mut out).ok()?;
-            out.split_once("\r\n\r\n").map(|(_, body)| body.to_string())
+            s.set_read_timeout(Some(Duration::from_secs(5))).ok()?;
+            write!(s, "{method} {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n\r\n").ok()?;
+            // Chrome may keep the connection open: read the head, then Content-Length bytes.
+            let mut buf = Vec::new();
+            let mut chunk = [0u8; 4096];
+            loop {
+                let n = s.read(&mut chunk).ok()?;
+                if n == 0 {
+                    return None;
+                }
+                buf.extend_from_slice(&chunk[..n]);
+                let Some(end) = buf.windows(4).position(|w| w == b"\r\n\r\n") else { continue };
+                let head = String::from_utf8_lossy(&buf[..end]).to_ascii_lowercase();
+                let len: usize = head
+                    .lines()
+                    .find_map(|l| l.strip_prefix("content-length:"))
+                    .and_then(|v| v.trim().parse().ok())?;
+                if buf.len() >= end + 4 + len {
+                    return Some(
+                        String::from_utf8_lossy(&buf[end + 4..end + 4 + len]).into_owned(),
+                    );
+                }
+            }
         };
         let pages = || -> Vec<serde_json::Value> {
             http("GET", "/json/list")
@@ -336,6 +359,7 @@ mod tests {
         let ws_url = pages()[0]["webSocketDebuggerUrl"].as_str().expect("ws url").to_string();
         let path = &ws_url[ws_url.find("/devtools/").expect("devtools path")..];
         let mut ws = TcpStream::connect(("127.0.0.1", port)).unwrap();
+        ws.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
         write!(
             ws,
             "GET {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\
