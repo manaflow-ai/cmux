@@ -75,4 +75,16 @@ import Testing
         let frame = h.frame(of: control)
         #expect(abs(frame.width - frame.height) < 0.5, "the avatar's square: \(frame)")
     }
+
+    @Test func theChipHoldsAFillWhileItsMenuIsOpen() async throws {
+        let h = await make(width: 240)
+        defer { h.window.close() }
+        let control = try #require(h.sidebar.footerBand.profileControl?.view)
+        #expect(control.isProfileChip)
+        #expect(control.fill == nil, "no fill at rest")
+        control.showsMenu = true
+        #expect(control.fill != nil, "the open menu's control shows a fill")
+        control.showsMenu = false
+        #expect(control.fill == nil, "the fill clears when the menu closes")
+    }
 }
