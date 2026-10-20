@@ -45,10 +45,11 @@ pub(crate) fn site_engine(rules: &Map<String, Value>, url: &str) -> Option<&'sta
         if host != pattern_host && !host.ends_with(&format!(".{pattern_host}")) {
             continue;
         }
-        if let Some(prefix) = pattern_path {
-            if path != prefix && !path.starts_with(&format!("{prefix}/")) {
-                continue;
-            }
+        if let Some(prefix) = pattern_path
+            && path != prefix
+            && !path.starts_with(&format!("{prefix}/"))
+        {
+            continue;
         }
         let rank =
             (pattern_host.chars().count(), pattern_path.map_or(0, |path| path.chars().count()));
