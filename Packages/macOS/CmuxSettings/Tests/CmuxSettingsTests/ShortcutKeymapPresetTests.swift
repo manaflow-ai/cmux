@@ -18,6 +18,15 @@ struct ShortcutKeymapPresetTests {
 
     private let empty = ShortcutBindingsSnapshot(bindings: [:], managedActionIDs: [])
 
+    @Test func copyUnwrappedDefaultDoesNotConflictWithOtherActions() {
+        let copyUnwrapped = ShortcutAction.copyUnwrapped.defaultShortcut
+        #expect(copyUnwrapped == ShortcutKeymapBinding.stroke("cmd+shift+c").shortcut)
+        #expect(!ShortcutAction.allCases.contains {
+            $0 != .copyUnwrapped && $0.defaultShortcut == copyUnwrapped
+        })
+        #expect(ShortcutKeymapPreset.iTerm2.overrides[.copyUnwrapped] == .unbound)
+    }
+
     @Test(arguments: ShortcutKeymapPreset.allCases)
     func everyOverrideIsValidAndDiffersFromTheDefault(preset: ShortcutKeymapPreset) throws {
         for (action, binding) in preset.overrides {
@@ -243,6 +252,19 @@ struct MacOSSystemShortcutTests {
 
 @Suite("Keymap presets written through JSONConfigStore")
 struct ShortcutKeymapStoreTests {
+    @Test func copyUnwrappedBindingCanBeSetAndRead() async throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let file = dir.appendingPathComponent("cmux.json")
+        try Data("{}".utf8).write(to: file)
+        let store = JSONConfigStore(fileURL: file)
+        _ = try await store.apply(.set(path: "shortcuts.bindings.copyUnwrapped", value: .string("cmd+opt+c")))
+        let snapshot = await store.value(for: SettingCatalog().shortcuts.bindingSnapshot)
+        #expect(snapshot.bindings["copyUnwrapped"] == ShortcutKeymapBinding.stroke("cmd+opt+c").shortcut)
+        #expect(snapshot.managedActionIDs.contains("copyUnwrapped"))
+    }
+
     @Test func applyWritesReadableOverridesAndSwitchingBackRemovesThem() async throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
