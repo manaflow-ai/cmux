@@ -471,10 +471,26 @@ impl Hub {
     /// removed, in queue order. They run once `resume_queues` starts them; a client that resends
     /// one meanwhile waits for that run (the ledger entry made here).
     pub(super) fn restore_queues(&self) {
-        for session in self.sessions() {
-            self.restore_queue(&session);
-        }
+        // Sessions restore apart (each reads only its own log), so they run on every core.
+        let sessions = self.sessions();
+        self.on_every_core(&sessions, |session| self.restore_queue(session));
     }
+
+    /// The record kinds `restore_queue` reads; the store parses no other line.
+    const QUEUE_KINDS: &[&str] = &[
+        "queued",
+        "transfer_out",
+        "transfer_aborted",
+        "imported",
+        "dequeued",
+        "queue_removed",
+        "user_message",
+        "turn_started",
+        "queue_updated",
+        "queue_paused",
+        "queue_resumed",
+        "queue_order",
+    ];
 
     /// One session's queue, from its log (also a chat moved here, `transfer_in.rs`).
     pub(super) fn restore_queue(&self, session: &Arc<Session>) {
@@ -487,44 +503,52 @@ impl Hub {
         // A move that began and neither committed nor aborted (`transfer_out.rs`); a chat
         // moved here was the source's until its `imported` record.
         let mut moving: Option<String> = None;
-        let scanned = self.store.scan(&session.id, 0, &mut |e: EventRecord| {
-            let turn_id = e.msg.get("turnId");
-            match e.kind.as_str() {
-                "queued" => waiting.push(e),
-                "transfer_out" => moving = e.msg["transferId"].as_str().map(str::to_owned),
-                "transfer_aborted" | "imported" => moving = None,
-                "dequeued" | "queue_removed" | "user_message" | "turn_started" => {
-                    waiting.retain(|q| q.msg.get("turnId") != turn_id);
-                }
-                // An edit (`queue_edit.rs`): the prompt and its rules replace the queued ones,
-                // and it has no `_meta.provenance` (the person rewrote it).
-                "queue_updated" => {
-                    if let Some(q) = waiting.iter_mut().find(|q| q.msg.get("turnId") == turn_id) {
-                        for k in ["text", "prompt", "control", "trustGate"] {
-                            q.msg[k] = e.msg.get(k).cloned().unwrap_or(Value::Null);
-                        }
-                        if let Some(meta) = q.msg.get_mut("_meta").and_then(Value::as_object_mut) {
-                            meta.remove("provenance");
+        let scanned =
+            self.store.scan_kinds(&session.id, Self::QUEUE_KINDS, &mut |e: EventRecord| {
+                let turn_id = e.msg.get("turnId");
+                match e.kind.as_str() {
+                    "queued" => waiting.push(e),
+                    "transfer_out" => moving = e.msg["transferId"].as_str().map(str::to_owned),
+                    "transfer_aborted" | "imported" => moving = None,
+                    "dequeued" | "queue_removed" | "user_message" | "turn_started" => {
+                        waiting.retain(|q| q.msg.get("turnId") != turn_id);
+                    }
+                    // An edit (`queue_edit.rs`): the prompt and its rules replace the queued ones,
+                    // and it has no `_meta.provenance` (the person rewrote it).
+                    "queue_updated" => {
+                        if let Some(q) = waiting.iter_mut().find(|q| q.msg.get("turnId") == turn_id)
+                        {
+                            for k in ["text", "prompt", "control", "trustGate"] {
+                                q.msg[k] = e.msg.get(k).cloned().unwrap_or(Value::Null);
+                            }
+                            if let Some(meta) =
+                                q.msg.get_mut("_meta").and_then(Value::as_object_mut)
+                            {
+                                meta.remove("provenance");
+                            }
                         }
                     }
-                }
-                "queue_paused" => {
-                    let ids = e.msg.get("held").and_then(Value::as_array);
-                    held.extend(ids.into_iter().flatten().cloned());
-                }
-                "queue_resumed" => held.clear(),
-                "queue_order" => {
-                    // Sent now (`put_next`): no longer held.
-                    if e.msg.get("next") == Some(&Value::Bool(true)) {
-                        held.retain(|id| Some(id) != e.msg.get("promptId"));
+                    "queue_paused" => {
+                        let ids = e.msg.get("held").and_then(Value::as_array);
+                        held.extend(ids.into_iter().flatten().cloned());
                     }
-                    order =
-                        e.msg.get("order").and_then(Value::as_array).cloned().unwrap_or_default()
+                    "queue_resumed" => held.clear(),
+                    "queue_order" => {
+                        // Sent now (`put_next`): no longer held.
+                        if e.msg.get("next") == Some(&Value::Bool(true)) {
+                            held.retain(|id| Some(id) != e.msg.get("promptId"));
+                        }
+                        order = e
+                            .msg
+                            .get("order")
+                            .and_then(Value::as_array)
+                            .cloned()
+                            .unwrap_or_default()
+                    }
+                    _ => {}
                 }
-                _ => {}
-            }
-            true
-        });
+                true
+            });
         session.moving.lock().unwrap_or_else(|e| e.into_inner()).clone_from(&moving);
         if scanned.is_err() || waiting.is_empty() {
             return;

@@ -262,19 +262,6 @@ public final class SidebarContainerView: NSView {
     override public func layout() {
         super.layout()
         PointerHover.refresh(in: window)
-        reportBackdropCover()
-    }
-
-    /// Tells the window's art the column the sidebar will cover once its slide ends, so a
-    /// painting moves its subject once, not with every frame of the slide
-    /// (``WindowMaterialView/setCover(_:for:)``).
-    private func reportBackdropCover() {
-        guard let window else { return }
-        let frame = convert(bounds, to: nil)
-        let width = model.isHidden || isHidden ? 0 : targetWidth
-        let x = side == .left ? frame.minX : frame.maxX - width
-        WindowMaterialView.backdrop(of: window)?.setCover(width > 0.5 ? CGRect(x: x, y: frame.minY, width: width, height: frame.height) : nil,
-                                                          for: "sidebar")
     }
 
     /// Sets every constraint and visibility for the model without animating.
@@ -323,7 +310,7 @@ public final class SidebarContainerView: NSView {
         // Constraint animators ignore SwiftUI springs (they fall back to
         // AppKit's 0.25 s default), so this is the tokens' timed equivalent.
         // A toggle mid-animation starts from the constant on screen.
-        Motion.animateTimed(hidden ? .disappear : .appear, in: self, {
+        Motion.sidebar.animateTimed(hidden ? .disappear : .appear, in: self, {
             Motion.animator(widthConstraint, in: self).constant = target
         }, completion: { [weak self] in
             guard let self, generation == self.animationGeneration else { return }
@@ -336,7 +323,7 @@ public final class SidebarContainerView: NSView {
         // a quick reveal over the structural slide instead of extending the
         // opacity animation to the sidebar's full travel time.
         if collapseMotion.fadesPanel {
-            Motion.animateTimed(hidden ? .fadeOut : .fadeIn, in: self, {
+            Motion.sidebar.animateTimed(hidden ? .fadeOut : .fadeIn, in: self, {
                 panel.animator().alphaValue = hidden ? 0 : 1
             }, completion: { [weak self] in
                 guard let self, generation == self.animationGeneration else { return }

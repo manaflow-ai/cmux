@@ -11,6 +11,79 @@ bun tests/agent-evals/run.mjs --run NAME --agents claude:cli,claude:mcp,codex:cl
 
 Per-run artifacts (snapshots, agent output, call logs): `artifacts/agent-evals/<run>/` (not committed).
 
+## Run split-focus-2026-10-20 (2026-10-20): after the split-keeps-focus fix
+
+Same headless tier, agents and settings as the baseline below, one run per
+cell. The cmux CLI and daemon were built on the fleet from 565d372d356 (fix:
+`pane split` keeps focus unless `focus: true`, and takes `argv`/`shell`), with
+the updated `cmux-workspace` and `cmux` skills installed. Command:
+`bun tests/agent-evals/run.mjs --run split-focus-2026-10-20 --cli <fleet-built cmux> --agents claude:cli,claude:mcp,codex:cli,codex:mcp,opencode:cli,opencode:mcp,cursor-agent:cli --parallel 5`.
+
+| Agent | Surface | Passed (baseline) | Passed (now) | Top failures now |
+| --- | --- | --- | --- | --- |
+| claude | cli | 6/9 | 9/9 | |
+| codex | cli | 5/9 | 9/9 | |
+| codex | mcp | 3/9 | 8/9 | wrong_place 1 |
+| claude | mcp | 3/9 | 7/9 | focus_stolen 1, wrong_place 1 |
+| opencode | mcp | 4/9 | 7/9 | focus_stolen 1, wrong_place 1 |
+| opencode | cli | 2/9 | 7/9 | left_session 1, not_done 1 |
+| cursor-agent | cli | 5/9 | 5/9 | agent_error 3, left_session 1 |
+| **all** | | **28/63** | **52/63** | |
+
+`focus_stolen` went from 26 runs to 2. The 2 left are `new-workspace-background`
+over MCP: `workspace.create` (CLI and MCP alike) makes the new workspace the
+daemon's focused one. In the app the window keeps showing what it showed
+(app_focus overlay), so this counts more in the headless tier than in real use;
+it is a separate follow-up, not a split bug. `reuse-right` still fails for 4 of
+7 pairs (`wrong_place`: a tab lands in a pane that is not right of the origin).
+cursor-agent's 3 `agent_error` runs are its server dropping the connection.
+
+| Task | claude/cli | codex/cli | codex/mcp | claude/mcp | opencode/mcp | opencode/cli | cursor-agent/cli |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| watch-command | pass | pass | pass | pass | pass | pass | pass |
+| subagents-right | pass | pass | pass | pass | pass | pass | pass |
+| terminal-right | pass | pass | pass | pass | pass | pass | agent_error (0.67) |
+| reuse-right | pass | pass | wrong_place (0.75) | wrong_place (0.75) | wrong_place (0.75) | not_done (0.63) | agent_error (0.75) |
+| group-workspaces | pass | pass | pass | pass | pass | pass | left_session (0.90) |
+| group-tabs | pass | pass | pass | pass | pass | pass | pass |
+| read-only-answer | pass | pass | pass | pass | pass | left_session (0.80) | agent_error (0.80) |
+| new-workspace-background | pass | pass | pass | focus_stolen (0.80) | focus_stolen (0.80) | pass | pass |
+| organize-end-to-end | pass | pass | pass | pass | pass | pass | pass |
+## Run codemode-vs-all (2026-10-20)
+
+cmux's code mode (`cmux mcp serve`: two tools, `cmux_docs` and `cmux_exec`) against every
+tool (`cmux mcp serve --all-tools`, Claude Code with `ENABLE_TOOL_SEARCH=true`), the two ways
+acpmux can give a chat the cmux tools. Six headless tasks, two rounds each (12 runs per row),
+this Mac, Claude Code 2.1.303 and Codex 0.163.0 on the subrouter. New surface: `mcp-all`.
+
+```sh
+bun tests/agent-evals/run.mjs --run codemode-vs-all-r1 \
+  --tasks terminal-right,group-workspaces,group-tabs,read-only-answer,new-workspace-background,reuse-right \
+  --agents claude:mcp,claude:mcp-all,codex:mcp,codex:mcp-all --parallel 4
+```
+
+| Agent | Tools | Passed | Mean score | Median input tokens | Median cost | Median time (s) | Failures |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| claude | code mode | 6/12 | 0.89 | 202,686 | $0.211 | 33 | focus_stolen 4, wrong_place 2 |
+| claude | all tools | 8/12 | 0.95 | 162,308 | $0.114 | 25 | focus_stolen 4 |
+| codex | code mode | 10/12 | 0.96 | 216,492 | | 134 | wrong_place 1, focus_stolen 1 |
+| codex | all tools | 10/12 | 0.94 | 204,853 | | 126 | wrong_place 2 |
+
+| Task | claude code mode | claude all tools | codex code mode | codex all tools |
+| --- | --- | --- | --- | --- |
+| group-tabs | 2/2 | 2/2 | 2/2 | 2/2 |
+| group-workspaces | 2/2 | 2/2 | 2/2 | 2/2 |
+| read-only-answer | 2/2 | 2/2 | 2/2 | 2/2 |
+| new-workspace-background | 0/2 focus_stolen | 0/2 focus_stolen | 2/2 | 2/2 |
+| terminal-right | 0/2 focus_stolen | 0/2 focus_stolen | 1/2 | 2/2 |
+| reuse-right | 0/2 wrong_place | 2/2 | 1/2 | 0/2 wrong_place |
+
+Result: code mode passes fewer Claude tasks (reuse-right) and costs more per task; for Codex
+the pass rate is equal and the input tokens are slightly higher. The ~23 KB of tool names that
+all tools adds to each request is less than the discovery calls code mode makes. acpmux keeps
+every tool for Claude Code and Codex; `CMUX_MCP_CODE_MODE=1` in a profile's env opts in to code
+mode.
+
 ## Run baseline-2026-10-20 (2026-10-20)
 
 | Agent | Surface | Passed | Mean score | Median cmux calls | Median time (s) | Top failures |

@@ -15,15 +15,20 @@ optchat-chief trace [--since 1h] [--turn ID] [--json] [--mux-home DIR]  the moni
 optchat-chief workspace                                   the person's Home workspace now (panes, terminal tails, browsers)
 optchat-chief engine show | set [--harness H] [--model M] [--effort E] [--compactor-harness H] [--compactor-model M]
 optchat-chief stats [--since 24h] [--json] [--mux-home DIR]      per turn, node and subagent: latency, tools, cache, cost
+optchat-chief usage [--since 7d] [--by chief|agent|model|harness|kind] [--top N] [--json] [--mux-home DIR]... [--chiefs]
+                                                          tokens, cost, cache hit and turn time over time (the usage ledger)
+optchat-chief usage backfill [--force] [--mux-home DIR]   convert old traces into the usage ledger
 optchat-chief agents list | prompt NAME \"text\" | allow NAME [OPTION_ID] | deny NAME
 optchat-chief browse [--mux-home DIR] [--out FILE]          the whole memory as one HTML page
 optchat-chief import [--mux-home DIR] FILE                  append JSON lines {\"text\", \"kind\"?, \"date\"?} (host stopped)
-optchat-chief settings [show | set remote.autoApprove true|false | set replies.thread auto|always|never] [--mux-home DIR]
+optchat-chief settings [show | set remote.autoApprove true|false | set replies.thread auto|always|never | set show.afterReport true|false] [--mux-home DIR]
                                                            per-Chief settings (on only from the Mac, outside a remote-origin turn)
 optchat-chief import-claude-code dry-run|write [--projects DIR] [--mux-home DIR] [--append-after-live]
                                                            Claude Code transcripts (default ~/.claude/projects) as messages;
                                                            dry-run prints counts only, write appends them (host stopped)
 optchat-chief memory export|import|search|stats ...         the memory database (see `optchat-chief memory`)
+optchat-chief move --to local:/path|ssh:HOST[:/path] [--stop-host] [--dry-run] | rollback | checkpoint | restore | verify
+                                                           move this Chief to another home or host (see `optchat-chief move help`)
 optchat-chief agent-memory search|get|remember|mcp|sync|sources|config ...  long-term memory shared by Codex and Claude Code sessions (see `optchat-chief agent-memory`)
 optchat-chief host --conversation-source cloud --cloud-install FILE --daemon-socket PATH [--mux-home DIR]
                                                              answer the chief's cloud conversation (an always-on brain host)
@@ -53,6 +58,11 @@ fn main() -> std::process::ExitCode {
                 std::process::ExitCode::from(1)
             }
         };
+    }
+    // `move` parses its own switches (`--stop-host`, `--dry-run`, ...).
+    if args.first().is_some_and(|a| a == "move") {
+        let code = optchat_chief::migrate::cli(&args[1..]);
+        return std::process::ExitCode::from(u8::try_from(code).unwrap_or(1));
     }
     // A boolean flag: taken out before parsing, which would read the next
     // argument as its value.
@@ -87,8 +97,9 @@ fn main() -> std::process::ExitCode {
             }
         }
         Some(
-            tool @ ("zoom" | "date" | "spawn" | "tell" | "react" | "reply" | "control" | "profile"
-            | "chiefs"),
+            tool @ ("zoom" | "date" | "spawn" | "tell" | "peers" | "react" | "reply" | "send"
+            | "stop" | "sleep" | "control" | "profile" | "chiefs" | "escalate-auth"
+            | "escalate_auth"),
         ) => {
             let socket = flags
                 .value("socket")
@@ -126,6 +137,16 @@ fn main() -> std::process::ExitCode {
             }
             Err(e) => {
                 eprintln!("optchat-chief {verb}: {e}");
+                1
+            }
+        },
+        Some("usage") => match optchat_chief::usage::run(&args[1..]) {
+            Ok(out) => {
+                print!("{out}");
+                0
+            }
+            Err(e) => {
+                eprintln!("optchat-chief usage: {e}");
                 1
             }
         },
@@ -206,6 +227,10 @@ fn main() -> std::process::ExitCode {
                             match key {
                                 REMOTE_AUTO_APPROVE => s.remote_auto_approve = parse_bool(value)?,
                                 CACHE_TTL => s.cache_ttl = Some(parse_ttl(value)?),
+                                optchat_chief::chief_settings::CLOUD_AUTO_PAUSE_IDLE_SECONDS => {
+                                    s.cloud_auto_pause_idle_secs =
+                                        optchat_chief::chief_settings::parse_idle_secs(value)?
+                                }
                                 _ => return Err(format!("unknown setting {key:?}")),
                             }
                             s.save(&file)

@@ -1,8 +1,7 @@
 // The background picker's scope (cx-t2x.5): Change Background… on a workspace opens the picker for
 // that workspace, which can keep its own background over appearance.background.
 import { useEffect, useRef, useState } from "react";
-import { useSettingsSelector, useStore } from "../context";
-import { Switch } from "../editors/ToggleEditor";
+import { useStore } from "../context";
 import type { WorkspaceBackground } from "../ops";
 import { t } from "../strings";
 
@@ -64,7 +63,7 @@ export function BackdropScopePicker({
   );
 }
 
-/** Where the slider rests while the workspace follows the work's own tint. */
+/** Where the slider rests while the workspace follows All Workspaces' opacity. */
 const FOLLOW_OPACITY = 0.5;
 /** How long keyboard steps pause before the tint is saved. */
 const KEY_SAVE_MS = 400;
@@ -73,8 +72,8 @@ const MAX_OPACITY = 0.95;
 
 /**
  * This Workspace's Opacity over art: the slider previews the tint while it moves (never written)
- * and saves it on release; Use the Work's Own clears it. The legibility floor keeps text readable
- * however low it goes.
+ * and saves it on release; Use All Workspaces clears it. It is the tint over the picture, however
+ * low: readability comes from Opacity and Material, never from the picture.
  */
 export function WorkspaceOpacity({
   background,
@@ -121,8 +120,8 @@ export function WorkspaceOpacity({
             </div>
             <div className="row-help">
               {stored === null && drag === null
-                ? t("settingsWindow.backdropPicker.workspaceOpacityFollows")
-                : t("settingsWindow.backdropPicker.workspaceOpacityHelp")}
+                ? t("settingsWindow.backdropPicker.workspaceOpacityFollowsAll")
+                : t("settingsWindow.backdropPicker.workspaceOpacityCovers")}
             </div>
           </div>
           <div className="row-control">
@@ -158,47 +157,11 @@ export function WorkspaceOpacity({
               />
               {stored !== null && (
                 <button type="button" className="link-button" onClick={() => void save(null)}>
-                  {t("settingsWindow.backdropPicker.workspaceOpacityReset")}
+                  {t("settingsWindow.backdropPicker.workspaceOpacityUseAll")}
                 </button>
               )}
             </span>
           </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/** `appearance.backgroundBlur`: the window material Window Glass sets. */
-export const BLUR_KEY = "appearance.backgroundBlur";
-/** Clear Glass: the material under which the art turns translucent over the desktop. */
-const CLEAR_GLASS = "glass-clear";
-
-/**
- * Window Glass (cx-t2x.6): the window turns glass over the desktop and the windows behind it, which
- * read through the art. On sets the Clear Glass material; off returns the material to its default.
- */
-export function WindowGlass() {
-  const store = useStore();
-  const material = useSettingsSelector((state) => state.rows.get(BLUR_KEY));
-  if (!material) return null;
-  const on = material.value === CLEAR_GLASS;
-  return (
-    <div className="row" data-window-glass="">
-      <div className="row-main">
-        <div className="row-label">
-          <div className="row-title" id="window-glass-label">
-            {t("settingsWindow.backdropPicker.windowGlass")}
-          </div>
-          <div className="row-help">{t("settingsWindow.backdropPicker.windowGlassHelp")}</div>
-        </div>
-        <div className="row-control">
-          <Switch
-            checked={on}
-            disabled={false}
-            labelId="window-glass-label"
-            onToggle={(next) => void (next ? store.set(BLUR_KEY, CLEAR_GLASS) : store.reset(BLUR_KEY))}
-          />
         </div>
       </div>
     </div>

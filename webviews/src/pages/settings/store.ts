@@ -392,7 +392,7 @@ export class SettingsStore {
     return reply.ok;
   }
 
-  /** Saves the workspace `id`'s own glass tint over art; null follows the work's own tint. */
+  /** Saves the workspace `id`'s own glass tint over art; null follows All Workspaces' opacity. */
   async setWorkspaceOpacity(id: string, opacity: number | null): Promise<boolean> {
     const reply = await this.request("cmux.settings.backdrop.workspace.set", {
       workspace: id,
@@ -467,7 +467,7 @@ export class SettingsStore {
   /** The host's calls for Agents > Chiefs (`cmux.chief.profile.*`, `cmux.chief.backend.*`): the
    * Chief editor reaches the Chief owner through the host's page relay, as Home does. */
   readonly chiefCalls = {
-    call: <R,>(op: string, params: unknown): Promise<R> => this.client.call<R>(op, params),
+    call: <R>(op: string, params: unknown): Promise<R> => this.client.call<R>(op, params),
   };
 
   /** Settings > Agents' state; null when the host has no Agents part. */
