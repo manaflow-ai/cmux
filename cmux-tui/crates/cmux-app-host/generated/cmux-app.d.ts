@@ -1474,7 +1474,7 @@ interface CmuxGlobal {
   }
   tab: {
     /** `tab.create_browser` (mutation, scope `workspace:write`) */
-    create_browser: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; correlation_key?: string; url: string; name?: string; width_px?: number; height_px?: number; expected_revision?: string }, Cmux.MutationResult<Cmux.CreatedBrowserPath>>
+    create_browser: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; correlation_key?: string; url: string; name?: string; engine?: "webkit" | "cef"; width_px?: number; height_px?: number; expected_revision?: string }, Cmux.MutationResult<Cmux.CreatedBrowserPath>>
     /** `tab.create_terminal` (mutation, scope `workspace:write`) */
     create_terminal: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; correlation_key?: string; cwd?: string; name?: string; cols?: number; rows?: number; expected_revision?: string }, Cmux.MutationResult<Cmux.CreatedTerminalPath>>
     /** `tab.focus` (mutation, scope `workspace:write`) */
