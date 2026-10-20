@@ -55,6 +55,18 @@ const LINK_LABELS: Record<LinkLabel, string> = {
   opensMail: L.opensMail,
   linkPlaceholder: L.linkPlaceholder,
   footnote: L.footnote,
+  bubble: L.linkBubble,
+  open: L.linkOpen,
+  copy: L.linkCopy,
+  copied: L.linkCopied,
+  edit: L.linkEdit,
+  remove: L.linkRemove,
+  text: L.linkText,
+  textPlaceholder: L.linkTextPlaceholder,
+  url: L.linkURL,
+  apply: L.linkApply,
+  insertTitle: L.linkInsertTitle,
+  editTitle: L.linkEditTitle,
 };
 
 function editorHost(

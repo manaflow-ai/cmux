@@ -91,6 +91,11 @@
    draws nothing of its own. */
 .nt-composer { flex: none; display: flex; flex-direction: column; min-width: 0; }
 .nt-location { display: contents; }
+/* No page of this run knows the recent project yet (NewTabScreen projectPending): the folder chip
+   keeps its place and names nothing until the daemon lists the chats, never "Choose folder" first. */
+.nt-location[data-project-pending] .acpmux-location-leading > .acpmux-location-picker:first-child .acpmux-location-label {
+  visibility: hidden;
+}
 .nt-composer { --acpmux-strip-radius: 20px; }
 /* The strip is the box's fill (.nt-box below): the composer's surface, so the two stay one
    surface. Neither changes on hover (Leo 2026-10-18: a composer is quiet, like Claude's and
@@ -389,6 +394,46 @@
 }
 .nt-cards[data-variant="list"] .nt-card-children > .nt-card {
   padding-left: 30px;
+}
+/* Now Playing (NowPlayingPlayer.tsx): the sidebar card's track, large, under the create actions.
+   One quiet surface; Play or Pause is the one filled control, in the text color. The level bars
+   sway on three unequal periods while it plays and rest still when paused or under reduced motion. */
+.nt-player{display:flex;align-items:center;gap:16px;margin:16px 4px 0;padding:14px;max-width:440px;
+  border-radius:14px;background:color-mix(in srgb,var(--cmux-text,currentColor) 5%,transparent)}
+.nt-player-art{flex:none;width:88px;height:88px;border-radius:10px;overflow:hidden;
+  background:color-mix(in srgb,var(--cmux-text,currentColor) 8%,transparent)}
+.nt-player-art img{display:block;width:100%;height:100%;object-fit:cover}
+.nt-player-body{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:8px}
+.nt-player-head{display:flex;align-items:flex-start;gap:10px}
+.nt-player-text{flex:1 1 auto;min-width:0}
+.nt-player-title{font-weight:600;font-size:var(--text-body);line-height:var(--text-body--line-height);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.nt-player-artist{opacity:.65;font-size:var(--text-detail);line-height:var(--text-detail--line-height);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.nt-player-levels{flex:none;display:flex;align-items:flex-end;gap:2px;height:12px;margin-top:3px;opacity:.6}
+.nt-player-levels i{display:block;width:2.5px;border-radius:2px;background:currentColor;transform-origin:bottom}
+.nt-player-levels i:nth-child(1){height:40%}
+.nt-player-levels i:nth-child(2){height:65%}
+.nt-player-levels i:nth-child(3){height:30%}
+.nt-player[data-playing="true"] .nt-player-levels i{height:100%;animation:nt-player-level 1.6s ease-in-out infinite}
+.nt-player[data-playing="true"] .nt-player-levels i:nth-child(2){animation-duration:1.3s}
+.nt-player[data-playing="true"] .nt-player-levels i:nth-child(3){animation-duration:1.9s}
+@keyframes nt-player-level{0%,100%{transform:scaleY(.4)}25%{transform:scaleY(.95)}50%{transform:scaleY(.55)}75%{transform:scaleY(.85)}}
+.nt-player-track{height:3px;border-radius:0;background:color-mix(in srgb,var(--cmux-text,currentColor) 12%,transparent);overflow:hidden}
+.nt-player-played{height:100%;background:currentColor;opacity:.55;transition:width 1s linear}
+.nt-player-controls{display:flex;align-items:center;gap:18px}
+.nt-player-button{display:grid;place-items:center;width:24px;height:24px;padding:4px;border:0;border-radius:50%;
+  background:transparent;color:inherit;opacity:.75;cursor:default}
+.nt-player-button:hover:not(:disabled){opacity:1}
+.nt-player-button:disabled{opacity:.3}
+.nt-player-button:focus-visible{outline:var(--cmux-focus-ring-width,2px) solid var(--cmux-focus-ring-color,currentColor);outline-offset:2px}
+.nt-player-play{width:36px;height:36px;padding:9px;border-radius:50%;opacity:1;background:var(--cmux-text,currentColor);
+  color:var(--cmux-surface-solid,var(--acpmux-base))}
+.nt-player-play:active{opacity:.75}
+@media (prefers-reduced-motion:reduce){
+  .nt-player[data-playing="true"] .nt-player-levels i{animation:none;height:auto}
+  .nt-player[data-playing="true"] .nt-player-levels i:nth-child(1){height:40%}
+  .nt-player[data-playing="true"] .nt-player-levels i:nth-child(2){height:65%}
+  .nt-player[data-playing="true"] .nt-player-levels i:nth-child(3){height:30%}
+  .nt-player-played{transition:none}
 }
 /* The New Tab widget view (WidgetCards.tsx, Leo 2026-10-18): soft cards in the composer's fill and
    hairline edge, round as the composer box, no squared boxes. Rows are quiet text; a pointer fills

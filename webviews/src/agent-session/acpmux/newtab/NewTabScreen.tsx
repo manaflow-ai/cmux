@@ -11,15 +11,18 @@ import { AllChatsList, type LoadChatsPage } from "./AllChatsList";
 import { ChatCards } from "./ChatCards";
 import { ClosedList } from "./ClosedList";
 import { OpenTabsList } from "./OpenTabsList";
+import { type NowPlayingCommand, NowPlayingPlayer } from "./NowPlayingPlayer";
 import { ArrowUpIcon } from "../ComposerPickers";
 import { newTabStart, useNewTabChipModel } from "./chipDefaults";
 import { useLastPick } from "../lastPick";
 import { useDeviceChats } from "./deviceChats";
 import { useRecentlyClosed } from "./recentlyClosed";
+import { initialRecentProject } from "./recentProject";
 import {
   canonicalAddress,
   defaultSelection,
   isAddress,
+  inlineCompletion,
   recentChatCards,
   screenRows,
   shellEntry,
@@ -71,6 +74,8 @@ export type NewTabScreenActions = {
   machineName?: string;
   /// New terminal / New browser tab (cx-ag5.7): the host replaces this tab with a blank one.
   onCreate?(kind: "terminal" | "browser"): void;
+  /// The Now Playing player's controls (`nowPlaying.command`); without it the page shows no player.
+  onNowPlaying?(command: NowPlayingCommand): void;
 };
 
 /// The agent's model, effort and speed chip (App's composer chips), for the agent and project a
@@ -96,6 +101,12 @@ type Props = NewTabScreenActions & {
   /// The folder a prompt with no pick starts in (the host's start folder, a private folder in a
   /// fresh workspace); the composer chip names it, not the inherited `cwd` (nxdog91 F0).
   startCwd?: string;
+  /// true until the host's handshake answers: `startCwd` is not known yet, so the chip names the
+  /// project the tab inherited (the handshake starts its chat there) rather than none.
+  startPending?: boolean;
+  /// true until this page's daemon connection has listed the chats (`listedSessions`), while no
+  /// chat is known: the recent project may still come, so the folder chip holds its place.
+  chatsPending?: boolean;
   /// The projects the picker offers (App's newTabProjects).
   projects?: Project[];
   /// The host's folder panel; resolves with the folder picked, if any.
@@ -116,6 +127,14 @@ type Props = NewTabScreenActions & {
   dictationField?: React.MutableRefObject<DictationField | null>;
 };
 
+/// `/`, `/Users`, a home folder: never a chat's start folder (AgentPaneStartFolders drops them).
+function homeOrAbove(cwd: string | undefined): boolean {
+  return !cwd || /^\/(?:(?:Users|home)(?:\/[^/]+)?)?\/?$/.test(cwd);
+}
+
+/// How long the folder chip holds its place for a daemon that has not listed the chats yet.
+const RESERVE_MS = 2_000;
+
 /// The new tab screen, variant B (plans/cmux-next/new-tab.md): the project and model pickers on
 /// top, then one field that reads what is typed (`!` a shell command, an address, or a prompt for
 /// the picked agent, R86), the rows for addresses and open tabs only when they make sense
@@ -130,6 +149,8 @@ export function NewTabScreen(props: Props) {
   const [touched, setTouched] = useState(false);
   // The highlighted row; -1 is none (Enter is the prompt's).
   const [selected, setSelected] = useState<number | undefined>(undefined);
+  // Whether the highlight was moved by the keyboard (Down, Up, Tab): only then does Tab step it.
+  const [keyboardPick, setKeyboardPick] = useState(false);
   /// Shell mode: the field holds a command (its `!` shown as the glyph), Enter runs it in a chat.
   const [shell, setShell] = useState(false);
   const [seeded, setProject] = useState(props.cwd && !isAgentHome(props.cwd) ? props.cwd : undefined);
@@ -139,23 +160,41 @@ export function NewTabScreen(props: Props) {
   // Do not work in a project (Leo 2026-10-18): no project, no start folder, until a folder pick.
   const [none, setNone] = useState(false);
   const folderless = !props.cwd || props.cwd === home || isAgentHome(props.cwd);
+  const startsRecent = !picked && folderless && !props.startCwd;
   const candidate = useMemo(
-    () =>
-      !picked && folderless && !props.startCwd
-        ? mostRecentProject(snapshot.sessions, home, props.knownProjects)
-        : undefined,
-    [picked, folderless, props.startCwd, snapshot.sessions, home, props.knownProjects],
+    () => (startsRecent ? mostRecentProject(snapshot.sessions, home, props.knownProjects) : undefined),
+    [startsRecent, snapshot.sessions, home, props.knownProjects],
   );
-  // The first one found once the host's list has landed stays: a chat updating elsewhere must not
-  // move the chip while the user types. Before the list lands the newest chat folder shows, so a
-  // prompt sent at once still starts in a project.
-  const [latched, setLatched] = useState<string | undefined>(undefined);
-  const listed = props.knownProjects === undefined || props.knownProjects.length > 0;
-  if (latched === undefined && candidate !== undefined && listed) setLatched(candidate);
-  const recent = !picked && folderless && !props.startCwd ? (latched ?? candidate) : undefined;
+  // Decided once, as the page mounts (Leo 2026-10-19: the first frame showed "Choose folder", then
+  // flipped to the recent project): the newest in the chats the page already has, else the newest a
+  // page of this run heard (newtab/recentProject.ts). A chat updating elsewhere must not move the
+  // chip while the user types, so the first one found stays.
+  const [latched, setLatched] = useState<string | undefined>(() =>
+    startsRecent ? initialRecentProject(snapshot.sessions, home, props.knownProjects) : undefined,
+  );
+  // Before the host's project list lands, a chat folder counts; once it lands, one it does not
+  // list (removed, deleted) gives way to the newest it lists.
+  const known = props.knownProjects?.length ? props.knownProjects : undefined;
+  if (latched !== undefined && known && !known.some((path) => path.replace(/(.)\/+$/, "$1") === latched))
+    setLatched(undefined);
+  else if (latched === undefined && candidate !== undefined && (props.knownProjects === undefined || known))
+    setLatched(candidate);
+  const recent = startsRecent ? (latched ?? candidate) : undefined;
+  // Nothing knows the recent project yet (the run's first page, before its daemon lists the chats):
+  // the folder chip keeps its place but names nothing, rather than "Choose folder" and then the
+  // project. A daemon that has not answered in RESERVE_MS shows the chip as it is.
+  const pending = startsRecent && !none && recent === undefined && props.chatsPending === true;
+  const [reserveOver, setReserveOver] = useState(false);
+  useEffect(() => {
+    if (!pending) return;
+    const timer = setTimeout(() => setReserveOver(true), RESERVE_MS);
+    return () => clearTimeout(timer);
+  }, [pending]);
+  const projectPending = pending && !reserveOver;
   const project = none ? undefined : (recent ?? seeded);
   const field = useRef<HTMLTextAreaElement>(null);
   const wholeSelection = useRef(false);
+  const inlineCaret = useRef<number | undefined>(undefined);
   const composing = useRef(false);
   const inputReported = useRef(false);
   const inputReadyReported = useRef<string | undefined>(undefined);
@@ -181,7 +220,13 @@ export function NewTabScreen(props: Props) {
   // The project chip names the folder a prompt starts in (screenActions onAsk): a real pick, else
   // the host's start folder, as a new chat's hero does; never the home ~ a fresh workspace's tab
   // inherits, nor the private agent-home folder a chat with neither starts in (cx-7fje0, cx-nn3e).
-  const askFolder = none ? undefined : project && project !== props.cwd ? project : props.startCwd;
+  // Before the host's handshake names the start folder, a tab that inherits a project names that
+  // project (the handshake starts its chat there), so the first frame shows it.
+  const askFolder = none
+    ? undefined
+    : project && project !== props.cwd
+      ? project
+      : (props.startCwd ?? (props.startPending && !folderless && !homeOrAbove(props.cwd) ? props.cwd : undefined));
   // A prompt's chat, in no project when that was the pick.
   const askChat = (agent: string, prompt: string, cwd?: string, model?: string) =>
     none ? props.onAsk(agent, prompt, cwd, model, true) : props.onAsk(agent, prompt, cwd, model);
@@ -311,6 +356,13 @@ export function NewTabScreen(props: Props) {
     node.scrollTop = typingAtEnd ? node.scrollHeight : top;
   }, []);
   useLayoutEffect(fitField, [fitField, text, shell, template]);
+  useLayoutEffect(() => {
+    const caret = inlineCaret.current;
+    if (caret === undefined) return;
+    inlineCaret.current = undefined;
+    field.current?.focus();
+    field.current?.setSelectionRange(caret, caret);
+  }, [text]);
   useEffect(() => {
     const node = field.current;
     const view = node?.ownerDocument.defaultView;
@@ -375,6 +427,7 @@ export function NewTabScreen(props: Props) {
     }
     setText(next);
     setSelected(undefined);
+    setKeyboardPick(false);
   };
   const submit = () => {
     // Closed suggestions still answer Return: their top row ("reddit" opens reddit.com).
@@ -498,9 +551,28 @@ export function NewTabScreen(props: Props) {
     }
     wholeSelection.current =
       input.value !== "" && input.selectionStart === 0 && input.selectionEnd === input.value.length;
+    const plain = !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey;
+    const completion =
+      plain && input.selectionStart === input.value.length && input.selectionEnd === input.value.length
+        ? inlineCompletion(text, rows)
+        : undefined;
+    if ((event.key === "ArrowRight" || event.key === "End") && completion) {
+      event.preventDefault();
+      inlineCaret.current = completion.length;
+      edit(completion);
+      return;
+    }
+    if (event.key === "Tab" && plain && keyboardPick && current >= 0 && current < rows.length) {
+      // Tab advances a highlight the keyboard already moved; Enter still performs the action.
+      // Otherwise Tab is the browser's, so it moves focus on to Send.
+      event.preventDefault();
+      setSelected(stepSelection(current, 1, rows.length));
+      return;
+    }
     const step = listStep(event);
     if (step && rows.length) {
       event.preventDefault();
+      setKeyboardPick(true);
       setSelected(stepSelection(current, step, rows.length));
     } else if (step && dismissed !== undefined && text) {
       // Down or Up on closed suggestions opens them again.
@@ -555,7 +627,7 @@ export function NewTabScreen(props: Props) {
       <div className="nt-composer">
         {/* Where the chat starts: the folder Enter asks in (askFolder), picked as in the agent
             composer's location strip; never the home ~ the tab inherited (cx-7fje0). */}
-        <div className="nt-location" onPointerDownCapture={touch}>
+        <div className="nt-location" data-project-pending={projectPending || undefined} onPointerDownCapture={touch}>
           <ComposerContext
             summary={{
               ...chipSnapshot.summary,
@@ -667,7 +739,11 @@ export function NewTabScreen(props: Props) {
                 aria-selected={index === current}
                 data-type={row.type}
                 className={index === current ? "nt-row is-selected" : "nt-row"}
-                onMouseMove={() => index !== current && setSelected(index)}
+                onMouseMove={() => {
+                  if (index === current) return;
+                  setKeyboardPick(false);
+                  setSelected(index);
+                }}
                 onMouseDown={(event) => {
                   event.preventDefault();
                   activate(row);
@@ -730,6 +806,7 @@ export function NewTabScreen(props: Props) {
           </button>
         </div>
       )}
+      {!allChats && <NowPlayingPlayer {...(props.onNowPlaying ? { onCommand: props.onNowPlaying } : {})} />}
       {props.widgets && (
         <WidgetCards
           sessions={snapshot.sessions}

@@ -62,7 +62,7 @@ import threading
 import time
 from typing import Any
 
-STEP_KEYS = {"title", "cmux", "daemon", "wait", "shot", "optional", "expect"}
+STEP_KEYS = {"title", "cmux", "daemon", "wait", "shot", "display", "optional", "expect"}
 TOUR_KEYS = {"title", "steps", "settings"}
 DEFAULT_WAIT = 1.5
 STEP_TIMEOUT = 20.0
@@ -138,7 +138,7 @@ def load_tour(path: Path) -> dict[str, Any]:
         wait = step.get("wait", DEFAULT_WAIT)
         if isinstance(wait, bool) or not isinstance(wait, (int, float)) or not 0 <= wait <= 30:
             raise TourError(f"{where}: `wait` must be 0 to 30 seconds")
-        for key in ("daemon", "shot"):
+        for key in ("daemon", "shot", "display"):
             if key in step and not isinstance(step[key], bool):
                 raise TourError(f"{where}: `{key}` must be true or false")
         if "optional" in step and (not isinstance(step["optional"], str) or not step["optional"].strip()):
@@ -673,6 +673,18 @@ def _json_equal(actual: Any, expected: Any) -> bool:
     return actual == expected
 
 
+def display_capture(app: App, screen: Screen, path: Path) -> str | None:
+    """The window's rect from the screen, so the shot shows a menu or popover
+    (its own window, which the main window's snapshot leaves out)."""
+    app.session.probe_once()
+    if app.session.app_window:
+        return "no screen capture route for a display shot"
+    display = Screen(app.session, screen.scratch)
+    display.use_display()
+    display.follow(app.main_window_frame())
+    return display.capture(path)
+
+
 def run_step(app: App, screen: Screen, step: dict[str, Any], index: int, shots: Path) -> dict[str, Any]:
     started = time.monotonic()
     result: dict[str, Any] = {"index": index, "title": step["title"], "status": "ok"}
@@ -707,7 +719,7 @@ def run_step(app: App, screen: Screen, step: dict[str, Any], index: int, shots: 
     if step.get("shot", True) or result["status"] == "failed":
         suffix = "-failed" if result["status"] == "failed" else ""
         path = shots / f"{index:02d}-{slug(step['title'])}{suffix}.png"
-        problem = screen.capture(path)
+        problem = display_capture(app, screen, path) if step.get("display") else screen.capture(path)
         if problem:
             result["shot_error"] = problem
         else:
