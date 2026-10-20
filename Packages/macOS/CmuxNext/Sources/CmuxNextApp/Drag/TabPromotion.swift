@@ -17,25 +17,10 @@ enum TabPromotion {
     /// Whether a workspace of `kind` is one that keeps tabs: the merge rule's fixed kinds (Home).
     static func staysPut(kind: String?) -> Bool { WorkspaceMerge.staysPut(kind: kind) }
 
-    /// Whether tab `id` of `workspace` stays in it: a tab of a pinned column of a fixed workspace
-    /// (Home's own tab), Home's page or a Chief tab wherever it is, or any tab of a fixed workspace
-    /// without a pinned column.
+    /// Whether tab `id` of `workspace` stays in it: Home's own tab (`HomeDock.keepsTab`).
     @MainActor static func staysPut(tab id: String, in workspace: WorkspaceModel?) -> Bool {
         guard let workspace, staysPut(kind: workspace.kind) else { return false }
-        var pinned = false
-        for screen in workspace.screens {
-            for pane in screen.panes {
-                if let tab = pane.tabs.first(where: { $0.id == id }), tab.page == HomeDock.page || HomeDock.isChiefTab(tab) {
-                    return true
-                }
-            }
-            for column in screen.columns where column.dock?.isPinned == true {
-                pinned = true
-                let panes = Set(column.layout.paneIDs)
-                if screen.panes.contains(where: { panes.contains($0.handle) && $0.tabs.contains { $0.id == id } }) { return true }
-            }
-        }
-        return !pinned
+        return HomeDock.keepsTab(id, in: workspace)
     }
 
     /// The tab menu entries a tab that stays put leaves out.

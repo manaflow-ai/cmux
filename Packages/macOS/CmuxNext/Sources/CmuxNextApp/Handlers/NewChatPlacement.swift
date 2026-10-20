@@ -4,38 +4,6 @@ import CmuxNextDaemon
 import CmuxNextLayout
 import Observation
 
-/// Where a new agent chat opens (lawrence-call-1006 D): the agent chat is a
-/// docked column on the left (the dock column with the agent chat role),
-/// never a tab in the strip.
-enum NewChatPlacement: Equatable {
-    /// A tab in the pane it was opened from.
-    case here
-    /// A tab in the chat dock's pane (or, beside a pinned chat dock that
-    /// takes no tabs, in the first scrolling pane).
-    case dock(LayoutPaneID)
-    /// A new left chat dock, made from the chat once it exists.
-    case newDock
-    /// A new column right of the chat dock: Home's pinned dock alone on its screen
-    /// (`pinned-dock-alone-v1`) takes no chat and has no scrolling pane beside it.
-    case besideDock
-
-    /// `columns` are the pane's screen's; `isLoneChat` says the pane's column
-    /// is one pane holding one agent chat, the only scrolling column. A lone
-    /// chat docks when the first tool opens (``ChatColumnPlacement``), so a
-    /// second chat joins its pane.
-    static func resolve(from pane: LayoutPaneID, columns: [LayoutColumn], isLoneChat: Bool) -> NewChatPlacement {
-        guard columns.contains(where: { $0.root.contains(pane) }) else { return .here }
-        if let dock = columns.first(where: { $0.dock?.role == .agentChat }) {
-            if dock.dock?.takesTabs != false { return .dock(dock.root.panes[0]) }
-            // `pinned-dock-v1`: a pinned chat dock (Home's) takes no new chat. It opens where it
-            // was asked for, or in the first scrolling pane when that was the dock itself.
-            guard dock.root.contains(pane) else { return .here }
-            return columns.first(where: { $0.dock == nil }).map { NewChatPlacement.dock($0.root.panes[0]) } ?? .besideDock
-        }
-        return isLoneChat ? .here : .newDock
-    }
-}
-
 extension NewChatPlacement {
     /// Where a new chat from `controller`'s pane opens; `.here` on a daemon
     /// without dock roles.

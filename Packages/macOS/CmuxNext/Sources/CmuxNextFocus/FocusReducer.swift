@@ -4,12 +4,12 @@ import Foundation
 /// The per-key focus rules that stay JSON calls into `cmux-focus-core`
 /// (`focus_type_ahead`, `focus_child_window_key`): one call per queued key or
 /// child-window key change, not per focus event.
-nonisolated enum FocusReducer {
+public nonisolated enum FocusReducer {
     /// The first output buffer: a reply that does not fit returns ERR_BUFFER
     /// with the needed length, and the call runs once more with that size.
     private static let initialCapacity = 4 * 1024
 
-    static func call<Request: Encodable, Response: Decodable>(_ operation: String, _ request: Request,
+    public static func call<Request: Encodable, Response: Decodable>(_ operation: String, _ request: Request,
                                                              as: Response.Type) -> Response? {
         guard let data = try? JSONEncoder().encode(request) else { return nil }
         var capacity = initialCapacity
