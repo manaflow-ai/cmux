@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Effect } from "effect";
+import { MeshStore } from "../../src/db/mesh.ts";
 import { ALL_SCOPES, bearer } from "../support/endpoints.ts";
 import { makeHarness } from "../support/harness.ts";
 import { addressBody, enrollBody, makeInstallKey, rotateBody } from "../support/mesh-signing.ts";
@@ -150,8 +151,9 @@ describe("VM receiver policy", () => {
   it("refuses an identity changed across the snapshot boundary", async () => {
     const client = await enroll();
     expect((await apply([{ src: [client.id], dst: [vm], allow: ["tcp:22"] }])).status).toBe(200);
-    const original = h.mesh.store.listDevices;let reads = 0;
-    Object.assign(h.mesh.store, { listDevices: (...args: Parameters<typeof original>) => original(...args).pipe(Effect.tap(() => Effect.sync(() => {
+    const service = await Effect.runPromise(Effect.provide(MeshStore, h.mesh.store.layer));
+    const original = service.listDevices;let reads = 0;
+    Object.assign(service, { listDevices: (...args: Parameters<typeof original>) => original(...args).pipe(Effect.tap(() => Effect.sync(() => {
       if (++reads === 2) Object.assign(h.mesh.store.devices.find((d) => d.deviceId === client.id)!, { wgPublicKey: btoa("n".repeat(32)) });
     }))) });
     expect((await policy()).status).toBe(503);
