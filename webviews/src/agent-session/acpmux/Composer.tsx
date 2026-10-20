@@ -67,6 +67,11 @@ const STOP_GUARD_MS = 600;
 /// How long typing pauses before a new chat's text goes to the host (`onUnsentDraft`).
 const UNSENT_DRAFT_SETTLE_MS = 300;
 
+/// What keeps its own press inside the composer card (`focusFromCard`): the text, controls, the menus
+/// and dialogs the card opens, and attachments.
+const CARD_OWN_PRESS =
+  '.ProseMirror, button, a[href], input, textarea, select, label, summary, [contenteditable="true"], [role="button"], [role="link"], [role="menuitem"], [role="option"], [role="checkbox"], [role="radio"], [role="switch"], [role="slider"], [role="tab"], [role="textbox"], [role="combobox"], [role="listbox"], [role="menu"], [role="dialog"], .ui-popup, .acpmux-attachment';
+
 export type ComposerEditCommand = "cut" | "copy" | "paste" | "pasteAsPlainText";
 
 export const COMPOSER_LABELS = {
@@ -1035,6 +1040,27 @@ export function Composer({
     else field.current?.focus();
     onEdit?.(command);
   };
+  // A press on the card around the text (the field's padding, the gap around the button row, the
+  // card's edge) focuses the prompt where its caret was, as in Codex and Claude Code, whose whole
+  // input card is the text area. The text keeps its own press (caret, selection), and the card's
+  // controls and attachments keep theirs.
+  const focusFromCard = (event: React.MouseEvent<HTMLDivElement>) => {
+    // A Control-press opens the context menu on macOS.
+    if (event.button !== 0 || event.ctrlKey) return;
+    const target = event.target as Element;
+    // React hands up presses from what the card portals elsewhere (a menu, a dialog, a backdrop).
+    if (!event.currentTarget.contains(target) || target.closest(CARD_OWN_PRESS)) return;
+    // A long prompt's scrollbar (the field scrolls past eight lines) keeps its drag.
+    if (
+      target instanceof HTMLElement &&
+      target.scrollHeight > target.clientHeight &&
+      event.nativeEvent.offsetX >= target.clientWidth
+    )
+      return;
+    event.preventDefault();
+    if (shell) shellField.current?.focus();
+    else field.current?.focus();
+  };
   const fieldMenu: ContextMenuItem[] = [
     { id: "undo", label: t(COMPOSER_LABELS.undo), disabled: !fieldHistory.undo, onSelect: () => runField("undo") },
     { id: "redo", label: t(COMPOSER_LABELS.redo), disabled: !fieldHistory.redo, onSelect: () => runField("redo") },
@@ -1174,7 +1200,8 @@ export function Composer({
         onLeave={() => field.current?.focus()}
       />
       {context}
-      <div className="acpmux-composer-box">
+      {/* oxlint-disable-next-line jsx-a11y/no-static-element-interactions -- A pointer convenience only: the prompt inside is the control and takes the keyboard itself. */}
+      <div className="acpmux-composer-box" onMouseDown={focusFromCard}>
         <input
           ref={importInput}
           className="acpmux-import-input"
