@@ -45,6 +45,8 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     private var roomBrowserProfileObservation: Task<Void, Never>?
     /// Shown while the window has no workspace (first connect, or failure).
     private(set) var connectingView: DaemonConnectingView?
+    /// What the window shows, for `debug.daemon`: `content` (a workspace), `connecting` (the connecting view) or `none`.
+    var recoveryShows: String { content != nil ? "content" : connectingView != nil ? "connecting" : "none" }
     /// Agent cursors on this window's cursor layer (made on the first input it draws).
     private(set) lazy var agentCursor = AgentCursorWiring.slot(for: self)
     /// This window's top pages (TOP-SECTION-ITEMS-ARE-PAGES), one view per route.

@@ -2024,8 +2024,13 @@ STOPPED = set()  # daemon pids daemon-stop froze; ended at exit if still there
 
 
 def end_stopped_daemons():
-    """A frozen daemon that Restart did not end: let it run, then end it (SIGKILL)."""
-    for pid in sorted(STOPPED):
+    """A frozen daemon that Restart did not end: let it run, then end it (SIGKILL). Only a pid that
+    is still one of the app's daemons: a pid the system reused for something else is left alone."""
+    try:
+        current = set(APP.daemon_pids()) if APP else set()
+    except Exception:
+        current = set()
+    for pid in sorted(STOPPED & current):
         try:
             os.kill(pid, signal.SIGCONT)
             os.kill(pid, signal.SIGKILL)
@@ -2038,9 +2043,9 @@ def end_stopped_daemons():
 atexit.register(end_stopped_daemons)
 
 
-def daemon_state():
+def daemon_state(timeout=3):
     """`debug.daemon`: the app's daemon connection and recovery; None when it does not answer."""
-    answer = rpc("debug.daemon", timeout=3)
+    answer = rpc("debug.daemon", timeout=timeout)
     return answer if isinstance(answer, dict) and "error" not in answer else None
 
 
@@ -2088,10 +2093,15 @@ class RecoverySampler:
     The designed recovery state: each window shows its workspace or the connecting view
     (DaemonConnectingView), no pane is blank, and every shown terminal is connected, restoring, or
     disconnected and reconnecting. A terminal disconnected for good (no reconnect) for over a
-    second, a window with nothing, or one blank pane is not."""
+    second, a window with nothing, or one blank pane is not. Both calls must keep answering after
+    the kill: a stretch of over GAP seconds without an answer from either is a violation too (a
+    hung app shows nothing designed)."""
+
+    CALL_TIMEOUT = 1.0
+    GAP = 1.0
 
     def __init__(self):
-        self.samples, self.stop, self.thread = [], threading.Event(), None
+        self.samples, self.stop, self.thread, self.killed = [], threading.Event(), None, None
 
     def start(self, started):
         self.started = started
@@ -2099,10 +2109,37 @@ class RecoverySampler:
         def run():
             while not self.stop.is_set():
                 at = time.time() - self.started
-                self.samples.append((at, daemon_state(), rpc("debug.surfaces", timeout=3)))
+                self.samples.append((at, daemon_state(self.CALL_TIMEOUT), rpc("debug.surfaces", timeout=self.CALL_TIMEOUT)))
                 self.stop.wait(0.25)
         self.thread = threading.Thread(target=run, daemon=True)
         self.thread.start()
+
+    def halt(self):
+        """Stops sampling; a sample in flight ends within both calls' timeouts."""
+        self.stop.set()
+        if self.thread:
+            self.thread.join(2 * self.CALL_TIMEOUT + 2)
+        return list(self.samples)
+
+    @staticmethod
+    def surfaces_answered(surfaces):
+        return isinstance(surfaces, dict) and "error" not in surfaces
+
+    def gaps(self, samples, end):
+        """(largest gap between samples, per call the largest stretch after the kill without an answer)."""
+        ats = [at for at, _, _ in samples]
+        between = max((b - a for a, b in zip(ats, ats[1:])), default=end)
+        killed = self.killed if self.killed is not None else 0.0
+        silent = {}
+        for name, answered in (("debug.daemon", lambda st, su: bool(st)), ("debug.surfaces", lambda st, su: self.surfaces_answered(su))):
+            last, worst = killed, 0.0
+            for at, state, surfaces in samples:
+                if at < killed:
+                    continue
+                if answered(state, surfaces):
+                    worst, last = max(worst, at - last), at
+            silent[name] = max(worst, end - last)
+        return between, silent
 
     @staticmethod
     def problems(state, surfaces):
@@ -2125,11 +2162,10 @@ class RecoverySampler:
         return hard, dead
 
     def finish(self, variant):
-        self.stop.set()
-        if self.thread:
-            self.thread.join(5)
+        samples = self.halt()
+        end = time.time() - self.started
         seen, violations, dead_since = {}, [], None
-        for at, state, surfaces in self.samples:
+        for at, state, surfaces in samples:
             hard, dead = self.problems(state, surfaces)
             violations += [f"{at:.2f} s: {h}" for h in hard]
             if dead:
@@ -2146,10 +2182,18 @@ class RecoverySampler:
             key = f"{(state or {}).get('connection', 'no answer')}/{shows}/{'+'.join(sorted(links)) or '-'}"
             seen[key] = seen.get(key, 0) + 1
         dump(f"{variant}-recovery-samples.json", [{"at": round(at, 2), "daemon": state, "blank_panes": (surfaces or {}).get("blank_panes")
-                                                     if isinstance(surfaces, dict) else None} for at, state, surfaces in self.samples])
-        answered = sum(1 for _, state, _ in self.samples if state)
-        ok = answered > 0 and not violations
-        detail = (f"{len(self.samples)} samples ({answered} answered); states {json.dumps(seen)[:400]}"
+                                                     if isinstance(surfaces, dict) else None} for at, state, surfaces in samples])
+        killed = self.killed if self.killed is not None else 0.0
+        answered = sum(1 for at, state, _ in samples if state and at >= killed)
+        surfaced = sum(1 for at, _, surfaces in samples if self.surfaces_answered(surfaces) and at >= killed)
+        between, silent = self.gaps(samples, end)
+        for name, worst in silent.items():
+            if worst > self.GAP:
+                violations.append(f"{name} did not answer for {worst:.2f} s")
+        ok = answered > 0 and surfaced > 0 and not violations
+        detail = (f"{len(samples)} samples (after the kill: debug.daemon answered {answered}, debug.surfaces {surfaced}); "
+                  f"largest gap between samples {between:.2f} s, without an answer "
+                  f"{', '.join(f'{n} {w:.2f} s' for n, w in silent.items())}; states {json.dumps(seen)[:400]}"
                   + (f"; NOT designed: {'; '.join(violations[:5])}" if violations else ""))
         RESULTS.append((f"{variant}: the UI shows the designed recovery state meanwhile (no blank pane)", ok, detail, "layout"))
 
@@ -2159,6 +2203,8 @@ def start_turn_in_flight(variant):
     agent streams before-gate, then waits on a FIFO the journey writes after the reconnect)."""
     client = acpmux_client() if CHATS else None
     if not client:
+        RESULTS.append((f"{variant}: an agent chat turn is in flight at the {'stop' if variant == 'daemon-stop' else 'kill'}",
+                        False, "no seeded agent chat or acpmux client to start one", "agents"))
         return None
     chat = CHATS[0]
     fifo = os.path.join(opts.out, f"rj-gate-{variant}-{RUN}")
@@ -2245,7 +2291,16 @@ def journey(base):
             sampler.start(started)
         if not APP.quit(variant):
             RESULTS.append((f"{variant}: app ends ({'killed' if variant == 'crash' else 'its quit path'})", False, "still running", "app quit"))
+            if sampler:
+                sampler.halt()
+            if turn:
+                try:
+                    os.remove(turn["fifo"])
+                except OSError:
+                    pass
             return
+        if sampler:
+            sampler.killed = time.time() - started
         # Reports count from here: the old app's pages keep reporting until its process ends, and
         # one of those would pass for a reopened page that has not reported yet (cx-p1xs5).
         launched = SINCE = time.time()

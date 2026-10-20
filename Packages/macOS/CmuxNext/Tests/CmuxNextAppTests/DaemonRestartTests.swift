@@ -228,9 +228,9 @@ struct DaemonRestartTests {
         let router = ControlRouter(identity: ControlIdentity(version: "1.0", build: "1", bundleID: "com.cmuxterm.app.debug.test", tag: "test",
                                                              processID: getpid()),
                                    executor: RegistryControlBridge(registry: launched.services.registry), settings: nil)
-        // AppControl's wiring of `debug.daemon`, with its window mapping.
+        // AppControl's wiring of `debug.daemon`.
         router.register([launched.services.daemon.debugControlMethod { [services = launched.services] in
-            services.windows.controllers.map { (id: $0.state.id, shows: $0.content != nil ? "content" : $0.connectingView != nil ? "connecting" : "none") }
+            services.windows.controllers.map { (id: $0.state.id, shows: $0.recoveryShows) }
         }])
         func call(_ params: [String: CmuxNextSettings.JSONValue] = [:]) async throws -> [String: CmuxNextSettings.JSONValue] {
             try #require(try await router.handle(ControlRequest(id: "1", method: "debug.daemon", params: params)).get().objectValue)
