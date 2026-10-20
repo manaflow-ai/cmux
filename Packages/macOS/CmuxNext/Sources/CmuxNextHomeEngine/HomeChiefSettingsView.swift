@@ -235,7 +235,8 @@ public final class HomeChiefSettingsView: NSView {
 
     /// Renames the Chief to the field's new, non-empty name; nil when the name is no change. A
     /// rename the daemon refuses (or with no daemon to send it to) shows the kept name again and
-    /// says so, unless a newer name came since.
+    /// says so, unless a newer name came since. The Home reads the title again on every
+    /// transcript or typing change (`setName`), so the kept name arriving meanwhile is no newer name.
     @discardableResult
     func commitName() -> Task<Void, Never>? {
         let name = nameField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -247,9 +248,10 @@ public final class HomeChiefSettingsView: NSView {
         shownName = name
         // task-owner: one rename; ends with the daemon's answer
         return Task { [weak self] in
-            guard let self, !(await onRename(name)), shownName == name else { return }
+            guard let self, !(await onRename(name)), shownName == name || shownName == kept else { return }
             shownName = kept
-            if nameField.currentEditor() == nil { nameField.stringValue = kept }
+            // Still in the field after Return: it shows the kept name too, unless the person typed on.
+            if nameField.currentEditor() == nil || nameField.stringValue == name { nameField.stringValue = kept }
             note(HomeEngineStrings.renameRefused, kept: true)
         }
     }
