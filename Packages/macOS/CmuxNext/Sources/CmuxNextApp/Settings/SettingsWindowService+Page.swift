@@ -47,7 +47,6 @@ extension SettingsWindowService {
             "settings_file": services.settings.map { .string($0.file.url.path(percentEncoded: false)) } ?? .null,
             "backdrops": Self.backdrops.pageRows,
             "derived": .object(pageDerivedNumbers()),
-            "derived_min": .object(pageDerivedMinimums()),
         ]
     }
 
@@ -59,17 +58,6 @@ extension SettingsWindowService {
             derived[id] = .number(value)
         }
         return derived
-    }
-
-    /// Where number rows' sliders start, by schema key, when the app narrows the schema's range:
-    /// the window Opacity's legibility floor over a background picture.
-    func pageDerivedMinimums() -> [String: JSONValue] {
-        var minimums: [String: JSONValue] = [:]
-        for path in [WindowBackgroundSetting.opacityPath] {
-            guard let id = SettingsSchema.descriptor(for: path)?.id, let value = derivedMinimum(at: path) else { continue }
-            minimums[id] = .number(value)
-        }
-        return minimums
     }
 
     /// The wallpaper grid's choices, read each time so an image the person just added, or a

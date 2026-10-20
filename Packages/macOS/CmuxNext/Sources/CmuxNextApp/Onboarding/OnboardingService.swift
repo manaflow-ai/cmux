@@ -48,6 +48,9 @@ final class OnboardingService {
     var classicMigrationAtLaunch: Bool?
     /// Whether a classic cmux app is running; nil reads it from how recently classic saved.
     var classicRunning: (@MainActor () -> Bool)?
+    /// Classic's state folder, where its launch sentinel says it runs; nil is this Mac's
+    /// (`~/.local/state/cmux`); tests use a scratch folder.
+    var classicStateRoot: URL?
     /// The migration run in flight or last finished: a new run waits for it.
     var classicMigrationRun: Task<ClassicMigrationOutcome, any Error>?
 

@@ -202,7 +202,7 @@ Three layouts were mocked (gallery in Home's right pane,
 | 3 | "New Subgroup" (`workspaceGroup.newSubgroup`: group menu, palette, CLI `workspace-group new-subgroup`, MCP; `SidebarDocSubgroupPlan` refuses past 3 levels) | `WorkspaceSubgroupActionTests`, `SidebarDocSubgroupPlanTests` |
 | 4 | "New Remote Group…" (`remote.newGroup`: palette, sidebar background menu, CLI `remote new-group <host>`, MCP): connects the host as `remote.connect` does and marks its machine section `host_group`, which keeps its header in one list | Rust `host_group_tests`, `SidebarHostGroupLayoutTests`, `RemoteGroupActionTests` |
 | 5 | a remote group's header names every state (Connected, Connecting…, Reconnecting…, Offline, Unreachable…); "Remove Remote Group" (`remote.removeGroup`, header menu of a remote group only) unmarks it without disconnecting; SSH hosts keep their Reconnect/Disconnect/Forget menu | `HostGroupHeaderStatusTests`, `RemoteGroupRemoveActionTests`, `SidebarDocHostGroupPlanTests` |
-| 6 | "Move Chief to…" lists remote groups (a284 owns the move) | waits on a284's move interface |
+| 6 (landed) | "Move Chief to…" (`chief.moveTo`, palette; `cmux chief move --to` and the Chief's MCP `move` tool are the CLI and MCP): This Mac (`local:<home>`), SSH remote groups (`ssh:<destination>`), paired servers greyed out "not supported yet", cmux Cloud (`cloud` / `cloud:staging`, from the app's auth; one entry, Cloud VMs are not targets) greyed out until signed in, offline hosts greyed out. Dry run report, confirm, move, then `move reach` on the target; the Cloud token goes through a 0600 file in a 0700 folder, deleted after | `ChiefMoveTargetsTests`, `ChiefMovePlanTests`, `ChiefMoveTargetHomeTests`, `ChiefMoveActionTests`, `CmuxDialogDisabledOptionTests` |
 
 ### 8.1 Interface offered to a284 (Chief move)
 
@@ -214,8 +214,7 @@ start on the target, resume) stays a284's.
 
 ### 8.2 Known gaps after slice 5
 
-- Paired servers and Cloud machines have no Reconnect row in their header menu (only SSH hosts do);
-  their reconnect is automatic.
+- Paired servers and Cloud machines got a Reconnect row (`machine.reconnect`) after slice 5.
 - "Offline since HH:MM" shows as "Offline": the machine model has no offline time yet.
 - New Remote Group takes SSH destinations (aliases, tailnet names); a tailnet host found by
   `cmux host list` and a Cloud machine become remote groups only through their own connect today.
