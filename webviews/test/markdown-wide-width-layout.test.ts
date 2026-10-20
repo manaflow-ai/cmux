@@ -170,16 +170,17 @@ await requireBrowserLane("markdown-wide-width-layout.test.ts", async () => {
         await settings(page, "--cmux-md-content-width: none;");
         const full = await layout(page);
         expect(Math.abs(full.content - (full.paneWidth - 2 * full.padding))).toBeLessThan(2);
-        // 1000ch on 3000px fits the pane too, so the two match here; a 300ch column does not.
+        // 1000ch on 3000px fits the pane too, so the two match here; a 200ch column (about 1960px) does not.
         expect(Math.abs(wide.content - full.content)).toBeLessThan(2);
-        await settings(page, "--cmux-md-content-width: 300ch;");
+        await settings(page, "--cmux-md-content-width: 200ch;");
         const ultra = await layout(page);
         expect(ultra.content).toBeLessThan(full.content - 100);
         await page.close();
       });
 
       test("the Aa popover: a typed width and the preset menu change the column, and the popover stays open", async () => {
-        const page = await open(engine, 3000);
+        // 300ch is about 3,050px at 16px: the pane is wider, so the column is exactly 300ch.
+        const page = await open(engine, 4000);
         await page.click(".md-reading-button");
         const input = page.locator(".md-width-input");
         await input.waitFor();
