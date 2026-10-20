@@ -33,6 +33,8 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     private var connectionObservation: Task<Void, Never>?
     private var attentionObservation: Task<Void, Never>?
     private var settlingObservation: Task<Void, Never>?
+    /// Republishes `canvasLayout` when this workspace's active screen goes into or out of a canvas.
+    private var canvasObservation: Task<Void, Never>?
     /// True while `apply` mounts panes: it sends the topology once at its end,
     /// so a mount inside it does not rebuild the O(N) topology per pane (O(N^2)).
     private(set) var isApplying = false
@@ -107,6 +109,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         connectionObservation?.cancel()
         attentionObservation?.cancel()
         settlingObservation?.cancel()
+        canvasObservation?.cancel()
         screenBar.teardown()
         for controller in panes.values { controller.teardown() }
         panes.removeAll()
@@ -141,6 +144,10 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
             }
         }
         observeAttention()
+        let layoutModel = layoutModel
+        canvasObservation = Task { [weak self] in
+            for await _ in ObservationStream({ layoutModel.isCanvasActive }) { self?.services.canvasContextDidChange() }
+        }
     }
 
     /// Panes with an unread notification draw the attention ring.
