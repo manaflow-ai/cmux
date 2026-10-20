@@ -150,7 +150,17 @@ export class ConversationDO extends OwnerDO<Head> {
     return state && this.boundEngine ? conversation.inboxViewFor(state, this.boundEngine.rows, user) : null
   }
 
-  /** The lowest message seq a member may see (history_visible: since_join hides older ones). */
+  /**
+   * Worker only (home-avatar-routes.ts): whether `principal` may read this conversation and
+   * `participant` is a current member of it, in either tier. Never writes.
+   */
+  async sharesWith(entity: string, principal: Principal, participant: string): Promise<boolean> {
+    const state = this.existingState(entity)
+    if (!state || !this.maySubscribe(state, principal)) return false
+    return this.memberById(state, participant) !== undefined
+  }
+
+    /** The lowest message seq a member may see (history_visible: since_join hides older ones). */
   private floor(state: Head, me: { joined_seq?: number }): number {
     return state?.settings?.history_visible === "since_join" ? (me.joined_seq ?? 0) : 0
   }
