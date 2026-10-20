@@ -103,7 +103,7 @@ final class TopHomePageView: NSView {
         // Group Info, Rename, Add People and Leave (the same actions as the palette and the CLI).
         list.menuItems = { id in
             guard let row = home.homeStore.rows.first(where: { $0.id == id }) else { return [] }
-            func item(_ action: ActionID, _ title: String? = nil, _ arguments: [String: ActionValue] = [:]) -> [NSMenuItem] {
+            @MainActor func item(_ action: ActionID, _ title: String? = nil, _ arguments: [String: ActionValue] = [:]) -> [NSMenuItem] {
                 guard let title = title ?? registry.title(for: action) else { return [] }
                 return [HomeSidebarView.menuItem(title) {
                     _ = registry.perform(action, invocation: ActionInvocation(arguments: arguments, origin: .user))
