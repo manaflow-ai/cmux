@@ -330,6 +330,7 @@ public final class TabStripView: NSView {
             return
         }
         hoverCards.register(hoverCard)
+        applyMultiSelection()
         if appearanceIsStale {
             appearanceIsStale = false
             applyAppearance()

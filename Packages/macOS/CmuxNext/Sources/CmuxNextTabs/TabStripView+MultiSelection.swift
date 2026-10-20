@@ -73,7 +73,7 @@ extension TabStripView {
     func install() {
         guard monitor == nil else { return }
         monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            guard event.keyCode == 53, let strip = self?.strip, event.window === strip.window, strip.drag == nil else { return event }
+            guard event.keyCode == 53, let strip = self?.strip, event.window === strip.window, !strip.isHiddenOrHasHiddenAncestor, strip.drag == nil else { return event }
             strip.model.clearMultiSelection()
             return event
         }
