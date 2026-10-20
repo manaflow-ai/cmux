@@ -77,7 +77,16 @@ await requireBrowserLane("composer-caret-focus.test.ts", async () => {
     await vite?.close();
   });
 
-  type Stage = { name: string; entry: string; variant: string; field: string; box: string; row: string };
+  type Stage = {
+    name: string;
+    entry: string;
+    variant: string;
+    field: string;
+    box: string;
+    /** The composer's button rows: the box's own and the quiet row under it (ComposerFoot.tsx). */
+    row: string;
+    foot: string;
+  };
   const COMPOSERS: Stage[] = [
     {
       name: "chat composer",
@@ -86,14 +95,17 @@ await requireBrowserLane("composer-caret-focus.test.ts", async () => {
       field: ".acpmux-composer-box .acpmux-md",
       box: ".acpmux-composer-box",
       row: ".acpmux-composer-bar",
+      foot: ".acpmux-composer .acpmux-composer-foot",
     },
     {
       name: "New Tab composer",
       entry: "agent-pane.new-tab",
-      variant: "reasoning-chip",
+      // Cards (composer-mic pins it), the first dot, whose box and quiet row these checks read.
+      variant: "composer-mic",
       field: ".nt-field",
       box: ".nt-box",
-      row: ".nt-pickers",
+      row: ":is(.nt-pickers, .acpmux-composer-foot)",
+      foot: ".nt-composer .acpmux-composer-foot",
     },
   ];
   const CONTROLS = ":is(.acpmux-picker-button, .acpmux-mic, .acpmux-plan, .acpmux-steer, .acpmux-fast)";
@@ -189,8 +201,8 @@ await requireBrowserLane("composer-caret-focus.test.ts", async () => {
       test(`${engine}: ${stage.name}: the button row is the plain footer, its model chip a muted label`, async () => {
         const page = await open(engine, stage);
         const row = await page.evaluate(
-          ({ row }) => {
-            const bar = document.querySelector<HTMLElement>(row)!;
+          ({ foot }) => {
+            const bar = document.querySelector<HTMLElement>(foot)!;
             const mark = bar.querySelector<HTMLElement>(".acpmux-model .acpmux-picker-button .agent-mark");
             const model = bar.querySelector<HTMLElement>(".acpmux-model .acpmux-picker-button")!;
             const effort = bar.querySelector<HTMLElement>(".acpmux-effort .acpmux-picker-button");
@@ -200,7 +212,7 @@ await requireBrowserLane("composer-caret-focus.test.ts", async () => {
               muted: !effort || getComputedStyle(model).color === getComputedStyle(effort).color,
             };
           },
-          { row: stage.row },
+          { foot: stage.foot },
         );
         await page.close();
         expect(row).toEqual({ look: "plain", mark: "none", muted: true });
