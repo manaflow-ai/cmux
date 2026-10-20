@@ -153,7 +153,9 @@ extension TerminalSurfaceView {
     private func sendButton(_ event: NSEvent, state: ghostty_input_mouse_state_e, button: ghostty_input_mouse_button_e) -> Bool {
         guard let surface else { return false }
         sendPosition(event)
-        return ghostty_surface_mouse_button(surface, state, button, GhosttyInput.mods(event.modifierFlags))
+        return clipboardRequests.asUserClipboardWrite {
+            ghostty_surface_mouse_button(surface, state, button, GhosttyInput.mods(event.modifierFlags))
+        }
     }
 
     private func sendPosition(_ event: NSEvent) {
