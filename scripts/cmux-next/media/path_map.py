@@ -15,7 +15,7 @@ import re
 import sys
 
 
-TOUR_ORDER = ("new-tab", "agent-pane", "now-playing", "glass", "core")
+TOUR_ORDER = ("new-tab", "agent-pane", "now-playing", "update-card", "glass", "core")
 UI_ROOTS = (
     re.compile(r"^(?:Packages/macOS/CmuxNext/Sources|webviews/(?:src|apps)|agent-chat/(?:src|app|components?)/)"),
     re.compile(r"^(?:Packages/macOS/CmuxNext/(?:Resources|Tests?)/|webviews/|agent-chat/)"),
@@ -25,6 +25,8 @@ UI_ROOTS = (
 NEW_TAB = re.compile(r"(?:new.?tab|NewTab)", re.IGNORECASE)
 AGENT_PANE = re.compile(r"(?:agent.?pane|agent-session|AgentPane|acpmux)", re.IGNORECASE)
 NOW_PLAYING = re.compile(r"(?:now.?playing|music)", re.IGNORECASE)
+# The sidebar's Update Ready card and its What's New popup (native card, React popup page).
+UPDATE_CARD = re.compile(r"(?:SidebarUpdateCard|SidebarUpdateNotes|UpdateReadyCard|UpdateSurface|pages/changelog/surface\.)", re.IGNORECASE)
 # Themes, glass and background art: the glass tour shows them over art and opaque.
 GLASS = re.compile(r"(?:theme|glass|backdrop|WindowBackground|SurfaceBackground|TerminalHostView|cmux-themes|composerStates\.css)", re.IGNORECASE)
 # A tour's own file: a pull request that edits a tour gets that tour's shots.
@@ -50,6 +52,8 @@ def tours_for_path(path: str) -> list[str]:
         selected.append("agent-pane")
     if NOW_PLAYING.search(normalized):
         selected.append("now-playing")
+    if UPDATE_CARD.search(normalized):
+        selected.append("update-card")
     if GLASS.search(normalized):
         selected.append("glass")
     if not selected:

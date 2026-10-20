@@ -35,6 +35,10 @@ class TourFilePathTests(unittest.TestCase):
             path_map.tours_for_path("Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/RowBadgeView.swift"), ["core"])
         self.assertEqual(
             path_map.tours_for_path("webviews/src/agent-session/acpmux/harnesses/harnesses.css"), ["agent-pane"])
+        self.assertEqual(
+            path_map.tours_for_path("Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarUpdateCardView.swift"),
+            ["update-card"])
+        self.assertEqual(path_map.tours_for_path("webviews/src/pages/changelog/updateSurfaces.css"), ["update-card"])
 
 
 if __name__ == "__main__":
