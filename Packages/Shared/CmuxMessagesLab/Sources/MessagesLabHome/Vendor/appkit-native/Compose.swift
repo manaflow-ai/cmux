@@ -453,6 +453,11 @@ final class FieldTextView: NSTextView {
     /// The pasteboard Paste reads (a check injects its own).
     var pasteboard: NSPasteboard = .general
 
+    /// cmux: the plain text Paste and Match Style takes from a pasteboard (its
+    /// `.string`; nil for a picture or a file alone). A check stubs it: the CI
+    /// Macs' pasteboard server answers reads of a fresh private board inconsistently.
+    var plainText: (NSPasteboard) -> String? = { $0.string(forType: .string) }
+
     override func paste(_ sender: Any?) {
         let pb = pasteboard
         if onPastePasteboard(pb) { return }  // cmux
