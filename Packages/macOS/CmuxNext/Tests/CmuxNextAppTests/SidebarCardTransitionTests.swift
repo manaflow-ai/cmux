@@ -70,6 +70,26 @@ import Testing
         #expect(!SidebarNoticeCardView.changesMessage(from: ticked, to: ticked2), "every download tick would flash the card")
     }
 
+    /// 2026-10-20: the Updated card floated over the last rows. The window's clock dropped the slot's
+    /// spring (its scheduler went inactive, `MotionClock.run`), and every layout after that asked for
+    /// the same height and got the stalled one back, so the list kept less room than the card took.
+    /// A spring no clock steps any more lands on its target at the next layout.
+    @Test func aSpringTheClockDroppedLandsOnItsTarget() {
+        let view = NSView(frame: NSRect(x: 0, y: 0, width: 240, height: 600))
+        let window = NSWindow(contentRect: view.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        window.contentView = view
+        let motion = SidebarCardSlotMotion(policy: { Self.moving })
+        _ = motion.height(toward: 0, in: view)
+        let first = motion.height(toward: 120, in: view)
+        // On a host with a display the spring starts at 0; without one it snapped (nothing to drop).
+        #expect(first == 0 || first == 120)
+        MotionClock.forView(view).stop(motion)
+        #expect(motion.height(toward: 120, in: view) == 120, "the list stayed short of the card")
+        #expect(!motion.isMoving)
+    }
+
     @Test func theSlotSnapsWithoutAWindowOrUnderReduceMotion() {
         let view = NSView(frame: NSRect(x: 0, y: 0, width: 240, height: 600))
         let moving = SidebarCardSlotMotion(policy: { Self.moving })
