@@ -65,12 +65,20 @@ public struct DaemonCapabilities: Sendable {
     public let savedTabGroups = "saved-tab-groups-v1"
     /// The sidebar workspace pin: `pinned` on `set-workspace-metadata` and workspaces.
     public let workspacePin = "workspace-pin-v1"
+    /// Each workspace's checklist (`workspace_checklist.*` and the `workspace_checklist` state resource).
+    public let workspaceChecklist = "workspace-checklist-v1"
     /// The manual workspace unread mark: `marked_unread` on
     /// `set-workspace-metadata` and workspaces.
     public let notificationMarkUnread = "notification-mark-unread-v1"
     /// The manual tab unread mark (Mark Tab Unread): `marked_unread` on
     /// `tab.update` and the tab's `extra.marked_unread`; no notification needed.
     public let tabMarkUnread = "tab-mark-unread-v1"
+    /// A workspace's description: `description` on `workspace.update` and the
+    /// workspace's `extra.description` (Edit / Clear Workspace Description).
+    public let workspaceDescription = "workspace-description-v1"
+    /// A workspace's manual task status (classic lanes): `task_status` on
+    /// `workspace.update` and the workspace's `extra.task_status`.
+    public let workspaceStatus = "workspace-status-v1"
     /// Screen color, icon, pin, and order (`set-screen-metadata`,
     /// `set-screen-pinned`, `move-screen`; `screen.update` and `screen.move`
     /// with `stateResources`, over the same storage).
@@ -108,6 +116,9 @@ public struct DaemonCapabilities: Sendable {
     /// is kept: `keep` on creation, `set-terminal-keep`, and
     /// `shutdown-daemon end_terminals` (cmux-tui PR 15600).
     public let terminalReap = "terminal-reap-v1"
+    /// `terminal-resume-command`: a person's resume command for one terminal,
+    /// typed on the new prompt when the daemon respawns it.
+    public let resumeCommand = "resume-command"
     /// The owner's reaper runs now (started with a reap grace, as the app
     /// starts it), so a detached terminal ends after the grace period. An
     /// owner started without a grace does not serve it.
@@ -184,9 +195,17 @@ public struct DaemonCapabilities: Sendable {
     /// and the daemon keeps a pinned column's first tab and refuses other
     /// tabs into it unless its `allow_tabs` is on (`dock-column-pinned`).
     public let pinnedDock = "pinned-dock-v1"
+    /// A pinned column may be a screen's only column (Home's dock with nothing beside it):
+    /// `move-tab-to-column` with a pinned dock moves a screen's only tab without `respawn`, and
+    /// closing the last column beside it leaves the dock alone instead of being refused.
+    public let pinnedDockAlone = "pinned-dock-alone-v1"
     /// Rows: `new-row`, `set-row-heights` and `columns[].rows`
     /// (plans/cmux-next/rows.md). Without it no row op is sent.
     public let rows = "rows-v1"
+    /// `move-column`: a whole viewport column (every pane in it) moves one
+    /// place left or right in one commit. Without it only a one-pane column
+    /// moves, through `swap-pane`.
+    public let columnMove = "column-move-v1"
     /// `move-tab-to-column` `respawn`: a pane's only tab moves into a new
     /// column and leaves a fresh tab of the same kind (Dock Column on a
     /// screen with one tab).
@@ -379,6 +398,9 @@ public struct DaemonCapabilities: Sendable {
     /// `move-tab-to-split` `keep_focus`: the new pane does not take focus (a
     /// pane the app opens for a subagent while the user types in the chat).
     public let tabSplitKeepFocus = "tab-split-keep-focus-v1"
+    /// `workspace.create` `focus`: a created workspace becomes the focused
+    /// one only when asked (the app asks for the person's creations).
+    public let workspaceCreateFocus = "workspace-create-focus-v1"
     /// Additive shapes the app asks for through `set-client-info`: view
     /// identity on attach, creation receipts, caller-chosen creation attempt
     /// keys, and per-terminal color overrides.
@@ -428,11 +450,11 @@ public struct DaemonCapabilities: Sendable {
     /// with `DaemonIdentity.supports`, for remote and older daemons.
     public var optional: [String] { [workspaceGroups, workspaceMetadata, workspaceNameSource, tabMetadata, frontendBrowserTabs, tabDrag,
                                             notificationAck, tabGroups, savedTabGroups, terminalEnv, terminalPlacementEnv,
-                                            terminalReap, terminalReaperActive, batchClose, closeReason, closeWorkspaceIfEmpty, browserHostProvider, frontendBrowserActivate, frontendBrowserInsertAfter, frontendBrowserTabKeys, loopbackForward, browserRuntime, screenMetadata, screenGroups, profiles, personalRemoteLocalhost,
+                                            terminalReap, resumeCommand, terminalReaperActive, batchClose, closeReason, closeWorkspaceIfEmpty, browserHostProvider, frontendBrowserActivate, frontendBrowserInsertAfter, frontendBrowserTabKeys, loopbackForward, browserRuntime, screenMetadata, screenGroups, profiles, personalRemoteLocalhost,
                                             terminalPendingSequence, personalTerminals, browserProfiles, notificationSource,
-                                            terminalShellArgs, terminalFrontendShellIntegration, launchSnapshot, bookmarks, bookmarkIcon, history, workspacePin, notificationMarkUnread, tabMarkUnread,
-                                            terminalCommandHistory, dockColumns, edgeDocks, dockColumnRole, pinnedDock, rows, tabColumnRespawn, endTerminalsKeepLayout, stateResources,
-                                            sessionIdentity, localConversations, conversationDraftEvents, chiefLive, cloudChiefLive, conversationRuns, cloudConversationRuns, cloudConversationTyping, tabSplitRespawn, tabSplitKeepFocus, frontendBrowserHistory, frontendBrowserTabProfile,
+                                            terminalShellArgs, terminalFrontendShellIntegration, launchSnapshot, bookmarks, bookmarkIcon, history, workspacePin, workspaceChecklist, notificationMarkUnread, tabMarkUnread, workspaceDescription, workspaceStatus,
+                                            terminalCommandHistory, dockColumns, edgeDocks, dockColumnRole, pinnedDock, pinnedDockAlone, rows, columnMove, tabColumnRespawn, endTerminalsKeepLayout, stateResources,
+                                            sessionIdentity, localConversations, conversationDraftEvents, chiefLive, cloudChiefLive, conversationRuns, cloudConversationRuns, cloudConversationTyping, tabSplitRespawn, tabSplitKeepFocus, workspaceCreateFocus, frontendBrowserHistory, frontendBrowserTabProfile,
                                             attachIdentity, creationReceipts, creationAttemptKeys, terminalColorOverrides,
                                             workspaceKind, workspaceAgentFolder, workspaceAgentStart, conversationTabs, agentSessionTabs, agentSessionAttach, agentSessionStart, agentSessionStartKeyedReason, agentSessionTrust, pageTabs, pageTabRoute, windowRecords, appScreens, conversationSearch, conversationThreads, conversationThread, conversationInboxState, homeInbox, chiefEvents, cloudConversations, cloudHostReplica, pageCredential, scopedPageCredential, wsListen, wsListenOrigins, localAttachments,
                                             tabWorkspaceName, terminalSnapshotHistory, terminalSnapshotLocalHistory, terminalSnapshotImages,

@@ -43,12 +43,12 @@ public final class LayoutModel {
     public var acceptsRowOps = false
     /// Pins `layout.rows` (tests, the demo); nil follows cmux.json.
     public var rowsEnabledOverride: Bool?
-    /// Pins `layout.focusPaneOnScroll` (tests, the demo); nil follows cmux.json.
-    public var focusPaneOnScrollOverride: Bool?
-    /// Scrolling over a pane focuses it (cmux.json `layout.focusPaneOnScroll`):
-    /// the override, else the live setting while `followsDesignMetrics` is on, else on.
-    public var focusesPaneOnScroll: Bool {
-        focusPaneOnScrollOverride ?? (followsDesignMetrics ? DesignSettings.shared.focusPaneOnScroll : true)
+    /// Pins `layout.focusFollowsMouse` (tests, the demo); nil follows cmux.json.
+    public var focusFollowsMouseOverride: Bool?
+    /// Hovering or scrolling over a pane focuses it (cmux.json `layout.focusFollowsMouse`):
+    /// the override, else the live setting while `followsDesignMetrics` is on, else off.
+    public var focusFollowsMouse: Bool {
+        focusFollowsMouseOverride ?? (followsDesignMetrics ? DesignSettings.shared.focusFollowsMouse : false)
     }
     /// Column centering mode: the override, else the live setting
     /// while `followsDesignMetrics` is on, else `.never`.
@@ -150,10 +150,18 @@ public final class LayoutModel {
     /// once the pane's column is in the strip, which may be a later snapshot than the request's.
     public private(set) var revealRequest: ColumnCenterRequest?
 
+    /// Screens shown as a canvas, by screen (plans/cmux-next/canvas-layout.md). Client-local, like
+    /// the strip scroll: the daemon keeps the screen's tree, and this its free-placed presentation.
+    public internal(set) var canvases: [ScreenID: CanvasScreen] = [:]
+    /// Each canvas screen's viewport, reported by its view: fitting and revealing read it.
+    @ObservationIgnored var canvasViewports: [ScreenID: CGSize] = [:]
+
     /// Receives every intent. Set by the App (or `MockLayoutSource`).
     @ObservationIgnored public var intentHandler: (@MainActor (LayoutIntent) -> Void)?
 
-    @ObservationIgnored private var splitOverrides: [SplitID: Override] = [:]
+    @ObservationIgnored var splitOverrides: [SplitID: Override] = [:]
+    /// Panes a pending close hides from the shown screens (`showPaneClose`).
+    @ObservationIgnored var paneCloses: [PaneID: PaneCloseHold] = [:]
     /// Until this uptime, a ratio-only change is an explicit equalize the screens spring (Lawrence 2026-10-16).
     @ObservationIgnored public private(set) var explicitReflowUntil: TimeInterval = 0
     static let explicitReflowWindow: TimeInterval = 0.6
@@ -162,7 +170,7 @@ public final class LayoutModel {
     @ObservationIgnored private var widthOverrides: [ColumnID: Override] = [:]
 
 
-    private struct Override {
+    struct Override {
         var value: Double
         var transaction: LayoutTransactionID
         var ended = false
@@ -186,25 +194,41 @@ public final class LayoutModel {
     // MARK: Daemon input
 
     /// Replaces the tree with a daemon snapshot. Keeps client-local focus and
-    /// active screen when they still exist, else falls back to the first.
+    /// active screen when they still exist. A closed focused pane falls back to
+    /// its nearest surviving neighbor before it (else after it, else the first).
     public func apply(screens newScreens: [LayoutScreen]) {
         let previous = daemonScreens
         defer { applyCloseSizing(from: previous, to: newScreens) }
         daemonScreens = newScreens
+        resolvePaneCloses(in: newScreens)
         splitOverrides = splitOverrides.filter { !$0.value.settled }
         widthOverrides = widthOverrides.filter { !$0.value.settled }
         // Equal screens (the echo of this client's own gesture, a snapshot
         // that changed another workspace) write nothing, so no observer runs.
         let next = overlaid(newScreens)
         if next != screens { screens = next }
+        reconcileCanvases()
         if activeScreenID == nil || !screens.contains(where: { $0.id == activeScreenID }) {
             activeScreenID = screens.first?.id
         }
         if let focusedPane, screens.contains(where: { $0.layout.contains(focusedPane) }) {
             return
         }
-        let first = activeScreen?.layout.panes.first
-        if focusedPane != first { focusedPane = first }
+        // The focused pane closed. The app's focus coordinator picks the successor right after
+        // (close-focus.md); until then the nearest surviving pane before it (after it at the
+        // start) stands in, not the screen's first: the close's first frame already moves the
+        // camera toward it (Lawrence 2026-10-20, closing the last column).
+        let fallback = focusedPane.flatMap { Self.neighbor(of: $0, in: previous, on: activeScreen) } ?? activeScreen?.layout.panes.first
+        if focusedPane != fallback { focusedPane = fallback }
+    }
+
+    /// The pane of `screen` nearest before `closed` in its old order (`old`), else the nearest
+    /// after it; nil when the old screen did not hold it.
+    private static func neighbor(of closed: PaneID, in old: [LayoutScreen], on screen: LayoutScreen?) -> PaneID? {
+        guard let screen, let order = old.first(where: { $0.id == screen.id })?.layout.panes,
+              let index = order.firstIndex(of: closed) else { return nil }
+        let live = Set(screen.layout.panes)
+        return order[..<index].last(where: live.contains) ?? order[(index + 1)...].first(where: live.contains)
     }
 
     /// The daemon accepted the command carrying `transaction`. An ended
@@ -226,16 +250,25 @@ public final class LayoutModel {
         splitOverrides = splitOverrides.filter { $0.value.transaction != transaction }
         widthOverrides = widthOverrides.filter { $0.value.transaction != transaction }
         guard splits != splitOverrides.count || widths != widthOverrides.count else { return }
-        let restored = overlaid(daemonScreens)
-        if restored != screens { screens = restored }
+        showOverlaid()
+    }
+
+    /// Shows the last daemon snapshot with every local override and pending close on it.
+    func showOverlaid() {
+        let shown = overlaid(daemonScreens)
+        if shown != screens { screens = shown }
     }
 
     /// Applies live and unconfirmed overrides onto daemon screens. An ended
     /// override whose value the daemon already reports is confirmed and dropped.
+    /// A pending pane close (`showPaneClose`) takes its pane out first.
     private func overlaid(_ source: [LayoutScreen]) -> [LayoutScreen] {
         var result = source
         for index in result.indices {
             var layout = result[index].layout
+            for pane in paneCloses.keys where layout.contains(pane) {
+                if let after = Self.removingSplitPane(pane, from: layout) { layout = after }
+            }
             for (split, override) in splitOverrides {
                 guard let incoming = layout.ratio(of: split) else { continue }
                 if abs(incoming - override.value) < 0.002 {
@@ -293,6 +326,8 @@ public final class LayoutModel {
         }
         lastFocusSource = source
         focusedPane = pane
+        // A keyboard or programmatic focus on a canvas pans to it; a click or a scroll never does.
+        if source != .pointer, source != .scroll { revealOnCanvas(pane, screen: screen.id) }
         if notify { emit(.focus(pane)) }
     }
 

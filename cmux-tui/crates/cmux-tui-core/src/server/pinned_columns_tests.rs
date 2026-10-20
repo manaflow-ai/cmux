@@ -225,6 +225,52 @@ fn pinned_column_refuses_moves_in_and_the_pinned_tab_moving_out_or_back() {
     assert_eq!(wire.tabs(panes[0])[0], home);
 }
 
+/// The Home Chief pane (home-chief-pane.md): every other close or reshape that would take its
+/// pane or its tab away is refused too, through the resource API the CLI and MCP use.
+#[test]
+fn pinned_column_survives_pane_close_screen_close_and_a_split() {
+    let (wire, panes) = Wire::home();
+    let home = wire.tabs(panes[0])[0];
+    let pane = json!({"machine": "current", "session": "current", "pane": wire.pane_id(panes[0])});
+    refused(&resource(&wire.mux, "pane.close", pane.clone(), Some("close-home-pane")));
+    assert_eq!(wire.tabs(panes[0]), vec![home], "pane.close kept Home");
+
+    let mut split = pane;
+    split["direction"] = json!("down");
+    let response = resource(&wire.mux, "pane.split", split, Some("split-home"));
+    assert!(
+        response.get("error").is_some_and(|e| !e.is_null()),
+        "a split in Home was taken: {response}"
+    );
+    let dock_panes = wire.mux.with_state(|state| {
+        state.workspaces[0].screens[0].layout_columns[0].root.pane_ids_vec().len()
+    });
+    assert_eq!(dock_panes, 1, "no pane joined the pinned column");
+
+    // A second screen keeps the workspace open (closing its last screen closes the workspace,
+    // which is not a removal; the store's home workspace refuses that itself, `home_not_closable`).
+    let workspace_id = wire.mux.with_state(|state| state.workspaces[0].id);
+    wire.mux
+        .new_screen_with_spec(
+            Some(workspace_id),
+            crate::TerminalSpawnOptions::new(None, Vec::new()),
+            None,
+            crate::ScreenSpec::default(),
+        )
+        .unwrap();
+    let (workspace, screen) = wire.mux.with_state(|state| {
+        let workspace = &state.workspaces[0];
+        (workspace.public_id.to_string(), workspace.screens[0].public_id.to_string())
+    });
+    let close = json!({"machine": "current", "session": "current", "workspace": workspace, "screen": screen});
+    let response = resource(&wire.mux, "screen.close", close, Some("close-home-screen"));
+    assert!(
+        response.get("error").is_some_and(|e| !e.is_null()),
+        "Home's screen closed: {response}"
+    );
+    assert_eq!(wire.tabs(panes[0]), vec![home], "screen.close kept Home");
+}
+
 #[test]
 fn column_update_pins_one_way_and_allow_tabs_needs_a_pin() {
     let (wire, _) = Wire::home();
@@ -247,4 +293,135 @@ fn pinned_flags_are_stored_only_when_set() {
     assert!(text.contains("\"pinned\":true") && text.contains("\"allow_tabs\":true"), "{text}");
     let old: ColumnDock = serde_json::from_str(r#"{"edge":"left","mode":"docked"}"#).unwrap();
     assert!(!old.pinned && !old.allow_tabs, "an old record reads as not pinned");
+}
+
+/// `pinned-dock-alone-v1` (Leo 2026-10-19: "i cant even close the terminal on
+/// the right of chief"): closing the last column beside the Home dock is no
+/// longer refused. The pinned column stays, alone, at its own width, with its
+/// pin and its tab.
+#[test]
+fn closing_the_last_column_beside_a_pinned_dock_leaves_the_dock_alone() {
+    let (mut wire, panes) = Wire::home();
+    let identity = wire.ok(json!({"cmd": "identify"}));
+    let capabilities = identity["capabilities"].as_array().unwrap();
+    assert!(capabilities.contains(&json!("pinned-dock-alone-v1")), "{identity}");
+    let home = wire.tabs(panes[0])[0];
+    let width = wire.mux.with_state(|state| state.workspaces[0].screens[0].layout_columns[0].width);
+    let right = wire.tabs(panes[1])[0];
+    wire.ok(json!({"cmd": "close-surface", "surface": right}));
+    let (columns, dock, kept) = wire.mux.with_state(|state| {
+        let screen = &state.workspaces[0].screens[0];
+        let columns = screen
+            .layout_columns
+            .iter()
+            .map(|c| (c.width, c.root.pane_ids_vec()))
+            .collect::<Vec<_>>();
+        (
+            columns,
+            screen.layout_columns.first().and_then(|c| c.dock),
+            state.panes.contains_key(&panes[1]),
+        )
+    });
+    assert_eq!(columns, vec![(width, vec![panes[0]])], "the dock is the screen's only column");
+    let dock = dock.expect("still docked");
+    assert!(dock.pinned && dock.edge == crate::model::DockEdge::Left, "{dock:?}");
+    assert!(!kept, "the closed column's pane is gone");
+    assert_eq!(wire.tabs(panes[0]), vec![home]);
+    // The pinned tab still never closes.
+    refused(&wire.send(json!({"cmd": "close-surface", "surface": home})));
+}
+
+/// `pinned-dock-alone-v1` (Leo 2026-10-19: "did we disable the initial thing
+/// auto opening a random terminal pane on the right yet?"): a screen's only
+/// tab moves into a new pinned dock without a `respawn`, so Home's dock needs
+/// no placeholder terminal on its right. An unpinned dock still needs one.
+#[test]
+fn a_screens_only_tab_becomes_a_lone_pinned_dock_without_a_respawn() {
+    let mut wire = Wire::home().0;
+    let lone = wire.mux.new_workspace(None, Some((80, 22))).unwrap().id;
+    let pane = wire.mux.with_state(|state| state.pane_of(lone).unwrap());
+    let unpinned = json!({"edge": "left", "mode": "docked", "role": "agent_chat"});
+    let response = wire.send(json!({
+        "cmd": "move-tab-to-column", "surface": lone, "pane": pane, "width": 0.4, "dock": unpinned,
+    }));
+    assert_eq!(response["ok"], false, "an unpinned dock alone is refused: {response}");
+    let pinned = json!({"edge": "left", "mode": "docked", "role": "agent_chat", "pinned": true});
+    let data = wire.ok(json!({
+        "cmd": "move-tab-to-column", "surface": lone, "pane": pane, "width": 0.4, "dock": pinned,
+        "transaction": "home-dock-1",
+    }));
+    let new_pane: PaneId = serde_json::from_value(data["pane"].clone()).unwrap();
+    assert_eq!(wire.tabs(new_pane), vec![lone]);
+    let (columns, panes) = wire.mux.with_state(|state| {
+        let (workspace, screen) = state.screen_of(new_pane).unwrap();
+        let screen = &state.workspaces[workspace].screens[screen];
+        let columns = screen.layout_columns.iter().map(|c| (c.width, c.dock)).collect::<Vec<_>>();
+        (columns, screen.root.pane_ids_vec())
+    });
+    assert_eq!(panes, vec![new_pane], "no terminal was left behind");
+    let [(width, Some(dock))] = columns.as_slice() else {
+        panic!("one docked column: {columns:?}")
+    };
+    assert!((width - 0.4).abs() < 1e-6 && dock.pinned, "{columns:?}");
+    assert_eq!(dock.role, Some(crate::model::DockRole::AgentChat));
+}
+
+/// `pinned-dock-alone-v1`: the pinned dock alone still takes no tab. A
+/// browser tab made in it (an agent's page beside its chat, a conversation
+/// tab) opens in a new column right of it in the same commit, so nothing is
+/// ever left in the dock; a background tab leaves the focus in the dock. A
+/// terminal tab is refused as before.
+#[test]
+fn a_browser_tab_made_in_a_lone_pinned_dock_opens_in_a_new_column_beside_it() {
+    let (mut wire, panes) = Wire::home();
+    let home = wire.tabs(panes[0])[0];
+    let right = wire.tabs(panes[1])[0];
+    wire.ok(json!({"cmd": "close-surface", "surface": right}));
+    let params =
+        json!({"machine": "current", "session": "current", "pane": wire.pane_id(panes[0])});
+    refused(&resource(&wire.mux, "tab.create_terminal", params, Some("lone-terminal")));
+    assert_eq!(wire.tabs(panes[0]), vec![home], "no terminal entered the dock");
+
+    wire.mux.focus_pane(panes[0]);
+    let record = crate::workspace_registry::FrontendBrowserRecord {
+        engine: "webkit".into(),
+        url: "file:///tmp/notes.html".into(),
+        title: None,
+        favicon_url: None,
+        profile_id: None,
+        owner: None,
+    };
+    let placement = crate::mux::FrontendTabPlacement { activate: false, ..Default::default() };
+    let browser =
+        wire.mux.new_frontend_browser_tab_placed(Some(panes[0]), record, None, placement).unwrap();
+    assert_eq!(wire.tabs(panes[0]), vec![home], "the dock keeps only its tab");
+    let (columns, beside, focused) = wire.mux.with_state(|state| {
+        let screen = &state.workspaces[0].screens[0];
+        let columns = screen
+            .layout_columns
+            .iter()
+            .map(|c| (c.width, c.dock.is_some_and(|d| d.pinned)))
+            .collect::<Vec<_>>();
+        (columns, state.pane_of(browser.id), state.active_pane())
+    });
+    assert!(columns[0].1, "{columns:?}");
+    assert_eq!(columns[1], (crate::mux::LONE_DOCK_NEIGHBOR_WIDTH, false), "{columns:?}");
+    assert_eq!(columns.len(), 2);
+    assert_ne!(beside, Some(panes[0]));
+    assert_eq!(focused, Some(panes[0]), "a background tab leaves the focus in the dock");
+    // With a column beside it the dock takes no browser tab either.
+    let refused_tab = wire.mux.new_frontend_browser_tab(
+        Some(panes[0]),
+        crate::workspace_registry::FrontendBrowserRecord {
+            engine: "webkit".into(),
+            url: "https://example.com/".into(),
+            title: None,
+            favicon_url: None,
+            profile_id: None,
+            owner: None,
+        },
+        None,
+    );
+    assert!(refused_tab.is_err(), "the dock with a neighbour refuses the tab");
+    assert_eq!(wire.tabs(panes[0]), vec![home]);
 }
