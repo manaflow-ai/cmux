@@ -18,7 +18,8 @@ extension IconHistory {
         inActiveWindow(ctx) { id, update in
             let target = ActionInvocation(target: ActionTargetRef(kind: .workspaceGroup, id: id))
             guard let group = try? ctx.group(target) else { return false }
-            try ctx.sidebar().handle(.setGroupIcon(CmuxNextSidebar.GroupID(group.id.rawValue), update.icon))
+            let sidebar = try ctx.sidebar()
+            sidebar.handle(.setGroupIcon(sidebar.model.groupID(personal: group.id.rawValue), update.icon))
             return true
         }
     }

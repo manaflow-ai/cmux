@@ -38,4 +38,28 @@ extension SidebarDocStore {
 
     /// The item id the reducer gives a live workspace it adopts (`itm_w_<session>_<workspace>`).
     public static func adoptedID(_ ref: SidebarDocWorkspaceRef) -> String { "itm_w_\(ref.sessionID)_\(ref.workspaceID)" }
+
+    /// The item a personal group migrated or synced into the document lists as (`itm_g_<group id>`, cmux-tui
+    /// `group_item_id`); a group the document made keeps its own id in both stores.
+    public nonisolated static func groupItemID(personal group: String) -> String { groupItemPrefix + group }
+
+    /// The personal group id of group item `item` (cmux-tui `legacy_group_id`): the id without `itm_g_`, or the
+    /// item id itself for a group the document made.
+    public nonisolated static func personalGroupID(item: String) -> String {
+        item.hasPrefix(groupItemPrefix) ? String(item.dropFirst(groupItemPrefix.count)) : item
+    }
+
+    private nonisolated static let groupItemPrefix = "itm_g_"
+}
+
+extension SidebarModel {
+    /// The id the sidebar shows personal group `group` under: its own, or on the sidebar document its item
+    /// (`SidebarDocStore.groupItemID`). Group actions name personal groups; the rows, editors and doc ops name
+    /// what the sidebar shows. Its own id when the sidebar shows neither.
+    public func groupID(personal group: String) -> GroupID {
+        let own = GroupID(group)
+        if self.group(own) != nil { return own }
+        let item = GroupID(SidebarDocStore.groupItemID(personal: group))
+        return self.group(item) != nil ? item : own
+    }
 }

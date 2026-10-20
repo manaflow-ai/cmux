@@ -1,5 +1,6 @@
 import CmuxNextActions
 import CmuxNextDaemon
+import CmuxNextSidebar
 
 /// Workspace groups when the home session serves personal state
 /// (plans/cmux-next/data-model.md 1.2c): groups and membership are personal
@@ -10,11 +11,15 @@ extension AppActionContext {
     var usesPersonalGroups: Bool { personal.isLoaded }
 
     /// The targeted personal group (target, `group` argument), else the
-    /// group of the targeted or shown workspace.
+    /// group of the targeted or shown workspace. A target may name the group
+    /// by the sidebar document item the sidebar shows it as (`itm_g_<id>`:
+    /// a header's +, its editor and its menu), or by its own id.
     func personalGroup(_ invocation: ActionInvocation) throws -> WorkspaceGroupModel {
         let explicit = [invocation.target, invocation["group"]?.targetValue].compactMap { $0 }.first { $0.kind == .workspaceGroup }
         if let explicit {
-            guard let group = personal.group(WorkspaceGroupID(rawValue: explicit.id)) else {
+            let own = WorkspaceGroupID(rawValue: explicit.id)
+            let item = WorkspaceGroupID(rawValue: SidebarDocStore.personalGroupID(item: explicit.id))
+            guard let group = personal.group(own) ?? personal.group(item) else {
                 throw ActionFailure.notFound(RefusalStrings.noWorkspaceGroup(explicit.id))
             }
             return group

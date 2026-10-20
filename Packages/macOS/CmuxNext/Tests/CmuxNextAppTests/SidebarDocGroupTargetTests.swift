@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
+@testable import CmuxNextSidebar
 import Testing
 
 /// Leo 2026-10-19 on nightly fc1d07a: "adding and removing groups doesn't work" and "adding new tabs
@@ -40,5 +41,32 @@ struct SidebarDocGroupTargetTests {
         #expect(try context.group(Self.target("doc-made")).id.rawValue == "doc-made")
         #expect(try context.group(Self.target("g1")).id.rawValue == "g1")
         #expect(throws: ActionFailure.self) { try context.group(Self.target("itm_g_gone")) }
+    }
+}
+
+/// The other way: an action resolves a personal group and edits the group the sidebar shows, so it must
+/// name the group by the id the sidebar shows it under (its document item on sidebar-v2).
+@MainActor @Suite
+struct SidebarDocShownGroupIDTests {
+    static func model() -> CmuxNextSidebar.SidebarModel {
+        CmuxNextSidebar.SidebarModel(sections: [
+            CmuxNextSidebar.SidebarSection(kind: .machine(CmuxNextSidebar.SidebarMachine(id: .local, name: "This Mac", kind: .local)), nodes: [
+                .group(CmuxNextSidebar.SidebarGroup(id: CmuxNextSidebar.GroupID("itm_g_g1"), name: "migrated", workspaces: [])),
+                .group(CmuxNextSidebar.SidebarGroup(id: CmuxNextSidebar.GroupID("doc-made"), name: "made on the document", workspaces: [])),
+            ]),
+        ], activeWorkspaceID: nil)
+    }
+
+    @Test func aPersonalGroupIsNamedByTheItemTheSidebarShows() {
+        let model = Self.model()
+        #expect(model.groupID(personal: "g1") == CmuxNextSidebar.GroupID("itm_g_g1"))
+        #expect(model.groupID(personal: "doc-made") == CmuxNextSidebar.GroupID("doc-made"))
+        #expect(model.groupID(personal: "not-shown") == CmuxNextSidebar.GroupID("not-shown"))
+    }
+
+    @Test func itemIDsMapBackToPersonalIDs() {
+        #expect(SidebarDocStore.personalGroupID(item: "itm_g_g1") == "g1")
+        #expect(SidebarDocStore.personalGroupID(item: "doc-made") == "doc-made")
+        #expect(SidebarGroupFlow.personalID(CmuxNextSidebar.GroupID("itm_g_g1")).rawValue == "g1")
     }
 }
