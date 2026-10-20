@@ -179,6 +179,11 @@ job waits until that job ends, and if the watch ends first, it stays queued
 for the mini that frees up. A refused job, or one held in setup at the
 watch's end, is still acted on as described above, running siblings or not.
 
+A stuck or held job is not rescued either once another job of its attempt
+has failed on its own (a failure that is not a refusal): the run is already
+red, and a re-run repeats that failure while the stuck job loses its place
+in the queue. It stays queued for the minis. A refusal is still re-run.
+
 A job's wait is measured from the later of its `created_at` and the first
 time the watcher saw it queued, so a job record created before its `needs`
 were met can never count as already past the budget.
@@ -599,7 +604,13 @@ def assess(jobs: Sequence[Mapping[str, Any]], *, now: dt.datetime, budget_second
     # when another side job is still running. Manual reruns stay minis-first
     # through attempt 2; the bot's next rerun is the overflow.
     on_mini = [job for job in jobs if job_pool(job) and job.get("status") == "in_progress" and not in_setup(job)]
-    if stuck and (allow_running_rescue or not on_mini):
+    # A job that failed on its own (not refused by the fleet) has already made the run red. Cancelling
+    # and re-running it repeats that failure and puts the stuck job at the back of the same queue
+    # (feat-cmux-next, 2026-10-20: 33 of 44 cmux-next pull request runs reached attempt 2 or 3, each
+    # failing `checks` again), so the stuck job stays queued for the minis instead.
+    decided = sorted(str(job.get("name") or job.get("id")) for job in jobs
+                     if job.get("status") == "completed" and job.get("conclusion") == "failure" and not refused(job))
+    if stuck and not decided and (allow_running_rescue or not on_mini):
         suffix = (" while another owned job is running; overflowing the queued side jobs"
                   if on_mini else " with no runner")
         return Look("rescue", f"{names} queued on {job_pool(stuck[0])} for at least "
@@ -611,7 +622,7 @@ def assess(jobs: Sequence[Mapping[str, Any]], *, now: dt.datetime, budget_second
     # refusal does, until the watch is about to end.
     running = [job for job in jobs if job.get("status") == "in_progress" and not in_setup(job)]
     closing = deadline is not None and now >= deadline - dt.timedelta(seconds=END_MARGIN_SECONDS)
-    if held and (not running or closing):
+    if held and not decided and (not running or closing):
         names = ", ".join(sorted(str(job.get("name") or job.get("id")) for job in held))
         return Look("rescue", f"{names} waited in {job_pool(held[0])}'s runner setup for capacity for at least "
                               f"{SETUP_WAIT_SECONDS}s")
@@ -619,6 +630,11 @@ def assess(jobs: Sequence[Mapping[str, Any]], *, now: dt.datetime, budget_second
     if turned_away:
         names = ", ".join(sorted(str(job.get("name") or job.get("id")) for job in turned_away))
         return Look("refused", f"{names} refused by {job_pool(turned_away[0])} at job start or Xcode selection")
+    if (stuck or held) and decided:
+        waits = ", ".join(sorted(str(job.get("name") or job.get("id")) for job in stuck + held))
+        return Look("watch", f"{waits} waiting on {job_pool((stuck or held)[0])}, but {', '.join(decided)} "
+                             "already failed, so a re-run would repeat that failure; leaving it queued",
+                    waiting=True)
     if stuck:
         return Look("watch", f"{names} queued on {job_pool(stuck[0])} with no runner, but "
                              f"{len(on_mini)} job(s) of the run are running on a persistent runner", waiting=True)
