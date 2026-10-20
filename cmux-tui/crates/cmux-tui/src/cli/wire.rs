@@ -510,7 +510,7 @@ fn run_response(
                         WireOperation::Raw { .. } => result,
                     };
                     let result = agent_roster::with_terminals(reader, plan, result);
-                    return print_result(global, plan, result);
+                    return super::agent_input_hint::print_result(global, plan, reader, result);
                 }
                 if result.get("stream_id").and_then(Value::as_str) != expected_stream_id {
                     return protocol_failure(
