@@ -29,6 +29,7 @@ mod engine_control;
 mod image_fit;
 pub mod images;
 mod inbox;
+pub mod media;
 mod mux_ack;
 mod outbox;
 mod previews;
@@ -39,7 +40,7 @@ mod side;
 mod spawns;
 mod steer;
 mod turns;
-pub use replies::{REACTIONS, tapback};
+pub use replies::{REACTIONS, reaction, tapback};
 pub use turns::stuck_notice;
 
 use std::collections::{HashMap, HashSet, VecDeque};
