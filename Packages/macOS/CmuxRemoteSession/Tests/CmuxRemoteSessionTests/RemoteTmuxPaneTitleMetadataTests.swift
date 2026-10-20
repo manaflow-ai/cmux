@@ -75,6 +75,17 @@ struct RemoteTmuxPaneTitleMetadataTests {
         #expect(RemoteTmuxPaneTitleMetadata.snapshotMayReplace(liveRevision: 3, snapshotRevision: 3))
     }
 
+    @Test func parsesRawControlModePaneRectMetadata() {
+        let parsed = RemoteTmuxPaneTitleMetadata.paneRectLabel(
+            from: "0 \"build\"cmux_title_metadata_v1\u{1f}build\u{1f}host.example\u{1f}host"
+        )
+
+        #expect(parsed?.header == "0 \"build\"")
+        #expect(parsed?.metadata == RemoteTmuxPaneTitleMetadata(
+            title: "build", host: "host.example", hostShort: "host"
+        ))
+    }
+
     @Test func parsesPaneRectLabelMetadataWithoutConfusingTitleMarkerText() {
         let parsed = RemoteTmuxPaneTitleMetadata.paneRectLabel(
             from: "0 \"suffix cmux_title_metadata_v1\\037\"cmux_title_metadata_v1\\037build\\037host.example\\037host"
