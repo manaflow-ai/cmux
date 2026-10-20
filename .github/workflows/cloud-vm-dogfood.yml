@@ -162,7 +162,7 @@ jobs:
             echo
             jq -r 'if .statusAfterPauseSeries then "Pause status series: " + ([.statusAfterPauseSeries[] | "\(.atMs)ms=\(.status)" + (if .providerStatus then " provider=\(.providerStatus)" else "" end)] | join(", ")) else empty end' "$result"
             jq -r 'if .statusAfterPauseLinkDown then "Pause status series (link down): " + ([.statusAfterPauseLinkDown[] | "\(.atMs)ms=\(.status)" + (if .providerStatus then " provider=\(.providerStatus)" else "" end)] | join(", ")) else empty end' "$result"
-            jq -r 'if .fanout then "Run fan-out: \(.fanout.count) Runs, outcomes \(.fanout.outcomes | tojson), agent replies \(.fanout.agentReplies), wall \(.fanout.wallMs)ms" else empty end' "$result"
+            jq -r 'if .fanout then "Run fan-out: \(.fanout.count) Runs (account VM cap \(.fanout.maxActiveVms)), outcomes \(.fanout.outcomes | tojson), agent replies \(.fanout.agentReplies), wall \(.fanout.wallMs)ms" else empty end' "$result"
             jq -r 'if .fanout then (.fanout.stats | to_entries[] | "- \(.key): \(.value | tojson)") else empty end' "$result"
             jq -r '.notes[]? | "- \(.)"' "$result"
           } >> "$GITHUB_STEP_SUMMARY"

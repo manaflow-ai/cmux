@@ -32,7 +32,8 @@ export function fanoutRunSpec({ marker, index, sourceCommit, setupManifestDigest
     recipe: { id: "cloud-vm-dogfood", version: 1 },
     variants: [{ id: "codex", label: `Fan-out lane ${index}`, instructionDigest: sha256(instruction), instruction }],
     workspace: { kind: "ephemeral" },
-    resources: { maxAttempts: 1, maxConcurrent: 1, wallTimeoutMs: 600_000, retainMs: 15 * 60_000 },
+    // Retained just long enough to read the agent reply; cleanup deletes it sooner.
+    resources: { maxAttempts: 1, maxConcurrent: 1, wallTimeoutMs: 600_000, retainMs: 5 * 60_000 },
     routing: { executionProvider: "cloud-vm", backend: "freestyle" },
     capabilities: { secretRefs: [] },
     checks: ["terminal-receipt", "provider-cleanup"],
@@ -87,7 +88,8 @@ async function oneLane({ api, now, sleep, spec, index, startedAt, timeoutMs, pol
   lane.admitMs = Math.round(now() - submitAt);
   lane.httpStatus = response.status;
   if (![200, 202].includes(response.status) || typeof response.json?.id !== "string") {
-    return { ...lane, status: response.status === 429 ? "rejected" : "admission-error", error: String(response.json?.error?.message ?? response.json?.error ?? response.text ?? "").slice(0, 300) };
+    // Run API errors are `{ error: code, message }`.
+    return { ...lane, status: response.status === 429 ? "rejected" : "admission-error", error: String(response.json?.message ?? response.json?.error ?? response.text ?? "").slice(0, 300) };
   }
   lane.id = response.json.id;
   let snapshot = response.json;
@@ -99,6 +101,12 @@ async function oneLane({ api, now, sleep, spec, index, startedAt, timeoutMs, pol
     if (lane.firstRunningAtMs === undefined && (snapshot?.status === "running" || snapshot?.attempts?.[0]?.status === "running")) {
       lane.firstRunningAtMs = Math.round(now() - startedAt);
     }
+  }
+  if (!TERMINAL.has(snapshot?.status)) {
+    // Never leave a Run behind that could still create a VM after the
+    // account is deleted.
+    const cancel = await api("POST", `/api/runs/${encodeURIComponent(lane.id)}/cancel`, {}).catch(() => null);
+    lane.cancelStatus = cancel?.status ?? 0;
   }
   const attempt = snapshot?.attempts?.[0];
   lane.status = TERMINAL.has(snapshot?.status) ? snapshot.status : "timeout";
@@ -123,6 +131,10 @@ async function oneLane({ api, now, sleep, spec, index, startedAt, timeoutMs, pol
  * Never throws for a lane failure: the receipt carries every lane's outcome.
  */
 export async function runFanout({ api, now, sleep, count, marker, sourceCommit, setupManifestDigest, timeoutMs = 20 * 60_000, pollMs = 3_000 }) {
+  // Paid plans cap active VMs per account; Runs past it fail VM create, so
+  // the receipt names the cap next to the outcomes.
+  const vms = await api("GET", "/api/vm").catch(() => null);
+  const maxActiveVms = vms?.status === 200 ? vms.json?.limits?.maxActiveVms ?? null : null;
   const startedAt = now();
   const lanes = await Promise.all(Array.from({ length: count }, (_, index) => oneLane({
     api, now, sleep, index, startedAt, timeoutMs, pollMs,
@@ -130,18 +142,22 @@ export async function runFanout({ api, now, sleep, count, marker, sourceCommit, 
   })));
   const counts = {};
   for (const lane of lanes) counts[lane.status] = (counts[lane.status] ?? 0) + 1;
-  const pick = (key) => lanes.map((lane) => lane[key]);
+  const succeeded = lanes.filter((lane) => lane.status === "succeeded");
+  const pick = (key, from = lanes) => from.map((lane) => lane[key]);
   return {
     count,
+    maxActiveVms,
     wallMs: Math.round(now() - startedAt),
     outcomes: counts,
     agentReplies: lanes.filter((lane) => typeof lane.agentReply === "string" && lane.agentReply.length > 0).length,
     stats: {
       admitMs: summarize(pick("admitMs")),
       queueWaitMs: summarize(pick("queueWaitMs")),
-      attemptMs: summarize(pick("attemptMs")),
-      serverTotalMs: summarize(pick("serverTotalMs")),
-      wallMs: summarize(lanes.filter((lane) => lane.status === "succeeded").map((lane) => lane.wallMs)),
+      clientFirstRunningMs: summarize(pick("firstRunningAtMs")),
+      // Run-time stats cover succeeded lanes only; fast failures would skew them.
+      attemptMs: summarize(pick("attemptMs", succeeded)),
+      serverTotalMs: summarize(pick("serverTotalMs", succeeded)),
+      wallMs: summarize(pick("wallMs", succeeded)),
     },
     lanes,
   };

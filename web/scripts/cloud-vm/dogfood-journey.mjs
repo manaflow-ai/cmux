@@ -502,7 +502,8 @@ try {
     console.log(JSON.stringify(output, null, 2));
     if (resultFile) writeFileSync(resultFile, `${JSON.stringify(output)}\n`);
     clearTimeout(deadline);
-    await cleanup();
+    // A cleanup error must not rewrite a fan-out receipt that is already out.
+    await cleanup().catch((error) => console.error(`cleanup_failed ${error?.message ?? error}`));
     process.exit(ok ? 0 : 1);
   }
   const runMarker = `cmux-run-dogfood-${suffix}`;
