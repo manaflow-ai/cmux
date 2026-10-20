@@ -24,6 +24,8 @@ import {
   vmActiveLimitExceededResponse,
   vmErrorResponse,
   resolveVmProvisioningAccountScope,
+  VM_CREATE_CREDITS_CHECKOUT_URL,
+  vmCreateCreditsCheckoutExtra,
   reverifyVmRequestForTeam,
   type VmWorkflowErrorOverrides,
 } from "../../../../services/vms/routeHelpers";
@@ -196,9 +198,9 @@ function baseWorkflowErrorResponders(operation: BaseOperation, planId: string): 
         status: 402,
         message: "This team has no Cloud VM create credits left.",
         action: operation === "reset"
-          ? "Upgrade the team's plan or ask an admin for more create credits before resetting Base. The current Base is unchanged."
-          : "Upgrade the team's plan or ask an admin for more create credits, then retry.",
-        extra: { amount: error.amount },
+          ? `Buy Cloud VM credits at ${VM_CREATE_CREDITS_CHECKOUT_URL} before resetting Base. The current Base is unchanged.`
+          : `Buy Cloud VM credits at ${VM_CREATE_CREDITS_CHECKOUT_URL}, then retry.`,
+        extra: vmCreateCreditsCheckoutExtra(error.amount),
         details: { amount: error.amount },
         phase: "billing",
       }),
