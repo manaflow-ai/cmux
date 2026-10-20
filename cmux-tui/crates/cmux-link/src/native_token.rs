@@ -270,8 +270,7 @@ impl NativeTokenVerifier {
     /// Out-of-order responses and expired snapshots are refused; the owner must
     /// call `clear_authority` when a refresh fails or authority is invalidated.
     pub fn replace_authority(&self, policy: NativePolicy) -> Result<(), TokenRefused> {
-        let mut state = self.state.lock().map_err(|_| TokenRefused::Invalid)?;
-        let now = self.sample(&mut state)?;
+        let (mut state, now) = self.current()?;
         if !policy.valid(now)
             || state.last_policy_check.is_some_and(|old| policy.checked_at_ms <= old)
         {
@@ -304,10 +303,30 @@ impl NativeTokenVerifier {
         let mut state = self.state.lock().map_err(|_| TokenRefused::Invalid)?;
         state.keys = keys;
         let now = self.sample(&mut state).ok();
+        if now.is_none() {
+            state.policy = None;
+        }
         let wake = reconcile_streams(&mut state, now);
         drop(state);
         wake_streams(wake);
         Ok(())
+    }
+
+    /// Clock trust is shared by admission and already open streams. Observing
+    /// its loss clears authority until a fresh snapshot arrives; it cannot
+    /// silently recover an old lease when the wall clock catches up.
+    fn current(&self) -> Result<(std::sync::MutexGuard<'_, State>, ReceiverTime), TokenRefused> {
+        let mut state = self.state.lock().map_err(|_| TokenRefused::Invalid)?;
+        match self.sample(&mut state) {
+            Ok(now) => Ok((state, now)),
+            Err(error) => {
+                state.policy = None;
+                let wake = reconcile_streams(&mut state, None);
+                drop(state);
+                wake_streams(wake);
+                Err(error)
+            }
+        }
     }
 
     fn sample(&self, state: &mut State) -> Result<ReceiverTime, TokenRefused> {
@@ -325,10 +344,13 @@ impl TokenVerifier for NativeTokenVerifier {
         if token.is_empty() || token.len() > MAX_TOKEN_BYTES {
             return Err(TokenRefused::Invalid);
         }
-        let mut state = self.state.lock().map_err(|_| TokenRefused::Invalid)?;
-        let now = self.sample(&mut state)?;
+        let (mut state, now) = self.current()?;
         let policy = state.policy.as_ref().ok_or(TokenRefused::NoVerifier)?;
         if !policy.valid(now) {
+            state.policy = None;
+            let wake = reconcile_streams(&mut state, None);
+            drop(state);
+            wake_streams(wake);
             return Err(TokenRefused::Expired);
         }
         if expected.host != policy.host || expected.epoch != policy.epoch {

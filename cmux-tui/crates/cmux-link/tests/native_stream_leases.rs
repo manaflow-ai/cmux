@@ -221,3 +221,46 @@ fn native_receiver_stream_revocation_before_await_is_not_lost() {
         Poll::Ready(())
     );
 }
+
+#[test]
+fn native_receiver_stream_clock_rollback_closes_old_authority_until_fresh_policy() {
+    let (verifier, clock, mut policy) = configured();
+    let stream = lease(&verifier, Service::Daemon);
+    clock.lock().unwrap().unix_ms -= 1;
+    assert_eq!(
+        verifier.verify(fixture()["token"].as_str().unwrap(), &expected(Service::Daemon)),
+        Err(TokenRefused::Invalid)
+    );
+    assert!(stream.deadline().is_none());
+    refresh(&clock, &mut policy, 2);
+    assert_eq!(
+        verifier.verify(fixture()["token"].as_str().unwrap(), &expected(Service::Daemon)),
+        Err(TokenRefused::NoVerifier)
+    );
+    verifier.replace_authority(policy).unwrap();
+    assert!(stream.deadline().is_none());
+    assert_eq!(
+        verifier.verify(fixture()["token"].as_str().unwrap(), &expected(Service::Daemon)),
+        Err(TokenRefused::Replayed)
+    );
+}
+
+#[test]
+fn native_receiver_stream_canceling_one_observer_keeps_the_other_registered() {
+    let (verifier, _, _) = configured();
+    let mut first = lease(&verifier, Service::Daemon);
+    let mut second = first.clone();
+    let one = Arc::new(Counter::default());
+    let two = Arc::new(Counter::default());
+    let w1 = Waker::from(one.clone());
+    let w2 = Waker::from(two.clone());
+    let mut f1 = Box::pin(first.changed());
+    let mut f2 = Box::pin(second.changed());
+    assert_eq!(f1.as_mut().poll(&mut Context::from_waker(&w1)), Poll::Pending);
+    assert_eq!(f2.as_mut().poll(&mut Context::from_waker(&w2)), Poll::Pending);
+    drop(f1);
+    verifier.clear_authority();
+    assert_eq!(one.0.load(Ordering::SeqCst), 0);
+    assert_eq!(two.0.load(Ordering::SeqCst), 1);
+    assert_eq!(f2.as_mut().poll(&mut Context::from_waker(&w2)), Poll::Ready(()));
+}
