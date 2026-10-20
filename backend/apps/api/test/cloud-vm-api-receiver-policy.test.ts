@@ -1,5 +1,6 @@
 import { afterEach, expect, it, vi } from "vitest"
 import { verifyLinkToken } from "../src/link-token.ts"
+import { provisionRole } from "./team-role-socket-support.ts"
 import { withReceiver, type Allow } from "./cloud-vm-api-receiver-support.ts"
 afterEach(() => vi.restoreAllMocks())
 const nativePeer = (f: Parameters<Parameters<typeof withReceiver>[0]>[0], allow: Allow[] = [{ protocol: "tcp", port: 22 }]) =>
@@ -78,10 +79,13 @@ it("clips the lease to the calling credential and never extends Native freshness
 
 it("uses the current enforced team service policy", async () => {
   await withReceiver(async (f) => {
+    // The shared mesh fixture creates an ordinary member. Policy changes need an administrator.
+    expect((await provisionRole(f.team, f.user, "admin", crypto.randomUUID())).frames.some((frame) => frame.t === "reject")).toBe(false)
     f.native.peers = [nativePeer(f, [{ protocol: "tcp", port: 22 }, { protocol: "tcp", port: 4100 }])]
     const change = async (services: string[], version: number) => {
-      expect((await f.sessionOp("team.policy.update", { expected_version: version,
-        changes: [{ key: "cloud.connectServices", value: { value: services, mode: "enforced" } }] })).json.ok).toBe(true)
+      const result = await f.sessionOp("team.policy.update", { expected_version: version,
+        changes: [{ key: "cloud.connectServices", value: { value: services, mode: "enforced" } }] })
+      expect(result.json, JSON.stringify(result.json)).toMatchObject({ ok: true })
     }
     await change(["ssh"], 0)
     expect(await f.read()).toMatchObject({ ok: true, value: { peers: [{ services: ["ssh"] }] } })
