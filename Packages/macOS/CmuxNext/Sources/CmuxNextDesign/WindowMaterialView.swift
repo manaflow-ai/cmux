@@ -1,4 +1,5 @@
 public import AppKit
+import CoreImage
 
 /// The one material behind a window's content (``WindowMaterial``) and the
 /// one theme tint, as the window root's bottom subview.
