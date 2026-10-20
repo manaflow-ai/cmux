@@ -47,11 +47,16 @@ struct SpaceSwitchCostTests {
     }
 
     /// Every workspace has a terminal and a browser tab and was shown once (mounted, parked): a
-    /// switch must not wake every parked workspace.
+    /// switch must not wake every parked workspace. 60 workspaces (30 per space) do not fill the
+    /// sidebar and 120 do, so the check is the main-thread cost per realized row.
     @Test func aSpaceSwitchCostsTheSameWith120ParkedWorkspacesAsWith60() async throws {
         var results: [Int: [SpaceSwitchBench.Sample]] = [:]
         for total in [10, 60, 120] { results[total] = try await Self.measure(total, panes: true, parked: total, rounds: 6) }
         let small = try #require(results[60]), large = try #require(results[120])
-        #expect(Self.p50(large) <= Self.p50(small) * 1.5 + 4, "a space switch over 120 parked workspaces took \(Self.p50(large)) ms of main thread vs \(Self.p50(small)) ms over 60")
+        let perRow = { (samples: [SpaceSwitchBench.Sample]) -> Double in
+            let rows = samples.map { Double($0.counters["row_configures"] ?? 0) }.reduce(0, +) / Double(max(samples.count, 1))
+            return Self.p50(samples) / max(rows, 1)
+        }
+        #expect(perRow(large) <= perRow(small) * 1.5 + 0.1, "a space switch over 120 parked workspaces took \(perRow(large)) ms per realized row vs \(perRow(small)) ms over 60")
     }
 }
