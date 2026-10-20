@@ -237,7 +237,7 @@ pub(super) fn parse_page(target: &str, args: &[String]) -> Result<AppCommand, Us
 
 /// The page methods an agent's input goes through: they take `agent`, the
 /// name its cursor shows.
-const AGENT_METHODS: &[&str] = &[
+pub(super) const AGENT_METHODS: &[&str] = &[
     "browser.page.passkey",
     "browser.page.click",
     "browser.page.focus",

@@ -36,7 +36,7 @@ import Testing
         try await click(router, ["agent": "a201", "caller": ["terminal_id": "term-7"]])
         let input = try #require(engine.inputs.last)
         #expect(input.agent == "a201")
-        #expect(input.origin == BrowserPageAgentOrigin(isChief: false, workspaceID: "ws-1", workspaceName: "cursor-gallery",
+        #expect(input.origin == BrowserPageAgentOrigin(isChief: false, workspaceID: "ws_aaa", workspaceName: "cursor-gallery",
                                                       tabID: "tab-1"))
     }
 

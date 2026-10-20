@@ -928,6 +928,13 @@ fn with_read_barrier(method: &str, mut params: Value) -> Value {
 const CALLER_METHODS: [&str; 4] =
     ["action.run", "browser.open_split", "snapshot.get", "system.identify"];
 
+/// The methods the CLI names its caller on: [`CALLER_METHODS`], and every page
+/// input verb, so the agent cursor's tag says who drives and where and a click
+/// on it goes there (user, 2026-10-20).
+fn takes_caller(method: &str) -> bool {
+    CALLER_METHODS.contains(&method) || page::AGENT_METHODS.contains(&method)
+}
+
 /// Who calls, from the environment: the acpmux agent session
 /// (`CMUX_AGENT_SESSION`, set by acpmux for the agent and its cmux MCP
 /// server), else the caller's own terminal (`CMUX_TUI_TERMINAL_ID`).
@@ -962,7 +969,7 @@ fn with_caller(method: &str, mut params: Value) -> (Value, bool) {
         object.remove("caller");
         return (params, false);
     }
-    if !CALLER_METHODS.contains(&method) {
+    if !takes_caller(method) {
         return (params, false);
     }
     let Some(caller) = caller_from(|key| std::env::var(key).ok()) else { return (params, false) };
