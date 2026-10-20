@@ -12,7 +12,7 @@ public nonisolated struct SettingsPageLayout: Sendable {
     /// studio, file actions). Raw values are the export's card ids.
     public nonisolated enum Card: String, Sendable, Hashable, CaseIterable {
         case themeStudio, terminalInfo, ghosttyDiagnostics, computerUse, harnesses, spaces, browserProfiles
-        case machines, accounts, agentHarnesses, chiefs, advancedInfo, advancedActions, backdrops, mobile
+        case machines, accounts, agentHarnesses, chiefs, advancedInfo, advancedActions, backdrops, mobile, chiefPet
         /// The density tiles, preview and custom density editor (plans/cmux-next/density-DESIGN.md).
         case density
     }
@@ -147,12 +147,15 @@ public nonisolated struct SettingsPageLayout: Sendable {
                 group("settings.group.sessions"),
                 // Whether agent sessions may start sub-sessions, how many and how deep.
                 group("settings.group.subsessions"),
-                // The Chief pet floating over every app, and its character.
-                group("settings.group.chiefPet"),
             ],
             // Harnesses lists every harness; Your Agents (BRING-YOUR-OWN-HARNESS) adds, checks and
             // removes the ones you added; Chiefs lists every Chief, each opening its editor (u2586).
             trail: [.harnesses, .agentHarnesses, .chiefs, .computerUse]),
+        // The Chief pet floating over every app (ChatGPT's Mini & Pets): its card draws the preview,
+        // Show/Hide and the characters from its group's two rows (the page lists them for search).
+        CategorySpec(
+            id: "chief-pet", title: SettingsText.keyed("settings.category.chiefPet", "Chief Pet"), symbol: "pawprint",
+            groups: [group("settings.group.chiefPet")], lead: [.chiefPet]),
         // A core cmux feature: banners, sounds, the attention ring and the
         // feed for agents, terminal programs and `cmux notify`.
         CategorySpec(
