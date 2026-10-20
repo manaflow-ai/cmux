@@ -1,0 +1,55 @@
+name: nightly-next tick
+
+# A NEXT nightly used to start only from a feat-cmux-next push: cmux-next.yml's
+# request-nightly-next after a green Release compile, or cmux-tui-artifacts.yml
+# once the commit's tree published. A push whose run was cancelled by the next
+# push, or whose request waited on a stalled pool, asked for nothing, and no
+# clock asked either. This tick asks twice a day and on demand for the newest
+# feat-cmux-next commit that is buildable (green Release compile, published
+# cmux-tui tree, fresh strings; scripts/cmux-next/request-nightly-next.sh).
+# Main's promote job ignores a request that does not move nightly-next forward,
+# so an extra tick is harmless. GitHub runs `schedule` only from the default
+# branch: this file must exist on main.
+on:
+  schedule:
+    - cron: "23 9 * * *"
+    - cron: "23 21 * * *"
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: feat-cmux-next commit (40 hex) to ask for; empty asks for the newest buildable one
+        required: false
+        default: ''
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: nightly-next-tick
+  cancel-in-progress: false
+
+jobs:
+  request:
+    if: github.repository == 'manaflow-ai/cmux'
+    runs-on: ubuntu-latest # github-hosted-required: nightly path never waits on Blacksmith
+    timeout-minutes: 15
+    permissions:
+      # actions: read finds the Release compile; actions: write dispatches
+      # main's promote-nightly-next.
+      actions: write
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.sha != '' && inputs.sha || 'refs/heads/feat-cmux-next' }}
+          fetch-depth: 40
+
+      - name: Request nightly-next promotion on main
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          sha="$(git rev-parse HEAD)"
+          echo "Asking for the newest buildable commit at or before $sha"
+          scripts/cmux-next/request-nightly-next.sh --tree-ready "$sha" --repo "$GITHUB_REPOSITORY"
