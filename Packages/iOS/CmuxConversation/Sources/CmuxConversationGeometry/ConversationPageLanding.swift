@@ -17,6 +17,7 @@ import CoreGraphics
 /// A finger holding the transcript past its top waits too: that is where
 /// the scrub ends, and where the spinner is all the reader sees. The page
 /// lands as the finger moves back or lifts, the bounce back included.
+// lint:allow namespace-type -- vendored CmuxConversation snapshot
 public enum ConversationPageLanding {
     public static func waits(isTracking: Bool, isDecelerating: Bool, offsetY: CGFloat, topInset: CGFloat) -> Bool {
         guard isTracking else { return false }
