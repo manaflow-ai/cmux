@@ -19,6 +19,18 @@ public nonisolated struct HoverCardSettings: Sendable, Equatable {
     public var showsPorts = HoverCardSettings.portsDefault
     /// The most history lines the workspace card lists (`sidebar.hoverCards.maxRows`).
     public var maxRows = HoverCardSettings.maxRowsDefault
+    /// `sidebar.hoverCards.groups.*`: the summary cards of workspace groups and tab groups.
+    public var groupsWorkspaceGroups = HoverCardSettings.groupsWorkspaceGroupsDefault
+    public var groupsTabGroups = HoverCardSettings.groupsTabGroupsDefault
+    /// Milliseconds the pointer rests on a group before its card opens.
+    public var groupsDelayMilliseconds = HoverCardSettings.groupsDelayDefault
+    public var groupsOrder = HoverCardSettings.groupsOrderDefault
+    public var groupsMaxMembers = HoverCardSettings.groupsMaxMembersDefault
+    public var groupsShowsStatus = HoverCardSettings.groupsSectionStatusDefault
+    public var groupsShowsMembers = HoverCardSettings.groupsSectionMembersDefault
+    public var groupsShowsActivity = HoverCardSettings.groupsSectionActivityDefault
+    public var groupsShowsGit = HoverCardSettings.groupsSectionGitDefault
+    public var groupsShowsPorts = HoverCardSettings.groupsSectionPortsDefault
 
     public init() {}
 
