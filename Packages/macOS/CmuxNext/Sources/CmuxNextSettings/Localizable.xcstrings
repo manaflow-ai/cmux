@@ -109009,6 +109009,923 @@
         }
       }
     },
+    "settings.group.folderTrust": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Folder Trust"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الثقة بالمجلدات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Povjerenje u foldere"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mappetillid"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ordnervertrauen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Confianza en carpetas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Confiance des dossiers"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fiducia nelle cartelle"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォルダの信頼"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការជឿទុកចិត្តថតឯកសារ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "폴더 신뢰"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mappetillit"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zaufanie do folderów"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Confiança em pastas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Доверие к папкам"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ความเชื่อถือโฟลเดอร์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klasör güveni"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Довіра до папок"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tin cậy thư mục"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文件夹信任"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "資料夾信任"
+          }
+        }
+      }
+    },
+    "settings.agents.trust.autoTrust": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trust My Own Folders Without Asking"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الوثوق بمجلداتي دون سؤال"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vjeruj mojim folderima bez pitanja"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stol på mine egne mapper uden at spørge"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eigenen Ordnern ohne Nachfrage vertrauen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Confiar en mis propias carpetas sin preguntar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Faire confiance à mes dossiers sans demander"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Considera attendibili le mie cartelle senza chiedere"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自分のフォルダを確認なしで信頼"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ជឿទុកចិត្តថតឯកសាររបស់ខ្ញុំដោយមិនសួរ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "내 폴더는 묻지 않고 신뢰"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stol på mine egne mapper uten å spørre"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ufaj moim folderom bez pytania"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Confiar nas minhas pastas sem perguntar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Доверять моим папкам без запроса"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เชื่อถือโฟลเดอร์ของฉันโดยไม่ต้องถาม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kendi klasörlerime sormadan güven"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Довіряти моїм папкам без запиту"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tin cậy thư mục của tôi mà không hỏi"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无需询问即信任我自己的文件夹"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不經詢問即信任我自己的資料夾"
+          }
+        }
+      }
+    },
+    "settings.agents.trust.autoTrust.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agents start in folders under your project roots, and in repositories owned by your organizations, without asking. Other folders ask first."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تبدأ الوكلاء في المجلدات الموجودة ضمن جذور مشاريعك وفي المستودعات التي تملكها مؤسساتك دون سؤال. أما المجلدات الأخرى فتسأل أولاً."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenti se pokreću u folderima unutar vaših korijenskih foldera projekata i u repozitorijima u vlasništvu vaših organizacija bez pitanja. Za ostale foldere se prvo pita."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenter starter i mapper under dine projektrødder og i repositories, der ejes af dine organisationer, uden at spørge. Andre mapper spørger først."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenten starten in Ordnern unter deinen Projektwurzeln und in Repositorys deiner Organisationen ohne Nachfrage. Bei anderen Ordnern wird zuerst gefragt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los agentes se inician sin preguntar en las carpetas dentro de tus raíces de proyectos y en los repositorios de tus organizaciones. En las demás carpetas se pregunta primero."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les agents démarrent sans demander dans les dossiers situés sous vos racines de projets et dans les dépôts appartenant à vos organisations. Pour les autres dossiers, la question est posée d’abord."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gli agenti si avviano senza chiedere nelle cartelle sotto le radici dei tuoi progetti e nei repository delle tue organizzazioni. Per le altre cartelle viene chiesto prima."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントは、プロジェクトのルート配下のフォルダや、所属する組織が所有するリポジトリでは、確認なしで開始します。それ以外のフォルダでは先に確認します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ភ្នាក់ងារចាប់ផ្ដើមដោយមិនសួរនៅក្នុងថតឯកសារក្រោមឫសគម្រោងរបស់អ្នក និងនៅក្នុងឃ្លាំងដែលជាកម្មសិទ្ធិរបស់អង្គការរបស់អ្នក។ ថតឯកសារផ្សេងទៀតនឹងសួរជាមុន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트는 프로젝트 루트 아래의 폴더와 내 조직이 소유한 저장소에서는 묻지 않고 시작합니다. 그 밖의 폴더는 먼저 묻습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenter starter uten å spørre i mapper under prosjektrøttene dine og i repositorier som eies av organisasjonene dine. Andre mapper spør først."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenci uruchamiają się bez pytania w folderach w obrębie katalogów głównych projektów oraz w repozytoriach należących do Twoich organizacji. W przypadku innych folderów najpierw pytają."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Os agentes iniciam sem perguntar em pastas dentro das raízes dos seus projetos e em repositórios das suas organizações. Nas demais pastas, a pergunta vem primeiro."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Агенты запускаются без запроса в папках внутри корней ваших проектов и в репозиториях ваших организаций. Для остальных папок сначала задаётся вопрос."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เอเจนต์จะเริ่มทำงานโดยไม่ถามในโฟลเดอร์ภายใต้รากโปรเจกต์ของคุณ และในรีโพซิทอรีที่เป็นขององค์กรของคุณ ส่วนโฟลเดอร์อื่นจะถามก่อน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajanlar, proje köklerinizin altındaki klasörlerde ve kuruluşlarınıza ait depolarda sormadan başlar. Diğer klasörlerde önce sorulur."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Агенти запускаються без запиту в папках усередині коренів ваших проєктів і в репозиторіях ваших організацій. Для решти папок спочатку ставиться запитання."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tác nhân khởi động mà không hỏi trong các thư mục nằm dưới thư mục gốc dự án của bạn và trong các kho do tổ chức của bạn sở hữu. Các thư mục khác sẽ hỏi trước."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理在你的项目根目录下的文件夹中，以及在你的组织所拥有的仓库中启动时，无需询问。其他文件夹会先询问。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理在你的專案根目錄下的資料夾中，以及在你的組織所擁有的儲存庫中啟動時，無需詢問。其他資料夾會先詢問。"
+          }
+        }
+      }
+    },
+    "settings.agents.trust.projectRoots": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trusted Project Roots"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جذور المشاريع الموثوقة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pouzdani korijenski folderi projekata"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Betroede projektrødder"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vertrauenswürdige Projektwurzeln"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Raíces de proyectos de confianza"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Racines de projets de confiance"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Radici dei progetti attendibili"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "信頼するプロジェクトのルート"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ឫសគម្រោងដែលគួរជឿទុកចិត្ត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "신뢰하는 프로젝트 루트"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klarerte prosjektrøtter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zaufane katalogi główne projektów"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Raízes de projetos confiáveis"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Доверенные корни проектов"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "รากโปรเจกต์ที่เชื่อถือ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Güvenilen proje kökleri"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Довірені корені проєктів"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thư mục gốc dự án tin cậy"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "受信任的项目根目录"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "受信任的專案根目錄"
+          }
+        }
+      }
+    },
+    "settings.agents.trust.projectRoots.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Everything inside these folders is trusted. Use full paths or ~/ paths."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "كل ما بداخل هذه المجلدات موثوق. استخدم مسارات كاملة أو مسارات تبدأ بـ ~/."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sve unutar ovih foldera smatra se pouzdanim. Koristite pune putanje ili putanje s ~/."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alt i disse mapper er betroet. Brug fulde stier eller stier med ~/."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alles in diesen Ordnern gilt als vertrauenswürdig. Verwende vollständige Pfade oder Pfade mit ~/."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Todo lo que hay dentro de estas carpetas es de confianza. Usa rutas completas o rutas con ~/."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tout ce qui se trouve dans ces dossiers est approuvé. Utilisez des chemins complets ou des chemins avec ~/."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tutto ciò che si trova in queste cartelle è attendibile. Usa percorsi completi o percorsi con ~/."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "これらのフォルダ内のすべてを信頼します。フルパスまたは ~/ から始まるパスを使用してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អ្វីៗទាំងអស់នៅក្នុងថតឯកសារទាំងនេះត្រូវបានជឿទុកចិត្ត។ ប្រើផ្លូវពេញ ឬផ្លូវដែលចាប់ផ្ដើមដោយ ~/។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 폴더 안의 모든 항목을 신뢰합니다. 전체 경로 또는 ~/ 경로를 사용하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alt i disse mappene er klarert. Bruk fulle stier eller stier med ~/."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wszystko w tych folderach jest zaufane. Użyj pełnych ścieżek lub ścieżek z ~/."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tudo dentro dessas pastas é confiável. Use caminhos completos ou caminhos com ~/."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Всё внутри этих папок считается доверенным. Используйте полные пути или пути с ~/."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ทุกอย่างภายในโฟลเดอร์เหล่านี้ได้รับความเชื่อถือ ใช้พาธแบบเต็มหรือพาธที่ขึ้นต้นด้วย ~/"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu klasörlerin içindeki her şeye güvenilir. Tam yolları veya ~/ ile başlayan yolları kullanın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Усе всередині цих папок вважається довіреним. Використовуйте повні шляхи або шляхи з ~/."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mọi thứ trong các thư mục này đều được tin cậy. Dùng đường dẫn đầy đủ hoặc đường dẫn bắt đầu bằng ~/."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这些文件夹中的所有内容均受信任。请使用完整路径或以 ~/ 开头的路径。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這些資料夾中的所有內容皆受信任。請使用完整路徑或以 ~/ 開頭的路徑。"
+          }
+        }
+      }
+    },
+    "settings.agents.trust.ownOrgs": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trusted GitHub Owners"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مالكو GitHub الموثوقون"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pouzdani vlasnici na GitHubu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Betroede GitHub-ejere"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vertrauenswürdige GitHub-Eigentümer"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Propietarios de GitHub de confianza"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Propriétaires GitHub de confiance"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Proprietari GitHub attendibili"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "信頼する GitHub オーナー"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ម្ចាស់ GitHub ដែលគួរជឿទុកចិត្ត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "신뢰하는 GitHub 소유자"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klarerte GitHub-eiere"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zaufani właściciele GitHub"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Proprietários do GitHub confiáveis"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Доверенные владельцы GitHub"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เจ้าของ GitHub ที่เชื่อถือ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Güvenilen GitHub sahipleri"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Довірені власники GitHub"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chủ sở hữu GitHub tin cậy"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "受信任的 GitHub 所有者"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "受信任的 GitHub 擁有者"
+          }
+        }
+      }
+    },
+    "settings.agents.trust.ownOrgs.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A repository is trusted when all of its GitHub remotes belong to these users or organizations."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يكون المستودع موثوقاً عندما تعود جميع مستودعاته البعيدة على GitHub إلى هؤلاء المستخدمين أو المؤسسات."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Repozitorij je pouzdan kada svi njegovi GitHub udaljeni repozitoriji pripadaju ovim korisnicima ili organizacijama."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Et repository er betroet, når alle dets GitHub-remotes tilhører disse brugere eller organisationer."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Repository gilt als vertrauenswürdig, wenn alle seine GitHub-Remotes zu diesen Benutzern oder Organisationen gehören."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un repositorio es de confianza cuando todos sus remotos de GitHub pertenecen a estos usuarios u organizaciones."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un dépôt est approuvé lorsque tous ses dépôts distants GitHub appartiennent à ces utilisateurs ou organisations."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un repository è attendibile quando tutti i suoi remoti GitHub appartengono a questi utenti o organizzazioni."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リポジトリのすべての GitHub リモートがこれらのユーザーまたは組織に属している場合、そのリポジトリを信頼します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ឃ្លាំងមួយត្រូវបានជឿទុកចិត្តនៅពេលដែល remote GitHub ទាំងអស់របស់វាជាកម្មសិទ្ធិរបស់អ្នកប្រើប្រាស់ ឬអង្គការទាំងនេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "저장소의 모든 GitHub 원격이 이 사용자 또는 조직에 속하면 해당 저장소를 신뢰합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Et repositorium er klarert når alle GitHub-remotene tilhører disse brukerne eller organisasjonene."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Repozytorium jest zaufane, gdy wszystkie jego zdalne repozytoria GitHub należą do tych użytkowników lub organizacji."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Um repositório é confiável quando todos os seus remotos do GitHub pertencem a esses usuários ou organizações."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Репозиторий считается доверенным, если все его удалённые репозитории GitHub принадлежат этим пользователям или организациям."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "รีโพซิทอรีจะได้รับความเชื่อถือเมื่อรีโมต GitHub ทั้งหมดเป็นของผู้ใช้หรือองค์กรเหล่านี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bir deponun tüm GitHub uzak depoları bu kullanıcılara veya kuruluşlara aitse depoya güvenilir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Репозиторій вважається довіреним, якщо всі його віддалені репозиторії GitHub належать цим користувачам або організаціям."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Một kho được tin cậy khi tất cả remote GitHub của nó thuộc về các người dùng hoặc tổ chức này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当仓库的所有 GitHub 远程仓库都属于这些用户或组织时，该仓库即受信任。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "當儲存庫的所有 GitHub 遠端儲存庫都屬於這些使用者或組織時，該儲存庫即受信任。"
+          }
+        }
+      }
+    },
     "settings.sidebar.detailedStatusIcons": {
       "extractionState": "manual",
       "localizations": {

@@ -575,9 +575,14 @@ impl Hub {
             )));
         }
         let mut cwd = req.cwd.clone().unwrap_or_else(|| pm.cwd.clone());
+        // A folder nobody answered the trust question for waits on a card in the parent's chat
+        // instead of failing (`trust_wait.rs`).
+        self.ensure_folder_trusted(parent, &cwd, &harness, &short).await?;
         let worktree = if req.worktree {
             let kept = self.subsession_worktree(pm, &cwd, &short).await?;
             cwd = kept.made.cwd.clone();
+            // The folder it was made from is trusted, so its worktree is too.
+            self.trust_made_worktree(&cwd).await;
             Some(kept)
         } else {
             None

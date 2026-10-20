@@ -147,6 +147,8 @@ public nonisolated struct SettingsPageLayout: Sendable {
                 group("settings.group.sessions"),
                 // Whether agent sessions may start sub-sessions, how many and how deep.
                 group("settings.group.subsessions"),
+                // Folders that start an agent without the trust question.
+                group("settings.group.folderTrust"),
                 // The Chief pet floating over every app, and its character.
                 group("settings.group.chiefPet"),
             ],
