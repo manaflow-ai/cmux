@@ -102,6 +102,25 @@ type Ctx = Caller & { readonly hint?: DurableObjectLocationHint; readonly t: Tim
 const userHub = (env: Env, caller: Ctx) =>
   env.TEAM_HUB.get(env.TEAM_HUB.idFromName(userHubName(ownerKey(env, caller))), caller.hint ? { locationHint: caller.hint } : undefined)
 /**
+ * Migration from team hubs (PROTOCOL.md 0.10.0): the first time this isolate serves a team (after the caller's
+ * membership is checked), its old team hub is retired, so a socket still parked there since before the deploy
+ * reconnects into its user hub. Retiring is idempotent and cheap; remove this once no team hub holds sockets.
+ */
+const retired = new Set<string>()
+const retireTeamHub = (env: Env, ctx: ExecutionContext, caller: Ctx, teamId: string) => {
+  const name = scoped(env, caller, teamId)
+  if (retired.has(name)) return
+  retired.add(name)
+  ctx.waitUntil(
+    env.TEAM_HUB.get(env.TEAM_HUB.idFromName(name))
+      .retireTeamHub()
+      .then(({ closed }) => {
+        if (closed) console.log(JSON.stringify({ msg: "team hub retired", closed }))
+      })
+      .catch(() => retired.delete(name))
+  )
+}
+/**
  * The caller's identity in stored rows (devices.owner_user_id, team_prefs.user_id): the bare sub for the
  * primary project, `<projectId>:<sub>` otherwise. This records the project without a schema change, and the
  * existing ownership checks on owner_user_id then compare (project, sub). Stack subs are UUIDs (no ":").
@@ -374,6 +393,7 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
       }
     }
     const reachable = new Set(teamIds.filter((t) => (t.startsWith(PERSONAL) ? t === personalTeamId(caller.userId) : stackTeams.has(t))))
+    for (const team of reachable) retireTeamHub(env, ctx, caller, team)
     const presence = new Map((await t.span("hub", userHub(env, caller).macs(me))).map((m) => [m.deviceId, m]))
     return json({
       macs: rows.flatMap((d) => {
@@ -394,6 +414,7 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
     const deviceId = (url.searchParams.get("deviceId") ?? "").toLowerCase()
     if (!UUID.test(deviceId)) throw new HttpError(400, "bad_request", "deviceId must be a UUID")
     await requireMember(env, teamId, caller)
+    retireTeamHub(env, ctx, caller, teamId)
     // Echo only cnx.v1; the bearer subprotocol is never selected (it would echo the token back).
     const subprotocol = bearer?.viaSubprotocol || (req.headers.get("sec-websocket-protocol") ?? "").split(",").some((p) => p.trim() === "cnx.v1")
     const hub = userHub(env, caller)
@@ -426,6 +447,7 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
 
   if (action === "macs" && method === "GET") {
     await requireMember(env, teamId, caller)
+    retireTeamHub(env, ctx, caller, teamId)
     // Only the caller's own Macs in this team (PROTOCOL.md): a teammate's Macs are never listed.
     const [rows, live] = await Promise.all([withStore(env, ctx, (s) => s.listOwnerMacs(me)), t.span("hub", userHub(env, caller).macs(me, teamId))])
     const byId = new Map(live.map((m) => [m.deviceId, m]))

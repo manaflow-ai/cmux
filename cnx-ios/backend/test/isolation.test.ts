@@ -1,8 +1,9 @@
+import { runInDurableObject } from "cloudflare:test"
 import { env } from "cloudflare:workers"
 import { describe, expect, it } from "vitest"
 import { memoryStore } from "../src/store.ts"
 import { userHubName, uuidToBytes, type TeamHub } from "../src/team-hub.ts"
-import { call, connect, register, token, worker, type Sock } from "./helpers.ts"
+import { call, connect, DEV_PROJECT, register, token, worker, type Sock } from "./helpers.ts"
 
 /**
  * The hub is per user (PROTOCOL.md "Signaling WebSocket"): uma and vic are both members of team-u, and
@@ -258,5 +259,40 @@ describe("per-user hub: one user's own devices", () => {
     expect(await hubOf("xia").macs("xia")).toEqual([])
     const res = await worker.fetch(`https://api.test/v1/teams/personal-xia/signal?deviceId=${mac}`, { headers: { Upgrade: "websocket", authorization: `Bearer ${xia}` } })
     expect(res.status).toBe(403)
+  })
+})
+
+describe("migration from team hubs", () => {
+  it("serving a team retires its old team hub: parked sockets are closed and its mixed rows deleted", async () => {
+    const ns = (env as unknown as { TEAM_HUB: DurableObjectNamespace<TeamHub> }).TEAM_HUB
+    const legacy = ns.get(ns.idFromName("team-legacy"))
+    // A team hub as the old code left it: a teammate's Mac socket parked across the deploy, and its row.
+    await runInDurableObject(legacy, (_hub, state) => {
+      const pair = new WebSocketPair()
+      state.acceptWebSocket(pair[1], ["11111111-1111-4111-8111-111111111111"])
+      pair[1].serializeAttachment({ userId: "vic", projectId: DEV_PROJECT, deviceId: "11111111-1111-4111-8111-111111111111", kind: "mac", name: "Vic parked" })
+      state.storage.sql.exec(`INSERT INTO macs (device_id, name, owner_user_id) VALUES ('11111111-1111-4111-8111-111111111111', 'Vic parked', 'vic')`)
+    })
+    const uma = await token("uma")
+    expect((await call("GET", "/v1/teams/team-legacy/macs", uma)).json).toEqual({ macs: [] })
+    const tables = async () =>
+      runInDurableObject(legacy, (_hub, state) => ({
+        macs: state.storage.sql.exec(`SELECT count(*) AS n FROM sqlite_master WHERE type = 'table' AND name = 'macs'`).one().n as number,
+        open: state.getWebSockets().filter((w) => !(w.deserializeAttachment() as { replaced?: boolean }).replaced).length
+      }))
+    const deadline = Date.now() + 3000
+    let t = await tables()
+    while ((t.macs || t.open) && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 50))
+      t = await tables()
+    }
+    expect(t).toEqual({ macs: 0, open: 0 })
+  })
+
+  it("never retires a user hub", async () => {
+    const uma = await token("uma")
+    const mac = await register(uma, "mac", "personal-uma", "Kept")
+    expect(await hubOf("uma").retireTeamHub()).toEqual({ closed: 0 })
+    expect((await hubOf("uma").macs("uma")).map((m) => m.deviceId)).toContain(mac)
   })
 })

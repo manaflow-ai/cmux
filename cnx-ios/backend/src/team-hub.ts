@@ -248,6 +248,28 @@ export class TeamHub extends DurableObject<Env> {
     this.ownerKey = null
   }
 
+  /**
+   * Migration from team hubs (PROTOCOL.md 0.10.0): called on a hub by its old name (the team id). Hibernated
+   * sockets survive a deploy, so a Mac could stay in its team hub while its phone reconnects into the user hub
+   * and finds it offline. This closes every socket here with 1012 (clients reconnect, now into their user hub)
+   * and deletes the stored rows, which mixed the team's users. A user hub (it has an owner) is never touched.
+   */
+  async retireTeamHub(): Promise<{ closed: number }> {
+    if (this.sql.exec(`SELECT 1 FROM meta WHERE key = 'owner'`).toArray().length > 0) return { closed: 0 }
+    let closed = 0
+    for (const ws of this.ctx.getWebSockets()) {
+      this.setAttach(ws, { ...this.attach(ws), replaced: true })
+      try {
+        ws.close(1012, "moved to the user hub")
+        closed++
+      } catch {}
+    }
+    this.live.clear()
+    this.sessions.clear()
+    await this.ctx.storage.deleteAll()
+    return { closed }
+  }
+
   /** The colo this hub runs in (diagnostics: a hub stays where it was first created). */
   async placement(ownerKey: string): Promise<{ colo: string | null }> {
     this.bind(ownerKey)
