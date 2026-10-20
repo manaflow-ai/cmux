@@ -160,6 +160,11 @@ def checked_verdict(api: Callable[..., object], repo: str, build: str, verdict: 
         names = [j for j in (jobs or {}).get("jobs", []) if j.get("name") == f"canary {build}"]  # type: ignore[union-attr]
         if not any(j.get("status") == "completed" and j.get("conclusion") == "success" for j in names):
             raise TrainError(f"run {canary_run} has no successful `canary {build}` job, so no pass")
+        # The canary job also succeeds when it skipped (a build that predates
+        # the canary); the run's own verdict job carries the real verdict in
+        # its name (nightly-next-canary.yml job `verdict`).
+        if not any(j.get("name") == f"verdict pass {build}" for j in (jobs or {}).get("jobs", [])):  # type: ignore[union-attr]
+            raise TrainError(f"run {canary_run} recorded no pass for build {build}")
     return verdict_document(build, verdict, commit, f"https://github.com/{repo}/actions/runs/{canary_run}", now, repo)
 
 
@@ -259,12 +264,11 @@ def apply_reverts(tip: str, reverts: Iterable[str]) -> tuple[str | None, str | N
 
 
 def fetch_for_verify(sha: str) -> None:
-    """Fetch what verify needs into a shallow or sparse checkout."""
-    git("fetch", "--no-tags", "--quiet", "--filter=blob:none", "--depth=2", "origin", sha)
-    train = read_train_commit(sha)
-    if train is None or not train.reverts:
-        return
-    git("fetch", "--no-tags", "--quiet", "--filter=blob:none", "--depth=2", "origin", *train.reverts)
+    """Fetch what verify needs into a shallow or sparse checkout: the
+    commit's whole history without trees (the ancestor checks), trees and
+    blobs on demand (the reverts)."""
+    shallow = git("rev-parse", "--is-shallow-repository", check=False).strip() == "true"
+    git("fetch", "--no-tags", "--quiet", "--filter=tree:0", *(["--unshallow"] if shallow else []), "origin", sha)
 
 
 def verify_train_commit(sha: str) -> dict:
@@ -275,6 +279,11 @@ def verify_train_commit(sha: str) -> dict:
         return {"ok": False, "reason": f"{sha} has no `{TRAILER}` trailer"}
     if len(train.parents) != 2:
         return {"ok": False, "reason": f"train commit {sha} has {len(train.parents)} parents, not 2"}
+    for revert in train.reverts:
+        # A revert of a commit outside the tip's history would apply that
+        # commit's change backwards: arbitrary code. Only the tip's own commits.
+        if subprocess.run(["git", "merge-base", "--is-ancestor", revert, train.parents[1]], capture_output=True).returncode != 0:
+            return {"ok": False, "reason": f"revert {revert} is not in the history of {train.parents[1]}"}
     tree, failed, _ = apply_reverts(train.parents[1], train.reverts)
     if tree is None:
         return {"ok": False, "reason": f"the revert of {failed} does not apply to {train.parents[1]}"}
@@ -410,8 +419,22 @@ def plan_cars(base: str, tip: str, repo: str, api: Callable[..., object] = gh_ap
     non_pr = [sha for sha in commits if not PR_SUBJECT.search(metas[sha]["subject"]) or len(metas[sha]["parents"]) > 1]
     pushes = push_groups(api, repo, commits, base) if non_pr else {}
     wanted = {int(m.group(1)) for m in (PR_SUBJECT.search(metas[sha]["subject"]) for sha in commits) if m}
+    wanted |= {car.pr for car in cars if car.pr}
     known = merged_pulls(api, repo, wanted) if wanted else {}
     budget = [MAX_PULL_LOOKUPS]
+    for car in cars:
+        # A carried car keeps today's labels (nightly-hold), not none.
+        pull = known.get(car.pr) if car.pr else None
+        if pull is None and car.pr and budget[0] > 0:
+            budget[0] -= 1
+            try:
+                pull = api(f"repos/{repo}/pulls/{car.pr}")
+            except TrainError:
+                pull = None
+        if isinstance(pull, dict):
+            car.labels = sorted(label.get("name", "") for label in pull.get("labels") or [])
+            car.owner = car.owner or (pull.get("user") or {}).get("login", "")
+            car.title = car.title or pull.get("title") or ""
 
     def flush() -> None:
         if not pending_push:

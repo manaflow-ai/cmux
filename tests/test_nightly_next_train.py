@@ -189,6 +189,35 @@ class History(unittest.TestCase):
         bad = train.main(["verify", "--commit", forged])
         self.assertEqual(bad, 1)
 
+    def test_g1_prime_refuses_a_revert_outside_the_tip(self) -> None:
+        # "Reverting" an off-branch commit that deletes evil.sh adds evil.sh.
+        r = self.repo
+        r.git("checkout", "-q", "-b", "side", self.base)
+        r.commit("add evil", {"evil.sh": "boom\n"})
+        Path("evil.sh").unlink()
+        evil = r.commit("drop evil", {})
+        r.git("checkout", "-q", "feat-cmux-next")
+        tree, failed, _ = train.apply_reverts(self.c4, [evil])
+        self.assertIsNone(failed)
+        message = f"nightly-next train: x\n\n{train.TRAILER}\n{train.REVERT_TRAILER} {evil}\n"
+        forged = subprocess.run(["git", "commit-tree", tree, "-p", self.base, "-p", self.c4, "-F", "-"],
+                                input=message, check=True, capture_output=True, text=True).stdout.strip()
+        self.assertEqual(r.git("show", f"{forged}:evil.sh"), "boom")
+        verdict = train.verify_train_commit(forged)
+        self.assertFalse(verdict["ok"])
+        self.assertIn("not in the history", verdict["reason"])
+
+    def test_a_carried_car_keeps_its_hold_label(self) -> None:
+        made = train.make_train_commit(self.base, self.c4, self.cars, ["pr-1"])
+        _, carried = train.source_base(made["commit"])
+        self.api.pulls[1]["labels"] = [{"name": "nightly-hold"}]
+        cars = train.plan_cars(self.c4, self.c4, REPO, api=self.api, carried=carried)
+        self.assertTrue({car.id: car for car in cars}["pr-1"].held)
+        self.api.pulls[1]["labels"] = []
+        _, carried = train.source_base(made["commit"])
+        cars = train.plan_cars(self.c4, self.c4, REPO, api=self.api, carried=carried)
+        self.assertFalse({car.id: car for car in cars}["pr-1"].held)
+
     def test_a_shipped_train_carries_its_quarantine_into_the_next(self) -> None:
         made = train.make_train_commit(self.base, self.c4, self.cars, ["pr-1"])
         src, carried = train.source_base(made["commit"])
@@ -354,7 +383,8 @@ class Verdicts(unittest.TestCase):
             if path == f"repos/{REPO}/actions/runs/555":
                 return run if run is not None else {"path": train.CANARY_WORKFLOW, "event": "schedule", "repository": {"full_name": REPO}}
             if path.startswith(f"repos/{REPO}/actions/runs/555/jobs"):
-                return {"jobs": jobs if jobs is not None else [{"name": f"canary {self.BUILD}", "status": "completed", "conclusion": "success"}]}
+                return {"jobs": jobs if jobs is not None else [{"name": f"canary {self.BUILD}", "status": "completed", "conclusion": "success"},
+                                                               {"name": f"verdict pass {self.BUILD}", "status": "in_progress"}]}
             raise AssertionError(path)
         return call
 
@@ -370,6 +400,13 @@ class Verdicts(unittest.TestCase):
         with self.assertRaises(train.TrainError):
             train.checked_verdict(self.api(run={"path": train.CANARY_WORKFLOW, "event": "workflow_dispatch", "repository": {"full_name": REPO}}),
                                   REPO, self.BUILD, "pass", "555")
+
+    def test_a_skipped_canary_is_no_pass(self) -> None:
+        # The canary job succeeds on a skip too; the run's verdict job says skipped.
+        jobs = [{"name": f"canary {self.BUILD}", "status": "completed", "conclusion": "success"},
+                {"name": f"verdict skipped {self.BUILD}", "status": "in_progress"}]
+        with self.assertRaises(train.TrainError):
+            train.checked_verdict(self.api(jobs=jobs), REPO, self.BUILD, "pass", "555")
 
     def test_a_verdict_needs_a_canary_run_and_a_nightly_next_build(self) -> None:
         with self.assertRaises(train.TrainError):
@@ -426,6 +463,7 @@ class Wiring(unittest.TestCase):
     def test_the_canary_writes_each_verdict_through_release_next(self) -> None:
         canary = self.read("nightly-next-canary.yml")
         self.assertIn("gh workflow run nightly-next-verdict.yml -R \"$GITHUB_REPOSITORY\" --ref nightly-next", canary)
+        self.assertIn("name: verdict ${{ needs.canary.outputs.verdict }} ${{ needs.pick.outputs.build }}", canary)
         verdict = self.read("nightly-next-verdict.yml")
         self.assertIn("environment: release-next", verdict)
         self.assertIn("github.ref == 'refs/heads/nightly-next'", verdict)

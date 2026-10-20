@@ -10,7 +10,7 @@ runtime (PR 6) plug into it and are not here.
 
 | Repository variable | Default | Effect |
 | --- | --- | --- |
-| `NIGHTLY_NEXT_TRAIN` | unset (= `dry-run`) | `dry-run`: every tick plans a train and its run summary is the plan; promotion stays as before. `on`: the tick starts the full train instead of a plain promotion. `off`: no train runs. |
+| `NIGHTLY_NEXT_TRAIN` | unset (= `dry-run`) | `dry-run`: every tick plans a train and its run summary is the plan; promotion stays as before. `on`: the tick starts the full train instead of a plain promotion. `off`: no train runs. Once a train commit has shipped, keep `on` (see below). |
 | `NIGHTLY_NEXT_TRAIN_K` | 4 | Builds per bisection round (1 to 8). |
 | `NIGHTLY_NEXT_TRAIN_ROUNDS` | 3 | Bisection rounds before the train gives up (1 to 6). |
 | `NIGHTLY_NEXT_TRAIN_CAP_MINUTES` | 120 | Wall-clock cap for one train (30 to 300). |
@@ -33,6 +33,12 @@ Before `NIGHTLY_NEXT_TRAIN=on`:
    `nightly-next-verdict.yml` (GitHub registers dispatch workflows only from
    the default branch).
 
+**One way.** Once nightly-next is a train commit, no feat-cmux-next commit
+descends from it, so a plain promotion is refused (the ancestor check). Keep
+`NIGHTLY_NEXT_TRAIN=on`: a train with nothing quarantined ships the tip's
+tree. Going back to plain promotion means moving nightly-next to a
+feat-cmux-next commit by force, which is Leo's call.
+
 ## Durable verdict
 
 After each scheduled check of a feed build, `nightly-next-canary.yml` dispatches
@@ -48,7 +54,9 @@ holds the feed's R2 token). It writes
 The writer reads the commit from the build's own nightly-next run (build number
 = `<run id><attempt>`). It accepts `pass` only from a scheduled
 `nightly-next-canary.yml` run whose `canary <build>` job succeeded. `fail` and
-`skipped` never make a build a base, so they are written as given. The canary's
+`skipped` never make a build a base, so they are written as given. The pass
+also needs the run's own `verdict pass <build>` job, because a skipped check
+leaves the canary job green too. The canary's
 Actions cache only marks a build as checked, and it expires; the R2 document
 does not.
 
@@ -114,7 +122,9 @@ commit, and with nothing quarantined its tree equals the tip.
 `scripts/ci/promote-nightly-next.mjs` takes the train path for a commit with
 the `Nightly-Train: v1` trailer and two parents:
 
-- **G1'**: the second parent is on feat-cmux-next, and `verifyTrain()`
+- **G1'**: the second parent is on feat-cmux-next, every listed revert is in
+  that parent's history (a revert of any other commit would add its change
+  backwards), and `verifyTrain()`
   (`nightly_next_train.py verify --fetch`, from main's checkout) rebuilds the
   tree from that parent and the `Nightly-Train-Revert:` list, then compares.
   The guard trusts no list it did not rebuild.

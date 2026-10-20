@@ -123,8 +123,9 @@ jobs:
           set -euo pipefail
           tip="${TIP:-$(git rev-parse HEAD)}"
           if [ "$MODE" = on ]; then
-            # Train commits and nightly-train/* refs are pushed with the App;
-            # the token never reaches the checkout's config on disk.
+            # Train commits and nightly-train/* refs are pushed with the App.
+            # The token sits in this ephemeral runner's ~/.gitconfig, not the
+            # checkout's config, and the cleanup step removes it.
             git config --global url."https://x-access-token:${APP_TOKEN}@github.com/".insteadOf "https://github.com/"
           fi
           git config --global user.name "cmux nightly train"
