@@ -3,8 +3,24 @@ import { isRunCloudOperationPending, parseRunCloudResponse, RunCloudOperationPen
 
 export { isRunCloudOperationPending, RunCloudOperationPending } from "./cloudClientContract";
 
-/** Never derive the credential destination from a request Host header. */
+/** The Cloud deployments the Run worker may call, by Vercel project. Keep in
+ * step with scripts/cloud-vm/projects.mjs (a test checks they agree). */
+const RUN_CLOUD_ORIGIN_BY_PROJECT: ReadonlyMap<string, string> = new Map([
+  ["prj_804LTAUdOwulMvEfcmfnU8bvGo3T", "https://cmux-staging.vercel.app"],
+  ["prj_kH8qcuoliyJ2TLI4vMM03rnNVzr4", "https://cmux.com"],
+]);
+
+/** Never derive the credential destination from a request Host header. On a
+ * Cloud deployment the fixed project ID picks the origin: Vercel sets
+ * VERCEL_PROJECT_PRODUCTION_URL to the project's shortest production domain,
+ * which on staging is not the origin the Run API is served from. */
 export function runCloudOrigin(): string {
+  const project = process.env.VERCEL_PROJECT_ID;
+  if (project) {
+    const origin = RUN_CLOUD_ORIGIN_BY_PROJECT.get(project);
+    if (!origin) throw new Error("Run worker requires a recognized Cloud deployment");
+    return origin;
+  }
   const configured = process.env.VERCEL_PROJECT_PRODUCTION_URL;
   const host = configured?.replace(/^https:\/\//, "") ?? "cmux.com";
   if (host !== "cmux.com" && host !== "cmux-staging.vercel.app") throw new Error("Run worker requires a recognized Cloud deployment");
