@@ -4,6 +4,7 @@
 // `ready` answer's draft and new-chat fields, and the snapshot.
 import { agentPaneEntry } from "../../gallery/format";
 import { assistant, CATALOG, chat, CWD, noChat, session, summary, user } from "../../gallery/fixtures/acpmux";
+import { composerStatePlays } from "./composerStatePlays";
 
 const working = [user("Add retries", 1), assistant("Reading the helper…", 0.5, { streaming: true })];
 // Three prompts waiting for the running turn.
@@ -223,6 +224,20 @@ export default agentPaneEntry({
       note: "Full access keeps its name in the bar: a mode that is not the default always says what it is.",
       snapshot: footerChat("full-access"),
     },
+    // Leo 2026-10-19: no composer button draws a pill at rest, the bolt on included
+    // (test/composer-quiet-chips.test.ts).
+    "quiet-chips": {
+      note: "Every footer button at rest: +, the model, effort and mode chips and the fast bolt on. None draws a pill until it is hovered, keyboard-focused, pressed or open.",
+      snapshot: quietChips(),
+    },
+    // The composer's states, the New Tab page's beside them (agent-pane.new-tab composer-*):
+    // test/composer-caret-focus.test.ts asserts the same.
+    ...Object.fromEntries(
+      Object.entries(composerStatePlays(".acpmux-composer-box .acpmux-md")).map(([state, variant]) => [
+        `composer-${state}`,
+        { ...variant, snapshot: quietChips() },
+      ]),
+    ),
     idle: {
       note: "After a turn: Send, the mode and model chips.",
       snapshot: chat(finished),
@@ -807,7 +822,7 @@ export default agentPaneEntry({
       },
     },
     "search-files-key": {
-      note: "Play: Search Files… (Cmd-P in an agent chat, cx-ncc.69) opens the chat folder's file search with the keyboard in its field.",
+      note: "Play: Search Files… (from the command palette in an agent chat, cx-ncc.69) opens the chat folder's file search with the keyboard in its field.",
       snapshot: chat(finished),
       play: async (ctx) => {
         // The prompt has the keyboard when the key comes in, as in a chat.
@@ -1235,4 +1250,41 @@ function withSummary(
   summary: Partial<NonNullable<ReturnType<typeof chat>["summary"]>>,
 ): ReturnType<typeof chat> {
   return { ...snapshot, summary: { ...snapshot.summary!, ...summary } };
+}
+
+/// Every footer button (+, the model, effort and mode chips, the fast bolt on), for the quiet-chips
+/// and composer-state variants.
+function quietChips(): ReturnType<typeof chat> {
+  return withSummary(chat(finished, { title: "Quiet chips" }), {
+    modes: {
+      currentModeId: "default",
+      availableModes: [
+        { id: "default", name: "Default", description: "Ask before sensitive actions." },
+        { id: "full-access", name: "Full access", description: "Run actions without asking." },
+      ],
+    },
+    configOptions: [
+      {
+        id: "effort",
+        name: "Reasoning",
+        category: "thought_level",
+        currentValue: "medium",
+        options: [
+          { value: "low", name: "Low" },
+          { value: "medium", name: "Medium" },
+          { value: "high", name: "High" },
+        ],
+      },
+      {
+        id: "fast-mode",
+        name: "Fast mode",
+        category: "model_config",
+        currentValue: "on",
+        options: [
+          { value: "off", name: "Off" },
+          { value: "on", name: "On" },
+        ],
+      },
+    ],
+  });
 }

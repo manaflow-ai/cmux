@@ -355,7 +355,7 @@ await requireBrowserLane("ui-a11y.test.ts", async () => {
           await page.close();
         });
 
-        test("markdown: toolbar keys and tooltips, link popover, hover card on the caret, axe", async () => {
+        test("markdown: toolbar keys and tooltips, link popover, link bubble on the caret and on a click, axe", async () => {
           const page = await open(browser, `case=markdown${dir}`);
           await page.waitForFunction(() => (window as unknown as { __ready?: boolean }).__ready === true);
           expect(await axe(page, "markdown", log)).toEqual([]);
@@ -411,7 +411,7 @@ await requireBrowserLane("ui-a11y.test.ts", async () => {
           await settle(page);
           expect(await page.evaluate(() => document.querySelector(".md-link-popover"))).toBe(null);
           expect(await page.evaluate(() => document.activeElement?.classList.contains("ProseMirror"))).toBe(true);
-          // The hover card shows for the link around the caret, not only under the pointer. (Left to
+          // The link bubble shows for the link around the caret (Google Docs). (Left to
           // right only: the English sample's caret keys are visual inside a right-to-left page.)
           if (!rtl) {
             await page.click(".md-doc p");
@@ -426,12 +426,38 @@ await requireBrowserLane("ui-a11y.test.ts", async () => {
             await settle(page);
             for (let index = 0; index < 6; index += 1) await page.keyboard.press("ArrowRight");
             await settle(page, 600);
-            expect(await visible(page, ".md-link-card .md-link-card-target")).toEqual(["/w/docs/guide.md"]);
-            expect(await page.evaluate(() => document.querySelector(".md-link-card")?.getAttribute("role"))).toBe(
-              "tooltip",
+            expect(await visible(page, ".md-link-bubble .md-link-bubble-url")).toEqual(["/w/docs/guide.md"]);
+            expect(await page.evaluate(() => document.querySelector(".md-link-bubble")?.getAttribute("role"))).toBe(
+              "dialog",
             );
-            expect(await axe(page, "hover card", log)).toEqual([]);
+            // The bubble never takes focus: typing goes on in the editor.
+            expect(await page.evaluate(() => document.activeElement?.classList.contains("ProseMirror"))).toBe(true);
+            expect(await axe(page, "link bubble", log)).toEqual([]);
+            // Edit opens the Text and URL form with focus in the URL field; Escape returns to the editor.
+            await page.click('.md-link-bubble button[aria-label="edit"]');
+            await settle(page);
+            expect(await focused(page)).toMatchObject({ role: "combobox", name: "Link URL or path" });
+            expect(await axe(page, "link edit form", log)).toEqual([]);
+            await page.keyboard.press("Escape");
+            await settle(page);
+            expect(await page.evaluate(() => document.querySelector(".md-link-popover"))).toBe(null);
+            expect(await page.evaluate(() => document.activeElement?.classList.contains("ProseMirror"))).toBe(true);
           }
+          // Hovering a link shows nothing (no hover card); a click on it shows the bubble.
+          await page.click(".md-doc h1");
+          await settle(page);
+          await page.hover('.md-doc a[href="docs/guide.md"]');
+          await settle(page, 900);
+          expect(await page.evaluate(() => document.querySelector(".md-link-bubble"))).toBe(null);
+          await page.click('.md-doc a[href="docs/guide.md"]');
+          await settle(page);
+          expect(await visible(page, ".md-link-bubble .md-link-bubble-url")).toEqual(["/w/docs/guide.md"]);
+          // Remove keeps the text.
+          await page.click('.md-link-bubble button[aria-label="remove"]');
+          await settle(page);
+          expect(await page.evaluate(() => (window as unknown as { __snapshot(): string }).__snapshot())).toContain(
+            "See the guide for more.",
+          );
           expect((page as unknown as { errors: string[] }).errors).toEqual([]);
           await page.close();
         });

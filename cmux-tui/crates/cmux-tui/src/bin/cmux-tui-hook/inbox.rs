@@ -21,6 +21,10 @@ pub(super) enum Delivery {
     /// codex `Stop`: `{"decision":"block","reason":…}` continues the turn.
     /// Messages delivered earlier count as read once a turn ends.
     ContinueTurn,
+    /// claude `SessionStart`: cmux's line under Claude Code's startup banner
+    /// (`session_banner`), as `systemMessage`, which the person sees and the
+    /// model does not. It carries no agent messages.
+    SessionBanner,
 }
 
 impl Delivery {
@@ -33,6 +37,7 @@ impl Delivery {
                 Some(Self::PromptContext { via: "codex.prompt-submit" })
             }
             ("codex", "Stop") => Some(Self::ContinueTurn),
+            ("claude", "SessionStart") => Some(Self::SessionBanner),
             _ => None,
         }
     }
@@ -41,6 +46,7 @@ impl Delivery {
         match self {
             Self::PromptContext { via } => via,
             Self::ContinueTurn => "codex.stop",
+            Self::SessionBanner => "claude.session-start",
         }
     }
 
@@ -54,6 +60,7 @@ impl Delivery {
                 }
             }),
             (Self::ContinueTurn, Some(text)) => json!({"decision": "block", "reason": text}),
+            (Self::SessionBanner, Some(text)) => json!({"systemMessage": text}),
         }
     }
 }
@@ -103,6 +110,15 @@ pub(super) fn deliver(delivery: Delivery, socket: &Path, terminal: Option<&str>)
         true,
         deadline,
     );
+}
+
+/// claude `SessionStart` in a cmux terminal: the startup line for how this
+/// session compacts (`session_banner`), or the empty object.
+pub(super) fn session_banner(terminal: Option<&str>, source: &str) {
+    let line = terminal
+        .filter(|terminal| terminal.starts_with("term_"))
+        .and_then(|_| session_banner::message(session_banner::from_environment(), source));
+    print_output(&Delivery::SessionBanner.output(line));
 }
 
 fn queued(socket: &Path, terminal: &str, deadline: Instant) -> anyhow::Result<Vec<Value>> {
@@ -167,6 +183,12 @@ fn request(
     encoded.push(b'\n');
     let attempt = || -> Result<Vec<u8>, AppendAttemptError> {
         let mut stream = connect_before(socket, deadline)?;
+        // Bound the read before writing, as `append_once` does: read_before
+        // only shrinks this bound, since macOS refuses the option once the
+        // daemon has answered and closed.
+        stream
+            .set_read_timeout(Some(remaining_before(deadline)?))
+            .map_err(|error| AppendAttemptError::Retryable(error.into()))?;
         write_before(&mut *stream, &encoded, deadline)?;
         read_before(stream, deadline)
     };
