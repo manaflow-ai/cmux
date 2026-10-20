@@ -5,9 +5,13 @@ import { afterEach, beforeAll, describe, expect, mock, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import type { MarkdownEditor as Editor, MarkdownEditorHost } from "../src/pages/markdown/editor";
 import { resolveImageURL } from "../src/pages/markdown/host";
+import { htmlPreview } from "../src/pages/markdown/htmlPreview";
+import { MarkdownStore } from "../src/pages/markdown/store";
+import type { PageClient } from "../src/pages/shared/pageClient";
 
 let dom: JSDOM;
 let MarkdownEditor: typeof Editor;
+let remoteImagePlaceholder: (host: MarkdownEditorHost, source: string, alt: string) => HTMLElement;
 
 beforeAll(async () => {
   dom = new JSDOM("<!doctype html><body></body>", { pretendToBeVisual: true });
@@ -47,7 +51,8 @@ beforeAll(async () => {
     prototype.getClientRects = rects;
     prototype.getBoundingClientRect = box;
   }
-  ({ MarkdownEditor } = await import("../src/pages/markdown/editor"));
+  ({ MarkdownEditor, markdownRemoteImagePlaceholder: remoteImagePlaceholder } =
+    await import("../src/pages/markdown/editor"));
 });
 
 const editors: Editor[] = [];
@@ -79,15 +84,19 @@ describe("markdown remote images", () => {
         return () => listeners.delete(listener);
       },
     } as unknown as MarkdownEditorHost;
+    host.htmlPreview = (html) => htmlPreview(html, host.imageURL, (src, alt) => remoteImagePlaceholder(host, src, alt));
     const root = document.createElement("div");
     document.body.append(root);
     const editor = new MarkdownEditor({ root, host });
     editors.push(editor);
     await editor.create();
-    editor.load("![first](https://tracker.example/one.png)\n\n![second](https://tracker.example/two.png)\n");
+    editor.load(
+      "![first](https://tracker.example/one.png)\n\n![second](https://tracker.example/two.png)\n\n" +
+        '<div>\n<img src="https://tracker.example/raw.png" alt="raw image">\n</div>\n',
+    );
 
-    expect(root.querySelectorAll("img")).toHaveLength(0);
-    expect(root.querySelectorAll(".md-remote-image-placeholder")).toHaveLength(2);
+    expect(root.querySelectorAll(".md-image-node img")).toHaveLength(0);
+    expect(root.querySelectorAll(".md-remote-image-placeholder")).toHaveLength(3);
     const button = root.querySelector<HTMLButtonElement>(".md-remote-image-placeholder button")!;
     expect(button.textContent).toBe("Load remote images");
     button.click();
@@ -96,10 +105,51 @@ describe("markdown remote images", () => {
 
     expect(load).toHaveBeenCalledTimes(1);
     expect(root.querySelectorAll(".md-remote-image-placeholder")).toHaveLength(0);
-    const images = [...root.querySelectorAll<HTMLImageElement>("img")];
+    const images = [...root.querySelectorAll<HTMLImageElement>(".md-image-node img")];
     expect(images).toHaveLength(2);
     expect(images.every((image) => image.src.startsWith("cmux-page://cmux.markdown/__image/document-token/"))).toBe(
       true,
     );
+    expect(
+      root
+        .querySelector<HTMLImageElement>(".md-raw-preview img")
+        ?.src.startsWith("cmux-page://cmux.markdown/__image/document-token/"),
+    ).toBe(true);
+  });
+
+  test("a late approval cannot grant the document navigated to afterward", async () => {
+    let finishApproval: ((value: { remoteImageBase: string }) => void) | undefined;
+    let approvedPath: unknown;
+    const file = (path: string) => ({ path, text: "# File\n", hash: path, assetBase: "/assets/" });
+    const client = {
+      async call<R>(op: string, params: unknown): Promise<R> {
+        if (op === "cmux.markdown.config") return file("/a.md") as R;
+        if (op === "cmux.markdown.open") return file((params as { path: string }).path) as R;
+        if (op === "cmux.markdown.loadRemoteImages") {
+          approvedPath = (params as { path: string }).path;
+          return new Promise<{ remoteImageBase: string }>((resolve) => {
+            finishApproval = resolve;
+          }) as Promise<R>;
+        }
+        throw new Error(`unexpected ${op}`);
+      },
+      async subscribe() {
+        return () => {};
+      },
+      handle() {
+        return () => {};
+      },
+    } satisfies PageClient;
+    const store = new MarkdownStore(client);
+    await store.start();
+
+    const approval = store.loadRemoteImages();
+    await store.openFile("/b.md");
+    finishApproval?.({ remoteImageBase: "/__image/a-token/" });
+    await approval;
+
+    expect(approvedPath).toBe("/a.md");
+    expect(store.getState().config?.path).toBe("/b.md");
+    expect(store.getState().config?.remoteImageBase).toBeUndefined();
   });
 });

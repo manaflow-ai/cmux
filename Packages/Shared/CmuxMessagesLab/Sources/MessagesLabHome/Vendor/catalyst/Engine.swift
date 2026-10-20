@@ -452,8 +452,8 @@ extension Reducer {
     }
 }
 
-/// Link-preview metadata for a URL (LinkPreviews.swift implements it with
-/// LinkPresentation). `done` runs on the main thread once per request.
+/// Link-preview metadata for a URL (`LinkPreviews.swift` implements it with the guarded HTML and
+/// image fetcher). `done` runs on the main thread once per request.
 struct LinkMetadata: Hashable { var title: String?; var site: String?; var image: String? }
 protocol LinkPreviewFetching: AnyObject {
     /// `done(nil)`: no metadata (failure, timeout): the caller shows the domain card.

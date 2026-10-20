@@ -56,13 +56,22 @@ import Testing
         let initial = try await provider.call(FilePageKind.markdown.op("config"), params: [:], context: page)
         #expect(initial["remoteImageBase"] == nil)
         do {
-            _ = try await provider.call(FilePageKind.markdown.op("loadRemoteImages"), params: [:], context: page)
+            _ = try await provider.call(FilePageKind.markdown.op("loadRemoteImages"),
+                                        params: ["path": .string(file.path)], context: page)
             Issue.record("a script granted remote images without a click")
         } catch let error as PageError {
             #expect(error.code == "cmux.page.gesture")
         }
+        do {
+            _ = try await provider.call(FilePageKind.markdown.op("loadRemoteImages"),
+                                        params: ["path": .string(folder.appending(path: "other.md").path)], context: clicked)
+            Issue.record("a click for another document granted this document's images")
+        } catch let error as PageError {
+            #expect(error.code == "cmux.protocol.invalid_params")
+        }
 
-        let approval = try await provider.call(FilePageKind.markdown.op("loadRemoteImages"), params: [:], context: clicked)
+        let approval = try await provider.call(FilePageKind.markdown.op("loadRemoteImages"),
+                                               params: ["path": .string(file.path)], context: clicked)
         let base = try #require(approval["remoteImageBase"]?.stringValue)
         let baseURL = try #require(URL(string: base))
         let token = try #require(baseURL.pathComponents.last(where: { $0 != "/" && $0 != MarkdownPageResource.remoteImage }))
