@@ -37,6 +37,16 @@ drift schemas/defaults/cmux-next.json Packages/macOS/CmuxNext/Sources/CmuxNextAc
 drift cmux-tui/bindings/go/.cmux-resource-api.json cmux-tui/spec/resource-operations-v2.json || fail "a spec change causes the SDK files"
 # An output never causes another output: the exports alone do not own the defaults snapshot.
 drift schemas/defaults/cmux-next.json "$schema" && fail "the settings export alone must not cause the defaults snapshot"
+# Every output the autofix may push is in the table, so the push never drops a repair the
+# pull request caused (the Java SDK sources and the namespace ratchet were missing once).
+for path in cmux-tui/bindings/java/src/com/cmux/raw/Client.java cmux-tui/bindings/go/raw/generated_ops.go \
+  scripts/lint-namespace-types-ratchet.txt web/data/cmux-shortcuts.generated.json clients/ts/cloud/src/generated.ts \
+  cmux-tui/crates/cmux-cloud-wire/src/generated/ops.rs scripts/ghosttykit-checksums.txt; do
+  python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); import generated_outputs as g; sys.exit(g.output_of(sys.argv[2]) is None)' \
+    "$ROOT_DIR/scripts/cmux-next" "$path" || fail "$path is an autofix output missing from the table"
+done
+drift cmux-tui/bindings/java/src/com/cmux/raw/Client.java cmux-tui/spec/sdk-schema.json || fail "the SDK schema causes the Java sources"
+drift scripts/lint-namespace-types-ratchet.txt Packages/macOS/CmuxNext/Sources/CmuxNextApp/App.swift || fail "a Swift fix causes its ratchet row"
 # Hand-written files are never drift.
 drift webviews/src/main.tsx scripts/cmux-next/base-autofix.sh || fail "a hand-written file is not drift"
 

@@ -42,7 +42,7 @@ ACTIONS_INPUTS = (
 SETTINGS_INPUTS = (
     r"Packages/macOS/CmuxNext/Sources/"
     r"|Packages/macOS/CmuxNext/Tests/CmuxNextSettingsTests/(SettingsSchemaExportTests|ManagedPreferencesManifestTests)\.swift"
-    r"|scripts/cmux-next/regenerate-settings-exports\.sh"
+    r"|scripts/cmux-next/regenerate-settings-exports\.sh|scripts/ci/defaults_guard\.py$"
 )
 SDK_INPUTS = r"cmux-tui/spec/|cmux-tui/bindings/codegen/|cmux-tui/bindings/rust/scripts/sync-resource-api\.py"
 
@@ -74,12 +74,16 @@ OUTPUTS: tuple[tuple[tuple[str, ...], str, str], ...] = (
       "cmux-tui/bindings/python/cmux/raw/_generated/*", "cmux-tui/bindings/cpp/include/cmux/raw/generated/*",
       "cmux-tui/bindings/cpp/src/raw/generated/*", "cmux-tui/bindings/go/raw/generated_*.go",
       "cmux-tui/bindings/typescript/src/raw/generated/*", "cmux-tui/bindings/rust/src/generated/*",
-      "cmux-tui/bindings/zig/src/raw/generated/*"),
+      "cmux-tui/bindings/zig/src/raw/generated/*", "cmux-tui/bindings/java/src/com/cmux/raw/*"),
      SDK_INPUTS, "cmux-tui/bindings/codegen/generate.py and sync-resource-api.py"),
     (("clients/ts/cloud/src/generated.ts", "cmux-tui/crates/cmux-cloud-wire/src/generated/*"),
      r"backend/catalog/cloud-operations\.json$|backend/packages/protocol/(scripts/export-(rust-)?client\.ts|src/automation-caps\.ts)$",
      "backend/packages/protocol/scripts/export-client.ts"),
     (("scripts/ghosttykit-checksums.txt",), r"ghostty$", "the base autofix's GhosttyKit pin"),
+    # Shrink only: a pull request that fixes a listed type drops its row.
+    (("scripts/lint-namespace-types-ratchet.txt",),
+     r"Packages/|ios/cmux/|scripts/lint-ios-package-conventions\.sh$|scripts/lint_swift_namespaces\.py$",
+     "base-autofix.sh's namespace ratchet step"),
 )
 
 
