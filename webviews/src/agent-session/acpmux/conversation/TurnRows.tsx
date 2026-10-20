@@ -6,6 +6,8 @@ import { useContext, useMemo, useState, type ReactNode } from "react";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { copyText } from "./clipboard";
 import { MessageCard } from "./MessageCard";
+import { McpCallRows } from "./McpCallRows";
+import { mcpNames, McpNamesContext } from "./mcpCalls";
 import { ToolGroupRow } from "./ToolGroupRow";
 import { ToolRow } from "./ToolRow";
 import { ToolRun } from "./ToolRun";
@@ -65,6 +67,14 @@ function groupNode(group: ToolGroup, index: number, rowId: string, live: boolean
           disclosureKey={`group:${group.kind}:${group.items[0]!.tool!.id || `${rowId}:${index}`}`}
         />
       );
+    case "mcp":
+      return (
+        <McpCallRows
+          key={group.items[0]!.tool!.id || index}
+          items={group.items}
+          disclosureKey={`group:mcp:${group.items[0]!.tool!.id || `${rowId}:${index}`}`}
+        />
+      );
     case "message":
       return <MessageCard key={group.item.tool!.id || index} item={group.item} message={group.message} />;
     case "item":
@@ -101,19 +111,23 @@ export function ToolRows({ row, sessionId }: { row: AcpmuxRow; sessionId?: strin
     .map((group, at) => groupNode(group, first + at, row.id, row.live === true && first + at === groups.length - 1));
   // Find opens what holds its current match in this row only (chatFind.ts).
   const reveal = useContext(FindReveal);
+  // Ids an MCP call names, to the titles the run's other calls give them ("Read Coordination hub").
+  const names = useMemo(() => mcpNames(items), [items]);
   return (
     <TranscriptDisclosureProvider sessionId={sessionId}>
-      <FindReveal.Provider value={reveal && isRevealRow(row, reveal) ? reveal : undefined}>
-        <div className="cv-tools">
-          {shouldFoldToolRun(row, groups, items ?? []) ? (
-            <ToolRun disclosureKey={`run:${row.id}`} items={items ?? []}>
-              {nodes}
-            </ToolRun>
-          ) : (
-            nodes
-          )}
-        </div>
-      </FindReveal.Provider>
+      <McpNamesContext.Provider value={names}>
+        <FindReveal.Provider value={reveal && isRevealRow(row, reveal) ? reveal : undefined}>
+          <div className="cv-tools">
+            {shouldFoldToolRun(row, groups, items ?? []) ? (
+              <ToolRun disclosureKey={`run:${row.id}`} items={items ?? []}>
+                {nodes}
+              </ToolRun>
+            ) : (
+              nodes
+            )}
+          </div>
+        </FindReveal.Provider>
+      </McpNamesContext.Provider>
     </TranscriptDisclosureProvider>
   );
 }

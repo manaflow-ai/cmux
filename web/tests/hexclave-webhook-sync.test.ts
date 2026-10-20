@@ -363,6 +363,26 @@ describe("Hexclave mirror reconcile", () => {
     expect(mirror.teams.has(TEAM_ID)).toBe(false);
   });
 
+  test("team deletion still invalidates members when team access cleanup fails", async () => {
+    let revokeAttempts = 0;
+    const { hexclave, calls, post } = harness({
+      sync: {
+        revokeTeamAccess: async () => {
+          revokeAttempts += 1;
+          throw new Error("provider cleanup unavailable");
+        },
+      },
+    });
+    seed(hexclave);
+    await post("user.created", serverUser());
+    hexclave.deleteTeam(TEAM_ID);
+    calls.length = 0;
+
+    expect((await post("team.deleted", { id: TEAM_ID })).status).toBe(200);
+    expect(revokeAttempts).toBe(1);
+    expect(calls).toContain(`invalidate:${USER_ID}`);
+  });
+
   test("a user reconcile that listed a team before its deletion does not write it back", async () => {
     const { hexclave, mirror, sync } = harness();
     seed(hexclave);
