@@ -696,17 +696,19 @@ class InstalledHelperRegression(unittest.TestCase):
             self.assertEqual(events.read_text().splitlines(), ["comment", "merge"])
             self.assertIn("--override waives cmux-next fast tier", result.stderr)
 
-    def test_override_does_not_waive_a_red_lint_check_on_the_fast_gate(self):
+    def test_override_waives_a_red_lint_check_on_the_fast_gate(self):
+        """--override is the human escape hatch for a red lint check too: its reason is
+        posted on the PR before the merge, so every waiver is on the record."""
         rollup = list(self.FAST_GREEN) + [(self.LINT, "completed", "failure")]
         with tempfile.TemporaryDirectory() as directory:
             marker, events = Path(directory) / "merged", Path(directory) / "events"
             result = self.run_helper(directory, marker, full=False, changed_files=self.SWIFT, rollup=rollup,
                                      extra_args=("--override", self.OVERRIDE), event_log=events,
                                      excuse=(1, "the base is green"))
-            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
-            self.assertFalse(marker.exists())
-            self.assertFalse(events.exists(), "the override reason was posted before refusing")
-            self.assertIn(self.LINT, result.stderr)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertTrue(marker.exists())
+            self.assertEqual(events.read_text().splitlines(), ["comment", "merge"])
+            self.assertIn(f"--override waives {self.LINT}", result.stderr)
 
     def test_a_red_fast_lane_the_base_shares_merges_on_the_fast_gate(self):
         rollup = [c for c in self.FAST_GREEN if c[0] != "cmux-next fast tier"] + [("cmux-next fast tier", "completed", "failure")]
@@ -721,7 +723,7 @@ class InstalledHelperRegression(unittest.TestCase):
 
     def test_a_red_lint_check_the_base_prints_too_merges_on_the_fast_gate(self):
         """Like the full gate (#22128): the base comparison excuses a lint red only when the
-        base prints every finding, and --override never waives one."""
+        base prints every finding."""
         rollup = list(self.FAST_GREEN) + [(self.LINT, "completed", "failure")]
         with tempfile.TemporaryDirectory() as directory:
             marker, events = Path(directory) / "merged", Path(directory) / "events"
@@ -730,14 +732,6 @@ class InstalledHelperRegression(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertTrue(marker.exists())
             self.assertIn("red on the base too", result.stderr)
-        with tempfile.TemporaryDirectory() as directory:
-            marker = Path(directory) / "merged"
-            result = self.run_helper(directory, marker, full=False, changed_files=self.SWIFT, rollup=rollup,
-                                     excuse=(0, f"{self.LINT}: red on the base too"),
-                                     extra_args=("--override", "the lint red is a known base failure unrelated to this"))
-            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
-            self.assertFalse(marker.exists())
-            self.assertIn("--override cannot bypass god-file, l10n or concurrency lint", result.stderr)
 
     def test_the_fast_gate_waits_for_a_pending_lint_check(self):
         """main's full gate never lets a pending god-file, l10n or concurrency check
@@ -967,32 +961,54 @@ class InstalledHelperRegression(unittest.TestCase):
             self.assertTrue(marker.exists())
             self.assertEqual(events.read_text().splitlines(), ["comment", "merge"])
 
-    def test_override_cannot_bypass_god_file_l10n_or_concurrency_lint(self):
-        reason = "the swift test lane is a known base failure unrelated to this change"
+    def test_override_waives_a_red_god_file_l10n_or_concurrency_lint(self):
+        reason = "the lint red is a known base failure unrelated to this change"
         for name in (
             "cmux-next checks (god files, concurrency, crash safety, l10n)",
             "cmux-next god files",
             "cmux-next l10n",
             "concurrency lint",
-            "risk evidence",
         ):
-            for status, conclusion in (("completed", "failure"), ("in_progress", "")):
-                with self.subTest(name=name, status=status), tempfile.TemporaryDirectory() as directory:
-                    marker = Path(directory) / "merged"
-                    events = Path(directory) / "events"
-                    result = self.run_helper(
-                        directory,
-                        marker,
-                        check_conclusion="failure",
-                        extra_checks=[(name, status, conclusion)],
-                        extra_args=("--override", reason),
-                        event_log=events,
-                    )
-                    self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
-                    self.assertFalse(marker.exists())
-                    self.assertFalse(events.exists(), "the override reason was posted before refusing")
-                    self.assertIn(name, result.stderr)
-                    self.assertIn("--override cannot bypass", result.stderr)
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as directory:
+                marker = Path(directory) / "merged"
+                events = Path(directory) / "events"
+                result = self.run_helper(
+                    directory,
+                    marker,
+                    extra_checks=[(name, "completed", "failure")],
+                    extra_args=("--override", reason),
+                    event_log=events,
+                )
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertTrue(marker.exists())
+                self.assertEqual(events.read_text().splitlines(), ["comment", "merge"])
+
+    def test_override_cannot_bypass_risk_evidence_or_a_pending_lint_check(self):
+        reason = "the swift test lane is a known base failure unrelated to this change"
+        cases = [("risk evidence", "completed", "failure"), ("risk evidence", "in_progress", "")]
+        cases += [(name, "in_progress", "") for name in (
+            "cmux-next checks (god files, concurrency, crash safety, l10n)",
+            "cmux-next god files",
+            "cmux-next l10n",
+            "concurrency lint",
+        )]
+        for name, status, conclusion in cases:
+            with self.subTest(name=name, status=status), tempfile.TemporaryDirectory() as directory:
+                marker = Path(directory) / "merged"
+                events = Path(directory) / "events"
+                result = self.run_helper(
+                    directory,
+                    marker,
+                    check_conclusion="failure",
+                    extra_checks=[(name, status, conclusion)],
+                    extra_args=("--override", reason),
+                    event_log=events,
+                )
+                self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertFalse(marker.exists())
+                self.assertFalse(events.exists(), "the override reason was posted before refusing")
+                self.assertIn(name, result.stderr)
+                self.assertIn("--override cannot bypass", result.stderr)
 
     def test_red_lint_check_refuses_without_override(self):
         name = "cmux-next checks (god files, concurrency, crash safety, l10n)"
@@ -1184,6 +1200,26 @@ class WorkflowPresenceRegression(unittest.TestCase):
                 self.assertNotEqual(result.returncode, 0)
                 self.assertFalse(merged)
                 self.assertIn('REPAIR.md#merging', result.stderr)
+
+    def test_no_ci_workflow_override_waives_only_a_red_lint_check(self):
+        """--full --override waives a red lint check without the aggregate workflow too;
+        risk evidence and any other red still refuse."""
+        reason = "the lint red is a known base failure unrelated to this change"
+        lint = {'id': 2, 'name': 'cmux-next checks (god files, concurrency, crash safety, l10n)', 'status': 'completed', 'conclusion': 'failure'}
+        green = {'id': 1, 'name': 'tests', 'status': 'completed', 'conclusion': 'success'}
+        result, merged, _ = self.run_case(checks=[green, lint], extra_args=("--override", reason))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(merged)
+        self.assertIn("--override waives " + lint['name'], result.stderr)
+        result, merged, _ = self.run_case(checks=[green, lint])
+        self.assertNotEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(merged)
+        for other in ({'id': 3, 'name': 'tests', 'status': 'completed', 'conclusion': 'failure'},
+                      {'id': 3, 'name': 'risk evidence', 'status': 'completed', 'conclusion': 'failure'}):
+            with self.subTest(other=other['name']):
+                result, merged, _ = self.run_case(checks=[lint, other], extra_args=("--override", reason))
+                self.assertNotEqual(result.returncode, 0, result.stderr)
+                self.assertFalse(merged)
 
     def test_no_ci_workflow_refuses_pending_status_context(self):
         result, merged, _ = self.run_case(statuses=[{'id': 2, 'context': 'review', 'state': 'pending'}])
