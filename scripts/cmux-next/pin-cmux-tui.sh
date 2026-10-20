@@ -1020,7 +1020,11 @@ tree_published() {
 # The publisher is CMUX_TUI_TREE_PUBLISHER_SHA's artifacts runs (push and
 # dispatch). A pull request whose merge keeps the base's tree waits for the base
 # push's runs. One with its own merge tree has no publisher (GitHub runs
-# pull_request_target only from the default branch): with
+# pull_request_target only from the default branch). Without
+# CMUX_TUI_TREE_DISPATCH (cmux-next path routing, which is read-only) the probe
+# waits up to CMUX_TUI_TREE_PUBLISHER_WAIT_SECONDS for the artifacts run that
+# main's cmux-next-pr-merge-tree.yml starts for the merge commit, and defers to
+# it (await_outside_publisher). With
 # CMUX_TUI_TREE_DISPATCH=1 (same-repository PRs) the probe starts one
 # cmux-tui-artifacts run on a cmux-tui-pin-<sha12> ref at the merge commit, or
 # at the PR head (CMUX_TUI_TREE_HEAD_SHA) when the API refuses the merge commit
@@ -1066,7 +1070,14 @@ probe_checkout_tree() {
   elif [[ ("${GITHUB_EVENT_NAME:-}" == pull_request || "${CMUX_TUI_TREE_DISPATCH:-}" == 1) ]] \
       && ! tree_published "$key" "$legacy"; then
     tree_publisher_sha=""
-    ensure_tree_publisher "$key" "$(git -C "$repo_root" rev-parse HEAD)" "${CMUX_TUI_TREE_HEAD_SHA:-}"
+    if [[ "${CMUX_TUI_TREE_DISPATCH:-}" == 1 ]]; then
+      ensure_tree_publisher "$key" "$(git -C "$repo_root" rev-parse HEAD)" "${CMUX_TUI_TREE_HEAD_SHA:-}"
+    else
+      # Read-only (cmux-next path routing since e93faa5f1fb0): starts nothing,
+      # but defers to the run main's cmux-next-pr-merge-tree.yml starts on
+      # cmux-tui-pin-<sha12> for this merge commit, or one with the same tree.
+      await_outside_publisher "$key" "$(git -C "$repo_root" rev-parse HEAD)"
+    fi
     [[ -n "$tree_publisher_sha" ]] && source="commit:$tree_publisher_sha"
   fi
   if [[ -n "$source" && -z "${GH_TOKEN:-}" ]]; then

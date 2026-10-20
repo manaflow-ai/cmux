@@ -3,8 +3,9 @@
 // agents"): it counts the agents still running and opens a list split into Active and Completed,
 // a colored dot per agent. The same color marks the agent's name in the transcript, and an agent
 // keeps it for the life of the chat as others start and end. A click on an agent opens it. The
-// pill shows only while an agent runs. The page is the pane's dev entry with its browser host,
-// talking JSON-RPC to a stand-in acpmux daemon that can push live events.
+// pill shows only while an agent runs, and streamed text never redraws it. The page is the pane's
+// dev entry with its browser host, talking JSON-RPC to a stand-in acpmux daemon that can push live
+// events.
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -177,6 +178,36 @@ await requireBrowserLane("agent-pane-agents-pill.test.ts", async () => {
           ]),
         ),
       );
+  /// Counts the pill's renders from React's devtools hook, installed before the page's scripts: each
+  /// commit, the pill's fiber rendered when it is a new fiber object with React's PerformedWork flag
+  /// (a memo bailout clones the fiber without the flag; a skipped subtree keeps the last object).
+  const countPillRenders = () => {
+    const performedWork = 1;
+    let last: object | undefined;
+    const counter = { renders: 0 };
+    (window as any).__pillRenders = counter;
+    const find = (fiber: any): any => {
+      for (let node = fiber; node; node = node.sibling) {
+        if (node.type?.name === "AgentsPill") return node;
+        const found = node.child && find(node.child);
+        if (found) return found;
+      }
+      return undefined;
+    };
+    (window as any).__REACT_DEVTOOLS_GLOBAL_HOOK__ = {
+      supportsFiber: true,
+      renderers: new Map(),
+      inject: () => 1,
+      onCommitFiberUnmount: () => {},
+      onPostCommitFiberRoot: () => {},
+      onCommitFiberRoot: (_id: number, root: any) => {
+        const pill = find(root.current);
+        if (pill && pill !== last && (pill.alternate === null || (pill.flags & performedWork) !== 0)) counter.renders++;
+        last = pill;
+      },
+    };
+  };
+  const pillRenders = (page: Page) => page.evaluate(() => (window as any).__pillRenders.renders as number);
   beforeAll(async () => {
     daemon = Bun.serve({
       port: 0,
@@ -338,6 +369,30 @@ await requireBrowserLane("agent-pane-agents-pill.test.ts", async () => {
     push(finished("a2", "Tester"));
     for (let tries = 0; tries < 50 && (await pill(page).count()) > 0; tries++) await page.waitForTimeout(100);
     expect(await pill(page).count()).toBe(0);
+    await page.close();
+  });
+
+  test("streamed text never redraws the pill", async () => {
+    sockets.clear();
+    const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
+    await page.addInitScript(countPillRenders);
+    await page.goto(url(BUSY));
+    await pill(page).filter({ hasText: "2 agents" }).waitFor({ timeout: 25_000 });
+    const before = await pillRenders(page);
+    expect(before).toBeGreaterThan(0);
+    for (let chunk = 1; chunk <= 12; chunk++) {
+      push([
+        "in",
+        "agent_message_chunk",
+        update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: ` Streamed word ${chunk}.` } }),
+      ]);
+      await page.getByText(`Streamed word ${chunk}.`, { exact: false }).first().waitFor({ timeout: 5_000 });
+    }
+    expect(await pillRenders(page)).toBe(before);
+    // The counter sees a change the pill shows: a third agent starts.
+    push(spawned("a5", "Packager"));
+    await pill(page).filter({ hasText: "3 agents" }).waitFor({ timeout: 5_000 });
+    expect(await pillRenders(page)).toBeGreaterThan(before);
     await page.close();
   });
 });
