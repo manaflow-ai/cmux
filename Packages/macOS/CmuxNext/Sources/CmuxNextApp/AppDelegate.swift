@@ -169,6 +169,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.iconPicker.onOpened = { DebugTimings.iconPickerOpened($0) }
         services.browserProfiles.load(directory: BrowserProfileService.defaultDirectory(bundleID: services.environment.launch.bundleID),
                                       importStore: services.onboarding.importStore)
+        DebugTimings.markLaunch("dfl.first_window_hooks")
         services.home.start()
         services.keybindingsFile.start()
         services.bookmarks.start(directory: BrowserProfileService.defaultDirectory(bundleID: services.environment.launch.bundleID),
@@ -177,6 +178,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             .deletingLastPathComponent())
         // cmux-page:// first-party pages for Chromium, before any window can start it.
         FirstPartyPageSchemes.install()
+        DebugTimings.markLaunch("dfl.home_history")
         services.windows.restoreWhenLoaded()
         DebugTimings.markLaunch("dfl.windows")
         // After two quick unexpected ends in a row, Chromium starts only
