@@ -288,6 +288,7 @@ enum TabLifecycle {
     private static func chatRespawn(_ ctx: AppActionContext, url: URL?, engine: String?,
                                     profile: AgentBrowserProfile.Request) -> SplitRespawn? {
         guard case let browserTabs = ctx.services.cache.browserTabs, browserTabs.isAvailable(on: ctx.services.daemon),
+              browserTabs.refusal(for: url) == nil,
               case .open(let choice) = browserTabs.resolve(requested: engine) else { return nil }
         var profileID: String?
         if case .explicit(let id) = profile { profileID = id }
@@ -310,7 +311,7 @@ enum TabLifecycle {
     private static func openOffscreen(_ ctx: AppActionContext, pane: PaneModel, url: URL?, engine: String?, profile: String?,
                                       then agentTab: (@MainActor (SurfaceID) -> Void)?) {
         let browserTabs = ctx.services.cache.browserTabs
-        if let refusal = browserTabs.refusal(in: pane) { return ctx.refuse(refusal) }
+        if let refusal = browserTabs.refusal(in: pane) ?? browserTabs.refusal(for: url) { return ctx.refuse(refusal) }
         guard browserTabs.isAvailable(in: pane) else {
             return ctx.refuse(RefusalStrings.needsDaemonCapability(DaemonCapabilities.shared.frontendBrowserTabs))
         }

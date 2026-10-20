@@ -83,7 +83,8 @@ extension NewTabPage {
     }
 
     /// The pane showing tab `key` now.
-    private static func hosting(_ key: String, _ services: AppServices) -> PaneController? {
+    /// The pane that shows page `key` now (it may have moved since it opened).
+    static func hosting(_ key: String, _ services: AppServices) -> PaneController? {
         services.locateTab(key).flatMap { services.paneController(for: $0.1) }
     }
 

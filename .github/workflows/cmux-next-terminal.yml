@@ -1,0 +1,86 @@
+name: cmux-next terminal suites
+
+# The terminal stack's own tests on every feat-cmux-next push that touches it
+# (2026-10-20, terminal parity audit). Before this workflow none of them ran on a push:
+# - ghostty-vt (libghostty-vt from ghostty-next): the VT, tmux regress
+#   (tmux_conformance.rs, ported from tmux regress/), kitty graphics, unicode and
+#   corpus suites, with ghostty-vt-sys, cmux-pty, cmux-terminal-sizing,
+#   cmux-terminal-client and cmux-encode: scripts/ci/cmux-tui-rust-check.sh terminal.
+# - the shared Swift terminal packages (CmuxTerminalSizing, CmuxTerminalStream,
+#   CmuxTerminalClient), which ci-macos.yml tests on pull requests only.
+# Each job runs on the build-fleet gateway runner (CI_SWIFT_PACKAGE_TESTS_STEP_GATEWAY),
+# which only hands the step to the controller with `cmux-ci run`: the minis do the
+# work. There is no Blacksmith fallback; without the gateway the jobs skip.
+
+on:
+  push:
+    branches: [feat-cmux-next]
+    paths:
+      - ghostty-next
+      - cmux-tui/crates/ghostty-vt/**
+      - cmux-tui/crates/ghostty-vt-sys/**
+      - cmux-tui/crates/cmux-pty/**
+      - cmux-tui/crates/cmux-terminal-sizing/**
+      - cmux-tui/crates/cmux-terminal-client/**
+      - cmux-tui/crates/cmux-encode/**
+      - cmux-tui/Cargo.lock
+      - Packages/Shared/CmuxTerminalSizing/**
+      - Packages/Shared/CmuxTerminalStream/**
+      - Packages/Shared/CmuxTerminalClient/**
+      - scripts/ci/cmux-tui-rust-check.sh
+      - scripts/ci/run-swift-testing-suites.sh
+      - .github/workflows/cmux-next-terminal.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cmux-next-terminal-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rust-terminal:
+    name: terminal crates (ghostty-vt, tmux regress, PTY)
+    if: github.repository_owner == 'manaflow-ai' && vars.CI_SWIFT_PACKAGE_TESTS_STEP_GATEWAY != ''
+    runs-on: ${{ vars.CI_SWIFT_PACKAGE_TESTS_STEP_GATEWAY }}
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 1
+          submodules: false
+      - name: terminal crates on a fleet mini
+        run: |
+          set -uo pipefail
+          "${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}" run --class isolated \
+            --script scripts/ci/cmux-tui-rust-check.sh --ref "$GITHUB_SHA" \
+            --key "terminal-rust-$GITHUB_SHA-$GITHUB_RUN_ATTEMPT" --arg terminal \
+            --timeout 3600 --queue-timeout 3600 | tee "$RUNNER_TEMP/step.log"
+          status="${PIPESTATUS[0]}"
+          sed -n '/=== cmux-tui-rust-check summary/,$p' "$RUNNER_TEMP/step.log" >> "$GITHUB_STEP_SUMMARY" || true
+          exit "$status"
+
+  swift-terminal:
+    name: Swift terminal packages
+    if: github.repository_owner == 'manaflow-ai' && vars.CI_SWIFT_PACKAGE_TESTS_STEP_GATEWAY != ''
+    runs-on: ${{ vars.CI_SWIFT_PACKAGE_TESTS_STEP_GATEWAY }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        package: [CmuxTerminalSizing, CmuxTerminalStream, CmuxTerminalClient]
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 1
+          submodules: false
+      - name: ${{ matrix.package }} on a fleet mini
+        env:
+          PACKAGE: ${{ matrix.package }}
+        run: |
+          set -uo pipefail
+          "${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}" run --class light \
+            --script scripts/ci/run-swift-testing-suites.sh --ref "$GITHUB_SHA" \
+            --key "terminal-swift-$PACKAGE-$GITHUB_SHA-$GITHUB_RUN_ATTEMPT" --arg "Packages/Shared/$PACKAGE" \
+            --timeout 1800 --queue-timeout 3600

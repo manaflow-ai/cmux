@@ -634,6 +634,14 @@ pub enum ResourceOperation {
     WorkspaceLogClear,
     #[serde(rename = "workspace_log.list")]
     WorkspaceLogList,
+    #[serde(rename = "workspace_checklist.add")]
+    WorkspaceChecklistAdd,
+    #[serde(rename = "workspace_checklist.list")]
+    WorkspaceChecklistList,
+    #[serde(rename = "workspace_checklist.remove")]
+    WorkspaceChecklistRemove,
+    #[serde(rename = "workspace_checklist.update")]
+    WorkspaceChecklistUpdate,
     #[serde(rename = "workspace_progress.clear")]
     WorkspaceProgressClear,
     #[serde(rename = "workspace_progress.set")]

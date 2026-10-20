@@ -224,6 +224,8 @@ extension SettingsSchema {
         "browser.showAgentCursor": .userOnly,
         // Links the person sends to their default browser (a bank, SSO) must not move into a browser agents drive.
         "browser.openLinksInCmuxBrowser": .privacy,
+        // Off, the person's links leave cmux and no page opens: an agent must not turn the browser it drives off or on.
+        "browser.enabled": .userOnly,
         "browser.openTerminalLinksInCmuxBrowser": .privacy,
         // The app that opens your files from a menu: an agent must not pick what runs them.
         "files.textEditor": .userOnly,
