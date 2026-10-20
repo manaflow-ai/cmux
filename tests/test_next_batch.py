@@ -357,6 +357,33 @@ class ServeDebounce(unittest.TestCase):
         debouncer.ran(heads)
         self.assertFalse(debouncer.observe(heads, self.at(900)))
 
+    def test_a_set_that_keeps_raising_waits_longer_each_time(self):
+        debouncer = nb.Debouncer()
+        heads = ((1, "a"),)
+        debouncer.observe(heads, self.at(0))
+        self.assertTrue(debouncer.observe(heads, self.at(120)))
+        debouncer.ran(heads)
+        debouncer.failed(heads, self.at(130))   # 1st failure: 120s
+        self.assertTrue(debouncer.observe(heads, self.at(250)))
+        debouncer.ran(heads)
+        debouncer.failed(heads, self.at(260))   # 2nd: 240s
+        self.assertFalse(debouncer.observe(heads, self.at(440)))
+        self.assertTrue(debouncer.observe(heads, self.at(500)))
+        debouncer.ran(heads)
+        debouncer.failed(heads, self.at(510))   # 3rd: 480s, past hard_max too
+        self.assertFalse(debouncer.observe(heads, self.at(510 + 470)))
+        self.assertTrue(debouncer.observe(heads, self.at(510 + 480)))
+
+    def test_a_new_set_after_a_failure_runs_without_the_backoff(self):
+        debouncer = nb.Debouncer()
+        old, new = ((1, "a"),), ((1, "b"),)
+        for _ in range(3):
+            debouncer.observe(old, self.at(0))
+            debouncer.ran(old)
+            debouncer.failed(old, self.at(0))
+        self.assertFalse(debouncer.observe(new, self.at(60)))
+        self.assertTrue(debouncer.observe(new, self.at(180)))
+
     def test_constant_pushes_still_run_at_the_hard_max(self):
         debouncer = nb.Debouncer()
         fired = [seconds for seconds in range(0, 900, 60)
