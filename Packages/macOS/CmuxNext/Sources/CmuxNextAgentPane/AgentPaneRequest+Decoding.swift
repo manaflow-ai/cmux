@@ -77,6 +77,19 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
+        case "pane.setDisplay":
+            // Only the chat's own look keys: the page can never write another setting.
+            if let key = params?["key"] as? String, let path = AgentPaneDisplaySetting.writablePath(key) {
+                let raw = params?["value"]
+                let value = raw == nil || raw is NSNull ? nil : raw.flatMap(JSONValue.init(foundation:))
+                if raw == nil || raw is NSNull || value != nil {
+                    self = .displaySetting(path: path, value: value)
+                } else {
+                    self = .unsupported(method)
+                }
+            } else {
+                self = .unsupported(method)
+            }
         case "pane.painted":
             self = .painted
         case "pane.renderRate":

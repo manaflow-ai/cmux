@@ -86,3 +86,41 @@ credential.
   spawn after them still starts (cloud ones take no local slot).
 - `acpmux.rs` unit test: `session_meta` carries `peer` and no preset for a
   peer spec.
+
+## Blockers to "subagents run in the cloud" (end-to-end owner, 2026-10-20 01:50 PDT)
+
+Goal: a Chief `spawn` runs a subagent on a cloud VM (Freestyle first) in its
+own repo worktree; it reports back like a local one, and its workspace and chat
+show in cmux-next. a242 built and proved the core path (above): one real Claude
+session on `chief-subagents-1` committed 2bd6fc35df2. The user still sees no
+cloud subagents, for these reasons.
+
+| # | Blocker | Owner | Shortest path |
+|---|---|---|---|
+| B1 | The live Chief host does not have the code. The installed NIGHTLY is built from ddcd2dc (06:15Z Oct 20); a242's 82a981959a4 landed 10 minutes later. | a176 (nightly cadence) | Next feat-cmux-next nightly, then the host restart that the update does. Nothing else to do here. |
+| B2 | Off by default, and the only switch is `OPTCHAT_SUBAGENT_PEER` in the environment of the host that the app starts. Nobody can set it without changing how the app launches the host, and it moves every subagent or none. UI and computer-use tasks must stay on the Mac. | this task | `spawn(place: "cloud"\|"local")` per call, plus `control cloud PEER\|off` saved in state.json (as `control cap`): no restart, no env. |
+| B3 | No GitHub credential on the VM. The subagent commits; `deploy.sh land` must push from the Mac by hand. | user decision (credential) | Default now: the Chief lands through the Mac (`deploy.sh land NAME ~/work/aN feat-cmux-next`). Later: a deploy key or GitHub App token held only by the VM. |
+| B4 | One VM, no pool. No least-loaded choice, no auto-create, no auto-pause. The VM bills while it runs (about 0.26 USD/h). | this task (after B2) | A peer list in the same saved setting; pick the peer with the fewest live sessions; `deploy.sh pause` from the host when no cloud subagent lives. |
+| B5 | `zoom` and `date` (the Chief's memory) are not on the VM; the optchat MCP server is a local socket. | this task (later) | The view goes in the first message today. Next: serve the tool socket over the acpmux peer tunnel. |
+| B6 | Peer acpmux build is older than the Mac's (`acpmux host ls`: outdated). | a242 tooling | `deploy.sh up` (or `acpmux host update chief-subagents-1`) after each nightly. |
+| B7 | Cloud Chief (the Chief itself on a VM) loses its app tools on redeploy. | a235 | Separate path: not needed for cloud subagents of the Mac Chief. |
+| B8 | Moving a whole Chief between hosts. | a284 | Separate: a moved Chief keeps `control cloud` because it lives in state.json. |
+| B9 | Tenant (non-HQ) VMs through the cmux Cloud VM API need acpmux in the devbox image. | a205 | After B2: same `place: "cloud"` with a tenant peer. |
+| B10 | A browser for cloud subagents. | a302 | The streamed browser is the remote browser of a cloud subagent; no work here until a302 has a prototype. |
+
+Why it was slow: each piece had its own owner (a184, a196, a235, a205, a242,
+a284), and nobody owned the end-to-end switch-on. a242's last step ("set
+`OPTCHAT_SUBAGENT_PEER` after the nightly") was not possible without an app
+change, and its credential question (B3) had no default.
+
+### Smallest working slice (this change)
+
+1. `spawn` takes `place: "cloud" | "local"`. `cloud` with no peer set up fails
+   with how to set one up. With no `place`, the saved default applies, else
+   the env (as before), else local.
+2. `control cloud PEER` saves the peer (and makes cloud the default);
+   `control cloud off` turns it off; `control cloud` (no peer) shows it.
+3. Failing-first tests in `tests/cloud_subagents.rs`: placement per spawn, and
+   the saved setting survives a host restart.
+4. Proof: after the nightly, `control cloud chief-subagents-1` and one real
+   spawn that reports back.
