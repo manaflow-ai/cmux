@@ -5,8 +5,10 @@ name: gallery visual evidence (advisory)
 # light each), picked by relevance (scripts/ci/gallery_select.py on touched.ts's
 # ranking: the changed component's own states first, a shared file's unrelated
 # states last). A `Gallery: entry.id, entry.id/variant` line in the PR body
-# picks the states instead. It is non-blocking: do not add this check to branch
-# protection, and keep the job-level continue-on-error guard.
+# picks the states instead. Do not add this check to branch protection. A
+# capture that touched gallery states but rendered zero real frames (none
+# ready, on disk and not one flat color; scripts/gallery-matrix/frames.ts)
+# fails the run: a green receipt with nothing in it hid that for weeks.
 #
 # The images stay in the run's artifact, gallery-advisory-<PR>-<HEAD_SHA> (#21400:
 # no gallery renders on the public PR). gallery-review.json in it lists every
@@ -79,9 +81,9 @@ jobs:
 
   capture:
     if: ${{ github.event.pull_request.head.repo.full_name == github.repository && (github.event.action != 'edited' || github.event.changes.body && (contains(github.event.pull_request.body, 'allery:') || contains(github.event.changes.body.from, 'allery:'))) }}
-    # A visual receipt must never hold up a functional PR. The final artifact
-    # step still runs when a browser or gallery build is unavailable.
-    continue-on-error: true
+    # The capture step may fail (a browser or gallery build unavailable); the
+    # frame check after it decides the job's result, and the artifact step
+    # always runs.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || 'blacksmith-16vcpu-ubuntu-2404' }}
     timeout-minutes: 20
     steps:
@@ -224,6 +226,29 @@ jobs:
             echo "Sample: the 16 most relevant states ($(jq .more "$RUNNER_TEMP/selection.json") more touched), dark/light themes, narrow component width, Chromium."
             echo "The receipt is informational and never a merge gate."
           } | tee "$evidence/summary.txt" >> "$GITHUB_STEP_SUMMARY"
+
+      # Zero real frames fails the run. No touched state needs no frame.
+      - name: Require real frames
+        if: ${{ !cancelled() }}
+        run: |
+          set -euo pipefail
+          evidence="$RUNNER_TEMP/gallery-advisory"
+          if [ -f "$evidence/summary.txt" ] && grep -q "No gallery entries were touched" "$evidence/summary.txt"; then
+            echo "No gallery entries were touched; no frames needed."
+            exit 0
+          fi
+          if [ ! -f "$evidence/head/results.json" ] && [ ! -f "$evidence/base/results.json" ]; then
+            echo "::error::gallery advisory: zero real frames; the capture rendered nothing (see the capture step)"
+            exit 1
+          fi
+          cd scripts/gallery-matrix
+          [ -d node_modules ] || bun install --frozen-lockfile
+          bun test frames.test.ts
+          bun frames.ts --dir "$evidence/head" --dir "$evidence/base" --out "$evidence/frames.json" --require || {
+            echo "::error::gallery advisory: zero real frames ($(jq -c 'del(.dirs)' "$evidence/frames.json"))"
+            exit 1
+          }
+          echo "Real frames: $(jq .real "$evidence/frames.json") of $(jq .total "$evidence/frames.json")" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload advisory visual receipt
         if: always()
