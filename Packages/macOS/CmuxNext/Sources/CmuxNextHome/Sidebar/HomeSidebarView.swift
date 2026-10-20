@@ -245,9 +245,11 @@ public final class HomeSidebarView: NSView {
         searchCapsule.frame = h.search
         searchCapsule.isHidden = collapsedClosed
         searchCapsule.layer?.cornerRadius = h.search.height / 2
-        // The field inside its capsule, its text centred on the row. Collapsed and closed it waits
-        // under the icon button at full height (alpha 0), so ⌘F and type-to-search still reach it.
-        let fieldHeight: CGFloat = 22
+        // The field inside its capsule, its text centred on the row: an unbezeled search cell draws
+        // its line from the frame's top, so the field is one text line tall (a 22 pt field put the
+        // text 2.75 pt above the buttons' centre line). Collapsed and closed it waits under the
+        // icon button (alpha 0), so ⌘F and type-to-search still reach it.
+        let fieldHeight = list.searchField.font.map { ceil(NSLayoutManager().defaultLineHeight(for: $0)) } ?? 22
         if collapsedClosed, let button = h.searchButton {
             list.searchField.frame = CGRect(x: button.minX, y: button.midY - fieldHeight / 2, width: button.width, height: fieldHeight)
             list.searchField.alphaValue = 0
