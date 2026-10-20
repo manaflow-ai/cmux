@@ -4,9 +4,10 @@
     'python3 scripts/cmux-next/home-archived-chiefs-proof.py --tag <tag> --app "$NX_APP" --out "$NX_ARTIFACTS"; "$NX_APP_STOP"'
 As the host's agent test account (CMUX_UITEST_STACK_* in ~/.secrets/cmuxterm-dev.env, never printed):
 1. Archives one fresh test chief through the API (its main conversation exists, the chief is archived).
-2. Launches the tagged app (no activate), opens Home, and reads debug.home: the directory's archived Chiefs
-   and the Home list's rows. Pass: the directory knows the archived chiefs and no archived chief's main
-   conversation is a row. Socket only: no system input.
+2. Launches the tagged app (no activate) twice: the relaunch restores the stored session and replaces it with
+   the test account's sign-in (the race that left the list's Chief directory empty). Opens Home and reads
+   debug.home: the directory's archived Chiefs and the docked Home list as drawn. Pass: the directory knows the
+   archived chiefs and no archived chief's main conversation is a row. Socket only: no system input.
 """
 import argparse, json, os, re, socket, subprocess, sys, tempfile, time, urllib.error, urllib.request
 p = argparse.ArgumentParser()
@@ -89,17 +90,29 @@ env = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR":
        "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1200,800", "ACPMUX_AGENT_LAUNCH": "deny", "NX_REMOTE": "1",
        "CMUX_AUTH_CREDENTIALS_FILE": o.credentials}
 log = open(os.path.join(o.out, "app.log"), "a")
-app = subprocess.Popen([os.path.join(o.app, "Contents/MacOS/cmux DEV")], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
-up = wait(lambda: os.path.exists(SOCKET) and (rpc("debug.surfaces") or {}).get("windows"), 180)
-check("the app is up", bool(up))
-rpc("action.run", {"id": "home.show"})
+def launch():
+    app = subprocess.Popen([os.path.join(o.app, "Contents/MacOS/cmux DEV")], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
+    up = wait(lambda: os.path.exists(SOCKET) and (rpc("debug.surfaces") or {}).get("windows"), 180)
+    rpc("action.run", {"id": "home.show"})
+    return app, up
 
-def page():
-    pg = (rpc("debug.home") or {}).get("page") or {}
-    rows = ((pg.get("sidebar") or {}).get("rows")) or []
-    return pg if rows and pg.get("chiefs") else None
-pg = wait(page, 120) or ((rpc("debug.home") or {}).get("page") or {})
-rows = set(((pg.get("sidebar") or {}).get("rows")) or [])
+def listed():
+    h = rpc("debug.home") or {}
+    rows = [r.get("id") for r in ((h.get("dock") or {}).get("messages_list") or [])]
+    return (h, rows) if rows else None
+
+app, up = launch()
+wait(listed, 120)
+rpc("action.run", {"id": "quitEndSessions"}, timeout=10)
+try: app.wait(timeout=30)
+except subprocess.TimeoutExpired: app.kill()
+app, up = launch()
+check("the app is up (relaunched)", bool(up))
+h, rows = wait(listed, 120) or ((rpc("debug.home") or {}), [])
+time.sleep(10)  # test harness: the sign-in replacement and the list settle; then read again
+h, rows = listed() or (h, rows)
+rows = set(rows)
+pg = h.get("page") or {}
 known = set(pg.get("archived_chiefs") or [])
 shown = sorted(c for a, c in archived.items() if c and c in rows)
 RESULT["page"] = {"rows": len(rows), "chiefs": len(pg.get("chiefs") or []), "archived_known": len(known)}
