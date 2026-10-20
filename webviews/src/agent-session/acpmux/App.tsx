@@ -2506,7 +2506,7 @@ function DefaultComposerChips({
       }}
       onMode={(modeId) => {
         start();
-        void callNative("chat.mode", { modeId });
+        return callNative("chat.mode", { modeId });
       }}
       onEffort={(configId, value) => {
         start();
@@ -5701,7 +5701,7 @@ function AcpmuxPane() {
             if (running) shellRuns.stop(running.id);
             return running !== undefined;
           }}
-          onMode={(modeId) => void callNative("chat.mode", { modeId })}
+          onMode={(modeId) => callNative("chat.mode", { modeId })}
           // Without a folder there is nothing to search; the + menu leaves the item out.
           searchFiles={fileRoot ? searchFiles : undefined}
           capture={captureScreen}
