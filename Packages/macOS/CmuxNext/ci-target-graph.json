@@ -960,7 +960,8 @@
         "CmuxNextCompat",
         "CmuxNextDesign",
         "CmuxNextErrorJournal",
-        "CmuxNextSettings"
+        "CmuxNextSettings",
+        "CmuxNextWakeups"
       ],
       "packages": []
     },
@@ -1201,6 +1202,7 @@
       "packages": [],
       "reads": [
         "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/",
+        "cmux-tui/crates/cmux-tui-core/tests/fixtures/browser_site_engines.json",
         "docs/configuration.md",
         "docs/mdm/",
         "schemas/settings-export/settings-schema.sources.sha256",
