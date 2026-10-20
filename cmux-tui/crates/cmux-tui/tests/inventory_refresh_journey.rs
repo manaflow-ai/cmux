@@ -141,6 +141,9 @@ impl AcpmuxOwner {
         let mut config = Config::load_from_with(&config, &ProfileSources::none()).unwrap();
         config.store.mode = StoreMode::Memory;
         let store = acpmux::store::open(&config.store, root).unwrap();
+        // The cmux-tui binary installs acpmux's build id at start (main.rs); so
+        // does this in-process hub, or it reports `unstamped`.
+        acpmux::hub::install_build(acpmux_build_id::BUILD);
         let hub = Hub::new(config, store);
         let program = root.join("claude");
         fs::write(

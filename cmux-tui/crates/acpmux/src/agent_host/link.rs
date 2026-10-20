@@ -159,7 +159,7 @@ async fn connect_inner(record: HostRecord, resume_after: u64) -> Result<Connect>
             min: PROTOCOL_MIN,
             max: PROTOCOL_MAX,
             token: record.owner_token.clone(),
-            controller_build: crate::hub::BUILD.to_owned(),
+            controller_build: crate::hub::build().to_owned(),
         },
     )
     .await?;
