@@ -7,7 +7,8 @@
 // queue grow upward over the transcript. Typing while the turn runs (Stop becomes Steer and Send)
 // moves neither the mic nor Send. In every phase the row shows no context ring or spinner (the
 // running state is Send turned Stop, nothing else) and one lock at most (hq#1957 item 15 compact
-// row).
+// row). The quiet row under the box (ComposerFoot.tsx) ends on the context ring, which holds its
+// place from the first frame, so the first usage report moves nothing.
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";

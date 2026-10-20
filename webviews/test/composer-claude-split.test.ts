@@ -181,8 +181,8 @@ await requireBrowserLane("composer-claude-split.test.ts", async () => {
         expect(Math.abs(at.effortButton!.left - at.modelButton!.right), "model and effort chips touch").toBeLessThanOrEqual(2);
         expect(at.box.right - at.end, "the row ends near the box's right side").toBeLessThanOrEqual(14);
         // Claude Code ends the row on the context ring, right of effort, once there is usage.
-        // The chat's fixture reports usage; the New Tab page has no chat yet, so no ring.
-        expect(Boolean(at.ring), "the context ring shows only with usage").toBe(stage.plus);
+        // The chat's ring keeps its place from the start; the New Tab page has no chat yet, so no ring.
+        expect(Boolean(at.ring), "the chat's quiet row ends on the context ring").toBe(stage.plus);
         if (at.ring) expect(at.ring.left, "the ring follows effort").toBeGreaterThanOrEqual(at.effortButton!.right - 0.5);
       });
 

@@ -1433,10 +1433,12 @@ export function Composer({
               <Chips snapshot={snapshot} permissionAccess={permissionAccess} />
             </SpeedToggleHost.Provider>
             {speed && <FastToggle speed={speed} />}
-            {/* Claude Code ends the row on the context ring; it shows once the chat reports usage,
-                and the context-usage setting hides it (showContextUsage). */}
-            {showContextUsage && usage && usage.size > 0 && (
-              <ContextRing used={usage.used} size={usage.size} working={snapshot.isWorking} />
+            {/* Claude Code ends the row on the context ring. It keeps its place before the chat
+                reports usage (inert, ContextRing), so the first report moves nothing in the row
+                (hq#1957: the composer holds still while a turn runs); the context-usage setting
+                hides it (showContextUsage). */}
+            {showContextUsage && (
+              <ContextRing used={usage?.used} size={usage?.size} working={snapshot.isWorking} />
             )}
           </ComposerFoot>
         </ChromeArea>
