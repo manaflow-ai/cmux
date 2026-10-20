@@ -27,7 +27,7 @@ enum WorkspaceHandlers {
             context.services.palette.show(page: FindWorkPalettePage(services: context.services).page(),
                                           relativeTo: context.activeWindow?.window)
         })
-        registry.bindUnavailable(["reopenPreviousSession"], ActionFailure.needsDaemonCapability("closed-history-v1"))
+        registry.bind("reopenPreviousSession", run: { _ in try PreviousLaunchRestorer(services: context.services).restore() })
         registry.bind("reopenClosedWorkspace", invoke: { _ in
             guard let entry = DaemonClosedHistory.entries([.workspace], in: context.services).first(where: { $0.item.group == nil })
                 ?? context.refuse(RefusalStrings.noRecentlyClosedWorkspace) else { return }
