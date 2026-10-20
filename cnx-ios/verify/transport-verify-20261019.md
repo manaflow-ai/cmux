@@ -25,3 +25,20 @@ lane; dev Worker API 0.9.0).
   the browser's address bar for pages, the toolbar for Back and Forward.
 - Evidence (videos, screenshots, logs; git-ignored): on the mini under
   `~/cnx-tv/cnx-ios/verify/evidence/2026-10-19/transport-verify/`.
+
+## Rig notes and load
+
+- `open --env` reached the rig app's process for every key (checked with
+  `ps eww`): `CMUX_NEXT_CONFIG_FILE`, `CMUX_AUTH_CREDENTIALS_FILE`,
+  `CMUX_NEXT_IPHONE_PAIRING_SEED`, `CMUX_SHELL_INTEGRATION_DIR`,
+  `CMUX_BUNDLED_CLI_PATH` (the last two override the fleet paths baked into
+  `LSEnvironment`). No Keychain prompt; cnx-hostd started at once.
+- Both allowed minis were heavily loaded by CI during the run
+  (mini-cmuxs-mac-mini-3: 1-minute load 8 to 320; mini-cmux11s-mac-mini: 50 to
+  350 at the same time). The laptop stayed at 12 to 27 (nothing of this run
+  runs on it). Each row below carries the mini's load at its start. At loads
+  over about 150 the simulator's input injection (`axe tap`) timed out after
+  25 s, and once (18:24) the simulator's render server spun at 100 % CPU and
+  the device would not shut down; it was killed, deleted, and the run went on
+  in a new simulator (signed in again through the UI). Rows recorded in
+  those windows were rerun.

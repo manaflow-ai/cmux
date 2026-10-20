@@ -212,7 +212,7 @@ class TV:
                          stderr=subprocess.DEVNULL, start_new_session=True)
         time.sleep(1)
 
-    def setup(self):
+    def setup(self, resume=False):
         self.up()
         env = subprocess.run(["ps", "eww", "-p", str(self.mac.pid)], capture_output=True, text=True).stdout
         seen = {k: (k + "=" + v) in env for k, v in self.mac.launch_env.items()}
@@ -222,7 +222,8 @@ class TV:
         self.state.update(seed=seed, ws_name=self.j.ws_name, device_id=self.j.device_id)
         self.save()
         self.log(f"seed {seed}, Mac device {self.j.device_id}")
-        res = self.j.run(only={"fresh_install", "sign_in", "choose_space", "mac_discovered"})
+        steps = {"choose_space", "mac_discovered"} if resume else {"fresh_install", "sign_in", "choose_space", "mac_discovered"}
+        res = self.j.run(only=steps)
         self.log(f"setup steps: {[(r['id'], r['status'], (r.get('notes') or '')[:160]) for r in res]}")
         self.results["setup"] = {"steps": res, "open_env": seen, **load()}
         self.save()
@@ -325,7 +326,13 @@ class TV:
             res["stream_end_on_phone"] = bool(hit)
             res["stream_end_on_phone_s"] = round(time.time() - t, 1) if hit else None
             sim.shot(os.path.basename(d) + "-stream-end")
-            flicks, hits = j.scroll_to_find(f"{tag}-1 tok", tries=30)
+            hits, flicks = [], 0
+            for flicks in range(45):  # slow pulls, about a screen each
+                hits = sim.ocr_find(f"{tag}-1 tok", timeout=0.8)
+                if hits:
+                    break
+                sim.drag(201, 180, 201, 700, duration=0.5, hold=0.3)
+                time.sleep(0.5)
             res["scrollback_reached_first_line"] = bool(hits)
             res["scrollback_flicks"] = flicks
             sim.shot(os.path.basename(d) + "-scrollback")
@@ -339,7 +346,11 @@ class TV:
         stay = _InTerminal(j)
         lat = Latency(stay, d, self.log, 12)
         try:
-            lat.keystroke_echo(False)
+            try:
+                lat.keystroke_echo(False)
+            except IndexError:  # the soft keyboard did not come up (loaded host): once more
+                j.hide_keyboard()
+                lat.keystroke_echo(False)
             res["keystroke_echo"] = lat.metrics.get("keystroke_echo_idle", {})
             res["keystroke_echo"]["video"] = os.path.join(d, "keystroke_echo_idle.mp4")
         except Exception as e:
@@ -364,9 +375,14 @@ class TV:
         new = sim.wait(ident="workspaces.new", timeout=10)
         if not new:
             raise RuntimeError("no New Workspace button")
-        sim.long_press(*new.center, seconds=1.0)
-        time.sleep(1.0)
-        item = sim.find(contains="Browser")
+        item = None
+        for _ in range(3):
+            sim.long_press(*new.center, seconds=1.2)
+            item = sim.wait(contains="Browser", timeout=4)
+            if item:
+                item = [item]
+                break
+            sim.tap(60, 450); time.sleep(0.8)
         if not item:
             raise RuntimeError("no browser workspace in the hold menu")
         t = sim.tap_el(item[0])
@@ -689,7 +705,7 @@ def main():
     tv = TV(a)
     tv.log(f"== {a.cmd} {a.arg or ''} load {os.getloadavg()}")
     if a.cmd == "setup":
-        tv.setup()
+        tv.setup(resume=a.arg == "resume")
     elif a.cmd == "mode":
         tv.mode(a.arg)
     elif a.cmd in ("switch", "kill", "roam"):
