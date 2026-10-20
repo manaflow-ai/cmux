@@ -4,7 +4,8 @@ import { teamStub } from "./team-stack-support.ts"
 import { inDO } from "./team-ssh-support.ts"
 import { fireAlarm } from "./setup/alarm.ts"
 
-export const cloudStub = (team: string) => env.CLOUD_DO.get(env.CLOUD_DO.idFromName(team))
+const namespace = (env as unknown as { CLOUD_DO: DurableObjectNamespace }).CLOUD_DO
+export const cloudStub = (team: string) => namespace.get(namespace.idFromName(team))
 
 export const openCloudSockets = (team: string, user: string): Promise<number> =>
   inDO(cloudStub(team), async (_instance, state) => state.getWebSockets().filter((socket) =>

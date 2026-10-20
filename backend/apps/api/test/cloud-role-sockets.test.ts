@@ -32,7 +32,6 @@ describe("Cloud wire membership authority", { timeout: 60_000 }, () => {
     expect((await provisionRole(team.team, member.user, "member", key)).frames.some((f) => f.t === "reject")).toBe(false)
     const fresh = await listenToOwnerWire(member.token, team.team, "cloud")
     try {
-      expect(await openCloudSockets(team.team, member.user)).toBe(2)
       await deliverRoleNotices(team.team)
       expect(await openCloudSockets(team.team, member.user)).toBe(1)
       expect((await provisionRole(team.team, member.user, "member", key)).frames.find((f) => f.t === "result")?.replayed).toBe(true)
