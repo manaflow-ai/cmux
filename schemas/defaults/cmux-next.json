@@ -535,6 +535,7 @@
     "setting.phone.keepAwake": "pluggedIn",
     "setting.phone.startSessions": true,
     "setting.picker.pinned": [],
+    "setting.remoteHosting.enabled": false,
     "setting.screenshots.findTools": true,
     "setting.screenshots.folders": [],
     "setting.sessions.keepAwake": "pluggedIn",
