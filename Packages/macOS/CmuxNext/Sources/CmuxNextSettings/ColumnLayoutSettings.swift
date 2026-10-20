@@ -19,6 +19,7 @@ public nonisolated enum ColumnLayoutSettings {
     public static let minimumPaneWidthPath = ["layout", "minimumPaneWidth"]
     public static let minimumPaneHeightPath = ["layout", "minimumPaneHeight"]
     public static let rowsPath = ["layout", "rows"]
+    public static let focusPaneOnScrollPath = ["layout", "focusPaneOnScroll"]
 
     public static let splitSizingFallback: SplitSizing = .even
     public static let newColumnWidthFallback: NewColumnWidthMode = .matchCurrent
@@ -27,6 +28,8 @@ public nonisolated enum ColumnLayoutSettings {
     public static let frameOrientationFallback: FrameOrientation = .columnMajor
     /// `layout.rows` defaults on for dogfood (rows.md O1).
     public static let rowsFallback = true
+    /// `layout.focusPaneOnScroll` defaults on: a scroll over a pane focuses it.
+    public static let focusPaneOnScrollFallback = true
     public static let minimumPaneWidthFallback: Double = 200
     public static let minimumPaneHeightFallback: Double = 64
     public static let minimumPaneWidthRange: ClosedRange<Double> = 80...800
