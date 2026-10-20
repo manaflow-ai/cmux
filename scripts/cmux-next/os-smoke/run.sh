@@ -25,6 +25,8 @@
 # Env: TART_BIN (default: tart on PATH, else <work>/tools/tart-*/tart.app),
 #   TART_HOME (default <work>/tart-home), OS_SMOKE_HOST_LOCK (default
 #   /Users/Shared/cmux-build-fleet/host.lock when present; "none" disables),
+#   OS_SMOKE_PROBE (guest-probe.py, or stress-probe.py for the terminal-spam
+#   stress with STRESS_ROUNDS/STRESS_BURST/STRESS_IDLE; set OS_SMOKE_FUZZ_STEPS=0 with it),
 #   OS_SMOKE_BOOT_DEADLINE (s, default 300), OS_SMOKE_LAUNCH_DEADLINE and
 #   OS_SMOKE_TAB_DEADLINE (s, passed to the guest), OS_SMOKE_KEYCHAIN_PASSWORD_FILE
 #   (0600 file with the host user's login password: unlocks the login
@@ -127,14 +129,16 @@ if [[ -n "$CYCLE" ]]; then
     sleep 2
   done
   t_boot=$(now); record boot_s "$(elapsed "$t_clone" "$t_boot")"
-  scp "${SSH_OPTS[@]}" -q "$BUILD_ZIP" "$HERE/guest-probe.py" "admin@$ip:/Users/admin/" </dev/null
+  scp "${SSH_OPTS[@]}" -q "$BUILD_ZIP" "$HERE/guest-probe.py" "$HERE/stress-probe.py" "admin@$ip:/Users/admin/" </dev/null
   gssh 'set -e; rm -rf ~/smoke && mkdir -p ~/smoke/app && ditto -x -k ~/build.zip ~/smoke/app && test -x /usr/bin/python3 && /usr/bin/python3 -c 1'
   # The base images restore windows of their own setup (System Settings on 14, Terminal on
   # 26) that would cover the app in the release-build screenshots; quit them in the clone.
   gssh 'pkill -x "System Settings"; pkill -x Terminal; true'
   t_copy=$(now); record copy_s "$(elapsed "$t_boot" "$t_copy")"
   probe_rc=0
-  gssh "app=\$(ls -d ~/smoke/app/*.app | head -1); OS_SMOKE_LAUNCH_DEADLINE=${OS_SMOKE_LAUNCH_DEADLINE:-180} OS_SMOKE_TAB_DEADLINE=${OS_SMOKE_TAB_DEADLINE:-120} /usr/bin/python3 -I ~/guest-probe.py \"\$app\" ~/smoke/out" \
+  # OS_SMOKE_PROBE=stress-probe.py runs the terminal-spam stress instead (plans/cmux-next/sequoia-lag.md).
+  probe=${OS_SMOKE_PROBE:-guest-probe.py}
+  gssh "app=\$(ls -d ~/smoke/app/*.app | head -1); OS_SMOKE_LAUNCH_DEADLINE=${OS_SMOKE_LAUNCH_DEADLINE:-180} OS_SMOKE_TAB_DEADLINE=${OS_SMOKE_TAB_DEADLINE:-120} STRESS_ROUNDS=${STRESS_ROUNDS:-10} STRESS_BURST=${STRESS_BURST:-20} STRESS_IDLE=${STRESS_IDLE:-15} STRESS_GHOSTTY=$(printf %q "${STRESS_GHOSTTY:-}") /usr/bin/python3 -I ~/$probe \"\$app\" ~/smoke/out" \
     >"$out/probe.log" 2>&1 || probe_rc=$?
   record probe_exit "$probe_rc"
   scp "${SSH_OPTS[@]}" -q -r "admin@$ip:/Users/admin/smoke/out/." "$out/" </dev/null || record failure "artifact copy failed"
