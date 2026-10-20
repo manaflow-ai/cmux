@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import tempfile
 from pathlib import Path
@@ -279,18 +280,27 @@ def run(case: dict) -> dict:
     return json.loads(result.stdout)
 
 
-LANDER_RULE_ON = SURFACE.replace("@require_non_lander_approver off", "@require_non_lander_approver on")
+def policy_surface(value: str) -> str:
+    return re.sub(r"(?m)^@require_non_lander_approver (?:on|off)$",
+                  f"@require_non_lander_approver {value}", SURFACE)
+
+
+LANDER_RULE_ON = policy_surface("on")
+LANDER_RULE_OFF = policy_surface("off")
 
 
 def surface_change(lander_rule: bool = True) -> dict:
     case = scenario(rangeFiles=[{"filename": ".github/workflows/nightly.yml"}],
-                    surface=LANDER_RULE_ON if lander_rule else SURFACE)
+                    surface=LANDER_RULE_ON if lander_rule else LANDER_RULE_OFF)
     case["commits"][0]["files"] = [{"filename": ".github/workflows/nightly.yml"}]
     return case
 
 
-def test_lander_rule_ships_off_and_a_lander_may_approve() -> None:
-    assert "@require_non_lander_approver off" in SURFACE
+def test_lander_rule_ships_on() -> None:
+    assert "@require_non_lander_approver on" in SURFACE.splitlines()
+
+
+def test_with_lander_rule_off_a_lander_may_approve() -> None:
     case = surface_change(lander_rule=False)
     case["approvals"] = [{"state": "approved", "user": {"login": "teamleaderleo"},
                           "environments": [{"name": "release-surface-ack"}]}]
@@ -301,7 +311,8 @@ def test_lander_rule_ships_off_and_a_lander_may_approve() -> None:
 
 def test_an_unknown_policy_line_refuses_the_promotion() -> None:
     case = surface_change()
-    case["surface"] = SURFACE.replace("@require_non_lander_approver off", "@require_non_lander_approver ON")
+    case["surface"] = re.sub(r"(?m)^@require_non_lander_approver (?:on|off)$",
+                             "@require_non_lander_approver ON", SURFACE)
     out = run(case)
     assert out["decision"]["action"] == "refuse"
     assert "unknown policy line" in out["decision"]["reason"]
@@ -860,6 +871,30 @@ def test_only_the_wait_for_the_approval_is_cancellable() -> None:
     assert move["needs"] == ["promote-nightly-next", "await-release-surface-ack"]
     assert move["environment"] == "nightly-next-promote"
     assert "requireNonLander: policy.require_non_lander_approver" in WORKFLOW
+
+
+def test_workflow_executes_the_release_surface_approval_gate() -> None:
+    import yaml
+
+    jobs = yaml.safe_load(WORKFLOW)["jobs"]
+    decide = jobs["promote-nightly-next"]
+    steps = {step["name"]: step for step in decide["steps"]}
+    direct = "steps.decide.outputs.action == 'promote' && steps.decide.outputs.dry_run != 'true'"
+    assert steps["Mint release App token"]["if"] == direct
+    assert steps["Move nightly-next"]["if"] == direct
+
+    wait = jobs["await-release-surface-ack"]
+    assert wait["if"] == (
+        "(needs.promote-nightly-next.outputs.action == 'needs-ack' || "
+        "needs.promote-nightly-next.outputs.action == 'promote') && "
+        "needs.promote-nightly-next.outputs.dry_run != 'true'"
+    )
+    acknowledged = jobs["promote-nightly-next-acked"]
+    assert acknowledged["if"] == (
+        "needs.await-release-surface-ack.result == 'success' && "
+        "needs.promote-nightly-next.outputs.action == 'needs-ack' && "
+        "needs.promote-nightly-next.outputs.dry_run != 'true'"
+    )
 
 
 def main() -> None:
