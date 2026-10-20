@@ -9,9 +9,14 @@
 //!    (the file with the tty's ONLCR mapping applied), never touching mux2.
 //!
 //! Prints one JSON line and exits 0 only when all views match.
+//!
+//! With `MUX2_CONNECT=ADDR:PORT` every connection goes over TCP, so the
+//! same check covers the network path (FILE must exist at the same path on
+//! both machines: the server cats it, the reference reads it here).
 
 use std::os::unix::net::UnixStream;
 
+use cmux_mux2::net::Stream;
 use cmux_mux2::{self as proto};
 use ghostty_vt::{Callbacks, Terminal};
 
@@ -22,7 +27,7 @@ fn die(msg: impl std::fmt::Display) -> ! {
     std::process::exit(2);
 }
 
-fn call(s: &mut UnixStream, kind: u8, payload: &[u8]) -> Vec<u8> {
+fn call(s: &mut Stream, kind: u8, payload: &[u8]) -> Vec<u8> {
     proto::write_frame(s, kind, payload).unwrap_or_else(|e| die(e));
     loop {
         let (k, body) = proto::read_frame(s).unwrap_or_else(|e| die(e));
@@ -79,8 +84,16 @@ fn main() {
     let no_viewer = args.iter().any(|a| a == "--no-viewer");
     let data = std::fs::read(file).unwrap_or_else(|e| die(e));
     let path = proto::socket_path();
-    let mut ctl = UnixStream::connect(&path)
-        .unwrap_or_else(|e| die(format!("connect {}: {e}", path.display())));
+    let open = || match proto::net::connect_addr() {
+        Some(addr) => {
+            Stream::connect_tcp(&addr).unwrap_or_else(|e| die(format!("connect {addr}: {e}")))
+        }
+        None => Stream::Unix(
+            UnixStream::connect(&path)
+                .unwrap_or_else(|e| die(format!("connect {}: {e}", path.display()))),
+        ),
+    };
+    let mut ctl = open();
 
     // The program waits for one line before it prints, so the attach happens
     // at a known point. tty echo of that line is part of the expected bytes.
@@ -90,7 +103,7 @@ fn main() {
     let id = u32::from_le_bytes(reply[..4].try_into().expect("id"));
     let idp = id.to_le_bytes();
 
-    let mut viewer = UnixStream::connect(&path).unwrap_or_else(|e| die(e));
+    let mut viewer = open();
     if !midway && !no_viewer {
         proto::write_frame(&mut viewer, proto::ATTACH, &idp).unwrap_or_else(|e| die(e));
     }
@@ -120,12 +133,12 @@ fn main() {
         }
     }
     if slow {
-        let mut waiter = UnixStream::connect(&path).unwrap_or_else(|e| die(e));
+        let mut waiter = open();
         call(&mut waiter, proto::WAIT, &idp);
     }
 
     if no_viewer {
-        let mut waiter = UnixStream::connect(&path).unwrap_or_else(|e| die(e));
+        let mut waiter = open();
         call(&mut waiter, proto::WAIT, &idp);
         proto::write_frame(&mut viewer, proto::ATTACH, &idp).unwrap_or_else(|e| die(e));
     }
@@ -184,6 +197,20 @@ fn main() {
     // The slow-viewer run only proves the resync path if it was taken.
     let resync_ok = !slow || snapshots >= 2;
     let ok = screen_ok && (replay_ok || replay_rt_ok) && resync_ok;
+    // MUX2_VERIFY_DUMP=DIR writes every replay, so a mismatch can be diffed.
+    if let Some(dir) = std::env::var_os("MUX2_VERIFY_DUMP") {
+        let dir = std::path::PathBuf::from(dir);
+        let _ = std::fs::create_dir_all(&dir);
+        for (name, bytes) in [
+            ("server.vt", &server_replay),
+            ("client.vt", &client_replay),
+            ("ref.vt", &ref_replay),
+            ("server-rt.vt", &server_rt),
+            ("client-rt.vt", &client_rt),
+        ] {
+            let _ = std::fs::write(dir.join(name), bytes);
+        }
+    }
     println!(
         "{{\"verify\":\"{file}\",\"ok\":{ok},\"screen_match\":{screen_ok},\"replay_exact\":{replay_ok},\"replay_roundtrip\":{replay_rt_ok},\"bytes\":{},\"stream_bytes\":{stream_bytes},\"snapshots\":{snapshots},\"midway\":{midway},\"slow\":{slow},\"resize\":{resize},\"resync_ok\":{resync_ok}}}",
         data.len()
