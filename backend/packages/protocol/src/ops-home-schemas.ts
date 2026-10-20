@@ -34,6 +34,11 @@ export const PartIndex = Schema.Number.check(Schema.isInt(), Schema.isGreaterTha
 
 export const ConversationKind = Schema.Literals(["chief", "dm", "group"]).annotate({ identifier: "ConversationKind" })
 
+/** Group roles (home-core conversation/roles.ts): one owner; admins manage people; read_only members only read. */
+export const ParticipantRole = Schema.Literals(["owner", "admin", "member", "read_only"]).annotate({ identifier: "HomeParticipantRole" })
+/** A role an op may grant (never owner: that is ownership.transfer). */
+export const GrantableRole = Schema.Literals(["admin", "member", "read_only"]).annotate({ identifier: "HomeGrantableRole" })
+
 export const Participant = Schema.Struct({
   id: ParticipantId,
   kind: Schema.Literals(["human", "agent", "address"]),
@@ -41,7 +46,7 @@ export const Participant = Schema.Struct({
   agent_class: Schema.optionalKey(Schema.Literals(["mux", "agent"])),
   acp_session: Schema.optionalKey(Schema.String),
   owner_user: Schema.optionalKey(Schema.String),
-  role: Schema.optionalKey(Schema.Literals(["owner", "member"])),
+  role: Schema.optionalKey(ParticipantRole),
   joined_seq: Schema.optionalKey(Seq),
   added_by: Schema.optionalKey(Schema.String),
   left_at: Schema.optionalKey(Timestamp)
@@ -222,7 +227,8 @@ export const ConversationSummary = Schema.Struct({
   state: Schema.optionalKey(Schema.Literals(["active", "archived"])),
   settings: Schema.optionalKey(ConversationSettings),
   invites: Schema.optionalKey(Schema.Array(PublicInvite)),
-  retention_days: Schema.optionalKey(Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(30)))
+  retention_days: Schema.optionalKey(Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(30))),
+  member_count: Schema.optionalKey(Seq.annotate({ description: "A large group (more than 64 members): participants is a roster of at most 16 humans plus the owner and agents; this counts every current participant, and conversation.members pages them." }))
 }).annotate({ identifier: "HomeConversationSummary" })
 
 /** The owner's answer to a conversation mutation (home-core domain `value`). */
@@ -248,6 +254,8 @@ export const InboxEntry = Schema.Struct({
   ),
   dm_peer: Schema.optionalKey(ParticipantId),
   removed: Schema.Boolean,
+  large: Schema.optionalKey(Schema.Boolean.annotate({ description: "A large group: inbox.list pulls this row from the conversation, and the inbox stream bumps it only when you are named (a mention, your own message, being added or removed)." })),
+  member_count: Schema.optionalKey(Seq),
   unread: Seq,
   mentions: Seq,
   counts_rev: Seq,

@@ -47,6 +47,31 @@ ms), with frames missed. BENCH.md gets a "Tab switch" section and the gate gets
 `tab-switch-<kind>-<count>-<input>` rows. `--arg=tabswitch=off` skips it;
 `--arg=tabswitch=chromium,markdown --arg=tabcounts=2,30` narrows it.
 
+## For the tab switch rewrite (a168) and other perf agents
+
+- Tab switch only, fastest loop: `cmux-ci run --class exclusive --measurement --label measure
+  --script scripts/measure/perf-bench.sh --ref SHA --target-worker <owned mini> --arg=browsers=cmux-terminal
+  --arg=rounds=1 --arg=launches=0 --arg=tabswitch=chromium,webkit,markdown,chat --arg=tabcounts=2,10,30
+  --artifact artifacts/perf-bench/tab-switch.json`. a118's direct entry
+  `scripts/measure/tab-switch.sh --arg=--matrix ...` is allowlisted too.
+- The matrix reads `debug.key`, `debug.mouse`, `debug.tab_switch` and `debug.window_snapshot`. A rewrite
+  that changes those hooks keeps their reply shape, or updates `tab-switch-matrix.py` in the same
+  commit, so before and after numbers compare.
+- Before/after: `xbench.py report --out RUN --tabswitch tab-switch.json`, then
+  `xbench.py gate --results new.json --baseline old.json`.
+
+## Hosts
+
+The step needs a logged-in console user: `open` fails on the AWS workers (aws-m4pro-*, no console
+login; xbench exits 3 with `PERF-BENCH-NO-GUI`). The owned M4 Pro minis (cmux7s-13s,
+cmuxs-mac-mini*) can open apps, but they are busy CI hosts, so pass `--target-worker` and expect a
+wait. cmux20 (Apple M6, macOS 27.0, user `cmux` logged in at the console, Xcode 26.6) is the planned
+dedicated bench host. It is not a controller worker yet: it needs the controller worker token
+installed (the `mini-ops/gui-worker` LaunchAgent pattern, no sudo). Until then cmux11s is the
+dedicated bench mini (2026-10-20): its glaeda GitHub runner LaunchAgents are disabled
+(`launchctl disable gui/501/com.teamleaderleo.glaeda.cmux-runner*`, log `~/bench-dedicate.log`);
+undo with `launchctl enable` and `launchctl bootstrap gui/501 ~/Library/LaunchAgents/<plist>`.
+
 ## Method
 
 Follows Ardia's `docs/perf/vs-browsers.md` so the numbers compare:

@@ -190,7 +190,7 @@ public final class CmuxDialogView: NSView {
         row.spacing = Metrics.space2
         row.addArrangedSubview(NSView())
         for button in spec.buttons {
-            let view = CmuxDialogButtonView(button, target: self, action: #selector(pressed(_:)))
+            let view = CmuxDialogButtonView(button, hint: CmuxDialogKeys.hint(for: button, in: spec), target: self, action: #selector(pressed(_:)))
             buttonViews.append(view)
             row.addArrangedSubview(view)
         }
