@@ -50,9 +50,24 @@ import {
   type RemarkLike,
   type SourceMap,
 } from "./sourceMap";
+import { quoteLines } from "./selectionQuote";
+import {
+  commentDecorations,
+  commentMarkersKey,
+  commentMarkersPlugin,
+  topIndexForLine,
+  type ViewerComment,
+} from "./comments";
 import { imageSize, obsidianSyntaxPlugin } from "./obsidian";
 import { isPointerSelecting, pointerChanged, pointerSelectPlugin } from "./pointerSelect";
-import { ResizableTableView, tableClipboard, tableDragOutPlugin, tableKeyDown, type TableWidths } from "./tables";
+import {
+  ResizableTableView,
+  tableClipboard,
+  tableDragOutPlugin,
+  tableKeyDown,
+  tableViewAt,
+  type TableWidths,
+} from "./tables";
 
 /** What the editor needs from its page: links, images, code colors, diagrams and labels. */
 export interface MarkdownEditorHost {
@@ -76,8 +91,13 @@ export interface MarkdownEditorHost {
   githubRepository?: string;
   /** Link checks, the link bubble's strings, path completion and copying. */
   links?: LinkHost;
-  /** Column widths the user dragged, kept per file (a view setting, never written to the file). */
+  /**
+   * Column widths the user dragged, kept per file (a view setting, never written to the file: the
+   * host keeps them in the file's extended attribute, MARKDOWN-TABLE-WIDTHS-DESIGN.md).
+   */
   tableWidths?: TableWidths;
+  /** Delete on a comment card: the host forgets comment `id` and sends the list again. */
+  deleteComment?(id: string): void;
 }
 
 export type EditorLabel =
@@ -88,7 +108,9 @@ export type EditorLabel =
   | "plainText"
   | "document"
   | "remoteImageBlocked"
-  | "remoteImageLoad";
+  | "remoteImageLoad"
+  | "comment"
+  | "deleteComment";
 
 /** One colored token of a code block, by offset into its text. */
 export interface CodeToken {
@@ -249,6 +271,8 @@ export class MarkdownEditor {
   private remark: RemarkLike | null = null;
   private serializeDoc: ((doc: ProseNode) => string) | null = null;
   private baseline: SourceMap = { text: "", blocks: [] };
+  /** The file's viewer comments, drawn again after each load. */
+  private comments: ViewerComment[] = [];
   private readOnly: boolean;
   private eol = "\n";
 
@@ -324,7 +348,8 @@ export class MarkdownEditor {
       .use(githubReferencePlugin(() => host.githubRepository))
       .use(obsidianSyntaxPlugin(host))
       .use(userEditPlugin(() => this.options.onUserEdit?.()))
-      .use(codeHighlightPlugin(host));
+      .use(codeHighlightPlugin(host))
+      .use(commentMarkersPlugin());
     if (host.links)
       editor
         .use(brokenLinkPlugin(host.links))
@@ -443,6 +468,29 @@ export class MarkdownEditor {
     this.bubble.current?.editAtSelection();
   }
 
+  /** Forgets every table's column widths in the file (the `resetTableWidths` page command). */
+  resetTableWidths(): void {
+    this.options.host.tableWidths?.clear();
+  }
+
+  /**
+   * Forgets the column widths of the table around `target` (the table's right-click Reset Column
+   * Widths); false when `target` is in no table.
+   */
+  resetTableWidthsAt(target: Element | null): boolean {
+    const view = tableViewAt(target);
+    view?.resetWidths();
+    return !!view;
+  }
+
+  /** The index among the document's tables of the table around `target`, or null. */
+  tableIndexAt(target: Element | null): number | null {
+    const wrapper = target?.closest?.(".tableWrapper");
+    if (!wrapper || !this.view?.dom.contains(wrapper)) return null;
+    const index = [...this.view.dom.querySelectorAll(".tableWrapper")].indexOf(wrapper);
+    return index >= 0 ? index : null;
+  }
+
   /** A click on a task item's box (left of its text) checks or unchecks it. */
   private toggleTask(target: Element | null, event: MouseEvent): boolean {
     const item = target?.closest?.('li[data-item-type="task"]');
@@ -507,6 +555,8 @@ export class MarkdownEditor {
     if (index !== current.length || this.baseline.blocks.some((block) => block.nodes.includes(null as never))) {
       this.baseline = map;
     }
+    // The lines moved with the new text: the markers go where their lines are now.
+    if (this.comments.length) this.setComments(this.comments);
   }
 
   /** The markdown for the current document, and its source map (the next baseline after a save). */
@@ -522,6 +572,44 @@ export class MarkdownEditor {
   /** Makes `map` (a snapshot that was saved) the baseline. */
   commit(map: SourceMap): void {
     this.baseline = map;
+  }
+
+  /**
+   * The selection's text and the source lines that hold it (viewer comments,
+   * viewer-comments-DESIGN.md), null with nothing selected. Lines count in the current document,
+   * which is the file after the next save.
+   */
+  selectionQuote(): { text: string; startLine?: number; endLine?: number } | null {
+    const view = this.view;
+    if (!view || !this.serializeDoc) return null;
+    const { from, to, empty } = view.state.selection;
+    if (empty) return null;
+    const doc = view.state.doc;
+    const text = doc.textBetween(from, to, "\n", "\n");
+    if (!text.trim()) return null;
+    const lines = quoteLines(
+      this.snapshot(),
+      doc.resolve(from).index(0),
+      doc.resolve(Math.max(from, to - 1)).index(0),
+      text,
+    );
+    return lines ? { text, ...lines } : { text };
+  }
+
+  /** Shows `comments` as margin markers (viewer-comments-DESIGN.md "Comments in the viewer"). */
+  setComments(comments: readonly ViewerComment[]): void {
+    this.comments = [...comments];
+    const view = this.view;
+    if (!view || !this.serializeDoc) return;
+    const map = this.comments.length ? this.snapshot() : null;
+    const host = { label: this.options.host.label, deleteComment: this.options.host.deleteComment };
+    const set = commentDecorations(
+      view.state.doc,
+      this.comments,
+      (line) => (map ? topIndexForLine(map, line) : null),
+      host,
+    );
+    view.dispatch(view.state.tr.setMeta(commentMarkersKey, set).setMeta("addToHistory", false));
   }
 
   /** The baseline text: what the file held at the last load or save. */

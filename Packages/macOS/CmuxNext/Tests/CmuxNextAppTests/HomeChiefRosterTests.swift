@@ -7,9 +7,11 @@ import CmuxNextHostedChief
 @testable import MessagesLabSidebar
 import Testing
 
-/// One main Chief, its hosts merged, and host switching in the Chief's card
-/// (Lawrence 2026-10-19: "very confused by this segmented control, i dont
-/// like" and "i dont like that i have a ton of chiefs, idk which is main one").
+/// Every Chief on every host listed at once with one tagged Main, and host
+/// switching in the Chief's card (Lawrence 2026-10-19: "very confused by this
+/// segmented control, i dont like" and "idk which is main one"; 2026-10-20:
+/// "support both local chiefs and cloud chiefs and mac mini chiefs etc all at
+/// the same time").
 @MainActor
 struct HomeChiefRosterTests {
     static let me = ParticipantID("me")
@@ -30,15 +32,18 @@ struct HomeChiefRosterTests {
         HomeChiefRoster.make(rows: rows, local: local, hosted: hosted, placed: placed, server: "cmux20", showsPlaced: showsPlaced)
     }
 
-    @Test func oneMainChiefLeadsAndItsOtherHostsAreMerged() {
+    @Test func everyHostsChiefIsListedAndOneLeadsAsMain() {
         let model = HomeSidebarModel(rows: Self.rows, pins: HomePins(), me: Self.me, chiefRoster: Self.roster())
-        let listed = (model.pinned + model.rows).map(\.id)
-        #expect(listed.filter { [Self.local, Self.hosted, Self.placed].contains($0) } == [Self.hosted],
-                "the same Chief on three hosts is one entry")
+        let listed = Set((model.pinned + model.rows).map(\.id))
+        #expect(listed.isSuperset(of: [Self.local, Self.hosted, Self.placed]),
+                "this Mac's, the Hosted and the Mac mini's Chief are each reachable from the list")
         #expect(model.pinned.first?.id == Self.hosted, "the main Chief is pinned first")
         #expect(model.pinned.first?.isMainChief == true)
-        #expect(model.pinned.first?.listBadge == HomeConversationStrings.mainChief)
+        #expect(model.pinned.first?.listBadge == HomeConversationStrings.mainChief + " \u{00B7} " + HomeChiefPlace.cloud.label)
         #expect(model.pinned.filter(\.isMainChief).count == 1, "exactly one main Chief")
+        let all = model.pinned + model.rows
+        #expect(all.first { $0.id == Self.local }?.listBadge == HomeConversationStrings.placeThisMac)
+        #expect(all.first { $0.id == Self.placed }?.listBadge == "cmux20")
     }
 
     @Test func everyOtherChiefSaysWhereItRuns() {
@@ -58,16 +63,16 @@ struct HomeChiefRosterTests {
     @Test func pickingTheServerMakesItTheMainEntryInstead() {
         let roster = Self.roster(showsPlaced: true)
         #expect(roster.main == Self.placed)
-        #expect(roster.merged == [Self.hosted, Self.local])
         #expect(roster.places[Self.placed] == .server("cmux20"))
         #expect(roster.places[Self.hosted] == .cloud)
+        #expect(roster.places[Self.local] == .thisMac)
+        #expect(roster.tag(for: Self.hosted, engine: nil) == HomeChiefPlace.cloud.label)
     }
 
     @Test func withoutAHostedChiefThisMacsChiefStaysItsOwnTaggedEntry() {
         let roster = HomeChiefRoster.make(rows: Self.rows, local: Self.local, hosted: nil, placed: Self.placed, server: "cmux20",
                                           showsPlaced: true)
         #expect(roster.main == Self.placed)
-        #expect(!roster.merged.contains(Self.local), "its history was never copied anywhere: hiding it would lose it")
         #expect(roster.tag(for: Self.local, engine: nil) == HomeConversationStrings.placeThisMac)
     }
 

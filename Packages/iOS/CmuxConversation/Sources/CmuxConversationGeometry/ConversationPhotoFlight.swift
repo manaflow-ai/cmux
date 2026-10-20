@@ -9,6 +9,7 @@ import Foundation
 /// than back into it (omega 19.4 /s, both from the close button and from a
 /// released drag). Dragging down shrinks the photo by 1 pt per 1320 pt of
 /// travel while the black veil over the transcript fades out over 400 pt.
+// lint:allow namespace-type -- vendored CmuxConversation snapshot
 public enum ConversationPhotoFlight {
     public static let openOmega: Double = 26.5
     public static let closeOmega: Double = 19.4
@@ -76,6 +77,7 @@ public enum ConversationPhotoFlight {
 }
 
 /// The photo viewer's chrome on each OS.
+// lint:allow namespace-type -- vendored CmuxConversation snapshot
 public enum ConversationPhotoViewerLayout {
     public enum Style: Sendable {
         /// iOS 26: Quick Look's chrome, a "Photo" title with close at the

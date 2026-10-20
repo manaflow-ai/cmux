@@ -75,6 +75,9 @@ public actor MockHomeSource: HomeSource {
     /// `withheldEvents` until `releaseWithheldEvents`.
     private var holdingEvents = false
     private var withheldEvents: [HomeEvent] = []
+    /// True while `holdSubmits` holds every submit before the owner looks at it.
+    private var holdingSubmits = false
+    private var heldSubmits: [CheckedContinuation<Void, Never>] = []
     /// The progress callback of every upload call, in call order (tests
     /// replay late callbacks with `replayProgress`).
     private var progressCallbacks: [@Sendable (Double) -> Void] = []
@@ -147,6 +150,7 @@ public actor MockHomeSource: HomeSource {
 
     public func submit(_ intent: HomeIntent) async throws -> HomeOpResult {
         if options.latency > .zero { try? await clock.sleep(for: options.latency) }
+        if holdingSubmits { await withCheckedContinuation { heldSubmits.append($0) } }
         guard online else { throw HomeRejection.ownerUnreachable }
         if let failing = failingSubmits[intent.key] {
             failingSubmits[intent.key] = failing.times > 1 ? (failing.times - 1, failing.error) : nil
@@ -441,9 +445,37 @@ public actor MockHomeSource: HomeSource {
         }
     }
 
+    /// Holds every later submit before the owner looks at it, until `releaseSubmits` (a send
+    /// stays pending in the client while other traffic commits).
+    public func holdSubmits() { holdingSubmits = true }
+
+    /// Lets the held submits go, in the order they came, and stops holding.
+    public func releaseSubmits() {
+        holdingSubmits = false
+        let waiting = heldSubmits
+        heldSubmits.removeAll()
+        for submit in waiting { submit.resume() }
+    }
+
+    /// Submits waiting for `releaseSubmits` now.
+    public var heldSubmitCount: Int { heldSubmits.count }
+
+    /// Posts `text` as `author` under `key` (a Chief's reply carries its turn key) and returns its seq.
+    @discardableResult
+    public func post(_ text: String, from author: ParticipantID, in conversation: ConversationID, key: IdempotencyKey) -> Seq? {
+        guard (try? commitMessage(in: conversation, author: author, parts: [.text(text)], key: key)) != nil else { return nil }
+        return conversations[conversation]?.lastSeq
+    }
+
     /// Posts a message as someone else (incoming traffic for demos).
     public func receive(_ text: String, from author: ParticipantID, in conversation: ConversationID) {
         _ = try? commitMessage(in: conversation, author: author, parts: [.text(text)], key: .make())
+    }
+
+    /// Publishes one draft item of an agent's running reply, as an owner streams a Chief turn (demos and the
+    /// DEBUG Home fixture's width sweep). Nothing is stored: the reply posts only through ``receive(_:from:in:)``.
+    public func streamDraft(_ update: HomeDraftUpdate) {
+        publish(.draft(update))
     }
 
     // MARK: Owner logic
