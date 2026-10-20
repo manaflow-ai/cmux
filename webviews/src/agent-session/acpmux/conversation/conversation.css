@@ -2625,6 +2625,101 @@ pre.cv-math-source {
   outline-offset: 1px;
 }
 
+/* ---------- A paused agent pair (AgentPairNote.tsx) ---------- */
+/* Its sentence wraps; the held count and Resume sit under it, indented to the text. */
+.cv-agent-pair[data-state="paused"] {
+  align-items: flex-start;
+  padding-top: 3px;
+}
+.cv-agent-pair[data-state="paused"] .cv-tool__icon {
+  margin-top: 2px;
+}
+.cv-agent-pair__text {
+  white-space: normal;
+}
+.cv-agent-pair__detail {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 24px;
+  padding-left: 22.5px;
+  font-size: var(--text-detail);
+  color: var(--cv-text-dim);
+}
+.cv-agent-pair__toggle {
+  all: unset;
+  cursor: pointer;
+  color: var(--cv-text-dim);
+}
+.cv-agent-pair__toggle:hover {
+  color: var(--agent-text);
+}
+.cv-agent-pair__toggle:focus-visible {
+  outline: 2px solid var(--agent-accent, currentColor);
+  outline-offset: 1px;
+}
+/* The held previews, under the detail line: plain quoted text, one per line. */
+.cv-agent-pair__held {
+  margin: 2px 0 4px;
+  padding: 0 0 0 22.5px;
+  list-style: none;
+  font-size: var(--text-detail);
+  color: var(--cv-text-dim);
+}
+.cv-agent-pair__held li {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow: hidden;
+  padding: 2px 0 2px 8px;
+  border-left: 2px solid var(--agent-border);
+  overflow-wrap: anywhere;
+}
+.cv-agent-pair__held li.cv-agent-pair__more {
+  border-left-color: transparent;
+}
+.cv-agent-pair__held li + li {
+  margin-top: 4px;
+}
+/* The live region (<output>, role status): the held and dropped counts and a failed Resume. A box
+   of its own, not display: contents, which drops the role in WebKit. */
+.cv-agent-pair__status {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+.cv-agent-pair__status:empty {
+  display: none;
+}
+.cv-agent-pair[data-state="resumed"] .cv-agent-pair__dropped {
+  flex: none;
+  margin-left: 8px;
+  color: var(--cv-text-dim);
+}
+.cv-agent-pair__failed {
+  color: var(--agent-danger);
+}
+.cv-agent-pair__resume {
+  all: unset;
+  padding: 1px 8px;
+  border: 1px solid var(--agent-border);
+  border-radius: 5px;
+  cursor: pointer;
+  color: var(--agent-text);
+}
+.cv-agent-pair__resume:hover:not(:disabled) {
+  background: var(--cv-card-fill);
+}
+.cv-agent-pair__resume:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+.cv-agent-pair__resume:focus-visible {
+  outline: 2px solid var(--agent-accent, currentColor);
+  outline-offset: 1px;
+}
+
 /* ---------- A compaction (CompactionNote.tsx) ---------- */
 .cv-compaction[data-state="failed"] .cv-tool__icon {
   color: var(--agent-danger);
