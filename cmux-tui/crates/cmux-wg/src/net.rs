@@ -482,7 +482,9 @@ impl Driver {
                         if self.pacer.received(packet, Instant::now()) {
                             self.schedule.on_activity(Instant::now());
                         }
-                        self.stack.push_rx(packet.to_vec(), None);
+                        let mut packet = packet.to_vec();
+                        self.pacer.refresh_stale_ack(&mut packet);
+                        self.stack.push_rx(packet, None);
                     }
                     break;
                 }
@@ -510,8 +512,8 @@ impl Driver {
             self.initiate_handshake();
         }
         while !self.underlay.backlogged() && self.tunn.time_since_last_handshake().is_some() {
-            let packet = match self.pacer.pop(now) {
-                Ok(Some(packet)) => packet,
+            let (packet, priority) = match self.pacer.pop_classified(now) {
+                Ok(Some(popped)) => popped,
                 Ok(None) => break,
                 Err(at) => {
                     self.pace_deadline = Some(at);
@@ -521,7 +523,7 @@ impl Driver {
             if let TunnResult::WriteToNetwork(encrypted) =
                 self.tunn.encapsulate(&packet, &mut self.scratch)
             {
-                self.underlay.send(encrypted);
+                self.underlay.send_classified(encrypted, priority);
             }
             // Datagrams are unreliable: the watchdog neither waits on them
             // nor replays them.

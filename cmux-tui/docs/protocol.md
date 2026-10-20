@@ -130,6 +130,13 @@ Unread) on any tab, separate from notification markers. The daemon keeps it on
 the tab record until a frontend clears it, which the Mac app does when the tab
 comes into view.
 
+`workspace-description-v1` adds `description` (string, 1-4096 characters, line
+breaks allowed; null clears it) to `workspace.update` and, while set,
+`description` to the workspace's `extra`. `workspace-status-v1` adds
+`task_status` the same way: one of the classic cmux task lanes `todo`,
+`working`, `needs-attention`, `review`, `done`, or null for automatic. Both live
+in the shared workspace presentation, so every client shows them.
+
 `tab-metadata-v1` adds `pinned`, `cwd`, `git_branch`, and `git_detached` to
 every tab. `set-tab-pinned` pins a tab; pinned tabs sort first, and
 `move-tab` keeps them ahead of unpinned tabs. The daemon resolves `cwd` from

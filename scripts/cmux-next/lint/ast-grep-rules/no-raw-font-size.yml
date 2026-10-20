@@ -1,0 +1,21 @@
+id: no-raw-font-size
+language: swift
+severity: error
+message: "raw font size: use TypeScale.caption|detail|body|title|heading or a Typography font"
+note: schemas/type-scale/type-scale.json (check-swift-type-scale.py)
+ignores:
+  - "**/CmuxNextDesign/TypeScale.generated.swift"
+  - "**/CmuxNextDesign/Text/LabelParityProbe.swift"
+  - "**/CmuxNextDesign/Text/TextWeightProbe.swift"
+rule:
+  any:
+    - pattern: '$F(ofSize: $N)'
+    - pattern: '$F(ofSize: $N, $$$REST)'
+    - pattern: '$F(size: $N)'
+    - pattern: '$F(size: $N, $$$REST)'
+    - pattern: 'NSFont(name: $NAME, size: $N)'
+constraints:
+  F:
+    regex: '(^|\.)(systemFont|monospacedSystemFont|monospacedDigitSystemFont|boldSystemFont|system)$'
+  N:
+    regex: '^[0-9]'

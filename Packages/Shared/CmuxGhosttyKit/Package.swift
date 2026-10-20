@@ -54,6 +54,8 @@ import PackageDescription
 // Since a04c57e81 a snapshot restore keeps a scrolled-back viewport on the
 // rows it showed, and a scroll no longer turns the next local-history
 // restore into a full resend.
+// Since 43ffe4171 narrowing a padded multi-line prompt (Powerlevel10k
+// "lean, 2 lines") lets zsh redraw it without a copy of line 1 (#21341).
 //
 // A pin change is one reviewed commit that changes the URL and the checksum
 // together (the zip's sha256, also in the release's SHA256SUMS). Never pin
@@ -78,8 +80,8 @@ let package = Package(
         ),
         .binaryTarget(
             name: "GhosttyNextKit",
-            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-a04c57e8148bdb27b75a141c76dd11c902ac33bf-apple-v6/GhosttyNextKit.xcframework.zip",
-            checksum: "88073882d8536776f82fa6feb0d50c852a97d0955e5374bc50a23aeacebf33ae"
+            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-43ffe4171491e0c390023e0398182923eeeeed9e-apple-v6/GhosttyNextKit.xcframework.zip",
+            checksum: "a3e64e0f74ab041b63637ed2ef089efb91c5fd93be42c408fbf406727307fed4"
         ),
     ]
 )
