@@ -79,8 +79,14 @@ class GitHub:
         return json_documents(self.run(["api", route, "--paginate"]))
 
     def log(self, repo: str, job: dict) -> str:
-        return self.run(["run", "view", str(job["run_id"]), "--repo", repo,
-                         "--job", str(job["id"]), "--log"])
+        log = self.run(["run", "view", str(job["run_id"]), "--repo", repo,
+                        "--job", str(job["id"]), "--log"])
+        if log.strip():
+            return log
+        # gh 2.45 prints nothing here for today's log archives. The job's raw log has no step
+        # names; base_red_excuse.step_lines splits a log under UNKNOWN STEP by its `Run` groups.
+        raw = self.run(["api", f"repos/{repo}/actions/jobs/{job['id']}/logs"])
+        return "".join(f"{job.get('name', '')}\tUNKNOWN STEP\t{line}\n" for line in raw.splitlines())
 
 
 def latest_checks(repo: str, sha: str, github: GitHub) -> dict:
