@@ -1,5 +1,5 @@
 @testable import CmuxNextApp
-import CmuxNextActions
+@testable import CmuxNextActions
 import CmuxNextServer
 import Testing
 
@@ -62,16 +62,22 @@ struct ServerHeadlessApprovalTests {
     }
 }
 
-/// Only callers on this Mac may approve without the sheet: the user, the local CLI, a local
-/// MCP agent or script. Another client (a phone, another Mac) or a web page never may.
+/// Pairing a server grants a new install account authority. The code and words prove which
+/// server key is waiting; they do not prove that the person authorized the enrollment.
 struct ServerHeadlessApprovalOriginTests {
-    @Test(arguments: [ActionOrigin.user, .cli, .mcp, .script])
-    func localCallersMayApprove(_ origin: ActionOrigin) {
-        #expect(ServerHeadlessApproval.allows(origin: origin))
+    @Test func onlyTheInProcessPersonMayApprove() {
+        #expect(ServerHeadlessApproval.allows(origin: .user))
     }
 
-    @Test(arguments: [ActionOrigin.remote, .page])
-    func remoteCallersAndPagesMayNot(_ origin: ActionOrigin) {
+    @Test(arguments: [ActionOrigin.cli, .mcp, .script, .remote, .page])
+    func everyHeadlessCallerIsRefused(_ origin: ActionOrigin) {
         #expect(!ServerHeadlessApproval.allows(origin: origin))
+    }
+
+    @Test func addServerIsPersonOnlyAndHasNoCLIMutationSurface() throws {
+        let descriptor = try #require(ServerActionCatalog.descriptors().first { $0.id == "server.addServer" })
+        #expect(descriptor.isPersonOnly)
+        #expect(descriptor.surfacePlan.cli == .exempt(.guiOnly))
+        #expect(descriptor.surfacePlan.mcp == .exempt(.guiOnly))
     }
 }
