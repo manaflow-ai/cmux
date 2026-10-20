@@ -1733,7 +1733,7 @@ jobs:
           fi
 
       - name: Checkout build ref
-        if: inputs.nightly_next_unsigned_run == '' && !(runner.environment == 'self-hosted' && needs.decide.outputs.track == 'nightly-next')
+        if: inputs.nightly_next_unsigned_run == '' && (runner.environment != 'self-hosted' || needs.decide.outputs.track != 'nightly-next')
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
