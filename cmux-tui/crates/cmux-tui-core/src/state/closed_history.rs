@@ -473,8 +473,15 @@ impl Mux {
                 .flatten()
                 .filter_map(Value::as_str)
                 .filter(|tab| {
+                    // A reopened tab keeps its id (durable-links-DESIGN.md), so the
+                    // membership row its close left behind names this same group: only
+                    // another group's row keeps it out.
                     !presentation.pinned_tabs.contains(*tab)
-                        && !presentation.tab_groups.members.contains_key(*tab)
+                        && presentation
+                            .tab_groups
+                            .members
+                            .get(*tab)
+                            .is_none_or(|group| group.as_str() == id)
                 })
                 .map(str::to_string)
                 .collect::<Vec<_>>();
