@@ -20,7 +20,12 @@
 # Every group runs to the end. Its output is printed whole, in group order,
 # with its time; the script fails when any group failed or a required binary
 # is missing.
+#
+# Each group gets CARGO_BUILD_JOBS = ceil(2 * cores / groups) unless the caller
+# set it: all groups at full -j would start cores x groups rustc processes and
+# as many fat-LTO links at once, which can run a small runner out of memory.
 set -euo pipefail
+set -o noglob # BINS entries like '?name' are names, not patterns
 
 if (($# < 4 || ($# - 2) % 2 != 0)); then
   echo "usage: $0 TARGET_DIR TRIPLE BINS COMMAND [BINS COMMAND ...]" >&2
@@ -40,6 +45,15 @@ while (($#)); do
 done
 
 grouped() { [[ -n "${GITHUB_ACTIONS:-}" ]] && echo "::$1::${2:-}" || true; }
+
+if [[ -z "${CARGO_BUILD_JOBS:-}" ]]; then
+  cores=$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)
+  groups=${#commands[@]}
+  jobs=$(((2 * cores + groups - 1) / groups))
+  ((jobs >= 1)) || jobs=1
+  export CARGO_BUILD_JOBS=$jobs
+fi
+echo "cargo groups: ${#commands[@]}, CARGO_BUILD_JOBS=$CARGO_BUILD_JOBS each"
 
 for i in "${!commands[@]}"; do
   n=$((i + 1))
@@ -65,7 +79,10 @@ done
 for i in "${!pids[@]}"; do
   n=$((i + 1))
   wait "${pids[i]}" || true
-  read -r status end < "$logs/$n.done"
+  # A group killed before it wrote its .done file still counts as failed, and
+  # the other groups' logs still print.
+  status=255 end=$(date +%s)
+  [[ -f "$logs/$n.done" ]] && read -r status end < "$logs/$n.done"
   label="cargo group $n (${bins[i]//\?/})"
   grouped group "$label"
   cat "$logs/$n.log"
