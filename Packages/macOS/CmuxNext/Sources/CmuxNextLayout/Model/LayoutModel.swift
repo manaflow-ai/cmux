@@ -160,6 +160,8 @@ public final class LayoutModel {
     @ObservationIgnored public var intentHandler: (@MainActor (LayoutIntent) -> Void)?
 
     @ObservationIgnored var splitOverrides: [SplitID: Override] = [:]
+    /// Panes a pending close hides from the shown screens (`showPaneClose`).
+    @ObservationIgnored var paneCloses: [PaneID: PaneCloseHold] = [:]
     /// Until this uptime, a ratio-only change is an explicit equalize the screens spring (Lawrence 2026-10-16).
     @ObservationIgnored public private(set) var explicitReflowUntil: TimeInterval = 0
     static let explicitReflowWindow: TimeInterval = 0.6
@@ -197,6 +199,7 @@ public final class LayoutModel {
         let previous = daemonScreens
         defer { applyCloseSizing(from: previous, to: newScreens) }
         daemonScreens = newScreens
+        resolvePaneCloses(in: newScreens)
         splitOverrides = splitOverrides.filter { !$0.value.settled }
         widthOverrides = widthOverrides.filter { !$0.value.settled }
         // Equal screens (the echo of this client's own gesture, a snapshot
@@ -233,16 +236,25 @@ public final class LayoutModel {
         splitOverrides = splitOverrides.filter { $0.value.transaction != transaction }
         widthOverrides = widthOverrides.filter { $0.value.transaction != transaction }
         guard splits != splitOverrides.count || widths != widthOverrides.count else { return }
-        let restored = overlaid(daemonScreens)
-        if restored != screens { screens = restored }
+        showOverlaid()
+    }
+
+    /// Shows the last daemon snapshot with every local override and pending close on it.
+    func showOverlaid() {
+        let shown = overlaid(daemonScreens)
+        if shown != screens { screens = shown }
     }
 
     /// Applies live and unconfirmed overrides onto daemon screens. An ended
     /// override whose value the daemon already reports is confirmed and dropped.
+    /// A pending pane close (`showPaneClose`) takes its pane out first.
     private func overlaid(_ source: [LayoutScreen]) -> [LayoutScreen] {
         var result = source
         for index in result.indices {
             var layout = result[index].layout
+            for pane in paneCloses.keys where layout.contains(pane) {
+                if let after = Self.removingSplitPane(pane, from: layout) { layout = after }
+            }
             for (split, override) in splitOverrides {
                 guard let incoming = layout.ratio(of: split) else { continue }
                 if abs(incoming - override.value) < 0.002 {

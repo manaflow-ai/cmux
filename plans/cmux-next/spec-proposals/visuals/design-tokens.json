@@ -2185,7 +2185,7 @@
     },
     "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift (MotionTunables.springDefaults); cmux-tui/crates/cmux-motion reads this file at build time (build.rs)",
     "unit": "s",
-    "use": "A pane closing: the neighbours that take its space grow over it with their dividers, one spring, critically damped (Lawrence 2026-10-18)"
+    "use": "A window closing: the whole window fades out on it before its state closes, critically damped (plans/cmux-next/close-animation/DESIGN.md). A pane close takes the split spring since 2026-10-19 (a close is a split run backwards)."
    },
    "tabOpen": {
     "value": {
