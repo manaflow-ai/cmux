@@ -8,8 +8,9 @@ import CoreGraphics
 /// - every horizontal scroller from the element there up to the root (`overflow-x` auto or
 ///   scroll with room to move; right-to-left scrollers count from their right edge), through
 ///   open shadow roots, and the document unless its `overflow-x` hides or clips it;
-/// - a scroller, or the document, with `overscroll-behavior-x` other than `auto` keeps the
-///   gesture, as in Chrome (canvas apps and maps opt out of history swipes that way);
+/// - a scroller, or the root element, with `overscroll-behavior-x` other than `auto` keeps the
+///   gesture, as in Chrome (canvas apps and maps opt out of history swipes that way; `body`'s
+///   value does not propagate, so an anti-bounce rule there keeps swipes);
 /// - inside a same-origin frame under the point, the same walk in the frame's document. A frame
 ///   the page cannot read (another origin, or an embed or object) counts as scrolling both ways,
 ///   so it keeps the gesture: its own scrolling cannot be seen from outside;
@@ -70,7 +71,7 @@ nonisolated struct BrowserSwipeProbe: Sendable {
             const root = doc.scrollingElement || doc.documentElement;
             const hidden = (el) => el && ['hidden', 'clip'].includes(win.getComputedStyle(el).overflowX);
             const contained = (el) => el && (win.getComputedStyle(el).overscrollBehaviorX || 'auto') !== 'auto';
-            if (contained(doc.documentElement) || contained(doc.body)) { left = true; right = true; }
+            if (contained(doc.documentElement)) { left = true; right = true; }
             if (root && !hidden(doc.documentElement) && !hidden(doc.body)) {
               const max = root.scrollWidth - root.clientWidth;
               const rtl = win.getComputedStyle(root).direction === 'rtl';
@@ -86,6 +87,7 @@ nonisolated struct BrowserSwipeProbe: Sendable {
             const rect = hit.getBoundingClientRect();
             scan(inner, x - rect.left - hit.clientLeft, y - rect.top - hit.clientTop, depth + 1);
           };
+          watch(window);
           await new Promise((resolve) => {
             let done = false;
             const finish = () => { if (!done) { done = true; setTimeout(resolve, 0); } };

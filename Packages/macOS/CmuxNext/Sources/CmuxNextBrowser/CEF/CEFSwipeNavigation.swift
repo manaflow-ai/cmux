@@ -14,7 +14,7 @@ import AppKit
 /// `browser.swipeNavigation` is on (the default).
 @MainActor
 final class CEFSwipeNavigation {
-    private unowned let runtime: CEFRuntime
+    private weak var runtime: CEFRuntime?
     private var monitor: Any?
     private var gesture = BrowserSwipeGesture()
     private let pageProbe = BrowserSwipeProbe()
@@ -77,7 +77,7 @@ final class CEFSwipeNavigation {
 
     /// The Chromium page under the event: its tab, the pane's host view and the point in it.
     private func target(of event: NSEvent) -> (tab: CEFTab, host: CEFHostView, point: CGPoint)? {
-        guard let window = event.window else { return nil }
+        guard let runtime, let window = event.window else { return nil }
         let screenPoint = window.convertPoint(toScreen: event.locationInWindow)
         let targets = runtime.windowRequests.clickTargets()
         guard let browser = CEFLinkClicks.browser(clickedIn: ObjectIdentifier(window), parent: window.parent.map(ObjectIdentifier.init),
