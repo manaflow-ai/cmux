@@ -568,6 +568,23 @@ impl OptChat {
         render_view(&st.memory, &st.store)
     }
 
+    /// The compaction view (spec 4) rendered as ``render_view`` renders the
+    /// view: the same summary tree merged coarser (an eighth to a quarter of
+    /// the budget, 16-32 KB at 128 KB), every line still zoomable. A
+    /// subagent reads it instead of the whole view (acp-chief-issues.md
+    /// #12: the view was ~40k of a subagent's ~108k first-turn tokens).
+    pub fn render_compact_view(&self) -> RenderedView {
+        let st = self.shared.lock();
+        let parts: Vec<NodeId> = st
+            .memory
+            .compact_view()
+            .iter()
+            .copied()
+            .filter(|p| st.memory.is_built(*p) || !st.memory.is_imported(p.end() - 1))
+            .collect();
+        optchat_core::render_parts(&parts, &st.store)
+    }
+
     /// A view recorded by its parts (a past turn's), rendered from the stored
     /// node texts: byte for byte what that turn read (nodes never change).
     pub fn render_parts(&self, parts: &[NodeId]) -> RenderedView {
