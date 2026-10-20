@@ -22,16 +22,19 @@ struct AgentProcessTerminal {
         var invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: chat), origin: .user)
         invocation.besideCaller = true
         invocation.newColumnBeside = target == nil
-        let controller = services.paneController(for: pane)
-        let placed: @MainActor @Sendable (SurfaceID) -> Void = target == nil
-            ? AgentBesidePlacement.placed(invocation, pane: chatPane, controller: services.paneController(for: chatPane), services: services, then: nil)
-            : { [weak controller] surface in controller?.selectWhenReported(surface: surface) }
         let options = SpawnOptions(cwd: tab.cwd, argv: viewer.argv, name: viewer.title, env: viewer.environment,
                                    workspace: services.workspaceKey(of: pane))
+        let services = services
         services.registry.track(Task { @MainActor in
             do {
                 let created = try await connection.newTab(in: pane.handle, options: options)
-                placed(created.surface)
+                // Placed once the tab exists, on the main actor: the placement closure is not Sendable.
+                if target == nil {
+                    AgentBesidePlacement.placed(invocation, pane: chatPane, controller: services.paneController(for: chatPane),
+                                                services: services, then: nil)(created.surface)
+                } else {
+                    services.paneController(for: pane)?.selectWhenReported(surface: created.surface)
+                }
                 return nil
             } catch {
                 return ActionWorkFailure("process-terminal", error)
