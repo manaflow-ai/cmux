@@ -194,6 +194,7 @@ let package = Package(
                 "CmuxNextVSCodeServer",
                 "CmuxNextKeepAwake",
                 "CmuxNextChromiumWarmup",
+                "CmuxNextChromiumRuntime",
                 "CmuxNextPhoneAccess",
                 "CmuxNextPhone",
                 "CmuxNextPopups",
@@ -212,6 +213,7 @@ let package = Package(
                 "CmuxNextFocusUI",
                 "CmuxNextComputerUse",
                 "CmuxNextAgentQuestion",
+                "CmuxNextAgentPermissions",
                 "CmuxNextDaemonRecovery",
                 .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
                 .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
@@ -415,6 +417,21 @@ let package = Package(
             resources: [
                 .process("Resources"),
             ],
+            swiftSettings: uiSwiftSettings
+        ),
+        // Agent permission requests (plans/cmux-next/agent-permissions-DESIGN.md): the request
+        // store, the reason check, computer use onboarding flow, the card, panel and mock TCC probe.
+        .target(
+            name: "CmuxNextAgentPermissions",
+            dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextWakeups"],
+            resources: [
+                .process("Resources"),
+            ],
+            swiftSettings: uiSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextAgentPermissionsTests",
+            dependencies: ["CmuxNextAgentPermissions"],
             swiftSettings: uiSwiftSettings
         ),
         .target(
@@ -655,6 +672,19 @@ let package = Package(
         // Chromium warm start: maps the framework and runs CefInitialize and the
         // spare window at idle moments once a Chromium tab is likely. The App
         // supplies the signals (AppServices+Chromium).
+        // Chromium on demand (plans/cmux-next/bundle-size-DESIGN.md section 6):
+        // download, verify and install the pinned Chromium runtime pack. A leaf
+        // service: Foundation, Security, Network and CryptoKit only; the App
+        // feeds its state to CmuxNextBrowser's CEFRuntimeSource.
+        .target(
+            name: "CmuxNextChromiumRuntime",
+            swiftSettings: daemonSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextChromiumRuntimeTests",
+            dependencies: ["CmuxNextChromiumRuntime"],
+            swiftSettings: daemonSwiftSettings
+        ),
         .target(
             name: "CmuxNextChromiumWarmup",
             dependencies: ["CmuxNextBrowser", "CmuxNextWakeups"],
@@ -1207,16 +1237,54 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxNextAppTests",
-            dependencies: ["CmuxNextCompat", "CmuxNextVSCodeServer", "CmuxNextFileGrid", "CmuxNextFiles", "CmuxNextScreenshots", "CmuxNextTerminalGeometry", "CmuxNextRemote", "CmuxNextWakeups", "CmuxNextNowPlaying", "CmuxNextFloating", "CmuxNextLayout", "CmuxNextTasks", "CmuxNextAgentCursor", "CmuxNextTabs", "CmuxNextProcessEnvironment", "CmuxNextApp", "CmuxNextApps", "CmuxNextCookieImport", "CmuxNextAgentLanes", "CmuxNextBrowserHistory", "CmuxNextCrashReporting", "CmuxNextDiff", "CmuxNextFeed", "CmuxNextActions", "CmuxNextHistory", "CmuxNextCopyMode",
-                           "CmuxNextWorkspaceNaming",
-                           "CmuxNextComputerUse", "CmuxNextDaemon", "CmuxNextDaemonRecovery", "CmuxNextDaemonService", "CmuxNextRemoteLocalhostService", "CmuxNextFocus", "CmuxNextFocusUI", "CmuxNextHome", "CmuxNextHomeEngine", "CmuxNextHostedChief", .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
-                           .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
-                           // ReduceMotionLoopTests builds the vendored Home typing indicators.
-                           .product(name: "MessagesLabHome", package: "CmuxMessagesLab"),
-                           .product(name: "MessagesLabSidebar", package: "CmuxMessagesLab"),
-                           .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
-                           // GhosttyGlassMinimumContrastTests builds a Ghostty config.
-                           .product(name: "CmuxGhosttyKit", package: "CmuxGhosttyKit")],
+            dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CmuxNextActions",
+                "CmuxNextAgentCursor",
+                "CmuxNextAgentLanes",
+                "CmuxNextApp",
+                "CmuxNextApps",
+                "CmuxNextBrowserHistory",
+                "CmuxNextChromiumRuntime",
+                "CmuxNextCompat",
+                "CmuxNextComputerUse",
+                "CmuxNextCookieImport",
+                "CmuxNextCopyMode",
+                "CmuxNextCrashReporting",
+                "CmuxNextDaemon",
+                "CmuxNextDaemonRecovery",
+                "CmuxNextDaemonService",
+                "CmuxNextDiff",
+                "CmuxNextFeed",
+                "CmuxNextFileGrid",
+                "CmuxNextFiles",
+                "CmuxNextFloating",
+                "CmuxNextFocus",
+                "CmuxNextFocusUI",
+                "CmuxNextHistory",
+                "CmuxNextHome",
+                "CmuxNextHomeEngine",
+                "CmuxNextHostedChief",
+                "CmuxNextLayout",
+                "CmuxNextNowPlaying",
+                "CmuxNextProcessEnvironment",
+                "CmuxNextRemote",
+                "CmuxNextRemoteLocalhostService",
+                "CmuxNextScreenshots",
+                "CmuxNextTabs",
+                "CmuxNextTasks",
+                "CmuxNextTerminalGeometry",
+                "CmuxNextVSCodeServer",
+                "CmuxNextWakeups",
+                "CmuxNextWorkspaceNaming",
+                .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
+                // GhosttyGlassMinimumContrastTests builds a Ghostty config.
+                .product(name: "CmuxGhosttyKit", package: "CmuxGhosttyKit"),
+                .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
+                .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
+                // ReduceMotionLoopTests builds the vendored Home typing indicators.
+                .product(name: "MessagesLabHome", package: "CmuxMessagesLab"),
+                .product(name: "MessagesLabSidebar", package: "CmuxMessagesLab"),
+            ],
             swiftSettings: uiSwiftSettings,
             linkerSettings: [.linkedLibrary("c++")]
         ),
