@@ -6,6 +6,7 @@ import Testing
 /// Full verify D4 (live recheck): a running Codex chat on the phone had no model menu. The phone
 /// read the session's models and modes only from later updates, never from `_acpmux/attach`'s
 /// session detail, where acpmux keeps them (`models`, `modes`, `configOptions`).
+@MainActor
 @Suite struct SessionStateTests {
     func json(_ text: String) throws -> JSONValue {
         try JSONDecoder().decode(JSONValue.self, from: Data(text.utf8))

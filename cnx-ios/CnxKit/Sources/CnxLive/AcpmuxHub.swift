@@ -349,6 +349,8 @@ public final class AcpmuxSessionSource: AgentSessionSource {
                     try await hub.answer(question, with: answer)
                 case .setModel(let id):
                     _ = try await hub.request("session/set_model", .object(["sessionId": session, "modelId": .string(id)]))
+                    // The menu's check follows the pick (no record carries the model change).
+                    if !self.knownModels.isEmpty { self.emit(.modelsAvailable(self.knownModels, current: id)) }
                 case .setMode(let id):
                     _ = try await hub.request("session/set_mode", .object(["sessionId": session, "modeId": .string(id)]))
                 case .setConfigOption(let id, let value):
@@ -598,6 +600,14 @@ public final class AcpmuxSessionSource: AgentSessionSource {
                 summary.status = session.summaryStatus
                 if !session.name.isEmpty { summary.name = session.name }
             }
+            // The session's models, modes and options as acpmux keeps them now (D4: a running
+            // chat had no model menu, as they only came with later updates).
+            if let detail = result["session"] {
+                for event in Self.sessionState(detail) {
+                    if case .modelsAvailable(let models, _) = event { knownModels = models }
+                    emit(event)
+                }
+            }
             attached = true
             for record in page { receive(record: record) }
             let pending = held
@@ -612,6 +622,37 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         } catch {
             emit(.clientError(Self.message(error)))
         }
+    }
+
+    /// The session's models (from attach), for the menu after a pick.
+    private var knownModels: [ACPModelInfo] = []
+
+    /// `_acpmux/attach`'s session detail as chat events: `models` ({currentModelId,
+    /// availableModels}), else a config option of category `model`; `modes` ({currentModeId,
+    /// availableModes}); `configOptions` (effort and the rest).
+    static func sessionState(_ detail: JSONValue) -> [AgentSessionEvent] {
+        var events: [AgentSessionEvent] = []
+        let options: [ACPConfigOption] = detail["configOptions"].flatMap { value in
+            guard case .array = value, let data = try? JSONEncoder().encode(value) else { return nil }
+            return try? JSONDecoder().decode([ACPConfigOption].self, from: data)
+        } ?? []
+        var models = (detail["models"]?["availableModels"]?.arrayValue ?? []).compactMap { model -> ACPModelInfo? in
+            guard let id = model["modelId"]?.stringValue, !id.isEmpty else { return nil }
+            return ACPModelInfo(id: id, name: model["name"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 } ?? id)
+        }
+        var current = detail["models"]?["currentModelId"]?.stringValue
+        if models.isEmpty, let option = options.first(where: { $0.category == "model" || $0.id == "model" }) {
+            models = option.options.map { ACPModelInfo(id: $0.value, name: $0.name.flatMap { $0.isEmpty ? nil : $0 } ?? $0.value) }
+            current = option.currentValue
+        }
+        if !models.isEmpty { events.append(.modelsAvailable(models, current: current)) }
+        let modes = (detail["modes"]?["availableModes"]?.arrayValue ?? []).compactMap { mode -> ACPMode? in
+            guard let id = mode["id"]?.stringValue, !id.isEmpty else { return nil }
+            return ACPMode(id: id, name: mode["name"]?.stringValue ?? id, description: mode["description"]?.stringValue)
+        }
+        if !modes.isEmpty { events.append(.modesAvailable(modes, current: detail["modes"]?["currentModeId"]?.stringValue)) }
+        if !options.isEmpty { events.append(.update(.configOptions(options))) }
+        return events
     }
 
     func receive(record: JSONValue) {
