@@ -42,6 +42,10 @@ extension TabStripModel {
             let item = ordered.remove(at: from)
             ordered.insert(item, at: min(max(to, 0), ordered.count))
             tabs = ordered
+        case .reorderTabs(let order):
+            let byID = Dictionary(ordered.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+            guard Set(order) == Set(byID.keys) else { return false }
+            tabs = order.compactMap { byID[$0] }
         case .newTab(let after, _, _):
             var item = makeTab()
             if let after, let index = ordered.firstIndex(where: { $0.id == after }) {
