@@ -137,6 +137,13 @@ class ValidateTests(unittest.TestCase):
             with redirect_stdout(io.StringIO()):
                 self.assertEqual(validate.main(["--root", root, "--require-version", "0.66.0"]), 0)
 
+    def test_commit_style_text_fails(self):
+        # Conductor-quality notes (2026-10-20): a highlight is written for people, never a commit
+        # subject ("fix(sidebar): ...", "sidebar: ..."), and its summary is whole sentences.
+        problems = self.problems("bad/commit-style.json")
+        self.assertMentions(problems, "entries[0].title", "entries[0].summary", "reads like a commit subject",
+                            "does not end a sentence")
+
 
 if __name__ == "__main__":
     unittest.main()
