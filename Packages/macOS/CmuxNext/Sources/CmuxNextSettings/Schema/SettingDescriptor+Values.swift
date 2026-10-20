@@ -5,7 +5,14 @@ extension SettingDescriptor {
     /// key that is absent reads its old key, as the parser does, so Settings
     /// shows the value the app applies.
     public func storedValue(in root: JSONValue) -> JSONValue? {
-        root.value(at: path) ?? legacyPath.flatMap { root.value(at: $0) }
+        root.value(at: path) ?? legacyValue(in: root)
+    }
+
+    /// The old key's value as this key would name what it applies (nil when it is absent).
+    private func legacyValue(in root: JSONValue) -> JSONValue? {
+        guard let old = legacyPath, let value = root.value(at: old) else { return nil }
+        guard path == BackdropSelectionSetting().configPath else { return value }
+        return BackdropSelectionSetting.selection(forLegacy: value)
     }
 
     /// The old key this one renamed, which applies while this key is absent
