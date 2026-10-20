@@ -5,7 +5,8 @@
 //! stream-json has no title event, so a Claude chat kept its first prompt's
 //! line ("Plan a three-dish picnic menu") and so did the workspace named
 //! after it. After such a chat's first turn the title command is asked once
-//! for 3-6 words. A harness title, then or later, always wins.
+//! for 3-6 words, on the title model (haiku), never for a chat the person
+//! named (`NAMED`). A harness title, then or later, always wins.
 
 use super::*;
 use std::process::Stdio;
@@ -18,6 +19,8 @@ const ADOPTED: &str = "adopted";
 pub(super) const HARNESS: &str = "harness";
 const ASKED: &str = "asked";
 const GENERATED: &str = "generated";
+/// The person named the chat (at `session/new`, or a rename): no title is generated for it.
+pub(super) const NAMED: &str = "named";
 
 /// The env that names a title command (one program), over `titles.command`.
 const COMMAND_ENV: &str = "ACPMUX_TITLE_COMMAND";
@@ -34,6 +37,10 @@ pub(super) fn set_fallback_title(m: &mut SessionMeta, text: &str) {
         return;
     }
     m.title = Some(short_text(first, 80));
+    // A chat the person named keeps the prompt line as its title, and asks no model for one.
+    if m.title_source.as_deref() == Some(NAMED) {
+        return;
+    }
     m.title_source = Some(PROMPT.to_owned());
     m.title_prompt = Some(short_text(text.trim(), 2000));
 }
