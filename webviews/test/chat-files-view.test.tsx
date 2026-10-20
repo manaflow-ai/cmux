@@ -153,7 +153,7 @@ test("search opens a result at its full path, and Escape clears it before closin
   expect(names()).toEqual(["src/main.ts"]);
   await act(async () => rows()[0]!.click());
   expect(events).toEqual([`open ${ROOT}/src/main.ts`]);
-  const section = host.querySelector("section")!;
+  const section = host.querySelector(".acpmux-file-viewer")!;
   await act(async () =>
     section.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true })),
   );

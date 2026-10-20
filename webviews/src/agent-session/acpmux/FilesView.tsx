@@ -5,6 +5,7 @@
 // `git.files.search` (`file.search`), so ignored files never show.
 import type { KeyboardEvent } from "react";
 import { useEffect, useRef, useState } from "react";
+import { KeyboardScope } from "../../ui/KeyboardScope";
 import { useT } from "./i18n";
 import { FileDoc, Folder } from "./conversation/icons";
 import { Icon } from "./icons/Icon";
@@ -122,11 +123,11 @@ export function FilesView({
     </li>
   );
   return (
-    // oxlint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- Escape clears the search, then closes the viewer.
-    <section
+    <KeyboardScope
       className="acpmux-diff-panel acpmux-file-viewer acpmux-files"
-      aria-label={t("header.files")}
-      onKeyDown={onKeyDown}
+      label={t("header.files")}
+      handleKeyDown={onKeyDown}
+      bubble
     >
       <header className="acpmux-diff-header">
         {/* tooltip-allow: the label shows the folder relative to the project; the tooltip reveals its full path, like FolderPopover */}
@@ -185,6 +186,6 @@ export function FilesView({
           <p className="acpmux-file-viewer-note">{t("files.failed")}</p>
         ) : null}
       </div>
-    </section>
+    </KeyboardScope>
   );
 }

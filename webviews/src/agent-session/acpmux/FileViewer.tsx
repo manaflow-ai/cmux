@@ -4,6 +4,8 @@
 // away (Open in tab).
 import type { KeyboardEvent } from "react";
 import { useEffect, useRef } from "react";
+import { KeyboardScope } from "../../ui/KeyboardScope";
+import { Toolbar, ToolbarButton } from "../../ui/Toolbar";
 import { useT } from "./i18n";
 import { Code, OpenTab } from "./changeIcons";
 import { CodeBlock } from "./conversation/CodeBlock";
@@ -54,43 +56,31 @@ export function FileViewer({
     onClose();
   };
   return (
-    // oxlint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- Escape closes the viewer from any control in it.
-    <section className="acpmux-diff-panel acpmux-file-viewer" aria-label={name} onKeyDown={onKeyDown}>
+    <KeyboardScope className="acpmux-diff-panel acpmux-file-viewer" label={name} handleKeyDown={onKeyDown} bubble>
       <header className="acpmux-diff-header">
         {/* tooltip-allow: the label shows the file's name; the tooltip reveals its full path, like FolderPopover */}
         <span className="acpmux-file-viewer-name" title={file.path}>
           {name}
         </span>
-        <div className="acpmux-diff-tools" role="toolbar" aria-label={name}>
-          <button
-            type="button"
+        <Toolbar className="acpmux-diff-tools" label={name}>
+          <ToolbarButton
             className="acpmux-diff-tool"
-            aria-label={t("changes.openPathInTab", { path: name })}
-            title={t("changes.openInTab")}
-            onClick={() => onOpenFile(file.path, "tab")}
+            label={t("changes.openPathInTab", { path: name })}
+            onPress={() => onOpenFile(file.path, "tab")}
           >
             <OpenTab />
-          </button>
-          <button
-            type="button"
+          </ToolbarButton>
+          <ToolbarButton
             className="acpmux-diff-tool"
-            aria-label={t("changes.openPathInEditor", { path: name })}
-            title={t("changes.openInEditor")}
-            onClick={() => onOpenFile(file.path, "editor")}
+            label={t("changes.openPathInEditor", { path: name })}
+            onPress={() => onOpenFile(file.path, "editor")}
           >
             <Code />
-          </button>
-          <button
-            ref={close}
-            type="button"
-            className="acpmux-diff-tool"
-            aria-label={t("image.close")}
-            title={t("image.close")}
-            onClick={onClose}
-          >
+          </ToolbarButton>
+          <ToolbarButton ref={close} className="acpmux-diff-tool" label={t("image.close")} onPress={onClose}>
             <Icon name="action.close" size={12} />
-          </button>
-        </div>
+          </ToolbarButton>
+        </Toolbar>
       </header>
       <div className="acpmux-file-viewer-body">
         <CodeBlock code={file.text} lang={fileLanguage(file.path)} label={file.path} />
@@ -100,6 +90,6 @@ export function FileViewer({
           </p>
         )}
       </div>
-    </section>
+    </KeyboardScope>
   );
 }

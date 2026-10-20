@@ -169,16 +169,21 @@ test("the viewer shows the file, says when it is cut, and leaves only by an expl
     ["/Users/you/src/app/notes.txt", "tab"],
     ["/Users/you/src/app/notes.txt", "editor"],
   ]);
+  await act(async () => tab!.focus());
   await act(async () => {
-    tab!.focus();
     tab!.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
   });
-  expect(document.activeElement).toBe(editor!);
+  expect(document.activeElement === editor).toBe(true);
+  editor!.addEventListener("keydown", (event) => event.preventDefault(), { once: true });
+  await act(async () => {
+    editor!.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+  });
+  expect(closed).toBe(0);
   // Only the X leaves (Lucas 2026-10-19: no Back to transcript chevron).
   expect(host.querySelector(".acpmux-diff-back")).toBeNull();
   await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label="Close"]')!.click());
   expect(closed).toBe(1);
-  const section = host.querySelector("section")!;
+  const section = host.querySelector(".acpmux-file-viewer")!;
   await act(async () => {
     section.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
   });
