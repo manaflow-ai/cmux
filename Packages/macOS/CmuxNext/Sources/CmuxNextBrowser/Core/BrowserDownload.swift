@@ -46,6 +46,8 @@ public final class BrowserDownload: Identifiable {
     var retryHandler: (() -> Bool)?
     @ObservationIgnored
     private var finishHandlers: [(BrowserDownload) -> Void] = []
+    @ObservationIgnored
+    private let quarantine: (URL, URL?) throws -> Void
 
     /// The name the page suggested (sanitized), before a free file name was
     /// picked: what an agent's `download.suggestedFilename()` returns.
@@ -56,11 +58,13 @@ public final class BrowserDownload: Identifiable {
     public private(set) var isNamed: Bool
     private var namedHandlers: [(BrowserDownload) -> Void] = []
 
-    public init(sourceURL: URL?, filename: String, suggestedFilename: String? = nil, named: Bool = true) {
+    public init(sourceURL: URL?, filename: String, suggestedFilename: String? = nil, named: Bool = true,
+                quarantine: @escaping (URL, URL?) throws -> Void = { try BrowserDownloadPolicy.quarantine($0, source: $1) }) {
         self.sourceURL = sourceURL
         self.filename = filename
         self.suggestedFilename = suggestedFilename ?? filename
         isNamed = named
+        self.quarantine = quarantine
     }
 
     /// Runs `handler` once the download is named (at once when it is).
@@ -172,7 +176,7 @@ public final class BrowserDownload: Identifiable {
         }
         if end == .finished {
             fraction = 1
-            BrowserDownloadPolicy.runCompletionSteps(for: self)
+            BrowserDownloadPolicy.runCompletionSteps(for: self, quarantine: quarantine)
         }
         status = end
         let handlers = finishHandlers

@@ -76,11 +76,11 @@ public nonisolated struct BrowserDownloadPolicy: Sendable {
     }
 
     @MainActor
-    static func runCompletionSteps(for download: BrowserDownload) {
+    static func runCompletionSteps(for download: BrowserDownload, quarantine: (URL, URL?) throws -> Void) {
         for step in completionSteps(destination: download.destination, source: download.sourceURL) {
             switch step {
             case .quarantine(let file, let source):
-                try? quarantine(file, source: source)
+                try? quarantine(file, source)
             }
         }
     }
