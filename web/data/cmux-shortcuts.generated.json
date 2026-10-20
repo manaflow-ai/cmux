@@ -5387,41 +5387,6 @@
           "aliases": []
         },
         {
-          "id": "browser.focusSearch",
-          "title": {
-            "en": "Search the Web",
-            "ar": "البحث في الويب",
-            "bs": "Pretraži web",
-            "da": "Søg på nettet",
-            "de": "Im Web suchen",
-            "es": "Buscar en la Web",
-            "fr": "Rechercher sur le Web",
-            "it": "Cerca sul Web",
-            "ja": "ウェブを検索",
-            "km": "ស្វែងរកលើបណ្ដាញ",
-            "ko": "웹 검색",
-            "no": "Søk på nettet",
-            "pl": "Szukaj w sieci",
-            "pt-BR": "Pesquisar na Web",
-            "ru": "Поиск в интернете",
-            "th": "ค้นหาเว็บ",
-            "tr": "Web’de Ara",
-            "uk": "Пошук в інтернеті",
-            "vi": "Tìm kiếm trên web",
-            "zh-CN": "搜索网页",
-            "zh-TW": "搜尋網頁"
-          },
-          "shortcut": {
-            "key": "f",
-            "modifiers": [
-              "opt",
-              "cmd"
-            ]
-          },
-          "chord": null,
-          "aliases": []
-        },
-        {
           "id": "browserZoomIn",
           "title": {
             "en": "Zoom In",

@@ -30,7 +30,6 @@
     "key.bookmark.toggleBar": ["shift+cmd+b"],
     "key.browser.copyURL": ["shift+cmd+c"],
     "key.browser.findPrevious": ["shift+cmd+g"],
-    "key.browser.focusSearch": ["opt+cmd+f"],
     "key.browser.pageInfo": ["ctrl+cmd+i"],
     "key.browserBack": ["cmd+["],
     "key.browserForward": ["cmd+]"],
