@@ -1,5 +1,5 @@
 import { getStackServerApp } from "../../app/lib/stack";
-import { isRunCloudOperationPending, RunCloudOperationPending } from "./cloudClientContract";
+import { isRunCloudOperationPending, parseRunCloudResponse, RunCloudOperationPending } from "./cloudClientContract";
 
 export { isRunCloudOperationPending, RunCloudOperationPending } from "./cloudClientContract";
 
@@ -28,7 +28,7 @@ export async function runCloudClient(userId: string, ownerTeamId: string): Promi
     const headers = new Headers({ authorization: `Bearer ${accessToken}`, "x-stack-refresh-token": refreshToken, "x-cmux-team-id": ownerTeamId, "content-type": "application/json", "x-cmux-client-timeout-ms": "950000" });
     if (key) headers.set("idempotency-key", key);
     const response = await fetch(new URL(path, origin), { method, headers, body: body === undefined ? undefined : JSON.stringify(body), redirect: "error", signal: AbortSignal.timeout(950_000) });
-    const payload = await response.json().catch(() => ({})) as Record<string, unknown>;
+    const payload = parseRunCloudResponse({ method, ok: response.ok, status: response.status, text: await response.text() });
     if (!response.ok && isRunCloudOperationPending(payload)) throw new RunCloudOperationPending();
     if (!response.ok && !(method === "DELETE" && response.status === 404)) throw new Error(`Cloud ${method} operation failed (${response.status})`);
     if (method === "DELETE" && response.status === 404) return {};

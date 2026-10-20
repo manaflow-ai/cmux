@@ -27,3 +27,21 @@ export function runCloudCreatePendingExpired(input: { readonly startedAt: Date |
   if (!input.startedAt) return true;
   return (input.now ?? new Date()).getTime() - input.startedAt.getTime() >= RUN_CLOUD_CREATE_PENDING_LIMIT_MS;
 }
+
+/**
+ * Parse a Cloud VM response body. A successful reply that isn't a JSON object
+ * (empty, truncated, or an HTML error page behind a 2xx) is a failure: read as
+ * `{}` it would carry no VM identity and the attempt would wait on it forever.
+ * A DELETE may answer with no body. A failed reply keeps whatever JSON it has.
+ */
+export function parseRunCloudResponse(input: { readonly method: string; readonly ok: boolean; readonly status: number; readonly text: string }): Record<string, unknown> {
+  let payload: unknown;
+  try {
+    payload = input.text ? JSON.parse(input.text) : undefined;
+  } catch {
+    payload = undefined;
+  }
+  if (payload && typeof payload === "object" && !Array.isArray(payload)) return payload as Record<string, unknown>;
+  if (!input.ok || input.method === "DELETE") return {};
+  throw new Error(`Cloud ${input.method} operation returned no JSON object (${input.status})`);
+}

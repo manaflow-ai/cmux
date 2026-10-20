@@ -6,6 +6,7 @@ import {
 } from "../services/runs/worker-contract";
 import {
   isRunCloudOperationPending,
+  parseRunCloudResponse,
   RUN_CLOUD_CREATE_PENDING_LIMIT_MS,
   RunCloudOperationPending,
   runCloudCreatePendingExpired,
@@ -63,5 +64,23 @@ describe("Run attempt worker fencing", () => {
     expect(runAttemptTransitionDecision({ currentStatus: "running", requestedStatus: "succeeded", ...lease() })).toBe("apply");
     expect(runAttemptTransitionDecision({ currentStatus: "succeeded", requestedStatus: "succeeded", ...lease() })).toBe("replay");
     expect(runAttemptTransitionDecision({ currentStatus: "failed", requestedStatus: "succeeded", ...lease() })).toBe("fenced");
+  });
+});
+
+describe("Run Cloud response parsing", () => {
+  test("a successful reply that is not a JSON object fails instead of reading as an empty VM", () => {
+    for (const text of ["", "<html>gateway</html>", "[]", "null", "{\"id\":"]) {
+      expect(() => parseRunCloudResponse({ method: "POST", ok: true, status: 200, text })).toThrow("returned no JSON object (200)");
+    }
+  });
+
+  test("a successful JSON object passes through", () => {
+    expect(parseRunCloudResponse({ method: "POST", ok: true, status: 201, text: "{\"id\":\"vm-1\"}" })).toEqual({ id: "vm-1" });
+  });
+
+  test("a DELETE may answer with no body, and a failed reply keeps its JSON or reads as empty", () => {
+    expect(parseRunCloudResponse({ method: "DELETE", ok: true, status: 204, text: "" })).toEqual({});
+    expect(parseRunCloudResponse({ method: "POST", ok: false, status: 409, text: "{\"error\":\"vm_create_in_progress\"}" })).toEqual({ error: "vm_create_in_progress" });
+    expect(parseRunCloudResponse({ method: "POST", ok: false, status: 502, text: "<html>" })).toEqual({});
   });
 });
