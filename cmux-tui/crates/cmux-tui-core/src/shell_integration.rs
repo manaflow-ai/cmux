@@ -435,6 +435,9 @@ fn check_owned(path: &Path, directory: bool) -> io::Result<()> {
     Ok(())
 }
 
+#[cfg(all(test, unix))]
+mod prompt_redraw_tests;
+
 #[cfg(test)]
 mod tests {
     use super::*;
