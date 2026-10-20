@@ -170,3 +170,7 @@ fn run(weak: &Weak<Mux>, kernel: &crate::journal_kernel::JournalKernel) {
         epoch = kernel.wait_until(epoch, None);
     }
 }
+
+#[cfg(test)]
+#[path = "journal_feed_tests.rs"]
+mod tests;
