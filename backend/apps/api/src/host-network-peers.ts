@@ -10,7 +10,7 @@ import { roleOf } from "./domains/team-members.ts"
 import { installPublicPoint } from "./install-public-point.ts"
 
 export type NetworkHost = typeof Host.Type
-export interface NetworkIdentity { key: JsonWebKey; kind: string; expires_at: number | null; authority_version: string }
+export interface NetworkIdentity { key: JsonWebKey; kind: string; expires_at: number | null; authority_version: string; op_classes: ReadonlyArray<string> }
 export interface PeerDeps { team: string; state: () => TeamState; rows: RowReader | undefined; identity(user: string, install: string, grant: string): Promise<NetworkIdentity | null>; identities(user: string, entries: ReadonlyArray<{ install: string; grant: string }>): Promise<ReadonlyArray<NetworkIdentity | null>>; now(): number }
 export const digest = (value: unknown): string => createHash("sha256").update(JSON.stringify(value)).digest("hex")
 export const pointOf = (identity: NetworkIdentity | null): string | null => { try { return identity ? installPublicPoint(identity.key) : null } catch { return null } }
@@ -40,11 +40,14 @@ export const ownHost = (d: PeerDeps, p: Principal, id: string): NetworkHost | nu
     && host.network?.state === "confirmed" && host.network.install_grant === p.grant
     && (host.kind === "server" ? p.install_kind === "daemon" : ["mac", "ios", "cli"].includes(p.install_kind ?? "")) ? host : null
 }
-export const hostStamp = (d: PeerDeps, host: NetworkHost): string => {
+export const hostStamp = (d: Pick<PeerDeps, "state" | "rows" | "team">, host: NetworkHost): string => {
   const state = d.state(), role = roleOf(state, d.rows, host.owner_user)
   return digest([host.id, host.owner_user, host.enrolled_by, host.kind, host.network, host.wg_public_key,
     state.team && role ? teamAuthorityVersion(d.team, host.owner_user!, role, state.team.kind, currentPolicy(state).version, d.rows) : null])
 }
+/** The same install/host incarnation is used in peer views and signed dial credentials. */
+export const peerAuthorityVersion = (d: Pick<PeerDeps, "state" | "rows" | "team">, host: NetworkHost, identity: NetworkIdentity): string =>
+  digest(["cmux-network-peer-v1", hostStamp(d, host), identity.authority_version])
 export const identityMatches = (host: NetworkHost, identity: NetworkIdentity | null, now: number): identity is NetworkIdentity =>
   identity !== null && (identity.expires_at === null || identity.expires_at > now) && /^[0-9a-f]{64}$/.test(identity.authority_version)
     && (host.kind === "server" ? identity.kind === "daemon" : ["mac", "ios", "cli"].includes(identity.kind)) && pointOf(identity) !== null

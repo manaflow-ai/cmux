@@ -190,6 +190,10 @@ minutes after the mint. Errors: `cloud.machine.not_found`, `cloud.machine.not_bo
 machine in `deleting` or `failed`), `cloud.machine.paused {machine, state}` (paused, pausing or starting: no dial to a machine that cannot answer and no automatic start; the client asks "Start machine?" and calls `cloud.machine.start`), `auth.forbidden`, `cloud.rate_limited` (per install), plus the
 standard mutation and Worker gate codes.
 
+For VM API machines, the fresh `native_proof` also binds the credential to the original client grant incarnation. The signed JWT adds `network {version: 1, tenant, mesh, device, host, user, wg_public_key, authority_version, acl_version}`. `host` names the calling client; the JWT's `aud` still names the destination Cloud host. `authority_version` is the same opaque value the current receiving peer view exposes, including the host, membership, policy and install/grant incarnation. No raw grant or internal authority stamp is included. Native token expiry is capped by the original grant and install-token expiry; services and the original incarnation are checked again after signing.
+
+A Native receiver must supply its configured issuer, current host/epoch/team, requested service and authenticated WireGuard peer mapping, and match the complete versioned binding before spending the one-use token. An unbound token cannot authorize a Native receiving path. A policy or grant change must invalidate both new admission and existing streams through the receiving owner's live policy driver. That driver, the CloudDO host projection and the owned listener remain follow-ups; this token contract activates no serving role.
+
 Cache rules for `cmux link`:
 1. Cache the `connect_info` result by host id for at most 300 s or until a
    `cloud.machine.upsert` with a higher `revision` arrives (key rotation, epoch change, VPC change,

@@ -156,13 +156,20 @@ export const mintLinkToken = async (
   }
   if (!args.keys) return { ok: false, code: "owner.unreachable", message: "link signing keys are not configured on this deployment" }
   const iat = Math.floor(Date.now() / 1000)
-  const claims = { iss: `cmux:cloud:${args.environment}`, aud: row.host, sub: p.install, svc: [...d.value.services], epoch: row.epoch ?? 1, iat, exp: iat + LINK_TOKEN_MAX_TTL_S, jti: newJti(), team: entity }
+  const exp = permit ? Math.min(iat + LINK_TOKEN_MAX_TTL_S, Math.floor((permit.grantExpiresAt ?? Infinity) / 1000), Math.floor((p.expires_at ?? Infinity) / 1000)) : iat + LINK_TOKEN_MAX_TTL_S
+  if (!Number.isSafeInteger(exp) || exp <= iat) return { ok: false, code: "auth.forbidden", message: "the original client grant has expired" }
+  const claims = { iss: `cmux:cloud:${args.environment}`, aud: row.host, sub: p.install, svc: [...d.value.services], epoch: row.epoch ?? 1, iat, exp, jti: newJti(), team: entity,
+    ...(permit ? { network: { version: 1 as const, tenant: permit.tenant, mesh: permit.mesh, device: permit.device, host: permit.host, user: permit.user, wg_public_key: permit.wg, authority_version: permit.authorityVersion, acl_version: permit.aclVersion } } : {}) }
   const kid = signingKid(args.keys, Date.now())
   if (!kid) return { ok: false, code: "owner.unreachable", message: "no link signing key has been published long enough to sign" }
   const token = await signLinkToken(claims, kid, args.keys.keys[kid]!)
+  if (permit) {
+    const currentAllowed = allowedServices(entity, row, p, await policy())
+    if (!currentAllowed.ok || !d.value.services.every((s) => currentAllowed.services.includes(s))) return { ok: false, code: "auth.forbidden", message: "the current policy no longer permits these services" }
+  }
   if (permit && !await args.native!.recheck(p, permit)) return { ok: false, code: "auth.forbidden", message: "the client network identity changed" }
   const current = machineBySelector(args.rows, { host: d.value.host })
   if (!current || dialGeneration(current) !== generation) return { ok: false, code: "auth.forbidden", message: "the machine changed during authorization" }
-  audit().record({ op: "link_token", request: args.request, machine: row.id, host: row.host, ...who(p), kid, jti: claims.jti, svc: claims.svc, exp: claims.exp, ...(permit ? { native: { mesh: permit.mesh, device: permit.device, acl_version: permit.aclVersion, policy_digest: permit.policyDigest } } : {}), at: Date.now() })
+  audit().record({ op: "link_token", request: args.request, machine: row.id, host: row.host, ...who(p), kid, jti: claims.jti, svc: claims.svc, exp: claims.exp, ...(permit ? { native: { mesh: permit.mesh, device: permit.device, acl_version: permit.aclVersion, policy_digest: permit.policyDigest, authority_version: permit.authorityVersion } } : {}), at: Date.now() })
   return { ok: true, value: { token, expires_at: claims.exp * 1000, host: row.host, epoch: claims.epoch, services: claims.svc } }
 }

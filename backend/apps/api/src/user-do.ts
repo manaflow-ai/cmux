@@ -520,7 +520,7 @@ export class UserDO extends OwnerDO<UserState> {
     return inst.public_jwk as JsonWebKey
   }
   /** Internal identity projection only. The original grant must still admit this exact host kind. */
-  async networkIdentity(entity: string, install: string, grant: string, team: string): Promise<{ key: JsonWebKey; kind: string; expires_at: number | null; authority_version: string } | null> {
+  async networkIdentity(entity: string, install: string, grant: string, team: string): Promise<{ key: JsonWebKey; kind: string; expires_at: number | null; authority_version: string; op_classes: ReadonlyArray<string> } | null> {
     const engine = this.existing()
     if (!engine || engine.stream !== `user:${entity}`) return null
     const state = engine.currentState, inst = state.installs[install]
@@ -528,7 +528,7 @@ export class UserDO extends OwnerDO<UserState> {
     if (!state.user || !inst || !held || !["daemon", "mac", "ios", "cli"].includes(inst.kind)
       || (inst.kind === "daemon" && inst.bound_team !== team)
       || !held.op_classes.includes("read") || !held.op_classes.includes("mutate-own")) return null
-    return { key: inst.public_jwk as JsonWebKey, kind: inst.kind, expires_at: held.expires_at, authority_version: installAuthorityVersion(state, install) }
+    return { key: inst.public_jwk as JsonWebKey, kind: inst.kind, expires_at: held.expires_at, authority_version: installAuthorityVersion(state, install), op_classes: held.op_classes }
   }
 
   /** One bounded owner-turn snapshot for a team's peer projection; no token or private key. */

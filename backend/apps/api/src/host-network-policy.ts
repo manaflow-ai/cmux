@@ -6,7 +6,7 @@ import type { Http } from "./team-domain-external.ts"
 import type { VmApiTenant } from "./team-vm-api-tenant.ts"
 import type { ReadResult } from "./owner-do.ts"
 import { networkOrigin, verifyNetworkIdentity } from "./network-policy-read.ts"
-import { digest, hostStamp, identityMatches, liveHost, networkHosts, ownHost, pointOf, type NetworkIdentity, type NetworkHost, type PeerDeps } from "./host-network-peers.ts"
+import { digest, hostStamp, identityMatches, liveHost, networkHosts, ownHost, peerAuthorityVersion, pointOf, type NetworkIdentity, type NetworkHost, type PeerDeps } from "./host-network-peers.ts"
 
 interface Deps extends PeerDeps { project: string; origin(): string | undefined; tenant(): Promise<VmApiTenant | null>; revision(): string; http: Http }
 type Allow = { protocol: "tcp" | "udp" | "icmp" | "any"; port?: number }
@@ -102,7 +102,7 @@ export const hostNetworkPolicy = async (d: Deps, p: Principal, params: unknown):
         || !pointUnique(d, liveCandidates, second, native.installPublicKey) || !identityMatches(live, identity, now) || identity.authority_version !== first.get(old.id)?.authority_version || pointOf(identity) !== native.installPublicKey) return []
       expires = Math.min(expires, identity.expires_at ?? Infinity)
       return [{ host: live.id, user: live.owner_user!, install: live.enrolled_by, device: native.deviceId, wg_public_key: native.wgPublicKey, install_public_key: native.installPublicKey,
-        authority_version: digest(["cmux-network-peer-v1", stamp, identity.authority_version]), inbound: native.inbound.map(({ protocol, port }) => ({ protocol, ...(port === undefined ? {} : { port }) })), outbound: native.outbound.map(({ protocol, port }) => ({ protocol, ...(port === undefined ? {} : { port }) })) }]
+        authority_version: peerAuthorityVersion(d, live, identity), inbound: native.inbound.map(({ protocol, port }) => ({ protocol, ...(port === undefined ? {} : { port }) })), outbound: native.outbound.map(({ protocol, port }) => ({ protocol, ...(port === undefined ? {} : { port }) })) }]
     })
     if (expires <= now) return forbidden()
     const value = { schema_version: 1, host: current.id, user: current.owner_user!, install: current.enrolled_by, origin, checked_at: checkedAt, team: d.team, tenant: tenant.tenant, mesh: current.network!.mesh, device: current.network!.device,

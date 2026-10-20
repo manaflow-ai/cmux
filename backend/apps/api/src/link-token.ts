@@ -1,4 +1,5 @@
 import { decodeProtectedHeader, importJWK, jwtVerify, SignJWT, type JWK } from "jose"
+import { isNativeLinkBinding, matchesNativeLink, type NativeLinkBinding, type NativeLinkExpected } from "./link-token-native.ts"
 
 /**
  * Link tokens (state-placement.md 5.8 item 6, decision LINK-TOKEN-FORMAT): compact JWS, EdDSA
@@ -44,6 +45,7 @@ export interface LinkClaims {
   readonly exp: number
   readonly jti: string
   readonly team: string
+  readonly network?: NativeLinkBinding
 }
 
 const KID = /^[A-Za-z0-9._-]{1,64}$/
@@ -105,8 +107,9 @@ export const publicKeyset = async (k: SigningKeys): Promise<PublicKeyset> => {
 /** Signs one link token with `jose` (deterministic for a fixed key and claims: Ed25519). */
 export const signLinkToken = async (claims: LinkClaims, kid: string, privateJwk: JWK): Promise<string> => {
   if (claims.exp - claims.iat > LINK_TOKEN_MAX_TTL_S || claims.exp <= claims.iat) throw new Error("link token lifetime out of range")
+  if (claims.network !== undefined && !isNativeLinkBinding(claims.network)) throw new Error("invalid link network identity")
   const key = await importJWK({ ...privateJwk, alg: "EdDSA" }, "EdDSA")
-  return new SignJWT({ svc: [...claims.svc], epoch: claims.epoch, team: claims.team })
+  return new SignJWT({ svc: [...claims.svc], epoch: claims.epoch, team: claims.team, ...(claims.network ? { network: claims.network } : {}) })
     .setProtectedHeader({ alg: "EdDSA", kid, typ: LINK_TOKEN_TYP })
     .setIssuer(claims.iss)
     .setAudience(claims.aud)
@@ -120,7 +123,7 @@ export const signLinkToken = async (claims: LinkClaims, kid: string, privateJwk:
 /** 128 random bits, base64url. */
 export const newJti = () => btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(16)))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")
 
-export type VerifyError = "malformed" | "unknown_kid" | "bad_signature" | "typ" | "expired" | "aud" | "epoch" | "lifetime" | "replay"
+export type VerifyError = "malformed" | "unknown_kid" | "bad_signature" | "typ" | "expired" | "aud" | "epoch" | "lifetime" | "replay" | "native_identity"
 export type VerifyResult = { readonly ok: true; readonly claims: LinkClaims } | { readonly ok: false; readonly error: VerifyError }
 
 /**
@@ -128,7 +131,8 @@ export type VerifyResult = { readonly ok: true; readonly claims: LinkClaims } | 
  * kid in the keyset, typ, exp at `now` (seconds), aud = this host, epoch = this epoch, lifetime at
  * most 300 s, and a jti not seen before within its exp (`seen` is the daemon's replay set).
  */
-export const verifyLinkToken = async (token: string, v: { aud: string; epoch: number; now: number; keyset: Readonly<Record<string, JWK>>; seen?: Set<string> }): Promise<VerifyResult> => {
+export const verifyLinkToken = async (token: string, v: { aud: string; epoch: number; now: number; keyset: Readonly<Record<string, JWK>>; seen?: Set<string>; native?: NativeLinkExpected }): Promise<VerifyResult> => {
+  if (v.native && token.length > 8192) return { ok: false, error: "malformed" }
   let kid: string | undefined
   try {
     const h = decodeProtectedHeader(token)
@@ -152,6 +156,7 @@ export const verifyLinkToken = async (token: string, v: { aud: string; epoch: nu
   if (c.aud !== v.aud) return { ok: false, error: "aud" }
   if (c.epoch !== v.epoch) return { ok: false, error: "epoch" }
   if (typeof c.iat !== "number" || typeof c.exp !== "number" || c.exp - c.iat > LINK_TOKEN_MAX_TTL_S) return { ok: false, error: "lifetime" }
+  if (v.native && (!v.seen || !matchesNativeLink(payload, v.native, v.now))) return { ok: false, error: "native_identity" }
   if (v.seen) {
     if (v.seen.has(c.jti)) return { ok: false, error: "replay" }
     v.seen.add(c.jti)
