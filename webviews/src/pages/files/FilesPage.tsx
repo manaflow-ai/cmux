@@ -19,7 +19,13 @@ export function FilesPage({ store, strings }: { store: FilesStore; strings: Stri
   if (snapshot.failed) return <p className="files-message">{snapshot.failed}</p>;
   if (!root) return <p className="files-message files-muted">{strings.t("files.page.loading")}</p>;
 
-  const current = rows.find((row) => row.path === selected);
+  const searching = query.trim().length > 0;
+  const result = searching ? results?.find((path) => path === selected) : undefined;
+  const current: Row | undefined = searching
+    ? result === undefined
+      ? undefined
+      : { path: result, name: result.split("/").pop() ?? result, kind: "file", depth: 0, expanded: false }
+    : rows.find((row) => row.path === selected);
   const activate = (row: Row) => (row.kind === "directory" ? store.toggle(row.path) : void store.open(row.path));
 
   const menu = (row: Row | undefined): ContextMenuItem[] => {
@@ -115,7 +121,6 @@ export function FilesPage({ store, strings }: { store: FilesStore; strings: Stri
   };
 
   // While the search field holds text, its matches as one flat list (a match opens its file).
-  const searching = query.trim().length > 0;
   const resultLines = (): TreeLine[] =>
     results === undefined
       ? [

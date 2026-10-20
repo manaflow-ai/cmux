@@ -64,25 +64,14 @@ test("the Files tree walks and opens from the keyboard", async () => {
   const press = async (key: string) => {
     const KeyboardEvent = host.ownerDocument.defaultView!.KeyboardEvent;
     await act(
-      async () =>
-        void tree.dispatchEvent(
-          new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }),
-        ),
+      async () => void tree.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true })),
     );
   };
 
   // The tab names the folder: the page starts with its search, not a title.
   expect(host.querySelector(".files-header")).toBeNull();
   expect(host.querySelector(".files-search-field")).not.toBeNull();
-  expect(rows()).toEqual([
-    ".github",
-    "docs",
-    "src",
-    ".gitignore",
-    "package.json",
-    "README.md",
-    "tsconfig.json",
-  ]);
+  expect(rows()).toEqual([".github", "docs", "src", ".gitignore", "package.json", "README.md", "tsconfig.json"]);
   expect(selected()).toBe(".github");
 
   await press("ArrowDown");
@@ -112,15 +101,7 @@ test("the Files tree walks and opens from the keyboard", async () => {
   await press("ArrowLeft");
   expect(selected()).toBe("src");
   await press("ArrowLeft");
-  expect(rows()).toEqual([
-    ".github",
-    "docs",
-    "src",
-    ".gitignore",
-    "package.json",
-    "README.md",
-    "tsconfig.json",
-  ]);
+  expect(rows()).toEqual([".github", "docs", "src", ".gitignore", "package.json", "README.md", "tsconfig.json"]);
   await press("End");
   expect(selected()).toBe("tsconfig.json");
 });
@@ -149,10 +130,7 @@ test("the Files tree keeps up with its folder", async () => {
   const press = async (key: string) => {
     const KeyboardEvent = host.ownerDocument.defaultView!.KeyboardEvent;
     await act(
-      async () =>
-        void tree.dispatchEvent(
-          new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }),
-        ),
+      async () => void tree.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true })),
     );
   };
   expect(host.ownerDocument.activeElement).toBe(tree);
@@ -210,20 +188,16 @@ test("search result menus open and copy the file inside a collapsed folder", asy
   expect(store.getSnapshot().rows.some((row) => row.path === "src/main.ts")).toBe(false);
   const result = host.querySelector<HTMLElement>('[role="treeitem"]')!;
   await act(async () => {
-    result.dispatchEvent(
-      new host.ownerDocument.defaultView!.MouseEvent("pointerdown", { bubbles: true }),
-    );
+    result.dispatchEvent(new host.ownerDocument.defaultView!.MouseEvent("pointerdown", { bubbles: true }));
   });
   expect(store.getSnapshot().selected).toBe("src/main.ts");
   const selectMenu = async (key: string) => {
     await act(async () => {
-      result.dispatchEvent(
-        new host.ownerDocument.defaultView!.MouseEvent("contextmenu", { bubbles: true }),
-      );
+      result.dispatchEvent(new host.ownerDocument.defaultView!.MouseEvent("contextmenu", { bubbles: true }));
     });
-    const item = [
-      ...host.ownerDocument.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'),
-    ].find((item) => item.textContent === strings.t(key));
+    const item = [...host.ownerDocument.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find(
+      (item) => item.textContent === strings.t(key),
+    );
     expect(item).toBeDefined();
     await act(async () => item!.click());
   };
