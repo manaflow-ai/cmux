@@ -217,7 +217,8 @@ fn open(
             }
         })?;
     let record = FrontendBrowserRecord {
-        engine: requested_or_default_engine(mux, string(fields, "engine").as_deref())?.to_string(),
+        engine: requested_or_default_engine(mux, string(fields, "engine").as_deref(), &url)?
+            .to_string(),
         url,
         title: string(fields, "title"),
         favicon_url: None,
@@ -275,18 +276,27 @@ pub(crate) fn default_engine(mux: &Arc<Mux>) -> &'static str {
     }
 }
 
+/// The engine of a tab for `url` that names none: the person's
+/// `browser.siteEngines` rule for it (Spotify, Netflix and other
+/// protected-media sites are WebKit by default), else `browser.defaultEngine`.
+pub(crate) fn default_engine_for(mux: &Arc<Mux>, url: &str) -> &'static str {
+    crate::browser_site_engines::site_engine_for(mux, url).unwrap_or_else(|| default_engine(mux))
+}
+
 /// The frontend engine tag a request names in its `engine` field
 /// (`chromium`, `chrome` and `cef` are Chromium; `webkit` and `safari` are
-/// WebKit), else the person's `browser.defaultEngine`. Every browser tab the
-/// daemon makes for the app (`tab.create_browser` with no provider,
-/// `workspace.open_url`, `browser.profile.open`) takes its engine here, so an
-/// agent's tab follows the same setting as a tab the person opens.
+/// WebKit), else the `browser.siteEngines` rule for `url`, else the person's
+/// `browser.defaultEngine`. Every browser tab the daemon makes for the app
+/// (`tab.create_browser` with no provider, `workspace.open_url`,
+/// `browser.profile.open`) takes its engine here, so an agent's tab follows
+/// the same settings as a tab the person opens.
 pub(crate) fn requested_or_default_engine(
     mux: &Arc<Mux>,
     requested: Option<&str>,
+    url: &str,
 ) -> Result<&'static str, ResourceError> {
     match requested.map(str::to_ascii_lowercase).as_deref() {
-        None | Some("") => Ok(default_engine(mux)),
+        None | Some("") => Ok(default_engine_for(mux, url)),
         Some("cef" | "chromium" | "chrome") => Ok("cef"),
         Some("webkit" | "safari") => Ok("webkit"),
         Some(other) => Err(ResourceError::validation_invalid(

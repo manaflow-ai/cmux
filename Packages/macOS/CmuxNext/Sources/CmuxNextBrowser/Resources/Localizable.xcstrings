@@ -25414,6 +25414,137 @@
           }
         }
       }
+    },
+    "browser.protectedMedia.reopenedInWebKit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opened in WebKit: this site’s protected media does not play in Chromium."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "فُتح في WebKit: لا تعمل الوسائط المحمية لهذا الموقع في Chromium."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Otvoreno u WebKitu: zaštićeni mediji ove stranice ne reproduciraju se u Chromiumu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Åbnet i WebKit: dette websteds beskyttede medier afspilles ikke i Chromium."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "In WebKit geöffnet: Die geschützten Medien dieser Website werden in Chromium nicht abgespielt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Abierto en WebKit: el contenido protegido de este sitio no se reproduce en Chromium."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ouvert dans WebKit : les médias protégés de ce site ne sont pas lus dans Chromium."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aperto in WebKit: i contenuti protetti di questo sito non vengono riprodotti in Chromium."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "WebKit で開きました。このサイトの保護されたメディアは Chromium では再生できません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បានបើកក្នុង WebKit៖ មេឌៀដែលបានការពាររបស់គេហទំព័រនេះមិនចាក់ក្នុង Chromium ទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "WebKit으로 열었습니다. 이 사이트의 보호된 미디어는 Chromium에서 재생되지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Åpnet i WebKit: de beskyttede mediene på dette nettstedet spilles ikke av i Chromium."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Otwarto w WebKit: chronione multimedia tej witryny nie odtwarzają się w Chromium."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aberto no WebKit: a mídia protegida deste site não toca no Chromium."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Открыто в WebKit: защищённые медиа этого сайта не воспроизводятся в Chromium."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เปิดใน WebKit แล้ว: สื่อที่มีการป้องกันของเว็บไซต์นี้เล่นใน Chromium ไม่ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "WebKit’te açıldı: Bu sitenin korumalı medyası Chromium’da oynatılmıyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Відкрито у WebKit: захищені медіа цього сайту не відтворюються в Chromium."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đã mở trong WebKit: phương tiện được bảo vệ của trang này không phát được trong Chromium."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已在 WebKit 中打开：此网站的受保护媒体无法在 Chromium 中播放。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已在 WebKit 中開啟：此網站的受保護媒體無法在 Chromium 中播放。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

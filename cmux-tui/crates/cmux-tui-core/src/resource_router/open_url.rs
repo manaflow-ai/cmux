@@ -505,9 +505,10 @@ impl Call<'_> {
 
     fn frontend_record(&self) -> FrontendBrowserRecord {
         FrontendBrowserRecord {
-            // The person's `browser.defaultEngine` (Chromium unless set to
-            // WebKit), as for a tab the person opens.
-            engine: crate::browser_profile_ops::default_engine(self.mux).to_string(),
+            // The person's `browser.siteEngines` rule for the URL, else
+            // `browser.defaultEngine` (Chromium unless set to WebKit), as for a
+            // tab the person opens.
+            engine: crate::browser_profile_ops::default_engine_for(self.mux, self.url).to_string(),
             url: self.url.to_string(),
             title: None,
             favicon_url: None,
