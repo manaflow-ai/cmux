@@ -91,6 +91,15 @@ const status = {
   ],
 };
 
+// The same reply after the app's relay filters it (AcpmuxPaneMethods.replyShapes): only each
+// peer's name and the scheme of its URL reach the page.
+const relayedStatus = {
+  peers: [
+    { name: "gpu-box", transport: "ssh" },
+    { name: "cloud-1", transport: "wss" },
+  ],
+};
+
 async function mount(environments: boolean, extra: Record<string, unknown> = {}) {
   const { createRoot } = await import("react-dom/client");
   const { ComposerContext } = await import("../src/agent-session/acpmux/ComposerContext");
@@ -104,7 +113,7 @@ async function mount(environments: boolean, extra: Record<string, unknown> = {})
       { sessionId: "b", cwd: "/home/you/cache", host: "build-cloud", hostKind: "cloud", updatedAt: 0 },
     ],
     peers: status.peers.map((peer) => peer.name),
-    peerKinds: peerKindsFromStatus(status),
+    peerKinds: peerKindsFromStatus(relayedStatus),
     localName: "cosmic-gray",
     projectChoices: [{ cwd: "/Users/you/src/cmux", label: "cmux" }],
     onProject: (cwd: string, peer?: string) => calls.push(["project", cwd, peer]),
@@ -160,6 +169,14 @@ async function press(target: Element, init: KeyboardEventInit) {
     target.dispatchEvent(new dom.window.KeyboardEvent("keydown", { bubbles: true, cancelable: true, ...init }));
   });
 }
+
+test("a peer's transport reads the same from the relayed reply and the daemon's own", async () => {
+  const { peerKindsFromStatus } = await import("../src/agent-session/acpmux/environments");
+  const kinds = { "gpu-box": "ssh", "cloud-1": "cloud" };
+  expect(peerKindsFromStatus(relayedStatus)).toEqual(kinds);
+  expect(peerKindsFromStatus(status)).toEqual(kinds);
+  expect(peerKindsFromStatus({ peers: [{ name: "bare" }] })).toEqual({ bare: "cloud" });
+});
 
 test("previews off: the row keeps its plain Computer menu", async () => {
   await mount(false);

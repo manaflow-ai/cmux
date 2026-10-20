@@ -8,7 +8,9 @@ export type Environment = { id: string; label: string; kind: EnvironmentKind };
 const SECTION_ORDER: readonly EnvironmentKind[] = ["local", "ssh", "cloud"];
 
 /// Each peer's transport from `_acpmux/status`: `ssh` for an `ssh://` peer, `cloud` for a
-/// `ws://`/`wss://` one (cmux Cloud and other daemons the user connected by URL).
+/// `ws://`/`wss://` one (cmux Cloud and other daemons the user connected by URL). In the app the
+/// relay keeps only `name` and `transport` (the URL's scheme; AcpmuxPaneMethods.replyShapes), so
+/// `transport` comes first; the raw `url` is read only when the page talks to acpmux directly.
 export function peerKindsFromStatus(status: unknown): Record<string, "ssh" | "cloud"> {
   const peers = (status as { peers?: unknown } | undefined)?.peers;
   if (!Array.isArray(peers)) return {};
@@ -16,8 +18,9 @@ export function peerKindsFromStatus(status: unknown): Record<string, "ssh" | "cl
   for (const peer of peers) {
     const name = (peer as { name?: unknown } | null)?.name;
     if (typeof name !== "string" || !name) continue;
-    const url = (peer as { url?: unknown }).url;
-    kinds[name] = typeof url === "string" && url.startsWith("ssh://") ? "ssh" : "cloud";
+    const { transport, url } = peer as { transport?: unknown; url?: unknown };
+    const ssh = typeof transport === "string" ? transport === "ssh" : typeof url === "string" && url.startsWith("ssh://");
+    kinds[name] = ssh ? "ssh" : "cloud";
   }
   return kinds;
 }
