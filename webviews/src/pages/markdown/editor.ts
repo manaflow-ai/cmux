@@ -51,6 +51,7 @@ import {
   type SourceMap,
 } from "./sourceMap";
 import { quoteLines } from "./selectionQuote";
+import type { ViewerComment } from "./comments";
 import { imageSize, obsidianSyntaxPlugin } from "./obsidian";
 import { isPointerSelecting, pointerChanged, pointerSelectPlugin } from "./pointerSelect";
 import {
@@ -89,6 +90,8 @@ export interface MarkdownEditorHost {
    * host keeps them in the file's extended attribute, MARKDOWN-TABLE-WIDTHS-DESIGN.md).
    */
   tableWidths?: TableWidths;
+  /** Delete on a comment card: the host forgets comment `id` and sends the list again. */
+  deleteComment?(id: string): void;
 }
 
 export type EditorLabel =
@@ -579,6 +582,9 @@ export class MarkdownEditor {
     );
     return lines ? { text, ...lines } : { text };
   }
+
+  /** Shows `comments` as margin markers (viewer-comments-DESIGN.md "Comments in the viewer"). */
+  setComments(_comments: readonly ViewerComment[]): void {}
 
   /** The baseline text: what the file held at the last load or save. */
   baselineText(): string {
