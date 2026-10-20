@@ -153,9 +153,8 @@ struct HomeGroupInfoView: View {
                     .accessibilityIdentifier("cmux.home.groupInfo.leave")
             }
             Spacer()
-            Button(HomeConversationStrings.infoDone) { model.close() }
+            CmuxDialogActionButton(HomeConversationStrings.infoDone, hint: .escape) { model.close() }
                 .glassButtonStyle()
-                .keyboardShortcut(.cancelAction)
                 .accessibilityIdentifier("cmux.home.groupInfo.done")
         }
     }

@@ -12,11 +12,11 @@ struct HomeGroupAvatar: View {
             Circle().fill(colors.hover)
             if isAgent {
                 Image(systemName: "sparkles")
-                    .font(.system(size: 11, weight: .medium))
+                    .font(Font(Typography.system(size: TypeScale.caption, weight: TypeScale.regular)))
                     .foregroundStyle(colors.secondary)
             } else {
                 Text(initials)
-                    .font(.system(size: 10, weight: .semibold))
+                    .font(Font(Typography.system(size: TypeScale.caption, weight: TypeScale.emphasis)))
                     .foregroundStyle(colors.secondary)
             }
         }
