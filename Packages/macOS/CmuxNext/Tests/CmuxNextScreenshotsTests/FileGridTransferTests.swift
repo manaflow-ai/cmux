@@ -44,18 +44,18 @@ import UniformTypeIdentifiers
         #expect(movie.types == [.fileURL])
     }
 
-    @Test func copyWritesFilesAndCopyPathWritesText() throws {
+    /// Copy offers every file (a lone picture with its bytes); Copy Path is one path per line.
+    @Test func copyOffersEveryFileAndCopyPathIsOnePathPerLine() throws {
         let folder = try TemporaryFolder()
         let first = try folder.write("a.png")
         let second = try folder.write("b.png")
-        let pasteboard = NSPasteboard(name: NSPasteboard.Name("cmux.test.\(UUID().uuidString)"))
-        defer { pasteboard.releaseGlobally() }
         let writer = FileGridPasteboard()
-        writer.write([Self.item(first), Self.item(second)], to: pasteboard)
-        let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: nil) as? [URL]
-        #expect(urls?.map(\.lastPathComponent) == ["a.png", "b.png"])
-        writer.writePaths([Self.item(first), Self.item(second)], to: pasteboard)
-        #expect(pasteboard.string(forType: .string) == "\(first.path)\n\(second.path)")
+        let items = writer.pasteboardItems(for: [Self.item(first), Self.item(second)])
+        #expect(items.map { $0.string(forType: .fileURL) } == [first.absoluteString, second.absoluteString])
+        #expect(items.allSatisfy { $0.types == [.fileURL] }, "two files: no picture bytes")
+        let lone = writer.pasteboardItems(for: [Self.item(first)])
+        #expect(lone.first?.types.contains(NSPasteboard.PasteboardType(UTType.png.identifier)) == true)
+        #expect(writer.pathsText(for: [Self.item(first), Self.item(second)]) == "\(first.path)\n\(second.path)")
     }
 
     @Test func aDroppedFileIsCopiedInUnderAFreeName() throws {
@@ -63,15 +63,21 @@ import UniformTypeIdentifiers
         let target = try TemporaryFolder()
         let file = try source.write("Shot.png")
         try target.write("Shot.png")
-        let pasteboard = NSPasteboard(name: NSPasteboard.Name("cmux.test.\(UUID().uuidString)"))
-        defer { pasteboard.releaseGlobally() }
-        pasteboard.clearContents()
-        pasteboard.writeObjects([file as NSURL])
+        let drop = Drop(droppedFileURLs: [file])
         let importer = FileGridDropImporter()
-        #expect(importer.canImport(pasteboard))
-        let saved = try importer.importItems(from: pasteboard, into: target.url)
+        #expect(importer.canImport(drop))
+        #expect(!importer.canImport(Drop()))
+        let saved = try importer.importItems(from: drop, into: target.url)
         #expect(saved.map(\.lastPathComponent) == ["Shot 2.png"])
         #expect(FileManager.default.fileExists(atPath: file.path), "a drop copies, never moves")
+    }
+
+    /// A file dropped from the grid's own folder is not copied onto itself.
+    @Test func aFileFromTheSameFolderIsNotCopiedAgain() throws {
+        let folder = try TemporaryFolder()
+        let file = try folder.write("Shot.png")
+        let saved = try FileGridDropImporter().importItems(from: Drop(droppedFileURLs: [file]), into: folder.url)
+        #expect(saved.isEmpty)
     }
 
     @Test func droppedPictureDataBecomesATimeNamedPNG() throws {
@@ -81,13 +87,11 @@ import UniformTypeIdentifiers
             rect.fill()
             return true
         }
-        let pasteboard = NSPasteboard(name: NSPasteboard.Name("cmux.test.\(UUID().uuidString)"))
-        defer { pasteboard.releaseGlobally() }
-        pasteboard.clearContents()
-        pasteboard.writeObjects([image])
+        let drop = Drop(droppedImage: image)
         let date = Date(timeIntervalSince1970: 1_800_000_000)
         let importer = FileGridDropImporter(now: { date })
-        let saved = try importer.importItems(from: pasteboard, into: target.url)
+        #expect(importer.canImport(drop))
+        let saved = try importer.importItems(from: drop, into: target.url)
         #expect(saved.map(\.lastPathComponent) == [FileGridDropImporter.droppedName(at: date)])
         let data = try Data(contentsOf: try #require(saved.first))
         #expect(data.starts(with: [0x89, 0x50, 0x4E, 0x47]), "a PNG")
@@ -98,4 +102,11 @@ import UniformTypeIdentifiers
         #expect(FileGridDurationText().string(for: 62) == "1:02")
         #expect(FileGridDurationText().string(for: 3723) == "1:02:03")
     }
+}
+
+/// A drop as a value: a fleet ci-step Mac has no pasteboard server.
+private struct Drop: FileGridDropContents {
+    var droppedFileURLs: [URL] = []
+    var droppedImage: NSImage?
+    var holdsImage: Bool { droppedImage != nil }
 }

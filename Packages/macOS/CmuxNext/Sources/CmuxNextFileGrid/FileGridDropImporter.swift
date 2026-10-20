@@ -19,27 +19,26 @@ public nonisolated struct FileGridDropImporter: Sendable {
         self.now = now
     }
 
-    /// Whether `pasteboard` holds anything this importer saves.
+    /// Whether `drop` holds anything this importer saves.
     ///
-    /// - Parameter pasteboard: the drag's pasteboard.
+    /// - Parameter drop: the drag's pasteboard (or a test value).
     @MainActor
-    public func canImport(_ pasteboard: NSPasteboard) -> Bool {
-        if !fileURLs(on: pasteboard).isEmpty { return true }
-        return NSImage.canInit(with: pasteboard)
+    public func canImport(_ drop: any FileGridDropContents) -> Bool {
+        !drop.droppedFileURLs.isEmpty || drop.holdsImage
     }
 
-    /// Saves the pasteboard's files or picture into `folder`.
+    /// Saves the drop's files or picture into `folder`.
     ///
     /// - Parameters:
-    ///   - pasteboard: the drag's pasteboard.
+    ///   - drop: the drag's pasteboard (or a test value).
     ///   - folder: where they go.
     /// - Returns: the new files.
     /// - Throws: the first copy or write error (earlier files stay saved).
     @MainActor
     @discardableResult
-    public func importItems(from pasteboard: NSPasteboard, into folder: URL) throws -> [URL] {
+    public func importItems(from drop: any FileGridDropContents, into folder: URL) throws -> [URL] {
         let manager = FileManager()
-        let files = fileURLs(on: pasteboard)
+        let files = drop.droppedFileURLs
         if !files.isEmpty {
             var saved: [URL] = []
             for file in files where file.deletingLastPathComponent().standardizedFileURL != folder.standardizedFileURL {
@@ -49,7 +48,7 @@ public nonisolated struct FileGridDropImporter: Sendable {
             }
             return saved
         }
-        guard let image = NSImage(pasteboard: pasteboard), let png = Self.pngData(image) else { return [] }
+        guard let image = drop.droppedImage, let png = Self.pngData(image) else { return [] }
         let target = naming.free(Self.droppedName(at: now()), in: folder)
         try png.write(to: target, options: .withoutOverwriting)
         return [target]
@@ -63,12 +62,6 @@ public nonisolated struct FileGridDropImporter: Sendable {
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "yyyy-MM-dd 'at' HH.mm.ss"
         return "Dropped Image \(formatter.string(from: date)).png"
-    }
-
-    @MainActor
-    private func fileURLs(on pasteboard: NSPasteboard) -> [URL] {
-        let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL]
-        return urls ?? []
     }
 
     @MainActor

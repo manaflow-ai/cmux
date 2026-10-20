@@ -48,8 +48,25 @@ public final class FileGridPasteboard {
     public func write(_ items: [FileGridItem], to pasteboard: NSPasteboard) {
         guard !items.isEmpty else { return }
         pasteboard.clearContents()
+        pasteboard.writeObjects(pasteboardItems(for: items))
+    }
+
+    /// The pasteboard items for a Copy or a drag of `items`: one per file, with a lone
+    /// picture's bytes.
+    ///
+    /// - Parameter items: the files, in order.
+    /// - Returns: the items, in order.
+    public func pasteboardItems(for items: [FileGridItem]) -> [NSPasteboardItem] {
         let single = items.count == 1
-        pasteboard.writeObjects(items.map { pasteboardItem(for: $0, includeImageData: single) })
+        return items.map { pasteboardItem(for: $0, includeImageData: single) }
+    }
+
+    /// The text Copy Path writes: the files' paths, one per line.
+    ///
+    /// - Parameter items: the files, in order.
+    /// - Returns: the paths.
+    public func pathsText(for items: [FileGridItem]) -> String {
+        items.map(\.url.path).joined(separator: "\n")
     }
 
     /// Writes the files' paths as text, one per line (Copy Path).
@@ -60,6 +77,6 @@ public final class FileGridPasteboard {
     public func writePaths(_ items: [FileGridItem], to pasteboard: NSPasteboard) {
         guard !items.isEmpty else { return }
         pasteboard.clearContents()
-        pasteboard.setString(items.map(\.url.path).joined(separator: "\n"), forType: .string)
+        pasteboard.setString(pathsText(for: items), forType: .string)
     }
 }
