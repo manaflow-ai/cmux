@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "a453986b67d167174f384a45b851ba6779b4ecfde280ba17c07ea656ab7e84b0";
+inline constexpr std::string_view kProtocolIrSha256 = "5e69f4f6edf2b8c3c330c70dcc2f1d5ece8784de7423f90cc4a35d660bc1c512";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -48,6 +48,7 @@ enum class ClientTransport;
 enum class CloseReason;
 struct CloseTerminalResult;
 struct ColorHex;
+enum class ColumnMoveDirection;
 struct ColumnPin;
 struct ConversationChange;
 struct ConversationImportMessage;
@@ -217,6 +218,7 @@ struct TerminalResourceHost;
 struct TerminalResourceProcess;
 struct TerminalResources;
 struct TerminalResourcesResult;
+struct TerminalResumeCommandResult;
 struct Tree;
 enum class ViewAttachmentOutcome;
 struct ViewportPaneWidthResult;
@@ -407,6 +409,7 @@ struct MintTerminalRendererRequest;
 struct MintTerminalRendererByTerminalRequest;
 struct MoveBookmarkRequest;
 struct MoveBrowserProfileRequest;
+struct MoveColumnRequest;
 struct MovePersonalGroupRequest;
 struct MoveProfileRequest;
 struct MoveScreenRequest;
@@ -522,6 +525,7 @@ struct TerminalEventsRequest;
 struct TerminalHistoryRequest;
 struct TerminalReadRangeRequest;
 struct TerminalResourcesRequest;
+struct TerminalResumeCommandRequest;
 struct UndoLayoutRequest;
 struct UngroupScreenGroupRequest;
 struct UngroupTabGroupRequest;
@@ -1887,6 +1891,11 @@ struct ColorsChangedEvent {
     std::optional<ColorHex> selection_fg{};
     std::optional<Id> surface{};
     friend bool operator==(const ColorsChangedEvent&, const ColorsChangedEvent&) = default;
+};
+
+enum class ColumnMoveDirection {
+    left,
+    right,
 };
 
 struct ColumnPin {
@@ -3626,6 +3635,12 @@ struct MoveBrowserProfileRequest {
     std::string browser_profile{};
     std::uint64_t index{};
     friend bool operator==(const MoveBrowserProfileRequest&, const MoveBrowserProfileRequest&) = default;
+};
+
+struct MoveColumnRequest {
+    ColumnMoveDirection direction{};
+    Id pane{};
+    friend bool operator==(const MoveColumnRequest&, const MoveColumnRequest&) = default;
 };
 
 struct MovePersonalGroupRequest {
@@ -5515,6 +5530,19 @@ struct TerminalResourcesResult {
     friend bool operator==(const TerminalResourcesResult&, const TerminalResourcesResult&) = default;
 };
 
+struct TerminalResumeCommandRequest {
+    Field<std::string> command{};
+    Field<Id> surface{};
+    Field<std::string> terminal_id{};
+    friend bool operator==(const TerminalResumeCommandRequest&, const TerminalResumeCommandRequest&) = default;
+};
+
+struct TerminalResumeCommandResult {
+    std::optional<std::string> command{};
+    std::string terminal_id{};
+    friend bool operator==(const TerminalResumeCommandResult&, const TerminalResumeCommandResult&) = default;
+};
+
 struct TitleChangedEvent {
     Id surface{};
     std::optional<std::string> title{};
@@ -6047,6 +6075,12 @@ template <>
 struct Codec<ColorHex> {
     static Result<Json> encode(const ColorHex& value);
     static Result<ColorHex> decode(const Json& value);
+};
+
+template <>
+struct Codec<ColumnMoveDirection> {
+    static Result<Json> encode(const ColumnMoveDirection& value);
+    static Result<ColumnMoveDirection> decode(const Json& value);
 };
 
 template <>
@@ -7061,6 +7095,12 @@ template <>
 struct Codec<TerminalResourcesResult> {
     static Result<Json> encode(const TerminalResourcesResult& value);
     static Result<TerminalResourcesResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<TerminalResumeCommandResult> {
+    static Result<Json> encode(const TerminalResumeCommandResult& value);
+    static Result<TerminalResumeCommandResult> decode(const Json& value);
 };
 
 template <>
@@ -8204,6 +8244,12 @@ struct Codec<MoveBrowserProfileRequest> {
 };
 
 template <>
+struct Codec<MoveColumnRequest> {
+    static Result<Json> encode(const MoveColumnRequest& value);
+    static Result<MoveColumnRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<MovePersonalGroupRequest> {
     static Result<Json> encode(const MovePersonalGroupRequest& value);
     static Result<MovePersonalGroupRequest> decode(const Json& value);
@@ -8891,6 +8937,12 @@ template <>
 struct Codec<TerminalResourcesRequest> {
     static Result<Json> encode(const TerminalResourcesRequest& value);
     static Result<TerminalResourcesRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<TerminalResumeCommandRequest> {
+    static Result<Json> encode(const TerminalResumeCommandRequest& value);
+    static Result<TerminalResumeCommandRequest> decode(const Json& value);
 };
 
 template <>

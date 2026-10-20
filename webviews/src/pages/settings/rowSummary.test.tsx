@@ -72,10 +72,10 @@ const views: View[] = [
   ),
 ];
 
-test("Backdrop Art says what it is in one short line, with no tooltip repeating it", async () => {
+test("Material says what Clear Glass does in one short line, with no tooltip repeating it", async () => {
   page = await renderPage({ path: "/settings/appearance" });
-  const line = rowElement(page.container, "appearance.backdropArt").querySelector<HTMLElement>(".row-help");
-  expect(line?.textContent).toBe("Painting behind the window");
+  const line = rowElement(page.container, "appearance.backgroundBlur").querySelector<HTMLElement>(".row-help");
+  expect(line?.textContent).toBe("Clear Glass shows the desktop through the wallpaper");
   expect(line?.title).toBe("");
 });
 

@@ -239,7 +239,8 @@ function shapedTurn(
   } else
     shaped = [
       ...date,
-      user,
+      // Bookkeeping alone starts a turn but draws nothing (incomingMessage.ts).
+      ...(user.incoming?.kind === "hidden" ? [] : [user]),
       ...shapeTurn(user, turn, expanded, live, last, last && held.length === 0, clockOffset, liveRuns),
       ...held,
     ];
@@ -333,7 +334,15 @@ function shapeTurn(
     ...summary,
     folded: work.length > 0,
     text: answer?.text ?? summary.text,
-    ...(retryable && user.text && { prompt: user.text, retryRowId: user.id, retryAttachments: user.retryAttachments }),
+    // Retry sends the prompt as the agent got it: an incoming message with its sender. A
+    // notification is the harness's, not a prompt to send again (incomingMessage.ts).
+    ...(retryable &&
+      user.incoming?.kind !== "notice" &&
+      (user.resend ?? user.text) && {
+        prompt: user.resend ?? user.text,
+        retryRowId: user.id,
+        retryAttachments: user.retryAttachments,
+      }),
     version: version * 2 + (retryable ? 1 : 0),
   });
   // Anything after the summary (late tool updates, or a turn the agent started on its own)

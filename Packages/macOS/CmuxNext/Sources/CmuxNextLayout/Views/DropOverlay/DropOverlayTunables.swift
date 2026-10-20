@@ -95,10 +95,10 @@ public nonisolated enum LayoutTunables {
         "drop.edgeFraction", .tabDrag, "Edge zone share", help: "Share of a pane's extent that counts as an edge (split) drop zone.",
         default: 0.25, range: 0.05...0.5, step: 0.01, unit: .fraction, code: "LayoutTunables.dropEdgeFraction")
     public static let dropEdgeMinimum = Tunable<CGFloat>.number(
-        "drop.edgeMinimum", .tabDrag, "Edge zone minimum", help: "The edge band is at least this wide (classic: 80).", default: 40, range: 4...200, step: 1,
+        "drop.edgeMinimum", .tabDrag, "Edge zone minimum", help: "The edge band is at least this wide (classic: 80).", default: 48, range: 4...200, step: 1,
         unit: .points, code: "LayoutTunables.dropEdgeMinimum")
     public static let dropEdgeMaximum = Tunable<CGFloat>.number(
-        "drop.edgeMaximum", .tabDrag, "Edge zone maximum", help: "The edge band is at most this wide; 0 sets no maximum (classic).", default: 120, range: 0...600, step: 1,
+        "drop.edgeMaximum", .tabDrag, "Edge zone maximum", help: "The edge band is at most this wide; 0 sets no maximum (classic, the default).", default: 0, range: 0...600, step: 1,
         unit: .points, code: "LayoutTunables.dropEdgeMaximum")
     public static let dropZoneHysteresis = Tunable<CGFloat>.number(
         "drop.zoneHysteresis", .tabDrag, "Zone hysteresis", help: "How far past a zone line the pointer goes before the preview changes zone (classic: 0).",
