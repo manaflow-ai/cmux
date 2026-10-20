@@ -48,7 +48,9 @@ export function useRenderFrame(
   const frame = useRef<HTMLIFrameElement>(null);
   const [height, setHeight] = useState(live ? 0 : RENDER_FRAME_MIN_HEIGHT);
   const latest = useRef({ html, streaming, request, frozen, onStop });
-  latest.current = { html, streaming, request, frozen, onStop };
+  useLayoutEffect(() => {
+    latest.current = { html, streaming, request, frozen, onStop };
+  });
   const [error, setError] = useState<string>();
   const [stopped, setStopped] = useState(false);
   const measured = useRef(height);
@@ -205,8 +207,8 @@ type RenderCardProps = {
 export function RenderCard(props: RenderCardProps) {
   const sessionId = useContext(ChatSessionContext);
   const rowId = useContext(TranscriptRowContext);
-  const initialHTML = useRef(props.call.html);
-  const identity = rowId ? [rowId, props.call.id ?? ""] : (props.call.id ?? initialHTML.current);
+  const [initialHTML] = useState(props.call.html);
+  const identity = rowId ? [rowId, props.call.id ?? ""] : (props.call.id ?? initialHTML);
   const attachment = useRenderAttachment();
   const provenance = useContext(RenderLiveContext);
   const liveTurn = provenance !== false && (provenance === true ? 0 : provenance.attachment) === attachment;

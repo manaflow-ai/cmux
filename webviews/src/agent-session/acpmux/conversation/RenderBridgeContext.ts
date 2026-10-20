@@ -1,4 +1,4 @@
-import { createContext, useMemo, useRef, type ContextType } from "react";
+import { createContext, useLayoutEffect, useMemo, useRef, type ContextType } from "react";
 
 /// Pane actions available to a render, confirmed in the pane first.
 export const RenderBridgeContext = createContext<
@@ -13,7 +13,9 @@ export const RenderBridgeContext = createContext<
 /// Streaming updates keep the same bridge while its actions read the pane's latest callbacks (Lucas 2026-10-18).
 export function useRenderBridge(bridge: NonNullable<ContextType<typeof RenderBridgeContext>>) {
   const latest = useRef(bridge);
-  latest.current = bridge;
+  useLayoutEffect(() => {
+    latest.current = bridge;
+  });
   return useMemo(
     () => ({
       prefill: (text: string) => latest.current.prefill(text),

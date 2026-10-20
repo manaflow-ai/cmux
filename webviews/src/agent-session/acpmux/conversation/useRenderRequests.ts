@@ -6,6 +6,25 @@ import { renderState, saveRenderState } from "./renderState";
 type Reply = (ok: boolean, value?: unknown) => void;
 type Pending = { method: "sendPrompt" | "openLink" | "prefill" | "copy"; text: string; reply: Reply };
 
+function storeState(key: string, value: unknown): boolean {
+  try {
+    const json = JSON.stringify(value);
+    if (!json || new TextEncoder().encode(json).length > 65536) return false;
+    saveRenderState(key, JSON.parse(json));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function linkError(text: string): string | undefined {
+  try {
+    if (new URL(text).protocol !== "https:") return "https required";
+  } catch {
+    return "invalid url";
+  }
+}
+
 export function useRenderRequests(key: string) {
   const bridge = useContext(RenderBridgeContext);
   const [pending, setPending] = useState<Pending>();
@@ -46,14 +65,8 @@ export function useRenderRequests(key: string) {
       const args = params as Record<string, unknown>;
       if (data.method === "state.get") return reply(true, renderState(key));
       if (data.method === "state.set") {
-        try {
-          const json = JSON.stringify(args.value);
-          if (!json || new TextEncoder().encode(json).length > 65536) return reply(false, "invalid state");
-          saveRenderState(key, JSON.parse(json));
-          return reply(true, null);
-        } catch {
-          return reply(false, "invalid state");
-        }
+        const ok = storeState(key, args.value);
+        return reply(ok, ok ? null : "invalid state");
       }
       const method = data.method;
       if (method !== "prefill" && method !== "sendPrompt" && method !== "copy" && method !== "openLink")
@@ -61,11 +74,8 @@ export function useRenderRequests(key: string) {
       const text = method === "openLink" ? args.url : args.text;
       if (typeof text !== "string" || text.length > 4000 || !text.trim()) return reply(false, "invalid text");
       if (method === "openLink") {
-        try {
-          if (new URL(text).protocol !== "https:") return reply(false, "https required");
-        } catch {
-          return reply(false, "invalid url");
-        }
+        const error = linkError(text);
+        if (error) return reply(false, error);
       }
       if (method !== "copy" && !bridge) return reply(false, "unavailable");
       if (held.current) return reply(false, "confirmation pending");
@@ -92,8 +102,9 @@ export function useRenderRequests(key: string) {
       ask.reply(true, null);
       return;
     }
+    const perform = ask.method === "sendPrompt" ? () => bridge!.send(ask.text) : () => bridge!.openLink(ask.text);
     try {
-      const result = ask.method === "sendPrompt" ? bridge!.send(ask.text) : bridge!.openLink(ask.text);
+      const result = perform();
       void Promise.resolve(result).then(
         (value) => {
           const ok = ask.method === "openLink" ? value === true : value !== false;
