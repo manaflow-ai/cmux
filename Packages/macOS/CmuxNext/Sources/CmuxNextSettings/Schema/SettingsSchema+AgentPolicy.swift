@@ -95,6 +95,8 @@ extension SettingsSchema {
         "appearance.hue",
         "appearance.saturation",
         "appearance.density",
+        "appearance.customDensity",
+        "appearance.customDensities",
         "appearance.metrics.chromeFontSize",
         "appearance.interfaceScale",
         "appearance.borders",

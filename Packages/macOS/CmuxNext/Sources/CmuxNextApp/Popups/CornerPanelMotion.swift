@@ -30,7 +30,7 @@ final class CornerPanelMotion {
     func resized(_ panel: NSWindow) {
         guard !isClosing, let layer = panel.contentView?.layer, layer.animation(forKey: "sublayerTransform") != nil,
               let shown = layer.presentation()?.sublayerTransform else { return }
-        Motion.set(layer, "sublayerTransform", to: NSValue(caTransform3D: CATransform3DIdentity), spring: .appear,
+        Motion.set(layer, "sublayerTransform", to: NSValue(caTransform3D: CATransform3DIdentity), spring: .popover,
                    from: NSValue(caTransform3D: Motion.scale(shown.m11, about: Self.pivot(of: panel), in: layer)))
     }
 
