@@ -1,13 +1,13 @@
 /* The Chief Usage page: header controls, tiles, inline SVG charts, the breakdown table and the top
-   list on the shared page backdrop (pageBase.css). Series colors are the dataviz reference
-   categorical slots in fixed order (cache read 1, input 2, cache write 3, output 4), validated
-   against the light and dark chart surfaces; light-dark() picks each from the page's color-scheme.
+   list on the shared page backdrop (pageBase.css). Series colors come from the theme: the
+   accent for cache (read full, write lighter), the page ink for uncached input and output
+   (input stronger), so the page follows light, dark and custom themes.
    Cost, p50 and the p95 band are neutral ink so they never read as a token kind. */
 .cu {
-  --cu-cache-read: light-dark(#2a78d6, #3987e5);
-  --cu-input: light-dark(#eb6834, #d95926);
-  --cu-cache-write: light-dark(#1baf7a, #199e70);
-  --cu-output: light-dark(#eda100, #c98500);
+  --cu-cache-read: var(--cmux-accent, var(--page-text));
+  --cu-cache-write: color-mix(in srgb, var(--cmux-accent, var(--page-text)) 45%, transparent);
+  --cu-input: color-mix(in srgb, var(--page-text) 62%, transparent);
+  --cu-output: color-mix(in srgb, var(--page-text) 28%, transparent);
   --cu-ink: var(--page-text);
   --cu-hit: var(--cu-cache-read);
   max-width: 960px;
@@ -176,7 +176,7 @@
 .cu-grid text,
 .cu-axis text {
   fill: var(--page-text-3);
-  font-size: 10px;
+  font-size: var(--text-caption);
   font-variant-numeric: tabular-nums;
 }
 
@@ -246,7 +246,7 @@
 .cu-tooltip {
   position: absolute;
   top: 4px;
-  z-index: 1;
+  z-index: var(--layer-raised);
   transform: translateX(8px);
   min-width: 140px;
   padding: 6px 8px;

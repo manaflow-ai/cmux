@@ -15,21 +15,20 @@ export function TabsDesign({ summary, by, strings }: DesignProps) {
     <>
       <Tiles summary={summary} strings={strings} />
       <section className="cu-section">
-        <div className="cu-segmented" role="tablist" aria-label={strings.t("chiefUsage.tabs.label")}>
+        <fieldset className="cu-segmented" aria-label={strings.t("chiefUsage.tabs.label")}>
           {TABS.map((option) => (
             <button
               key={option}
               type="button"
-              role="tab"
-              aria-selected={option === tab}
+              aria-pressed={option === tab}
               className={option === tab ? "cu-segment-button is-selected" : "cu-segment-button"}
               onClick={() => setTab(option)}
             >
               {strings.t(`chiefUsage.tabs.${option}`)}
             </button>
           ))}
-        </div>
-        <div role="tabpanel" className="cu-tab-panel">
+        </fieldset>
+        <div className="cu-tab-panel">
           {tab === "cost" && <LineChart series={series} bucket={bucket} strings={strings} measure="usd" height={200} />}
           {tab === "tokens" && (
             <>
