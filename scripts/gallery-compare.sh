@@ -42,7 +42,7 @@ fi
 quoted="$(printf '%q' "$branch")"
 remote="GALLERY_ON_HOST=1 ~/cmux-gallery-host/gallery compare $quoted"
 if ssh -o BatchMode=yes -o ConnectTimeout=10 "$host" true 2>/dev/null; then
-  out="$(ssh -o BatchMode=yes -o ConnectTimeout=15 "$host" "$remote")" || { echo "gallery-compare: gallery compare failed on $host (its message is above)" >&2; exit 1; }
+  out="$(ssh -o BatchMode=yes -o ConnectTimeout=15 "$host" "$remote")" || { printf '%s\n' "$out" >&2; echo "gallery-compare: gallery compare failed on $host" >&2; exit 1; }
 elif command -v reach >/dev/null 2>&1; then
   out="$(reach "$host" "$remote")" || { echo "gallery-compare: reach $host failed" >&2; printf '%s\n' "$out" >&2; exit 1; }
 else
