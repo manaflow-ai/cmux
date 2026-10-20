@@ -16,6 +16,7 @@ enum BrowserHandlers {
         bindSplits(into: registry, context: context)
         bindLinkHints(into: registry, context: context)
         BrowserEnabledToggle.bind(into: registry, context: context)
+        BrowsingDataClear.bindClearHistory(registry, context: context)
         bindUnavailable(registry)
     }
 
@@ -226,6 +227,5 @@ enum BrowserHandlers {
     private static func bindUnavailable(_ registry: ActionRegistry) {
         func unavailable(_ ids: [ActionID], _ reason: String) { registry.bindUnavailable(ids, ActionFailure(message: reason)) }
         unavailable(["palette.browserToggleOmnibar"], MiscHandlerStrings.omnibarToggle)
-        unavailable(["palette.browserClearHistory"], MiscHandlerStrings.browserHistory)
     }
 }
