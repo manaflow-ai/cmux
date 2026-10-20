@@ -261,10 +261,10 @@ public final class AgentCLIUpdateActions {
             do {
                 receipt = try await route.start(cli, childKey)
             } catch {
-                // This key is fresh, so any owner answer means nothing runs for it (a refusal,
-                // a failed creation, a request turned away): no job is left to block this CLI.
-                // A lost reply may have created the terminal: it stays unknown, and refresh
-                // sends the same key again to learn which.
+                // This key is fresh, so an owner answer (a refusal, a failed creation, a request
+                // turned away) leaves no job to block this CLI, except `mutation.indeterminate`:
+                // the effect may have run, so like a lost reply the job stays unknown, keeps
+                // blocking the CLI and refresh sends the same key again.
                 if Self.answered(error) {
                     if let index = Self.job(of: family, in: intent) { intent.jobs.remove(at: index) }
                 } else {
@@ -322,12 +322,14 @@ public final class AgentCLIUpdateActions {
         return !members.isEmpty && members.allSatisfy { $0.outdated && ($0.channel == .npm || $0.channel == .native) }
     }
 
-    /// Whether the owner answered with a coded failure. On a first start (a fresh key) that
-    /// means nothing runs for the key; a failure with no owner answer (a lost reply) may
-    /// follow a creation. A replay needs `refusedBeforeCreation` instead.
+    /// Whether the owner answered a first start (a fresh key) with a coded failure that leaves
+    /// nothing worth tracking. `mutation.indeterminate` does not: the owner says the effect may
+    /// have run (a failed creation's reserved terminal may be live). Nor does a failure with no
+    /// owner answer (a lost reply). Rarely another code follows a terminal that went public
+    /// (a failed launch activation); its job is dropped. A replay needs `refusedBeforeCreation`.
     static func answered(_ error: any Error) -> Bool {
         guard case DaemonError.command(_, _, let code?, _, _) = error else { return false }
-        return !code.isEmpty
+        return !code.isEmpty && code != "mutation.indeterminate"
     }
 
     /// The owner answers `agent_cli_job.*` before it journals a creation, so no
