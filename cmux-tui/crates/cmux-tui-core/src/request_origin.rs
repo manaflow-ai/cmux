@@ -164,9 +164,9 @@ impl ConnectionOrigin {
         }
     }
 
-    /// The actor of every durable mutation this connection causes
-    /// (identity.md section 3): the verified app is `frontend`, any other
-    /// local connection the local `user`. A request can never change it.
+    /// The connection's base actor (identity.md section 3): the verified app
+    /// is `frontend`, any other local connection starts as the local `user`.
+    /// The server refines that user to a terminal from kernel peer ancestry.
     pub(crate) fn actor(&self) -> crate::workspace_registry::Actor {
         use crate::workspace_registry::Actor;
         if self.derive() != RequestOrigin::User {

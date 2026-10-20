@@ -87,20 +87,54 @@ fn check(mux: &Mux, client: u64, envelope: &RequestEnvelope) -> Result<Actor, Re
         envelope.origin.as_ref(),
         now_ms,
     )?;
-    let (transport, local) = (record.transport, record.origin.actor());
+    let (transport, local, peer_key) =
+        (record.transport, record.origin.actor(), record.origin.peer_key.clone());
     drop(state);
+    let local = actor_for_local_peer(mux, local, peer_key.as_deref(), peer_session_id);
     Ok(peer_or_local(mux, client, transport, local))
 }
 
-/// Test seam for the peer-PID ancestry actor landed with its behavioral regression.
-#[cfg(test)]
+/// Attributes an unproved local connection to the terminal session containing
+/// its kernel socket peer. A verified app keeps its stronger frontend actor.
 fn actor_for_local_peer(
-    _mux: &Mux,
+    mux: &Mux,
     local: Actor,
-    _peer_key: Option<&str>,
-    _session_for_pid: impl FnOnce(u32) -> Option<u32>,
+    peer_key: Option<&str>,
+    session_for_pid: impl FnOnce(u32) -> Option<u32>,
 ) -> Actor {
-    local
+    if !matches!(&local, Actor::User { id } if id == crate::conversation_store::LOCAL_USER) {
+        return local;
+    }
+    let Some(pid) = peer_key.and_then(peer_pid).and_then(session_for_pid) else { return local };
+    let terminal = mux.with_state(|state| {
+        state
+            .surfaces
+            .values()
+            .chain(state.terminal_catalog.values())
+            .find(|surface| surface.process_id() == Some(pid))
+            .and_then(|surface| surface.terminal_public_id())
+            .map(|terminal| terminal.as_str().to_string())
+    });
+    terminal.map_or(local, |id| Actor::Terminal { id })
+}
+
+fn peer_pid(key: &str) -> Option<u32> {
+    let (pid, version) = key.strip_prefix("token:")?.split_once('.')?;
+    let pid = pid.parse().ok()?;
+    (!version.is_empty() && pid > 0).then_some(pid)
+}
+
+#[cfg(unix)]
+fn peer_session_id(pid: u32) -> Option<u32> {
+    let pid = libc::pid_t::try_from(pid).ok()?;
+    // SAFETY: getsid only reads kernel process metadata for the positive pid.
+    let session = unsafe { libc::getsid(pid) };
+    u32::try_from(session).ok().filter(|session| *session > 0)
+}
+
+#[cfg(not(unix))]
+fn peer_session_id(_pid: u32) -> Option<u32> {
+    None
 }
 
 /// `credential.mint` and `credential.rotate` are the owner's: a registered
@@ -330,10 +364,21 @@ pub(super) fn set_hello(
         return false;
     }
     record.origin.role = role;
-    record.origin.peer_key = peer_key;
+    if peer_key.is_some() {
+        record.origin.peer_key = peer_key;
+    }
     record.origin.page = page;
     record.origin.verified_app = role == HelloRole::Main && signature_proved;
     true
+}
+
+/// Records kernel peer identity at accept, before a legacy client can skip hello.
+pub(super) fn set_peer_key_at_accept(mux: &Mux, client: u64, peer_key: Option<String>) {
+    let mut state =
+        mux.control_clients.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Some(record) = state.clients.get_mut(&client) {
+        record.origin.peer_key = peer_key;
+    }
 }
 
 /// The page a WebSocket connection serves, from its handshake Origin
