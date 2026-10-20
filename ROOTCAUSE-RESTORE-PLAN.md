@@ -341,13 +341,13 @@ CoreSimulator-version warning on this host. This is the authoritative focused
 receipt for the current repair head; the earlier 21-test persistence receipt
 remains a subset of it.
 
-The historical isolated `CMUXAgentLaunch` package suite passed: **887
-tests in 100 suites**. It includes the lease-transfer tests proving that the
-launched agent does not inherit the lease and that the exit watcher retains it
-until the agent exits, plus the bounded persistence, provider-routing, and
-Subrouter recovery coverage. The package runner also printed an initial legacy
-XCTest summary of zero tests before executing the Swift Testing suites; the
-authoritative result is the final 883-test Swift Testing run.
+The historical isolated `CMUXAgentLaunch` package suite passed **887 tests in
+100 suites** at its recorded repair head. The package runner also printed an
+initial legacy XCTest summary of zero tests before executing the Swift Testing
+suites; that zero-test line is setup output, not coverage. A later full-package
+run at the current PR head (`8c54f8914df2ea03d54f32f33a6ab9419724f2cb`) passed
+**889 tests in 100 suites**. The earlier 883-test receipt was an intermediate
+head and is retained only as historical evidence.
 
 The tagged runtime dogfood attempt used
 `CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag rootcause-restore
