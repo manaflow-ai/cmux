@@ -73,6 +73,8 @@ export interface OwnershipStoreService {
   readonly countLive: (tenantId: TenantId, kind: ResourceKind) => Effect.Effect<number, StoreError>;
   /** Marks the tenant's resource deleted; later reads do not find it. */
   readonly markDeleted: (tenantId: TenantId, kind: ResourceKind, cmuxId: string, at: Date) => Effect.Effect<void, StoreError>;
+  /** The tenant's own resource of this kind that was marked deleted, or none (an idempotent delete's tombstone). */
+  readonly findDeleted: (tenantId: TenantId, kind: ResourceKind, cmuxId: string) => Effect.Effect<Option.Option<OwnedResource>, StoreError>;
 }
 
 export interface AuditStoreService {
@@ -243,6 +245,20 @@ export const sqlStoresLayer: Layer.Layer<OwnershipStore | ApiKeyStore | AuditSto
             [tenantId, kind, cmuxId, at.toISOString()],
           )
           .pipe(Effect.asVoid),
+      findDeleted: (tenantId, kind, cmuxId) =>
+        sql
+          .query(
+            "ownership.findDeleted",
+            `SELECT ${RESOURCE_COLUMNS}
+               FROM cmux_vm.resources
+              WHERE cmux_id = $1 AND tenant_id = $2 AND kind = $3 AND deleted_at IS NOT NULL
+              LIMIT 1`,
+            [cmuxId, tenantId, kind],
+          )
+          .pipe(
+            Effect.flatMap(decodeRows(ResourceRow, "ownership.findDeleted")),
+            Effect.map((rows) => Option.map(Option.fromNullable(rows[0]), toOwned)),
+          ),
     };
 
     const audit: AuditStoreService = {
