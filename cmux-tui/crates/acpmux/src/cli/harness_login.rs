@@ -209,7 +209,17 @@ fn codex_bridge(profile: &HarnessProfile) -> bool {
         && crate::codex_app_server::is_profile_launch(&profile.argv)
 }
 
-/// The codex binary the bridge runs: the profile's `CODEX_PATH`, as the
+/// The bridge's env as its launch builds it: the profile's own, then the
+/// family's and the profile's `defaults` (`hub::spawn`), references resolved.
+fn codex_env(cfg: &Config, id: &str, profile: &HarnessProfile) -> Result<BTreeMap<String, String>> {
+    let mut layered = profile.clone();
+    for (k, v) in cfg.defaults_for(id).env {
+        layered.env.entry(k).or_insert(v);
+    }
+    Ok(resolved(&layered)?.env)
+}
+
+/// The codex binary the bridge runs: `CODEX_PATH` of its env, as the
 /// launch picks it (`agent::command`), else its command.
 fn codex_program(profile: &HarnessProfile, env: &BTreeMap<String, String>) -> String {
     env.get("CODEX_PATH")
@@ -225,7 +235,7 @@ pub async fn auth_state(cfg: &Config, id: &str, timeout: Duration) -> Result<Aut
         return Ok(AuthState::NotAcp { hint });
     }
     if codex_bridge(profile) {
-        let env = resolved(profile)?.env;
+        let env = codex_env(cfg, id, profile)?;
         let codex = codex_program(profile, &env);
         let status = tokio::task::spawn_blocking(move || {
             crate::harness_health::probe::codex_login_status_of(&codex, &env)
@@ -326,7 +336,7 @@ pub async fn login(
         if let Some(m) = method {
             bail!("{id} signs in with `codex login`; it has no sign-in method {m:?}");
         }
-        let env = resolved(profile)?.env;
+        let env = codex_env(cfg, id, profile)?;
         let argv = vec![codex_program(profile, &env), "login".into()];
         let code = terminal(&argv, &env)?;
         return if code == 0 {
@@ -498,6 +508,17 @@ mod tests {
         let (outcome, ran) = ran(&config(profile), None).await;
         assert_eq!(outcome.unwrap(), "codex: signed in");
         assert_eq!(ran, vec![vec!["/opt/codex-new".to_owned(), "login".to_owned()]]);
+    }
+
+    #[tokio::test]
+    async fn codex_bridge_login_takes_codex_path_from_the_family_defaults() {
+        let mut cfg = config(acp(&["codex", "app-server"], &[]));
+        let mut defaults = crate::config::SessionDefaults::default();
+        defaults.env.insert("CODEX_PATH".into(), "/opt/codex-family".into());
+        cfg.defaults.insert("codex".into(), defaults);
+        let (outcome, ran) = ran(&cfg, None).await;
+        assert_eq!(outcome.unwrap(), "codex: signed in");
+        assert_eq!(ran, vec![vec!["/opt/codex-family".to_owned(), "login".to_owned()]]);
     }
 
     #[tokio::test]
