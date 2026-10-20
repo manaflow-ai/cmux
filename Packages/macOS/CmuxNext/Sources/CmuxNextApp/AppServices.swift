@@ -100,6 +100,8 @@ final class AppServices {
     private(set) lazy var agentCursorVisibility = AgentCursorWiring.makeVisibility(services: self)
     /// `cmux://agent-activity`: the computer use sessions page.
     private(set) lazy var agentActivityPage = AgentActivityPageService(services: self)
+    /// `cmux://screenshots`: the Screenshots pane (its detection, thumbnail cache and pages).
+    private(set) lazy var screenshotsPage = ScreenshotsPageService(services: self)
     private(set) lazy var remoteViewPages = RemoteViewPageService()
     /// Bookmarks of every browser profile (plans/cmux-next/bookmarks.md).
     private(set) lazy var bookmarks = BookmarkService(services: self)
