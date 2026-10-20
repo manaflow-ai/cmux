@@ -53,7 +53,7 @@ pub(super) const PROFILE: &str = include_str!("../../sandbox/remote-chain.sb");
 /// The identity of what a remote chain runs under: the profile and the env
 /// policy (bump `ENV_POLICY` when the child env rules change).
 pub(super) fn profile_id() -> String {
-    const ENV_POLICY: &str = "env-v4: fixed remote allowlist, nested-parent credential and endpoint excluded, credential by explicit profile/login env, CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1, endpoint pinned by --settings env, user settings skipped for a profile's own endpoint";
+    const ENV_POLICY: &str = "env-v5: explicit cleared host projection, fixed remote allowlist, nested-parent credential and endpoint excluded, credential by explicit profile/login env, CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1, endpoint pinned by --settings env, user settings skipped for a profile's own endpoint";
     crate::sha256::sha256_hex(format!("{PROFILE}\n{ENV_POLICY}").as_bytes())
 }
 
