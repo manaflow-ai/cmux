@@ -1,14 +1,12 @@
 #!/usr/bin/env python3
 """mac-app-relay: the cmux app control socket of a Chief host with no app.
 
-The Cloud Chief VM runs no cmux app, so `cmux mcp serve` there lists no app
-tools (the right-column browser, workspaces, tabs) and the Chief host drops
-them. This relay listens on a Unix socket on the VM and sends each request
-line to the user's Mac app through the Mac gate (`mac --stdin -- …`,
-lawbook0:7420 over Tailscale), then writes the app's one-line answer back.
-The host gives the socket to its turns as CMUX_SOCKET_PATH
-(`CMUX_CHIEF_APP_SOCKET` in the host's unit), so Cloud Chief drives the Mac
-app with the same tools as the local Chief.
+The Cloud Chief VM runs no cmux app. This relay listens on a Unix socket on
+the VM and forwards bounded diagnostics to the user's Mac app through the Mac
+gate (`mac --stdin -- …`, lawbook0:7420 over Tailscale), then writes the app's
+one-line answer back. Every app action is denied until the Mac can verify an
+unforgeable Chief capability and owned object ids. The host names the socket
+with `CMUX_CHIEF_APP_SOCKET` and gives it to turns as `CMUX_SOCKET_PATH`.
 
 The app protocol is one JSON request line and one JSON answer line, so each
 line is one gate call (about 0.4 s). Streams (`cmux events`) do not work

@@ -1,8 +1,7 @@
-//! Cloud Chief app tools (2026-10-20): a Chief host with no cmux app of its
-//! own (the Cloud Chief VM) reaches the user's Mac app through an app socket
-//! relay that `CMUX_CHIEF_APP_SOCKET` names, and a turn whose cmux tool list
-//! cannot be read, or lists no app tools, keeps the last known list and says
-//! why, instead of losing the app tools' denials silently.
+//! Cloud Chief Mac boundary (2026-10-20): a Chief host with no cmux app of
+//! its own names a diagnostics-only relay with `CMUX_CHIEF_APP_SOCKET`.
+//! App actions remain denied even when a current or last-known catalog lists
+//! them, and an unreadable catalog fails closed.
 
 use std::collections::BTreeMap;
 use std::os::unix::fs::PermissionsExt;
@@ -174,7 +173,7 @@ fn the_last_known_list_stays_when_the_list_fails_or_loses_the_app() {
         "remote app actions must be denied even when the catalog lists them: {first:?}"
     );
 
-    // The Mac is asleep: the list fails. The app tools' denials stay.
+    // The Mac is asleep: the list fails. The app-action denials stay.
     cli.fail("cmux mcp: cannot reach the Mac gate");
     let failed = cmux_tool_denials(session.path(), &cli.env());
     assert!(
