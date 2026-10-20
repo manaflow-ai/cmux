@@ -38,7 +38,7 @@ extension ProviderDetector {
             ? configDir.appendingPathComponent(".claude.json")
             : environment.home.appendingPathComponent(".claude.json")
         if Self.nonEmpty(environment.jsonObject(at: saved)?["primaryApiKey"]) {
-            return ProviderDetection(provider: .claude, status: .signedIn, detail: "API key", sources: [.file(environment.display(saved))])
+            return ProviderDetection(provider: .claude, status: .signedIn, sources: [.file(environment.display(saved))], note: .savedAPIKey)
         }
         return nil
     }

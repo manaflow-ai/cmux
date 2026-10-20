@@ -40,6 +40,14 @@ public enum DetectionSource: Sendable, Equatable, Hashable, Encodable {
     }
 }
 
+/// A credential type the row names in words, which the UI that shows the
+/// row localizes (``ProviderDetection/detail`` is a name or an address and
+/// is shown as is).
+public enum DetectionNote: String, Sendable, Equatable, Hashable, Encodable {
+    /// An API key Claude Code's `/login` saved in `.claude.json`.
+    case savedAPIKey = "saved_api_key"
+}
+
 /// One provider's detection result. A credential value is never kept
 /// here, and neither is an email or login: the signed-in account is an
 /// ``AccountLabel`` (an opaque handle and a redacted display), made inside
@@ -55,15 +63,18 @@ public struct ProviderDetection: Sendable, Equatable, Encodable {
     /// A plan, organization, region or project name. Emails inside it are shortened.
     public let plan: String?
     public var sources: [DetectionSource]
+    /// A credential type for the UI to word in the user's language.
+    public let note: DetectionNote?
 
     public init(provider: AIProvider, status: LocalAuthStatus, account: AccountLabel? = nil, detail: String? = nil,
-                plan: String? = nil, sources: [DetectionSource] = []) {
+                plan: String? = nil, sources: [DetectionSource] = [], note: DetectionNote? = nil) {
         self.provider = provider
         self.status = status
         self.account = account
         self.detail = detail.map(EmailRedaction.redactEmails(in:))
         self.plan = plan.map(EmailRedaction.redactEmails(in:))
         self.sources = sources
+        self.note = note
     }
 
     public static func missing(_ provider: AIProvider) -> ProviderDetection {

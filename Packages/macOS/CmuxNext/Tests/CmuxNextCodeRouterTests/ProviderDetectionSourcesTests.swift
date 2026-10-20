@@ -211,6 +211,9 @@ struct ProviderDetectionSourcesTests {
         let detection = Self.detector(files: ["/fixture/home/.claude.json": "{\"primaryApiKey\": \"k\"}"]).detectClaudeCode()
         #expect(detection.status == .signedIn)
         #expect(detection.sources == [.file("~/.claude.json")])
+        // Accounts words the credential type in the user's language.
+        #expect(detection.note == .savedAPIKey)
+        #expect(detection.detail == nil)
     }
 
     @Test(arguments: [
