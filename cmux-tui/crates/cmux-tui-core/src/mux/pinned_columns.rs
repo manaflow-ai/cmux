@@ -122,3 +122,13 @@ pub(crate) fn ensure_pane_takes_tabs(
     )
     .into())
 }
+
+/// Whether `pane` is in a pinned column (`pinned-dock-v1`).
+pub(crate) fn pane_in_pinned_column(state: &State, pane: PaneId) -> bool {
+    state
+        .workspaces
+        .iter()
+        .flat_map(|workspace| workspace.screens.iter())
+        .flat_map(|screen| screen.layout_columns.iter())
+        .any(|column| column.dock.is_some_and(|flag| flag.pinned) && column.root.contains(pane))
+}
