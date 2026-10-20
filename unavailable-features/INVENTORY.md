@@ -35,7 +35,7 @@ Status column: `todo`, `done <sha>`, `skip (<owner>)`.
 | 7 | Toggle Omnibar | `palette.browserToggleOmnibar` | The address bar cannot be hidden yet | Handlers/BrowserHandlers.swift | S | todo |
 | 8 | Feature Flags | `help.featureFlags` | needs app capability `feature-flags` | Handlers/SettingsHandlers.swift | S | todo |
 | 9 | Mark agent chat unread | `palette.toggleTabUnread` on a read agent chat | Marking as unread is not available yet | Handlers/TabHandlers+More.swift | S | todo |
-| 10 | Restore Previous App Launch | `reopenPreviousSession` | needs daemon capability `closed-history-v1` | Handlers/WorkspaceHandlers.swift | M | todo |
+| 10 | Restore Previous App Launch | `reopenPreviousSession` | needs daemon capability `closed-history-v1` | Handlers/WorkspaceHandlers.swift | M | done 9ed6bc901ed |
 | 11 | Toggle Full Width Tab | `palette.toggleFullWidthTab` | needs full-width tab support in the tab strip | Handlers/TabHandlers+More.swift | M | todo |
 | 12 | Sleepy Mode | `palette.sleepyMode` | needs app capability `sleepy-mode` | Handlers/WindowHandlers.swift | M | done f7ac14bca75 (left: classic theme/mascot/colors settings section, Low Power toggle, pets) |
 | 13 | Task Manager (2) | `palette.openTaskManager`, `taskManager.killProcess` | needs app capability `task-manager` | Handlers/WindowHandlers.swift | M | done f4c2e82984 (test) + next commit (fix); Kill Process ends local processes only, a remote machine's processes are refused |
@@ -46,7 +46,7 @@ Status column: `todo`, `done <sha>`, `skip (<owner>)`.
 | 18 | Remote workspaces (3) | `reconnectWorkspace`, `disconnectWorkspace`, `copyWorkspaceSSHError` | needs daemon capability `remote-workspaces-v1` | Handlers/WorkspaceHandlers.swift | M | todo |
 | 19 | Find Work | `palette.findWork` | needs app capability `github-integration` | Handlers/WorkspaceHandlers.swift | M | done fa216b5093a |
 | 20 | Screenshot Section | `browserScreenshotSection` | needs a selection overlay | Handlers/BrowserHandlers.swift | M | done b8230d79c38 |
-| 21 | Layout templates (3) | `saveLayoutTemplate`, `palette.layout.open`, `manageLayouts` | needs daemon capability `layout-templates-v1` | Handlers/WorkspaceHandlers.swift | M | todo |
+| 21 | Layout templates (3) | `saveLayoutTemplate`, `palette.layout.open`, `manageLayouts` | needs daemon capability `layout-templates-v1` | Handlers/WorkspaceHandlers.swift | M | done 7a88d4bf7f2 (app-side templates, no daemon capability) |
 | 22 | Workspace checklist (9) | `palette.addWorkspaceChecklistItem`, `toggleChecklistItemComplete`, `palette.openWorkspaceTodoPane`, `checklistEditItem`, `checklistMarkInProgress`, `checklistCompleteItem`, `checklistRemoveItem`, `checklistOpenAsPane`, `checklistAttachImages` | needs daemon capability `workspace-checklist-v1` | Handlers/WorkspaceMetadataHandlers.swift, Handlers/SidebarHandlers.swift | L (Rust + app + pane) | todo |
 | 23 | TextBox composer (4) | `focusTextBoxInput`, `palette.terminalToggleTextBoxInput`, `cycleTextBoxSubmitAction`, `attachTextBoxFile` | needs the TextBox composer | Handlers/TerminalHandlers.swift | L | todo |
 | 24 | Right sidebar (6) | `toggleRightSidebar`, `focusRightSidebar`, `switchRightSidebarToSessions`, `switchRightSidebarToFeed`, `switchRightSidebarToDock`, `switchRightSidebarToMachines` | needs app capability `right-sidebar` | Handlers/SidebarHandlers.swift | L | todo |
