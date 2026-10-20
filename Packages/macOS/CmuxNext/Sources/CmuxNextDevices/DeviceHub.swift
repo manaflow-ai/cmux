@@ -219,7 +219,7 @@ public final class DeviceHub {
 
     public func refreshAudit(limit: Int = 100) async {
         // This device's History: sessions where it is the viewer or the host.
-        let device = thisDevice?.id
+        let device = identity.id
         await load { try await $0.audit(limit: limit, device: device) } into: { hub, value in hub.audit = value }
     }
 
