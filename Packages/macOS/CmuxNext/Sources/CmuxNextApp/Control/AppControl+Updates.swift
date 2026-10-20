@@ -36,7 +36,7 @@ extension AppControl {
                 let stateDirectories = appServices.environment.daemonStateDirectories
                 return .followUp {
                     do {
-                        let kept = try await updater.dropBack(to: build, checkOnly: check, stateDirectories: stateDirectories)
+                        let kept = try await UpdateDropBack.run(updater, to: build, checkOnly: check, stateDirectories: stateDirectories)
                         return check ? .object(["allowed": true, "build": .string(kept.build)]) : .object(["rolled_back_to": .string(kept.build)])
                     } catch let refusal as RollbackRefusal {
                         if check { return .object(["allowed": false, "reason": .string(refusal.message)]) }

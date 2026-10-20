@@ -29,7 +29,7 @@ enum UpdateHandlers {
         // Drop back (destructive: every entrypoint confirms; the CLI passes --confirm).
         registry.bind("updates.rollback", run: { [weak registry] invocation in
             let build = invocation["build"]?.stringValue, directories = stateDirectories()
-            registry?.track(Task { await updater.dropBackFailure(to: build, stateDirectories: directories).map { ActionWorkFailure($0) } })
+            registry?.track(Task { await UpdateDropBack.failure(updater, to: build, stateDirectories: directories).map { ActionWorkFailure($0) } })
         })
         registry.bind("palette.switchAppChannel", unavailable: { updater.channelSwitchUnavailableReason }, invoke: { [weak registry] invocation in
             do {
