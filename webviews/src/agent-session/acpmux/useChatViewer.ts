@@ -15,19 +15,23 @@ export function useChatViewer(sessionId: string | undefined, cwd: string | undef
   const session = useRef(sessionId);
   const generation = useRef(0);
   const fileRequest = useRef(0);
-  if (session.current !== sessionId) {
-    session.current = sessionId;
-    fileOpener.current = undefined;
-    filesOpener.current = undefined;
-    restore.current = undefined;
-    generation.current += 1;
-  }
+  useLayoutEffect(() => {
+    if (session.current !== sessionId) {
+      session.current = sessionId;
+      fileOpener.current = undefined;
+      filesOpener.current = undefined;
+      restore.current = undefined;
+      generation.current += 1;
+    }
+  }, [sessionId]);
   const invalidate = useCallback(() => {
     generation.current += 1;
   }, []);
   useEffect(() => invalidate, [invalidate]);
   const opened = useRef(onOpen);
-  opened.current = onOpen;
+  useLayoutEffect(() => {
+    opened.current = onOpen;
+  }, [onOpen]);
   const viewFile = useCallback((path: string, opener?: HTMLElement): Promise<void> => {
     const clicked = opener ?? (document.activeElement instanceof HTMLElement ? document.activeElement : undefined);
     const initiatingSession = session.current;
@@ -101,13 +105,14 @@ export function useChatViewer(sessionId: string | undefined, cwd: string | undef
       const initiatingSession = sessionId;
       const started = generation.current;
       const current = () => session.current === initiatingSession && generation.current === started;
+      let reply: unknown;
       try {
-        const reply = await read(method, params);
-        return current() ? (reply as T) : undefined;
+        reply = await read(method, params);
       } catch (error) {
         if (current()) throw error;
         return undefined;
       }
+      return current() ? (reply as T) : undefined;
     };
     return {
       list: (folder) =>

@@ -30,6 +30,17 @@ type Shown =
 const outsideRepository = (error: unknown) =>
   /not[ _-]?(in )?a[ _-]?(git )?repository/i.test(String((error as Error)?.message ?? error));
 
+function FilesRow({ label, folder, onClick }: { label: string; folder?: boolean; onClick(): void }) {
+  return (
+    <li>
+      <button type="button" className="acpmux-files-row" onClick={onClick}>
+        {folder ? <Folder size={15} /> : <FileDoc size={15} />}
+        <span className="acpmux-files-name">{label}</span>
+      </button>
+    </li>
+  );
+}
+
 export function FilesView({
   root,
   folder,
@@ -114,14 +125,6 @@ export function FilesView({
     if (query) setQuery("");
     else onClose();
   };
-  const row = (key: string, label: string, folderRow: boolean, onClick: () => void) => (
-    <li key={key}>
-      <button type="button" className="acpmux-files-row" onClick={onClick}>
-        {folderRow ? <Folder size={15} /> : <FileDoc size={15} />}
-        <span className="acpmux-files-name">{label}</span>
-      </button>
-    </li>
-  );
   return (
     <KeyboardScope
       className="acpmux-diff-panel acpmux-file-viewer acpmux-files"
@@ -163,20 +166,27 @@ export function FilesView({
             <p className="acpmux-file-viewer-note">{t("files.none")}</p>
           ) : (
             <ul className="acpmux-files-list">
-              {results.paths.map((path) => row(path, path, false, () => openFile(`${results.base}/${path}`)))}
+              {results.paths.map((path) => (
+                <FilesRow key={path} label={path} onClick={() => openFile(`${results.base}/${path}`)} />
+              ))}
             </ul>
           )
         ) : shown.kind === "entries" ? (
           <>
             <ul className="acpmux-files-list">
-              {parent !== undefined && row("..", "..", true, () => onFolder(parent))}
-              {shown.entries.map((entry) =>
-                row(entry.name, entry.name, entry.kind === "directory", () =>
-                  entry.kind === "directory"
-                    ? onFolder(`${folder}/${entry.name}`)
-                    : openFile(`${folder}/${entry.name}`),
-                ),
-              )}
+              {parent !== undefined && <FilesRow key=".." label=".." folder onClick={() => onFolder(parent)} />}
+              {shown.entries.map((entry) => (
+                <FilesRow
+                  key={entry.name}
+                  label={entry.name}
+                  folder={entry.kind === "directory"}
+                  onClick={() =>
+                    entry.kind === "directory"
+                      ? onFolder(`${folder}/${entry.name}`)
+                      : openFile(`${folder}/${entry.name}`)
+                  }
+                />
+              ))}
             </ul>
             {shown.truncated && <p className="acpmux-file-viewer-note">{t("files.truncated")}</p>}
           </>
