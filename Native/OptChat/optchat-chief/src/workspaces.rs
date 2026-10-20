@@ -954,7 +954,7 @@ fn locate_by_key(daemon: &Path, key: &str) -> Option<WorkspaceRef> {
     request.insert("cmd".into(), json!("list-workspaces"));
     let tree = client.request_raw(request).ok();
     client.close();
-    let id = tree?["workspaces"]
+    let id = tree?["data"]["workspaces"]
         .as_array()?
         .iter()
         .find(|w| w["key"].as_str() == Some(key))?["resource_id"]
