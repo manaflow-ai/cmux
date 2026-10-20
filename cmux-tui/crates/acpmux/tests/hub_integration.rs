@@ -1319,6 +1319,8 @@ mod session_git_state;
 #[cfg(unix)]
 #[path = "hub_integration/session_list_order.rs"]
 mod session_list_order;
+#[path = "hub_integration/session_pull_requests.rs"]
+mod session_pull_requests;
 #[path = "hub_integration/transfer.rs"]
 mod transfer;
 #[path = "hub_integration/transfer_guard.rs"]

@@ -25,6 +25,10 @@
      "cmux": ["workspace", "name:Agent", "screen", "current", "pane", "current", "tab", "current", "terminal", "current", "write", "--text", "clear; printf '\\033]7501;state=working\\033\\\\'; sleep 8; printf '\\033]7501;state=done\\033\\\\'; sleep 900\r"], "shot": false},
     {"title": "An agent works: row working spinner", "cmux": ["workspace", "new", "--name", "Notes"], "wait": 2},
     {"title": "The agent finishes: done mark in the spinner's place", "wait": 8},
+    {"title": "Session tree: keycaps on the first rows", "cmux": ["settings", "set", "sidebar.sessionTree", "true"], "wait": 2,
+     "optional": "an app from before sidebar.sessionTree"},
+    {"title": "Session tree back off for later tours", "cmux": ["settings", "set", "sidebar.sessionTree", "false"], "shot": false,
+     "optional": "an app from before sidebar.sessionTree"},
     {"title": "Profile menu", "cmux": ["action", "run", "sidebar.profileMenu"], "wait": 2, "display": true,
      "optional": "the menu shot needs a screen capture route"}
   ]
