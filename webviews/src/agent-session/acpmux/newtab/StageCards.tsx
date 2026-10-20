@@ -97,6 +97,7 @@ function ProjectRow({
       type="button"
       className="nt-stage-row"
       aria-pressed={checked}
+      // tooltip-allow: the row shows the folder's name; the tooltip is its whole path
       title={project.cwd}
       onClick={() => onPick(project.cwd)}
     >
@@ -141,8 +142,9 @@ export function SuggestionsCard({
             ? t("header.failed")
             : nt(`card.${card.state as "input" | "running" | "error" | "unread"}`);
         return (
-          // tooltip-allow: a cut row's hover card shows the chat's whole title and what it waits on
-          // (Leo 2026-10-19): a floating card over the page, offset from the row, never over its text.
+          // A cut row's hover card shows the chat's whole title and what it waits on (Leo
+          // 2026-10-19): a floating card over the page, offset from the row, never over its text.
+          // tooltip-allow: the hover card is the cut title's whole text and the chat's wait
           <Tooltip
             key={card.sessionId}
             side="top"
