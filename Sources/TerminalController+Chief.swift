@@ -16,6 +16,11 @@ import MessagesLabHome
 /// user's local Chief conversations and can start Chief turns, which run
 /// commands on this Mac.
 extension TerminalController {
+    /// Keep the event-backed read below the normal mobile RPC deadline. An
+    /// idle read returns the current snapshot and the client immediately
+    /// re-arms the wait; a real Chief event wins without waiting for this cap.
+    private static let chiefReadWaitDuration: Duration = .seconds(15)
+
     /// Runs a `chief.*` request received from the mobile data plane through
     /// the same parser and Chief conversation-owner path as the local control
     /// socket. Mobile requests have already passed authenticated host/ticket
@@ -165,31 +170,12 @@ extension TerminalController {
             case .read(let conversation, let beforeSeq, let limit):
                 let owner = try await chiefOwner()
                 let id = conversation.map(ConversationID.init(_:)) ?? ChiefConversationOwner.defaultConversationID
-                let summary = try await Self.chiefOwnerCall { try await owner.snapshot(of: id, tail: 1) }
-                let messages: [ChiefControlMessage]
-                let hasMore: Bool
-                if let beforeSeq {
-                    let page = try await Self.chiefOwnerCall {
-                        try await owner.historyPage(of: id, before: beforeSeq, limit: limit)
-                    }
-                    messages = page.messages.map { ChiefControlMessage($0, participants: summary.conversation.participants) }
-                    hasMore = page.messages.first.map { $0.seq > 1 } ?? false
-                } else {
-                    let page = try await Self.chiefOwnerCall { try await owner.snapshot(of: id, tail: limit) }
-                    messages = page.messages.map { ChiefControlMessage($0, participants: page.conversation.participants) }
-                    // `snapshot` returns the newest tail. A first sequence
-                    // greater than one means the phone can request an older
-                    // page with `before_seq`.
-                    hasMore = page.messages.first.map { $0.seq > 1 } ?? false
-                }
-                let working = await owner.isWorking(id)
-                let readCursor = summary.conversation.readCursors[owner.me.id] ?? 0
-                let headSeq = summary.conversation.lastSeq
-                let unreadCount = summary.conversation.unreadCount(me: owner.me.id)
-                return .ok(["conversation": id.rawValue, "working": working,
-                            "messages": messages.map { Self.chiefPayload($0) }, "has_more": hasMore,
-                            "last_read_seq": readCursor, "unread_count": unreadCount,
-                            "head_seq": headSeq] as [String: Any])
+                return try await Self.chiefRead(owner: owner, conversation: id, beforeSeq: beforeSeq, limit: limit)
+            case .readAfter(let conversation, let afterSeq, let limit):
+                let owner = try await chiefOwner()
+                let id = conversation.map(ConversationID.init(_:)) ?? ChiefConversationOwner.defaultConversationID
+                await Self.waitForChiefChange(owner: owner, conversation: id, afterSeq: afterSeq)
+                return try await Self.chiefRead(owner: owner, conversation: id, beforeSeq: nil, limit: limit)
             case .markRead(let conversation, let upToSeq):
                 let owner = try await chiefOwner()
                 let id = conversation.map(ConversationID.init(_:)) ?? ChiefConversationOwner.defaultConversationID
@@ -413,6 +399,77 @@ extension TerminalController {
 #endif
 
     // MARK: - Helpers
+
+    /// Waits for the owner's own event stream instead of making mobile
+    /// clients wake on a fixed timer. The initial inbox snapshot is ignored
+    /// unless it already proves that the requested cursor is stale.
+    private nonisolated static func waitForChiefChange(
+        owner: ChiefConversationOwner,
+        conversation: ConversationID,
+        afterSeq: UInt64
+    ) async {
+        let events = await owner.events()
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask {
+                for await event in events {
+                    switch event {
+                    case .inbox(let snapshot):
+                        if snapshot.conversations.first(where: { $0.id == conversation })?.lastSeq ?? 0 > afterSeq {
+                            return
+                        }
+                    case .message(let message, _):
+                        if message.conversation == conversation { return }
+                    case .conversationChanged(_, stream: .conversation(let changed), _),
+                         .typing(let changed, _, _):
+                        if changed == conversation { return }
+                    case .draft(let update):
+                        if update.conversation == conversation { return }
+                    default:
+                        continue
+                    }
+                }
+            }
+            group.addTask {
+                try? await ContinuousClock().sleep(for: Self.chiefReadWaitDuration)
+            }
+            _ = await group.next()
+            group.cancelAll()
+        }
+    }
+
+    /// Builds one `chief.read` result after an event-backed wait (or for a
+    /// regular snapshot/history request).
+    private nonisolated static func chiefRead(
+        owner: ChiefConversationOwner,
+        conversation id: ConversationID,
+        beforeSeq: UInt64?,
+        limit: Int
+    ) async throws -> V2CallResult {
+        let summary = try await chiefOwnerCall { try await owner.snapshot(of: id, tail: 1) }
+        let messages: [ChiefControlMessage]
+        let hasMore: Bool
+        if let beforeSeq {
+            let page = try await chiefOwnerCall {
+                try await owner.historyPage(of: id, before: beforeSeq, limit: limit)
+            }
+            messages = page.messages.map { ChiefControlMessage($0, participants: summary.conversation.participants) }
+            hasMore = page.messages.first.map { $0.seq > 1 } ?? false
+        } else {
+            let page = try await chiefOwnerCall { try await owner.snapshot(of: id, tail: limit) }
+            messages = page.messages.map { ChiefControlMessage($0, participants: page.conversation.participants) }
+            // `snapshot` returns the newest tail. A first sequence greater
+            // than one means the phone can request an older page.
+            hasMore = page.messages.first.map { $0.seq > 1 } ?? false
+        }
+        let working = await owner.isWorking(id)
+        let readCursor = summary.conversation.readCursors[owner.me.id] ?? 0
+        let headSeq = summary.conversation.lastSeq
+        let unreadCount = summary.conversation.unreadCount(me: owner.me.id)
+        return .ok(["conversation": id.rawValue, "working": working,
+                    "messages": messages.map { chiefPayload($0) }, "has_more": hasMore,
+                    "last_read_seq": readCursor, "unread_count": unreadCount,
+                    "head_seq": headSeq] as [String: Any])
+    }
 
     /// The owner, awaited off the main actor: only starting the service hops
     /// there; a load still running is awaited on the socket task.

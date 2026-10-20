@@ -4,17 +4,37 @@ import Foundation
 
 /// ConversationBackend adapter for the Mac-owned Chief transcript.
 ///
-/// Chief currently exposes request/response RPCs rather than a change event.
-/// The adapter polls while the conversation is visible and refreshes its
-/// newest page after each send, so the generic Messages UI remains live on
-/// hosts that predate a Chief event topic.
+/// Chief exposes an event-backed read wait rather than a mobile event topic.
+/// The adapter waits for the owner's next change while the conversation is
+/// visible, then refreshes its newest page so the generic Messages UI remains
+/// live without a fixed polling cadence.
 final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
+    private enum BackendText {
+        static func value(_ key: String, _ fallback: String) -> String {
+            String(localized: key, defaultValue: fallback, bundle: .module)
+        }
+
+        static let deselectUnsupported = value("mobile.chief.error.deselectUnsupported", "Chief cards cannot be deselected")
+        static let openQuestionSheet = value("mobile.chief.error.openQuestionSheet", "Open the Chief question sheet to answer this card")
+        static let cardAlreadyAnswered = value("mobile.chief.error.cardAlreadyAnswered", "That Chief card is already being answered")
+        static let approvalAlreadyAnswered = value("mobile.chief.error.approvalAlreadyAnswered", "That approval was already answered")
+        static let questionAlreadyAnswered = value("mobile.chief.error.questionAlreadyAnswered", "That question was already answered")
+        static let optionUnavailable = value("mobile.chief.error.optionUnavailable", "That question option is no longer available")
+        static let answeredCardMissing = value("mobile.chief.error.answeredCardMissing", "Chief did not return the answered card")
+        static let questionNotWaiting = value("mobile.chief.error.questionNotWaiting", "That Chief question is no longer waiting")
+        static let answerRequired = value("mobile.chief.error.answerRequired", "Choose an answer before submitting")
+        static let answeredQuestionMissing = value("mobile.chief.error.answeredQuestionMissing", "Chief did not return the answered question")
+
+        static func unsupported(_ operation: String) -> String {
+            value("mobile.chief.error.unsupported", "Chief does not support \(operation)")
+        }
+    }
+
     /// Synthetic poll option used to open the full multi-question composer.
     static let questionComposerOptionID = "__chief_answer_questions__"
     private let client: MobileChiefClient
     private let conversationID: String
     private let fallbackTitle: String
-    private let clock: any Clock<Duration>
     // Concurrency carve-out: ConversationBackend exposes synchronous lifecycle
     // methods while its polling task is asynchronous, so state needs one small
     // critical section instead of an actor hop from every callback.
@@ -66,7 +86,9 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
         self.client = client
         self.conversationID = conversationID
         self.fallbackTitle = title
-        self.clock = clock
+        // Kept in the initializer for source compatibility with early test
+        // harnesses; refresh scheduling is now owned by the Chief event wait.
+        _ = clock
     }
 
     func events() -> AsyncStream<ConversationBackendEvent> {
@@ -198,10 +220,10 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
     /// once Chief has accepted an answer.
     func votePoll(messageID: String, optionID: String, selected: Bool) async throws -> ConversationMessage {
         guard selected else {
-            throw ConversationBackendError(code: -1, message: "Chief cards cannot be deselected")
+            throw ConversationBackendError(code: -1, message: BackendText.deselectUnsupported)
         }
         if optionID == Self.questionComposerOptionID {
-            throw ConversationBackendError(code: -1, message: "Open the Chief question sheet to answer this card")
+            throw ConversationBackendError(code: -1, message: BackendText.openQuestionSheet)
         }
         let pendingPart: MobileChiefPart? = withState { state in
             guard let parts = state.structuredPartsByMessageID[messageID] else { return nil }
@@ -214,7 +236,7 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
             state.decidingMessageIDs.insert(messageID).inserted
         }
         guard claimed else {
-            throw ConversationBackendError(code: -1, message: "That Chief card is already being answered")
+            throw ConversationBackendError(code: -1, message: BackendText.cardAlreadyAnswered)
         }
         defer {
             withState { $0.decidingMessageIDs.remove(messageID) }
@@ -223,7 +245,7 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
         case "approval":
             guard let approval = part.approval else { throw unsupported("approval cards") }
             guard approval.decided == nil else {
-                throw ConversationBackendError(code: -1, message: "That approval was already answered")
+                throw ConversationBackendError(code: -1, message: BackendText.approvalAlreadyAnswered)
             }
             _ = try await client.approve(conversation: conversationID, request: approval.request, choice: optionID)
         case "question":
@@ -231,13 +253,13 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
                 throw unsupported("question cards")
             }
             guard question.isPending else {
-                throw ConversationBackendError(code: -1, message: "That question was already answered")
+                throw ConversationBackendError(code: -1, message: BackendText.questionAlreadyAnswered)
             }
             guard let item = Self.pollQuestion(from: question) else {
                 throw unsupported("multi-item or multi-select question cards")
             }
             guard item.options.contains(where: { $0.id == optionID }) else {
-                throw ConversationBackendError(code: -1, message: "That question option is no longer available")
+                throw ConversationBackendError(code: -1, message: BackendText.optionUnavailable)
             }
             // The generic poll can represent one single-select item. Do not
             // invent answers for hidden items or collapse a multi-select ask
@@ -286,7 +308,7 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
         if let previous = withState({ $0.previousMessagesByID[messageID] }) {
             return publishUpdatedMessage(previous)
         }
-        throw ConversationBackendError(code: -1, message: "Chief did not return the answered card")
+        throw ConversationBackendError(code: -1, message: BackendText.answeredCardMissing)
     }
 
     func edit(messageID: String, text: String) async throws -> ConversationMessage {
@@ -320,10 +342,10 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
     /// free-text Other value, matching the Mac Chief implementation.
     func answerQuestion(messageID: String, choices: [String], text: String?) async throws -> ConversationMessage {
         guard let question = question(for: messageID), question.isPending else {
-            throw ConversationBackendError(code: -1, message: "That Chief question is no longer waiting")
+            throw ConversationBackendError(code: -1, message: BackendText.questionNotWaiting)
         }
         guard !choices.isEmpty || (text?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false) else {
-            throw ConversationBackendError(code: -1, message: "Choose an answer before submitting")
+            throw ConversationBackendError(code: -1, message: BackendText.answerRequired)
         }
         _ = try await client.answer(
             conversation: conversationID,
@@ -362,7 +384,7 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
         if let previous = withState({ $0.previousMessagesByID[messageID] }) {
             return publishUpdatedMessage(previous)
         }
-        throw ConversationBackendError(code: -1, message: "Chief did not return the answered question")
+        throw ConversationBackendError(code: -1, message: BackendText.answeredQuestionMissing)
     }
 
     func uploadImage(_ data: Data, mimeType: String) async throws -> ConversationAttachment {
@@ -394,7 +416,12 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
         var publishedMeID: String?
         while !Task.isCancelled && !isClosed {
             do {
-                let result = try await client.read(conversation: conversationID, limit: 200)
+                let result = try await client.read(
+                    conversation: conversationID,
+                    limit: 200,
+                    afterSeq: first ? nil : lastSeq,
+                    waitForChange: !first
+                )
                 guard !Task.isCancelled, !isClosed else { return }
                 let pollMessages = try await messagesCoveringGap(result, afterSeq: lastSeq)
                 let mappedInfo = info(from: pollMessages)
@@ -481,10 +508,9 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
                     continuation.yield(.disconnected(reason: String(describing: error)))
                     reportedFailure = true
                 }
-            }
-            do {
-                try await clock.sleep(for: .seconds(3))
-            } catch {
+                // The next lifecycle/reconnect event creates a fresh backend
+                // stream. Retrying here would turn a transport failure into a
+                // busy polling loop with no owner event to wake it.
                 return
             }
         }
@@ -497,7 +523,7 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
         _ result: MobileChiefReadResult,
         afterSeq: UInt64
     ) async throws -> [MobileChiefMessage] {
-        guard afterSeq > 0,
+        guard afterSeq > 0, afterSeq < UInt64.max,
               let first = result.messages.first,
               first.seq > afterSeq,
               first.seq - afterSeq > 1 else {
@@ -538,7 +564,7 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
         if !seen.contains(human) {
             participants.append(ConversationParticipant(
                 id: human,
-                name: "You",
+                name: String(localized: "mobile.agentFeed.reply.youLabel", defaultValue: "You", bundle: .module),
                 initials: "YO",
                 colorHex: "#0284FE",
                 isMe: true
@@ -548,7 +574,7 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
         if !seen.contains(chiefID) && chiefID != human {
             participants.append(ConversationParticipant(
                 id: chiefID,
-                name: "Chief",
+                name: String(localized: "mobile.chief.name", defaultValue: "Chief", bundle: .module),
                 initials: "CH",
                 colorHex: "#8E8E93",
                 isMe: false
@@ -851,6 +877,6 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
     }
 
     private func unsupported(_ operation: String) -> ConversationBackendError {
-        ConversationBackendError(code: -32601, message: "Chief does not support \(operation)")
+        ConversationBackendError(code: -32601, message: BackendText.unsupported(operation))
     }
 }

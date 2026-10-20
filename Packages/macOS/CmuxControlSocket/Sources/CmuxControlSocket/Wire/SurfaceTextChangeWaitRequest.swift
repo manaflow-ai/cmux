@@ -15,6 +15,7 @@ public struct SurfaceTextChangeWaitRequest: Sendable, Equatable {
     /// Longest wait one call may ask for (ten minutes, the `--timeout` cap of
     /// `cmux chief dispatch`).
     public static let maximumTimeoutMilliseconds: Int64 = 600_000
+    private static let hexDigits = Array("0123456789abcdef".utf8)
 
     /// The params that only this method reads. Everything else selects and
     /// shapes the read exactly as `surface.read_text` does.
@@ -76,12 +77,11 @@ public struct SurfaceTextChangeWaitRequest: Sendable, Equatable {
     /// The opaque revision of a terminal's text: equal texts give equal revisions.
     public static func revision(of text: String) -> String {
         let digest = SHA256.hash(data: Data(text.utf8))
-        let hex = Array("0123456789abcdef".utf8)
         var bytes: [UInt8] = []
         bytes.reserveCapacity(32)
         for byte in digest.prefix(16) {
-            bytes.append(hex[Int(byte >> 4)])
-            bytes.append(hex[Int(byte & 0x0f)])
+            bytes.append(hexDigits[Int(byte >> 4)])
+            bytes.append(hexDigits[Int(byte & 0x0f)])
         }
         return String(decoding: bytes, as: UTF8.self)
     }

@@ -445,6 +445,34 @@ import Testing
         #expect(ChiefToolPolicy.autoAllowsClaudeTool("Read", input: ["file_path": .string(plain.path)], home: home.path))
     }
 
+    @Test func shellReadersResolveRelativeCredentialPaths() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("chief-shell-policy-\(UUID().uuidString)")
+        let home = root.appendingPathComponent("home")
+        let gh = home.appendingPathComponent(".config/gh")
+        try FileManager.default.createDirectory(at: gh, withIntermediateDirectories: true)
+        try Data("token".utf8).write(to: gh.appendingPathComponent("hosts.yml"))
+        let link = home.appendingPathComponent("public.txt")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: gh.appendingPathComponent("hosts.yml"))
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        for command in [
+            "cat README.md", "jq . README.md", "grep token README.md", "cut -d: -f1 README.md",
+            "tr a-z A-Z", "column -t README.md", "rg token README.md", "sort README.md",
+            "uniq README.md", "awk '{print}' README.md", "sed -n 'p' README.md",
+        ] {
+            #expect(ChiefToolPolicy.autoAllowsCommand(command, home: home.path), "expected allow: \(command)")
+        }
+        for command in [
+            "cat .config/gh/hosts.yml", "jq . .config/gh/hosts.yml", "grep token .config/gh/hosts.yml",
+            "cut -d: -f1 .config/gh/hosts.yml", "column -t .config/gh/hosts.yml",
+            "rg token .config/gh/hosts.yml", "sort .config/gh/hosts.yml", "uniq .config/gh/hosts.yml",
+            "awk '{print}' .config/gh/hosts.yml", "sed -n 'p' .config/gh/hosts.yml",
+            "ls .config/gh", "cat public.txt", "cat -- .config/gh/hosts.yml",
+        ] {
+            #expect(!ChiefToolPolicy.autoAllowsCommand(command, home: home.path), "expected approval: \(command)")
+        }
+    }
+
     @Test(arguments: allowed)
     func autoAllows(command: String) {
         #expect(ChiefToolPolicy.autoAllowsCommand(command), "expected auto-allow: \(command)")

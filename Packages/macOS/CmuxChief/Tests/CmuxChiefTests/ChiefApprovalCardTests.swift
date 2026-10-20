@@ -218,6 +218,19 @@ import Testing
         #expect(!rules.allows(["git", "config", "core.pager", "sh"]))
         #expect(rules.allows(["cmux", "tree", "--all"]))
     }
+
+    @Test func changingHomesDoesNotCarryAlwaysAllowRulesAcrossHomes() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("chief-rules-homes-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let first = ChiefHome(root: root.appendingPathComponent("first"))
+        let second = ChiefHome(root: root.appendingPathComponent("second"))
+        let rules = ChiefAllowRules()
+        rules.load(first)
+        #expect(try rules.add(rule: ["git", "status"]) == ["git", "status"])
+        rules.load(second)
+        #expect(rules.all.isEmpty)
+        #expect(!rules.allows(["git", "status"]))
+    }
 }
 
 extension ChiefConversationOwner {

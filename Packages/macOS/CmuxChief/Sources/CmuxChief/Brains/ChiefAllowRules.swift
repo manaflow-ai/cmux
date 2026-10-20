@@ -30,7 +30,8 @@ public final class ChiefAllowRules: @unchecked Sendable {
     }
 
     /// Reads `home`'s rules and saves new ones there (once per home; a missing or unreadable file is
-    /// no rules). The app has one Chief home; rules read from another home are kept (never dropped).
+    /// no rules). A rules object may be reused by tests or a switched Chief home, so a home change
+    /// replaces the in-memory snapshot instead of carrying grants across homes.
     public func load(_ home: ChiefHome) {
         let url = home.stateDirectory.appendingPathComponent("allow-rules.json", isDirectory: false)
         lock.lock()
@@ -38,7 +39,7 @@ public final class ChiefAllowRules: @unchecked Sendable {
         guard file != url else { return }
         file = url
         let stored = (try? Data(contentsOf: url)).flatMap { try? JSONDecoder().decode(Stored.self, from: $0) }
-        for rule in stored?.rules ?? [] where (2...4).contains(rule.count) && !rules.contains(rule) { rules.append(rule) }
+        rules = stored?.rules.filter { (2...4).contains($0.count) && Self.ruleWords($0) == $0 } ?? []
     }
 
     /// The rules now.

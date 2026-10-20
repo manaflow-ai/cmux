@@ -112,6 +112,19 @@ import Testing
         #expect(parse("chief.read", ["limit": true]) == .failure(.invalid("limit")))
     }
 
+    @Test func readAfterRequiresAnExclusiveCursorWait() {
+        #expect(parse("chief.read", ["after_seq": 7, "wait_for_change": true])
+            == .success(.readAfter(conversation: nil, afterSeq: 7, limit: 20)))
+        #expect(parse("chief.read", ["after_seq": 0, "wait_for_change": true, "limit": 500])
+            == .success(.readAfter(conversation: nil, afterSeq: 0, limit: 200)))
+        #expect(parse("chief.read", ["after_seq": 7]) == .failure(.invalid("after_seq")))
+        #expect(parse("chief.read", ["wait_for_change": true]) == .failure(.invalid("after_seq")))
+        #expect(parse("chief.read", ["after_seq": 7, "before_seq": 2, "wait_for_change": true])
+            == .failure(.invalid("after_seq")))
+        #expect(parse("chief.read", ["after_seq": -1, "wait_for_change": true])
+            == .failure(.invalid("after_seq")))
+    }
+
     @Test func debugActions() {
         #expect(parse("chief.debug") == .failure(.missing("action")))
         #expect(parse("chief.debug", ["action": "nope"]) == .failure(.invalid("action")))

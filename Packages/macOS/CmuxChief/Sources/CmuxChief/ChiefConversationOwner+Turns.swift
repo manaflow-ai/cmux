@@ -33,12 +33,21 @@ extension ChiefConversationOwner {
 
     func startNextTurnIfIdle(_ conversation: ConversationID) {
         guard running[conversation] == nil, !stopping.contains(conversation), var queue = pending[conversation], !queue.isEmpty else { return }
-        let next = queue.removeFirst()
-        pending[conversation] = queue.isEmpty ? nil : queue
         guard let state = conversations[conversation], let chief = state.chief else { return }
         // The user's "Always Allow" rules belong to this owner/home.
         allowRules.load(home)
-        if let seq = next.readSeq { _ = try? moveReadCursor(conversation, of: chief.id, to: seq) }
+        // A turn must not begin until its read cursor is durably advanced. Keep
+        // the queued turn intact when the cursor write fails so a later retry
+        // can preserve the same ordering and unread state.
+        if let seq = queue[0].readSeq {
+            do {
+                _ = try moveReadCursor(conversation, of: chief.id, to: seq)
+            } catch {
+                return
+            }
+        }
+        let next = queue.removeFirst()
+        pending[conversation] = queue.isEmpty ? nil : queue
         running[conversation] = ChiefRunningTurn(chief: chief.id, threadRoot: next.threadRoot, startedAt: now())
         guard let turnID = running[conversation]?.id else { return }
         publish(.typing(conversation, chief.id, on: true))

@@ -15,6 +15,9 @@ enum ChiefControlRequest: Equatable, Sendable {
     case conversations
     /// `chief.read`: the newest `limit` messages, or a page before `beforeSeq`.
     case read(conversation: String?, beforeSeq: UInt64?, limit: Int)
+    /// `chief.read` waiting on the owner's event stream until the conversation
+    /// changes after `afterSeq`. This keeps mobile refreshes event-driven.
+    case readAfter(conversation: String?, afterSeq: UInt64, limit: Int)
     /// `chief.mark_read`: advances the signed-in user's read cursor.
     case markRead(conversation: String?, upToSeq: UInt64)
     /// `chief.stop`: stops the running turn of one conversation.
@@ -100,6 +103,15 @@ enum ChiefControlRequest: Equatable, Sendable {
             guard limit >= 1 else { throw ChiefControlParamError.invalid("limit") }
             let beforeSeq = try optionalInt(params, "before_seq")
             if let beforeSeq, beforeSeq < 1 { throw ChiefControlParamError.invalid("before_seq") }
+            let afterSeq = try optionalInt(params, "after_seq")
+            if let afterSeq, afterSeq < 0 { throw ChiefControlParamError.invalid("after_seq") }
+            let waitForChange = try optionalBool(params, "wait_for_change") ?? false
+            if waitForChange {
+                guard beforeSeq == nil, let afterSeq else { throw ChiefControlParamError.invalid("after_seq") }
+                return .readAfter(conversation: try conversation(params), afterSeq: UInt64(afterSeq),
+                                  limit: min(limit, maxReadLimit))
+            }
+            guard afterSeq == nil else { throw ChiefControlParamError.invalid("after_seq") }
             return .read(conversation: try conversation(params),
                          beforeSeq: beforeSeq.map { UInt64($0) },
                          limit: min(limit, maxReadLimit))

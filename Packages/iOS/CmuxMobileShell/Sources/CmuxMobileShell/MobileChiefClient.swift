@@ -386,9 +386,17 @@ public struct MobileChiefOpenResult: Codable, Equatable, Sendable {
 
 /// Thin async client for Austin's Mac Chief control API.
 ///
-/// The Mac does not publish a Chief event topic yet. Callers should refresh
-/// `conversations()`/`read()` after a send and on app foreground or reconnect.
+/// The transcript read supports an event-backed wait from newer Mac hosts.
+/// Older hosts reject the optional wait fields as invalid parameters, which
+/// surfaces through the normal reconnect path instead of silently mutating a
+/// regular read.
 public actor MobileChiefClient {
+    /// `chief.read(wait_for_change:)` is a long poll backed by the Mac Chief
+    /// event stream. Give it its own deadline so an idle conversation does not
+    /// inherit the short foreground RPC deadline; cancellation still tears
+    /// down the request when the conversation view disappears.
+    private static let readWaitTimeoutNanoseconds: UInt64 = 600 * 1_000_000_000
+
     private let client: MobileCoreRPCClient
     private let coding = ChatWireCoding()
 
@@ -408,12 +416,21 @@ public actor MobileChiefClient {
     public func read(
         conversation: String? = nil,
         beforeSeq: UInt64? = nil,
-        limit: Int = 20
+        limit: Int = 20,
+        afterSeq: UInt64? = nil,
+        waitForChange: Bool = false
     ) async throws -> MobileChiefReadResult {
         var params: [String: Any] = ["limit": max(1, min(limit, 200))]
         if let conversation { params["conversation"] = conversation }
         if let beforeSeq { params["before_seq"] = beforeSeq }
-        return try await request("chief.read", params: params, as: MobileChiefReadResult.self)
+        if let afterSeq { params["after_seq"] = afterSeq }
+        if waitForChange { params["wait_for_change"] = true }
+        return try await request(
+            "chief.read",
+            params: params,
+            timeoutNanoseconds: waitForChange ? Self.readWaitTimeoutNanoseconds : nil,
+            as: MobileChiefReadResult.self
+        )
     }
 
     public func markRead(conversation: String? = nil, upToSeq: UInt64) async throws -> MobileChiefMarkReadResult {
@@ -473,9 +490,14 @@ public actor MobileChiefClient {
         return try await request("chief.open", params: params, as: MobileChiefOpenResult.self)
     }
 
-    private func request<T: Decodable>(_ method: String, params: [String: Any], as type: T.Type) async throws -> T {
+    private func request<T: Decodable>(
+        _ method: String,
+        params: [String: Any],
+        timeoutNanoseconds: UInt64? = nil,
+        as type: T.Type
+    ) async throws -> T {
         let request = try MobileCoreRPCClient.requestData(method: method, params: params)
-        let result = try await client.sendRequest(request)
+        let result = try await client.sendRequest(request, timeoutNanoseconds: timeoutNanoseconds)
         return try coding.decode(type, from: result)
     }
 }

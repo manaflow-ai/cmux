@@ -5,7 +5,7 @@ import Foundation
 import Observation
 import OSLog
 
-private let chiefServiceLog = Logger(subsystem: "com.cmuxterm.app", category: "Chief")
+private nonisolated let chiefServiceLog = Logger(subsystem: "com.cmuxterm.app", category: "Chief")
 
 /// The app's local Chief: one ``ChiefConversationOwner`` for this build's
 /// Chief home, the ``HomeStore`` every Chief view reads, and the brain chosen
@@ -165,7 +165,7 @@ final class ChiefService {
 
     private func ownerLoaded(_ owner: ChiefConversationOwner) {
         self.owner = owner
-        for problem in owner.loadProblems { chiefServiceLog.error("load problem: \(problem, privacy: .public)") }
+        for problem in owner.loadProblems { chiefServiceLog.error("load problem: \(problem, privacy: .private)") }
         watchWorking(owner)
     }
 
@@ -173,7 +173,7 @@ final class ChiefService {
         startFailure = ChiefStrings.unavailable
         storeIfStarted?.stop()
         storeIfStarted = nil
-        chiefServiceLog.error("start failed: \(String(describing: error), privacy: .public)")
+        chiefServiceLog.error("start failed: \(String(describing: error), privacy: .private)")
     }
 
     /// Stops `conversation`'s running turn. Returns whether one was stopped.

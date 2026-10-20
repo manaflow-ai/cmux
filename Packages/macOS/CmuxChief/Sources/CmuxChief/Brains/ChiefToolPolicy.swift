@@ -175,6 +175,7 @@ enum ChiefToolPolicy {
 
     private static let plainReadOnlyPrograms: Set<String> = [
         "ls", "pwd", "cat", "head", "tail", "wc", "which", "jq", "grep", "cut", "tr", "column",
+        "rg", "sort", "uniq", "awk", "sed",
     ]
 
     /// Whether one simple command (quotes removed) runs without asking.
@@ -189,17 +190,6 @@ enum ChiefToolPolicy {
             return autoAllowsPlainReadOnly(program, args: args, home: home)
         case "date":
             return !args.contains { $0 == "-s" || $0.hasPrefix("--set") }
-        case "rg":
-            return !args.contains { $0.hasPrefix("--pre") }
-        case "sort":
-            return autoAllowsSort(args)
-        case "uniq":
-            // `uniq in out` writes `out`.
-            return args.filter { !$0.hasPrefix("-") }.count <= 1
-        case "awk":
-            return autoAllowsAwk(args)
-        case "sed":
-            return autoAllowsSed(args)
         case "git":
             return autoAllowsGit(args)
         case "gh":
@@ -211,39 +201,47 @@ enum ChiefToolPolicy {
 
     /// Plain readers must still refuse credential paths. A shell command such
     /// as `cat ~/.aws/credentials` must receive the same protection as Claude's
-    /// structured `Read` tool.
+    /// structured `Read` tool. Every non-option operand is resolved relative to
+    /// Chief's home, then checked after symlink resolution. Treating patterns
+    /// and scripts as operands is intentionally conservative: a false approval
+    /// is worse than asking for a harmless filter.
     private static func autoAllowsPlainReadOnly(_ program: String, args: [String], home: String) -> Bool {
-        guard ["cat", "head", "tail", "wc", "ls"].contains(program) else { return true }
+        switch program {
+        case "rg":
+            guard !args.contains(where: { $0 == "--pre" || $0.hasPrefix("--pre=") }) else { return false }
+        case "sort":
+            guard autoAllowsSort(args) else { return false }
+        case "uniq":
+            // `uniq in out` writes `out`.
+            guard args.filter({ !$0.hasPrefix("-") }).count <= 1 else { return false }
+        case "awk":
+            guard autoAllowsAwk(args) else { return false }
+        case "sed":
+            guard autoAllowsSed(args) else { return false }
+        default:
+            break
+        }
+
         let paths = ChiefSensitivePaths(home: home)
-        var pathArguments: [String] = []
-        var expectsValue = false
-        let valueFlags: Set<String> = ["head", "tail"].contains(program)
-            ? ["-n", "--lines", "-c", "--bytes"]
-            : []
-        for (index, arg) in args.enumerated() {
-            if expectsValue {
-                expectsValue = false
-                continue
+        var afterDoubleDash = false
+        let pathArguments = args.reduce(into: [String]()) { paths, arg in
+            if afterDoubleDash {
+                paths.append(arg)
+            } else if arg == "--" {
+                afterDoubleDash = true
+            } else if !arg.hasPrefix("-") {
+                paths.append(arg)
             }
-            if arg == "--" {
-                pathArguments.append(contentsOf: args.dropFirst(index + 1))
-                break
-            }
-            if valueFlags.contains(arg) {
-                expectsValue = true
-                continue
-            }
-            if arg.hasPrefix("-") { continue }
-            pathArguments.append(arg)
         }
         return !pathArguments.contains { path in
-            if path.hasPrefix("/") || path.hasPrefix("~") {
-                // `ls` reveals directory entries, so use the stricter search
-                // policy; listing `~` would otherwise expose credential-store
-                // names even though the directory itself is not a secret file.
-                return !(program == "ls" ? paths.allowsSearch(path) : paths.allowsRead(path))
-            }
-            return paths.patternNamesSecrets(path)
+            let absolute = path.hasPrefix("/") || path == "~" || path.hasPrefix("~/")
+                ? path
+                : URL(fileURLWithPath: home, isDirectory: true)
+                    .appendingPathComponent(path, isDirectory: false).path
+            // `ls` reveals directory entries, so use the stricter search
+            // policy; listing `~` would otherwise expose credential-store names
+            // even though the directory itself is not a secret file.
+            return program == "ls" ? !paths.allowsSearch(absolute) : !paths.allowsRead(absolute)
         }
     }
 
