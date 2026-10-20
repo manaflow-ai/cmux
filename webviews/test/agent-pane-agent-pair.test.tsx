@@ -140,7 +140,16 @@ test("a pause is one row that counts the held messages and collapses when the pa
     ]),
   );
   const { rows } = await connect(daemon);
-  expect(pairs(rows())).toEqual([{ peer: PEER, peerName: "Reviewer", reason: "alternating", count: 10, held: 1 }]);
+  expect(pairs(rows())).toEqual([
+    {
+      peer: PEER,
+      peerName: "Reviewer",
+      reason: "alternating",
+      count: 10,
+      held: 1,
+      heldTexts: ["LGTM? Please confirm again."],
+    },
+  ]);
   daemon.push(record([held("p-10", "Still waiting on your sign-off.")], 5));
   expect(pairs(rows())[0]?.held).toBe(2);
   // A held message is not a prompt: the only user row is the person's own.
@@ -152,7 +161,16 @@ test("a pause is one row that counts the held messages and collapses when the pa
 
   daemon.push(record([["mux", "agent_pair_resumed", { peer: PEER, by: "request", delivered: 2 }]], 6));
   expect(pairs(rows())).toEqual([
-    { peer: PEER, peerName: "Reviewer", reason: "alternating", count: 10, held: 2, resumed: true },
+    {
+      peer: PEER,
+      peerName: "Reviewer",
+      reason: "alternating",
+      count: 10,
+      held: 2,
+      heldTexts: ["LGTM? Please confirm again.", "Still waiting on your sign-off."],
+      resumed: true,
+      delivered: 2,
+    },
   ]);
 
   // A later pause with the same peer is a row of its own; the resumed one stays resumed.
@@ -172,7 +190,16 @@ test("a reload draws the same rows from history", async () => {
   ];
   const { rows } = await connect(fakeDaemon(record(steps)));
   expect(pairs(rows())).toEqual([
-    { peer: PEER, peerName: "Reviewer", reason: "alternating", count: 10, held: 2, resumed: true },
+    {
+      peer: PEER,
+      peerName: "Reviewer",
+      reason: "alternating",
+      count: 10,
+      held: 2,
+      heldTexts: ["again", "and again"],
+      resumed: true,
+      delivered: 2,
+    },
   ]);
 });
 
@@ -186,7 +213,7 @@ test("records for another peer, or without a pause, change nothing", () => {
   reduceAgentPair(rows, { seq: 4, at, kind: "agent_pair_held", msg: { from: "someone-else" } });
   reduceAgentPair(rows, { seq: 5, at, kind: "agent_pair_resumed", msg: { peer: "someone-else" } });
   expect([...rows.values()].map((row) => [row.version, row.agentPair])).toEqual([
-    [1, { peer: PEER, peerName: "R", reason: "alternating", count: 3, held: 0 }],
+    [1, { peer: PEER, peerName: "R", reason: "alternating", count: 3, held: 0, heldTexts: [] }],
   ]);
   expect(reduceAgentPair(rows, { seq: 6, at, kind: "turn_started", msg: {} })).toBe(false);
 });
@@ -252,7 +279,7 @@ test("the paused row names the peer, counts held messages, and Resume sends agen
 test("a resumed pair is one line without Resume; an unnamed peer reads as another agent", async () => {
   const host = installDom();
   root = createRoot(host);
-  const pair = { peer: PEER, peerName: "", reason: "repeating" as const, count: 4, held: 0 };
+  const pair = { peer: PEER, peerName: "", reason: "repeating" as const, count: 4, held: 0, heldTexts: [] };
   await act(async () => root!.render(<AgentPairNote pair={pair} onResume={async () => undefined} />));
   expect(host.textContent).toContain("Paused messages with another agent: the same message was sent 4 times in a row");
   // Nothing held on this side: no count.
@@ -261,13 +288,54 @@ test("a resumed pair is one line without Resume; an unnamed peer reads as anothe
   await act(async () => root!.render(<AgentPairNote pair={{ ...pair, peerName: "Deploy", resumed: true }} />));
   expect(host.textContent).toBe("Resumed messages with Deploy");
   expect(host.querySelector("button")).toBeNull();
+
+  // Once acpmux says how many held messages it delivered, the line counts them.
+  await act(async () =>
+    root!.render(<AgentPairNote pair={{ ...pair, peerName: "Deploy", resumed: true, delivered: 2 }} />),
+  );
+  expect(host.textContent).toBe("Resumed messages with Deploy, 2 delivered");
+});
+
+test("Show held messages lists each held preview, and hides them again", async () => {
+  const host = installDom();
+  root = createRoot(host);
+  const pair = {
+    peer: PEER,
+    peerName: "Reviewer",
+    reason: "alternating" as const,
+    count: 10,
+    held: 2,
+    heldTexts: ["LGTM? Please confirm again.", "Still waiting on your sign-off."],
+  };
+  await act(async () => root!.render(<AgentPairNote pair={pair} onResume={async () => undefined} />));
+  const toggle = [...host.querySelectorAll("button")].find((button) => button.textContent === "Show held messages")!;
+  expect(toggle.getAttribute("aria-expanded")).toBe("false");
+  expect(host.textContent).not.toContain("LGTM? Please confirm again.");
+
+  const click = () => act(async () => toggle.dispatchEvent(new dom!.window.MouseEvent("click", { bubbles: true })));
+  await click();
+  expect(toggle.getAttribute("aria-expanded")).toBe("true");
+  expect(toggle.textContent).toBe("Hide held messages");
+  expect([...host.querySelectorAll(".cv-agent-pair__held li")].map((item) => item.textContent)).toEqual([
+    "LGTM? Please confirm again.",
+    "Still waiting on your sign-off.",
+  ]);
+  await click();
+  expect(host.querySelector(".cv-agent-pair__held")).toBeNull();
 });
 
 test("a failed Resume says so and can be pressed again", async () => {
   const host = installDom();
   root = createRoot(host);
   let calls = 0;
-  const pair = { peer: PEER, peerName: "Reviewer", reason: "alternating" as const, count: 10, held: 1 };
+  const pair = {
+    peer: PEER,
+    peerName: "Reviewer",
+    reason: "alternating" as const,
+    count: 10,
+    held: 1,
+    heldTexts: ["again"],
+  };
   await act(async () =>
     root!.render(
       <AgentPairNote
