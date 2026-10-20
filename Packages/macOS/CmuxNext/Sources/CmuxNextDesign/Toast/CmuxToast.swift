@@ -25,6 +25,10 @@ public nonisolated struct CmuxToast: Equatable, Sendable {
     public var action: Action?
     public var duration: Duration
 
+    /// A duration that never times out: the toast stays until its action or close button
+    /// (the server-update prompt, which asks for a decision).
+    public static let untilClosed: Duration = .zero
+
     public init(id: String, message: String, action: Action? = nil, duration: Duration = .seconds(6)) {
         self.id = id
         self.message = message

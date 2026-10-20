@@ -2,7 +2,7 @@ public import AppKit
 public import CmuxHomeCore
 public import CmuxHomeRender
 public import CmuxNextDesign
-import MessagesLabHome
+public import MessagesLabHome
 
 /// The Home transcript (plans/cmux-next/home-mac.md): MessagesLabAppKitNative's
 /// own code and motion (`MessagesLabHome`, vendored at the MessagesLab
@@ -54,10 +54,28 @@ public final class HomeNativeTranscriptView: NSView {
         get { transcript.onAppLink }
         set { transcript.onAppLink = newValue }
     }
+    /// Forward… on a bubble: the host routes its text to another chat (nil: no Forward…).
+    public var onForward: ((String) -> Void)? {
+        get { transcript.onForward }
+        set { transcript.onForward = newValue }
+    }
     /// A click on any other link in the transcript (`otherTarget`: Shift-Command held).
     public var onOpenLink: (_ url: URL, _ otherTarget: Bool) -> Void {
         get { transcript.onOpenLink }
         set { transcript.onOpenLink = newValue }
+    }
+    /// A press on a link that moved past the drag slop (the pointer's screen point): true when the
+    /// host took it as a link drag (a split or pane drop zone opens it). Nil: the press selects text.
+    public var onDragLink: ((_ url: URL, _ screenPoint: CGPoint) -> Bool)? {
+        get { transcript.onDragLink }
+        set { transcript.onDragLink = newValue }
+    }
+
+    /// Where an attachment opens and what its right-click menu offers (held weakly; the host
+    /// keeps it). Nil: the system opens it.
+    public var fileHost: HomeFileHost? {
+        get { transcript.fileHost }
+        set { transcript.fileHost = newValue }
     }
     /// The host's shared stop action.
     public var onStop: () -> Void = {} {
@@ -92,10 +110,11 @@ public final class HomeNativeTranscriptView: NSView {
     /// The window's typing hold for the compose field's cursor rects (HomeCursorRectHold).
     private var cursorHold: HomeCursorRectHold?
 
-    public init(store: HomeStore, conversation: ConversationID, me: ParticipantID) {
+    /// - Parameter diagrams: draws Mermaid fences as diagrams (the app's ``OndineMermaidRenderer``); nil keeps them as text.
+    public init(store: HomeStore, conversation: ConversationID, me: ParticipantID, diagrams: (any HomeDiagramRendering)? = nil) {
         HomeReduceMotion.install()
         self.me = me
-        transcript = MessagesLabHomeView(store: store, conversation: conversation, me: me, wake: HomeDemandWake())
+        transcript = MessagesLabHomeView(store: store, conversation: conversation, me: me, wake: HomeDemandWake(), diagrams: diagrams)
         // One binding per shown conversation; it opens the conversation on
         // the store now and `stop()` closes exactly that open, once.
         binding = HomeStoreBinding(store: store, conversation: conversation)
@@ -124,6 +143,8 @@ public final class HomeNativeTranscriptView: NSView {
         transcript.onRowsChange = { [weak self] in self?.updateFirstRun() }
         followTextSize()
         followBubbleStyle()
+        followHeroTunable()
+        followChiefPet()
         applyTheme()
         updateFirstRun()
     }
@@ -138,10 +159,25 @@ public final class HomeNativeTranscriptView: NSView {
         }
     }
 
+    /// The hover cards of link chips (``enableLinkPreviews(coordinator:previewer:)``), nil until the host enables them.
+    private(set) var linkPreviews: HomeLinkChipHoverSource?
+
+    /// Link chips get hover cards from the app's one `coordinator`, filled by `previewer`
+    /// (plans/cmux-next/home-link-chips-DESIGN.md). Call once; the source registers while the
+    /// transcript is in a window.
+    public func enableLinkPreviews(coordinator: HoverCardCoordinator, previewer: any HomeLinkPreviewing) {
+        guard linkPreviews == nil else { return }
+        let source = HomeLinkChipHoverSource(transcript: transcript, coordinator: coordinator, previewer: previewer)
+        linkPreviews = source
+        transcript.onPointerMoved = { [weak coordinator] point in coordinator?.pointerMoved(to: point) }
+        if window != nil { coordinator.register(source) }
+    }
+
     /// Stops forwarding (the conversation closed). Once.
     public func stop() {
         guard !stopped else { return }
         stopped = true
+        if let linkPreviews { linkPreviews.coordinator.unregister(linkPreviews) }
         intake?.cancel()
         transcript.stop()
         binding.stop()
@@ -185,6 +221,9 @@ public final class HomeNativeTranscriptView: NSView {
     /// The name pill's VoiceOver help.
     public func setNamePillHelp(_ help: String) { transcript.setNamePillHelp(help) }
 
+    /// The header band's height (avatar and name pill), from the top: a control placed under it never covers the name.
+    public var headerHeight: CGFloat { transcript.headerHeight }
+
     /// The primary input (spec/app-screens.md section 3): the message box's
     /// text view. Hosts focus this view, not the transcript.
     public var primaryInput: NSView { transcript.primaryInput }
@@ -192,6 +231,13 @@ public final class HomeNativeTranscriptView: NSView {
     public override func becomeFirstResponder() -> Bool {
         window?.makeFirstResponder(primaryInput) ?? false
     }
+
+    /// The person opened this conversation: the message box takes the keyboard now, or once the
+    /// first page installs it if nothing else took the keyboard in between.
+    public func takeKeyboardOnOpen() { transcript.takeKeyboardOnOpen() }
+    /// Shows `text` in the message box (Send Message… from elsewhere already wrote it to the
+    /// store's draft; an open view takes it here, a new one restores it from the store).
+    public func showDraft(_ text: String) { transcript.setDraft(text) }
 
     /// Whether Home getting focus should move the keyboard from `responder`
     /// to ``primaryInput``: yes, unless a text view or field has it, the
@@ -294,16 +340,6 @@ public final class HomeNativeTranscriptView: NSView {
         }
     }
 
-    /// A notice about the conversation itself (Home's merge notice): a row of
-    /// the transcript, under the newest message; nil removes it.
-    public func showConversationNotice(_ text: String?) {
-        guard transcript.notice != text else { return }
-        transcript.notice = text
-        if let text {
-            NSAccessibility.post(element: transcript, notification: .announcementRequested, userInfo: [.announcement: text])
-        }
-    }
-
     /// Shows (or with nil clears) the notice; VoiceOver hears it.
     public func showNotice(_ text: String?) {
         guard text != notice else { return }
@@ -315,19 +351,6 @@ public final class HomeNativeTranscriptView: NSView {
             NSAccessibility.post(element: noticeLabel, notification: .announcementRequested, userInfo: [.announcement: text])
         }
         layoutNotice()
-    }
-
-    /// The first-run rows' shortcuts and the Switching card's keys, as the
-    /// live binding table has them; nil hides one (nil `switching`: no card).
-    public func setFirstRunShortcuts(terminal: String?, agent: String?, switching: HomeSwitchKeys?) {
-        firstRun.setShortcuts(terminal: terminal, agent: agent, switching: switching)
-    }
-
-    /// The user's agents for the first-run panel's glance (the host maps
-    /// them from the tab status the strip and the sidebar draw); empty lists
-    /// none.
-    public func setFirstRunAgents(_ agents: [HomeAgentGlance]) {
-        firstRun.setAgents(agents)
     }
 
     /// The first-run panel shows only in an empty Chief conversation.
@@ -348,6 +371,9 @@ public final class HomeNativeTranscriptView: NSView {
         observers = []
         cursorHold = window.flatMap(HomeCursorRectHold.hold(for:))
         cursorHold?.add(self)
+        if let linkPreviews {
+            if window == nil || stopped { linkPreviews.coordinator.unregister(linkPreviews) } else { linkPreviews.coordinator.register(linkPreviews) }
+        }
         guard let window else { return }
         let nc = NotificationCenter.default
         for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification,
@@ -373,7 +399,7 @@ public final class HomeNativeTranscriptView: NSView {
     /// The header band's fade in or out, in seconds. Reduce Motion keeps it, at the crossfade length
     /// (motion.md rule 7): turned off there, the band appeared and left in one frame.
     static func headerFadeDuration(shown: Bool) -> TimeInterval {
-        Motion.duration(shown ? .fadeIn : .fadeOut)
+        Motion.home.duration(shown ? .fadeIn : .fadeOut)
     }
 
     /// The theme's palettes (key and non-key window) for the MessagesLab
@@ -390,7 +416,7 @@ public final class HomeNativeTranscriptView: NSView {
         transcript.setHeaderPillBacking(performWithTheme { Palette.capsuleScrim })
         transcript.setHeaderFade(color: fade, maxAlpha: maxAlpha) { shown in Self.headerFadeDuration(shown: shown) }
         performWithTheme {
-            firstRun.applyColors(primary: Palette.textPrimary, tertiary: Palette.textTertiary, fill: Palette.elevatedBackground,
+            firstRun.applyColors(primary: Palette.textPrimary, secondary: Palette.textSecondary, tertiary: Palette.textTertiary, fill: Palette.elevatedBackground,
                                  hover: Palette.hoverFill, border: Palette.separator, attention: Palette.attention,
                                  danger: Palette.danger, done: Palette.highlight)
             noticeLabel.textColor = Palette.textSecondary

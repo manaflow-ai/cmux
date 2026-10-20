@@ -368,6 +368,36 @@ const footerActionsPlacement = (placement: "left" | "right") => async (ctx: Play
     throw new Error(`turn footer actions are not ${placement}-aligned`);
 };
 
+const MCP_THREAD = "01a14822-c01a-76a1-9fc5-1268687464d4";
+/// Codex's MCP call shape: `<server>.<tool> call`, arguments nested under `arguments`.
+const mcpTool = (name: string, args: unknown, output: string) =>
+  tool(`codex_apps.${name} call`, "execute", "completed", {
+    inputSummary: JSON.stringify({ server: "codex_apps", tool: name, arguments: args }),
+    output,
+  });
+const MCP_SENDS = ["READY #22338", "MERGED #22283", "CI armed", "Previews saved"].map((message) =>
+  mcpTool("send_message", { threadId: MCP_THREAD, message }, JSON.stringify({ ok: true })),
+);
+const MCP_READ = mcpTool(
+  "read_thread",
+  { threadId: MCP_THREAD },
+  JSON.stringify({
+    content: [
+      {
+        type: "text",
+        text: JSON.stringify({
+          thread: {
+            id: MCP_THREAD,
+            title: "Coordination hub",
+            preview:
+              '<in-app-browser-context source="ambient-ui-state">\nActive tab\n</in-app-browser-context>\nship it',
+          },
+        }),
+      },
+    ],
+  }),
+);
+
 export default agentPaneEntry({
   id: "agent-pane.transcript",
   title: "Transcript rows",
@@ -391,6 +421,7 @@ export default agentPaneEntry({
     "agent-session/acpmux/conversation/ChatFindScope.tsx#ChatFindScope",
     "agent-session/acpmux/conversation/MessageCard.tsx",
     "agent-session/acpmux/conversation/ThoughtRow.tsx#ThoughtRow",
+    "agent-session/acpmux/conversation/WorkingMark.tsx#WorkingMark",
     "agent-session/acpmux/conversation/Markdown.tsx",
     "agent-session/acpmux/conversation/RevealedMarkdown.tsx",
     "agent-session/acpmux/conversation/CodeBlock.tsx",
@@ -404,6 +435,7 @@ export default agentPaneEntry({
     "agent-session/acpmux/conversation/ToolRun.tsx",
     "agent-session/acpmux/conversation/transcriptDisclosure.tsx#TranscriptDisclosureProvider",
     "agent-session/acpmux/conversation/ToolGroupRow.tsx",
+    "agent-session/acpmux/conversation/McpCallRows.tsx#McpCallRows",
     "agent-session/acpmux/conversation/CommandRow.tsx",
     "agent-session/acpmux/conversation/ShellBlock.tsx#ShellBlock",
     "agent-session/acpmux/conversation/CopyButton.tsx#CopyButton",
@@ -696,7 +728,7 @@ export default agentPaneEntry({
           cmuxAcpmuxBridge?: { command?(name: string): void };
         };
         page.cmuxAcpmuxBridge?.command?.("find");
-        await ctx.waitFor(() => ctx.document.activeElement?.classList.contains("acpmux-find__field") ?? false);
+        await ctx.waitFor(() => ctx.document.activeElement?.classList.contains("find-pill__field") ?? false);
         // A key at a time, as a person types: the play's type inserts its whole text in one task,
         // which ran seven query updates and the fold opening in one frame (cx-ncc.76).
         for (const key of "thought") await ctx.type(key);
@@ -712,7 +744,7 @@ export default agentPaneEntry({
       },
     },
     "working-tools": {
-      note: "Tool calls running in a live turn.",
+      note: "Tool calls running in a live turn; the status line names the call in flight.",
       snapshot: chat(
         [
           user(prompt, 2),
@@ -766,6 +798,16 @@ export default agentPaneEntry({
             ],
           }),
           activity([tool("Read client.ts", "read", "in_progress")], 1.5),
+        ],
+        { isWorking: true },
+      ),
+    },
+    "mcp-calls": {
+      note: "MCP calls read as what they did: four sends to one chat are one line, the read names the chat.",
+      snapshot: chat(
+        [
+          user("Post the lane updates to the Coordination hub and read it back.", 1),
+          activity([...MCP_SENDS, MCP_READ], 0.8),
         ],
         { isWorking: true },
       ),
@@ -1182,6 +1224,13 @@ export default agentPaneEntry({
         await ctx.type("sk-test-51Hx9", { selector: ".acpmux-secret-card-field" });
         await ctx.click({ role: "button", name: "Provide" });
         await ctx.waitFor(() => !ctx.document.querySelector(".acpmux-secret-card"));
+      },
+      checks: {
+        layoutShiftMax: {
+          value: 0.08,
+          reason:
+            "The card leaves the bottom stack, which lies over the transcript's foot (bottomStack.css): the stack's unpainted wrapper (div.acpmux-dock, the only source) shrinks from its top, 0.062 measured; the composer and the rows do not move.",
+        },
       },
     },
     queued: {

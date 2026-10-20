@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextDaemon
+import enum CmuxNextLayout.ChatColumnPlacement
 
 // Tab moves out of the pane (split, column, workspace, window), unread
 // state, per-kind tab verbs, and identifier copies (links: LinkHandlers).
@@ -50,42 +51,34 @@ extension TabHandlers {
             let reveal = revealer(ctx, tab: tab, outcome: .workspace(id: workspace.id), workspaceID: workspace.id)
             TabMoves.toWorkspace(tab, workspace: workspace, services: ctx.services, completion: reveal)
         })
-        registry.bind("palette.moveTabToNewWorkspace", invoke: { invocation in
-            guard let (tab, _) = ctx.daemonTab(invocation), ctx.connection() != nil else { return }
-            if let reason = TabPromotion.refusal(tab: tab.id, services: ctx.services) {
-                return ctx.registry.refuse(reason)
+        registry.bind("palette.moveTabToNewWorkspace", invoke: { moveToNewWorkspace(ctx, $0, newWindow: false) })
+        registry.bind("tab.moveToNewWindow", invoke: { moveToNewWorkspace(ctx, $0, newWindow: true) })
+    }
+
+    /// Move Tab to New Workspace, or to a New Window that shows the new workspace. On one of several
+    /// selected tabs every selected tab goes, in strip order (`movingTabs`).
+    private static func moveToNewWorkspace(_ ctx: AppActionContext, _ invocation: ActionInvocation, newWindow: Bool) {
+        guard let (tab, _) = ctx.daemonTab(invocation), ctx.connection() != nil else { return }
+        if let reason = TabPromotion.refusal(tab: tab.id, services: ctx.services) {
+            return ctx.registry.refuse(reason)
+        }
+        let windows = ctx.services.windows, tabs = ctx.movingTabs(invocation, tab)
+        let origin = windows.moveOrigin(of: ctx.services.workspaceID(ofTab: tab.id))
+        // Read before the await: whether this run may change the view (a run this client's user did
+        // not start opens the window behind, never key), and the window it acts in.
+        let allowed = ActionRunScope.viewChangeAllowed()
+        let source = newWindow ? nil : ctx.services.landingWindow(tab: tab.id, workspaceID: nil)
+        let preferred = newWindow ? nil : (source ?? windows.active)?.state
+        if allowed, let source, let pane = ctx.services.locateTab(tab.id)?.1 { source.focus.followMovedTab(tab.id, from: pane.id) }
+        let work: ActionWork = Task {
+            guard let key = await TabMoves.toNewWorkspace(tabs.first ?? tab, services: ctx.services) else {
+                return "move-tab-to-new-workspace failed (see the app log)"
             }
-            let windows = ctx.services.windows
-            let origin = windows.moveOrigin(of: ctx.services.workspaceID(ofTab: tab.id))
-            // Read before the await: whether this run may change the view,
-            // and the window it acts in.
-            let allowed = ActionRunScope.viewChangeAllowed()
-            let source = ctx.services.landingWindow(tab: tab.id, workspaceID: nil)
-            let preferred = (source ?? windows.active)?.state
-            if allowed, let source, let pane = ctx.services.locateTab(tab.id)?.1 { source.focus.followMovedTab(tab.id, from: pane.id) }
-            ctx.registry.track(Task {
-                guard let key = await TabMoves.toNewWorkspace(tab, services: ctx.services) else {
-                    return "move-tab-to-new-workspace failed (see the app log)"
-                }
-                windows.placeMoved(key.rawValue, from: origin, preferred: preferred, newWindow: false, select: allowed)
-                return nil
-            })
-        })
-        registry.bind("tab.moveToNewWindow", invoke: { invocation in
-            guard let (tab, _) = ctx.daemonTab(invocation), ctx.connection() != nil else { return }
-            if let reason = TabPromotion.refusal(tab: tab.id, services: ctx.services) {
-                return ctx.registry.refuse(reason)
-            }
-            let windows = ctx.services.windows
-            let origin = windows.moveOrigin(of: ctx.services.workspaceID(ofTab: tab.id))
-            // Read before the await: a run this client's user did not start
-            // opens the window behind, never key.
-            let allowed = ActionRunScope.viewChangeAllowed()
-            Task {
-                guard let key = await TabMoves.toNewWorkspace(tab, services: ctx.services) else { return }
-                windows.placeMoved(key.rawValue, from: origin, preferred: nil, newWindow: true, select: allowed)
-            }
-        })
+            await TabMoves.join(tabs.dropFirst(), workspace: key, services: ctx.services)
+            windows.placeMoved(key.rawValue, from: origin, preferred: preferred, newWindow: newWindow, select: allowed)
+            return nil
+        }
+        if !newWindow { ctx.registry.track(work) }
     }
 
     private static func bindTabState(_ registry: ActionRegistry, _ ctx: AppActionContext) {
@@ -94,7 +87,13 @@ extension TabHandlers {
             guard let (tab, pane) = ctx.daemonTab(invocation) else { return }
             // A read agent chat: acpmux marks it unread until it is shown again (cx-ncc.78), as the chat menu's row does.
             if !tab.showsUnread, tab.agentSession != nil, let view = ctx.services.agentTabs.existingView(tab.id) {
-                Task { if await !AgentPaneMarkUnread(view.model).run() { ctx.refuse(RefusalStrings.markUnreadUnsupported) } }
+                let daemon = ctx.services.daemon(for: pane)
+                let mark = AgentChatMarkUnread(acpmux: { await AgentPaneMarkUnread(view.model).run() },
+                                               daemon: { try TabUnreadMark.set(true, tab: tab, daemon: daemon) })
+                // task-owner: one mark; ends when acpmux or the daemon answers
+                Task {
+                    do { try await mark.run() } catch { ctx.refuse((error as? ActionFailure)?.message ?? RefusalStrings.describe(error)) }
+                }
                 return
             }
             try TabUnreadMark.toggle(tab, pane: pane, context: ctx)
@@ -106,9 +105,26 @@ extension TabHandlers {
             }
             entry.chrome.perform(.reload)
         })
-        registry.bindUnavailable("palette.toggleFullWidthTab", reason: RefusalStrings.fullWidthTabUnported)
-        registry.bind("toggleTabAudioMute", invoke: { BrowserTabAudio.toggleMute(ctx, $0) })
-        registry.bindUnavailable("disconnectRemoteTab", reason: RefusalStrings.needsDaemonCapability("remote-ssh-tabs"))
+        // Full Width Tab: the pane's strip shows only the selected tab, across the strip (PaneFullWidthTabs).
+        registry.bind("palette.toggleFullWidthTab", invoke: { invocation in
+            guard let (pane, id) = ctx.tab(invocation) else { return }
+            pane.toggleFullWidthTab(showing: id)
+        })
+        bindAudio(registry, ctx)
+    }
+
+    /// The mute actions (`BrowserTabAudio`): the strip's and the sidebar row's speakers run the toggles.
+    private static func bindAudio(_ registry: ActionRegistry, _ ctx: AppActionContext) {
+        registry.bind(BrowserTabAudio.toggleActionID, invoke: { BrowserTabAudio.toggleMute(ctx, $0) })
+        ActionTargetTitles.set(BrowserTabAudio.toggleActionID, in: registry) { [weak registry] invocation in
+            registry.flatMap { BrowserTabAudio.targetTitle($0, ctx.services.cache, invocation) }
+        }
+        registry.bind("tab.muteAudio", invoke: { BrowserTabAudio.setMuted(true, ctx, $0) })
+        registry.bind("tab.unmuteAudio", invoke: { BrowserTabAudio.setMuted(false, ctx, $0) })
+        registry.bind("tab.muteOtherAudio", invoke: { BrowserTabAudio.muteOthers(ctx, $0) })
+        registry.bind(BrowserTabAudio.workspaceToggleActionID, run: { invocation in
+            try BrowserTabAudio.toggleWorkspace(try ctx.workspace(invocation).model, cache: ctx.services.cache)
+        })
     }
 
     private static func bindIdentifiers(_ registry: ActionRegistry, _ ctx: AppActionContext) {

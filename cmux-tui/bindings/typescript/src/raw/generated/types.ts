@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 6752aeda6c86bb4bdbf059f44840f8c3d4330aea54b4be3689bdc95a8e85bdd2. */
+/* cmux-tui mux protocol 12, IR 96e61acfae440a8a09afd96f3fcebb5b2aa189cff1cdcb74d026be328dd4ea67. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -207,6 +207,8 @@ export type CloseTerminalResult = {
 };
 
 export type ColorHex = string;
+
+export type ColumnMoveDirection = "left" | "right";
 
 export type ColumnPin = {
   "edge": string;
@@ -1480,6 +1482,11 @@ export type TerminalResourcesResult = {
   "missing": Array<Id>;
   "sampled_at_ns": bigint;
   "terminals": Array<TerminalResources>;
+};
+
+export type TerminalResumeCommandResult = {
+  "command": (string) | null;
+  "terminal_id": string;
 };
 
 export type Tree = {

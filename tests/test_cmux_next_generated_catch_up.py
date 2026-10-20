@@ -100,6 +100,14 @@ class Workflow(unittest.TestCase):
         self.assertEqual(on["push"]["branches"], ["feat-cmux-next"])
         self.assertIn("workflow_dispatch", on)
 
+    def test_a_newer_move_does_not_cancel_a_running_catch_up(self):
+        """feat-cmux-next moves every few minutes and a catch-up job takes up to 20, so
+        cancel-in-progress cancelled 38 of the last 40 runs (2026-10-20) and no conflicting
+        PR was ever caught up. One run finishes; GitHub keeps only the newest pending one."""
+        concurrency = self.doc["concurrency"]
+        self.assertEqual(concurrency["group"], "cmux-next-generated-catch-up")
+        self.assertIs(concurrency["cancel-in-progress"], False)
+
     def test_pushes_only_when_enabled(self):
         # Dry run until the repo variable turns it on: it logs what it would push.
         self.assertIn("vars.CMUX_NEXT_GENERATED_CATCH_UP == '1'", self.text)

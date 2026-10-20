@@ -1,4 +1,5 @@
 {
+  "guestCLI": { "useReasonSharedMachine": "必需：此机器与团队共享" },
   "agentHarness": {
     "title": "检测到的 harness 配置",
     "selectionNotice": "选择提供商不会启动或启用这些 harness。",

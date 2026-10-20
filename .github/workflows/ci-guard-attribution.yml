@@ -44,6 +44,7 @@ concurrency:
 
 jobs:
   analyze:
+    environment: ci-attribution-agent
     name: Analyze
     if: ${{ github.repository == 'manaflow-ai/cmux' && contains(fromJSON('["success","failure","timed_out","startup_failure","action_required","cancelled"]'), github.event.workflow_run.conclusion) && (github.event.workflow_run.event == 'pull_request' || github.event.workflow_run.head_branch == 'main') }}
     # Analysis only reads trusted main history and the Actions/PR APIs. It
@@ -120,6 +121,7 @@ jobs:
           retention-days: 14
 
   report:
+    environment: ci-attribution-agent
     # The headline is the job name, so the webhook feed carries the culprit.
     name: ${{ needs.analyze.outputs.headline || 'report' }}
     needs: analyze

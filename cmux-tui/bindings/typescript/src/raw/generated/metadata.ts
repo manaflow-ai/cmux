@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 6752aeda6c86bb4bdbf059f44840f8c3d4330aea54b4be3689bdc95a8e85bdd2. */
+/* cmux-tui mux protocol 12, IR 96e61acfae440a8a09afd96f3fcebb5b2aa189cff1cdcb74d026be328dd4ea67. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "6752aeda6c86bb4bdbf059f44840f8c3d4330aea54b4be3689bdc95a8e85bdd2" as const;
+export const SDK_IR_SHA256 = "96e61acfae440a8a09afd96f3fcebb5b2aa189cff1cdcb74d026be328dd4ea67" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -340,7 +340,7 @@ export const COMMAND_METADATA = {
     "fields": {},
     "stream": null,
     "constraints": [
-      "The owner's trusted connection only: a registered Unix client with no link peer record acting as the local user (a local client, or the link's owner_session splice). Link-stamped, relayed, WebSocket, unregistered and agent-bound connections are refused with origin.forbidden before anything is forwarded; the remote relay never admits it. Read-only: one of seven /api paths, GET, forwarded as one line to the brain host's tools socket (CMUX_TUI_CHIEF_TOOLS_SOCKET); answers above 5 MiB are refused. Every daemon advertises chief-inspect-v1; one without that socket answers the owner chief.not_configured. See spec/commands.md."
+      "The owner's trusted connection only: a registered Unix client with no link peer record acting as the local user (a local client, or the link's owner_session splice). Link-stamped, relayed, WebSocket, unregistered and agent-bound connections are refused with origin.forbidden before anything is forwarded; the remote relay never admits it. Reads: one of nine /api read paths, GET; the owner's memory changes (/api/memory/edit, /api/memory/delete, /api/memory/undo): POST, which the brain refuses to the Chief's own sessions; the reserved query key chief names a non-default Chief's brain. Forwarded as one line to the brain host's tools socket (CMUX_TUI_CHIEF_TOOLS_SOCKET); answers above 5 MiB are refused. Every daemon advertises chief-inspect-v1; one without that socket answers the owner chief.not_configured. See spec/commands.md."
     ]
   },
   "clear-history": {
@@ -1438,6 +1438,10 @@ export const COMMAND_METADATA = {
       "machine_metadata": {
         "since": 12,
         "capability": "machine-identity-v1"
+      },
+      "revisions": {
+        "since": 12,
+        "capability": null
       }
     },
     "stream": null,
@@ -1662,6 +1666,17 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "See spec/commands.md for the result object."
+    ]
+  },
+  "move-column": {
+    "authority": "control",
+    "since": 12,
+    "capability": "column-move-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "pane names any pane of the column that moves; the whole column (every pane, split and row) trades places with its neighbor in direction.",
+      "A docked column never moves and is never crossed. See spec/commands.md for the result object and error codes."
     ]
   },
   "move-personal-group": {
@@ -2163,6 +2178,16 @@ export const COMMAND_METADATA = {
     "fields": {},
     "stream": null,
     "constraints": []
+  },
+  "park-tabs": {
+    "authority": "control",
+    "since": 12,
+    "capability": "tab-park-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "See spec/commands.md for the result object."
+    ]
   },
   "paste-image": {
     "authority": "control",
@@ -3243,6 +3268,17 @@ export const COMMAND_METADATA = {
     "constraints": [
       "Omitted or null surfaces means every PTY surface.",
       "Read on request; the daemon keeps no sampler, cache, or timer."
+    ]
+  },
+  "terminal-resume-command": {
+    "authority": "control",
+    "since": 12,
+    "capability": "resume-command",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "The resume command is stored durably with the terminal and survives owner restarts.",
+      "When the owner respawns the terminal it types the command on the new prompt without a newline; it never runs on its own."
     ]
   },
   "undo-layout": {
@@ -5252,6 +5288,13 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       "name": "string"
     }
   },
+  "ColumnMoveDirection": {
+    "kind": "enum",
+    "values": [
+      "left",
+      "right"
+    ]
+  },
   "ColumnPin": {
     "additional_properties": false,
     "fields": {
@@ -7160,7 +7203,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     "fields": {
       "api_revision": {
         "constraints": [
-          "The API revision this daemon reads and writes natively (cmux-tui/spec/api-compat.json). Absent on daemons from before revisions."
+          "The API revision this daemon reads and writes natively (cmux-tui/spec/api-compat.json). Absent on daemons from before revisions. Only with identify {revisions: true}."
         ],
         "nullable": true,
         "presence": "optional",
@@ -7219,7 +7262,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       },
       "crate_version": {
         "constraints": [
-          "The cmux-tui crate version; `version` is the npm/PyPI release (equal in app and local builds)."
+          "The cmux-tui crate version; `version` is the npm/PyPI release (equal in app and local builds). Only with identify {revisions: true}."
         ],
         "nullable": true,
         "presence": "optional",
@@ -7256,7 +7299,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       },
       "install": {
         "constraints": [
-          "How this daemon's binary was installed: npm, pypi, app or other."
+          "How this daemon's binary was installed: npm, pypi, app or other. Only with identify {revisions: true}."
         ],
         "nullable": true,
         "presence": "optional",
@@ -7327,7 +7370,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       },
       "min_api_revision": {
         "constraints": [
-          "The oldest API revision this daemon translates to and from for a client that declares it with set-client-info."
+          "The oldest API revision this daemon translates to and from for a client that declares it with set-client-info. Only with identify {revisions: true}."
         ],
         "nullable": true,
         "presence": "optional",
@@ -7389,7 +7432,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       },
       "update_command": {
         "constraints": [
-          "The command that updates this daemon's install (npm and PyPI only), for a client's version-skew refusal."
+          "The command that updates this daemon's install (npm and PyPI only), for a client's version-skew refusal. Only with identify {revisions: true}."
         ],
         "nullable": true,
         "presence": "optional",
@@ -12970,6 +13013,28 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
             "name": "TerminalResources"
           },
           "kind": "array"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "TerminalResumeCommandResult": {
+    "additional_properties": false,
+    "fields": {
+      "command": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "terminal_id": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
         }
       }
     },
@@ -19397,6 +19462,18 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "kind": "scalar",
             "name": "boolean"
           }
+        },
+        "revisions": {
+          "constraints": [
+            "Adds api_revision, min_api_revision, crate_version, install and update_command to the reply. Off by default so strict older SDK decoders keep reading the reply."
+          ],
+          "nullable": false,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
         }
       },
       "kind": "object"
@@ -20054,6 +20131,34 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "scalar",
             "name": "uint64"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "move-column": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "direction": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "ColumnMoveDirection"
+          }
+        },
+        "pane": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
           }
         }
       },
@@ -22369,6 +22474,32 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "PaneNeighborResult"
+    }
+  },
+  "park-tabs": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "surfaces": {
+          "aliases": [
+            "tabs"
+          ],
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "items": {
+              "kind": "ref",
+              "name": "TabRef"
+            },
+            "kind": "array"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
     }
   },
   "paste-image": {
@@ -26076,6 +26207,59 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "TerminalResourcesResult"
+    }
+  },
+  "terminal-resume-command": {
+    "request": {
+      "additional_properties": false,
+      "constraints": [
+        "Exactly one of surface or terminal_id is present."
+      ],
+      "fields": {
+        "command": {
+          "constraints": [
+            {
+              "format": "one line of 1-4096 bytes without control characters, trimmed; absent reads, null clears"
+            }
+          ],
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "surface": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        },
+        "terminal_id": {
+          "constraints": [
+            {
+              "format": "terminal host id (UUIDv4 hex without dashes) or public term_ resource id",
+              "pattern": "^(term_)?[0-9a-f]{32}$"
+            }
+          ],
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "TerminalResumeCommandResult"
     }
   },
   "undo-layout": {

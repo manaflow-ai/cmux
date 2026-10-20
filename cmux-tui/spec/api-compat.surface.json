@@ -8978,6 +8978,9 @@
     "request:identify": {
       "/machine_metadata": {
         "ty": "boolean"
+      },
+      "/revisions": {
+        "ty": "boolean"
       }
     },
     "request:ids": {
@@ -9253,6 +9256,20 @@
         "required": true
       },
       "/index": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
+    "request:move-column": {
+      "/direction": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "left",
+          "right"
+        ]
+      },
+      "/pane": {
         "ty": "uint64",
         "required": true
       }
@@ -10229,6 +10246,15 @@
       "/pane": {
         "ty": "uint64",
         "required": true
+      }
+    },
+    "request:park-tabs": {
+      "/surfaces": {
+        "ty": "array",
+        "required": true
+      },
+      "/surfaces/*": {
+        "ty": "json"
       }
     },
     "request:paste-image": {
@@ -11628,6 +11654,20 @@
       },
       "/surfaces/*": {
         "ty": "uint64"
+      }
+    },
+    "request:terminal-resume-command": {
+      "/command": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/surface": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/terminal_id": {
+        "ty": "string",
+        "nullable": true
       }
     },
     "request:undo-layout": {
@@ -17402,6 +17442,12 @@
         "required": true
       }
     },
+    "response:move-column": {
+      "/data": {
+        "ty": "json",
+        "required": true
+      }
+    },
     "response:move-personal-group": {
       "/data": {
         "ty": "json",
@@ -17970,6 +18016,12 @@
         "ty": "uint64",
         "required": true,
         "nullable": true
+      }
+    },
+    "response:park-tabs": {
+      "/data": {
+        "ty": "json",
+        "required": true
       }
     },
     "response:paste-image": {
@@ -20061,6 +20113,17 @@
       },
       "/data/terminals/*/truncated": {
         "ty": "boolean",
+        "required": true
+      }
+    },
+    "response:terminal-resume-command": {
+      "/data/command": {
+        "ty": "string",
+        "required": true,
+        "nullable": true
+      },
+      "/data/terminal_id": {
+        "ty": "string",
         "required": true
       }
     },

@@ -97,6 +97,17 @@ final class ChromeIconButton: NSButton {
         didSet { if isOn != oldValue { updateFill() } }
     }
 
+    /// Chrome's pressed lock: the button keeps its pressed fill while its menu or bubble is
+    /// open. When it closes the hover is read again from the pointer: an `NSMenu` tracks the
+    /// mouse itself, so the button got no exit event while it was open (u2426).
+    var isMenuOpen = false {
+        didSet {
+            guard isMenuOpen != oldValue else { return }
+            if !isMenuOpen { hover?.refresh() }
+            updateFill()
+        }
+    }
+
     // A button hidden under a still pointer (collapsed, its tab parked)
     // gets no exit event: hover follows the pointer and the frame instead.
     override func viewDidHide() {
@@ -141,7 +152,9 @@ final class ChromeIconButton: NSButton {
     private func showHoldMenu() {
         guard let menu = menuProvider?() else { return }
         showedHoldMenu = true
-            menu.popUp(positioning: nil, at: CmuxPopoverAnchor.menuPoint(in: self, gap: 2), in: self)
+        isMenuOpen = true
+        menu.popUp(positioning: nil, at: CmuxPopoverAnchor.menuPoint(in: self, gap: 2), in: self)
+        isMenuOpen = false
     }
 
     override func viewDidChangeEffectiveAppearance() {
@@ -159,7 +172,7 @@ final class ChromeIconButton: NSButton {
         performWithTheme {
             let color: NSColor = if !isEnabled {
                 .clear
-            } else if isHighlighted || isOn {
+            } else if isHighlighted || isOn || isMenuOpen {
                 Palette.selectionFill
             } else if isHovering {
                 Palette.hoverFill
