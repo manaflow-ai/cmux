@@ -34,6 +34,7 @@ import type { ReadResult, SubmitResult } from "./owner-do.ts"
 import type { RedeemResult } from "./user-do.ts"
 import { pairApprove, pairPreview } from "./pair-routes.ts"
 import { avatarGetRoute, avatarSetRoute, conversationMutate, conversationRead } from "./home-routes.ts"
+import { linkVerifiedAddress } from "./home-requests.ts"
 import { homeSearch, type SearchParams } from "./home-search.ts"
 import { gateUnreachable, signInRules, ssoGate, versionRefusal, withAnySsoSession } from "./policy-gate.ts"
 import { forwardIntegrationPolicy, type PolicyFields } from "./integration-policy-forward.ts"
@@ -99,7 +100,7 @@ const ownerRoute = (owner: string, p: Principal): { stub: OwnerStub; entity: str
 
 /** The stream a read answers from (Home conversations are keyed by params, inbox reads by the user). */
 const readStream = (owner: string, op: string, p: Principal, params: unknown) =>
-  op.startsWith("inbox.") ? `inbox:${p.user}` : owner === "cloud:ConversationDO" ? `conv:${String((params as { conversation?: unknown } | null)?.conversation ?? "")}` : owner === "cloud:UserDO" ? `user:${p.user}` : ownerRoute(owner, p).stream
+  op.startsWith("inbox.") ? `inbox:${p.user}` : op === "home.requests.list" ? `requests:${p.user}` : owner === "cloud:ConversationDO" ? `conv:${String((params as { conversation?: unknown } | null)?.conversation ?? "")}` : owner === "cloud:UserDO" ? `user:${p.user}` : ownerRoute(owner, p).stream
 
 /** The CloudDO ops that answer today (skeleton); every other cloud:CloudDO op answers owner.unreachable until it lands. */
 const CLOUD_LIVE_OPS: ReadonlySet<string> = new Set(["cloud.machine.list", "cloud.machine.get", "cloud.machine.create", "cloud.machine.rename", "cloud.machine.delete", "cloud.machine.idle_policy.set", "cloud.plan.get", "cloud.machine.connect_info", "cloud.machine.link_token", "cloud.machine.pause", "cloud.machine.start", "cloud.machine.resize", "cloud.snapshot.list", "cloud.snapshot.create", "cloud.snapshot.delete", "cloud.snapshot.restore", "cloud.vm.self.get", "cloud.vm.status.report", "cloud.vm.event.emit"])
@@ -368,6 +369,8 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
           })
           const teamReply = toResponse("team.ensure_personal", team.frames)
           if (!teamReply.ok) return yield* new OwnerUnreachable({ code: "owner.unreachable", message: `personal team: ${teamReply.error?.message}`, retryable: true })
+          // The verified email now reaches this account (dm.open by email, message requests); best effort.
+          yield* Effect.promise(() => linkVerifiedAddress(env, principal))
         }
         return response
       })

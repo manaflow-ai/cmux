@@ -7,7 +7,8 @@ import Foundation
 /// title row (the name, a kind or host icon, the relative age) and one row
 /// per meaningful fact, each with an icon: folder, branch, pull request,
 /// computer, the agent working there (cx-13w3), and each reported status entry with its own
-/// icon (cx-qno.11.1). CPU and memory show as one line, and only when notable.
+/// icon (cx-qno.11.1), then an agent chat's last reply. CPU and memory show as one line, and
+/// only when notable.
 struct WorkspaceHoverCardContent: Equatable {
     struct Fact: Equatable {
         var icon: IconName
@@ -22,6 +23,14 @@ struct WorkspaceHoverCardContent: Equatable {
         var lines: Int = 1
         /// The field it shows (`SidebarCardFacts.Fact.kind`), for a custom card.
         var kind = "status"
+
+        /// What someone said or asked (a waiting reason, a notification, the task, the last
+        /// reply): it reads in the primary ink. Every other row is metadata in the secondary ink,
+        /// under the title (Claude desktop's session card: a title, muted metadata, the message).
+        var isMessage: Bool { Self.messageKinds.contains(kind) }
+        static let messageKinds: Set<String> = ["needsInput", "notification", "task", lastReplyKind]
+        /// The agent chat's last reply, the card's last line.
+        static let lastReplyKind = "lastReply"
     }
 
     var title: String
@@ -55,10 +64,6 @@ struct WorkspaceHoverCardContent: Equatable {
             facts.append(Fact(icon: .agentChat, text: [agent, detail.model].compactMap { $0 }.joined(separator: " · "), kind: "agent"))
         }
         if let task = detail.task { facts.append(Fact(icon: .textDescription, text: task, lines: 3, kind: "task")) }
-        // The agent chat's last reply line, when no task says more.
-        if detail.task == nil, let message = workspace.lastMessage, !message.isEmpty {
-            facts.append(Fact(icon: .agentChatList, text: message, lines: 2, kind: "lastReply"))
-        }
         for presence in workspace.presence.prefix(2) {
             facts.append(Fact(icon: toolIcon(presence.activity), text: Strings.presenceLine(presence), kind: "presence"))
         }
@@ -77,6 +82,11 @@ struct WorkspaceHoverCardContent: Equatable {
         }
         if entries.count > SidebarWorkspaceStatus.visibleEntryLimit {
             facts.append(Fact(icon: .overflowMore, text: Strings.statusMore(entries.count - SidebarWorkspaceStatus.visibleEntryLimit), kind: "more"))
+        }
+        // The agent chat's last reply, when no task says more: the card's last line, under the
+        // metadata, two lines at most (Leo 2026-10-19, Claude desktop's session card).
+        if detail.task == nil, let message = workspace.lastMessage, !message.isEmpty {
+            facts.append(Fact(icon: .agentChatList, text: message, lines: 2, kind: Fact.lastReplyKind))
         }
         return WorkspaceHoverCardContent(
             title: workspace.title, icon: remote.map(hostIcon) ?? workspace.kind.iconName,

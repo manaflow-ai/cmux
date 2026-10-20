@@ -38,8 +38,7 @@
               "appearance.metrics.tabMinInactiveWidth",
               "appearance.metrics.tabPinnedWidth",
               "tabs.cmdWClosesPinnedTabs",
-              "tabs.swapCmdTAndCmdN",
-              "tabs.newTabNowPlaying"
+              "tabs.swapCmdTAndCmdN"
             ],
             "title" : {
               "key" : "settings.group.tabs",
@@ -731,6 +730,17 @@
             "title" : {
               "key" : "settings.group.subsessions",
               "text" : "Sub-sessions"
+            }
+          },
+          {
+            "key" : "settings.group.chiefPet",
+            "rows" : [
+              "home.chiefPetEnabled",
+              "home.chiefPetMascot"
+            ],
+            "title" : {
+              "key" : "settings.group.chiefPet",
+              "text" : "Chief Pet"
             }
           }
         ],
@@ -19437,7 +19447,7 @@
       },
       "help" : {
         "key" : "settings.sidebar.nowPlaying.enabled.help",
-        "text" : "A player for what is playing, at the bottom of the sidebar."
+        "text" : "A player for what is playing, at the bottom of the sidebar and on the new chat page."
       },
       "kept_on_reset_all" : false,
       "key" : "sidebar.nowPlaying.enabled",
@@ -19467,57 +19477,6 @@
       "title" : {
         "key" : "settings.sidebar.nowPlaying.enabled",
         "text" : "Show Now Playing"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        true,
-        false
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : true,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.tabs",
-        "text" : "Tabs"
-      },
-      "help" : {
-        "key" : "settings.tabs.newTabNowPlaying.help",
-        "text" : "A player for what is playing, on the New Tab page."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "tabs.newTabNowPlaying",
-      "keywords" : [
-        "music",
-        "now playing",
-        "player",
-        "media",
-        "spotify",
-        "song",
-        "new tab",
-        "new chat"
-      ],
-      "kind" : "toggle",
-      "page_hidden" : false,
-      "path" : [
-        "tabs",
-        "newTabNowPlaying"
-      ],
-      "refuses" : [
-        "true",
-        1,
-        null
-      ],
-      "section" : "general",
-      "summary" : null,
-      "title" : {
-        "key" : "settings.tabs.newTabNowPlaying",
-        "text" : "Show Now Playing on New Tab"
       },
       "validation" : "portable"
     },
@@ -26330,6 +26289,174 @@
     },
     {
       "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.chiefPet",
+        "text" : "Chief Pet"
+      },
+      "help" : {
+        "key" : "settings.home.chiefPetEnabled.help",
+        "text" : "A small Chief floats over every app and shows agent events above it. Drag it anywhere; click it to message the Chief or reply to a session."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "home.chiefPetEnabled",
+      "keywords" : [
+        "chief",
+        "pet",
+        "mascot",
+        "floating",
+        "notifications",
+        "reply",
+        "dock"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "home",
+        "chiefPetEnabled"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "home",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.home.chiefPetEnabled",
+        "text" : "Show Chief Pet"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "orb",
+        "orb-spark",
+        "orb-hood",
+        "machine",
+        "machine-cyan",
+        "machine-blue",
+        "moon",
+        "moon-blue",
+        "fox"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.chiefPetMascot.orb",
+            "text" : "Orb"
+          },
+          "value" : "orb"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chiefPetMascot.orb-spark",
+            "text" : "Orb Spark"
+          },
+          "value" : "orb-spark"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chiefPetMascot.orb-hood",
+            "text" : "Hooded Orb"
+          },
+          "value" : "orb-hood"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chiefPetMascot.machine",
+            "text" : "Machine"
+          },
+          "value" : "machine"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chiefPetMascot.machine-cyan",
+            "text" : "Cyan Machine"
+          },
+          "value" : "machine-cyan"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chiefPetMascot.machine-blue",
+            "text" : "Blue Machine"
+          },
+          "value" : "machine-blue"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chiefPetMascot.moon",
+            "text" : "Moon"
+          },
+          "value" : "moon"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chiefPetMascot.moon-blue",
+            "text" : "Blue Moon"
+          },
+          "value" : "moon-blue"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chiefPetMascot.fox",
+            "text" : "Fox"
+          },
+          "value" : "fox"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "orb",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.chiefPet",
+        "text" : "Chief Pet"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "home.chiefPetMascot",
+      "keywords" : [
+        "chief",
+        "pet",
+        "mascot",
+        "character",
+        "avatar",
+        "pixel"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "home",
+        "chiefPetMascot"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "home",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.home.chiefPetMascot",
+        "text" : "Character"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "keystroke",
         "click",
         "focus",
@@ -29433,7 +29560,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "b59619cb9fe12ed9c6c51755fae10840936a0b9f2784a55be8e57e99a01eff48",
+  "schema_hash" : "c51e296d01a0cf71e80d2ac81b856c7a6ae292d8fb69f157e5b5f3510648fb7f",
   "sections" : [
     {
       "id" : "general",
