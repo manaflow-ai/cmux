@@ -20,6 +20,10 @@ public final class PageInputReadiness {
     /// An editable element has focus now (a text field, a code editor, a
     /// content-editable): bare keys are typing, not bindings.
     public private(set) var isEditableFocused = false
+    /// The pointer is over an element that scrolls sideways itself (a wide table or code line in
+    /// its own `overflow-x` box): the layout leaves a horizontal scroll there to the page
+    /// (``PageWebView`` claims it, `HorizontalScrollClaiming`) instead of scrolling the column strip.
+    public private(set) var isPointerOverSidewaysScroller = false
     /// Runs when ``isReady`` turns true.
     public var onReady: (() -> Void)?
     private weak var webView: WKWebView?
