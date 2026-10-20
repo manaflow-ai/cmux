@@ -99,8 +99,9 @@ public final class HoverCardCoordinator {
         observers.append(NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.activeSpaceDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.dismiss(.windowResignedKey) } // main-proof: observer on queue: .main
         })
-        for name in [NSWindow.didMoveNotification, NSWindow.didResizeNotification, NSWindow.didEndLiveResizeNotification] {
-            let ended = name == NSWindow.didEndLiveResizeNotification
+        for name in [NSWindow.didMoveNotification, NSWindow.didResizeNotification, NSWindow.didEndLiveResizeNotification,
+                     NSWindow.didEnterFullScreenNotification, NSWindow.didExitFullScreenNotification] {
+            let ended = name != NSWindow.didMoveNotification && name != NSWindow.didResizeNotification
             observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] note in
                 let number = (note.object as? NSWindow)?.windowNumber
                 MainActor.assumeIsolated { self?.windowGeometryChanged(number, liveResizeEnded: ended) } // main-proof: observer on queue: .main
@@ -180,7 +181,8 @@ public final class HoverCardCoordinator {
     public func geometryChanged(in window: NSWindow?) { geometryChanged(in: window, liveResizeEnded: false) }
 
     private func geometryChanged(in window: NSWindow?, liveResizeEnded: Bool) {
-        if !liveResizeEnded, window?.inLiveResize == true { return }
+        // A full screen transition too: AppKit animates a snapshot, the pointer is not over what it shows.
+        if !liveResizeEnded, Motion.isLiveResizing(window) { return }
         // Content moving under a held button (a click's relayout, a drag) changes nothing: a hit
         // of nil here would end the click's quiet, and the card would come back on release.
         if mouseButtonDown() { followShownTarget(); return }
