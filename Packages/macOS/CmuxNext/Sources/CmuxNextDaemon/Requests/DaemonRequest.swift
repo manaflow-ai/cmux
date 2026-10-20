@@ -3,8 +3,10 @@ import Foundation
 // Typed raw protocol v12 commands live under Requests/, one domain per folder.
 // Field names are camelCase and become snake_case on the wire. Sources:
 // cmux-tui/spec/commands.md and the server's `Command` enum
-// (crates/cmux-tui-core/src/server.rs). A command a daemon may not serve yet names
-// its `capability`, which the daemon advertises in `identify` when it does.
+// (crates/cmux-tui-core/src/server.rs). A command a daemon may not serve declares
+// it in `requiredCapability`, which the daemon advertises in `identify` when it
+// serves it; a few older families (`apps-v1`, `terminal-clipboard-read-v1`) are
+// still gated by their callers instead.
 
 /// One raw protocol v12 command. Conformers encode only their own fields;
 /// the envelope adds `id` and `cmd`. Property names are converted to
