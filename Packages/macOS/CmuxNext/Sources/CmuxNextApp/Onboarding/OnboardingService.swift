@@ -11,7 +11,8 @@ import os
 /// browser-data import offer, the default-app registry and the imported
 /// data, and feeds imported history to the omnibar at launch. Nothing opens
 /// at launch (Lawrence 2026-10-09: a launch goes straight to the main
-/// window).
+/// window); the one-time classic migration only adds classic's workspaces
+/// to the restored windows (Lawrence 2026-10-19, classic-migration-DESIGN.md).
 @MainActor
 final class OnboardingService {
     unowned let services: AppServices
@@ -36,8 +37,19 @@ final class OnboardingService {
     /// What acpmux would do with a classic agent session (`_acpmux/chat_open`):
     /// only `adopt` opens a chat. Nil asks this Mac's acpmux (tests answer).
     var classicChatPlan: (@MainActor (AgentPaneAdopt, String?) async throws -> AcpmuxChatOpenPlan?)?
-    /// The toast `workspace.importClassic` showed last.
+    /// The toast `workspace.importClassic` or the launch migration showed last.
     var classicImportNotice: String?
+    /// The classic migration's folder (ledger, backups); nil uses
+    /// `Application Support/cmux-next/<bundle id>/classic-migration` (tests use a scratch folder).
+    var classicMigrationDirectory: URL?
+    /// The Application Support folder holding classic's `cmux` folder; nil is this Mac's.
+    var classicMigrationSupport: URL?
+    /// Whether launch runs the classic migration; nil decides by build (shipping builds only).
+    var classicMigrationAtLaunch: Bool?
+    /// Whether a classic cmux app is running; nil reads it from how recently classic saved.
+    var classicRunning: (@MainActor () -> Bool)?
+    /// The migration run in flight or last finished: a new run waits for it.
+    var classicMigrationRun: Task<ClassicMigrationOutcome, any Error>?
 
     /// Computer Use Setup: the helper's grants for the palette action, Settings and the tool window.
     private(set) lazy var computerUseSetup = ComputerUseSetup.app(services: services)
