@@ -7,24 +7,24 @@ describe("permissions", () => {
     const { host, viewer } = await setup();
     const res = await viewer.call("GET", `/v1/permissions?host=${host.id}`);
     expect(res.json.permissions).toEqual([{ viewerId: viewer.id, scope: "ask" }]);
-    const set = await viewer.call("PUT", `/v1/permissions/${host.id}/${viewer.id}`, { scope: "view" });
+    const set = await host.call("PUT", `/v1/permissions/${host.id}/${viewer.id}`, { scope: "view" });
     expect(set.json.permission).toMatchObject({ hostId: host.id, viewerId: viewer.id, scope: "view" });
     expect((await host.user!.next((f) => f.type === "permissions.changed")).hostId).toBe(host.id);
     expect((await viewer.call("GET", `/v1/permissions?host=${host.id}`)).json.permissions).toEqual([{ viewerId: viewer.id, scope: "view" }]);
-    expect((await viewer.call("PUT", `/v1/permissions/${host.id}/${viewer.id}`, { scope: "admin" })).status).toBe(400);
-    expect((await viewer.call("PUT", `/v1/permissions/${host.id}/${host.id}`, { scope: "view" })).status).toBe(400);
+    expect((await host.call("PUT", `/v1/permissions/${host.id}/${viewer.id}`, { scope: "admin" })).status).toBe(400);
+    expect((await host.call("PUT", `/v1/permissions/${host.id}/${host.id}`, { scope: "view" })).status).toBe(400);
   });
 
   it("none refuses, view refuses full, view and full approve at once", async () => {
     const { host, viewer } = await setup();
     const req = (scope: string) => viewer.call("POST", "/v1/sessions", { hostId: host.id, scope });
-    await viewer.call("PUT", `/v1/permissions/${host.id}/${viewer.id}`, { scope: "none" });
+    await host.call("PUT", `/v1/permissions/${host.id}/${viewer.id}`, { scope: "none" });
     expect((await req("view")).json.error.code).toBe("permission_none");
-    await viewer.call("PUT", `/v1/permissions/${host.id}/${viewer.id}`, { scope: "view" });
+    await host.call("PUT", `/v1/permissions/${host.id}/${viewer.id}`, { scope: "view" });
     const full = await req("full");
     expect([full.status, full.json.error.code]).toEqual([403, "scope_exceeds_permission"]);
     expect((await req("view")).json.session.state).toBe("approved");
-    await viewer.call("PUT", `/v1/permissions/${host.id}/${viewer.id}`, { scope: "full" });
+    await host.call("PUT", `/v1/permissions/${host.id}/${viewer.id}`, { scope: "full" });
     expect((await req("full")).json.session).toMatchObject({ state: "approved", scope: "full" });
     expect((await req("view")).json.session).toMatchObject({ state: "approved", scope: "view" });
   });

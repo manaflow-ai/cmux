@@ -231,7 +231,7 @@ export async function setup(opts: { userId?: string; share?: boolean } = {}) {
 
 /** Viewer requests a session the host's permission auto-approves; returns both tickets. */
 export async function approvedSession(host: Device, viewer: Device, scope: "view" | "full" = "view") {
-  const perm = await viewer.call("PUT", `/v1/permissions/${host.id}/${viewer.id}`, { scope });
+  const perm = await host.call("PUT", `/v1/permissions/${host.id}/${viewer.id}`, { scope });
   expect(perm.status).toBe(200);
   const res = await viewer.call("POST", "/v1/sessions", { hostId: host.id, scope });
   expect(res.status, JSON.stringify(res.json)).toBe(200);
