@@ -91,6 +91,9 @@ public final class BrowserChromeView: NSView {
         return isToolbarHidden ? 0 : currentToolbarHeight
     }
     private var observation: ObservationLoop?
+    /// The address a page woken from hibernation slept on, shown until the
+    /// woken page reports a real one (`holdAddress(whileWaking:)`).
+    var wakingAddress: BrowserTabState?
     /// A typed https upgrade in flight (Chrome's http fallback).
     var httpsFallback = HTTPSUpgradeFallback()
     private var showsStop = false
@@ -305,7 +308,7 @@ public final class BrowserChromeView: NSView {
         reloadButton.target = self
         reloadButton.action = #selector(reloadOrStop)
         addressBar.onEvent = { [weak self] event in self?.omnibarEvent(event) }
-        addressBar.pageTitle = { [weak self] in self?.tab.state.title }
+        addressBar.pageTitle = { [weak self] in self?.tab.state.title ?? self?.wakingAddress?.title }
         addressBar.onTypedHTTPSUpgrade = { [weak self] url in
             guard let self else { return }
             httpsFallback.expect(url, current: tab.state.loadError)
@@ -329,6 +332,8 @@ public final class BrowserChromeView: NSView {
 
     private func attach(_ tab: any BrowserTab, replacing old: (any BrowserTab)?) {
         observation?.cancel()
+        // Another page in this toolbar: the held address was the old page's.
+        if let old, old !== tab { wakingAddress = nil }
         siteZoom.follow(tab)
         if let old, old !== tab {
             old.contentView.removeFromSuperview()
@@ -372,7 +377,7 @@ public final class BrowserChromeView: NSView {
             showsStop = loading
             reloadButton.setIcon(loading ? .browserToolbarStop : .browserToolbarReload, label: loading ? Strings.stop : Strings.reload)
         }
-        addressBar.update(url: Self.omnibarURL(for: state), security: PageInfoSite.omnibarSecurity(for: state))
+        updateAddress(for: state)
         updateMachineBadge()
         recordHistory(state)
         reportFinishedLoad(state)

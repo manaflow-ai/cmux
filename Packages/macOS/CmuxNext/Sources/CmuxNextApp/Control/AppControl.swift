@@ -237,6 +237,11 @@ final class AppControl {
                 guard let services else { return .value(.null) }
                 return .value(DebugAgentCursorDemo.handle(call.params, services: services))
             },
+            // A click on an agent cursor's name tag, as the person's (the tag is a link).
+            .mainActor("debug.agent_cursor.click_tag") { [weak services] call in
+                guard let services else { return .value(.null) }
+                return .value(DebugAgentCursor.clickTag(call.params, services: services))
+            },
             .mainActor("debug.key") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(DebugKey.send(call.params, services: services))

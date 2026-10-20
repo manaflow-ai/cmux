@@ -50290,6 +50290,138 @@
           }
         }
       }
+    },
+    "settingsWindow.backdropPicker.opacityFloor": {
+      "comment": "Summary under the Opacity slider over a background picture. %@ is a percentage such as 65%.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Starts at %@ so text stays readable over this picture"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يبدأ من %@ ليبقى النص مقروءًا فوق هذه الصورة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Počinje od %@ da tekst ostane čitljiv preko ove slike"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Starter ved %@, så teksten kan læses oven på billedet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beginnt bei %@, damit Text über diesem Bild lesbar bleibt"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Empieza en %@ para que el texto se lea sobre esta imagen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Commence à %@ pour que le texte reste lisible sur cette image"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Parte da %@ perché il testo resti leggibile sull'immagine"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この画像の上でも文字が読めるよう %@ から始まります"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ចាប់ផ្ដើមពី %@ ដើម្បីឱ្យអក្សរនៅតែអានបានលើរូបភាពនេះ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 그림 위에서도 글자가 읽히도록 %@부터 시작합니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Starter på %@ så teksten kan leses over bildet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zaczyna się od %@, by tekst był czytelny na tym obrazie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Começa em %@ para o texto continuar legível sobre a imagem"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Начинается с %@, чтобы текст читался поверх картинки"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เริ่มที่ %@ เพื่อให้อ่านข้อความบนภาพนี้ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Metin bu resmin üstünde okunabilsin diye %@ ile başlar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Починається з %@, щоб текст читався поверх зображення"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bắt đầu từ %@ để chữ vẫn đọc được trên ảnh này"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "从 %@ 开始，确保文字在这张图片上清晰可读"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "從 %@ 開始，確保文字在這張圖片上清晰可讀"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

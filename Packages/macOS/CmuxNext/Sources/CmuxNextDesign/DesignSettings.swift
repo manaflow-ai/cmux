@@ -138,8 +138,8 @@ public final class DesignSettings {
     /// `layout.rows`: off hides every row entry point and fits existing
     /// rows into their column (plans/cmux-next/rows.md O1 to O3).
     public var layoutRows = true
-    /// `layout.focusPaneOnScroll`: a scroll over an unfocused pane focuses it.
-    public var focusPaneOnScroll = true
+    /// `layout.focusFollowsMouse`: hovering or scrolling an unfocused pane focuses it (default off).
+    public var focusFollowsMouse = false
     /// `layout.minimumPaneWidth`, `layout.minimumPaneHeight`: the smallest
     /// content area a pane keeps below its chrome, in points.
     public var minimumPaneContentSize = CGSize(width: 200, height: 64)

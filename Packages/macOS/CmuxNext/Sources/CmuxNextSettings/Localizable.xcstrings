@@ -126596,399 +126596,6 @@
         }
       }
     },
-    "settings.layout.focusPaneOnScroll": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Focus Pane on Scroll"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "تركيز الجزء عند التمرير"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Fokusiraj okno pri pomicanju"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Fokuser rude ved rulning"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Bereich beim Scrollen fokussieren"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Enfocar panel al desplazar"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Activer le volet au défilement"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Attiva riquadro allo scorrimento"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "スクロールでペインにフォーカス"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ផ្ដោតលើផ្ទាំងពេលរំកិល"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "스크롤 시 패널에 포커스"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Fokuser rute ved rulling"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Aktywuj panel przy przewijaniu"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Focar painel ao rolar"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Фокус на панели при прокрутке"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "โฟกัสบานหน้าต่างเมื่อเลื่อน"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Kaydırınca Bölmeye Odaklan"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Фокус на панелі під час прокручування"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tập trung ngăn khi cuộn"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "滚动时聚焦窗格"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "捲動時聚焦窗格"
-          }
-        }
-      }
-    },
-    "settings.layout.focusPaneOnScroll.summary": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Scrolling a pane focuses it"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "التمرير في جزء يركّز عليه"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Pomicanje okna ga fokusira"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Rulning i en rude fokuserer den"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Scrollen in einem Bereich fokussiert ihn"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Desplazarse en un panel lo enfoca"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Faire défiler un volet l’active"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Scorrere un riquadro lo attiva"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ペインをスクロールするとフォーカスされます"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ការរំកិលផ្ទាំងធ្វើឱ្យវាត្រូវបានផ្ដោត"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "패널을 스크롤하면 포커스됩니다"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Rulling i en rute fokuserer den"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Przewinięcie panelu aktywuje go"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Rolar um painel o coloca em foco"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Прокрутка панели переводит на неё фокус"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "การเลื่อนบานหน้าต่างจะโฟกัสบานนั้น"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Bir bölmeyi kaydırmak ona odaklanır"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Прокручування панелі переводить на неї фокус"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Cuộn một ngăn sẽ tập trung vào ngăn đó"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "滚动窗格即可聚焦该窗格"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "捲動窗格即可聚焦該窗格"
-          }
-        }
-      }
-    },
-    "settings.layout.focusPaneOnScroll.help": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Scrolling over a pane focuses it. Momentum and scrolling within a second of typing leave focus where it is."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "التمرير فوق جزء يركّز عليه. التمرير بالزخم والتمرير خلال ثانية من الكتابة لا يغيّران التركيز."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Pomicanje preko okna ga fokusira. Inercijsko pomicanje i pomicanje unutar sekunde od tipkanja ne mijenjaju fokus."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Rulning over en rude fokuserer den. Inertirulning og rulning inden for et sekund efter indtastning ændrer ikke fokus."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Scrollen über einem Bereich fokussiert ihn. Nachlaufendes Scrollen und Scrollen innerhalb einer Sekunde nach dem Tippen ändern den Fokus nicht."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Desplazarse sobre un panel lo enfoca. El desplazamiento por inercia y el que ocurre un segundo después de escribir no cambian el foco."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Faire défiler au-dessus d’un volet l’active. Le défilement par inertie et le défilement dans la seconde qui suit la saisie ne changent pas le focus."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Scorrere sopra un riquadro lo attiva. Lo scorrimento inerziale e quello entro un secondo dalla digitazione non cambiano il focus."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ペインの上でスクロールするとフォーカスされます。慣性スクロールと、入力後1秒以内のスクロールではフォーカスは変わりません。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ការរំកិលលើផ្ទាំងធ្វើឱ្យវាត្រូវបានផ្ដោត។ ការរំកិលដោយសន្ទុះ និងការរំកិលក្នុងរយៈពេលមួយវិនាទីបន្ទាប់ពីវាយអក្សរ មិនផ្លាស់ប្ដូរការផ្ដោតទេ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "패널 위에서 스크롤하면 포커스됩니다. 관성 스크롤과 입력 후 1초 이내의 스크롤은 포커스를 바꾸지 않습니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Rulling over en rute fokuserer den. Treghetsrulling og rulling innen ett sekund etter skriving endrer ikke fokus."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Przewijanie nad panelem go aktywuje. Przewijanie bezwładnościowe i przewijanie w ciągu sekundy od pisania nie zmieniają fokusu."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Rolar sobre um painel o coloca em foco. A rolagem por inércia e a rolagem até um segundo após digitar não mudam o foco."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Прокрутка над панелью переводит на неё фокус. Инерционная прокрутка и прокрутка в течение секунды после ввода текста фокус не меняют."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "การเลื่อนเหนือบานหน้าต่างจะโฟกัสบานนั้น การเลื่อนแบบมีแรงเฉื่อยและการเลื่อนภายในหนึ่งวินาทีหลังพิมพ์จะไม่เปลี่ยนโฟกัส"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Bir bölmenin üzerinde kaydırmak ona odaklanır. Atalet kaydırması ve yazdıktan sonraki bir saniye içinde kaydırma odağı değiştirmez."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Прокручування над панеллю переводить на неї фокус. Інерційне прокручування та прокручування протягом секунди після введення тексту фокус не змінюють."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Cuộn trên một ngăn sẽ tập trung vào ngăn đó. Cuộn theo quán tính và cuộn trong vòng một giây sau khi gõ không đổi tiêu điểm."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "在窗格上滚动即可聚焦该窗格。惯性滚动以及输入后一秒内的滚动不会改变焦点。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "在窗格上捲動即可聚焦該窗格。慣性捲動以及輸入後一秒內的捲動不會改變焦點。"
-          }
-        }
-      }
-    },
     "settings.default.notificationBlue": {
       "comment": "Default label of the unread ring color setting (notifications.attention.color): the notification blue of the unread dot",
       "extractionState": "manual",
@@ -137893,6 +137500,661 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "一律以同一引擎開啟的網站：填寫網站（例如 spotify.com）以及 chromium 或 webkit。Spotify、Netflix 等受保護媒體網站會在 WebKit 中開啟，因為其媒體無法在 Chromium 中播放。"
+          }
+        }
+      }
+    },
+    "settings.layout.focusFollowsMouse": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Focus Follows Mouse"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "التركيز يتبع المؤشر"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fokus prati miša"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fokus følger musen"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fokus folgt der Maus"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El foco sigue al ratón"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le focus suit la souris"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lo stato attivo segue il mouse"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "マウスにフォーカスを追従"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការផ្ដោតតាមកណ្ដុរ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "마우스를 따라 포커스 이동"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fokus følger musen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fokus podąża za myszą"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Foco segue o mouse"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Фокус следует за мышью"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "โฟกัสตามเมาส์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Odak fareyi izler"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Фокус слідує за мишею"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tiêu điểm theo chuột"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "焦点跟随鼠标"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "焦點跟隨滑鼠"
+          }
+        }
+      }
+    },
+    "settings.layout.focusFollowsMouse.summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hovering or scrolling a pane focuses it"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "التمرير فوق جزء أو تحريك المؤشر عليه ينقل التركيز إليه"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prelazak mišem ili pomicanje preko okna ga fokusira"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Når du holder over eller ruller i en rude, får den fokus"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zeigen auf einen Bereich oder Scrollen darin fokussiert ihn"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pasar el puntero o desplazarse sobre un panel lo enfoca"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Survoler ou faire défiler un panneau lui donne le focus"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Passare sopra un riquadro o scorrerlo lo rende attivo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ペインにポインタを重ねるかスクロールするとフォーカスされます"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការដាក់ទស្សន៍ទ្រនិច ឬរំកិលលើផ្ទាំង នឹងផ្ដោតលើវា"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "창 위에 포인터를 올리거나 스크롤하면 포커스됩니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Når du holder over eller ruller i en rute, får den fokus"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Najechanie lub przewinięcie panelu ustawia na nim fokus"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Passar o ponteiro ou rolar sobre um painel o coloca em foco"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Наведение или прокрутка панели переводит на неё фокус"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การวางเมาส์หรือเลื่อนบนบานหน้าต่างจะโฟกัสบานนั้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bir bölmenin üzerine gelmek veya kaydırmak ona odaklanır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Наведення або прокручування панелі переводить на неї фокус"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Di chuột hoặc cuộn trên một ô sẽ đặt tiêu điểm vào ô đó"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "悬停或滚动窗格时聚焦该窗格"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "懸停或捲動窗格時聚焦該窗格"
+          }
+        }
+      }
+    },
+    "settings.layout.focusFollowsMouse.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Moving the pointer onto a pane or scrolling over it focuses that pane. Off keeps focus where you type until you click. Momentum and the first second after typing never move focus."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "نقل المؤشر إلى جزء أو التمرير فوقه ينقل التركيز إلى ذلك الجزء. عند الإيقاف يبقى التركيز حيث تكتب حتى تنقر. التمرير بالقصور الذاتي والثانية الأولى بعد الكتابة لا ينقلان التركيز أبدًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pomicanje pokazivača na okno ili skrolanje preko njega fokusira to okno. Kada je isključeno, fokus ostaje gdje kucate dok ne kliknete. Inercijsko skrolanje i prva sekunda nakon kucanja nikad ne pomiču fokus."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Når du flytter markøren hen over en rude eller ruller i den, får ruden fokus. Når det er slået fra, bliver fokus, hvor du skriver, indtil du klikker. Inerti-rulning og det første sekund efter indtastning flytter aldrig fokus."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wenn der Zeiger auf einen Bereich bewegt oder darin gescrollt wird, erhält dieser Bereich den Fokus. Aus lässt den Fokus dort, wo du tippst, bis du klickst. Nachlaufendes Scrollen und die erste Sekunde nach dem Tippen verschieben den Fokus nie."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mover el puntero a un panel o desplazarse sobre él lo enfoca. Desactivado, el foco se queda donde escribes hasta que hagas clic. La inercia y el primer segundo después de escribir nunca mueven el foco."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Déplacer le pointeur sur un panneau ou le faire défiler lui donne le focus. Désactivé, le focus reste là où vous tapez jusqu’à un clic. L’inertie et la première seconde après la saisie ne déplacent jamais le focus."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Spostare il puntatore su un riquadro o scorrerlo lo rende attivo. Se disattivato, lo stato attivo resta dove scrivi finché non fai clic. L’inerzia e il primo secondo dopo la digitazione non spostano mai lo stato attivo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ペインにポインタを移動するか、その上でスクロールすると、そのペインにフォーカスします。オフの場合、クリックするまで入力中の場所にフォーカスが残ります。慣性スクロールと入力後1秒以内はフォーカスを移動しません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការផ្លាស់ទីទស្សន៍ទ្រនិចទៅលើផ្ទាំង ឬរំកិលលើវា នឹងផ្ដោតលើផ្ទាំងនោះ។ ពេលបិទ ការផ្ដោតនៅកន្លែងដែលអ្នកវាយ រហូតដល់អ្នកចុច។ ការរំកិលបន្តដោយសន្ទុះ និងវិនាទីដំបូងក្រោយការវាយ មិនផ្លាស់ការផ្ដោតឡើយ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "포인터를 창으로 옮기거나 창 위에서 스크롤하면 그 창에 포커스됩니다. 끄면 클릭할 때까지 입력 중인 곳에 포커스가 유지됩니다. 관성 스크롤과 입력 후 1초 동안은 포커스를 옮기지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Når du flytter pekeren til en rute eller ruller i den, får ruten fokus. Av beholder fokus der du skriver til du klikker. Treghetsrulling og det første sekundet etter skriving flytter aldri fokus."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Przesunięcie wskaźnika na panel lub przewinięcie go ustawia na nim fokus. Wyłączone zostawia fokus tam, gdzie piszesz, aż klikniesz. Przewijanie bezwładnościowe i pierwsza sekunda po pisaniu nigdy nie przenoszą fokusu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mover o ponteiro para um painel ou rolar sobre ele coloca o painel em foco. Desativado, o foco fica onde você digita até você clicar. A inércia e o primeiro segundo após digitar nunca movem o foco."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Перемещение указателя на панель или прокрутка над ней переводит на неё фокус. Если выключено, фокус остаётся там, где вы печатаете, пока вы не щёлкнете. Инерционная прокрутка и первая секунда после ввода никогда не перемещают фокус."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การเลื่อนตัวชี้ไปบนบานหน้าต่างหรือเลื่อนบนบานนั้นจะโฟกัสบานนั้น เมื่อปิด โฟกัสจะอยู่ที่ที่คุณพิมพ์จนกว่าคุณจะคลิก การเลื่อนต่อเนื่องและวินาทีแรกหลังพิมพ์จะไม่ย้ายโฟกัส"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "İşaretçiyi bir bölmeye götürmek veya üzerinde kaydırmak o bölmeye odaklanır. Kapalıyken odak, tıklayana kadar yazdığınız yerde kalır. Atalet kaydırması ve yazdıktan sonraki ilk saniye odağı asla taşımaz."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Переміщення вказівника на панель або прокручування над нею переводить на неї фокус. Якщо вимкнено, фокус лишається там, де ви друкуєте, доки ви не клацнете. Інерційне прокручування й перша секунда після введення ніколи не переміщують фокус."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Di chuyển con trỏ vào một ô hoặc cuộn trên ô đó sẽ đặt tiêu điểm vào ô. Khi tắt, tiêu điểm ở nơi bạn gõ cho đến khi bạn nhấp. Cuộn quán tính và giây đầu tiên sau khi gõ không bao giờ di chuyển tiêu điểm."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "将指针移到窗格上或在其上滚动会聚焦该窗格。关闭时，焦点停留在你输入的位置，直到你点击。惯性滚动和输入后的第一秒不会移动焦点。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "將指標移到窗格上或在其上捲動會聚焦該窗格。關閉時，焦點會停留在你輸入的位置，直到你點按。慣性捲動和輸入後的第一秒不會移動焦點。"
+          }
+        }
+      }
+    },
+    "settings.sidebar.showSearchButton": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Search Button"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "検索ボタンを表示"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إظهار زر البحث"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prikaži dugme za pretragu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vis søgeknap"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Suchtaste anzeigen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostrar botón de búsqueda"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Afficher le bouton Rechercher"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostra pulsante Cerca"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បង្ហាញប៊ូតុងស្វែងរក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "검색 버튼 표시"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vis søkeknapp"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pokaż przycisk wyszukiwania"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostrar botão de pesquisa"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показывать кнопку поиска"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แสดงปุ่มค้นหา"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arama düğmesini göster"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показувати кнопку пошуку"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hiện nút tìm kiếm"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "显示搜索按钮"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "顯示搜尋按鈕"
+          }
+        }
+      }
+    },
+    "settings.sidebar.showSearchButton.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A magnifying glass after the profile button searches workspaces, tabs, history, agent chats, settings and commands. Off, Search stays in the command palette."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロフィールボタンの隣の虫眼鏡で、ワークスペース、タブ、履歴、エージェントチャット、設定、コマンドを検索します。オフにしても、検索はコマンドパレットから使えます。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "عدسة مكبرة بعد زر الملف الشخصي تبحث في مساحات العمل وعلامات التبويب والسجل ومحادثات الوكلاء والإعدادات والأوامر. عند الإيقاف يبقى البحث في لوحة الأوامر."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lupa nakon dugmeta profila pretražuje radne prostore, kartice, historiju, razgovore s agentima, postavke i komande. Kad je isključeno, pretraga ostaje u paleti komandi."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Et forstørrelsesglas efter profilknappen søger i arbejdsområder, faner, historik, agentchats, indstillinger og kommandoer. Slået fra findes Søg stadig i kommandopaletten."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Eine Lupe neben der Profiltaste durchsucht Arbeitsbereiche, Tabs, Verlauf, Agent-Chats, Einstellungen und Befehle. Aus: Die Suche bleibt in der Befehlspalette."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Una lupa junto al botón de perfil busca en espacios de trabajo, pestañas, historial, chats de agentes, ajustes y comandos. Desactivado, la búsqueda sigue en la paleta de comandos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Une loupe après le bouton de profil recherche espaces de travail, onglets, historique, discussions d’agents, réglages et commandes. Désactivé, la recherche reste dans la palette de commandes."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Una lente dopo il pulsante del profilo cerca spazi di lavoro, schede, cronologia, chat degli agenti, impostazioni e comandi. Se disattivato, la ricerca resta nella palette dei comandi."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កែវពង្រីកនៅក្រោយប៊ូតុងប្រវត្តិរូប ស្វែងរកកន្លែងធ្វើការ ផ្ទាំង ប្រវត្តិ ការជជែកជាមួយភ្នាក់ងារ ការកំណត់ និងពាក្យបញ្ជា។ បើបិទ ការស្វែងរកនៅតែមាននៅក្នុងផ្ទាំងពាក្យបញ្ជា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "프로필 버튼 옆의 돋보기로 워크스페이스, 탭, 기록, 에이전트 채팅, 설정, 명령을 검색합니다. 끄면 검색은 명령 팔레트에 남습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Et forstørrelsesglass etter profilknappen søker i arbeidsområder, faner, logg, agentchatter, innstillinger og kommandoer. Av: Søk finnes fortsatt i kommandopaletten."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lupa za przyciskiem profilu przeszukuje obszary robocze, karty, historię, czaty z agentami, ustawienia i polecenia. Po wyłączeniu wyszukiwanie zostaje w palecie poleceń."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uma lupa após o botão de perfil pesquisa espaços de trabalho, abas, histórico, chats de agentes, ajustes e comandos. Desativado, a pesquisa continua na paleta de comandos."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Лупа после кнопки профиля ищет по рабочим пространствам, вкладкам, истории, чатам агентов, настройкам и командам. Если выключено, поиск остаётся в палитре команд."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แว่นขยายถัดจากปุ่มโปรไฟล์ค้นหาพื้นที่ทำงาน แท็บ ประวัติ แชทเอเจนต์ การตั้งค่า และคำสั่ง เมื่อปิด การค้นหายังอยู่ในพาเลตคำสั่ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Profil düğmesinin yanındaki büyüteç çalışma alanlarında, sekmelerde, geçmişte, ajan sohbetlerinde, ayarlarda ve komutlarda arar. Kapalıyken arama komut paletinde kalır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Лупа після кнопки профілю шукає робочі простори, вкладки, історію, чати агентів, налаштування й команди. Вимкнено — пошук лишається в палітрі команд."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kính lúp sau nút hồ sơ tìm không gian làm việc, tab, lịch sử, trò chuyện với tác tử, cài đặt và lệnh. Khi tắt, tìm kiếm vẫn có trong bảng lệnh."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "个人资料按钮旁的放大镜可搜索工作区、标签页、历史记录、代理聊天、设置和命令。关闭后，搜索仍在命令面板中。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "個人資料按鈕旁的放大鏡可搜尋工作區、分頁、歷史記錄、代理聊天、設定和指令。關閉後，搜尋仍在指令面板中。"
           }
         }
       }
