@@ -55,3 +55,16 @@ priority = 50
 [[profile.ci.overrides]]
 filter = 'test(=lifecycle_latency_creates_and_closes_in_a_populated_session)'
 success-output = "final"
+
+# cmux-search: the perf guard and the ripgrep bench print their numbers on
+# success too (the bench also writes .build/search-bench/report.md). The
+# bench's 10 GB run (CMUX_SEARCH_BENCH_BYTES) needs far more than 120 s.
+[[profile.default.overrides]]
+filter = 'test(=cmux_search_bench_vs_ripgrep_report) | test(=cmux_search_perf_guard_median_query_and_index_size)'
+success-output = "immediate"
+slow-timeout = { period = "300s", terminate-after = 12, grace-period = "5s" }
+
+[[profile.ci.overrides]]
+filter = 'test(=cmux_search_bench_vs_ripgrep_report) | test(=cmux_search_perf_guard_median_query_and_index_size)'
+success-output = "immediate"
+slow-timeout = { period = "300s", terminate-after = 12, grace-period = "5s" }

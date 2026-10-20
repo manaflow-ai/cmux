@@ -1,0 +1,21 @@
+[package]
+name = "cmux-search"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "The search-everything index for cmux: trigram block postings over scrollback, full-screen frames, chats, Chief, files and names, fuzzy name matching and ranking"
+
+[dependencies]
+memchr = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+unicode-normalization = { workspace = true }
+
+[dev-dependencies]
+libc = { workspace = true }
+tempfile = "3"
+
+[lints]
+workspace = true

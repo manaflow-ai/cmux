@@ -198,10 +198,10 @@ gets a match tier on one shared scale, so a terminal error can beat a file name:
 | 4 | the query as a phrase, every word a whole word | the name or basename starts with the query |
 | 3 | every word starts a word (`migrat` in `migration failed`) | the query is contiguous at a word start (`migrat` in `db-migrations-DESIGN.md`) |
 | 2 | the query as a phrase anywhere | the query is contiguous anywhere |
-| 1 | every word somewhere in the doc | fuzzy: letters in order (fzf style, quality 0..99 breaks ties) |
+| 1 | every word somewhere in the doc | fuzzy: letters in order (fzf style; quality breaks ties) |
 
 Score = tier x 1000 + (kind weight - 1) x 500 + 400 x recency + frecency (at most 300) + name
-quality (0..99). Kind weights: `chief` 1.2, `chat` 1.15, `command` 1.1, names 1.1, `scrollback`
+quality / 3 (0..33). Kind weights: `chief` 1.2, `chat` 1.15, `command` 1.1, names 1.1, `scrollback`
 and `file` 1.0, `page` 0.95, `screen` 0.9. Recency = `exp(-age / 7 days)` (a name's age is its last
 use; a file's is its mtime). Frecency: +1 per open of the hit's target, half-life 3 days, keyed by
 target (Raycast/Alfred), 100 points per unit up to 300.
