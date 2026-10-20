@@ -52,7 +52,7 @@ mod trigram;
 pub use context::TargetContext;
 pub use corpus::SyntheticCorpus;
 pub use engine::{
-    Doc, EngineConfig, Hit, Query, SealDone, SealJob, SearchEngine, SearchResult, Stats,
+    Doc, EngineConfig, Hit, Query, Retired, SealDone, SealJob, SearchEngine, SearchResult, Stats,
 };
 pub use fold::fold;
 pub use frames::ScreenFrames;
