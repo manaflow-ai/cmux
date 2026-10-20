@@ -76,6 +76,9 @@ pub struct Session {
     /// Bumped when a record failed to reach the store; an agent host entry
     /// is acknowledged only when its record was stored.
     pub(super) append_errors: AtomicU64,
+    /// The seq of the last record that shows the agent doing work: a tool call that is not
+    /// messaging, or a file write (`agent_pairs.rs` `progress_record`). 0: none since load.
+    pub(super) last_progress: AtomicU64,
     /// The hub clock's time (`Hub::clock_now`) of the last record or
     /// attach change; the idle harness exit counts from it (`idle.rs`).
     pub(super) last_active: AtomicU64,
