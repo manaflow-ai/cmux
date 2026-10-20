@@ -270,12 +270,12 @@ impl Brain {
             .collect::<Vec<_>>()
             .join(", ");
         let head = format!(
-            "outcome: done. {} at work ({cap}{}); subagents of the last 2 h, newest first:",
+            "outcome: done. {} at work ({cap}){}; subagents of the last 2 h, newest first:",
             self.live_subs(),
             if states.is_empty() {
                 String::new()
             } else {
-                format!("; {states}")
+                format!(": {states}")
             }
         );
         if lines.is_empty() {
