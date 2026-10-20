@@ -23,6 +23,7 @@ import {
   providerField,
   stringField,
 } from "../../../../services/vms/routeInput";
+import { enforceVmAllocationRateLimit } from "../../../../services/vms/allocationRateLimit";
 
 // Restore cold-provisions a machine from a snapshot; same budget and
 // rationale as POST /api/vm (see app/api/vm/route.ts).
@@ -79,6 +80,15 @@ export async function POST(request: Request): Promise<Response> {
       const account = await resolveVmProvisioningAccountScope(user, request, { requestedBillingTeamId });
       if (!account.ok) return account.response;
       const entitlements = account.entitlements;
+      const idempotency = idempotencyKeyFromRequest(request);
+      if (!idempotency.ok) return idempotency.response;
+      const idempotencyKey = idempotency.key;
+      const limited = await enforceVmAllocationRateLimit({
+        request,
+        route: "vm.restore",
+        billingTeamId: entitlements.billingTeamId,
+      });
+      if (limited) return limited;
 
       // Restore provisions a brand-new machine on `provider`; check the
       // environment kill switch only after the paid-plan boundary so a free
@@ -100,9 +110,6 @@ export async function POST(request: Request): Promise<Response> {
         }
         throw err;
       }
-      const idempotency = idempotencyKeyFromRequest(request);
-      if (!idempotency.ok) return idempotency.response;
-      const idempotencyKey = idempotency.key;
       setSpanAttributes(span, {
         "cmux.snapshot.id": snapshotId,
         "cmux.vm.provider": provider,

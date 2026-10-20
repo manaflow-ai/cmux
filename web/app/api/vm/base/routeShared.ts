@@ -35,6 +35,7 @@ import {
   openBaseVm,
   resetBaseVm,
 } from "../../../../services/vms/workflows";
+import { enforceVmAllocationRateLimit } from "../../../../services/vms/allocationRateLimit";
 
 type BaseOperation = "open" | "reset";
 
@@ -63,6 +64,12 @@ export async function runBaseRoute(input: {
   const account = await resolveVmProvisioningAccountScope(user, input.request, { requestedBillingTeamId });
   if (!account.ok) return account.response;
   const entitlements = account.entitlements;
+  const limited = await enforceVmAllocationRateLimit({
+    request: input.request,
+    route: `vm.base.${input.operation}`,
+    billingTeamId: entitlements.billingTeamId,
+  });
+  if (limited) return limited;
 
   // Same provider inference as POST /api/vm: an explicit manifest image
   // names its own provider even when the deployment default disagrees.

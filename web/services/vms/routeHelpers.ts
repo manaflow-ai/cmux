@@ -1100,6 +1100,16 @@ export const vmWorkflowErrorResponders = {
       phase: "snapshot",
       retryable: false,
     }),
+  VmSnapshotQuotaExceededError: (error) =>
+    vmErrorResponse({
+      error: "vm_snapshot_quota_exceeded",
+      status: 409,
+      message: `This Cloud VM already has ${error.limit} snapshots.`,
+      action: "Delete an existing snapshot, then retry with the same idempotency key.",
+      phase: "snapshot",
+      retryable: false,
+      details: { limit: error.limit },
+    }),
   VmResizeInProgressError: () =>
     vmErrorResponse({
       error: "vm_resize_in_progress",

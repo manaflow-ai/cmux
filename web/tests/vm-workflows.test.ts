@@ -9680,5 +9680,27 @@ describe("Cloud snapshot request ledger (Postgres)", () => {
       values ('user-snapshot-quota', 'team-snapshot-quota', 'pro', ${vm.id}, 'vm.snapshot.deleted', 'freestyle', 'image-snapshot-quota', ${sql.json({ snapshotId: "snap-last" })})
     `;
     expect(await claim("after-delete")).toEqual({ kind: "started" });
+
+    // The succeeded request bridges the provider result to the usage-event
+    // write. Once both exist they describe one snapshot, not two quota slots.
+    await sql`truncate cloud_vm_snapshot_requests, cloud_vm_usage_events`;
+    expect(await claim("deduped-first")).toEqual({ kind: "started" });
+    await Effect.runPromise(repo.finishSnapshotRequest!({
+      vmId: vm.id,
+      idempotencyKey: "deduped-first",
+      outcome: { kind: "succeeded", snapshot: { id: "snap-deduped", createdAt: 1234 } },
+    }));
+    await sql`
+      insert into cloud_vm_usage_events (user_id, billing_team_id, billing_plan_id, vm_id, event_type, provider, image_id, metadata)
+      values ('user-snapshot-quota', 'team-snapshot-quota', 'pro', ${vm.id}, 'vm.snapshot.created', 'freestyle', 'image-snapshot-quota', ${sql.json({ snapshotId: "snap-deduped" })})
+    `;
+    const second = await Effect.runPromise(repo.beginSnapshotRequest!({
+      vmId: vm.id,
+      idempotencyKey: "deduped-second",
+      name: null,
+      staleBefore: new Date(0),
+      maxSnapshots: 2,
+    }));
+    expect(second).toEqual({ kind: "started" });
   });
 });

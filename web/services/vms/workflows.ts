@@ -96,6 +96,7 @@ import {
   VmSnapshotNotFoundError,
   VmSnapshotInProgressError,
   VmSnapshotIdempotencyConflictError,
+  VmSnapshotQuotaExceededError,
   VmUsageLimitExceededError,
   VmPlanBudgetExceededError,
   VmGoShapeError,
@@ -2090,6 +2091,7 @@ function afterResponseOrNow<E>(
  * without finishing (the route budget is 600 s), so a retry may take it over.
  */
 export const SNAPSHOT_REQUEST_STALE_MS = 15 * 60 * 1000;
+export const VM_SNAPSHOT_LIMIT = 10;
 
 export function snapshotVm(input: {
   readonly userId: string;
@@ -2121,10 +2123,14 @@ export function snapshotVm(input: {
         idempotencyKey: key,
         name: input.name ?? null,
         staleBefore: new Date(Date.now() - SNAPSHOT_REQUEST_STALE_MS),
+        maxSnapshots: VM_SNAPSHOT_LIMIT,
       });
       if (begin.kind === "succeeded") return begin.snapshot;
       if (begin.kind === "in_progress") return yield* Effect.fail(new VmSnapshotInProgressError({ vmId: vm.id }));
       if (begin.kind === "conflict") return yield* Effect.fail(new VmSnapshotIdempotencyConflictError({ vmId: vm.id }));
+      if (begin.kind === "quota_exceeded") {
+        return yield* Effect.fail(new VmSnapshotQuotaExceededError({ vmId: vm.id, limit: begin.limit }));
+      }
     }
     const finish = repo.finishSnapshotRequest;
     const takeSnapshot: Effect.Effect<SnapshotRef, VmProviderOperationError | VmOperationUnsupportedError> = providers.snapshot
@@ -2994,6 +3000,7 @@ export function forkVm(input: {
       billingTeamId: source.billingTeamId,
       providerVmId: input.providerVmId,
       name: input.name,
+      idempotencyKey: `fork-${createHash("sha256").update(input.idempotencyKey ?? randomUUID()).digest("hex")}`,
       timing: input.timing,
       deferAfterResponse: input.deferAfterResponse,
     });
