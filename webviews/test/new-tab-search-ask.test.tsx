@@ -1,5 +1,5 @@
 // Leo 2026-10-18: Search and Ask switching comes back to the default New Tab screen (reverses R86,
-// Lawrence 2026-10-04). A Search | Ask switch sits at the field's right with "Tab to switch"; Tab
+// Lawrence 2026-10-04). A Search | Ask switch sits above the box at its right edge with "Tab to switch"; Tab
 // flips it without leaving the field (Shift-Tab still leaves), and the mode decides which row Return takes:
 // Ask puts the agent first, Search the web search. An address still opens first in either mode.
 import { afterAll, beforeAll, expect, test } from "bun:test";
