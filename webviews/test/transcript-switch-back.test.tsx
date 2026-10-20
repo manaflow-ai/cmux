@@ -191,3 +191,23 @@ test("back on a chat, a revealed reply's backlog draws at once with no entrance"
     await act(async () => root.unmount());
   }
 });
+
+// A code fence that closed while the chat was hidden hands its plain card over to the highlighted
+// one without the cross-fade: nobody watched it close.
+test("back on a chat, a code block that closed while it was hidden does not cross-fade", async () => {
+  const root = createRoot(dom.window.document.getElementById("root")!);
+  const render = (text: string) => root.render(<Markdown streaming>{text}</Markdown>);
+  try {
+    await act(async () => render("Here:\n\n```js\nconst a = 1;\n"));
+    const seen = await page.switchAwayAndBack({
+      away: () => render("Here:\n\n```js\nconst a = 1;\n```\n\nDone."),
+    });
+    // The handoff waits up to a second for the highlighted lines, then hands over.
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 1_200)));
+    expect(seen.entrances).toEqual([]);
+    expect(page.entrances()).toEqual([]);
+    expect(dom.window.document.querySelector(".cv-code-handoff.is-fading")).toBeNull();
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
