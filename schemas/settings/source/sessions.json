@@ -57,6 +57,53 @@
             "power",
             "agents"
           ]
+        },
+        {
+          "key": "sessions.allowFullAccess",
+          "name": "allowFullAccess",
+          "note": "Off: AgentPaneTransport refuses session/set_mode and the mode config option into a mode that skips approvals (AgentPaneModeConfirmation.isFullAccess, the picker's warning-color rule). On by default: today's behavior, and Lawrence 2026-10-07 (no sheet for full access).",
+          "title": {
+            "key": "settings.sessions.allowFullAccess",
+            "text": "Allow Full-Access Modes"
+          },
+          "help": {
+            "key": "settings.sessions.allowFullAccess.help",
+            "text": "Modes like bypass permissions, full access or yolo let an agent run commands and change files without asking, which can lose data or leak it through a prompt injection. Off, cmux won't switch an agent into them. On by default."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "bypass",
+            "permissions",
+            "yolo",
+            "full access",
+            "dangerous",
+            "approve",
+            "safety"
+          ]
+        },
+        {
+          "key": "sessions.promptSuggestions",
+          "name": "promptSuggestions",
+          "note": "Agents get the cmux-sessions MCP tools (ACPMUX_OFFER_TOOLS=1, read at each acpmux daemon start) and the pages show their suggested tasks (AgentPaneSuggestedTasks). The Debug Settings toggle agent.suggestedTasks still turns it on. Off by default, as the tunable was.",
+          "title": {
+            "key": "settings.sessions.promptSuggestions",
+            "text": "Suggest Follow-Up Tasks"
+          },
+          "help": {
+            "key": "settings.sessions.promptSuggestions.help",
+            "text": "Agents can suggest next tasks, which you start as child chats beside the current one. Agents started after the change get it."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "suggestions",
+            "prompt",
+            "follow-up",
+            "tasks",
+            "child chats",
+            "subagents"
+          ]
         }
       ]
     },
@@ -91,6 +138,47 @@
             "phone",
             "pair",
             "privacy"
+          ]
+        },
+        {
+          "key": "phone.newDevices",
+          "name": "newDevices",
+          "note": "How a phone on the account that is not on this Mac's allowed list (PhoneDeviceStore) gets in: the person allows it on the Mac once (PhoneAdmission), or the account check alone admits it, the behavior before this setting. Code pairing from the phone comes later.",
+          "title": {
+            "key": "settings.phone.newDevices",
+            "text": "New Phones"
+          },
+          "help": {
+            "key": "settings.phone.newDevices.help",
+            "text": "The first time a phone signed in to your cmux account connects, this Mac can ask you to allow it. Allowed phones are listed below, where you can remove them."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "ask",
+              "title": {
+                "key": "settings.choice.phoneNewDevicesAsk",
+                "text": "Ask on This Mac"
+              },
+              "note": "One question per new phone; the answer is remembered."
+            },
+            {
+              "value": "account",
+              "title": {
+                "key": "settings.choice.phoneNewDevicesAccount",
+                "text": "Any Phone on My Account"
+              },
+              "note": "No question: every phone signed in to the same account and team gets in."
+            }
+          ],
+          "default": "ask",
+          "keywords": [
+            "iphone",
+            "pair",
+            "approve",
+            "device",
+            "trust",
+            "remove"
           ]
         },
         {

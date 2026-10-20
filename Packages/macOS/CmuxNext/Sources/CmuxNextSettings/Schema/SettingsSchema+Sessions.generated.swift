@@ -5,12 +5,21 @@ extension SessionSettings {
     /// `sessions.keepAwake`: Idle system sleep stays off while a local agent works (KeepAwakeService). The display can still sleep, and closing the lid still sleeps the Mac.
     public nonisolated static let keepAwakePath = ["sessions", "keepAwake"]
     public nonisolated static let keepAwakeDefault: SessionKeepAwakeSetting = .pluggedIn
+    /// `sessions.allowFullAccess`: Off: AgentPaneTransport refuses session/set_mode and the mode config option into a mode that skips approvals (AgentPaneModeConfirmation.isFullAccess, the picker's warning-color rule). On by default: today's behavior, and Lawrence 2026-10-07 (no sheet for full access).
+    public nonisolated static let allowFullAccessPath = ["sessions", "allowFullAccess"]
+    public nonisolated static let allowFullAccessDefault = true
+    /// `sessions.promptSuggestions`: Agents get the cmux-sessions MCP tools (ACPMUX_OFFER_TOOLS=1, read at each acpmux daemon start) and the pages show their suggested tasks (AgentPaneSuggestedTasks). The Debug Settings toggle agent.suggestedTasks still turns it on. Off by default, as the tunable was.
+    public nonisolated static let promptSuggestionsPath = ["sessions", "promptSuggestions"]
+    public nonisolated static let promptSuggestionsDefault = false
 }
 
 extension SessionSettings {
     /// `phone.allowConnections`: Off: the phone listener does not run and no phone reaches this Mac. Off on a fresh install; a Mac that already served phones keeps it on (PhoneAccessMigration).
     public nonisolated static let allowConnectionsPath = ["phone", "allowConnections"]
     public nonisolated static let allowConnectionsDefault = false
+    /// `phone.newDevices`: How a phone on the account that is not on this Mac's allowed list (PhoneDeviceStore) gets in: the person allows it on the Mac once (PhoneAdmission), or the account check alone admits it, the behavior before this setting. Code pairing from the phone comes later.
+    public nonisolated static let newDevicesPath = ["phone", "newDevices"]
+    public nonisolated static let newDevicesDefault: PhoneNewDevicesSetting = .ask
     /// `phone.startSessions`: Off: phones may view, type into and answer existing workspaces and agents, but not create workspaces or terminals (compat RPC and daemon lanes alike).
     public nonisolated static let startSessionsPath = ["phone", "startSessions"]
     public nonisolated static let startSessionsDefault = true
@@ -42,6 +51,26 @@ nonisolated enum SessionSettingsSchema {
                 default: .string(SessionSettings.keepAwakeDefault.rawValue),
                 keywords: ["sleep", "awake", "caffeinate", "battery", "power", "agents"]
             ),
+            SettingDescriptor(
+                SessionSettings.allowFullAccessPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.sessions.allowFullAccess", "Allow Full-Access Modes"),
+                help: SettingsText.keyed("settings.sessions.allowFullAccess.help", "Modes like bypass permissions, full access or yolo let an agent run commands and change files without asking, which can lose data or leak it through a prompt injection. Off, cmux won't switch an agent into them. On by default."),
+                kind: .toggle,
+                default: .bool(SessionSettings.allowFullAccessDefault),
+                keywords: ["bypass", "permissions", "yolo", "full access", "dangerous", "approve", "safety"]
+            ),
+            SettingDescriptor(
+                SessionSettings.promptSuggestionsPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.sessions.promptSuggestions", "Suggest Follow-Up Tasks"),
+                help: SettingsText.keyed("settings.sessions.promptSuggestions.help", "Agents can suggest next tasks, which you start as child chats beside the current one. Agents started after the change get it."),
+                kind: .toggle,
+                default: .bool(SessionSettings.promptSuggestionsDefault),
+                keywords: ["suggestions", "prompt", "follow-up", "tasks", "child chats", "subagents"]
+            ),
         ]
     }
 
@@ -58,6 +87,19 @@ nonisolated enum SessionSettingsSchema {
                 kind: .toggle,
                 default: .bool(SessionSettings.allowConnectionsDefault),
                 keywords: ["iphone", "ios", "mobile", "remote", "phone", "pair", "privacy"]
+            ),
+            SettingDescriptor(
+                SessionSettings.newDevicesPath,
+                section: .machines,
+                group: group,
+                title: SettingsText.keyed("settings.phone.newDevices", "New Phones"),
+                help: SettingsText.keyed("settings.phone.newDevices.help", "The first time a phone signed in to your cmux account connects, this Mac can ask you to allow it. Allowed phones are listed below, where you can remove them."),
+                kind: .choice([
+                    SettingChoice(PhoneNewDevicesSetting.ask.rawValue, SettingsText.keyed("settings.choice.phoneNewDevicesAsk", "Ask on This Mac")),
+                    SettingChoice(PhoneNewDevicesSetting.account.rawValue, SettingsText.keyed("settings.choice.phoneNewDevicesAccount", "Any Phone on My Account")),
+                ]),
+                default: .string(SessionSettings.newDevicesDefault.rawValue),
+                keywords: ["iphone", "pair", "approve", "device", "trust", "remove"]
             ),
             SettingDescriptor(
                 SessionSettings.startSessionsPath,

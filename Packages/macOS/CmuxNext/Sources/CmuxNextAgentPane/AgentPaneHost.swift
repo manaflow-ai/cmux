@@ -73,9 +73,9 @@ public actor AcpmuxHost: AgentPaneHostProviding {
     /// The Computer Use socket and agent token now (`AcpmuxEnvironment.computerUse`),
     /// read at each daemon start, since Computer Use turns on and off while the app runs.
     private let computerUse: @Sendable () -> [String: String]
-    /// Whether the daemon gets the session offer tools now (`AcpmuxEnvironment.offersSessionTools`,
-    /// the `agent.suggestedTasks` Debug Settings toggle), read at each daemon start: a toggle applies to the next daemon
-    /// this app starts, never to the one already running.
+    /// Whether the daemon gets the session offer tools now (`AcpmuxEnvironment.offersSessionTools`:
+    /// `sessions.promptSuggestions` or the `agent.suggestedTasks` Debug Settings toggle), read at each
+    /// daemon start: a change applies to the next daemon this app starts, never to the one running.
     private let offersSessionTools: @Sendable () -> Bool
     /// Called with the daemon socket after each successful find or start, so
     /// the Computer Use helper v2 can register this daemon.
@@ -102,7 +102,7 @@ public actor AcpmuxHost: AgentPaneHostProviding {
     /// off the main thread, at the first handshake that needs it.
     public init(resolve: @escaping @Sendable () -> AcpmuxEnvironment?,
                 computerUse: @escaping @Sendable () -> [String: String] = { [:] },
-                offersSessionTools: @escaping @Sendable () -> Bool = { AgentPaneTunables.suggestedTasks.value },
+                offersSessionTools: @escaping @Sendable () -> Bool = { AgentPaneSuggestedTasks.forNextDaemon.isOn },
                 daemonReady: (@Sendable (String) async -> Void)? = nil) {
         self.resolveEnvironment = resolve
         self.computerUse = computerUse

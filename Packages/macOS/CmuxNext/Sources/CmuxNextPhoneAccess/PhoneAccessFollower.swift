@@ -5,8 +5,9 @@ import Foundation
 import os
 
 /// Applies Settings > Accounts > Phone Access: the phone listener runs only
-/// while `phone.allowConnections` is on, and `phone.startSessions` reaches
-/// every phone request through the host's `PhoneAccessGate`.
+/// while `phone.allowConnections` is on, `phone.startSessions` reaches every
+/// phone request through the host's `PhoneAccessGate`, and `phone.newDevices`
+/// decides who asks (`PhoneAdmission`).
 final class PhoneAccessFollower {
     private let mobile: MobileHostService
     private let settings: SettingsController
@@ -25,11 +26,10 @@ final class PhoneAccessFollower {
         observation = Task { [mobile, settings, history] in
             await settings.waitForLoad(atLeast: 1)
             await PhoneAccessMigration.run(settings: settings, history: history)
-            for await (allowed, starts) in ObservationStream({
-                (settings.snapshot.sessions.allowsPhone, settings.snapshot.sessions.phoneStartsSessions)
-            }) {
-                mobile.access.setAllowsStartingSessions(starts)
-                mobile.setAllowed(allowed)
+            for await sessions in ObservationStream({ settings.snapshot.sessions }) {
+                mobile.access.setAllowsStartingSessions(sessions.phoneStartsSessions)
+                mobile.admission?.mode = sessions.phoneNewDevices
+                mobile.setAllowed(sessions.allowsPhone)
             }
         }
     }

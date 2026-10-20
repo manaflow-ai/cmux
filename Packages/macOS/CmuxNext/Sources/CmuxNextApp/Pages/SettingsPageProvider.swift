@@ -53,6 +53,8 @@ final class SettingsPageProvider: PageProvider {
     /// The registry's buttons for a section (`SettingsSchema.actions(in:)`): id, localized title,
     /// and whether it can run now.
     var sectionActions: (@MainActor (SettingsSection) -> JSONValue)?
+    /// Settings > Accounts > Phone Access: Remove (`cmux.settings.phones.remove`).
+    var removePhone: (@MainActor (String) throws -> Void)?
     /// Results of recent writes by idempotency key (a retried key replays its first answer).
     private var replies: [(key: String, value: JSONValue)] = []
     private static let replayLimit = 64
@@ -101,38 +103,34 @@ final class SettingsPageProvider: PageProvider {
                 await self.settings.reload()
                 return SettingsSchema.all.filter { $0.storedValue(in: before) != $0.storedValue(in: self.settings.snapshot.root) }.map(\.id)
             }
+        case "cmux.settings.phones.remove":
+            // Only the person's own click on this page removes a phone.
+            guard Self.writer(context) == .user, let id = params["id"]?.stringValue else { throw PageError(code: "cmux.settings.user_only", message: "a click on this page, with an id, removes a phone") }
+            try Self.available(removePhone, "no phones")(id)
+            return .object([:])
         case "cmux.settings.host.lists":
-            guard let hostLists else { throw PageError(code: "cmux.page.unavailable", message: "no host lists") }
-            return hostLists()
+            return try Self.available(hostLists, "no host lists")()
         case "cmux.settings.accounts.state":
-            guard let accountsState else { throw PageError(code: "cmux.page.unavailable", message: "no accounts") }
-            return accountsState()
+            return try Self.available(accountsState, "no accounts")()
         case "cmux.settings.accounts.run":
-            guard let accountsRun else { throw PageError(code: "cmux.page.unavailable", message: "no accounts") }
-            return try await accountsRun(params)
+            return try await Self.available(accountsRun, "no accounts")(params)
         case "cmux.settings.agents.state":
-            guard let agents else { throw PageError(code: "cmux.page.unavailable", message: "no agents") }
-            return agents.pageState
+            return try Self.available(agents, "no agents").pageState
         case "cmux.settings.agents.run":
-            guard let agents else { throw PageError(code: "cmux.page.unavailable", message: "no agents") }
-            return try await agents.runPage(params)
+            return try await Self.available(agents, "no agents").runPage(params)
         case "cmux.settings.harnesses.state":
-            guard let harnessesState else { throw PageError(code: "cmux.page.unavailable", message: "no harnesses") }
-            return harnessesState()
+            return try Self.available(harnessesState, "no harnesses")()
         case "cmux.settings.harnesses.run":
-            guard let harnessesRun else { throw PageError(code: "cmux.page.unavailable", message: "no harnesses") }
-            return try await harnessesRun(params, context)
+            return try await Self.available(harnessesRun, "no harnesses")(params, context)
         case "cmux.settings.theme.set":
             guard let setTheme else { throw PageError(code: "cmux.page.unavailable", message: "no theme host") }
             guard let level = params["level"]?.stringValue else { throw PageError.invalidParams("level is required") }
             do { try setTheme(level, params["spec"]?.stringValue) } catch { throw PageError.invalidParams("unknown theme level \(level)") }
             return .object([:])
         case "cmux.settings.theme.colors":
-            guard let themeColors else { throw PageError(code: "cmux.page.unavailable", message: "no theme colors") }
-            return ["themes": .array(themeColors().map(Self.json))]
+            return ["themes": .array(try Self.available(themeColors, "no theme colors")().map(Self.json))]
         case "cmux.settings.theme.save", "cmux.settings.theme.import":
-            guard let themeFiles else { throw PageError(code: "cmux.page.unavailable", message: "no theme files") }
-            return try await themeFiles.call(op, params: params, edits: settings.applied.themeEdits, writer: Self.writer(context))
+            return try await Self.available(themeFiles, "no theme files").call(op, params: params, edits: settings.applied.themeEdits, writer: Self.writer(context))
         case "cmux.settings.theme.accepts":
             return ["accepts": .bool(acceptsTheme?(params["text"]?.stringValue ?? "") ?? false)]
         case "cmux.settings.folders.add":
@@ -333,6 +331,11 @@ final class SettingsPageProvider: PageProvider {
     /// real key or mouse event in its view (`context.userGesture`, the host's record) from the
     /// bundled cmux.settings page (the router admits only its trusted frame). A script write with
     /// no gesture is a page write and may change only agent-settable keys.
+    /// A host part the app wired, else the page's `cmux.page.unavailable` (tests without an app).
+    static func available<Part>(_ part: Part?, _ missing: String) throws -> Part {
+        if let part { return part } else { throw PageError(code: "cmux.page.unavailable", message: missing) }
+    }
+
     static func writer(_ context: PageCallContext) -> SettingWriter {
         context.page == PageDescriptor.settings.id && context.userGesture ? .user : .caller("page")
     }

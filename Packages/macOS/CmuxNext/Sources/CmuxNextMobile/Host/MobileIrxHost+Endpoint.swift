@@ -149,10 +149,19 @@ extension MobileIrxHost {
                            admission: V2InboundAdmissionAuthority, registry: IrxServerSessionRegistry) async {
         guard let (peer, control, sessionID) = await IrxAdmission().performServer(
             connection: irx, judgment: judgment, journal: journal) else { return }
-        let isMac = cachedState?.directory?.inboundPeers?.first {
+        let descriptor = cachedState?.directory?.inboundPeers?.first {
             $0.device.descriptor.endpointID.caseInsensitiveCompare(peer.endpointIDHex) == .orderedSame
-        }?.device.descriptor.metadata.platform == .mac
-        guard !isMac, let backend, let macDeviceID else {
+        }?.device.descriptor
+        guard descriptor?.metadata.platform != .mac, let backend, let macDeviceID else {
+            await irx.close(code: .revoked, origin: .local)
+            return
+        }
+        // Settings > Accounts > Phone Access: an allowed phone, or one the person allows now. A phone
+        // is the connection's endpoint key (its TLS identity), never the device id it registered with
+        // the account, which another device on the same account could claim.
+        let device = PhoneDevice(id: peer.endpointIDHex.lowercased(), name: descriptor?.metadata.displayName ?? peer.deviceID)
+        guard await access.admits(device) else {
+            journal.record("next-host", "phone-not-allowed", ["session": sessionID])
             await irx.close(code: .revoked, origin: .local)
             return
         }
@@ -160,6 +169,12 @@ extension MobileIrxHost {
         guard await registry.admit(deviceID: peer.bindingID, sessionID: sessionID, connection: irx,
                                    stillAuthorized: recheck) else {
             await irx.close(code: .revoked, origin: .local)
+            return
+        }
+        // A Remove that landed while this connection was being admitted closed nothing yet: check again.
+        guard access.stillAllows(device.id) else {
+            await irx.close(code: .revoked, origin: .local)
+            await registry.remove(deviceID: peer.bindingID, sessionID: sessionID)
             return
         }
         await irx.authorizeDirectPaths()
@@ -175,6 +190,12 @@ extension MobileIrxHost {
         await irx.close(code: .hostShutdown, origin: .local)
         await registry.remove(deviceID: peer.bindingID, sessionID: sessionID)
         journal.record("next-host", "phone-closed", ["session": sessionID])
+    }
+
+    /// Closes every open session of a phone the person removed from the allowed list (its endpoint key).
+    public func disconnect(phone endpoint: String) async {
+        guard let registry else { return }
+        await registry.closeAll(code: .revoked, matching: { $0.caseInsensitiveCompare(endpoint) == .orderedSame })
     }
 
     /// Closes sessions whose v2 permission lapsed or was revoked.
