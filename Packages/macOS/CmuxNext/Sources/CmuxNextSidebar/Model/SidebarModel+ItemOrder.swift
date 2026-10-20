@@ -16,6 +16,13 @@ extension SidebarModel {
         return order
     }
 
+    /// The document sections the list draws as its own sections (blocks and group rows), by raw id. A top
+    /// section not in it (the pinned header, ``SidebarLayoutDocument/pinnedHeaderSectionID(grouped:)``)
+    /// draws in the band above the list and its items are top items.
+    public var listedDocSections: Set<String> {
+        Set(sections.compactMap { section -> String? in if case let .custom(custom) = section.kind { custom.id } else { nil } })
+    }
+
     private func makeItemOrder() -> SidebarItemOrder {
         // An anchored client item (Channels after Home) is a stop at its place, placed among the shown items as
         // the band draws it (a hidden Home is no anchor); other client items are not stops.
@@ -29,7 +36,7 @@ extension SidebarModel {
         options.filterMatches = filterMatches
         options.groupsByFolder = groupsByFolder
         // The sidebar document draws its sections in the list: a block's items are stops where the block draws.
-        let listed = Set(sections.compactMap { section -> String? in if case let .custom(custom) = section.kind { custom.id } else { nil } })
+        let listed = listedDocSections
         let inBlock = Dictionary(grouping: top, by: { item in layout.sections.first { $0.items.contains(item) }?.id.rawValue ?? "" })
         for id in listed { options.blockHeights[id] = 1 }
         options.collapsedDocSections = Set(collapsedLayoutSections.map(\.rawValue))

@@ -11,7 +11,7 @@ import AppKit
 @MainActor enum SidebarListPinDrop {
     /// Probes the band under `windowPoint`; true while a section holds the drag.
     static func holds(_ list: SidebarListView, _ drag: SidebarListDrag, at windowPoint: NSPoint) -> Bool {
-        if drag.docItems != nil { return false } // on the document the band draws no section: the list takes every drop
+        // On the document too: the band draws the pinned header (Home, the App Store), which takes a workspace drop.
         guard case .workspaces = drag.payload, let sidebar = sidebar(of: list) else { return false }
         let wasHeld = drag.pinTarget != nil
         drag.pinTarget = SidebarPinDrops.pinDrop(sidebar, at: windowPoint)
