@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextDesign
 public import Foundation
 public import Observation
 
@@ -70,6 +71,12 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// The tab showed a real page (or a page opened it): its page
     /// background is Chromium's white from now on (`PageBackground`).
     @ObservationIgnored private(set) var pastFirstRealPage = false
+    /// The theme surface whose color a cmux page keeps behind its transparent document (a
+    /// `cmux-page://` page in Chromium, `CmuxNextApp` `ChromiumPageHost`); nil for a web page, which
+    /// turns white at its first real page like Chrome.
+    @ObservationIgnored public var pageThemeSurface: SurfaceKind? {
+        didSet { if pageThemeSurface != oldValue { applyPageBackground() } }
+    }
     /// URL of the last main-frame load that committed (Chromium's current
     /// entry). Renderer debug URLs (chrome://crash) never commit.
     @ObservationIgnored var committedURL: URL?
@@ -204,7 +211,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// The tab's view moved or its theme scope changed: a page still on
     /// the theme color takes the new scope's color.
     func pageThemeDidChange() {
-        guard !pastFirstRealPage else { return }
+        guard !pastFirstRealPage || pageThemeSurface != nil else { return }
         applyPageBackground()
     }
 
@@ -213,6 +220,10 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// another room or workspace never repaints it.
     private func applyPageBackground() {
         guard let browser = browserID, let shim = runtime.shim else { return }
+        if let pageThemeSurface {
+            _ = shim.browserSetBackgroundColor(browser, PageBackground.themeARGB(in: container, surface: pageThemeSurface))
+            return
+        }
         _ = shim.browserSetBackgroundColor(browser, PageBackground.chromiumARGB(pastFirstRealPage: pastFirstRealPage,
                                                                                  theme: PageBackground.themeARGB(in: container,
                                                                                                                  surface: pastFirstRealPage ? nil : .newTabPage)))

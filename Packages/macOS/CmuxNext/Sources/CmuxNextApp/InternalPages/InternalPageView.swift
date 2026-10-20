@@ -33,7 +33,7 @@ final class InternalPageView: NSView {
     /// web content itself, so typing reaches the page without a click first.
     var focusTarget: NSView {
         if let input = (content as? any PrimaryInputTarget)?.primaryInputView { return input }
-        return (content as? PageWebView)?.webKitView ?? content
+        return (content as? PageWebView)?.focusView ?? content
     }
 
     override var acceptsFirstResponder: Bool { false }
