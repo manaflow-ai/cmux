@@ -30,6 +30,10 @@ public nonisolated enum OmnibarInput: Equatable, Sendable {
     public enum Key: Equatable, Sendable {
         case up, down, tab, backTab
         case enter(Disposition)
+        /// Control-Enter: a bare word gets `www.` and `.com`
+        /// (`example` loads `https://www.example.com`); other text
+        /// commits as Enter does (Chromium's desired TLD).
+        case enterAddingTLD(Disposition)
         case escape
         /// Cmd-A (the field editor's `selectAll:`). Never unelides.
         case selectAll

@@ -39,6 +39,9 @@ public struct HomeSidebarItem: Hashable, Sendable, Identifiable {
     /// A Chief's own avatar (`HomeSidebarModel.init`'s `chiefAvatar`); nil
     /// draws the participant's initials.
     public var chiefAvatar: HomeChiefAvatar?
+    /// A Chief that runs on another engine than the default: that engine's name
+    /// ("UniiChat", "Codex"; ``ChiefBackend/badge(for:)``); nil otherwise.
+    public var backendBadge: String?
     /// What VoiceOver reads.
     public var accessibilityLabel: String
 }
@@ -58,34 +61,39 @@ public struct HomeSidebarModel: Hashable, Sendable {
     public var note: String? { HomeConversationStrings.cloudNote(cloudState) }
 
     /// `unreadMarks`: conversations the user marked unread (Mark as Unread), shown unread until read.
+    /// `chiefHarnesses`: each Chief's engine by participant id, for the rows' badges.
     public init(rows: [InboxRow], pins: HomePins, me: ParticipantID?, query: String = "", contacts: [HomeContact] = [],
-                unreadMarks: Set<ConversationID> = [], chiefAvatar: HomeChiefAvatar? = nil, now: Date = Date(),
-                calendar: Calendar = .current, locale: Locale = .current) {
+                unreadMarks: Set<ConversationID> = [], chiefAvatar: HomeChiefAvatar? = nil, chiefHarnesses: [String: String] = [:],
+                now: Date = Date(), calendar: Calendar = .current, locale: Locale = .current) {
         let (pinnedRows, rest) = pins.split(rows)
         self.init(pinned: pinnedRows, rest: rest, all: rows, me: me, query: query, contacts: contacts, unreadMarks: unreadMarks,
-                  chiefAvatar: chiefAvatar, now: now, calendar: calendar, locale: locale)
+                  chiefAvatar: chiefAvatar, chiefHarnesses: chiefHarnesses, now: now, calendar: calendar, locale: locale)
     }
 
     /// The list in an order made elsewhere (the owner's `home-inbox` rows): `rows` in list order, the
     /// pinned grid is the rows in `pinned` in that order, the other rows follow in that order.
     public init(ordered rows: [InboxRow], pinned: Set<ConversationID>, me: ParticipantID?, query: String = "",
                 contacts: [HomeContact] = [], unreadMarks: Set<ConversationID> = [], chiefAvatar: HomeChiefAvatar? = nil,
-                now: Date = Date(), calendar: Calendar = .current, locale: Locale = .current) {
+                chiefHarnesses: [String: String] = [:], now: Date = Date(), calendar: Calendar = .current, locale: Locale = .current) {
         self.init(pinned: rows.filter { pinned.contains($0.id) }, rest: rows.filter { !pinned.contains($0.id) }, all: rows, me: me,
-                  query: query, contacts: contacts, unreadMarks: unreadMarks, chiefAvatar: chiefAvatar, now: now,
-                  calendar: calendar, locale: locale)
+                  query: query, contacts: contacts, unreadMarks: unreadMarks, chiefAvatar: chiefAvatar, chiefHarnesses: chiefHarnesses,
+                  now: now, calendar: calendar, locale: locale)
     }
 
     private init(pinned pinnedRows: [InboxRow], rest: [InboxRow], all rows: [InboxRow], me: ParticipantID?, query: String,
-                 contacts: [HomeContact], unreadMarks: Set<ConversationID>, chiefAvatar: HomeChiefAvatar?, now: Date,
-                 calendar: Calendar, locale: Locale) {
+                 contacts: [HomeContact], unreadMarks: Set<ConversationID>, chiefAvatar: HomeChiefAvatar?,
+                 chiefHarnesses: [String: String], now: Date, calendar: Calendar, locale: Locale) {
         let needle = query.trimmingCharacters(in: .whitespacesAndNewlines)
         let match = { (row: InboxRow) in needle.isEmpty || row.matches(needle, me: me) }
         let pinnedRows = pinnedRows.filter(match), rest = rest.filter(match)
         let item = { (row: InboxRow, pinned: Bool) in
             var item = HomeSidebarItem(row: row, pinned: pinned, markedUnread: unreadMarks.contains(row.id), me: me, now: now,
                                        calendar: calendar, locale: locale)
-            if item.isChief { item.chiefAvatar = chiefAvatar }
+            if item.isChief {
+                item.chiefAvatar = chiefAvatar
+                let chief = row.summary.participants.first(where: \.isChief)?.id.rawValue
+                item.backendBadge = ChiefBackend.badge(for: chief.flatMap { chiefHarnesses[$0] })
+            }
             item.isMuted = row.summary.muted
             return item
         }
@@ -102,7 +110,9 @@ extension HomeSidebarItem {
     init(row: InboxRow, pinned: Bool, markedUnread: Bool = false, me: ParticipantID?, now: Date, calendar: Calendar,
          locale: Locale) {
         let others = row.summary.participants.filter { $0.id != me }
-        let preview = row.homePreview(me: me)
+        // The sender's DM with someone not on it yet says who it waits for (DESIGN 2.5).
+        let waiting = row.kind == .direct ? row.summary.homeInviteWaiting(me: me) : nil
+        let preview = waiting.map { HomeRowPreview(text: $0, isReply: false) } ?? row.homePreview(me: me)
         let time = row.timestamp.homeListTime(now: now, calendar: calendar, locale: locale)
         let title = row.title.isEmpty ? HomeConversationStrings.untitled : row.title
         let unread = max(row.unread, markedUnread ? 1 : 0)
@@ -112,7 +122,7 @@ extension HomeSidebarItem {
             isGroup: row.kind == .group, badge: row.kind == .group ? others.first?.initials : nil,
             preview: preview.text, isReply: preview.isReply, time: time, lastAt: row.timestamp,
             people: others.map { HomeSidebarPerson(id: $0.id.rawValue, name: $0.displayName, initials: $0.initials) }, unread: unread > 0, unreadCount: unread,
-            mentions: row.mentions, isPinned: pinned, isChief: row.kind == .chief, chiefAvatar: nil,
+            mentions: row.mentions, isPinned: pinned, isChief: row.kind == .chief, chiefAvatar: nil, backendBadge: nil,
             accessibilityLabel: Self.accessibility(title: title, row: row, unread: unread, preview: preview.text, time: time))
     }
 
