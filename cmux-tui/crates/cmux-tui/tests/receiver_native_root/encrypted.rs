@@ -160,10 +160,15 @@ fn receiver_root_privileged_native_chain_carries_a_signed_encrypted_daemon_reque
         let mut replay = within(mesh.connect(address)).await.unwrap();
         replay.write_all(hello.as_bytes()).await.unwrap();
         let refused = within(replay.read(&mut [0])).await;
-        assert!(
-            refused.is_err() || refused.unwrap() == 0,
-            "a spent token reached the daemon entry"
-        );
+        assert!(matches!(refused, Ok(0) | Err(_)), "a spent token reached the daemon entry");
+        // Refusing the replay must leave the original admitted connection
+        // usable; whole-receiver failure is not evidence of replay protection.
+        stream.get_mut().write_all(b"{\"id\":8,\"cmd\":\"identify\"}\n").await.unwrap();
+        line.clear();
+        assert!(within(stream.read_line(&mut line)).await.unwrap() > 0);
+        let response: Value = serde_json::from_str(&line).unwrap();
+        assert_eq!(response["id"], 8);
+        assert_eq!(response["error_code"], "remote_denied");
         assert_eq!(
             host.quiesce(std::time::Instant::now() + Duration::from_secs(8)).unwrap(),
             StopReceipt::Acknowledged
@@ -171,10 +176,7 @@ fn receiver_root_privileged_native_chain_carries_a_signed_encrypted_daemon_reque
         assert!(!std::path::Path::new(&format!("/proc/{pid}/stat")).exists());
         assert!(daemon.child.try_wait().unwrap().is_none());
         let ended = within(stream.read(&mut [0])).await;
-        assert!(
-            ended.is_err() || ended.unwrap() == 0,
-            "stopped receiver retained its encrypted stream"
-        );
+        assert!(matches!(ended, Ok(0) | Err(_)), "stopped receiver retained its encrypted stream");
         mesh.shutdown().await;
     });
     assert!(!cmux_link::entry_path::remote_entry_socket_path(&daemon.session).exists());
