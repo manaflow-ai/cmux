@@ -94,7 +94,9 @@ final class AgentPaneNavigation: NSObject, WKNavigationDelegate {
         // it same-origin with the pane.
         if !mainFrame {
             if isRenderFrame(url, source: source) {
-                return targetFrameURL == nil || targetFrameURL?.absoluteString == "about:blank" ? .allow : .cancel
+                // An empty frame: no URL, about:blank, or (newer WebKit) an empty URL.
+                let blank = targetFrameURL.map { $0.absoluteString.isEmpty || $0.absoluteString == "about:blank" } ?? true
+                return blank ? .allow : .cancel
             }
             return url.isAgentPanePreview && !source.isTrusted(url) ? .allow : .cancel
         }
