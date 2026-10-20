@@ -10,6 +10,7 @@ pub mod acpmux;
 pub mod acpmux_daemon;
 pub mod acpmux_peer;
 pub mod agent_chat;
+pub mod agent_memory;
 pub mod agents;
 pub mod approval;
 pub mod auto_resume;

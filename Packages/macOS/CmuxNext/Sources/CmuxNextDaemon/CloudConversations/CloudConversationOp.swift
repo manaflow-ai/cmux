@@ -50,6 +50,12 @@ public enum CloudConversationOp: Encodable, Sendable, Hashable {
     case createInvite(address: CloudAddress, displayName: String, locale: String?)
     /// `thread.update` (conversation-thread-objects-v1), as on the local owner.
     case updateThread(root: String, title: String?, status: String?, owner: String?)
+    /// `invite.accept_verified`: the user accepts a message request (an invite to their verified
+    /// email) without its link (home-messaging-invites DESIGN 2.3).
+    case acceptRequest
+    /// `request.dismiss`: hides a message request; `block` also hides the sender's later ones.
+    /// The sender is not told.
+    case dismissRequest(block: Bool)
 
     public var kindName: String {
         switch self {
@@ -66,6 +72,8 @@ public enum CloudConversationOp: Encodable, Sendable, Hashable {
         case .setTitle: "title.set"
         case .createInvite: "invite.create"
         case .updateThread: "thread.update"
+        case .acceptRequest: "invite.accept_verified"
+        case .dismissRequest: "request.dismiss"
         }
     }
 
@@ -109,6 +117,10 @@ public enum CloudConversationOp: Encodable, Sendable, Hashable {
             try c.encode(address, forKey: DynamicKey("address"))
             try c.encode(displayName, forKey: DynamicKey("display_name"))
             try c.encodeIfPresent(locale, forKey: DynamicKey("locale"))
+        case .acceptRequest:
+            break
+        case .dismissRequest(let block):
+            try c.encode(block, forKey: DynamicKey("block"))
         }
     }
 }

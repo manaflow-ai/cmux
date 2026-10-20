@@ -1,6 +1,6 @@
 import { checkAgentBudget, checkAgentStreak, threadAgentStreak, withTurn } from "./budget.ts"
 import { removeParticipant, setSettings } from "./cloud.ts"
-import { acceptInvite, approveJoin, createInvite, reportDelivery, revokeInvite } from "./invite-ops.ts"
+import { acceptInvite, acceptVerifiedInvite, approveJoin, createInvite, reportDelivery, revokeInvite } from "./invite-ops.ts"
 import { parseRfc3339Millis, validToken } from "./ids.ts"
 import { answerQuestion, checkQuestionEdit } from "./question.ts"
 import { fail, reject, RejectError } from "./reject.ts"
@@ -37,7 +37,7 @@ export const targetMessageId = (op: Op): string | undefined =>
 
 export const isSend = (op: Op): boolean => op.kind === "message.send"
 
-const CLOUD_OPS = new Set(["invite.create", "invite.revoke", "invite.accept", "invite.approve_join", "invite.delivery.report", "conversation.settings.set"])
+const CLOUD_OPS = new Set(["invite.create", "invite.revoke", "invite.accept", "invite.accept_verified", "invite.approve_join", "invite.delivery.report", "conversation.settings.set"])
 
 /** Validates one op against the head. Every commit increases `rev` by exactly one. */
 export const apply = (head: ConversationHead, request: OpRequest): ApplyResult => {
@@ -57,6 +57,7 @@ const applyOrThrow = (head: ConversationHead, request: OpRequest): Commit => {
   const next: Draft = { ...head, rev: head.rev + 1 }
   // Ops whose caller is not a participant.
   if (op.kind === "invite.accept") return acceptInvite(head, next, request, op)
+  if (op.kind === "invite.accept_verified") return acceptVerifiedInvite(head, next, request, op)
   if (op.kind === "invite.delivery.report") {
     if (request.actor !== SYSTEM_ACTOR) fail("forbidden")
     return reportDelivery(head, next, request, op)

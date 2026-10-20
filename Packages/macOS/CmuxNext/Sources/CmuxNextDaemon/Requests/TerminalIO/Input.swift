@@ -8,11 +8,18 @@ public struct SendInputRequest: DaemonRequest {
     public var text: String?
     public var bytes: Data?
     public var paste: Bool?
-    public init(surface: SurfaceID, text: String? = nil, bytes: Data? = nil, paste: Bool? = nil) {
+    /// `send-expect-foreground-v1`: the daemon writes only while the terminal's foreground
+    /// executable is still this one (``TerminalProcessInfoRequest``'s `foregroundExecutable`), checked
+    /// right before the write, and fails the request otherwise. A daemon without the capability
+    /// ignores it, so a caller keeps its own check first.
+    public var expectForeground: String?
+    public init(surface: SurfaceID, text: String? = nil, bytes: Data? = nil, paste: Bool? = nil,
+                expectForeground: String? = nil) {
         self.surface = surface
         self.text = text
         self.bytes = bytes
         self.paste = paste
+        self.expectForeground = expectForeground
     }
 }
 
