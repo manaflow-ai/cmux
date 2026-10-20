@@ -133,6 +133,7 @@ fn run_reading(
         }
     };
     let native = payload()?;
+    let start_source = native.get("source").and_then(Value::as_str).unwrap_or("").to_owned();
     // Read before the journal event redacts it; it travels beside the event, never inside it.
     let live = cmux_tui_core::agent_hook_live_fields(&args.source, &args.native_event, &native);
     let mut ingress = cmux_tui_core::agent_hook_journal_ingress(
@@ -155,8 +156,12 @@ fn run_reading(
     // Messages for this terminal's agent ride on the hook's own output. A
     // failed handoff means the daemon is not answering, so the helper fails
     // without output and the installed command prints the empty object.
-    if let Some(inbox) = inbox {
-        inbox::deliver(inbox, &socket, terminal.as_deref());
+    match inbox {
+        Some(inbox::Delivery::SessionBanner) => {
+            inbox::session_banner(terminal.as_deref(), &start_source);
+        }
+        Some(inbox) => inbox::deliver(inbox, &socket, terminal.as_deref()),
+        None => {}
     }
     Ok(())
 }
@@ -184,6 +189,10 @@ fn inherited_route_is_untrusted(
 /// Agent messages handed over as the hook's output.
 #[path = "cmux-tui-hook/inbox.rs"]
 mod inbox;
+
+/// cmux's line under Claude Code's startup banner: how the session compacts.
+#[path = "cmux-tui-hook/session_banner.rs"]
+mod session_banner;
 
 /// The session socket and terminal that receive this event: the terminal's
 /// own `CMUX_TUI_*` values; for an agent that clears its hooks' environment

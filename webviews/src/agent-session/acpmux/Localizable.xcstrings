@@ -169350,6 +169350,930 @@
           }
         }
       }
+    },
+    "sessionStart.claudeCode": {
+      "comment": "Agent pane: a Claude Code chat's session start line, first fact; {version} is Claude Code's version such as 2.1.303. Claude Code is a product name.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Claude Code {version}"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Claude Code {version}"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Claude Code {version}"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Claude Code {version}"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code {version}"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Claude Code {version}"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Claude Code {version}"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Claude Code {version}"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Claude Code {version}"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Claude Code {version}"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Claude Code {version}"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Claude Code {version}"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Claude Code {version}"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Claude Code {version}"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Claude Code {version}"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Claude Code {version}"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Claude Code {version}"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Claude Code {version}"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Claude Code {version}"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Claude Code {version}"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Claude Code {version}"
+          }
+        }
+      }
+    },
+    "sessionStart.route.sr2": {
+      "comment": "Agent pane: a Claude Code chat's session start line: the chat reaches Claude through sr2 (the team's subrouter gateway; sr2 is a name, keep it)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "عبر sr2"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "preko sr2"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "via sr2"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "über sr2"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "through sr2"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "a través de sr2"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "via sr2"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "tramite sr2"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "sr2 経由"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "តាមរយៈ sr2"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "sr2 경유"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "via sr2"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "przez sr2"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "via sr2"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "через sr2"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ผ่าน sr2"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "sr2 üzerinden"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "через sr2"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "qua sr2"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "经由 sr2"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "經由 sr2"
+          }
+        }
+      }
+    },
+    "sessionStart.route.coderouter": {
+      "comment": "Agent pane: a Claude Code chat's session start line: the chat reaches Claude through the configured CodeRouter route (CodeRouter is a name, keep it)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "عبر CodeRouter"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "preko CodeRoutera"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "via CodeRouter"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "über CodeRouter"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "through CodeRouter"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "a través de CodeRouter"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "via CodeRouter"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "tramite CodeRouter"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "CodeRouter 経由"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "តាមរយៈ CodeRouter"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "CodeRouter 경유"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "via CodeRouter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "przez CodeRouter"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "via CodeRouter"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "через CodeRouter"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ผ่าน CodeRouter"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "CodeRouter üzerinden"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "через CodeRouter"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "qua CodeRouter"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "经由 CodeRouter"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "經由 CodeRouter"
+          }
+        }
+      }
+    },
+    "sessionStart.route.own": {
+      "comment": "Agent pane: a Claude Code chat's session start line: the chat runs the person's own claude command with its own login and settings",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إعداد Claude Code الخاص بك"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "vaše Claude Code postavke"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "din Claude Code-opsætning"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "deine Claude Code-Einrichtung"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "your Claude Code setup"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "tu configuración de Claude Code"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "votre configuration de Claude Code"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "la tua configurazione di Claude Code"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "あなたの Claude Code 設定"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការកំណត់ Claude Code របស់អ្នក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "내 Claude Code 설정"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ditt Claude Code-oppsett"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Twoja konfiguracja Claude Code"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "sua configuração do Claude Code"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ваша настройка Claude Code"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การตั้งค่า Claude Code ของคุณ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Claude Code kurulumunuz"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ваше налаштування Claude Code"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cấu hình Claude Code của bạn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "你的 Claude Code 设置"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "你的 Claude Code 設定"
+          }
+        }
+      }
+    },
+    "sessionStart.compaction.managed": {
+      "comment": "Agent pane: note under a Claude Code chat's session start line when sr2 manages its compaction. Compaction shrinks the conversation context; 400k is a token count.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يدير cmux ضغط السياق في هذه المحادثة. يضغط Claude السياق عند نحو 400 ألف رمز بدل انتظار حدّه. عندما يقترب الحساب من حدّ استخدامه، يضغط cmux السياق بين الأدوار وتتابع المحادثة بحساب آخر. يظهر كل ضغط كملاحظة في المحادثة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux upravlja sažimanjem u ovom chatu. Claude sažima do oko 400k tokena umjesto da čeka svoje ograničenje. Kada se račun približi ograničenju korištenja, cmux sažima između potezâ i chat se nastavlja s drugim računom. Svako sažimanje se prikazuje kao bilješka u chatu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux styrer komprimering i denne chat. Claude komprimerer ved omkring 400k tokens i stedet for at vente på sin grænse. Når kontoen nærmer sig sin forbrugsgrænse, komprimerer cmux mellem turene, og chatten fortsætter med en anden konto. Hver komprimering vises som en note i chatten."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux steuert die Komprimierung in diesem Chat. Claude komprimiert bei etwa 400k Tokens, statt auf sein Limit zu warten. Wenn das Konto sein Nutzungslimit fast erreicht, komprimiert cmux zwischen zwei Runden, und der Chat geht mit einem anderen Konto weiter. Jede Komprimierung erscheint als Hinweis im Chat."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux manages compaction in this chat. Claude compacts by about 400k tokens instead of waiting for its limit. When the account nears its usage limit, cmux compacts between turns and the chat goes on with another account. Each compaction shows as a note in the chat."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux gestiona la compactación en este chat. Claude compacta hacia los 400k tokens en lugar de esperar a su límite. Cuando la cuenta se acerca a su límite de uso, cmux compacta entre turnos y el chat sigue con otra cuenta. Cada compactación aparece como una nota en el chat."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux gère la compaction dans cette discussion. Claude compacte vers 400k tokens au lieu d’attendre sa limite. Quand le compte approche de sa limite d’utilisation, cmux compacte entre deux tours et la discussion continue avec un autre compte. Chaque compaction apparaît comme une note dans la discussion."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux gestisce la compattazione in questa chat. Claude compatta intorno ai 400k token invece di aspettare il suo limite. Quando l’account si avvicina al limite di utilizzo, cmux compatta tra un turno e l’altro e la chat continua con un altro account. Ogni compattazione appare come una nota nella chat."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "このチャットのコンパクトは cmux が管理します。Claude は上限を待たず、約 40 万トークンでコンパクトします。アカウントが利用上限に近づくと、cmux がターンの合間にコンパクトし、チャットは別のアカウントで続きます。コンパクトのたびにチャット内にメモが表示されます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux គ្រប់គ្រងការបង្រួមក្នុងការជជែកនេះ។ Claude បង្រួមនៅប្រហែល 400k tokens ជំនួសឱ្យការរង់ចាំដល់ដែនកំណត់របស់វា។ ពេលគណនីជិតដល់ដែនកំណត់ប្រើប្រាស់ cmux បង្រួមនៅចន្លោះវេន ហើយការជជែកបន្តជាមួយគណនីផ្សេង។ ការបង្រួមនីមួយៗបង្ហាញជាកំណត់ចំណាំក្នុងការជជែក។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 채팅의 압축은 cmux가 관리합니다. Claude는 한도를 기다리지 않고 약 40만 토큰에서 압축합니다. 계정이 사용 한도에 가까워지면 cmux가 턴 사이에 압축하고 채팅은 다른 계정으로 이어집니다. 압축할 때마다 채팅에 메모로 표시됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux styrer komprimering i denne chatten. Claude komprimerer ved rundt 400k tokens i stedet for å vente på grensen sin. Når kontoen nærmer seg bruksgrensen, komprimerer cmux mellom turene, og chatten fortsetter med en annen konto. Hver komprimering vises som et notat i chatten."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux zarządza kompaktowaniem w tym czacie. Claude kompaktuje przy około 400 tys. tokenów, zamiast czekać na swój limit. Gdy konto zbliża się do limitu użycia, cmux kompaktuje między turami, a czat toczy się dalej na innym koncie. Każde kompaktowanie pojawia się w czacie jako notatka."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O cmux gerencia a compactação neste chat. O Claude compacta por volta de 400 mil tokens em vez de esperar o limite. Quando a conta se aproxima do limite de uso, o cmux compacta entre os turnos e o chat continua com outra conta. Cada compactação aparece como uma nota no chat."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Сжатием контекста в этом чате управляет cmux. Claude сжимает контекст примерно на 400 тыс. токенов, не дожидаясь своего лимита. Когда аккаунт приближается к лимиту использования, cmux сжимает контекст между ходами, и чат продолжается с другим аккаунтом. Каждое сжатие отмечается в чате."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux จัดการการบีบอัดในแชตนี้ Claude บีบอัดที่ประมาณ 400k โทเค็นแทนที่จะรอถึงขีดจำกัด เมื่อบัญชีใกล้ถึงขีดจำกัดการใช้งาน cmux จะบีบอัดระหว่างรอบและแชตจะดำเนินต่อด้วยบัญชีอื่น การบีบอัดแต่ละครั้งจะแสดงเป็นบันทึกในแชต"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu sohbetteki sıkıştırmayı cmux yönetir. Claude sınırını beklemek yerine yaklaşık 400 bin tokende sıkıştırır. Hesap kullanım sınırına yaklaştığında cmux turlar arasında sıkıştırır ve sohbet başka bir hesapla devam eder. Her sıkıştırma sohbette bir not olarak görünür."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Стисненням контексту в цьому чаті керує cmux. Claude стискає контекст приблизно на 400 тис. токенів, не чекаючи свого ліміту. Коли обліковий запис наближається до ліміту використання, cmux стискає контекст між ходами, і чат продовжується з іншим обліковим записом. Кожне стиснення позначається в чаті."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux quản lý việc nén trong cuộc trò chuyện này. Claude nén ở khoảng 400k token thay vì chờ đến giới hạn. Khi tài khoản gần hết hạn mức sử dụng, cmux nén giữa các lượt và cuộc trò chuyện tiếp tục với một tài khoản khác. Mỗi lần nén hiện thành một ghi chú trong cuộc trò chuyện."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此对话的压缩由 cmux 管理。Claude 在约 40 万 token 时压缩，而不是等到上限。账户接近用量上限时，cmux 会在两轮之间压缩，对话改用另一个账户继续。每次压缩都会在对话中显示一条备注。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此對話的壓縮由 cmux 管理。Claude 在約 40 萬 token 時壓縮，而不是等到上限。帳戶接近用量上限時，cmux 會在兩輪之間壓縮，對話改用另一個帳戶繼續。每次壓縮都會在對話中顯示一則備註。"
+          }
+        }
+      }
+    },
+    "sessionStart.compaction.stock": {
+      "comment": "Agent pane: note under a Claude Code chat's session start line when the chat compacts the way Claude Code itself does (cmux's managed compaction is off)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ضغط السياق المُدار من cmux متوقف في هذه المحادثة: يضغط Claude Code السياق بنفسه قرب حدّ السياق. يظهر كل ضغط كملاحظة في المحادثة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Upravljano sažimanje u cmuxu je isključeno u ovom chatu: Claude Code sažima sam, blizu ograničenja konteksta. Svako sažimanje se prikazuje kao bilješka u chatu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux’ styrede komprimering er slået fra i denne chat: Claude Code komprimerer selv, tæt på sin kontekstgrænse. Hver komprimering vises som en note i chatten."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Die von cmux gesteuerte Komprimierung ist in diesem Chat aus: Claude Code komprimiert selbst, nahe seinem Kontextlimit. Jede Komprimierung erscheint als Hinweis im Chat."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux's managed compaction is off in this chat: Claude Code compacts on its own, near its context limit. Each compaction shows as a note in the chat."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La compactación gestionada por cmux está desactivada en este chat: Claude Code compacta por su cuenta, cerca de su límite de contexto. Cada compactación aparece como una nota en el chat."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La compaction gérée par cmux est désactivée dans cette discussion : Claude Code compacte de lui-même, près de sa limite de contexte. Chaque compaction apparaît comme une note dans la discussion."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La compattazione gestita da cmux è disattivata in questa chat: Claude Code compatta da solo, vicino al suo limite di contesto. Ogni compattazione appare come una nota nella chat."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "このチャットでは cmux 管理のコンパクトはオフです。Claude Code がコンテキスト上限の近くで自分でコンパクトします。コンパクトのたびにチャット内にメモが表示されます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការបង្រួមដែល cmux គ្រប់គ្រងត្រូវបានបិទក្នុងការជជែកនេះ៖ Claude Code បង្រួមដោយខ្លួនឯង នៅជិតដែនកំណត់បរិបទរបស់វា។ ការបង្រួមនីមួយៗបង្ហាញជាកំណត់ចំណាំក្នុងការជជែក។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 채팅에서는 cmux가 관리하는 압축이 꺼져 있습니다. Claude Code가 컨텍스트 한도 근처에서 직접 압축합니다. 압축할 때마다 채팅에 메모로 표시됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux’ styrte komprimering er av i denne chatten: Claude Code komprimerer selv, nær kontekstgrensen sin. Hver komprimering vises som et notat i chatten."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kompaktowanie zarządzane przez cmux jest w tym czacie wyłączone: Claude Code kompaktuje sam, blisko swojego limitu kontekstu. Każde kompaktowanie pojawia się w czacie jako notatka."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A compactação gerenciada pelo cmux está desativada neste chat: o Claude Code compacta por conta própria, perto do limite de contexto. Cada compactação aparece como uma nota no chat."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Сжатие под управлением cmux в этом чате выключено: Claude Code сжимает контекст сам, около своего лимита контекста. Каждое сжатие отмечается в чате."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การบีบอัดที่ cmux จัดการปิดอยู่ในแชตนี้: Claude Code บีบอัดเองเมื่อใกล้ถึงขีดจำกัดบริบท การบีบอัดแต่ละครั้งจะแสดงเป็นบันทึกในแชต"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux’un yönettiği sıkıştırma bu sohbette kapalı: Claude Code bağlam sınırına yakın kendisi sıkıştırır. Her sıkıştırma sohbette bir not olarak görünür."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Стиснення під керуванням cmux у цьому чаті вимкнено: Claude Code стискає контекст сам, біля свого ліміту контексту. Кожне стиснення позначається в чаті."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tính năng nén do cmux quản lý đang tắt trong cuộc trò chuyện này: Claude Code tự nén khi gần đến giới hạn ngữ cảnh. Mỗi lần nén hiện thành một ghi chú trong cuộc trò chuyện."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此对话未启用 cmux 管理的压缩：Claude Code 会在接近上下文上限时自行压缩。每次压缩都会在对话中显示一条备注。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此對話未啟用 cmux 管理的壓縮：Claude Code 會在接近上下文上限時自行壓縮。每次壓縮都會在對話中顯示一則備註。"
+          }
+        }
+      }
+    },
+    "sessionStart.compaction.dismiss": {
+      "comment": "Agent pane: button that hides the compaction note under a chat's session start line (in every chat after this)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إخفاء"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Odbaci"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Afvis"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ausblenden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dismiss"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Descartar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Masquer"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ignora"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "閉じる"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បិទ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "닫기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lukk"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Odrzuć"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dispensar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Скрыть"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ปิด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kapat"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Приховати"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bỏ qua"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "关闭"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "關閉"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
