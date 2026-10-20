@@ -42,7 +42,6 @@ struct MacScreenShortcut: Identifiable {
 final class MacScreenChromeActions {
     var connect: () -> Void = {}
     var disconnect: () -> Void = {}
-    var confirm: () -> Void = {}
     var closeTab: () -> Void = {}
     var openHome: () -> Void = {}
     var selectDisplay: (Int) -> Void = { _ in }
@@ -59,8 +58,8 @@ final class MacScreenChromeActions {
 
 /// The card shown over the screen, if any.
 enum MacScreenCard: Equatable {
-    case confirm
-    case missing
+    /// An old pairing-link record: link pairing is no longer supported.
+    case unsupported
     case connecting(reconnecting: Bool)
     case waitingForPicture
     case failed
@@ -101,12 +100,11 @@ final class MacScreenChromeHost {
 extension MacScreenPaneModel {
     var card: MacScreenCard? {
         switch gate {
-        case .confirm: return .confirm
-        case .missing: return .missing
+        case .unsupported: return .unsupported
         case .open: break
         }
         if let hub, let card = Self.hubCard(hub.phase, access: hub.accessToHost) { return card }
-        guard let session else { return .missing }
+        guard let session else { return .unsupported }
         switch session.phase {
         case .connecting: return Self.connectingCard(isReconnecting: session.isReconnecting, everConnected: everConnected)
         case .connected: return Self.connectedCard(hasFrame: hasFrame, stalled: session.isStalled)
@@ -158,16 +156,12 @@ extension MacScreenPaneModel {
             return L.t("macScreen.card.relayUnreachable", "The relay can’t be reached. Check its URL and that its port is open.")
         }
         if relayOnly { return L.t("macScreen.card.relayNone", "No relay could connect the two Macs. Check your relays in Settings › Devices.") }
-        if hubTab { return String(format: L.t("macScreen.card.failedHub", "Check that %@ is awake and online."), name) }
-        return L.t("macScreen.card.failedHint", "Check that Share This Mac is on and the other Mac is awake.")
+        return String(format: L.t("macScreen.card.failedHub", "Check that %@ is awake and online."), name)
     }
 
-    /// Whether the toolbar shows the stream's controls: a link-paired Mac's
-    /// always, a device hub tab's only while a session streams.
+    /// Whether the toolbar shows the stream's controls: only while a session streams.
     var showsStreamControls: Bool {
-        guard gate == .open else { return false }
-        guard let hub else { return true }
-        return hub.phase.streamingScope != nil
+        gate == .open && hub?.phase.streamingScope != nil
     }
 
     /// A connected session's card: none while the picture flows, Reconnecting
@@ -404,19 +398,17 @@ struct MacScreenCardView: View {
     @ViewBuilder
     private func content(_ card: MacScreenCard) -> some View {
         switch card {
-        case .confirm:
-            glyph("desktopcomputer")
-            title(String(format: L.t("macScreen.card.confirmTitle", "Show %@?"), model.name))
-            detail(L.t("macScreen.card.confirmBody", "This tab was opened for you. Connect to see and control this Mac."))
-            Button(L.t("macScreen.card.connect", "Connect"), action: actions.confirm)
-                .buttonStyle(MacScreenButtonStyle(role: .primary))
-                .accessibilityIdentifier("macScreen.card.confirm")
-        case .missing:
-            glyph("questionmark.square.dashed")
-            title(L.t("macScreen.card.missingTitle", "This Mac is not paired"))
-            detail(L.t("macScreen.card.missingBody", "It was forgotten, or this tab came from another Mac. Pair it again from Mac Screen."))
-            Button(L.t("macScreen.card.openHome", "Open Mac Screen"), action: actions.openHome)
-                .buttonStyle(MacScreenButtonStyle())
+        case .unsupported:
+            glyph("link.badge.plus", color: colors.attention)
+            title(L.t("macScreen.card.linksGoneTitle", "Pairing Links Are No Longer Supported"))
+            detail(L.t("macScreen.card.linksGoneBody", "Mac Screen now connects the Macs signed in to your cmux account. Open Mac Screen to see them."))
+            HStack {
+                Button(L.t("macScreen.card.closeTab", "Close Tab"), action: actions.closeTab)
+                    .buttonStyle(MacScreenButtonStyle())
+                    .accessibilityIdentifier("macScreen.card.closeTab")
+                Button(L.t("macScreen.card.openHome", "Open Mac Screen"), action: actions.openHome)
+                    .buttonStyle(MacScreenButtonStyle(role: .primary))
+            }
         case let .connecting(reconnecting):
             ProgressView().controlSize(.regular)
             title(reconnecting ? L.t("macScreen.card.reconnecting", "Reconnecting…")

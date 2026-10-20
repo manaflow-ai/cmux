@@ -10,12 +10,10 @@ import SwiftUI
 @Observable
 public final class MacScreenPaneModel {
     public enum Gate: Equatable {
-        /// Streaming (or trying to).
+        /// A device's screen (its own cards say where it stands).
         case open
-        /// Opened by automation or restored: a person presses Connect first.
-        case confirm
-        /// The tab names a Mac this app no longer has.
-        case missing
+        /// An old pairing-link record: link pairing is no longer supported.
+        case unsupported
     }
 
     public let session: ScreenSession?
@@ -34,7 +32,7 @@ public final class MacScreenPaneModel {
     public internal(set) var relayOnly = false
     /// Send System Shortcuts to the Remote Mac (the toolbar's Send Keys menu).
     public internal(set) var systemShortcuts: MacScreenSystemShortcuts?
-    /// A device hub tab: the session's request, approval and ticket; nil for a link-paired Mac.
+    /// The device hub tab's session: its request, approval and ticket; nil for an unsupported record.
     public let hub: MacScreenHubViewer?
 
     init(session: ScreenSession?, name: String, gate: Gate, hub: MacScreenHubViewer? = nil) {
@@ -50,33 +48,24 @@ public final class MacScreenPaneModel {
 
 /// What the pane asks of its owner.
 public struct MacScreenPaneHandlers {
-    /// Confirm pressed: a person allows this tab to connect.
-    public var confirm: () -> Void = {}
     /// Close Tab pressed on an ended session.
     public var closeTab: () -> Void = {}
     /// Open the Mac Screen home page in this tab.
     public var openHome: () -> Void = {}
-    /// The session connected, or its view choices changed.
-    public var connected: (ScreenPreferences) -> Void = { _ in }
-    public var preferencesChanged: (ScreenPreferences) -> Void = { _ in }
     /// cmux shortcut matcher: true keeps the chord in this app.
     public var isLocalShortcut: (NSEvent) -> Bool = { _ in false }
     /// Whether this screen holds the keyboard may have changed (focus, the
     /// release chord, the session's phase): the system shortcut tap follows.
     public var keyboardChanged: () -> Void = {}
-    /// The pane is about to start a connection (showing the tab, Connect,
-    /// Try Again): the host ends the other screens of this Mac, since the
-    /// host takes one viewer and the newest wins.
-    public var willConnect: () -> Void = {}
 
     public init() {}
 }
 
-/// One Mac Screen tab's screen: a `ScreenSession` to a paired Mac, its
+/// One Mac Screen tab's screen: a `ScreenSession` to one of the user's devices, its
 /// video fitted to the pane, the remote view input surface (keys, pointer,
 /// scroll; Control-Option-Escape gives the keyboard back) and the toolbar
 /// and state cards. The stream runs while the tab is shown; a tab hidden
-/// for `hiddenGrace` disconnects and reconnects when shown again.
+/// for `hiddenGrace` ends its session and asks again when shown.
 @MainActor
 public final class MacScreenPane {
     public let model: MacScreenPaneModel
@@ -89,24 +78,7 @@ public final class MacScreenPane {
     public var hiddenGrace: Duration = .seconds(20)
     private let inputSink: MacScreenInputSink?
     private var visible = false
-    /// The person pressed Disconnect: only Reconnect connects again.
-    private var stoppedByPerson = false
     private let hideTimer = DemandTimer(owner: "mac-screen.hidden-grace")
-    private var wasConnected = false
-
-    /// A paired Mac's screen. `confirmed` is false for tabs opened by
-    /// automation or restore: they wait for Connect.
-    public init(name: String, pairing: VNCPairing, preferences: ScreenPreferences, confirmed: Bool) {
-        let session = ScreenSession(title: name, pairing: pairing, preferences: preferences)
-        model = MacScreenPaneModel(session: session, name: name, gate: confirmed ? .open : .confirm)
-        let sink = MacScreenInputSink(session: session)
-        inputSink = sink
-        view = MacScreenPaneView(model: model)
-        view.input.sink = sink
-        wire(session)
-        // A new screen never takes the keyboard before a click on the picture.
-        view.input.waitForClick()
-    }
 
     /// One of the user's devices from the device hub. Each stream is one
     /// approved session: `viewer` asks for it and hands its ticket's
@@ -123,8 +95,6 @@ public final class MacScreenPane {
         wire(session)
         viewer.startStream = { [weak self] in
             guard let self, let session = self.session else { return }
-            stoppedByPerson = false
-            handlers.willConnect()
             connectSession(session)
         }
         viewer.stopStream = { [weak self] in
@@ -135,12 +105,14 @@ public final class MacScreenPane {
         view.input.waitForClick()
     }
 
-    /// A tab whose Mac is gone (forgotten, or another app's record).
-    public init(missingMac: Void) {
-        model = MacScreenPaneModel(session: nil, name: L.t("macScreen.tab.homeTitle", "Mac Screen"), gate: .missing)
+    /// A tab restored on an old pairing-link record: link pairing is no
+    /// longer supported, so it says so (Close Tab, Open Mac Screen).
+    public init(unsupportedLink: Void) {
+        model = MacScreenPaneModel(session: nil, name: L.t("macScreen.tab.homeTitle", "Mac Screen"), gate: .unsupported)
         inputSink = nil
         view = MacScreenPaneView(model: model)
         view.chrome.actions.openHome = { [weak self] in self?.handlers.openHome() }
+        view.chrome.actions.closeTab = { [weak self] in self?.handlers.closeTab() }
     }
 
     private func wire(_ session: ScreenSession) {
@@ -162,7 +134,7 @@ public final class MacScreenPane {
             self?.model.displays = sizes
             self?.model.currentDisplay = current
         }
-        // Only a live screen takes the keyboard (no card shows: not confirm, missing,
+        // Only a live screen takes the keyboard (no card shows: not unsupported,
         // connecting, waiting, failed or ended).
         view.input.onFocusChange = { [weak self] focused in
             guard let self else { return }
@@ -175,31 +147,17 @@ public final class MacScreenPane {
         actions.requestScope = { [weak self] scope in self?.model.hub?.request(scope) }
         actions.cancelRequest = { [weak self] in self?.model.hub?.cancel() }
         actions.disconnect = { [weak self] in self?.disconnectByPerson() }
-        actions.confirm = { [weak self] in
-            guard let self else { return }
-            model.gate = .open
-            view.syncInputGate()
-            // The screen opens, but the keyboard stays here until a click on it.
-            view.input.waitForClick()
-            handlers.confirm()
-            // A person pressed Connect, so the tab is on screen even if no reveal reached it.
-            if visible { start(session) } else { resume() }
-        }
         actions.closeTab = { [weak self] in self?.handlers.closeTab() }
         actions.openHome = { [weak self] in self?.handlers.openHome() }
         actions.selectDisplay = { [weak self] index in
             session.selectDisplay(index)
             self?.model.currentDisplay = index
         }
-        actions.setQuality = { [weak self] quality in
+        actions.setQuality = { quality in
             session.preferences.quality = quality
             session.applyQuality()
-            self?.handlers.preferencesChanged(session.preferences)
         }
-        actions.toggleStats = { [weak self] in
-            session.preferences.showStats.toggle()
-            self?.handlers.preferencesChanged(session.preferences)
-        }
+        actions.toggleStats = { session.preferences.showStats.toggle() }
         actions.refresh = { session.refresh() }
         actions.sendKeys = { [weak self] shortcut in
             // A View Only session sends no input (the host would ignore it anyway).
@@ -210,7 +168,7 @@ public final class MacScreenPane {
         observePhase(session)
     }
 
-    /// Records a connection once per connect (last used, preferences).
+    /// Follows the session's phase: the picture and the hub hear about a stall or a failure.
     private func observePhase(_ session: ScreenSession) {
         withObservationTracking {
             _ = session.phase
@@ -219,11 +177,8 @@ public final class MacScreenPane {
             Task { @MainActor [weak self] in
                 guard let self, let session else { return }
                 if case .connected = session.phase {
-                    if !wasConnected { handlers.connected(session.preferences) }
-                    wasConnected = true
                     model.everConnected = true
                 } else {
-                    wasConnected = false
                     model.hasFrame = false
                 }
                 model.hub?.streamStalled(session.isStalled)
@@ -243,36 +198,9 @@ public final class MacScreenPane {
     /// single `connect()` failed at once. Tests count the starts.
     var connectSession: @MainActor (ScreenSession) -> Void = { $0.reconnect() }
 
-    /// Starts a connection: the host hears it first (`willConnect`).
-    private func start(_ session: ScreenSession) {
-        // A forgotten Mac's (closed) session never starts again.
-        guard model.gate != .missing, !session.isClosed else { return }
-        handlers.willConnect()
-        connectSession(session)
-    }
-
-    /// Whether the session is connecting or connected (not ended, failed or closed).
-    public var isActive: Bool {
-        guard let session else { return false }
-        switch session.phase {
-        // A new session reads "connecting" before anything starts: only a live stream or a
-        // running attempt (every pane start is a reconnect) holds the host.
-        case .connecting, .connected: return session.stream != nil || session.isReconnecting
-        case .failed, .ended: return false
-        }
-    }
-
-    /// Another screen of this Mac took the host's one viewer: the session
-    /// ends now, as when a hidden tab's grace runs out (the Disconnected
-    /// card; showing a hidden tab connects again).
-    public func endForAnotherViewer() {
-        hideTimer.cancel()
-        view.input.releaseKeyboard()
-        session?.disconnect()
-    }
     public var focusTarget: NSView { view.input.view }
 
-    /// The tab is shown: connect (unless a person stopped it or it waits for Connect).
+    /// The tab is shown: a device tab with a scope waiting asks the hub.
     public func resume() {
         hideTimer.cancel()
         guard !visible else { return }
@@ -284,14 +212,6 @@ public final class MacScreenPane {
                 hub.resumeScope = nil
                 hub.request(scope)
             }
-            return
-        }
-        guard let session, model.gate == .open, !stoppedByPerson else { return }
-        switch session.phase {
-        case .connected, .connecting:
-            if session.stream == nil && !session.isReconnecting { start(session) }
-        case .failed, .ended:
-            start(session)
         }
     }
 
@@ -303,11 +223,7 @@ public final class MacScreenPane {
         view.input.releaseKeyboard()
         hideTimer.schedule(after: hiddenGrace) { @MainActor [weak self] in
             guard let self, !visible else { return }
-            if let hub = model.hub {
-                hub.endForHiddenTab()
-                return
-            }
-            session?.disconnect()
+            model.hub?.endForHiddenTab()
         }
     }
 
@@ -326,54 +242,16 @@ public final class MacScreenPane {
     }
 
     #if DEBUG
-    /// The Connect button, for `debug.mac_screen` (stands in for the person).
-    public func debugConfirm() { view.chrome.actions.confirm() }
-
     /// DEV builds (Settings > Development > Relay Only): TURN relay only from
-    /// now on; a running or starting stream reconnects to apply it.
+    /// now on. A ticket admits once: a running stream asks the hub for a new
+    /// session on the new path.
     public func setRelayOnly(_ on: Bool) {
         guard let session, session.relayOnly != on else { return }
-        if let hub = model.hub {
-            // A ticket admits once: a running stream asks the hub for a new session on the new path.
-            session.relayOnly = on
-            model.relayOnly = on
-            if let scope = hub.phase.streamingScope { hub.request(scope) }
-            return
-        }
-        // A running, returning or failed stream reconnects on the new path (with
-        // retries: the host may still be dropping the old connection); a new tab,
-        // or one the person disconnected, just takes the setting.
-        var failed = false
-        if case .failed = session.phase { failed = true }
         session.relayOnly = on
         model.relayOnly = on
-        if Self.reconnectsOnRelayChange(streaming: session.stream != nil || session.isReconnecting, failed: failed,
-                                        visible: visible, gateOpen: model.gate == .open, stoppedByPerson: stoppedByPerson) {
-            session.reconnect()
-        }
+        if let hub = model.hub, let scope = hub.phase.streamingScope { hub.request(scope) }
     }
     #endif
-
-    /// Whether a Relay Only change reconnects now (with retries: the host may
-    /// still be dropping the old connection). A live stream does, shown or
-    /// hidden within its grace; a failed one only when shown. Others take the
-    /// setting and use it on their next connect (a hidden tab when it is shown).
-    static func reconnectsOnRelayChange(streaming: Bool, failed: Bool, visible: Bool, gateOpen: Bool, stoppedByPerson: Bool) -> Bool {
-        guard gateOpen, !stoppedByPerson else { return false }
-        return streaming || (failed && visible)
-    }
-
-    /// The Mac was forgotten: its stream ends now, for good (a closed session
-    /// never connects again), and the tab says it is not paired.
-    public func forgotten() {
-        hideTimer.cancel()
-        stoppedByPerson = true
-        session?.close()
-        model.gate = .missing
-        view.input.releaseKeyboard()
-        view.syncInputGate()
-        handlers.keyboardChanged()
-    }
 
     public func focus() {
         guard let window = view.window else { return }
@@ -381,24 +259,13 @@ public final class MacScreenPane {
     }
 
     private func reconnect() {
-        stoppedByPerson = false
-        if let hub = model.hub {
-            hub.request(MacScreenHubViewer.scopeToRequest(last: hub.lastScope, access: hub.accessToHost))
-            return
-        }
-        guard let session else { return }
-        session.reconnectLimit = 5
-        start(session)
+        guard let hub = model.hub else { return }
+        hub.request(MacScreenHubViewer.scopeToRequest(last: hub.lastScope, access: hub.accessToHost))
     }
 
     private func disconnectByPerson() {
-        stoppedByPerson = true
         view.input.releaseKeyboard()
-        if let hub = model.hub {
-            hub.disconnect(reason: .viewerDisconnected)
-            return
-        }
-        session?.disconnect()
+        model.hub?.disconnect(reason: .viewerDisconnected)
     }
 }
 

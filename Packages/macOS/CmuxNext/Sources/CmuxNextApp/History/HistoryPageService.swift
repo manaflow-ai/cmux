@@ -123,14 +123,11 @@ extension TabContentCache {
                 chrome?.addressBar.showPageURL()
                 return true
             }
-            // A Mac Screen pairing link a person typed or pasted in the address bar pairs that
-            // Mac and shows it in a Mac Screen tab; this page stays. Automation (CLI bookmarks,
-            // scripts) never saves a Mac this way. The link never loads or searches.
-            if url.scheme?.lowercased() == "cmux-vnc" {
+            // A Mac Screen pairing link typed or pasted in the address bar: link pairing is
+            // gone, so it is refused with a word; it never loads or searches (it carried a secret).
+            if let refusal = MacScreenPages.pairingLinkRefusal(url) {
                 chrome?.addressBar.showPageURL()
-                guard RemoteViewPageService.isPersonInput(ActionRunScope.current), let record = services.macScreenPages.pair(link: url),
-                      let pane = services.paneController(listing: key) else { return true }
-                services.macScreenTabs.open(record, in: pane, focus: true, byPerson: true)
+                services.registry.refuse(refusal)
                 return true
             }
             guard Self.isAppPage(url) else { return false }

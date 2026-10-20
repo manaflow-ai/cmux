@@ -1,20 +1,19 @@
 public import Foundation
 
-/// What a Mac Screen page tab shows: the home page (the user's devices, and
-/// in DEV builds pairing and Share This Mac), one of the user's devices from
-/// the device hub, or (DEV builds) one Mac paired with a link. Its address,
-/// `cmux://mac-screen`, `cmux://mac-screen?device=<device id>` or
-/// `cmux://mac-screen?mac=<saved Mac id>`, typed in a browser's address bar,
-/// opens the page tab. The record holds only ids: a pairing secret stays in
-/// the Keychain (`MacScreenStore`) and a session's ticket in memory, because
-/// routes persist and travel with the tree.
+/// What a Mac Screen page tab shows: the home page or one of the user's
+/// devices from the device hub. Its address, `cmux://mac-screen` or
+/// `cmux://mac-screen?device=<device id>`, typed in a browser's address bar,
+/// opens the page tab. An old `?mac=<id>` record (link pairing, which is
+/// gone) still parses, so a restored tab can say links are no longer
+/// supported. The record holds only ids, because routes persist and travel
+/// with the tree.
 public nonisolated struct MacScreenRecord: Sendable, Hashable {
     public static let scheme = "cmux"
     public static let urlHost = "mac-screen"
     /// The home page.
     public static let homeURL = MacScreenRecord(macID: nil).url
 
-    /// The saved Mac (link pairing) this tab shows; nil otherwise.
+    /// An old link-pairing record's id (no longer supported); nil otherwise.
     public var macID: UUID?
     /// The device hub device this tab shows (its lowercase id); nil otherwise.
     public var deviceID: String?

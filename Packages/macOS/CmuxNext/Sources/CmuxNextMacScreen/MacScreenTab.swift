@@ -9,11 +9,11 @@ public final class MacScreenTab {
     public let key: String
     public internal(set) var record: MacScreenRecord
     public let view = MacScreenTabView()
-    /// The screen; nil for the home page, and until the saved Macs are read.
+    /// The screen; nil for the home page.
     public private(set) var pane: MacScreenPane?
     /// What the tab shows until its screen is in (the home page, or nothing).
     private var home: NSView?
-    /// Reading the saved Macs before the screen goes in (tests wait on it).
+    /// Reading the store for the home page (tests wait on it).
     var loading: Task<Void, Never>?
 
     init(key: String, record: MacScreenRecord) {
@@ -43,7 +43,7 @@ public final class MacScreenTab {
         if view.isShown { pane.resume() }
     }
 
-    /// Before the saved Macs are read: nothing.
+    /// Nothing yet.
     func showLoading() {
         clear()
         view.fill(with: nil, focus: nil)

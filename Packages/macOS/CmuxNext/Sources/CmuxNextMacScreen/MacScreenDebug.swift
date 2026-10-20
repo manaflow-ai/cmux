@@ -5,21 +5,14 @@ import AppKit
 public import CmuxNextSettings
 import CmuxScreenKit
 
-/// `debug.mac_screen` (development builds): Mac Screen tabs and Share This
-/// Mac, for live checks. Pairing links carry a room secret, so they move
-/// only through files readable by this user (mode 0600), never in params,
-/// results or logs.
-/// - `state` (default): the saved Macs (names only), Share This Mac, and one
+/// `debug.mac_screen` (development builds): Mac Screen tabs, for live
+/// checks. (Device hub sessions are `debug.device_hub`; link pairing is gone.)
+/// - `state` (default): this Mac's sharing permissions, Relay Only, and one
 ///   row per tab: URL, route, store tab id (null: app-only, not restored),
-///   gate, phase, path, stats, picture size, displays;
+///   gate, card, phase, path, stats, picture size, displays;
 ///   `system_shortcuts` (the setting), `system_shortcuts_tap` (the tap is
 ///   installed) and `accessibility` (this Mac trusts cmux for Accessibility).
-/// - `pair` {link_file}: saves the Mac whose link is in `link_file` and opens it.
 /// - `open` {url?, pane?}: opens the record at `url` (default the home page) in a new Mac Screen tab.
-/// - `connect` {tab?}: presses Connect on tabs that ask first (stands in for the person).
-/// - `share` {enabled}: switches Share This Mac (stands in for the person);
-///   `link_file` writes this Mac's link there (0600).
-/// - `forget` {name}: forgets the saved Macs with that name.
 extension MacScreenPages {
     /// Registers `debug.mac_screen` (development builds; nothing in Release).
     /// `openTab` opens a record in a new Mac Screen tab of the named pane (or
@@ -42,44 +35,13 @@ extension MacScreenPages {
             return ["opened": .string(url.absoluteString)]
         }
         switch params["action"]?.stringValue ?? "state" {
-        case "pair":
-            guard let path = params["link_file"]?.stringValue,
-                  let text = await Task.detached(operation: { try? String(contentsOfFile: path, encoding: .utf8) }).value else {
-                return ["error": "link_file must name a readable file"]
-            }
-            switch store.add(link: text) {
-            case let .success(mac): return open(MacScreenRecord(macID: mac.id).url)
-            case let .failure(error): return ["error": .string("\(error)")]
-            }
         case "open":
             let url = params["url"]?.stringValue.flatMap(URL.init(string:)) ?? MacScreenRecord.homeURL
             guard MacScreenRecord.matches(url) else { return ["error": "url must be a cmux://mac-screen record"] }
             return open(url)
-        case "connect":
-            var pressed = 0
-            for tab in tabs where tab.pane?.model.gate == .confirm {
-                tab.pane?.debugConfirm()
-                pressed += 1
-            }
-            return ["pressed": .number(Double(pressed))]
-        case "share":
-            if let enabled = params["enabled"]?.boolValue { host.setEnabled(enabled) }
-            if let path = params["link_file"]?.stringValue, let link = host.link {
-                let data = Data(link.absoluteString.utf8)
-                await Task.detached {
-                    FileManager.default.createFile(atPath: path, contents: data, attributes: [.posixPermissions: 0o600])
-                }.value
-            }
-            return hostState
-        case "forget":
-            guard let name = params["name"]?.stringValue else { return ["error": "name required"] }
-            let matches = store.macs.filter { $0.name == name }
-            for mac in matches { store.forget(mac.id) }
-            return ["forgotten": .number(Double(matches.count))]
         case "state":
             systemShortcuts.refreshAccessibility()
             return [
-                "macs": .array(store.macs.map { .string($0.name) }),
                 "share": hostState,
                 "relay_only": .bool(relayOnly),
                 // Send System Shortcuts to the Remote Mac: the setting, the tap, and this Mac's Accessibility.
@@ -94,11 +56,7 @@ extension MacScreenPages {
     }
 
     private var hostState: JSONValue {
-        [
-            "enabled": .bool(host.isEnabled), "status": .string("\(host.status)"), "indicator": .bool(host.indicatorVisible),
-            "screen_recording": .bool(host.screenRecordingGranted), "accessibility": .bool(host.accessibilityGranted),
-            "has_link": .bool(host.link != nil),
-        ]
+        ["screen_recording": .bool(host.screenRecordingGranted), "accessibility": .bool(host.accessibilityGranted)]
     }
 
     private func row(_ tab: MacScreenTab) -> JSONValue {

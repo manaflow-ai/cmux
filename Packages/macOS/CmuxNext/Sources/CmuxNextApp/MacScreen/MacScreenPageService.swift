@@ -10,8 +10,8 @@ import CmuxNextSettings
 import Foundation
 
 extension InternalPageID {
-    /// Mac Screen: a paired Mac's screen, or the home page (paired Macs,
-    /// pairing, Share This Mac). Its own tab kind, not a browser page.
+    /// Mac Screen: one of the user's devices' screens, or the home page (the
+    /// user's devices, Allow Mac Screen on This Mac). Its own tab kind, not a browser page.
     nonisolated static let macScreen = InternalPageID(rawValue: "mac-screen")
 }
 
@@ -19,7 +19,7 @@ extension MacScreenTabView: InternalPageFocusing {}
 
 /// Mac Screen page tabs: the app's side (where tabs open, close and retitle);
 /// `MacScreenPages` owns each tab's screen. A tab's route is its record
-/// ("home" or "mac:<saved Mac id>", never a secret), so a relaunched or
+/// ("home" or "device:<device id>", never a secret), so a relaunched or
 /// reopened tab shows it again, behind the Connect card.
 final class MacScreenPageService: InternalPageProvider {
     // crash-allow: AppServices owns this service for the app's whole life (a lazy property), so it outlives it.

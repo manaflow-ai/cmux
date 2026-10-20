@@ -29,20 +29,14 @@ public struct MacScreenTabEvents {
     public init() {}
 }
 
-/// One Mac Screen tab's screen, for ``MacScreenPages/sessionsToEnd(starting:panes:)``.
-struct MacScreenPaneActivity: Equatable {
-    var key: String
-    var mac: UUID?
-    /// Connecting or connected (holding, or about to hold, the host's one viewer).
-    var active: Bool
-}
-
 /// Mac Screen tabs, their own page tab kind (the app's `mac-screen` page):
-/// the saved Macs and Share This Mac (`MacScreenStore`, `MacScreenShareHost`),
-/// and each tab (`MacScreenTab`) by its page tab key. A tab connects only
-/// when a person opened it in this process (a click, the address bar, the
-/// palette); tabs that automation opened, or that were restored, wait for
-/// Connect.
+/// the user's devices through the device hub, this Mac as a hub host
+/// (`MacScreenHubHost`, its permissions in `MacScreenShareHost`), and each
+/// tab (`MacScreenTab`) by its page tab key. A device tab asks the hub only
+/// when a person opened it with a scope in this process; tabs that
+/// automation opened, or that were restored, wait at the Connect card.
+/// Pairing links are gone: a tab restored on an old link record shows that
+/// they are no longer supported.
 @MainActor
 public final class MacScreenPages {
     public let store: MacScreenStore
@@ -98,20 +92,10 @@ public final class MacScreenPages {
 
     public init(store: MacScreenStore) {
         self.store = store
-        host = MacScreenShareHost(store: store)
+        host = MacScreenShareHost()
         hubHost = MacScreenHubHost(share: host)
         systemShortcuts = MacScreenSystemShortcuts(host: host)
         systemShortcuts.panes = { [weak self] in self?.tabs.values.compactMap(\.pane) ?? [] }
-        store.onRenamed = { [weak self] id, name in
-            guard let self else { return }
-            for tab in tabs.values where tab.record.macID == id {
-                tab.rename(name)
-                events.titleChanged(tab.key)
-            }
-        }
-        store.onForgotten = { [weak self] id in
-            for tab in self?.tabs.values.map({ $0 }) ?? [] where tab.record.macID == id { tab.pane?.forgotten() }
-        }
         // Quitting ends every session now, so the other Mac stops showing a viewer at once.
         termination = NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { // main-proof: observer on queue: .main
@@ -207,11 +191,17 @@ public final class MacScreenPages {
     }
 
     /// The title of a tab known only by its route (a restored tab not yet
-    /// shown): the device's or saved Mac's name, else "Mac Screen"; nil for no route.
+    /// shown): the device's name, else "Mac Screen"; nil for no route.
     public func title(forRoute route: String?) -> String? {
         guard let route, let record = Self.record(route: route) else { return route == nil ? nil : Self.homeTitle }
-        if let device = record.deviceID { return deviceName(device) }
-        return record.macID.flatMap { store.mac($0)?.name } ?? Self.homeTitle
+        return record.deviceID.map(deviceName) ?? Self.homeTitle
+    }
+
+    /// The address bar's answer to a pasted or typed pairing link
+    /// (`cmux-vnc://pair?…`): no longer supported. Never loaded or searched.
+    public static func pairingLinkRefusal(_ url: URL) -> String? {
+        guard url.scheme?.lowercased() == "cmux-vnc" else { return nil }
+        return L.t("macScreen.pairingLinkRefused", "Pairing links are no longer supported. Use Settings › Devices.")
     }
 
     /// The hub's sessions end here now with `reason` (this Mac was removed:
@@ -233,7 +223,8 @@ public final class MacScreenPages {
         events.openInNewTab(MacScreenRecord(deviceID: id), key)
     }
 
-    /// At launch: Share This Mac resumes when the person left it on.
+    /// At launch: the shortcut tap, the permissions, and the saved device names
+    /// (the first launch of this build also removes old link pairings).
     public func activate() {
         systemShortcuts.start()
         Task { [weak self] in
@@ -242,12 +233,6 @@ public final class MacScreenPages {
             // The saved device names are in: restored device tabs take them.
             self?.refreshDeviceTitles()
         }
-    }
-
-    /// Saves the Mac a `cmux-vnc://pair` link names.
-    public func pair(link: URL) -> MacScreenRecord? {
-        guard case let .success(mac) = store.add(link: link.absoluteString) else { return nil }
-        return MacScreenRecord(macID: mac.id)
     }
 
     // MARK: Page tabs
@@ -260,8 +245,8 @@ public final class MacScreenPages {
     }
 
     /// What tab `key` shows, kept as its page tab route: "home",
-    /// "device:<device id>" or "mac:<saved Mac id>". Never a secret (a
-    /// pairing stays in the Keychain, a ticket in memory).
+    /// "device:<device id>", or an old link record's "mac:<id>" (restored, it
+    /// shows that pairing links are no longer supported). Never a secret.
     public func route(for key: String) -> String? {
         Self.route(of: tabs[key]?.record ?? records[key] ?? MacScreenRecord(macID: nil))
     }
@@ -299,11 +284,10 @@ public final class MacScreenPages {
     /// The home page's title, "Mac Screen".
     public static var homeTitle: String { L.t("macScreen.tab.homeTitle", "Mac Screen") }
 
-    /// The title of tab `key`: the Mac's name, or "Mac Screen" for the home page.
+    /// The title of tab `key`: the device's name, or "Mac Screen".
     public func title(for key: String) -> String {
         if let tab = tabs[key] { return tab.title }
-        if let device = records[key]?.deviceID { return deviceName(device) }
-        return records[key]?.macID.flatMap { store.mac($0)?.name } ?? Self.homeTitle
+        return records[key]?.deviceID.map(deviceName) ?? Self.homeTitle
     }
 
     /// The view of tab `key` (once per tab).
@@ -327,16 +311,12 @@ public final class MacScreenPages {
     /// The tab `key` (debug and tests).
     public func tab(_ key: String) -> MacScreenTab? { tabs[key] }
 
-    /// A person asked tab `key` to show `record` (the home page's Connect or
-    /// Pair and Connect, a screen's Home): a new tab in its place
+    /// A person asked tab `key` to show `record` (the home page's Connect, a screen's Home): a new tab in its place
     /// (`MacScreenTabEvents.replaceTab`), else this tab shows it.
     func replace(_ key: String, with record: MacScreenRecord) {
         if events.replaceTab(record, key) { return }
         show(record, in: key, byPerson: true)
     }
-
-    /// The home page of tab `key` opens the saved Mac `mac` (a person's click).
-    func openFromHome(_ mac: UUID, in key: String) { replace(key, with: MacScreenRecord(macID: mac)) }
 
     /// Shows `record` in tab `key` in place of what it shows, when no host can
     /// open a tab in its place. `byPerson`: a person asked for it.
@@ -355,47 +335,24 @@ public final class MacScreenPages {
             events.titleChanged(key)
             return
         }
-        guard let macID = record.macID else {
-            tab.showHome(makeHome(key: key))
-            tab.loading = Task { [weak self] in await self?.store.load() }
+        guard record.macID == nil else {
+            // An old link record (link pairing is gone): it says so, with Close Tab.
+            let pane = MacScreenPane(unsupportedLink: ())
+            pane.handlers.closeTab = { [weak self] in self?.events.closeTab(key) }
+            pane.handlers.openHome = { [weak self] in self?.replace(key, with: MacScreenRecord(macID: nil)) }
+            tab.install(pane)
             return
         }
-        tab.showLoading()
-        tab.loading = Task { [weak self, weak tab] in
-            guard let self else { return }
-            await store.load()
-            guard let tab, !Task.isCancelled, tabs[key] === tab, tab.record == record else { return }
-            tab.install(makePane(macID: macID, record: record, key: key))
-            events.titleChanged(key)
-        }
-    }
-
-    /// Hosts take one viewer and the newest wins. When the screen of tab
-    /// `starting` starts connecting, every other screen of the same Mac that
-    /// is connecting or connected ends, hidden (as if its grace ran out) or
-    /// shown (an older split shows Disconnected instead of the two taking the
-    /// host from each other). Their keys, in `panes` order.
-    static func sessionsToEnd(starting: String, panes: [MacScreenPaneActivity]) -> [String] {
-        guard let mac = panes.first(where: { $0.key == starting })?.mac else { return [] }
-        return panes.filter { $0.key != starting && $0.mac == mac && $0.active }.map(\.key)
-    }
-
-    /// The screen of tab `key` starts connecting: the other screens of its Mac end.
-    private func endOtherViewers(of key: String) {
-        let panes = tabs.values.sorted { $0.key < $1.key }.compactMap { tab in
-            tab.pane.map { MacScreenPaneActivity(key: tab.key, mac: tab.record.macID, active: $0.isActive) }
-        }
-        for other in Self.sessionsToEnd(starting: key, panes: panes) { tabs[other]?.pane?.endForAnotherViewer() }
+        tab.showHome(makeHome(key: key))
+        tab.loading = Task { [weak self] in await self?.store.load() }
     }
 
     private func makeHome(key: String) -> NSView {
         var actions = MacScreenHomeActions()
-        actions.open = { [weak self] mac in self?.openFromHome(mac, in: key) }
-        actions.openInNewTab = { [weak self] mac in self?.events.openInNewTab(MacScreenRecord(macID: mac), key) }
         actions.openDevice = { [weak self] id, scope in self?.openDeviceFromHome(id, scope: scope, in: key) }
         actions.openDeviceInNewTab = { [weak self] id, scope in self?.openDeviceInNewTab(id, scope: scope, from: key) }
         // In the tab's theme scope: Settings > Appearance changes show at once.
-        let home = MacScreenHostingView(MacScreenHomeView(store: store, host: host, actions: actions, systemShortcuts: systemShortcuts,
+        let home = MacScreenHostingView(MacScreenHomeView(host: host, actions: actions, systemShortcuts: systemShortcuts,
                                                           devices: MacScreenHomeDevices(pages: self)))
         // The page fills the tab; its content never sizes the tab's layout.
         home.sizingOptions = []
@@ -412,29 +369,6 @@ public final class MacScreenPages {
         if relayOnly { pane.setRelayOnly(true) }
         #endif
         pane.handlers.closeTab = { [weak self] in self?.events.closeTab(key) }
-        pane.handlers.openHome = { [weak self] in self?.replace(key, with: MacScreenRecord(macID: nil)) }
-        pane.handlers.isLocalShortcut = { [weak self] event in self?.isLocalShortcut(event) ?? false }
-        pane.handlers.keyboardChanged = { [weak self] in self?.systemShortcuts.update() }
-        pane.model.systemShortcuts = systemShortcuts
-        return pane
-    }
-
-    private func makePane(macID: UUID, record: MacScreenRecord, key: String) -> MacScreenPane {
-        let pane: MacScreenPane
-        if let mac = store.mac(macID), let pairing = store.pairing(for: macID) {
-            pane = MacScreenPane(name: mac.name, pairing: pairing, preferences: mac.preferences, confirmed: confirmed[key] == record)
-            pane.session?.hostID = macID
-            #if DEBUG
-            if relayOnly { pane.setRelayOnly(true) }
-            #endif
-            pane.handlers.confirm = { [weak self] in self?.confirmed[key] = record }
-            pane.handlers.connected = { [weak self] preferences in self?.store.connected(macID, preferences: preferences) }
-            pane.handlers.preferencesChanged = { [weak self] preferences in self?.store.update(macID, preferences: preferences) }
-        } else {
-            pane = MacScreenPane(missingMac: ())
-        }
-        pane.handlers.closeTab = { [weak self] in self?.events.closeTab(key) }
-        pane.handlers.willConnect = { [weak self] in self?.endOtherViewers(of: key) }
         pane.handlers.openHome = { [weak self] in self?.replace(key, with: MacScreenRecord(macID: nil)) }
         pane.handlers.isLocalShortcut = { [weak self] event in self?.isLocalShortcut(event) ?? false }
         pane.handlers.keyboardChanged = { [weak self] in self?.systemShortcuts.update() }

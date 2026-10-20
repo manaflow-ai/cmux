@@ -10,7 +10,7 @@ import os
 /// `ScreenStreamHost` (View Only sessions pass no input) over the ticket's
 /// signaling; a revocation or end closes it at once. One session at a time:
 /// a newer one replaces the older. Permissions (Screen Recording,
-/// Accessibility) are Share This Mac's (`MacScreenShareHost`).
+/// Accessibility) are checked by `MacScreenShareHost`.
 @MainActor @Observable
 public final class MacScreenHubHost {
     /// The session this Mac serves now.
