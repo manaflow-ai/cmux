@@ -47,7 +47,7 @@ class SidebarItemRowView: NSView {
     private(set) var style = Style.builtIn
     private let pill = CALayer()
     private let chip = CALayer()
-    let icon = NSImageView()
+    let icon = DecorativeImageView() // the row's label names the item
     let title = ChromeLabel(labelWithString: "")
     let badge = UnreadBadgeView()
     let avatarView = SidebarAvatarView()

@@ -38,6 +38,12 @@ for arg in "$@"; do
   esac
 done
 cd "$(git rev-parse --show-toplevel)"
+# Steps run with a per-step HOME; the account's user-level tools (bun for the Debug build's
+# web bundles: bun, node) live under its real home.
+account_home="$(dscl . -read "/Users/$(id -un)" NFSHomeDirectory 2>/dev/null | awk '{print $2}')"
+for tool_dir in "$account_home/.bun/bin" "$account_home/.local/node/bin"; do
+  [ -n "$account_home" ] && [ -d "$tool_dir" ] && export PATH="$tool_dir:$PATH"
+done
 sha="$(git rev-parse HEAD)"
 out="artifacts/perf-bench"
 work=".build/perf-bench"

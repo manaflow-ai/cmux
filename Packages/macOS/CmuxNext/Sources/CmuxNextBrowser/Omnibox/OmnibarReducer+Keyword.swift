@@ -21,7 +21,10 @@ nonisolated extension OmnibarStep {
     mutating func startKeywordOnTab() -> Bool {
         guard state.keyword == nil, state.phase == .editing, !state.isComposing,
               state.popup.selected ?? 0 == 0,
-              let keyword = OmnibarKeyword.exact(state.edit.userText, in: resolver.keywords) else { return false }
+              // The typed keyword, or a search engine's site its inline completion shows (`youtu` + `be.com`).
+              let keyword = OmnibarKeyword.exact(state.edit.userText, in: resolver.keywords)
+                ?? OmnibarKeyword.exact(state.fieldText, in: resolver.keywords.filter { $0.searchEngine != nil })
+        else { return false }
         startKeyword(keyword, text: "")
         return true
     }
@@ -35,7 +38,7 @@ nonisolated extension OmnibarStep {
         state.redo = []
         state.lastEditKind = nil
         closePopup()
-        effects.append(.keywordStarted(extensionID: keyword.extensionID))
+        if keyword.searchEngine == nil { effects.append(.keywordStarted(extensionID: keyword.extensionID)) }
         query()
     }
 
@@ -44,7 +47,7 @@ nonisolated extension OmnibarStep {
     mutating func leaveKeyword(restoreText: Bool) {
         guard let keyword = state.keyword else { return }
         state.keyword = nil
-        effects.append(.keywordEnded(extensionID: keyword.extensionID))
+        if keyword.searchEngine == nil { effects.append(.keywordEnded(extensionID: keyword.extensionID)) }
         closePopup()
         state.generation &+= 1
         effects.append(.cancelQuery)
@@ -53,6 +56,20 @@ nonisolated extension OmnibarStep {
         state.edit = .init(userText: text, selection: NSRange(location: OmnibarRules.length(keyword.keyword), length: 0),
                            suppressCompletion: true)
         query()
+    }
+
+    /// Opt-Cmd-F: an empty session of the default search engine (Chrome
+    /// `EnterKeywordModeForDefaultSearchProvider`); typing then searches there.
+    mutating func searchWithDefaultEngine() {
+        guard state.hasFocus, !state.isComposing else {
+            handled = false
+            return
+        }
+        let engine = resolver.searchEngine
+        let keyword = resolver.keywords.first { $0.searchEngine?.id == engine.id } ?? OmnibarKeyword(searchEngine: engine)
+        if state.keyword == keyword, state.edit.userText.isEmpty { return }
+        leaveKeyword(restoreText: false)
+        startKeyword(keyword, text: "")
     }
 
     /// Backspace at the start of a session's text leaves the session.
@@ -68,12 +85,30 @@ nonisolated extension OmnibarStep {
     /// The session's text changed: the extension gets it (also when empty).
     mutating func keywordQuery(_ keyword: OmnibarKeyword) {
         state.generation &+= 1
+        // A search engine session has no rows: Enter searches with the engine.
+        guard keyword.searchEngine == nil else {
+            closePopup()
+            effects.append(.cancelQuery)
+            return
+        }
         effects.append(.keywordInput(extensionID: keyword.extensionID, text: state.edit.userText, generation: state.generation))
     }
 
     /// Enter or a row click in a session: the extension gets `text`.
     mutating func commitKeyword(_ text: String, _ disposition: OmnibarInput.Disposition) {
         guard let keyword = state.keyword else { return }
+        if let engine = keyword.searchEngine {
+            // Chrome: Enter in a search engine session searches there; with no
+            // text it opens the engine's site.
+            state.keyword = nil
+            let query = text.trimmingCharacters(in: .whitespaces)
+            guard let url = engine.searchURL(for: query) ?? (query.isEmpty ? engine.siteURL : nil) else {
+                state.keyword = keyword
+                effects.append(.beep)
+                return
+            }
+            return commit(url, disposition)
+        }
         state.keyword = nil
         state.phase = .committing(display: state.pageURL)
         state.retainedText = nil

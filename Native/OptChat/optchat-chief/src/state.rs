@@ -89,6 +89,11 @@ pub struct HostState {
     /// env's (`OPTCHAT_MAX_LIVE_SUBAGENTS`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub live_cap: Option<usize>,
+    /// `control cloud PEER|off`: the acpmux peer subagents run on by
+    /// default, set at run time (empty: off, local); None: the env's
+    /// (`OPTCHAT_SUBAGENT_PEER`). plans/cmux-next/cloud-subagents-DESIGN.md.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cloud_peer: Option<String>,
     /// The number of the next subagent id (`a<N>`), unique for this home.
     #[serde(default)]
     pub next_subagent: u64,
@@ -124,6 +129,37 @@ pub struct HostState {
     /// retracts it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub compactor_notice: Option<PostedNotice>,
+    /// The thread root of each user message of the Chief conversation that
+    /// is itself a thread reply, by message id (a top-level message is its
+    /// own root and has no entry): a reply to it, even a subagent's report
+    /// after a restart, goes into that thread. At most
+    /// [`MESSAGE_ROOTS_KEPT`], oldest dropped first.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub message_roots: Vec<(String, String)>,
+}
+
+/// How many thread roots `HostState::message_roots` keeps.
+pub const MESSAGE_ROOTS_KEPT: usize = 512;
+
+impl HostState {
+    /// Records that user message `id` is a reply in the thread of `root`.
+    pub fn note_root(&mut self, id: &str, root: &str) {
+        if id == root || self.message_roots.iter().any(|(m, _)| m == id) {
+            return;
+        }
+        self.message_roots.push((id.to_owned(), root.to_owned()));
+        let extra = self.message_roots.len().saturating_sub(MESSAGE_ROOTS_KEPT);
+        self.message_roots.drain(..extra);
+    }
+
+    /// The thread root of user message `id`: its recorded root, else itself.
+    pub fn root_of(&self, id: &str) -> String {
+        self.message_roots
+            .iter()
+            .find(|(m, _)| m == id)
+            .map(|(_, r)| r.clone())
+            .unwrap_or_else(|| id.to_owned())
+    }
 }
 
 /// A notice the host posted and may take back.
@@ -198,6 +234,19 @@ impl SpawnRecord {
             .iter()
             .any(|s| s.status != SubStatus::Reported && !(s.status == SubStatus::Done && s.stopped))
     }
+
+    /// A subagent still works for user message `id`: its own `answers` (a
+    /// tell) name it, or it has none and the spawn's do.
+    pub fn working_for(&self, id: &str) -> bool {
+        self.subs.iter().any(|s| {
+            let for_it = if s.answers.is_empty() {
+                self.answers.iter().any(|a| a == id)
+            } else {
+                s.answers.iter().any(|a| a == id)
+            };
+            for_it && s.status != SubStatus::Reported && !(s.status == SubStatus::Done && s.stopped)
+        })
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -228,6 +277,10 @@ pub struct SubRecord {
     /// Its cmux workspace, once created.
     #[serde(default)]
     pub workspace: Option<String>,
+    /// The acpmux peer (a cloud VM) it runs on; None: this machine. Only
+    /// local subagents count against the live cap.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub peer: Option<String>,
     pub status: SubStatus,
     /// The report waiting for the log.
     #[serde(default)]
@@ -280,6 +333,11 @@ pub struct SubRecord {
     /// Its pending permission request.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub permission: Option<PendingPermission>,
+    /// The user messages the turn that last told it answered (`tell` during
+    /// a turn): its next report answers them, and goes into their thread.
+    /// Empty: the spawn's own (`SpawnRecord::answers`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub answers: Vec<String>,
     /// When its session last changed (ms since the epoch): stuck detection.
     #[serde(default, skip_serializing_if = "is_zero_u64")]
     pub active_ms: u64,
@@ -424,6 +482,13 @@ impl PendingTurn {
 /// One logged item's source, so a restart can finish its bookkeeping: a
 /// human message moves the read cursor, a child's report marks the child
 /// reported (else reconcile would queue the same report again).
+/// Persisted records created before effect provenance was stored fail closed.
+/// New constructors still use `Default::default()` (owner-authorized false),
+/// and serialization writes the field explicitly so a round trip is stable.
+fn legacy_requires_approval() -> bool {
+    true
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Item {
     /// The conversation seq of a human message.
@@ -448,6 +513,10 @@ pub struct Item {
     /// A paired device sent the message (or the resume note of such a turn).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub remote: bool,
+    /// The message came from someone other than the Chief's owner, or the
+    /// resumed turn otherwise required approval for effects.
+    #[serde(default = "legacy_requires_approval")]
+    pub requires_approval: bool,
     /// The resume note of a cut turn: a cut resume turn resumes again.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub resume: bool,
@@ -467,6 +536,9 @@ pub struct Resume {
     /// every local effect, as that turn did.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub remote: bool,
+    /// The cut turn required approval independently of remote.autoApprove.
+    #[serde(default = "legacy_requires_approval")]
+    pub requires_approval: bool,
     /// The full text of the cut turn's human messages, in log order: the
     /// resume turn's new messages carry them after the note (they are in
     /// the log already and are not logged again).
@@ -858,5 +930,28 @@ impl FrozenRecord {
             cuts: self.cuts.clone(),
             starts: self.starts.clone(),
         })
+    }
+}
+
+#[cfg(test)]
+mod security_tests {
+    use super::{Item, Resume};
+
+    #[test]
+    fn legacy_pending_turns_require_approval_but_new_owner_records_round_trip() {
+        let old_item: Item = serde_json::from_str(r#"{"seq":1}"#).unwrap();
+        let old_resume: Resume = serde_json::from_str(r#"{"messages":["continue"]}"#).unwrap();
+        assert!(old_item.requires_approval);
+        assert!(old_resume.requires_approval);
+
+        let item = Item::default();
+        let resume = Resume::default();
+        assert!(!item.requires_approval);
+        assert!(!resume.requires_approval);
+        let item_again: Item = serde_json::from_slice(&serde_json::to_vec(&item).unwrap()).unwrap();
+        let resume_again: Resume =
+            serde_json::from_slice(&serde_json::to_vec(&resume).unwrap()).unwrap();
+        assert!(!item_again.requires_approval);
+        assert!(!resume_again.requires_approval);
     }
 }

@@ -145,8 +145,10 @@ public struct Metrics {
     /// The opt-in tight tab strip (`ChromeTunables.compactTabs`), at compact density only.
     public static var compactTabs: Bool { density == .compact && ChromeTunables.compactTabs.value }
     /// The chrome line: tab pills and toolbar button shapes, from the
-    /// content border's left edge.
-    public static var paneChromeInset: CGFloat { PaneChromeMetrics.pillLeading }
+    /// strip's leading edge (`PaneChromeMetrics.pillLeading`: the pills' top
+    /// inset, 0 for outlined panes). On the 2x pixel grid, where every
+    /// density's default is whole points.
+    public static var paneChromeInset: CGFloat { PaneChromeMetrics.current.pillLeading(scale: 2) }
 
     // MARK: Shape
 
