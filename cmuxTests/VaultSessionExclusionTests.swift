@@ -228,6 +228,26 @@ struct VaultSessionExclusionTests {
         #expect(unfiltered.values == [0..<60])
     }
 
+    @Test("An unfiltered page inspects exactly twice the page over an odd snapshot")
+    func unfilteredPageKeepsTwiceThePageOnOddSnapshots() async {
+        let windows = RangeRecorder()
+
+        _ = await SessionIndexStore.growingWindowPage(
+            candidateCount: 101,
+            offset: 0,
+            limit: 50,
+            cap: 1500,
+            grows: false,
+            parse: { range in
+                windows.append(range)
+                return []
+            },
+            isIncluded: { _ in true }
+        )
+
+        #expect(windows.values == [0..<100])
+    }
+
     @Test("Codex's SQL reader exposes the thread source as the entrypoint")
     func codexSQLReadsSourceAsEntrypoint() async throws {
         let tempDir = FileManager.default.temporaryDirectory
