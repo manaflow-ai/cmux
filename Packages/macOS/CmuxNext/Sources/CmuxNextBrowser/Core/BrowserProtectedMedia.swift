@@ -22,7 +22,8 @@ public nonisolated struct BrowserProtectedMedia: Sendable, Hashable {
     /// FairPlay. Clear Key (`org.w3.clearkey`) is not: Chromium has it, and a refusal there is the
     /// page's own configuration.
     public var needsAnotherEngine: Bool {
-        false
+        let name = keySystem.lowercased()
+        return ["com.widevine.alpha", "com.microsoft.playready", "com.apple.fps"].contains { name == $0 || name.hasPrefix($0 + ".") }
     }
 
     /// Whether the tab reopens in WebKit at the same address.
@@ -34,8 +35,7 @@ public nonisolated struct BrowserProtectedMedia: Sendable, Hashable {
     ///   - alreadyReopened: The tab reopened once already.
     /// - Returns: True to reopen it in WebKit.
     public func reopensInWebKit(engineIsChromium: Bool, enginePinned: Bool, alreadyReopened: Bool) -> Bool {
-        _ = (engineIsChromium, enginePinned, alreadyReopened)
-        return false
+        engineIsChromium && needsAnotherEngine && !enginePinned && !alreadyReopened
     }
 
     /// The binding the relay script calls in the media world (`BrowserMediaState.world`).
