@@ -46,6 +46,8 @@ public nonisolated struct SidebarDocSection: Hashable, Sendable, Identifiable {
     public var room: String?
     public var maxRows: Int?
     public var keepsClosed: Bool
+    /// A machine section made a remote group (remote-groups-DESIGN.md slice 4).
+    public var hostGroup = false
 
     public init(id: String, kind: SidebarDocSectionKind, title: String? = nil, showsTitle: Bool = false, region: SidebarRegion = .middle,
                 look: SectionLook = .list, arrangement: SectionArrangement = .list, room: String? = nil, maxRows: Int? = nil,
@@ -266,13 +268,8 @@ public nonisolated struct SidebarDocRecords: Hashable, Sendable {
             switch (change.kind, change.resource) {
             case ("state_upsert", "sidebar_item"):
                 guard let new = change.item?.record, let old = items[new.id],
-                      case let .group(name, color, icon, collapsed) = new.body,
-                      case .group(name, color, icon, _) = old.body else { folds = nil; continue }
-                var unfolded = old
-                unfolded.body = new.body
-                // Only a change of the fold alone: an upsert that changes nothing the record shows may still move the
-                // item (its place lives in the reducer's order), so it redraws.
-                if unfolded == new, collapsed != old.body.groupCollapsed { folds?[new.id] = collapsed } else { folds = nil }
+                      let collapsed = Self.foldOnly(from: old, to: new) else { folds = nil; continue }
+                folds?[new.id] = collapsed
             case (_, "sidebar_section"), ("state_delete", "sidebar_item"):
                 folds = nil
             default:
@@ -282,6 +279,21 @@ public nonisolated struct SidebarDocRecords: Hashable, Sendable {
         applyChanges(batch)
         if let revision = batch.revision?.value { self.revision = revision }
         return folds?.isEmpty == false ? folds : nil
+    }
+
+    /// The new fold when `new` changes only the fold of group `old`; nil for any other change.
+    /// Only a change of the fold alone: an upsert that changes nothing the record shows may still
+    /// move the item (its place lives in the reducer's order), so it redraws.
+    ///
+    /// Compares whole values, with no expression pattern on `old.body`: Swift 6.3.3 (Xcode 26.6)
+    /// crashed in Release (CopyPropagation, "Found outside of lifetime use") on
+    /// `case .group(name, color, icon, _) = old.body` with `old` borrowed from `items`.
+    static func foldOnly(from old: SidebarDocItem, to new: SidebarDocItem) -> Bool? {
+        guard let collapsed = new.body.groupCollapsed, let wasCollapsed = old.body.groupCollapsed,
+              collapsed != wasCollapsed else { return nil }
+        var refolded = old
+        refolded.body = old.body.withGroupCollapsed(collapsed)
+        return refolded == new ? collapsed : nil
     }
 
     private mutating func applyChanges(_ batch: SidebarDocWire.Batch) {
@@ -306,5 +318,11 @@ nonisolated extension SidebarDocBody {
     /// A group's fold; nil for any other item.
     var groupCollapsed: Bool? {
         if case let .group(_, _, _, collapsed) = self { collapsed } else { nil }
+    }
+
+    /// This body with its group fold set to `collapsed`; any other body unchanged.
+    func withGroupCollapsed(_ collapsed: Bool) -> SidebarDocBody {
+        guard case let .group(name, color, icon, _) = self else { return self }
+        return .group(name: name, color: color, icon: icon, collapsed: collapsed)
     }
 }

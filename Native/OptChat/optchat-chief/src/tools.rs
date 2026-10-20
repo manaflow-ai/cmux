@@ -127,6 +127,24 @@ pub trait Orchestrator: Send + Sync {
         let _ = (agent, request);
         Err("this Chief host takes no sign-in escalations".into())
     }
+    /// `peers` for subagent `caller`: every other subagent with its title
+    /// and state (acp-chief-issues.md #11).
+    fn peers(&self, caller: &str) -> Result<String, String> {
+        let _ = caller;
+        Err("this Chief host runs no subagents".into())
+    }
+    /// `tell` from subagent `from` to subagent `id`: the message says who
+    /// sent it; never to itself.
+    fn peer_tell(
+        &self,
+        from: &str,
+        id: &str,
+        message: &str,
+        key: Option<&str>,
+    ) -> Result<String, String> {
+        let _ = (from, id, message, key);
+        Err("this Chief host runs no subagents".into())
+    }
 }
 
 /// One `send` call (plans/cmux-next/chief-tools-DESIGN.md).
@@ -360,6 +378,7 @@ pub fn command(tool: &str, args: &[&str]) -> Result<Command, String> {
             }
             Call::parse("sleep", &v)
         }
+        ("peers", []) => Call::parse("peers", &serde_json::json!({})),
         ("profile", []) => Call::parse("profile", &serde_json::json!({})),
         ("profile", [args]) => match serde_json::from_str::<Value>(args) {
             Ok(v @ Value::Object(_)) => Call::parse("profile", &v),
@@ -429,6 +448,7 @@ pub fn usage(tool: &str) -> String {
             "sleep" => "SECONDS [\"note\"]",
             "escalate-auth" | "escalate_auth" =>
                 "password|passkey|2fa|oauth SITE URL \"why you need it\"",
+            "peers" => "",
             "spawn" => "[--cwd DIR] \"task\" [\"task\" ...]",
             "profile" => "['{\"role\": \"...\", \"avatar_path\": \"/path/pic.png\"}']",
             "chiefs" =>
@@ -606,6 +626,8 @@ pub enum Call {
         request: AuthEscalation,
         agent: Option<String>,
     },
+    /// `peers`: a subagent's list of the other subagents.
+    Peers,
     /// `profile` (chief_profile.rs): read or change the Chief's own record.
     Profile {
         args: Value,
@@ -774,6 +796,7 @@ impl Call {
                     agent: text("agent").ok().filter(|a| agent_id(a)),
                 })
             }
+            "peers" => Ok(Call::Peers),
             "profile" => {
                 let mut args = args.as_object().cloned().unwrap_or_default();
                 // The socket request's own keys are not the tool's arguments.
@@ -812,11 +835,12 @@ impl Call {
             | Call::Stop
             | Call::Sleep(_)
             | Call::Control(_)
+            | Call::Peers
             | Call::ZoomAgent { .. }
             | Call::EscalateAuth { .. }
             | Call::Profile { .. }
             | Call::Chiefs { .. } => {
-                "spawn, tell, profile, chiefs and a subagent's zoom are served by the Chief host"
+                "spawn, tell, peers, profile, chiefs and a subagent's zoom are served by the Chief host"
                     .to_owned()
             }
         }
@@ -827,6 +851,7 @@ impl Call {
             Call::Zoom { id, n } => json!({"tool": "zoom", "id": id, "n": n}),
             Call::ZoomAgent { id, at } => json!({"tool": "zoom", "id": id, "at": at}),
             Call::Date { id } => json!({"tool": "date", "id": id}),
+            Call::Peers => json!({"tool": "peers"}),
             Call::Spawn {
                 tasks,
                 cwd,
@@ -1000,6 +1025,17 @@ fn connection(conn: UnixStream, served: &Served) {
             _ => crate::turn_caller::Role::Other,
         })
     };
+    // The subagent id of a caller under a subagent session (its own
+    // session name, never the request's word): who a `tell` comes from.
+    let caller_cell = std::cell::OnceCell::new();
+    let caller = || {
+        caller_cell
+            .get_or_init(|| match (&served.turn, peer) {
+                (Some(binding), Some(pid)) => binding.subagent_of(pid),
+                _ => None,
+            })
+            .clone()
+    };
     let control = served.control.as_ref();
     let Ok(mut out) = conn.try_clone() else {
         return;
@@ -1150,9 +1186,24 @@ fn connection(conn: UnixStream, served: &Served) {
                 let grant = served.chief.as_ref().map(|c| c.grant());
                 let grant = grant.as_ref();
                 let answer = match Call::parse(tool, &req) {
+                    // A subagent tells another subagent (acp-chief-issues.md
+                    // #11), as the one its session is; never as the Chief.
+                    Ok(Call::Tell {
+                        id, message, key, ..
+                    }) if subagent => match (&served.orchestrator, caller()) {
+                        (Some(o), Some(from)) => o.peer_tell(&from, &id, &message, key.as_deref()),
+                        (Some(_), None) => Err(
+                            "tell: only a subagent session of this Chief may tell another subagent"
+                                .to_owned(),
+                        ),
+                        (None, _) => Err("this Chief host runs no subagents".to_owned()),
+                    },
+                    Ok(Call::Peers) => match &served.orchestrator {
+                        Some(o) => o.peers(&caller().unwrap_or_default()),
+                        None => Err("this Chief host runs no subagents".to_owned()),
+                    },
                     Ok(
                         Call::Spawn { .. }
-                        | Call::Tell { .. }
                         | Call::React { .. }
                         | Call::Reply { .. }
                         | Call::Send(_)
@@ -1162,7 +1213,7 @@ fn connection(conn: UnixStream, served: &Served) {
                         | Call::Profile { .. }
                         | Call::Chiefs { .. },
                     ) if subagent => Err(
-                        "subagents have no spawn, tell, react, reply, send, stop, sleep, control, profile or chiefs"
+                        "subagents have no spawn, react, reply, send, stop, sleep, control, profile or chiefs"
                             .to_owned(),
                     ),
                     // `chiefs` only for this host's own turn: the turn key the
