@@ -2647,6 +2647,13 @@ export class AcpmuxDirectClient {
     if (!this.selectedSessionId) return { removed: false };
     return this.request("_acpmux/queue_remove", { sessionId: this.actingSessionId, promptId });
   }
+  /// Resumes the shown chat's paused messages with `peer` (acpmux `hub/agent_pairs.rs`): acpmux
+  /// delivers what the pair held, and its `agent_pair_resumed` record ends the pause.
+  resumeAgentPair(peer: string): Promise<{ resumed?: number; delivered?: number }> {
+    const sessionId = this.actingSessionId;
+    if (!sessionId) return Promise.reject(new Error(translate("error.notOpen")));
+    return this.request("_acpmux/agent_pair_resume", { sessionId, peerSessionId: peer });
+  }
   /// Archive has acpmux tag the selected chat `archived` (the lists hide it; acpmux values it with
   /// when); Unarchive removes the tag. The page sends it on its own connection (cx-jlzsf).
   async archive(archived: boolean): Promise<void> {
