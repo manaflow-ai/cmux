@@ -17,6 +17,9 @@ Two tours building into one DerivedData at once break its module cache
 leaves a background process holding it and returns. The holder lets go when
 the job's Runner.Worker exits (the runner also ends a job's leftover
 processes) or after --max-hold seconds, so a lost job never keeps a tag.
+--worker-pid PID ties the hold to that process instead of the nearest
+Runner.Worker above the step, and --worker-pid 0 to --max-hold alone; tests
+use it so a hold neither depends on the job they run in nor on timing.
 
 `claim` is how a tour picks its tag. It takes the first free tag of
 ci-media-slot0, ci-media-slot1, ... without waiting, holds it like `hold`, and
@@ -44,6 +47,8 @@ DEFAULT_LOCK_DIR = Path.home() / "Library/Caches/cmux-ci-media/locks"
 WORKER = "Runner.Worker"
 # Overflow slots past K are tried in order; a Mac never runs this many tours.
 MAX_SLOTS = 64
+WORKER_PID_HELP = (f"hold until this process exits instead of the nearest {WORKER} above this step; "
+                   "0 holds for --max-hold only")
 
 
 def worker_pid(start: int) -> int | None:
@@ -60,6 +65,13 @@ def worker_pid(start: int) -> int | None:
             return pid
         pid = int(fields[0])
     return None
+
+
+def job_worker(args: argparse.Namespace) -> int | None:
+    """The process whose exit ends the hold: --worker-pid when given (0 for none), else the job's Runner.Worker."""
+    if args.worker_pid is not None:
+        return args.worker_pid or None
+    return worker_pid(os.getppid())
 
 
 def alive(pid: int) -> bool:
@@ -123,7 +135,7 @@ def hold(fd: int, path: Path, worker: int | None, max_hold: float) -> None:
         os.dup2(devnull, target)
     deadline = time.monotonic() + max_hold
     while time.monotonic() < deadline and (worker is None or alive(worker)):
-        time.sleep(5)
+        time.sleep(1)
     os._exit(0)
 
 
@@ -135,12 +147,16 @@ def main(argv: list[str] | None = None) -> int:
     held.add_argument("--lock-dir", type=Path, default=DEFAULT_LOCK_DIR)
     held.add_argument("--wait", type=float, default=7200)
     held.add_argument("--max-hold", type=float, default=3 * 3600)
+    held.add_argument("--worker-pid", type=int, help=WORKER_PID_HELP)
     claimed = sub.add_parser("claim")
     claimed.add_argument("--slots", type=int, default=2, help="warm slots per Mac (default 2)")
     claimed.add_argument("--lock-dir", type=Path, default=DEFAULT_LOCK_DIR)
     claimed.add_argument("--github-env", type=Path, help="append TOUR_SLOT and TOUR_TAG here")
     claimed.add_argument("--max-hold", type=float, default=3 * 3600)
+    claimed.add_argument("--worker-pid", type=int, help=WORKER_PID_HELP)
     args = parser.parse_args(argv)
+    if args.worker_pid is not None and args.worker_pid < 0:
+        parser.error("--worker-pid must be a process id, or 0 for none")
     if args.command == "claim":
         if not 1 <= args.slots <= MAX_SLOTS:
             parser.error(f"--slots must be 1..{MAX_SLOTS}")
@@ -152,7 +168,7 @@ def main(argv: list[str] | None = None) -> int:
     if fd is None:
         print(f"::error::{path.name} was still held after {args.wait:.0f}s", flush=True)
         return 1
-    worker = worker_pid(os.getppid())
+    worker = job_worker(args)
     if worker is None:
         print(f"no {WORKER} above this step; the tag is held for at most {args.max_hold:.0f}s", flush=True)
     hold(fd, path, worker, args.max_hold)
@@ -173,7 +189,7 @@ def claim(args: argparse.Namespace) -> int:
     else:
         print(f"::error::all {MAX_SLOTS} tour slots in {args.lock_dir} are held", flush=True)
         return 1
-    worker = worker_pid(os.getppid())
+    worker = job_worker(args)
     if worker is None:
         print(f"no {WORKER} above this step; the slot is held for at most {args.max_hold:.0f}s", flush=True)
     hold(fd, path, worker, args.max_hold)
