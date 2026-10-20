@@ -372,6 +372,11 @@ export async function decide({
   }
   const matches = surfaceMatcher(parseSurface(surfaceText));
   if (!current) {
+    if (policy.require_non_lander_approver) {
+      return refuse(`${TARGET} does not exist; the commit-author exclusion cannot establish a bounded promotion range`, {
+        sha, current, surfaceFiles: ['*'],
+      });
+    }
     return { action: 'needs-ack', reason: `${TARGET} does not exist; the first promotion needs a release approver`, sha, current, surfaceFiles: ['*'], landers: [] };
   }
   const touches = (file) => matches(file.filename) || Boolean(file.previous_filename && matches(file.previous_filename));
