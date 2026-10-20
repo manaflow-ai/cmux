@@ -267,7 +267,7 @@ async fn a_burst_of_prompts_during_a_turn_never_queues_loses_or_reorders_one() {
                 t.match_indices("<m").map(|(i, _)| t[i..i + 5].to_owned()).collect::<Vec<_>>()
             })
             .collect();
-        let want: Vec<String> = (0..20).map(|k| format!("<m{k:02}")).collect();
+        let want: Vec<String> = (0..20).map(|k| format!("<m{k:02}>")).collect();
         assert_eq!(seen, want, "{name}: the agent read every message once, in order");
         // The transcript shows every message too, in order.
         let shown: Vec<&str> = events
