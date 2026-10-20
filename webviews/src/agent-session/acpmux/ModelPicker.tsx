@@ -14,6 +14,7 @@ import { isDefaultChoice } from "./defaultChoice";
 import { CheckIcon, ChevronIcon, PICKER_LABELS, SearchIcon } from "./ComposerPickers";
 import { Icon } from "./icons/Icon";
 import { currentLanguage, useT } from "./i18n";
+import { useUpdateOffer } from "./HarnessHealthNotice";
 import { MODEL_PICKER_MIN_HEIGHT, pickerHeightBounds, type ModelPickerProps } from "./modelPickerLayout";
 import { modelSections } from "./modelSections";
 import { effortWords, fitsQuery, modelEffort, parseQuery } from "./modelQuery";
@@ -215,6 +216,9 @@ const modelRow =
 /// The active row (pointer or arrows) has the hover wash; any other row gets it on hover.
 const rowFill = (active: boolean) => (active ? "bg-hover" : "bg-transparent hover:bg-hover");
 const emptyNote = "px-2.5 py-2 text-body text-muted";
+/// The update row's Update and Skip This Version: row-height text buttons, as wide as their words.
+const updateButton =
+  "flex h-[var(--ui-row-height,28px)] flex-none cursor-pointer items-center rounded-[var(--ui-row-radius,5px)] border-0 px-2 font-[inherit] text-control text-fg";
 
 function StarGlyph({ filled, size }: { filled: boolean; size: number }) {
   return (
@@ -257,6 +261,12 @@ export function ModelPicker(props: ModelPickerProps) {
   /// A signed-out harness's login command ("" when acpmux names none); undefined when it can start.
   const loginFor = useCallback((entry: HarnessChoice) => signedOut?.[entry.acpmuxHarness ?? entry.id], [signedOut]);
   const t = useT();
+  /// The chat's agent CLI has an update (hq#2569 #12): a dot on the chip and a row in the picker,
+  /// never a banner over the chat.
+  const update = useUpdateOffer();
+  const updateText = update
+    ? t("harness.outdated", { agent: update.agent, version: update.version, latest: update.latest })
+    : undefined;
   const modelText = t(PICKER_LABELS.model);
   const searchText = t("picker.search");
   const harnessText = t("picker.harness");
@@ -773,6 +783,9 @@ export function ModelPicker(props: ModelPickerProps) {
           data-label={chipFamily}
         />
       )}
+      {update && (
+        <span aria-hidden="true" className="acpmux-model-update-dot size-1.5 flex-none rounded-full bg-accent" />
+      )}
     </>
   );
   return (
@@ -800,10 +813,11 @@ export function ModelPicker(props: ModelPickerProps) {
             "data-menu": modelText,
             label: modelText,
             /* tooltip-allow: the chip drops the vendor its mark draws; the title keeps the full name */
-            title: usage ? `${chipLabel} · ${usage}` : chipLabel,
+            title: [chipLabel, usage, updateText].filter(Boolean).join(" · "),
           }}
           menu={{
             ...quick,
+            ...(update && updateText ? { update: { text: updateText, run: update.update } } : {}),
             // This harness's top models, the running one among them; a signed-out harness lists none.
             models:
               current && loginFor(current) === undefined
@@ -854,7 +868,7 @@ export function ModelPicker(props: ModelPickerProps) {
           data-menu={modelText}
           aria-label={modelText}
           /* tooltip-allow: the chip drops the vendor its mark draws; the title keeps the full name */
-          title={usage ? `${chipLabel} · ${usage}` : chipLabel}
+          title={[chipLabel, usage, updateText].filter(Boolean).join(" · ")}
           aria-haspopup="dialog"
           aria-expanded={open}
           aria-controls={open ? menuId : undefined}
@@ -1158,6 +1172,28 @@ export function ModelPicker(props: ModelPickerProps) {
                 )}
               </PickerOptionList>
             </ScrollArea>
+            {update && (
+              <div className="acpmux-mp-update flex flex-none items-center gap-1 border-t-[0.5px] border-edge p-1.5 pl-2.5">
+                <span className="min-w-0 flex-1 truncate text-detail text-muted">{updateText}</span>
+                <button
+                  type="button"
+                  className={`acpmux-mp-update-run ${updateButton} ${rowFill(false)}`}
+                  onClick={() => {
+                    update.update();
+                    close();
+                  }}
+                >
+                  {t("harness.update")}
+                </button>
+                <button
+                  type="button"
+                  className={`acpmux-mp-update-skip ${updateButton} ${rowFill(false)}`}
+                  onClick={update.skip}
+                >
+                  {t("harness.skipVersion")}
+                </button>
+              </div>
+            )}
             {fastMode && (
               <div className="flex-none border-t-[0.5px] border-edge p-1.5">
                 <button

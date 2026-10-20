@@ -12,6 +12,7 @@ import { turnPreviewUrl } from "./previewUrl";
 import { renderCall } from "./renderCall";
 import { showsTimestamp, type TurnTimes } from "./timestamps";
 import { isSubagentGroup } from "../subagents/subagentRows";
+import { QUESTION_RECORD } from "../question/record";
 import type { Translate } from "../i18n";
 import { toolLabel } from "../toolPaths";
 import { isRunning } from "./toolGroups";
@@ -399,7 +400,9 @@ const staysOut = (row: AcpmuxRow) =>
   // Where the session started: what it runs on and how it compacts.
   row.kind === "sessionStart" ||
   // A session offer waits for the person's Start or Dismiss.
-  row.kind === "sessionOffer";
+  row.kind === "sessionOffer" ||
+  // What the person answered an agent's question, which shaped the rest of the turn.
+  row.kind === QUESTION_RECORD;
 
 /// A turn that ended without a summary (history paged in from before acpmux kept one, or a
 /// turn a restart cut off): its work folds under "N previous messages", like any
