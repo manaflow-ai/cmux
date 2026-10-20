@@ -35,8 +35,88 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Exercise the rolling public install path in a disposable job that receives
+  # no repository secret and produces no input consumed by the authenticated
+  # journey. A compromised installer can fail this smoke, but cannot cross into
+  # the secret-bearing job.
+  public-installer-smoke:
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Install cmux-tui the way users do
+        run: |
+          set -euo pipefail
+          export CMUX_INSTALL="$RUNNER_TEMP/public-cmux"
+          curl --proto '=https' --tlsv1.2 -fsSL https://cmux.com/tui/install.sh | sh
+          "$CMUX_INSTALL/bin/cmux" --version
+
+  # The authenticated journey consumes a different binary: an immutable,
+  # checksum-verified artifact whose manifest has GitHub build provenance and
+  # whose source commit is an ancestor of protected main.
+  installer:
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout trusted main history
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: refs/heads/main
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Fetch an attested cmux-tui binary
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/trusted-cmux"
+          mkdir -p "$out"
+          manifest="$RUNNER_TEMP/cmux-tui-manifest.json"
+          curl --proto '=https' --tlsv1.2 -fsSL --retry 3 \
+            https://files.cmux.com/cmux-tui/latest/manifest.json -o "$manifest"
+          case "$(uname -m)" in
+            x86_64|amd64) artifact=cmux-tui-x86_64-unknown-linux-gnu ;;
+            arm64|aarch64) artifact=cmux-tui-aarch64-unknown-linux-gnu ;;
+            *) echo "unsupported Linux architecture: $(uname -m)" >&2; exit 1 ;;
+          esac
+          read -r commit digest < <(python3 - "$manifest" "$artifact" <<'PY'
+          import json, re, sys
+          data = json.load(open(sys.argv[1], encoding="utf-8"))
+          commit = data.get("commit", "")
+          digest = (data.get("binaries") or {}).get(sys.argv[2], "")
+          if not re.fullmatch(r"[0-9a-f]{40}", commit) or not re.fullmatch(r"[0-9a-f]{64}", digest):
+              raise SystemExit("cmux-tui manifest has no valid commit or Linux binary digest")
+          print(commit, digest)
+          PY
+          )
+          git cat-file -e "$commit^{commit}"
+          git merge-base --is-ancestor "$commit" HEAD
+          gh attestation verify "$manifest" \
+            --repo manaflow-ai/cmux \
+            --signer-workflow manaflow-ai/cmux/.github/workflows/cmux-tui-artifacts.yml \
+            --source-digest "$commit"
+          curl --proto '=https' --tlsv1.2 -fsSL --retry 3 \
+            "https://files.cmux.com/cmux-tui/$commit/$artifact" -o "$out/cmux"
+          echo "$digest  $out/cmux" | sha256sum --check --strict
+          chmod 755 "$out/cmux"
+          printf '%s\n' "$commit" > "$out/source-commit"
+          printf '%s\n' "$digest" > "$out/sha256"
+
+      - name: Upload the attested cmux-tui binary
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cloud-vm-dogfood-cmux
+          path: ${{ runner.temp }}/trusted-cmux
+          if-no-files-found: error
+          retention-days: 1
+
   journey:
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    needs: [public-installer-smoke, installer]
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 45
     environment: cloud-vm-${{ inputs.target }}
     defaults:
@@ -46,13 +126,28 @@ jobs:
       CMUX_CLOUD_VM_ENV_SOURCE: process
       NEXT_PUBLIC_STACK_PROJECT_ID: ${{ vars.NEXT_PUBLIC_STACK_PROJECT_ID }}
       NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY: ${{ vars.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY }}
-      STACK_SECRET_SERVER_KEY: ${{ secrets.STACK_SECRET_SERVER_KEY }}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: refs/heads/main
           persist-credentials: false
+
+      - name: Download the attested cmux-tui binary
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cloud-vm-dogfood-cmux
+          path: ${{ runner.temp }}/trusted-cmux
+
+      - name: Verify the journey binary
+        run: |
+          set -euo pipefail
+          binary="$RUNNER_TEMP/trusted-cmux/cmux"
+          digest="$(cat "$RUNNER_TEMP/trusted-cmux/sha256")"
+          [[ "$digest" =~ ^[0-9a-f]{64}$ ]]
+          echo "$digest  $binary" | sha256sum --check --strict
+          chmod 755 "$binary"
+          echo "CMUX_TUI_BIN=$binary" >> "$GITHUB_ENV"
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
@@ -73,19 +168,11 @@ jobs:
             exit 1
           fi
 
-      - name: Install cmux-tui the way users do
-        run: |
-          set -euo pipefail
-          export CMUX_INSTALL="$RUNNER_TEMP/cmux"
-          started=$(date +%s%3N)
-          curl -fsSL https://cmux.com/tui/install.sh | sh
-          echo "CMUX_TUI_BIN=$CMUX_INSTALL/bin/cmux" >> "$GITHUB_ENV"
-          echo "CMUX_TUI_INSTALL_MS=$(( $(date +%s%3N) - started ))" >> "$GITHUB_ENV"
-
       - name: Journey
         env:
           TARGET: ${{ inputs.target }}
           SKIP_SLEEP: ${{ inputs.skip_sleep }}
+          STACK_SECRET_SERVER_KEY: ${{ secrets.STACK_SECRET_SERVER_KEY }}
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/dogfood/screens"
@@ -109,7 +196,6 @@ jobs:
             echo
             echo "| Step | ms |"
             echo "| --- | ---: |"
-            echo "| installCmuxTui | ${CMUX_TUI_INSTALL_MS:-} |"
             jq -r '.timings | to_entries[] | "| \(.key | sub("Ms$"; "")) | \(.value) |"' "$result"
             echo
             jq -r 'if .statusAfterPauseSeries then "Pause status series: " + ([.statusAfterPauseSeries[] | "\(.atMs)ms=\(.status)" + (if .providerStatus then " provider=\(.providerStatus)" else "" end)] | join(", ")) else empty end' "$result"
