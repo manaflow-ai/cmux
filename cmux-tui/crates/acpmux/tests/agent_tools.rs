@@ -41,6 +41,9 @@ fn hub() -> Arc<Hub> {
                 "env": {"ANTHROPIC_BASE_URL": "http://127.0.0.1:9/router"}},
             "fakecodex-router": {"argv": ["python3", FAKE], "family": "codex",
                 "env": {"OPENAI_BASE_URL": "http://127.0.0.1:9/v1"}},
+            // A profile that opts in to every cmux tool behind the harness's tool search.
+            "fakecodex-alltools": {"argv": ["python3", FAKE], "family": "codex",
+                "env": {"CMUX_MCP_ALL_TOOLS": "1"}},
         },
         "defaultHarness": "fake",
         "permissionPolicy": "approve-all",
@@ -176,19 +179,23 @@ async fn local_sessions_get_the_browser_and_cua_tools_and_skills() {
     let (refused, _) = local.call_text("session/new", params).await;
     assert_eq!(refused["error"]["data"]["reason"], "env.key_refused", "{refused}");
 
-    // A harness with its own tool search (Codex; Claude Code below) gets
-    // every cmux tool and loads what a turn needs; the rest get code mode.
+    // Every harness gets cmux's code mode (two tools; docs on demand): with every cmux tool
+    // listed, a tool-search harness still sent all 641 names in each request (~23 KB, user
+    // 2026-10-20). A profile opts in to every tool with CMUX_MCP_ALL_TOOLS=1.
     let cmux_args = |list: &Value| {
         list.as_array().unwrap().iter().find(|s| s["name"] == "cmux").unwrap()["args"].clone()
     };
     assert_eq!(cmux_args(&servers), json!(["mcp", "serve"]), "code mode: {servers}");
     let codex = local.new_session("fakecodex").await;
     let listed: Value = serde_json::from_str(&local.ask(&codex, "mcp").await).unwrap();
+    assert_eq!(cmux_args(&listed), json!(["mcp", "serve"]), "{listed}");
+    let all = local.new_session("fakecodex-alltools").await;
+    let listed: Value = serde_json::from_str(&local.ask(&all, "mcp").await).unwrap();
     assert_eq!(cmux_args(&listed), json!(["mcp", "serve", "--all-tools"]), "{listed}");
 
     // Claude Code: the same servers in --mcp-config, the skills as a plugin,
-    // every cmux tool, and its tool search on (it turns it off behind a
-    // router by itself).
+    // cmux's code mode, and its tool search on for other servers (it turns it
+    // off behind a router by itself).
     let id = local.new_session("fakeclaude").await;
     assert_eq!(local.ask(&id, "env: ENABLE_TOOL_SEARCH").await, "ENABLE_TOOL_SEARCH=true");
     let argv: Vec<String> = serde_json::from_str(&local.ask(&id, "hi").await).unwrap();
@@ -204,7 +211,7 @@ async fn local_sessions_get_the_browser_and_cua_tools_and_skills() {
         serde_json::from_str(&std::fs::read_to_string(&config_path).unwrap()).unwrap();
     assert_eq!(config["mcpServers"]["cmux-cua"]["command"], json!(cua), "{config}");
     assert_eq!(config["mcpServers"]["cmux"]["command"], json!(cmux), "{config}");
-    assert_eq!(config["mcpServers"]["cmux"]["args"], json!(["mcp", "serve", "--all-tools"]));
+    assert_eq!(config["mcpServers"]["cmux"]["args"], json!(["mcp", "serve"]));
     // Fail safe: a Claude Code whose profile turns tool search off keeps it
     // off and gets code mode, never every schema in every turn.
     let off = local.new_session("fakeclaude-nosearch").await;
