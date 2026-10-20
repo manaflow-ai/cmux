@@ -10,7 +10,7 @@ import { roleOf } from "./domains/team-members.ts"
 import { installPublicPoint } from "./install-public-point.ts"
 
 export type NetworkHost = typeof Host.Type
-export interface NetworkIdentity { key: JsonWebKey; kind: string; expires_at: number | null; authority_version: string }
+export interface NetworkIdentity { key: JsonWebKey; kind: string; expires_at: number | null; authority_version: string; op_classes: ReadonlyArray<string> }
 export interface PeerDeps { team: string; state: () => TeamState; rows: RowReader | undefined; identity(user: string, install: string, grant: string): Promise<NetworkIdentity | null>; identities(user: string, entries: ReadonlyArray<{ install: string; grant: string }>): Promise<ReadonlyArray<NetworkIdentity | null>>; now(): number }
 export const digest = (value: unknown): string => createHash("sha256").update(JSON.stringify(value)).digest("hex")
 export const pointOf = (identity: NetworkIdentity | null): string | null => { try { return identity ? installPublicPoint(identity.key) : null } catch { return null } }

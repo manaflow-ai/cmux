@@ -156,7 +156,7 @@ export const verifyLinkToken = async (token: string, v: { aud: string; epoch: nu
   if (c.aud !== v.aud) return { ok: false, error: "aud" }
   if (c.epoch !== v.epoch) return { ok: false, error: "epoch" }
   if (typeof c.iat !== "number" || typeof c.exp !== "number" || c.exp - c.iat > LINK_TOKEN_MAX_TTL_S) return { ok: false, error: "lifetime" }
-  if (v.native && !matchesNativeLink(payload, v.native, v.now)) return { ok: false, error: "native_identity" }
+  if (v.native && (!v.seen || !matchesNativeLink(payload, v.native, v.now))) return { ok: false, error: "native_identity" }
   if (v.seen) {
     if (v.seen.has(c.jti)) return { ok: false, error: "replay" }
     v.seen.add(c.jti)

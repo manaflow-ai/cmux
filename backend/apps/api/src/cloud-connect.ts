@@ -157,7 +157,7 @@ export const mintLinkToken = async (
   if (!args.keys) return { ok: false, code: "owner.unreachable", message: "link signing keys are not configured on this deployment" }
   const iat = Math.floor(Date.now() / 1000)
   const exp = permit ? Math.min(iat + LINK_TOKEN_MAX_TTL_S, Math.floor((permit.grantExpiresAt ?? Infinity) / 1000), Math.floor((p.expires_at ?? Infinity) / 1000)) : iat + LINK_TOKEN_MAX_TTL_S
-  if (exp <= iat) return { ok: false, code: "auth.forbidden", message: "the original client grant has expired" }
+  if (!Number.isSafeInteger(exp) || exp <= iat) return { ok: false, code: "auth.forbidden", message: "the original client grant has expired" }
   const claims = { iss: `cmux:cloud:${args.environment}`, aud: row.host, sub: p.install, svc: [...d.value.services], epoch: row.epoch ?? 1, iat, exp, jti: newJti(), team: entity,
     ...(permit ? { network: { version: 1 as const, tenant: permit.tenant, mesh: permit.mesh, device: permit.device, host: permit.host, user: permit.user, wg_public_key: permit.wg, authority_version: permit.authorityVersion, acl_version: permit.aclVersion } } : {}) }
   const kid = signingKid(args.keys, Date.now())
