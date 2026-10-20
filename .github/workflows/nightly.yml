@@ -3374,82 +3374,32 @@ jobs:
         run: ./scripts/ci/signing-keychain.sh delete
 
 
-      - name: Verify bundled Mach-O load commands
-        run: ./scripts/verify-bundle-load-commands.sh "$CHANNEL_APP_PATH"
-
-
-      # Every Mach-O must map to its notices (bundle-map.json): fail here,
-      # before the notarization wait. notarize-nightly-dmg.sh checks the app
-      # and the mounted DMG again.
-      - name: Verify third-party notices cover every bundled binary
-        run: ./scripts/verify-app-bundle-licenses.sh "$CHANNEL_APP_PATH"
-
+      # The read-only checks of the signed app and its two packages run on a
+      # copy of it while Apple notarizes (signed-app-checks.sh): about 2.5 min
+      # that used to stand between Codesign apps and the first submission. The
+      # notarize step changes the app in place, so the copy is taken here.
       # This job holds signing secrets, so it runs no code from the bundle.
       # verify-signed-nightly runs every check that executes the app, the CLI,
       # the helpers or the sidecar, in a job without secrets, on this exact
       # signed app and on the final DMG (#21024). Notary tests and builds held
       # by NIGHTLY_NEXT_NOTARY_PAUSED (they carry the browser-data import) never
-      # upload a signed app and publish nothing, so they skip that job.
-      - name: Package signed app for the verify job
-        if: needs.decide.outputs.notary_test != 'true' && needs.decide.outputs.import_paused != 'true'
-        run: |
-          set -euo pipefail
-          mkdir -p signed-app-handoff
-          tar -C "$(dirname "$CHANNEL_APP_PATH")" -czf signed-app-handoff/cmux-signed-app.tar.gz "$(basename "$CHANNEL_APP_PATH")"
-          (cd signed-app-handoff && shasum -a 256 cmux-signed-app.tar.gz > cmux-signed-app.tar.gz.sha256)
-
-      - name: Upload signed app for the verify job
-        if: needs.decide.outputs.notary_test != 'true' && needs.decide.outputs.import_paused != 'true'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: cmux-${{ needs.decide.outputs.channel }}-signed-app-${{ matrix.variant }}-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
-          path: signed-app-handoff/*
-          compression-level: 0
-          if-no-files-found: error
-          retention-days: 3
-
-      # The bundle carries Rust, Zig, C++ and CEF binaries built outside Xcode,
-      # so the Xcode deployment target alone does not prove they load on the
-      # declared floor. Fail before notarization when any Mach-O needs a newer
-      # macOS than LSMinimumSystemVersion, strong-loads a system library the
-      # floor lacks, or a nested helper declares a newer floor. cmux-next pins
-      # the floor to macOS 14 (Lawrence 2026-10-16: "Make sure it works on
-      # Sequoia, macOS 14+"); raising it is a decision, not a build accident.
-      - name: Check every bundled Mach-O loads on the macOS floor
-        if: env.TRACK == 'nightly-next'
-        run: python3 scripts/ci/macho_minos.py scan "$CHANNEL_APP_PATH" --floor 14.0
-
-
-
-      # When Apple's queue is slow the wait below can hold the feed for hours,
-      # so teammates get the Developer ID-signed app from the run page now.
-      # It is not notarized: open it with right-click > Open, or run
-      # `xattr -dr com.apple.quarantine "<app>"` after unzipping. The
-      # repository is public, so notary tests and builds held by
-      # NIGHTLY_NEXT_NOTARY_PAUSED (they carry the browser-data import) never
-      # upload an app. A failed zip or upload never blocks notarization.
-      - name: Zip the signed app before notarization
-        if: needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_test != 'true' && needs.decide.outputs.import_paused != 'true'
-        continue-on-error: true
+      # upload a signed app and publish nothing, so they skip that job. The
+      # unnotarized zip is the Developer ID-signed app for teammates when
+      # Apple's queue is slow; the public repository never gets one from notary
+      # tests or paused builds, and a failed zip never blocks notarization.
+      - name: Start the signed-app checks (they run during notarization)
         env:
+          CHECK_MINOS: ${{ env.TRACK == 'nightly-next' }}
+          PACKAGE_HANDOFF: ${{ needs.decide.outputs.notary_test != 'true' && needs.decide.outputs.import_paused != 'true' }}
+          PACKAGE_UNNOTARIZED_ZIP: ${{ needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_test != 'true' && needs.decide.outputs.import_paused != 'true' }}
           VARIANT: ${{ matrix.variant }}
         run: |
           set -euo pipefail
-          out="$RUNNER_TEMP/signed-unnotarized"
-          mkdir -p "$out"
-          ditto -c -k --sequesterRsrc --keepParent "$CHANNEL_APP_PATH" "$out/${CHANNEL_DMG_PREFIX}-${VARIANT}-${NIGHTLY_BUILD}-signed-unnotarized.zip"
-          ls -l "$out"
-
-
-      - name: Upload the signed app before notarization
-        if: needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_test != 'true' && needs.decide.outputs.import_paused != 'true'
-        continue-on-error: true
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: cmux-nightly-signed-unnotarized-${{ matrix.variant }}
-          path: ${{ runner.temp }}/signed-unnotarized/*.zip
-          if-no-files-found: error
-          retention-days: 7
+          # An unsigned resume of an older tree may predate this script; its
+          # checks are still the tree's own (the script runs ./scripts/...).
+          checks=scripts/ci/signed-app-checks.sh
+          [ -f "$checks" ] || checks=.nightly-signing-control/scripts/ci/signed-app-checks.sh
+          bash "$checks" start "$CHANNEL_APP_PATH"
 
 
       - name: Stop before notarization (NIGHTLY_NEXT_NOTARY_PAUSED)
@@ -3517,6 +3467,42 @@ jobs:
             "$NIGHTLY_DMG_IMMUTABLE"
 
 
+      # Every Mach-O must load on the declared floor, map to its notices and
+      # pass the load-command check; the verify job's handoff comes from the
+      # same copy. A failure here fails the job, so nothing is published.
+      - name: Finish the signed-app checks
+        id: signed-app-checks
+        if: always()
+        timeout-minutes: 15
+        run: |
+          set -euo pipefail
+          checks=scripts/ci/signed-app-checks.sh
+          [ -f "$checks" ] || checks=.nightly-signing-control/scripts/ci/signed-app-checks.sh
+          bash "$checks" finish
+
+
+      - name: Upload signed app for the verify job
+        if: "!cancelled() && steps.signed-app-checks.outcome == 'success' && needs.decide.outputs.notary_test != 'true' && needs.decide.outputs.import_paused != 'true'"
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-${{ needs.decide.outputs.channel }}-signed-app-${{ matrix.variant }}-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
+          path: signed-app-handoff/*
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 3
+
+
+      - name: Upload the signed unnotarized app
+        if: "!cancelled() && steps.signed-app-checks.outcome == 'success' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_test != 'true' && needs.decide.outputs.import_paused != 'true'"
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-nightly-signed-unnotarized-${{ matrix.variant }}
+          path: ${{ runner.temp }}/signed-unnotarized/*.zip
+          if-no-files-found: error
+          retention-days: 7
+
+
       - name: Package signed fast dogfood DMG
         if: needs.decide.outputs.fast_build == 'true'
         env:
@@ -3539,7 +3525,8 @@ jobs:
         id: prepare-notarization-recovery
         if: >-
           always() && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.no_publish != 'true' &&
-          (steps.notarize-nightly.outputs.submission_pending == 'true' || steps.notarize-nightly.outcome == 'failure')
+          (steps.notarize-nightly.outputs.submission_pending == 'true' || steps.notarize-nightly.outcome == 'failure') &&
+          steps.signed-app-checks.outcome == 'success'
         env:
           # The state file records the signing channel (cmux NEXT signs as `next`).
           SIGN_CHANNEL: ${{ needs.decide.outputs.sign_channel }}
@@ -4049,32 +4036,48 @@ jobs:
         timeout-minutes: 2
         run: |
           set -uo pipefail
+          # Every stop request has its own limit: a request to an owner that
+          # never answers held the whole step to its 2-minute timeout (run
+          # 39438045034), and the step then printed nothing about which one.
+          bounded() { local s="$1"; shift; perl -e 'alarm shift; exec @ARGV or die "exec: $!"' "$s" "$@"; }
           echo "cmux processes left by the smokes:"
           ps -axww -o pid=,ppid=,lstart=,args= | grep -i cmux | grep -v grep || true
           app="$GITHUB_WORKSPACE/$CHANNEL_APP_PATH"
           bin="$app/Contents/Resources/bin"
           [ -d "$bin" ] || exit 0
-          # shellcheck source=/dev/null
-          source scripts/lib/stop-cmux-tui-owners.sh
-          cmux_stop_cmux_tui_owners "$(cd -P "$bin" && pwd)"
-          # The DMG smoke's owners ran from the detached mount, so ask each
-          # remaining owner to stop through its socket with this bundle's
-          # cmux-tui; SIGTERM only that exact PID if the request fails.
+          bin="$(cd -P "$bin" && pwd)"
+          # Ask every cmux-tui owner (the signed app's, and the DMG smoke's that
+          # ran from a copy or the detached mount) to stop through its socket
+          # with this bundle's cmux-tui, which ends its terminals; SIGTERM only
+          # that exact owner PID if the request fails, takes over 10 s, or the
+          # step is past its 80 s budget. Terminal hosts are never matched.
+          deadline=$((SECONDS + 80))
           ps -axww -o pid= -o args= | while read -r pid args; do
             case "$args" in
               */Contents/Resources/bin/cmux-tui\ --headless\ *) ;;
               *) continue ;;
             esac
             socket="$(printf '%s\n' "$args" | sed -nE 's/.* --socket ([^ ]+).*/\1/p')"
-            if [ -n "$socket" ] && "$bin/cmux-tui" --socket "$socket" server stop --end-terminals >/dev/null 2>&1; then
+            echo "stopping owner $pid"
+            if [ "$SECONDS" -lt "$deadline" ] && [ -n "$socket" ] \
+              && bounded 10 "$bin/cmux-tui" --socket "$socket" server stop --end-terminals >/dev/null 2>&1 </dev/null; then
               continue
             fi
+            echo "server stop of owner $pid failed, took more than 10 s, or the budget ran out; SIGTERM to that PID only"
             kill -TERM "$pid" 2>/dev/null || true
           done
           # `cmux acp` finds the bundle's own acpmux build home (a bare
           # `acpmux` would use ~/.acpmux). The DMG app has the same bundle id.
           if [ -x "$bin/cmux" ]; then
-            "$bin/cmux" acp daemon shutdown --end-agents >/dev/null 2>&1 || true
+            echo "stopping the acpmux daemon"
+            if ! bounded 20 "$bin/cmux" acp daemon shutdown --end-agents >/dev/null 2>&1 </dev/null; then
+              echo "acp daemon shutdown failed or took more than 20 s; SIGTERM to this bundle's acpmux daemons only"
+              ps -axww -o pid= -o args= | while read -r pid args; do
+                case "$args" in
+                  "$bin/acpmux daemon run"*) kill -TERM "$pid" 2>/dev/null || true ;;
+                esac
+              done
+            fi
           fi
           echo "cmux processes after the stop:"
           ps -axww -o pid=,ppid=,args= | grep -i cmux | grep -v grep || true
