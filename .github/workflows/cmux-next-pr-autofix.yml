@@ -111,7 +111,8 @@ jobs:
   # Regenerates the action and settings exports on a Mac with a read-only token
   # and hands them to repair as the action-exports artifact (files at their
   # repository paths). A pull request whose catalog or settings do not build
-  # gets none of those exports; its other repairs still run.
+  # gets none of those exports; its other repairs still run, but push holds
+  # them back (an Autofix-Run head would skip the exports on every later run).
   action-exports:
     name: action exports (Mac)
     needs: action-areas
