@@ -74,7 +74,9 @@ impl Fixture {
         loop {
             assert!(held.len() < 512, "the owner never refused a connection");
             let stream = UnixStream::connect(&self.socket).unwrap();
-            stream.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+            // macOS refuses the timeout (EINVAL) once the owner has closed a
+            // refused connection; its refusal line is still readable.
+            let _ = stream.set_read_timeout(Some(Duration::from_secs(10)));
             let mut reader = BufReader::new(stream.try_clone().unwrap());
             // The refusal may close the socket before this write lands.
             let _ = writeln!(&stream, r#"{{"id":1,"cmd":"identify"}}"#);

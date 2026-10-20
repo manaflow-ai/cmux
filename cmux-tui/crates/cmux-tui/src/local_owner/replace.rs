@@ -25,8 +25,9 @@
 //! connection limit from a healthy one whose clients all stay connected. The
 //! app offers the option only after a plain ensure has failed
 //! (`server.restore_timeout`, `server.unavailable`, `server.busy` or no
-//! answer), so the restore bound or the busy bound has passed. Replacing a slow restore costs restore time, not
-//! terminals: the hosts survive and the next owner adopts them.
+//! answer), so the restore bound or the busy bound has passed. Replacing a
+//! slow restore costs restore time, not terminals: the hosts survive and the
+//! next owner adopts them.
 //!
 //! Stop: SIGTERM and SIGCONT (a stopped process acts on SIGTERM only after it
 //! continues), wait for the exit up to `TERM_GRACE`, then SIGKILL and wait up
@@ -204,10 +205,10 @@ fn unresponsive(
 fn probe(stream: Box<dyn cmux_tui_core::platform::transport::Stream>, deadline: Instant) -> Probe {
     let remaining =
         deadline.saturating_duration_since(Instant::now()).max(Duration::from_millis(1));
-    if stream.set_write_timeout(Some(remaining)).is_err() {
-        return Probe::Answered;
-    }
     let mut connection = BufReader::new(stream);
+    if let Err(error) = connection.get_ref().set_write_timeout(Some(remaining)) {
+        return closed(&mut connection, &error);
+    }
     let request = serde_json::json!({"id":1,"cmd":"identify"});
     match writeln!(connection.get_mut(), "{request}").and_then(|()| connection.get_mut().flush()) {
         Ok(()) => {}
@@ -223,8 +224,8 @@ fn probe(stream: Box<dyn cmux_tui_core::platform::transport::Stream>, deadline: 
         if remaining.is_zero() {
             return Probe::Silent;
         }
-        if connection.get_mut().set_read_timeout(Some(remaining)).is_err() {
-            return Probe::Answered;
+        if let Err(error) = connection.get_ref().set_read_timeout(Some(remaining)) {
+            return closed(&mut connection, &error);
         }
         match connection.read_until(b'\n', &mut line) {
             Ok(_) if super::identify::is_refusal(&line) => return Probe::Refused,
@@ -233,6 +234,19 @@ fn probe(stream: Box<dyn cmux_tui_core::platform::transport::Stream>, deadline: 
             Err(error) if is_timeout(&error) => {}
             Err(_) => return Probe::Answered,
         }
+    }
+}
+
+/// A socket timeout failed: a refusal when the owner closed after its
+/// refusal line (macOS EINVAL), otherwise a closed connection.
+fn closed(
+    connection: &mut BufReader<Box<dyn cmux_tui_core::platform::transport::Stream>>,
+    error: &io::Error,
+) -> Probe {
+    if super::identify::refused_after_closed(connection, error) {
+        Probe::Refused
+    } else {
+        Probe::Answered
     }
 }
 

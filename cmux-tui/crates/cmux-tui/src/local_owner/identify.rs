@@ -37,6 +37,32 @@ pub(super) fn refused_after_write(connection: &mut BufReader<Box<dyn transport::
     connection.by_ref().take(4096).read_until(b'\n', &mut line).is_ok() && is_refusal(&line)
 }
 
+/// After a refused socket timeout: whether the owner refused the connection.
+/// macOS fails a timeout with EINVAL once the peer has closed, and an owner
+/// at its connection limit closes right after its refusal line, which stays
+/// readable. A closed connection never blocks this read.
+pub(super) fn refused_after_closed(
+    connection: &mut BufReader<Box<dyn transport::Stream>>,
+    error: &io::Error,
+) -> bool {
+    if error.kind() != io::ErrorKind::InvalidInput || error.raw_os_error().is_none() {
+        return false;
+    }
+    let mut line = Vec::new();
+    connection.by_ref().take(4096).read_until(b'\n', &mut line).is_ok() && is_refusal(&line)
+}
+
+fn refused_or_failed(
+    connection: &mut BufReader<Box<dyn transport::Stream>>,
+    error: &io::Error,
+) -> IdentifyError {
+    if refused_after_closed(connection, error) {
+        IdentifyError::Refused
+    } else {
+        IdentifyError::Failed
+    }
+}
+
 /// Run one identify exchange on a fresh connection with a bounded timeout.
 pub(super) fn identify(
     stream: Box<dyn transport::Stream>,
@@ -44,9 +70,13 @@ pub(super) fn identify(
 ) -> Result<Value, IdentifyError> {
     let timeout =
         Some(deadline.saturating_duration_since(Instant::now()).min(Duration::from_secs(2)));
-    stream.set_read_timeout(timeout).map_err(|_| IdentifyError::Failed)?;
-    stream.set_write_timeout(timeout).map_err(|_| IdentifyError::Failed)?;
     let mut connection = BufReader::new(stream);
+    let stream = connection.get_ref();
+    if let Err(error) =
+        stream.set_read_timeout(timeout).and_then(|()| stream.set_write_timeout(timeout))
+    {
+        return Err(refused_or_failed(&mut connection, &error));
+    }
     if writeln!(connection.get_mut(), "{}", serde_json::json!({"id":1,"cmd":"identify"}))
         .and_then(|()| connection.get_mut().flush())
         .is_err()
@@ -64,10 +94,11 @@ pub(super) fn identify(
         if remaining.is_zero() {
             return Err(IdentifyError::Timeout);
         }
-        connection
-            .get_mut()
-            .set_read_timeout(Some(remaining.min(Duration::from_secs(2))))
-            .map_err(|_| IdentifyError::Failed)?;
+        if let Err(error) =
+            connection.get_mut().set_read_timeout(Some(remaining.min(Duration::from_secs(2))))
+        {
+            return Err(refused_or_failed(&mut connection, &error));
+        }
         match connection.by_ref().take((RESPONSE_LIMIT + 2) as u64).read_until(b'\n', &mut bytes) {
             Ok(0) => return Err(IdentifyError::Failed),
             Ok(_) => {}
