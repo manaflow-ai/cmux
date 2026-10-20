@@ -205,6 +205,7 @@ let package = Package(
                 "CmuxNextDiff",
                 "CmuxNextHome",
                 "CmuxNextHomeEngine",
+                "CmuxNextHostedChief",
                 "CmuxNextDaemonService",
                 "CmuxNextFocus",
                 "CmuxNextFocusUI",
@@ -456,6 +457,17 @@ let package = Package(
                 .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
                 .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
             ],
+            resources: [
+                .process("Resources"),
+            ],
+            swiftSettings: uiSwiftSettings
+        ),
+        // Hosted Chief (Lawrence 2026-10-19): the Hosted Chief is the default Chief in Home;
+        // the one-time copy of this Mac's Chief into it, its brain check, the cloud Chief
+        // models and the Chief switch. No AppServices; the App's HomeService wires it.
+        .target(
+            name: "CmuxNextHostedChief",
+            dependencies: ["CmuxNextCompat", "CmuxNextDaemon", "CmuxNextHomeEngine"],
             resources: [
                 .process("Resources"),
             ],

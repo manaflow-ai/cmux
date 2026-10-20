@@ -1247,6 +1247,8 @@ jobs:
             bash scripts/cmux-next/tests/check-test-notification-centers.test.sh
             python3 scripts/cmux-next/tests/count-swift-code-lines.test.py
             bash scripts/cmux-next/tests/check-app-size.test.sh
+            python3 -I scripts/cmux-next/tests/test_bundle_size.py
+            bash tests/test_strip_release_bundle_atom_info.sh
             bash scripts/cmux-next/tests/version-surfaces.test.sh
             bash scripts/cmux-next/tests/ratchet-tiers.test.sh
             bash scripts/cmux-next/tests/base-autofix.test.sh

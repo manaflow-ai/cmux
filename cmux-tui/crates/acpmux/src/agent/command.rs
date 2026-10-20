@@ -55,6 +55,9 @@ pub(crate) fn harness_command(
     // A bound route's provider variables the inherited env must not keep
     // (routes.rs): an earlier route's key never reaches this process.
     let route_unset = env.remove(crate::routes::UNSET_KEY);
+    // Your own endpoint (byo_endpoint.rs): the marker is acpmux's own.
+    let own_endpoint = crate::byo_endpoint::Kind::of_env(&env);
+    env.remove(crate::byo_endpoint::OWN_ENDPOINT_KEY);
     env.remove(crate::routes::PROFILE_ROUTE_KEY);
     // The session's workspace is for its computer use server only (agent_displays.rs).
     env.remove(crate::agent_displays::WORKSPACE_KEY);
@@ -105,6 +108,11 @@ pub(crate) fn harness_command(
     cmd.env_remove(crate::agent_tools::MCP_TOOLS_ENV);
     for k in route_unset.iter().flat_map(|list| list.split(',')) {
         cmd.env_remove(k);
+    }
+    // An Anthropic endpoint harness: no inherited ANTHROPIC_* or Claude
+    // provider switch (the login shell's, the daemon's) overrides its own.
+    if own_endpoint == Some(crate::byo_endpoint::Kind::Anthropic) {
+        crate::byo_endpoint::clear_inherited(&mut cmd, &env);
     }
     if let Some((id, sname)) = session {
         cmd.env("ACPMUX_ENV", "1")
