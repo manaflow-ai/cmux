@@ -1280,9 +1280,19 @@ impl Brain {
     /// it off is always allowed.
     pub fn set_setting(&mut self, key: &str, value: &str) -> Result<String, String> {
         use crate::chief_settings::{
-            CACHE_TTL, REMOTE_AUTO_APPROVE, REPLY_THREADS, parse_bool, parse_reply_threads,
-            parse_ttl,
+            CACHE_TTL, REMOTE_AUTO_APPROVE, REPLY_THREADS, SHOW_AFTER_REPORT, parse_bool,
+            parse_reply_threads, parse_ttl,
         };
+        if key == SHOW_AFTER_REPORT {
+            let on = parse_bool(value)?;
+            let mut next = self.chief;
+            next.show_after_report = on;
+            next.save(&self.settings.settings_file)
+                .map_err(|e| format!("saving {}: {e}", self.settings.settings_file.display()))?;
+            self.chief = next;
+            (self.log)(&format!("setting {key} = {on}"));
+            return Ok(format!("{key} = {on}"));
+        }
         if key == REPLY_THREADS {
             let threads = parse_reply_threads(value)?;
             let mut next = self.chief;
@@ -1309,7 +1319,7 @@ impl Brain {
         }
         if key != REMOTE_AUTO_APPROVE {
             return Err(format!(
-                "unknown setting {key:?} (known: {REMOTE_AUTO_APPROVE}, {CACHE_TTL}, {REPLY_THREADS})"
+                "unknown setting {key:?} (known: {REMOTE_AUTO_APPROVE}, {CACHE_TTL}, {REPLY_THREADS}, {SHOW_AFTER_REPORT})"
             ));
         }
         let on = parse_bool(value)?;
