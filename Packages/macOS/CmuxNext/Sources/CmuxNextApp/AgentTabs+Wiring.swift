@@ -1,4 +1,5 @@
 import CmuxNextAgentPane
+import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextHomeEngine
 import Foundation
@@ -259,6 +260,7 @@ extension AgentTabStore {
             guard let services, let (tab, _) = services.locateTab(key) else { return nil }
             return services.machines.daemon(forTab: tab)
         }
+        tabs.daemonListing = { [weak services] tab in services?.machines.daemon(forTab: tab) }
         tabs.moveSelection = { [weak services] provisional, surface in
             for controller in services?.windows.controllers ?? [] {
                 guard let panes = controller.content?.panes.values else { continue }
@@ -286,9 +288,9 @@ extension AgentTabStore {
         // task-owner: one read of this Mac's name, shown to Macs that see its tabs and on every
         // pane's location row (a pane's handshake awaits it)
         AgentPaneModel.localMachineName = Task { [weak tabs] in
-            let name = await MacName.computerName()
+            let name = await MacName().computerName()
             tabs?.localHostName = name
-            return AgentTabStore.displayName(name) ?? name
+            return AgentPaneModel.rememberLocalMachineName(AgentTabStore.displayName(name) ?? name)
         }
         services.madeAgentTabs = tabs
         return tabs

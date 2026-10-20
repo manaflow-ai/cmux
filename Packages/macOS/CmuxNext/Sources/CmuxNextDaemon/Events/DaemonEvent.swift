@@ -109,7 +109,11 @@ extension DaemonEvent {
         case .notification: true
         // The app supervisor's events (apps-v1): scene batches, changes and provider calls.
         // And browser pairings (cx-hnmbt.2): a dropped request would never show its Approve dialog.
-        case .unknown(let name, _): DaemonSideEvents.isAppsEvent(name) || name.hasPrefix("pairing-")
+        // Inventory leases have their own revision/lifecycle; a tree resync
+        // cannot replace a targeted invalidation or acknowledge an ended lease.
+        case .unknown(let name, _):
+            DaemonSideEvents.isAppsEvent(name) || name.hasPrefix("pairing-")
+                || name == "agent-inventory-changed" || name == "agent-inventory-watch-ended"
         default: false
         }
     }

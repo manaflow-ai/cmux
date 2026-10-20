@@ -14,12 +14,19 @@ class SidebarRowView: NSView {
     var isSelected = false {
         didSet {
             guard isSelected != oldValue else { return }
+            updateAccessibilitySelection()
             fadesNextFill = false
             needsDisplay = true
             // Rows show controls on the selected row too (the tab chevron, cx-fo2t).
             needsLayout = true
         }
     }
+
+    /// The row shows as selected, the one source of its AXSelected. A row with more
+    /// selection state overrides it and calls `updateAccessibilitySelection()` when that changes.
+    var showsSelection: Bool { isSelected }
+
+    func updateAccessibilitySelection() { setAccessibilitySelected(showsSelection) }
 
     required init(key: SidebarRowKey) {
         self.key = key
@@ -33,7 +40,7 @@ class SidebarRowView: NSView {
     required init?(coder: NSCoder) { fatalError() }
 
     nonisolated override var isFlipped: Bool { true }
-    override var wantsUpdateLayer: Bool { true }
+    nonisolated override var wantsUpdateLayer: Bool { true }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
         let local = convert(point, from: superview)
@@ -173,7 +180,7 @@ class SidebarRowView: NSView {
     /// A one-line label. Its color is set in the row's `updateLayer`, inside
     /// `performWithTheme`, so it follows the row's theme scope; it is a layer
     /// color, so a theme change blends it (`ChromeLabel`, I5).
-    static func label(font: NSFont) -> NSTextField {
+    static func label(font: NSFont) -> ChromeLabel {
         ChromeLabel(font: font)
     }
 

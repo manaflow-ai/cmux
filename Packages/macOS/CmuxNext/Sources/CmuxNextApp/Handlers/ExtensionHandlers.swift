@@ -78,9 +78,10 @@ enum ExtensionHandlers {
 
     // MARK: Lookup
 
-    /// The focused pane's Chromium tab.
+    /// The targeted tab (its own toolbar or Extensions menu) or the focused
+    /// pane's Chromium tab (`AppActionContext.page`).
     static func chromiumEntry(_ context: AppActionContext, _ invocation: ActionInvocation) throws -> BrowserEntry {
-        guard case .browser(let entry)? = context.scope(invocation).pane?.currentContent, entry.tab is CEFTab else {
+        guard let entry = try? context.page(invocation), entry.tab is CEFTab else {
             throw ActionFailure(message: ExtensionStrings.needsChromiumTab)
         }
         return entry

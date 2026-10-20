@@ -57,7 +57,7 @@ public final class CEFEngine: BrowserEngine {
 
     public func makeTab(_ configuration: BrowserTabConfiguration) async throws -> any BrowserTab {
         try await CEFRuntime.shared.start(layout: layout)
-        return makeReadyTab(configuration)
+        return CEFStartSteps.shared.makeTab { makeReadyTab(configuration) }
     }
 
     /// `makeTab` for a tab the user opens (not a sign-in window): also writes
@@ -91,6 +91,16 @@ public final class CEFEngine: BrowserEngine {
     public func usedRecently(within window: TimeInterval) async -> Bool {
         let record = useRecord
         return await Task.detached(priority: .utility) { record.usedRecently(within: window) }.value
+    }
+
+    /// A user's page made now when Chromium already runs (its chrome shows in
+    /// the turn that asked for it), nil while Chromium has not started. Like
+    /// `makeUserTab`, it counts toward the launch warm start (`noteTabOpened`).
+    public func makeTabIfRunning(_ configuration: BrowserTabConfiguration) -> (any BrowserTab)? {
+        guard isRunning else { return nil }
+        let tab = makeReadyTab(configuration)
+        noteTabOpened(configuration)
+        return tab
     }
 
     /// Maps the Chromium framework on a background thread without starting
@@ -127,6 +137,30 @@ public final class CEFEngine: BrowserEngine {
         _ = await CEFRuntime.shared.loadTask?.value
     }
 
+    /// Records `name` once in the start marks (the first Chromium page's
+    /// creation points, `debug.cef` `start_steps`); true, for a `guard`.
+    public func notePoint(_ name: String) -> Bool {
+        CEFStartSteps.shared.point(name)
+        return true
+    }
+
+    /// `notePoint(name)`, then `value`.
+    public func noted<T>(_ name: String, _ value: T) -> T {
+        CEFStartSteps.shared.point(name)
+        return value
+    }
+
+    /// The timed steps of Chromium's start in this process (`debug.cef`).
+    public var startMarks: [CEFStartMark] { CEFStartSteps.shared.marks }
+
+
+    /// The framework read before CefInitialize (`CEFFrameworkPrefetch`):
+    /// bytes, files and milliseconds; nil before one ran.
+    public var frameworkPrefetch: (bytes: Int, files: Int, milliseconds: Double, servicesMilliseconds: Double)? {
+        let ms: (Duration) -> Double = { Double($0.components.attoseconds) / 1e15 + Double($0.components.seconds) * 1000 }
+        return CEFFrameworkPrefetch.last.map { ($0.bytes, $0.files, ms($0.duration), ms($0.services)) }
+    }
+
     /// `none`, `creating`, `live`, `taken` or `closed` (`debug.cef`).
     public var spareWindowState: String { CEFSpareWindow.shared.state.rawValue }
 
@@ -154,10 +188,11 @@ public final class CEFEngine: BrowserEngine {
     public var crashLog: BrowserCrashLog { CEFRuntime.shared.crashLog }
 
     /// Runs once CEF is initialized in this process (process-wide), after the
-    /// person's password settings reach Chromium (`setPasswordPolicy`).
+    /// person's password settings (`setPasswordPolicy`) and search engine
+    /// (`setDefaultSearch`) reach Chromium.
     public var onReady: (() -> Void)? {
         get { CEFRuntime.shared.onReady }
-        set { CEFRuntime.shared.onReady = { CEFPasswordPolicy.apply(); newValue?() } }
+        set { CEFRuntime.shared.onReady = { CEFPasswordPolicy.apply(); CEFDefaultSearch.apply(); newValue?() } }
     }
 
     /// Runs when starting CEF fails in this process (process-wide). A failed

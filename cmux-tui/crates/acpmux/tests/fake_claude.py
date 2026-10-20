@@ -30,7 +30,8 @@ Claude Code's own "Not logged in · Please run /login".
 FAKE_CLAUDE_SKILLS=1 has one skill installed and sends system/init every turn.
 FAKE_CLAUDE_INIT (a JSON object) adds its fields to system/init (`mcp_servers`,
 `skills`, ...); with FAKE_CLAUDE_CONTROL_LOG set, the subtype of every
-control request is appended to that file, one per line. Any plain prompt
+control request is appended to that file, one per line. "env: NAME"
+replies with that environment variable. Any plain prompt
 replies with the process's argv (spawn flags such as `--disallowedTools`).
 "cost-probe" ends its turn the way Claude Code reports spend: the turn's own
 token usage, and `total_cost_usd` as the process's running total (0.25 more
@@ -273,7 +274,13 @@ while True:
                                "miseDataDir": os.environ.get("MISE_DATA_DIR"), "proxy": os.environ.get("HTTPS_PROXY"),
                                "cloudMlRegion": os.environ.get("CLOUD_ML_REGION"),
                                "vertexRegions": sorted(k for k in os.environ if k.startswith("VERTEX_REGION_")),
-                               "awsKeys": sorted(k for k in os.environ if k.startswith("AWS_"))})
+                               "awsKeys": sorted(k for k in os.environ if k.startswith("AWS_")),
+                               "promptCache": {k: v for k, v in os.environ.items()
+                                               if k.startswith(("DISABLE_PROMPT_CACHING", "ENABLE_PROMPT_CACHING_1H"))
+                                               or k == "FORCE_PROMPT_CACHING_5M"},
+                               "turnScoped": {k: os.environ[k] for k in ("SUBROUTER_SESSION_KEY", "CODEX_PROMPT_CACHE_KEY",
+                                                                         "OPTCHAT_TURN_SEAL", "OPTCHAT_SUBAGENT", "AI_AGENT")
+                                              if k in os.environ}})
             send({"type": "stream_event", "event": {"type": "content_block_delta", "index": 0,
                                                      "delta": {"type": "text_delta", "text": text}}})
             send({"type": "result", "subtype": "success", "result": text, "num_turns": 1, "duration_api_ms": 1,
@@ -323,12 +330,33 @@ while True:
         if said.strip() == "slow-stop":
             slow_stop()
             continue
+        # "/compact" runs Claude Code 2.1.303's compaction: the compacting status, the
+        # boundary, the summary as a synthetic user line, the command's stdout, a result.
+        if said.strip() == "/compact":
+            send({"type": "system", "subtype": "status", "status": "compacting", "session_id": SESSION})
+            send({"type": "system", "subtype": "status", "status": None, "compact_result": "success",
+                  "session_id": SESSION})
+            send({"type": "system", "subtype": "compact_boundary", "session_id": SESSION,
+                  "compact_metadata": {"trigger": "manual", "pre_tokens": 27183, "post_tokens": 2047,
+                                       **json.loads(os.environ.get("FAKE_CLAUDE_COMPACT_META") or "{}")}})
+            send({"type": "user", "session_id": SESSION, "isReplay": False, "isSynthetic": True,
+                  "message": {"role": "user", "content": "This session is being continued from a previous "
+                              "conversation. Summary: the codeword is PLUM-42."}})
+            send({"type": "user", "session_id": SESSION, "isReplay": False,
+                  "message": {"role": "user", "content": "<local-command-stdout>Compacted </local-command-stdout>"}})
+            send({"type": "result", "subtype": "success", "result": "", "num_turns": 0, "duration_api_ms": 0,
+                  "local_command": True, "usage": {"input_tokens": 0, "output_tokens": 0}})
+            continue
         # "hold: PATH" keeps the turn running until PATH exists.
         if said.startswith("hold: "):
             import time
             while not os.path.exists(said[len("hold: "):]):
                 time.sleep(0.02)
         text = json.dumps(sys.argv[1:])
+        # "env: NAME" replies with that environment variable, for spawn-time checks.
+        if said.startswith("env:"):
+            name = said[4:].strip()
+            text = f"{name}={os.environ.get(name, '')}"
         if said.endswith("settings-probe"):
             text = json.dumps({"said": said, "settings": FLAG_SETTINGS, "argv": sys.argv[1:]})
         if said.strip() == "history-probe" and STORE and LAYOUT:

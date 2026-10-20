@@ -1,5 +1,7 @@
 /* The chat header's tools (header/ChatHeaderTools.tsx): 26px small-radius buttons on the summary button's hover, press and focus steps, and the "..." menu (src/ui Menu) on the menu surface. */
 .acpmux-header-tools{flex:none;display:flex;align-items:center;gap:2px}
+.acpmux-header-tool-group{display:flex;align-items:center;gap:2px;min-width:0}
+.acpmux-header-separator{flex:none;width:.5px;height:16px;margin:0 3px;border:0;background:var(--agent-border);}
 .acpmux-header-tool{flex:none;display:inline-flex;align-items:center;justify-content:center;height:26px;padding:0;border:0;border-radius:6px;background:none;color:inherit;font:inherit;cursor:default;transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
 .acpmux-header-tool{width:26px}
 .acpmux-header-tool:disabled{color:var(--agent-muted)}
@@ -9,7 +11,7 @@
 /* On: a toggle whose panel is open (aria-pressed, cx-00n1), tinted like the composer's Plan toggle. */
 .acpmux-header-tool[aria-pressed=true]{background:color-mix(in srgb,var(--agent-accent,var(--agent-text)) 16%,transparent);color:var(--agent-accent,var(--agent-text))}
 .acpmux-header-tool[aria-pressed=true]:not(:disabled):hover{background:color-mix(in srgb,var(--agent-accent,var(--agent-text)) 22%,transparent)}
-.ui-popup.acpmux-chat-menu-popover{width:256px;max-height:min(540px,70vh);overflow:auto;padding:var(--ui-popup-padding);box-sizing:border-box;border:0;border-radius:var(--ui-popup-radius);background:var(--surface-popup);box-shadow:var(--acpmux-popup-elevation);transform-origin:var(--transform-origin);color:var(--agent-text);font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif;font-size:var(--text-control);line-height:var(--text-control--line-height);-webkit-user-select:none;user-select:none;cursor:default;outline:none}
+.ui-popup.acpmux-chat-menu-popover{width:256px;max-height:var(--available-height,min(540px,70vh));overflow:auto;padding:var(--ui-popup-padding);box-sizing:border-box;border:0;border-radius:var(--ui-popup-radius);background:var(--surface-popup);box-shadow:var(--acpmux-popup-elevation);transform-origin:var(--transform-origin);color:var(--agent-text);font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif;font-size:var(--text-control);line-height:var(--text-control--line-height);-webkit-user-select:none;user-select:none;cursor:default;outline:none}
 .ui-menu-item.acpmux-chat-menu-item{display:flex;align-items:center;gap:8px;width:100%;min-height:var(--ui-row-height);height:var(--ui-row-height);padding:0 var(--ui-row-padding-inline);box-sizing:border-box;border-radius:var(--ui-row-radius);color:inherit;cursor:default;transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
 .acpmux-chat-menu-item>svg{flex:none;color:var(--agent-muted)}
 .ui-menu-item.acpmux-chat-menu-item[data-highlighted],.ui-menu-item.acpmux-chat-menu-item[data-popup-open]{background:var(--acpmux-menu-hover);outline:none}

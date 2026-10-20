@@ -21,9 +21,22 @@ warnings only.
                  frame: the grid each terminal renders follows the grid its frame fits within
                  --lag steps (I7). Frame p99 over 16.7 ms is a warning.
   tabs           16 panes x 3 tabs, Next Tab 40 times: 0 applies, 0 topology sends, 0 pane
-                 snapshots, 0 sidebar list reloads (I6).
-  split          split right + close pane 10 times in the 16 panes: per pair at most 3 applies,
-                 3 topology sends, 4 pane snapshots (lower after cx-8w027.14).
+                 snapshots, 0 sidebar list reloads (I6); each switch's Core Animation commit is in
+                 the first frame after it shows (debug.tab_switch late_vsyncs 0; a frame check), a
+                 main-thread apply over 4 ms is a warning. The socket reply also waits for the
+                 daemon's confirm: reported, not gated. --hang-ms N prints main-thread stalls.
+  split          split right + close pane 10 times in the 16 panes: per pair at most 2 applies,
+                 2 topology sends, 4 pane snapshots (sources name the snapshot fields that changed).
+  relaunch       the app quits and starts again on the same tag, so it restores the grid with
+                 its hidden New Tab pages (state an earlier launch left, as a person's app has);
+                 then tabs and split again in that grid, with the tabs and split budgets (I2,
+                 cx-8w027.20: each restored page re-ran its pane on every split or close anywhere).
+  new_workspaces 50 new workspaces, one newTab (Cmd-N's create path) at a time: each one's sidebar row is
+                 drawn from the press, before the daemon creates it, with no rows pass walking every
+                 workspace between its create and that draw (debug.new_workspace walks 0;
+                 host-independent, blocks; the window's own later rows pass is not timed), and commits
+                 in the first frame after it is drawn (late_vsyncs 0; a frame check). Press to drawn over
+                 one frame is a warning; the reply (the daemon's confirm) is reported.
   status         4 background workspaces print OSC 7501 progress 4 times a second for 5 s:
                  0 applies, 0 topology sends, 0 pane snapshots, 0 sidebar list reloads (I1-I3).
 
@@ -53,25 +66,39 @@ from tag_teardown import TagTeardown  # noqa: E402
 # Budgets: the measured values after the perf lanes (perf-speed-of-light.md Status). Tighten here.
 BUDGET = {
     # Per workspace switch (and per theme switch).
-    "switch": {"workspace_applies": 0, "topology_sends": 1, "pane_snapshots": 0, "list_reloads": 0},
+    # The sidebar repaints the old and new selected row or tile only: no row configure, no band layout (cx-8w027.17).
+    "switch": {"workspace_applies": 0, "topology_sends": 1, "pane_snapshots": 0, "list_reloads": 0, "row_configures": 0,
+               "band_updates": 0},
     "switch_selection_patches": 1,
     # Whole phase (40 Next Tab ops at 16 panes x 3 tabs).
     "tabs": {"workspace_applies": 0, "topology_sends": 0, "pane_snapshots": 0, "list_reloads": 0},
-    # Per split+close pair; 2/2/1 after cx-8w027.14 (perf-split).
-    "split": {"workspace_applies": 3, "topology_sends": 3, "pane_snapshots": 4},
+    # Per split+close pair (cx-8w027.14, measured 2 / 2 / 1.9-2.5): one apply and one topology each
+    # for the split and the close (the new tab is named by its client-minted id; topologies carry no
+    # surfaces, so the daemon's confirm sends none); snapshots: the new pane's mount and the shell's
+    # titles (0-1.5, the shell's timing); the confirm re-runs only that tab's strip item.
+    "split": {"workspace_applies": 2, "topology_sends": 2, "pane_snapshots": 3},
     # Whole status window (4 tickers x 4 ticks/s x 5 s).
     "status": {"workspace_applies": 0, "topology_sends": 0, "pane_snapshots": 0, "list_reloads": 0},
+    # Per restored pane, from the relaunched app's first answer until the restore settled: one
+    # snapshot when the pane mounts on its restored tabs, no re-run as the restore goes on (cx-8w027.23).
+    "restore": {"pane_snapshots": 1},
 }
 # Known breaches of a budget above: (scenario, counter) -> (the value measured today, the bead that
 # removes it). A breach up to that value is a warning that names the bead; above it, a failure. A
 # ratchet: when a full run (no --only) no longer shows the breach, the gate fails until its line here
 # is removed, so the fixing lane tightens the gate in its own landing.
 KNOWN = {
-    ("workspaces", "list_reloads"): (1, "cx-8w027.17: a switch to some workspaces reloads the whole sidebar list"),
-    ("theme", "list_reloads"): (1, "cx-8w027.17: a switch to some workspaces reloads the whole sidebar list"),
+    # 3-6 of 50 new workspace rows commit a frame late on the mini (commit p99 34-39 ms at 33-70
+    # workspaces; feat-cmux-next runs 39292677937, 39296303954, 39300730843). The row is drawn
+    # from the press (walks 0); the list's commit of the insert is what runs long.
+    ("new_workspaces", "late_rows"): (8, "cx-zf6um"),
 }
 FRAME_BUDGET_MS = 1000 / 60
-SCENARIOS = ["workspaces", "theme", "drag", "tabs", "split", "status"]
+# Main-thread work of one tab switch (intent to shown); MainActorWorkQueue's frame budget.
+TAB_APPLY_BUDGET_MS = 4
+# New workspace rows: press to drawn (main-thread work and hops), one 60 Hz frame.
+NEW_ROW_BUDGET_MS = FRAME_BUDGET_MS
+SCENARIOS = ["workspaces", "theme", "drag", "tabs", "split", "relaunch", "new_workspaces", "status"]
 
 ROOT = os.path.abspath(os.path.join(HERE, "../.."))
 SOURCES = "Packages/macOS/CmuxNext/Sources"
@@ -80,7 +107,8 @@ ALLOW = re.compile(r"//\s*perf-gate-ok:\s*\S")
 CAPTURE = re.compile(r"CGWindowListCreateImage|CGDisplayCreateImage|SCScreenshotManager|\.renderSnapshot\(\)"
                      r"|\.compositedSnapshot\(|\.childWindowsSnapshot\(|\.floatingWindowsSnapshot\(\)|\.writeSnapshot\(to")
 CAPTURE_FILES = re.compile(r"/CmuxNextDesign/Windows/(NSWindow\+Snapshot|WindowFrame)\.swift$"
-                           r"|/CmuxNextApp/Control/Debug[^/]*\.swift$|/CmuxNextApp/Focus/DebugPaletteCapture\.swift$")
+                           r"|/CmuxNextApp/Control/Debug[^/]*\.swift$|/CmuxNextApp/Focus/DebugPaletteCapture\.swift$"
+                           r"|/CmuxNextApp/Popups/DebugPopups\.swift$")
 FLUSH = re.compile(r"\bCATransaction\.flush\(")
 
 failures, warnings, report = [], [], {"checks": [], "phases": {}}
@@ -156,6 +184,9 @@ class App:
                "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1440,900",
                "CMUX_NEXT_CONFIG_FILE": self.config, "CMUX_NEXT_GHOSTTY_CONFIG": ghostty,
                "CMUX_NEXT_CHIEF_ISOLATED": "1", "CMUX_NEXT_CHIEF_HOME": os.path.join(self.scratch, "chief")}
+        # --hang-ms: the main-thread watchdog samples every stall over N ms (debug.hangs), for a late frame's cause.
+        if os.environ.get("PERF_GATE_HANG_MS"):
+            env["CMUX_NEXT_HANG_THRESHOLD_MS"] = os.environ["PERF_GATE_HANG_MS"]
         self.teardown.install()
         log = open(os.path.join(self.out, "app.log"), "a")
         self.process = subprocess.Popen([os.path.join(self.bundle, "Contents/MacOS/cmux DEV")], env=env,
@@ -163,8 +194,14 @@ class App:
         print(f"perf-gate: launched {self.tag} pid {self.process.pid}", flush=True)
         if not wait(lambda: os.path.exists(self.socket) and "error" not in (self.rpc("debug.layout_counters") or {"error": 1}), 180):
             raise SystemExit("perf-gate: the app's debug socket never answered (a Debug build is required)")
-        if not wait(lambda: self.panes(), 60):
+        if not wait(lambda: self.panes()[0] >= 1, 60):
             raise SystemExit("perf-gate: the first terminal pane never showed")
+
+    def relaunch(self):
+        """Quits the app and starts it again on the same tag: it restores what this launch left."""
+        self.stop()
+        self.teardown = TagTeardown(self.bundle)
+        self.launch()
 
     def stop(self):
         try:
@@ -262,8 +299,9 @@ class App:
         layout = self.rpc("debug.layout_counters", {"reset": reset}) or {}
         sidebar = self.rpc("debug.sidebar_perf", {"reset": reset}) or {}
         out = {k: v for k, v in layout.items() if isinstance(v, (int, float))}
-        out.update({k: v for k, v in sidebar.items() if isinstance(v, (int, float)) and k not in out})
-        out["sources"] = layout.get("sources") or {}
+        out.update({k: v for k, v in sidebar.items() if isinstance(v, (int, float)) and "@" not in k and k not in out})
+        # The sidebar names the caller of each list reload as "list_reloads@<file>:<line>".
+        out["sources"] = {**(layout.get("sources") or {}), **{k: v for k, v in sidebar.items() if "@" in k}}
         return out
 
     def settle(self):
@@ -382,8 +420,10 @@ class Gate:
             shown = landed.get("shown")
             if shown != target:
                 check(False, f"switch to {target} landed (shown {shown})", scenario)
+            reloads = {k: v for k, v in measured["sources"].items() if k.startswith("list_reloads@")}
             rows.append({"to": target, "latency_ms": round(latency, 1),
-                         **{k: v for k, v in measured.items() if k != "sources"}})
+                         **{k: v for k, v in measured.items() if k != "sources"},
+                         **({"list_reload_callers": reloads} if reloads else {})})
             patches += measured.get("selection_patches", 0)
             breaches = self.unknown(over(measured, BUDGET["switch"]), scenario)
             if breaches:
@@ -614,39 +654,134 @@ class Gate:
                 app.action("newTab.page", {}, target=f"pane:{pane}")
         want = columns * rows
         shown = wait(lambda: (lambda p: p if p[0] >= want and p[1] >= want * tabs else None)(app.panes()), 30) or app.panes()
-        print(f"  grid: {shown[0]} panes, {shown[1]} tabs in {app.shown_workspace()}", flush=True)
+        self.grid_workspace = app.shown_workspace()
+        print(f"  grid: {shown[0]} panes, {shown[1]} tabs in {self.grid_workspace}", flush=True)
         self.grid = shown
         return shown
 
-    def tabs(self):
+    def tabs(self, scenario="tabs"):
         app = self.app
         panes, tabs = getattr(self, "grid", None) or self.build_grid()
-        if not check(panes >= 16 and tabs >= 48, f"16 panes x 3 tabs shown ({panes} panes, {tabs} tabs)", "tabs"):
+        if not check(panes >= 16 and tabs >= 48, f"16 panes x 3 tabs shown ({panes} panes, {tabs} tabs)", scenario):
             return
         # Next Tab really moves the selection (outside the measured window: the reads cost nothing there).
         seen = []
         for _ in range(3):
             app.action("nextSurface")
             seen.append((app.topology().get("focus") or {}).get("tab"))
-        if not check(len(set(seen)) == 3, f"Next Tab selects each of the pane's 3 tabs ({seen})", "tabs"):
+        if not check(len(set(seen)) == 3, f"Next Tab selects each of the pane's 3 tabs ({seen})", scenario):
             return
         ops = 40
         app.quiet_counters()
+        # The frame probe keeps the display link ticking, so debug.tab_switch's first tick after a switch is the
+        # next vsync, not a link that starts from idle.
+        app.rpc("debug.frames", {"action": "start"})
+        app.rpc("debug.tab_switch", {"action": "start"})
+        app.rpc("debug.hangs", {"clear": True})
         latencies = []
         for _ in range(ops):
             start = time.monotonic()
             app.action("nextSurface")
             latencies.append((time.monotonic() - start) * 1000)
         measured = app.quiet_counters()
-        report["phases"]["tabs"] = {"ops": ops, "counters": {k: v for k, v in measured.items() if k != "sources"},
-                                    "sources": measured["sources"], "latency_p99_ms": sorted(latencies)[int(ops * 0.99) - 1]}
+        own = app.rpc("debug.tab_switch", {"action": "stop"}) or {}
+        switch_frames = app.rpc("debug.frames", {"action": "stop"}) or {}
+        report["phases"][scenario] = {"ops": ops, "counters": {k: v for k, v in measured.items() if k != "sources"},
+                                      "sources": measured["sources"], "latency_p99_ms": sorted(latencies)[int(ops * 0.99) - 1],
+                                      "latencies_ms": [round(v, 1) for v in latencies]}
         check(not over(measured, BUDGET["tabs"]),
               f"{ops} tab switches at {panes} panes x 3 tabs: {breach_text(over(measured, BUDGET['tabs']), measured['sources']) or 'all 0'}"
-              f" (budget {BUDGET['tabs']})", "tabs")
-        if report["phases"]["tabs"]["latency_p99_ms"] > 50:
-            warn(f"tab switch reply p99 {report['phases']['tabs']['latency_p99_ms']:.1f} ms (over 50 ms)", "tabs")
+              f" (budget {BUDGET['tabs']})", scenario)
+        # The reply also waits for the daemon to confirm the selection and for a frame-paced snapshot publish, so
+        # it is not the switch's cost (cx-8w027.21): the same switch without waiting, and a bare round trip.
+        def timed(call):
+            start = time.monotonic()
+            call()
+            return round((time.monotonic() - start) * 1000, 1)
+        phase = report["phases"][scenario]
+        phase["frames"] = switch_frames
+        phase["hangs"] = (app.rpc("debug.hangs") or {}).get("records") or []
+        for record in phase["hangs"][:8]:
+            print(f"  main-thread stall {record.get('duration_ms', 0):.1f} ms ({record.get('kind')}): "
+                  + " < ".join(str(f)[:70] for f in (record.get("frames") or [])[:40]), flush=True)
+        if scenario == "tabs":
+            phase["no_wait_ms"] = [timed(lambda: app.rpc("action.run", {"action": "nextSurface", "args": {}, "focus": True,
+                                                                         "origin": "script", "wait": False})) for _ in range(20)]
+            app.settle()
+            phase["ping_ms"] = [timed(lambda: app.rpc("system.ping")) for _ in range(20)]
+        # The gated timing: the app's own time per switch (debug.tab_switch): intent to shown (apply), to the Core
+        # Animation commit that carries it (after AppKit's layout and display), and the frames it missed (0: the
+        # first frame it could); the commit's end (an upper bound) is reported.
+        switches = own.get("switches") or []
+        phase["switches"] = [{k: round(v, 2) for k, v in row.items()} for row in switches]
+        if not check(len(switches) == ops, f"debug.tab_switch timed {len(switches)} of {ops} switches", scenario):
+            return
+        col = lambda name: sorted(row[name] for row in switches)
+        p99 = lambda values: values[max(0, int(len(values) * 0.99) - 1)]
+        applies, commits, ends = col("apply_ms"), col("commit_ms"), col("commit_end_ms")
+        print(f"  tab switch: apply p50 {applies[ops // 2]:.2f} / p99 {p99(applies):.2f} ms, commit p50 {commits[ops // 2]:.2f} / "
+              f"p99 {p99(commits):.2f} ms, commit end p99 {p99(ends):.2f} ms (refresh {switches[0]['refresh_ms']:.1f} ms); "
+              f"reply p99 {phase['latency_p99_ms']:.1f} ms (daemon confirm included)", flush=True)
+        if p99(applies) > TAB_APPLY_BUDGET_MS:
+            warn(f"tab switch apply p99 {p99(applies):.2f} ms (over {TAB_APPLY_BUDGET_MS} ms of main-thread work)", scenario)
+        if self.frames_ok(scenario):
+            late = [row for row in switches if row["late_vsyncs"] > 0]
+            check(not late, f"every tab switch commits in the first frame after it shows ({len(late)} later"
+                            + (f": {[(round(r['apply_ms'], 1), round(r['commit_ms'], 1), int(r['late_vsyncs'])) for r in late][:6]} "
+                               "(apply ms, commit ms, frames missed)" if late else "") + ")", scenario)
+            # The commit's own end (the encode and AppKit's window-server transaction) past the next vsync: reported.
+            overrun = [row for row in switches if row["late_end_vsyncs"] > 0]
+            if overrun:
+                warn(f"{len(overrun)} of {ops} tab switch commits ended a frame late: "
+                     f"{[(round(r['commit_ms'], 1), round(r['commit_end_ms'], 1)) for r in overrun][:6]} (commit ms, end ms)", scenario)
 
-    def split(self):
+    def new_workspaces(self, scenario="new_workspaces"):
+        app, creates = self.app, 50
+        before = set(app.workspace_ids())
+        app.rpc("debug.frames", {"action": "start"})
+        app.rpc("debug.new_workspace", {"action": "start"})
+        counts, replies = [], []
+        for _ in range(creates):
+            counts.append(len(app.workspace_ids()))
+            start = time.monotonic()
+            app.rpc("action.run", {"action": "newTab", "args": {}, "focus": True, "origin": "script"}, timeout=120)
+            replies.append(round((time.monotonic() - start) * 1000, 1))
+        app.settle()
+        own = app.rpc("debug.new_workspace", {"action": "stop"}) or {}
+        app.rpc("debug.frames", {"action": "stop"})
+        # The later scenarios run with the workspaces they had before this one.
+        for workspace in [w for w in app.workspace_ids() if w not in before]:
+            app.action("closeWorkspace", {"workspace": workspace})
+        wait(lambda: len(app.workspace_ids()) <= len(before), 60)
+        rows = [{k: round(v, 2) for k, v in row.items()} for row in own.get("creates") or []]
+        report["phases"][scenario] = {"workspaces_before": counts, "reply_ms": replies, "creates": rows}
+        if not check(len(rows) == creates, f"debug.new_workspace timed {len(rows)} of {creates} new workspace rows", scenario):
+            return
+        for row, count in zip(rows, counts):
+            row["workspaces_before"] = count
+        col = lambda name: sorted(row[name] for row in rows)
+        p99 = lambda values: values[max(0, int(len(values) * 0.99) - 1)]
+        applies, commits = col("apply_ms"), col("commit_ms")
+        tail = [row["apply_ms"] for row in rows[-10:]]
+        print(f"  new workspace row: press to drawn p50 {applies[creates // 2]:.2f} / p99 {p99(applies):.2f} ms "
+              f"(last 10, at {counts[-10]}-{counts[-1]} workspaces: mean {sum(tail) / len(tail):.2f} ms), commit p99 "
+              f"{p99(commits):.2f} ms; reply p50 {sorted(replies)[creates // 2]:.1f} ms (daemon confirm included)", flush=True)
+        walked = [(row["workspaces_before"], int(row.get("walks", -1))) for row in rows if row.get("walks", -1) != 0]
+        check(not walked, f"every new workspace row is drawn from the press with no rows walk of every workspace before it "
+                          f"({len(walked)} walked" + (f": {walked[:8]} (workspaces before, walks)" if walked else "") + ")", scenario)
+        if p99(applies) > NEW_ROW_BUDGET_MS:
+            warn(f"new workspace row press to drawn p99 {p99(applies):.2f} ms (over {NEW_ROW_BUDGET_MS:.1f} ms)", scenario)
+        if self.frames_ok(scenario):
+            late = [row for row in rows if row["late_vsyncs"] > 0]
+            if self.full and not late:
+                self.ratchet(scenario, {"late_rows": 0}, {"late_rows": 0})
+            # A known count of late rows (KNOWN) is a warning naming its bead; more is a failure.
+            check(not late or not self.unknown([("late_rows", len(late), 0)], scenario),
+                  f"every new workspace row commits in the first frame after it is drawn ({len(late)} later"
+                  + (f": {[(r['workspaces_before'], round(r['apply_ms'], 1), int(r['late_vsyncs'])) for r in late][:6]} "
+                     "(workspaces before, apply ms, frames missed)" if late else "") + ")", scenario)
+
+    def split(self, scenario="split"):
         app = self.app
         panes, _ = getattr(self, "grid", None) or self.build_grid()
         pairs = 10
@@ -661,13 +796,78 @@ class Gate:
             landed += bool(split and closed)
         measured = app.quiet_counters()
         if not check(landed == pairs and app.panes()[0] == panes,
-                     f"{landed} of {pairs} split+close pairs landed ({app.panes()[0]} panes after, {panes} before)", "split"):
+                     f"{landed} of {pairs} split+close pairs landed ({app.panes()[0]} panes after, {panes} before)", scenario):
             return
         per_pair = {k: round(measured.get(k, 0) / pairs, 2) for k in BUDGET["split"]}
-        report["phases"]["split"] = {"pairs": pairs, "per_pair": per_pair, "sources": measured["sources"]}
+        report["phases"][scenario] = {"pairs": pairs, "per_pair": per_pair, "sources": measured["sources"]}
         breaches = over(measured, BUDGET["split"], pairs)
         check(not breaches, f"{pairs} split+close pairs at {panes} panes: per pair {per_pair} (budget {BUDGET['split']})"
-                            + (f"; {breach_text(breaches, measured['sources'])}" if breaches else ""), "split")
+                            + (f"; {breach_text(breaches, measured['sources'])}" if breaches else ""), scenario)
+
+    def relaunch(self):
+        """tabs and split again after a relaunch on the same tag, in the grid the app restored."""
+        app = self.app
+        if not getattr(self, "grid", None):
+            self.build_grid()
+        grid, workspace = self.grid, self.grid_workspace
+        app.quiet_counters()  # the grid's last tab creations end before the quit
+        pages = self.page_tabs()
+        app.relaunch()  # a new process: its counters start at 0, so the window below is the whole restore
+        app.action("goToWorkspace", {"workspace": workspace})
+        shown = wait(lambda: app.shown_workspace() == workspace and (lambda p: p[0] >= grid[0] and p[1] >= grid[1])(app.panes()), 60)
+        if not check(bool(shown), f"the relaunched app restores the grid ({app.panes()} panes and tabs, before {grid})", "relaunch"):
+            return
+        # The state under test: the grid's New Tab pages came back (most of them hidden, not shown yet).
+        restored = pages & self.page_tabs()
+        if not check(len(restored) >= grid[0] * 2 and restored == pages,
+                     f"the relaunch restores the grid's {len(pages)} New Tab pages ({len(restored)} came back)", "relaunch"):
+            return
+        # The restore's own work ends before the measured phases: every terminal of the grid runs
+        # again (live, with a terminal id), the tab lists stop changing, and the counters stop moving
+        # for 3 reads in a row. Its cost is the restore's (a bead of its own), not the phases'.
+        start, last, still = time.monotonic(), None, 0
+        while time.monotonic() - start < 60:  # bounded: the restored grid settles
+            now = (self.grid_tabs(), {k: app.counters(reset=False).get(k) for k in App.QUIET_KEYS})
+            live = all(not tab["dead"] and tab["terminal"] for pane in now[0] for tab in pane if tab["kind"] == "terminal")
+            still = still + 1 if live and now == last else 0
+            if still >= 3:
+                break
+            last = now
+            time.sleep(1.0)  # test script: the gap between two reads while the restore settles
+        settled = round(time.monotonic() - start, 1)
+        measured = app.counters()
+        report["phases"]["relaunch"] = {"settle_s": settled, "settled": still >= 3,
+                                        "counters": {k: v for k, v in measured.items() if k != "sources"},
+                                        "sources": measured["sources"]}
+        if still < 3:
+            warn(f"the restored grid did not settle in 60 s (terminals live, tabs and counters still)", "relaunch")
+        # Per pane: the budget and its KNOWN line are per restored pane.
+        per_pane = {k: round(measured.get(k, 0) / grid[0], 2) for k in BUDGET["restore"]}
+        breaches = self.unknown(over(per_pane, BUDGET["restore"]), "relaunch")
+        if self.full and still >= 3 and not any(f.startswith("[relaunch]") for f in failures):
+            self.ratchet("relaunch", per_pane, BUDGET["restore"])
+        check(not breaches, f"the restore of {grid[0]} panes settled in {settled} s: {measured.get('pane_snapshots', 0)} pane snapshots, per pane {per_pane}"
+                            f" (budget {BUDGET['restore']} per pane)" + (f"; {breach_text(breaches, measured['sources'])}" if breaches else ""),
+              "relaunch")
+        self.tabs("relaunch tabs")
+        self.split("relaunch split")
+
+    def grid_tabs(self):
+        """The shown workspace's tabs per pane: id, kind, dead, terminal id (in order)."""
+        topo = self.app.topology()
+        focus = (topo.get("focus") or {}).get("workspace")
+        return [[{"id": tab.get("id"), "kind": tab.get("kind"), "dead": bool(tab.get("dead")),
+                  "terminal": tab.get("terminal")} for tab in pane.get("tabs") or []]
+                for workspace in topo.get("workspaces") or [] if workspace.get("id") == focus
+                for screen in workspace.get("screens") or [] for pane in screen.get("panes") or []]
+
+    def page_tabs(self):
+        """Tab ids of the shown workspace that are not terminals (the grid's New Tab pages)."""
+        topo = self.app.topology()
+        focus = (topo.get("focus") or {}).get("workspace")
+        return {tab.get("id") for workspace in topo.get("workspaces") or [] if workspace.get("id") == focus
+                for screen in workspace.get("screens") or [] for pane in screen.get("panes") or []
+                for tab in pane.get("tabs") or [] if tab.get("kind") != "terminal" and tab.get("id")}
 
     def status(self):
         app = self.app
@@ -723,6 +923,7 @@ def main():
     parser.add_argument("--only", help=f"comma list of scenarios ({','.join(SCENARIOS)})")
     parser.add_argument("--lag", type=int, default=3, help="drag steps the rendered grid may trail the fitted grid")
     parser.add_argument("--source-guard-only", action="store_true")
+    parser.add_argument("--hang-ms", type=int, help="sample main-thread stalls over N ms (debug.hangs) and print them")
     opts = parser.parse_args()
     os.makedirs(opts.out, exist_ok=True)
     out = os.path.join(opts.out, "perf-gate.json")
@@ -735,6 +936,8 @@ def main():
         if unknown:
             parser.error(f"unknown scenarios {unknown}")
         names = [n for n in SCENARIOS if n in asked]  # the fixed order: status last (its tickers keep printing)
+        if opts.hang_ms:
+            os.environ["PERF_GATE_HANG_MS"] = str(opts.hang_ms)
         app = App(os.path.abspath(opts.app), opts.out)
         report.update({"app": app.bundle, "tag": app.tag, "budget": BUDGET, "host": os.uname().nodename})
         gate = Gate(app, opts)

@@ -1,0 +1,16 @@
+{
+  "title": "Session hover card",
+  "settings": {"appearance": {"theme": "Soft Blue"}},
+  "steps": [
+    {"title": "Launch", "wait": 3},
+    {"title": "New workspace", "cmux": ["workspace", "new", "--name", "Make the session hover card match the popover surface"], "wait": 2},
+    {"title": "Agent chat in it", "cmux": ["agent", "new-chat"], "wait": 3, "optional": "agent chat views are not ported yet"},
+    {"title": "Its hover card, dark", "cmux": ["action", "run", "workspace.showResources"], "wait": 2},
+    {"title": "Its hover card, light", "cmux": ["settings", "set", "appearance.theme", "Soft Blue Light"], "wait": 2},
+    {"title": "Card again, light", "cmux": ["action", "run", "workspace.showResources"], "wait": 2},
+    {"title": "Over art", "cmux": ["settings", "set", "appearance.background", "hokusai-great-wave"], "wait": 3},
+    {"title": "Card over art", "cmux": ["action", "run", "workspace.showResources"], "wait": 2},
+    {"title": "Dark over art", "cmux": ["settings", "set", "appearance.theme", "Soft Blue"], "wait": 2},
+    {"title": "Card, dark over art", "cmux": ["action", "run", "workspace.showResources"], "wait": 2}
+  ]
+}

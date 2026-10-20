@@ -7,13 +7,17 @@ import QuartzCore
 /// glyph, a disc of the row's own backdrop color cuts a 1.5 pt ring out of whatever the badge
 /// sits on, like an avatar's presence badge.
 /// - `corner`: one glyph; the disc hugs it (around the Codex-like 6 pt dot, the dot).
+/// - `plain`: one glyph in the trailing slot of a row without an icon: the bare glyph, no disc and
+///   no ring (Lawrence 2026-10-18: the spinner and the blue dot had "a weird background circle
+///   thing"; nothing sits under a trailing glyph, so there is nothing to cut a ring out of).
 /// - `stack`: each item is a full chip (a tonal disc with the glyph inside, ringed by the
 ///   backdrop), and each chip tucks under the one before it only as far as its padding, so every
 ///   glyph stays whole and the overlap reads as a stack of avatars.
+/// A working or loading item's spinner has neither: it draws bare on the row's own background.
 /// Glyphs are the shared status indicator: the icon set, colors and Reduce Motion (a still ring
 /// for work) follow it.
 final class RowBadgeView: NSView {
-    enum Look: Equatable { case corner, stack }
+    enum Look: Equatable { case corner, plain, stack }
 
     private var glyphs: [StatusIndicatorView] = []
     private var rings: [CALayer] = []
@@ -26,8 +30,13 @@ final class RowBadgeView: NSView {
     /// The unread dot's side (the 6 pt Codex-like dot in its 10 pt box).
     static let dotSide: CGFloat = 6
     /// The room around a glyph in its cell: 2 pt for a corner badge (its 1.5 pt ring and half a
-    /// point of air), 4 pt for a stack chip (2.5 pt of chip, then the ring).
-    var cellPad: CGFloat { look == .corner ? 2 : 4 }
+    /// point of air) and a plain glyph (the same cell, so the glyph keeps its place), 4 pt for a
+    /// stack chip (2.5 pt of chip, then the ring).
+    var cellPad: CGFloat { look == .stack ? 4 : 2 }
+    /// Whether any disc (a cutout ring or a stack chip) draws behind a glyph.
+    var drawsBackdrop: Bool {
+        zip(rings, chips).prefix(states.count).contains { !$0.isHidden || !$1.isHidden }
+    }
     var cellSide: CGFloat { Self.glyphSide + 2 * cellPad }
     /// How far each stack cell starts after the one before: it hides only the next chip's padding.
     var step: CGFloat { cellSide - cellPad }
@@ -50,6 +59,11 @@ final class RowBadgeView: NSView {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
+
+    /// The ring and chip layers behind item `index` (test hook).
+    func backdrops(at index: Int) -> [CALayer] { [rings[index], chips[index]] }
+    /// The glyphs' frames, in order (test hook).
+    var glyphFrames: [CGRect] { glyphs.prefix(states.count).map(\.frame) }
 
     /// The width the badges take: one cell, then each further one's step.
     var preferredWidth: CGFloat {
@@ -74,8 +88,11 @@ final class RowBadgeView: NSView {
         }
         for (index, glyph) in glyphs.enumerated() {
             let shown = index < states.count
-            rings[index].isHidden = !shown
-            chips[index].isHidden = !shown || look == .corner
+            // A spinner is bare on the row's own background (Leo: "the spinner should NOT have a
+            // background"); its cell keeps its size, so nothing moves when the work ends.
+            let bare = shown && (states[index].isWorking || states[index].isLoading)
+            rings[index].isHidden = !shown || look == .plain || bare
+            chips[index].isHidden = !shown || look != .stack || bare
             glyph.configure(shown ? states[index] : .idle)
         }
         isHidden = states.isEmpty
@@ -100,7 +117,9 @@ final class RowBadgeView: NSView {
             let center = CGPoint(x: glyph.midX, y: glyph.midY)
             // Earlier items stack in front: each cell covers the one after it.
             let z = CGFloat(glyphs.count - index) * 3
-            if look == .corner {
+            if look == .plain {
+                // No disc: the glyph alone.
+            } else if look == .corner {
                 let mark = glyphs[index].indicator.plan.glyph == .mark(.vector(.dot)) ? Self.dotSide : side
                 disc(rings[index], around: center, side: mark + 2 * ring, z: z - 2)
             } else {

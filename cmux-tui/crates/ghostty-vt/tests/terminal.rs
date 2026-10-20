@@ -1301,3 +1301,20 @@ fn completed_kitty_overflow_blocks_later_control_string_recovery() {
         }
     }
 }
+
+/// The Mac viewer loads a Ghostty config, whose default
+/// `grapheme-width-method = unicode` turns DEC mode 2027 on. The host grid
+/// must measure graphemes the same way, or the viewer and the daemon put
+/// the cursor in different columns after an emoji (and reflow differently on
+/// resize). It must also survive a full reset, as Ghostty's default does.
+#[test]
+fn grapheme_clustering_is_on_by_default_like_the_ghostty_viewer() {
+    let mut term = Terminal::new(20, 4, 1000, Callbacks::default()).unwrap();
+    assert!(term.mode(2027, false), "mode 2027 must default on");
+    term.vt_write("\u{2764}\u{fe0f}x".as_bytes());
+    assert_eq!(term.cursor_position(), Some((3, 0)), "VS16 emoji is two columns wide");
+    term.vt_write(b"\x1bc");
+    assert!(term.mode(2027, false), "a full reset keeps the default");
+    term.vt_write(b"\x1b[?2027l");
+    assert!(!term.mode(2027, false), "programs may still turn it off");
+}

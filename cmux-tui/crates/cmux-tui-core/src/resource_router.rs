@@ -246,10 +246,11 @@ pub(crate) fn validate_resource_envelope(
 
 fn dispatch_resource_request(
     mux: &Arc<Mux>,
-    request: ParsedResourceRequest,
+    mut request: ParsedResourceRequest,
 ) -> Result<Value, ResourceError> {
     let operation = request.envelope.operation;
     crate::debug_spans::mark("router.dispatch");
+    browser_engine::route_to_frontend(mux, &mut request)?;
     browser_engine::refuse_without_provider(mux, &request)?;
     crate::debug_spans::mark("router.provider_checked");
     match operation_owner(operation) {
@@ -264,6 +265,7 @@ fn dispatch_resource_request(
         OperationOwner::Credential => credential::dispatch(mux, request),
         OperationOwner::Config => config::dispatch(mux, request),
         OperationOwner::OpenUrl => open_url::dispatch(mux, request),
+        OperationOwner::Stash => crate::state::stash_router::dispatch(mux, request),
         OperationOwner::Machine => {
             mux.resource_machine_service().dispatch(&ResourceMachineRequest {
                 operation,

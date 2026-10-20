@@ -3,6 +3,10 @@
 
 use super::*;
 
+/// Verified app registrations may include the `agent_cli` family.
+#[cfg(unix)]
+const AGENT_CLI_APP_PROVIDER_CAPABILITY: &str = "agent-cli-app-provider-v1";
+
 /// A personal workspace's own remote-localhost choice: `remote_localhost`
 /// on `set-personal-workspace` and the personal workspace rows.
 pub const PERSONAL_REMOTE_LOCALHOST_CAPABILITY: &str = "personal-remote-localhost-v1";
@@ -14,6 +18,10 @@ pub const PERSONAL_REMOTE_LOCALHOST_CAPABILITY: &str = "personal-remote-localhos
 /// `daemon-build-v1` when the binary installed its build identity.
 pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
     let mut capabilities = advertised_capabilities(cfg!(unix));
+    capabilities.push("machine-identity-v1");
+    // Receipts can outlive the acpmux configuration that prepared them.
+    #[cfg(unix)]
+    capabilities.push(agent_cli_job::CAPABILITY);
     capabilities.push(activity::CAPABILITY);
     capabilities.push(page_credential::PAGE_CREDENTIAL_CAPABILITY);
     capabilities.push(page_credential::SCOPED_PAGE_CREDENTIAL_CAPABILITY);
@@ -23,7 +31,11 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
         capabilities.push(cloud_conversations::WS_CLOUD_CAPABILITY);
         capabilities.push(cloud_conversations::CLOUD_RUNS_CAPABILITY);
         capabilities.push(cloud_conversations::CLOUD_LIVE_CAPABILITY);
+        capabilities.push(cloud_conversations::CLOUD_TYPING_CAPABILITY);
         capabilities.push(cloud_attachments::CAPABILITY);
+    }
+    if mux.host_replica().is_some_and(|replica| replica.running()) {
+        capabilities.push(cloud_host_replica::CAPABILITY);
     }
     if mux.serves_ws_listen() {
         capabilities.push(WS_LISTEN_CAPABILITY);
@@ -35,8 +47,22 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
     #[cfg(unix)]
     capabilities.push(tab_restart::CAPABILITY);
     #[cfg(unix)]
+    capabilities.push(tab_restart::KEPT_LAYOUT_CAPABILITY);
+    #[cfg(unix)]
+    capabilities.push(AGENT_CLI_APP_PROVIDER_CAPABILITY);
+    #[cfg(unix)]
+    capabilities.push(crate::apps::AGENT_INVENTORY_INVALIDATION_CAPABILITY);
+    #[cfg(unix)]
+    capabilities.push(client_registry::machine_catalog::CAPABILITY);
+    #[cfg(unix)]
     if mux.serves_agent_session_attach() {
         capabilities.push(AGENT_SESSION_ATTACH_CAPABILITY);
+        capabilities.push(agent_inventory::CAPABILITY);
+        capabilities.push(agent_inventory::OWNER_CAPABILITY);
+        capabilities.push(agent_inventory::REFRESH_CAPABILITY);
+        capabilities.push(agent_inventory::watch::CAPABILITY);
+        capabilities.push(agent_inventory::watch::FENCED_CAPABILITY);
+        capabilities.push(agent_inventory::watch::ADMISSION_CAPABILITY);
         capabilities
             .push(agent_session_attach::agent_session_observe::AGENT_SESSION_OBSERVE_CAPABILITY);
     }
@@ -118,11 +144,14 @@ pub(super) fn advertised_capabilities(
     bounded_clear_history_fallback_writes: bool,
 ) -> Vec<&'static str> {
     let mut capabilities = vec![
+        crate::resource_api::MACHINE_CATALOG_READ_CAPABILITY,
         ATTACH_INITIAL_SIZE_CAPABILITY,
         "attach-identity-v1",
         crate::terminal_activity::CAPABILITY,
         split_kind::SPLIT_CLIENT_KEYS_CAPABILITY,
+        split_kind::SPLIT_CLIENT_SPLIT_ID_CAPABILITY,
         creating_input::TERMINAL_INPUT_WHILE_CREATING_CAPABILITY,
+        cmd_terminal_io::SEND_EXPECT_FOREGROUND_CAPABILITY,
         WORKSPACE_REGISTRY_CAPABILITY,
         DAEMON_HANDOFF_FORCE_CAPABILITY,
         GUARDED_BROWSER_POINTER_CAPABILITY,
@@ -133,6 +162,7 @@ pub(super) fn advertised_capabilities(
         EDGE_DOCKS_CAPABILITY,
         DOCK_COLUMN_ROLE_CAPABILITY,
         PERMANENT_DOCK_CAPABILITY,
+        PINNED_DOCK_CAPABILITY,
         ROWS_CAPABILITY,
         PANE_BROWSER_KIND_CAPABILITY,
         LAYOUT_UNDO_CAPABILITY,
@@ -175,12 +205,14 @@ pub(super) fn advertised_capabilities(
         AGENT_PRESENCE_CAPABILITY,
         WORKSPACE_PIN_CAPABILITY,
         NOTIFICATION_MARK_UNREAD_CAPABILITY,
+        TAB_MARK_UNREAD_CAPABILITY,
         TAB_METADATA_CAPABILITY,
         FRONTEND_BROWSER_TABS_CAPABILITY,
         FRONTEND_BROWSER_HISTORY_CAPABILITY,
         FRONTEND_BROWSER_TAB_PROFILE_CAPABILITY,
         TAB_DRAG_CAPABILITY,
         TAB_WORKSPACE_NAME_CAPABILITY,
+        WORKSPACE_NAME_SOURCE_CAPABILITY,
         TAB_SPLIT_RESPAWN_CAPABILITY,
         TAB_SPLIT_KEEP_FOCUS_CAPABILITY,
         TAB_COLUMN_RESPAWN_CAPABILITY,
@@ -253,6 +285,7 @@ pub(super) fn advertised_capabilities(
         crate::state::projects_store::CAPABILITY,
         crate::state::projects_store::SOURCES_CAPABILITY,
         crate::state::palette_usage_store::CAPABILITY,
+        crate::state::stash_store::CAPABILITY,
         crate::state::browser_devices::CAPABILITY,
         crate::state::browser_devices::FIT_CAPABILITY,
         crate::state::browser_devices::FIT_WIDTH_CAPABILITY,

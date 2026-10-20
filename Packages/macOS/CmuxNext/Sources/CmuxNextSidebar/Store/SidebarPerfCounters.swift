@@ -33,10 +33,23 @@ nonisolated enum SidebarPerfCounters {
     }
 
     private static let counts = Mutex<[Counter: Int]>([:])
+    /// Per-caller counts of the costly counters ("list_reloads@SidebarView+Observation.swift:90"),
+    /// so a breach names its cause (perf-gate.py prints them with the breach).
+    private static let sources = Mutex<[String: Int]>([:])
 
     static func add(_ counter: Counter, _ amount: Int = 1) {
         guard amount != 0 else { return }
         counts.withLock { $0[counter, default: 0] += amount }
+    }
+
+    /// The current count of `counter`.
+    static func count(_ counter: Counter) -> Int { counts.withLock { $0[counter] ?? 0 } }
+
+    /// `add`, also counted under its caller.
+    static func add(_ counter: Counter, from file: StaticString, line: UInt) {
+        add(counter)
+        let name = "\(file)".split(separator: "/").last.map(String.init) ?? "\(file)"
+        sources.withLock { $0["\(counter.rawValue)@\(name):\(line)", default: 0] += 1 }
     }
 
     /// Runs `body` and adds its duration to `main_ns`.
@@ -52,14 +65,19 @@ nonisolated enum SidebarPerfCounters {
         defer { add(.mirrorNanoseconds, Int(DispatchTime.now().uptimeNanoseconds &- start)) }
         return try body()
     }
-    /// Every counter by name; `reset` zeroes them after reading.
+    /// Every counter by name, then each caller count ("<counter>@<file>:<line>"); `reset` zeroes them after reading.
     static func report(reset: Bool) -> [String: Int] {
-        counts.withLock { values in
+        var report = counts.withLock { values in
             var report: [String: Int] = [:]
             for counter in Counter.allCases { report[counter.rawValue] = values[counter] ?? 0 }
             if reset { values = [:] }
             return report
         }
+        sources.withLock { values in
+            report.merge(values) { counter, _ in counter }
+            if reset { values = [:] }
+        }
+        return report
     }
 }
 

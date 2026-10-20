@@ -1217,6 +1217,14 @@ check_no_self_hosted_fleet_runners() {
   # the bare capability, generic fleet labels and main selector stay guarded.
   local next_trusted_selector="fromJSON(format('[\"{0}\", \"{1}\", \"glaeda-trusted-next-nightly\"]', vars.CI_NIGHTLY_NEXT_TRUSTED_POOL, vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER))"
   local next_repository_guard="github.repository == 'manaflow-ai/cmux' && "
+  # cmux-next's GUI suites and its autofix bots keep the std GUI minis (#18589,
+  # #19587, #21658) behind CI_PR_POOL_OWNED, the owned-pool switch; with it off,
+  # or on a fork pull request (its branch comes first), they take Blacksmith.
+  # pr_runner_pool.py has no GUI pool, so only these exact selectors, in only
+  # these workflows, may name glaeda-gui-std-xcode-26.6.
+  local gui_owned_selector="vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('[\"pull_request\",\"push\",\"workflow_dispatch\"]'), github.event_name) && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && 'glaeda-gui-std-xcode-26.6'"
+  local gui_autofix_selector="vars.CI_PR_POOL_OWNED == '1' && 'glaeda-gui-std-xcode-26.6'"
+  local gui_fork_pr_branch="github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || "
   local hits="" line content content_without_allowed
   # Inspect runner-selection lines only: runs-on:, matrix `os:`, and scalar list
   # items (`  - <label>`, which covers dispatch runner dropdowns and multi-line
@@ -1231,6 +1239,16 @@ check_no_self_hosted_fleet_runners() {
       # Repository identity is a trust predicate, never a runner label.
       content="${content/"$next_repository_guard"/}"
     fi
+    # A pull request workflow keeps the exemption only while its fork pull
+    # request branch comes first on the line; base autofix runs on push only.
+    case "${line%%:*}" in
+      "$ROOT_DIR/.github/workflows/cmux-next.yml")
+        if [[ "${content%%"$gui_owned_selector"*}" == *"$gui_fork_pr_branch"* ]]; then content="${content//"$gui_owned_selector"/}"; fi ;;
+      "$ROOT_DIR/.github/workflows/cmux-next-pr-autofix.yml")
+        if [[ "${content%%"$gui_autofix_selector"*}" == *"$gui_fork_pr_branch"* ]]; then content="${content//"$gui_autofix_selector"/}"; fi ;;
+      "$ROOT_DIR/.github/workflows/cmux-next-base-autofix.yml")
+        content="${content//"$gui_autofix_selector"/}" ;;
+    esac
     content_without_allowed="$(printf '%s\n' "$content" | sed -E "s/$fork_branch//g; s/($allowed)//g")"
     # GitHub matches runner labels without regard to case, so a fleet label
     # is refused in any case; the bare self-hosted labels stay case-sensitive
@@ -1585,6 +1603,24 @@ CASES
         echo "FAIL: $(basename "$file") names pull_request in a form this guard cannot read; write on: as a block mapping, a list or a single event"
         failed=1
       fi
+      continue
+    fi
+    # cmux-next-batch.yml never cancels on purpose (a cancelled debounce reads
+    # red on every pull request); its macOS jobs (regen, build) start only from
+    # workflow_dispatch, so no pull request run holds a macOS runner. Exempt
+    # only while every macOS job there keeps that dispatch-only gate.
+    if [ "$(basename "$file")" = "cmux-next-batch.yml" ] && awk '
+      /^  [A-Za-z0-9_-]+:[[:space:]]*$/ { job=$1; next }
+      /^    if:/ { gate[job]=$0; next }
+      /^    runs-on:.*(macos|MACOS_RUNNER)/ { mac[job]=1 }
+      END {
+        for (j in mac) {
+          if (gate[j] !~ /^    if: \$\{\{ github\.event_name == .workflow_dispatch. && / || gate[j] ~ /\|\|/) exit 1
+          n++
+        }
+        exit n == 0
+      }
+    ' "$file"; then
       continue
     fi
     if ! pr_concurrency_cancels_superseded_runs "$file"; then
