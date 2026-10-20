@@ -87,6 +87,14 @@ public final class HomeSidebarSplitView: NSSplitView, NSSplitViewDelegate {
         super.mouseDown(with: event)
     }
 
+    /// The list at `width` (clamped to this window), kept as the user's width (a divider drag's
+    /// result without the drag: `debug.home.sidebar_fixture` width for screenshots).
+    public func setWidth(_ width: CGFloat) {
+        let width = clamp(width)
+        widths.save(width, window: windowKey())
+        place(width)
+    }
+
     /// Back to the standard width (the divider's double-click).
     public func resetWidth() {
         widths.reset(window: windowKey())
