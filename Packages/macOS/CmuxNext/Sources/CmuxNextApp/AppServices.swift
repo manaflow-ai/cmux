@@ -466,7 +466,6 @@ final class AppServices {
         _ = daemon.store.tabListRevision // a tracked wait hears the tab appear
         return daemon.store.tab(surface: surface)
     }
-
     func workspace(id: String) -> WorkspaceModel? {
         machines.workspace(id: id)?.0
     }
