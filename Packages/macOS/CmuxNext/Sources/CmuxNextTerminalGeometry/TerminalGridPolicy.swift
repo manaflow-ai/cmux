@@ -38,12 +38,15 @@ public nonisolated struct TerminalGridPolicy: Sendable {
 
     /// The view now fits `grid`. Returns the grid to report, if any: each
     /// distinct grid once, or again when `force` is set (a new owner).
-    public mutating func viewSized(_ grid: TerminalGridSize, force: Bool = false) -> TerminalGridSize? {
+    public mutating func viewSized(_ grid: TerminalGridSize, force: Bool = false, holding: Bool = false) -> TerminalGridSize? {
         desired = grid
         guard ownsGeometry, force || grid != reported else { return nil }
         reported = grid
         return grid
     }
+
+    /// The layout spring landed: the grid held while it moved (not yet held: red test commit).
+    public mutating func releaseHeld() -> TerminalGridSize? { nil }
 
     /// The PTY owner announced `grid` at this point in the stream.
     public mutating func announce(_ grid: TerminalGridSize) {
