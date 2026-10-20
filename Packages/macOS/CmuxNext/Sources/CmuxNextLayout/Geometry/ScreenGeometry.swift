@@ -240,7 +240,8 @@ public nonisolated struct ScreenGeometry: Hashable, Sendable {
 
     /// The docked column holding `pane`, if any.
     public func dockFrame(containing pane: PaneID) -> DockColumnFrame? {
-        guard fixedPanes.contains(pane), let rect = panes[pane] else { return nil }
+        // A pane in a scroll area may sit past the dock's edge: its area's window does not.
+        guard fixedPanes.contains(pane), let rect = scrollAreaWindow(of: pane) ?? panes[pane] else { return nil }
         return dock.first { $0.frame.contains(CGPoint(x: rect.midX, y: rect.midY)) }
     }
 

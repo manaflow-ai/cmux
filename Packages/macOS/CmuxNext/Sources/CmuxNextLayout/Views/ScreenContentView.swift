@@ -150,7 +150,7 @@ final class ScreenContentView: NSView {
         let style = context.style
         applyCamera()
         baseGeometry = canvasGeometry ?? ScreenGeometry.compute(shown, viewport: bounds.size, style: style, scale: scale)
-        geometry = baseGeometry.shiftingRows(rowOffsets).shiftingAreas(areaOffsets)
+        geometry = baseGeometry.shiftingAreas(areaOffsets).shiftingRows(rowOffsets)
         let animate = animated && !context.reduceMotion && bounds.width > 0
         // `ui.paneAnimations` (default on): a split, a close and a released divider spring only with it on.
         let splits = animate && context.animatesPaneLayout

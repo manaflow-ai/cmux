@@ -37,15 +37,22 @@ nonisolated extension ScreenGeometry {
     }
 
     /// This geometry with each scroll area's panes and dividers moved left by its offset
-    /// (`offsets`, content points): what the view shows and hit-tests. Area windows stay.
+    /// (`offsets`, content points) and each pane cut to its area's window: what the view shows,
+    /// hit-tests and drops on. A pane wholly outside the window keeps a zero-wide rect at the
+    /// window's nearer edge, so nothing outside the window resolves to it. Area windows stay.
     public func shiftingAreas(_ offsets: [SplitID: CGFloat]) -> ScreenGeometry {
+        guard !scrollAreas.isEmpty else { return self }
         let live = offsets.filter { $0.value != 0 && scrollAreas[$0.key] != nil }
-        guard !live.isEmpty else { return self }
         var shifted = self
-        for (pane, area) in scrollAreaOfPane {
-            guard let dx = live[area], let rect = panes[pane] else { continue }
-            shifted.panes[pane] = rect.offsetBy(dx: -dx, dy: 0)
+        for (pane, id) in scrollAreaOfPane {
+            guard let window = scrollAreas[id]?.window, let rect = panes[pane] else { continue }
+            let moved = rect.offsetBy(dx: -(live[id] ?? 0), dy: 0)
+            let shown = moved.intersection(window)
+            shifted.panes[pane] = shown.isNull || shown.width <= 0
+                ? CGRect(x: moved.maxX <= window.minX ? window.minX : window.maxX, y: moved.minY, width: 0, height: moved.height)
+                : shown
         }
+        guard !live.isEmpty else { return shifted }
         shifted.dividers = dividers.map { divider in
             guard let area = scrollAreaOfSplit[divider.id], let dx = live[area] else { return divider }
             var moved = divider
