@@ -27,9 +27,15 @@ enum UpdateHandlers {
             })
         }
         // Drop back (destructive: every entrypoint confirms; the CLI passes --confirm).
-        registry.bind("updates.rollback", run: { [weak registry] invocation in
-            let build = invocation["build"]?.stringValue, directories = stateDirectories()
-            registry?.track(Task { await UpdateDropBack(updater).failure(to: build, stateDirectories: directories).map { ActionWorkFailure($0) } })
+        registry.bind("updates.rollback", run: { [weak registry] _ in
+            guard let registry else { return }
+            let work = Task { await UpdateDropBack(updater).failure(to: nil, stateDirectories: stateDirectories()) }
+            // task-owner: a palette or menu run nobody waits on shows a refusal; a CLI run returns it.
+            if registry.isCapturingWork {
+                registry.track(Task { await work.value.map { ActionWorkFailure(refusal: .unavailable, reason: $0) } })
+            } else {
+                Task { [weak registry] in if let why = await work.value { registry?.refuse(why) } }
+            }
         })
         registry.bind("palette.switchAppChannel", unavailable: { updater.channelSwitchUnavailableReason }, invoke: { [weak registry] invocation in
             do {
