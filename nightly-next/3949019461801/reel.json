@@ -1,0 +1,377 @@
+{
+  "version": 1,
+  "build": "3949019461801",
+  "notes": "notes/3949019461801.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 22537,
+      "title": "cmux-next: deny a permission and tell the agent what to do instead",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22481,
+      "title": "agent pane: a cancelled or disconnected subagent reads as stopped, not failed",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22561,
+      "title": "ci(cmux-next): Blacksmith macOS only while a slot is free, else the fleet",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22468,
+      "title": "agent pane: one permission shortcut answers one ask",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22325,
+      "title": "ci(cmux-next): same-repo PRs run their routed Mac tiers; dispatch runs every tier on any branch",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22362,
+      "title": "cmux NEXT: Show Chief Pet in the View menu, the palette and the CLI",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22560,
+      "title": "docs: merge on a passing review, not a person's approval",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22483,
+      "title": "fix(cmux-next): put new chrome fonts on the type scale; Chromium swipe arrows",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21447,
+      "title": "Run Settings and palette agent updates on their captured owner",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22464,
+      "title": "cmux NEXT New Tab: a page you switch back to replays no recent-chat entrance",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22432,
+      "title": "cmux NEXT Chief pet: VoiceOver can press the character and each notice",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22422,
+      "title": "cmux NEXT Chief Dock: keyboard and VoiceOver fold it cleanly, the mascot's hover stops flickering",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22512,
+      "title": "cmux-next palette: the Background row names your own image or a macOS wallpaper",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22503,
+      "title": "cmux NEXT Chief Settings: effort levels by name, plural counts, one Diagnostics control",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22494,
+      "title": "cmux NEXT Chief Settings: why a change did not take stays said, and VoiceOver hears it",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/22494/b334fc1b/next-chief-settings-after/tour.mp4",
+      "source": "tour-after",
+      "sha8": "b334fc1b",
+      "tour": "chief-settings"
+    },
+    {
+      "pr": 22454,
+      "title": "cmux-next Settings: This Workspace's Opacity over Art shows only over a picture",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22445,
+      "title": "cmux NEXT Chief Settings: clearing the name shows the Chief's name again",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22441,
+      "title": "cmux-next Settings: tabbing through the background picker previews only the tile you stop on",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22420,
+      "title": "cmux NEXT Settings: the Chiefs card names each Chief's backend as Home does",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22531,
+      "title": "cmux-next: answered and cancelled questions leave a record in the transcript",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22526,
+      "title": "cmux-next: the Subagent of pill names the chat as the chat list does",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22525,
+      "title": "cmux-next: running subagent groups start open; each chat keeps its open folds",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22521,
+      "title": "cmux-next: the agents pill nests a subagent under the one that spawned it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22485,
+      "title": "agent pane: a peer's running subagent counts its time on the session's clock",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22465,
+      "title": "agent pane: a permission card shows a command only for a command ask",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22463,
+      "title": "agent pane: permission asks wait in line instead of hiding each other",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22528,
+      "title": "cmux NEXT New Tab: keys typed after opening a page from another pane's + reach it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22527,
+      "title": "cmux NEXT agent chat: the composer takes the keyboard when its pane gets focus",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22300,
+      "title": "cmux NEXT: Switch to tab on the New Tab page selects and focuses the tab",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22370,
+      "title": "fix(next): show one notice at a time above the composer",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22365,
+      "title": "cmux NEXT New Tab: the composer stays where it first painted",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22475,
+      "title": "cmux NEXT composer: a click anywhere on the card puts the cursor in the prompt",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22456,
+      "title": "cmux NEXT New Tab: the field takes the keyboard back when you return to the page",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22448,
+      "title": "cmux NEXT: a background chat or New Tab page can't take the keyboard",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22357,
+      "title": "ci(next): a fast-tier timeout kills the entry's whole process group",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22330,
+      "title": "ci(next): fast tier builds the Swift packages and the cmux-tui tests side by side",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22404,
+      "title": "ci(nightly-next): key the OptChat Chief build by its inputs on the trusted worker",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22192,
+      "title": "cmux-next media: tours shoot floating panels, popovers and sheets, not just the main window",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22457,
+      "title": "ci(cmux-next): a feat-cmux-next move no longer cancels a running generated catch-up",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22438,
+      "title": "verify-local: a feat-cmux-next branch selects checks against feat-cmux-next",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22458,
+      "title": "perf(cmux-next): the chat stops rescanning every row for summary content and subagents per token",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22455,
+      "title": "perf(cmux-next): a large file copy sends the Files pane ~200 progress updates, not one per block",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22452,
+      "title": "perf(cmux-next): the minimap's reply preview stops reading once it is full",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22446,
+      "title": "perf(cmux-next): the Activity pane keeps a session's newest 2,000 events",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22440,
+      "title": "perf(cmux-next): reply images keep a bounded cache of loaded data URLs",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22439,
+      "title": "perf(cmux-next): a reveal frame stops rescanning the whole reply for fences and footnotes",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22434,
+      "title": "perf(cmux-next): floating Copy check stops building each row's copy text per scroll frame",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22459,
+      "title": "chore(cmux-next): delete Agent Activity leftovers from the native pane",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22450,
+      "title": "chore(cmux-next): delete the terminal debug window shell and its unused mirror view",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22449,
+      "title": "chore(cmux-next): delete the Feed menu bar prototype nothing showed",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22462,
+      "title": "chore(cmux-next): DaemonRequest's header no longer points at a deleted branch and TODO tag",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22491,
+      "title": "ci(cmux-next): run five registered tooling tests that no workflow ran; drop a duplicate registry entry",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22482,
+      "title": "test(cmux-next): checks-structure and tier-routing tests follow the workflow and package graph",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22474,
+      "title": "ci(base autofix): land the files of untouched areas when another area moved",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22516,
+      "title": "webviews tests: six base reds on react-apps-check shards 1, 3 and 4 follow their changes",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22490,
+      "title": "webviews: table keys test runs as on the Mac; vp check formatting and type errors fixed",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22296,
+      "title": "cmux-next: continuity gate kills and freezes the daemon mid agent turn, times recovery, checks the recovery UI",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22478,
+      "title": "cmux-next: review new-conversation-tab's object fields for the phone lane allowlist",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/22478/f21b5bea/next-core-after/tour.mp4",
+      "source": "tour-after",
+      "sha8": "f21b5bea",
+      "tour": "core"
+    },
+    {
+      "pr": 22477,
+      "title": "cmux-tui: the boundary checker reads the PUBLIC_ID_PREFIXES table",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22470,
+      "title": "cef-runtime-pack.sh: run on Linux CI",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
