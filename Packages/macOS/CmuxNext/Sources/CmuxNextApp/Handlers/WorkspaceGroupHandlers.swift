@@ -16,6 +16,13 @@ enum WorkspaceGroupHandlers {
         bindEdits(registry, context)
         bindMembers(registry, context)
         WorkspaceGroupPlaces.bind(into: registry, context: context)
+        // The header menu's toggles read as the change they make on the right-clicked group.
+        ActionTargetTitles.set("workspaceGroup.togglePin", in: registry) { invocation in
+            (try? context.group(invocation)).map { isPinned($0, context) ? WorkspaceVerbStrings.unpinGroup : WorkspaceVerbStrings.pinGroup }
+        }
+        ActionTargetTitles.set("toggleFocusedWorkspaceGroupCollapsed", in: registry) { invocation in
+            (try? context.group(invocation)).map { $0.collapsed ? WorkspaceVerbStrings.expandGroup : WorkspaceVerbStrings.collapseGroup }
+        }
         registry.bind("nextWorkspaceGroup", requires: DaemonCapabilities.shared.profiles, daemon: context.services.machines.local,
                       run: { _ in selectGroup(context, offset: 1) })
         registry.bind("prevWorkspaceGroup", requires: DaemonCapabilities.shared.profiles, daemon: context.services.machines.local,
@@ -120,7 +127,7 @@ enum WorkspaceGroupHandlers {
         // A pinned (saved) group stays when its workspaces close.
         registry.bind("workspaceGroup.togglePin", requires: DaemonCapabilities.shared.workspaceGroupPin, daemon: home, run: { invocation in
             let group = try context.group(invocation)
-            try context.sidebar().handle(.setGroupPinned(sidebarID(group), !group.pinned))
+            try context.sidebar().handle(.setGroupPinned(sidebarID(group), !isPinned(group, context)))
         })
         // The group icon: the shared icon string, same rule as workspace and tab icons.
         registry.bind("workspaceGroup.setIcon", requires: DaemonCapabilities.shared.workspaceGroupIcon, daemon: home, run: { invocation in
@@ -175,6 +182,12 @@ enum WorkspaceGroupHandlers {
 
     private static func sidebarID(_ group: WorkspaceGroupModel) -> CmuxNextSidebar.GroupID {
         CmuxNextSidebar.GroupID(group.id.rawValue)
+    }
+
+    /// Whether the group reads as pinned where the person sees it: in the Pinned band on the sidebar
+    /// document, else the personal group's saved flag. Pin/Unpin toggles from this.
+    private static func isPinned(_ group: WorkspaceGroupModel, _ context: AppActionContext) -> Bool {
+        (try? context.sidebar().model.group(sidebarID(group))?.isPinned) ?? group.pinned
     }
 
     private static func createGroup(named name: String, members: [SidebarWorkspaceID], byUser: Bool, _ context: AppActionContext) throws {

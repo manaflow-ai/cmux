@@ -96,6 +96,7 @@ public final class SidebarView: NSView {
         profileBar = ProfileBarView(model: model)
         super.init(frame: .zero)
         buildHierarchy()
+        newButton.setAccessibilityIdentifier("cmux.sidebar.newWorkspace")
         list.reload(animated: false)
         observe()
         // The chrome reveal follows the pointer and the sidebar's frame (cx-3wu5).
@@ -187,6 +188,8 @@ public final class SidebarView: NSView {
         get { list.contextMenuProvider }
         set {
             list.contextMenuProvider = newValue
+            // A row's more button is wired from the provider: live rows take the new one.
+            for (key, view) in list.rowViews { list.wire(view, key: key) }
             profileBar.contextMenuProvider = newValue
             for region in bandRegions { region.contextMenuProvider = newValue }
         }

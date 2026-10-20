@@ -78,7 +78,7 @@ pub(crate) const CAPABILITY: &str = "workspace-open-url-v1";
 const OPERATION: &str = "workspace.open_url";
 const MAX_URL_BYTES: usize = 8192;
 /// Width of the column a link opens right of a lone dock.
-const NEW_COLUMN_WIDTH: f64 = 0.5;
+const NEW_COLUMN_WIDTH: f32 = crate::mux::LONE_DOCK_NEIGHBOR_WIDTH;
 /// The engine of a frontend browser tab the daemon makes (the app's
 /// default; the app owns the engine choice of the tabs it makes itself).
 const FRONTEND_ENGINE: &str = "webkit";
