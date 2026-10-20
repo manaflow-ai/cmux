@@ -164,26 +164,6 @@ test("a failover to the fallback harness is noted", async () => {
   ).toEqual([{ from: "claude-sr2", to: "codex" }]);
 });
 
-test("a paused agent pair is noted with Resume until either chat resumes", async () => {
-  const peer = "0190a000-0000-7000-8000-0000000000d1";
-  const daemon = fakeDaemon(
-    record([
-      ["mux", "agent_pair_paused", { peer, peerName: "reviewer", reason: "cap", count: 21 }],
-      ["mux", "agent_pair_paused", { peer: "other", reason: "alternating", count: 10 }],
-      ["mux", "agent_pair_resumed", { peer, by: "person", delivered: 1 }],
-    ]),
-  );
-  const { rows } = await connect(daemon);
-  expect(
-    rows()
-      .filter((row) => row.kind === "agentPair")
-      .map((row) => row.agentPair),
-  ).toEqual([
-    { peer, peerName: "reviewer", reason: "cap", count: 21, resumed: true },
-    { peer: "other", reason: "alternating", count: 10 },
-  ]);
-});
-
 test("token counts read as thousands", () => {
   expect([27183, 2047, 999, 1000, 412000].map(compactTokens)).toEqual(["27k", "2k", "999", "1k", "412k"]);
 });
