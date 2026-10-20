@@ -97,6 +97,7 @@ pub(super) fn response_error_code(error: &anyhow::Error) -> Option<String> {
         .or_else(|| resource_refusal_code(error, crate::mux::PINNED_COLUMN_CODE))
         .or_else(|| agent_chat_column_code(error))
         .or_else(|| super::rows::error_code(error))
+        .or_else(|| super::column_move::error_code(error))
         .or_else(|| super::bookmarks::error_code(error))
         .or_else(|| crate::mux::creating_input::error_code(error))
         .or_else(|| super::browser_profiles::error_code(error))

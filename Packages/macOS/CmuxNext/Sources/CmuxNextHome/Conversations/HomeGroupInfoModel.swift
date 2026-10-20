@@ -79,6 +79,12 @@ public final class HomeGroupInfoModel {
         }
     }
 
+    /// The Chiefs Reply row chose `policy`.
+    func setChiefReplies(_ policy: ChiefReplyPolicy) {
+        guard policy != info.chiefReplies else { return }
+        run { await self.actions.setChiefReplies(policy) }
+    }
+
     func remove(_ id: ParticipantID) {
         run { await self.actions.remove(id) }
     }
