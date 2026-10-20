@@ -1,6 +1,6 @@
 # Transport verification, 2026-10-19 (fresh verifier)
 
-Status: IN PROGRESS. Partial results are pushed as they land.
+Status: done. Overall FAIL (two transition defects, below). Video paths are on the mini (see Evidence).
 
 Under test: `origin/feat-cnx-ios` at `90375ce5e11c` (WireGuard path order
 direct UDP, TURN over UDP, TURN over TLS on 443; TeamHub relay retired;
@@ -135,3 +135,67 @@ maps only `Signal::Text` and `Signal::Ping`), and the reader ignores binary.
    disturb each other. The script now reads cnx-hostd's path only for its own
    phone's sessions (the 20:24 WebRTC-direct row logged `Turn` from another
    phone's WireGuard link).
+
+## Results after the restart (20:14 to 21:33 PDT)
+
+The WebRTC rows were rerun after the simulator's render server was restarted
+(it spun at 100 % and blocked input and recording three times; see Rig notes).
+
+| Row | Load | Phone link line | Mac (own phone's session) | RTT ms | Echo ms median / p95 | Stream Mac / phone (s) | Browser | Result |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| WebRTC direct | 516 (spike) | "WebRTC direct" | `Direct` | 0 to 12 | 24 / 33 | 6.1 / 6.9 | overlay `track`, 41 to 42 fps, latency 21 ms; bench page typed and loaded, tap counted, example.com 0.4 s, Back 0.5 s, Forward 0.4 s (`rtc-direct/browser-ui.mp4`) | PASS |
+| WebRTC TURN | 604 | "WebRTC relay (TURN)" | `Turn` | 16 (15 to 21) | 32 / 47 | 12.3 / 12.7 | overlay `track`, 41 to 43 fps, latency 33 ms; navigate 0.5 s, Back 0.6 s, Forward 0.5 s, tap counted | PASS |
+| WebRTC + Block UDP | 347 | "WebRTC direct" (connected in 8.0 s) | `Direct` | 0 to 6 | 17 / 28 | 12.3 / 12.8 | not run (simulator input timed out) | PASS for "Block UDP is ignored on WebRTC": it connected direct over UDP, as PROTOCOL says. The Settings row still reads "WebRTC, UDP blocked" (finding 4). |
+
+### Transitions (all recorded; `t-*/transition.mp4`)
+
+| Transition | Load | What happened | Result |
+| --- | --- | --- | --- |
+| Switch WebRTC to WireGuard while the bench tab streams (Back to the list, Settings > Transport > WireGuard, reopen the tab; inside a workspace the tab bar is hidden, so this is the only UI path) | 84 | WireGuard direct came up and the terminal worked after it. The reopened tab came back on `channel` at 4 fps / 7 kbps with a fixed "latency 36 ms" for 28 s: effectively frozen. cnx-hostd: the phone opened three `browser` channels at once on the new link, each claimed the media lane, two answered "another tab took the media lane; video returns to the channel", and the lane ended on a tab that was not on screen (lane report: 3 frames in 35 s). | FAIL (defect 7) |
+| Kill cnx-hostd (SIGKILL) on WireGuard direct while the tab streams | 52 | The app restarted cnx-hostd and the link came back (WireGuard direct). The phone reopened five `browser` channels, three of them for tabs of workspaces closed earlier (`s133`, `s138`, `s143`); the lane went to one of those, and cnx-hostd's host limit stopped the visible tab's host ("stopping the least recently used host tab new-02d10d85-t1"). The visible tab showed `channel`, 1 fps, 2 kbps, latency 88 ms for the rest of the 30 s. Terminal correct after (`echo` reached the Mac). | FAIL (defect 7) |
+| Roam on WireGuard (DEBUG `CNX_NETWORK_PROBE=roam`, delay 40 s, bench tab streaming) | 224 | `network_probe`: stall 20.7 ms, `roam_first_packet` 4.0 ms, `roam_direct` 5.7 ms, new TURN allocation 219.8 ms, link not closed, path `direct`. The overlay stayed `wg-rtp` at 38 to 46 fps across the roam; cnx-hostd's lane report went from 29 to 1926 frames per 5 s window with no loss. Terminal correct after. The probe relaunches the app (launch argument), so the roam happened on a fresh link. | PASS |
+
+### 3 % loss (hostd `video-drop-permille` = 30, 20 s recorded)
+
+| Carrier | Load | Overlay | cnx-hostd lane report | Result |
+| --- | --- | --- | --- | --- |
+| WireGuard RTP (`wg-rtp`, direct) | 170 | 51 fps at start, 26 fps after 20 s, latency 23 ms | loss 1.2 to 5.7 %, 524 to 663 NACKs, 7 keyframe requests, target 7.9 to 10.5 Mbit/s, not congested | PASS (stream stayed live; fps dips) |
+| WebRTC track (`track`, direct) | 290 | 51 to 55 fps, latency 21 to 33 ms | loss 2.5 to 3.9 %, 522 to 678 NACKs, 6 keyframe requests | PASS |
+
+### Retired relay
+
+- No `relay_retired` line in cnx-hostd's log (0 in 1900+ lines) or in the
+  phone's log for any row, on any path, including TURN over TLS.
+- Code: the signaling writer of `cnx-link` has no binary frame
+  (`send_queue.rs` maps only `Signal::Text` and `Signal::Ping`), so nothing in
+  this build can send a relay frame.
+- The dev Worker logs nothing for `relay_retired` (it only answers the
+  sender), so "the Worker never logs it" cannot be checked from the Worker;
+  the client-side checks above stand in for it. PASS.
+
+### Defects added
+
+7. **After a redial, the visible browser tab loses the media lane and freezes
+   (high).** On a new link (transport switch, or cnx-hostd restart) the phone
+   reopens a `browser` channel for every browser tab it still holds, including
+   tabs of workspaces already closed on the Mac. Each open claims the one
+   media lane; the last claim wins, and it is not the tab on screen. The
+   visible tab falls back to the channel and, when cnx-hostd's host limit
+   evicts its host, stays at 1 to 4 fps with no recovery. Repro: open two
+   browser workspaces from the phone, close one on the Mac, keep the other
+   on screen, kill cnx-hostd (or switch transport and reopen the tab); the
+   overlay reads `channel` and the page stops moving. Evidence:
+   `t-switch/transition.mp4`, `t-kill/transition.mp4`, cnx-hostd log
+   04:17:39 and 04:20:11 UTC.
+8. **The simulator's render server spins at 100 % after about 20 to 30 min of
+   repeated `simctl io recordVideo` on a loaded host, then input and
+   recording fail** (rig, not product). Killing the render server and
+   rebooting the simulator fixed it each time; the app's sign-in survived.
+
+## Load next to each check
+
+mini-cmuxs-mac-mini-3 1-minute load at each row's start is in the tables
+(range 52 to 1018). Another agent's rig (`cnx-e2e-ce1d3585`, with its own
+simulator) ran on the same mini from about 20:30, and swap was 18 of 19 GB
+used. The laptop ran none of this (its load stayed 12 to 27). Latency
+numbers taken at loads over 300 are upper bounds.

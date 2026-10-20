@@ -597,12 +597,13 @@ class TV:
         rec_t0 = time.time()
         time.sleep(4)
         r["meter_before"] = self.meter()
+        self._recording = True
         ev_t = None
         if kind == "switch":
-            # The person goes to Settings with the tab open and switches.
-            tabbar = sim.find(label="Settings", kind="RadioButton")
-            r["tab_bar_in_workspace"] = bool(tabbar)
+            # Inside a workspace the tab bar is hidden: the person goes Back to the
+            # list, Settings > Transport, taps WireGuard, then reopens the tab.
             ev_t = time.time()
+            j.back_to_list()
             j.tab("Settings")
             j.open_transport_page()
             sim.tap_el(sim.find(ident="settings.transport.wireguard")[0])
@@ -610,14 +611,12 @@ class TV:
             j.close_transport_page()
             j.tab("Workspaces")
             time.sleep(1.0)
-            r["after_switch_screen"] = sim.shot("t-switch-after")
-            # If the list shows, reopen the browser workspace from it.
-            if sim.find(ident="workspaces.list"):
-                r["returned_to_list"] = True
-                rows = [e for e in sim.find(kind="Button") if "127.0.0.1" in (e.label or "") or "bench" in (e.label or "").lower()]
-                if rows:
-                    sim.tap_el(rows[0])
-                r["browser_row"] = rows[0].label if rows else None
+            rows = [e for e in sim.find(kind="Button") if (e.ident or "").startswith("workspace.row")
+                    and not (e.label or "").startswith("e2e-") and 0 <= e.center[1] <= 874]
+            r["browser_row"] = rows[0].label if rows else None
+            if rows:
+                sim.tap_el(rows[0])
+            r["switched_at_s"] = round(time.time() - rec_t0, 2)
         elif kind == "kill":
             pids = self.mac.hostd_pids()
             ev_t = time.time()
@@ -627,8 +626,10 @@ class TV:
         elif kind == "roam":
             # The probe fires CNX_NETWORK_PROBE_DELAY s after the first link up.
             ev_t = None
-        seen = self.stream_watch(d, kind, seconds=45 if kind == "roam" else 30)
-        sim.record_stop()
+        try:
+            seen = self.stream_watch(d, kind, seconds=45 if kind == "roam" else 30)
+        finally:
+            sim.record_stop()
         r["video"] = vid
         r["recording_started_host"] = rec_t0
         r["event_at_s"] = round(ev_t - rec_t0, 2) if ev_t else None
@@ -719,9 +720,17 @@ def main():
     elif a.cmd == "mode":
         tv.mode(a.arg)
     elif a.cmd in ("switch", "kill", "roam"):
-        tv.transition(a.cmd)
+        try:
+            tv.transition(a.cmd)
+        finally:
+            if tv.sim:
+                tv.sim.record_stop()
+            subprocess.run(["pkill", "-f", "simctl io .* recordVideo"], capture_output=True)
     elif a.cmd == "loss":
-        tv.loss(a.arg)
+        try:
+            tv.loss(a.arg)
+        finally:
+            subprocess.run(["pkill", "-f", "simctl io .* recordVideo"], capture_output=True)
     elif a.cmd == "analyze":
         tv.analyze(a.arg or a.out)
     elif a.cmd == "teardown":
