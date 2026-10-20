@@ -18,14 +18,21 @@ const built = fs.existsSync(page);
 if (!built && process.env.CI) throw new Error(`agent-pane-no-capsules: ${page} is not built`);
 if (!built) console.warn("agent-pane-no-capsules: skipping (run scripts/cmux-next/build-agent-pane-web.sh)");
 
-/** Capsules by nature: a toggle's track, a slider's track and fill, a progress bar, and drawn lines.
- * The composer's model, effort and access chips are small-radius rects again (Leo 2026-10-19). */
+/** Capsules by nature: a toggle's track, a slider's track and fill, a progress bar, drawn lines,
+ * and the composer's model, effort and access chips, whose hover, focus and open background is the
+ * Claude app's soft pill (#22107; composer-chip-plain-rest and composer-chip-press check it). */
 const SHAPES = new Set([
   ".acpmux-switch",
   ".acpmux-effort-track",
   ".acpmux-effort-fill",
   ".acpmux-context-bar",
   ".acpmux-pdf-sheet-lines i",
+  ":is(.acpmux-composer-bar,.nt-pickers) .acpmux-model .acpmux-picker-button",
+  ":is(.acpmux-composer-bar,.nt-pickers) .acpmux-effort .acpmux-picker-button",
+  ":is(.acpmux-composer-bar,.nt-pickers) .acpmux-access .acpmux-picker-button",
+  ".acpmux-model .acpmux-picker-button",
+  ".acpmux-effort .acpmux-picker-button",
+  ".acpmux-access .acpmux-picker-button",
 ]);
 
 const px = (value: string | undefined) => (value && /^-?[\d.]+px$/.test(value) ? parseFloat(value) : undefined);
@@ -41,7 +48,12 @@ function boxes(css: string) {
     const height = declared("height");
     const width = declared("width");
     if (!radius && !height && !width) continue;
-    for (const selector of selectors!.split(/,(?![^(]*\))/).map((part) => part.trim().replace(/\s+/g, " "))) {
+    for (const selector of selectors!.split(/,(?![^(]*\))/).map((part) =>
+      part
+        .trim()
+        .replace(/\s+/g, " ")
+        .replace(/\s*,\s*/g, ","),
+    )) {
       const box = found.get(selector) ?? {};
       found.set(selector, {
         radius: radius ?? box.radius,

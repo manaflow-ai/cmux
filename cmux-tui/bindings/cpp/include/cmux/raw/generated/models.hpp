@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "6843b0cfd4e966719acde1c323621e6a5b049829b422229956fb3c194436dc06";
+inline constexpr std::string_view kProtocolIrSha256 = "a453986b67d167174f384a45b851ba6779b4ecfde280ba17c07ea656ab7e84b0";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -3138,6 +3138,7 @@ struct IdMapping {
 
 struct IdentifyRequest {
     std::optional<bool> machine_metadata{};
+    std::optional<bool> revisions{};
     friend bool operator==(const IdentifyRequest&, const IdentifyRequest&) = default;
 };
 
@@ -3153,8 +3154,10 @@ struct IdentifyResult {
     Field<std::string> build_id{};
     std::optional<std::vector<std::string>> capabilities{};
     Field<std::string> cli_path{};
+    Field<std::string> crate_version{};
     std::string generation{};
     Field<std::string> ghostty_commit{};
+    Field<std::string> install{};
     Field<std::string> launch_snapshot_path{};
     std::optional<bool> lifecycle_ready{};
     std::optional<std::vector<std::string>> machine_capabilities{};
@@ -3168,6 +3171,7 @@ struct IdentifyResult {
     std::string session{};
     std::optional<std::string> session_id{};
     std::uint64_t terminal_revision{};
+    Field<std::string> update_command{};
     std::string version{};
     std::uint64_t workspace_revision{};
     friend bool operator==(const IdentifyResult&, const IdentifyResult&) = default;
@@ -4853,9 +4857,11 @@ struct SetClientInfoRequest {
     Field<std::string> device_kind{};
     Field<std::string> device_name{};
     Field<std::string> display_name{};
+    Field<std::string> install{};
     Field<std::string> kind{};
     Field<std::string> name{};
     Field<std::string> user_id{};
+    Field<std::string> version{};
     friend bool operator==(const SetClientInfoRequest&, const SetClientInfoRequest&) = default;
 };
 
