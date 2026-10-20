@@ -169,6 +169,11 @@ test("the viewer shows the file, says when it is cut, and leaves only by an expl
     ["/Users/you/src/app/notes.txt", "tab"],
     ["/Users/you/src/app/notes.txt", "editor"],
   ]);
+  await act(async () => {
+    tab!.focus();
+    tab!.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
+  });
+  expect(document.activeElement).toBe(editor!);
   // Only the X leaves (Lucas 2026-10-19: no Back to transcript chevron).
   expect(host.querySelector(".acpmux-diff-back")).toBeNull();
   await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label="Close"]')!.click());
