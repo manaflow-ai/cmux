@@ -17,7 +17,7 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
             var descriptor = descriptor
             descriptor.waitsForResult = waits.contains(descriptor.id)
             // `home.chiefPetEnabled` is a user-only setting: only a person turns the pet on.
-            descriptor.isPersonOnly = descriptor.id == "home.toggleChiefPet"
+            descriptor.isPersonOnly = ["home.toggleChiefPet", "home.messageChiefPet"].contains(descriptor.id)
             return descriptor
         }
     }
@@ -91,6 +91,14 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
                 category: .window, symbol: "pawprint", surfaces: [.palette, .menu],
                 mainMenu: .view,
                 // No CLI verb: the setting is user-only, so a script or agent run would be refused.
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
+            ),
+            // The pet with its reply box open, turning the pet on first if it is off (Leo 2026-10-20: grow the
+            // pet toward Codex's mini chat). Bindable in Settings > Keyboard Shortcuts, unbound by default.
+            ActionDescriptor(
+                id: "home.messageChiefPet", title: t("action.home.messageChiefPet", "Message the Chief"),
+                keywords: ["chief", "pet", "message", "reply", "ask", "chat", "mini", "floating", "summon", "quick"],
+                category: .window, symbol: "bubble.left", surfaces: [.palette, .keyboard],
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
             ),
             ActionDescriptor(
