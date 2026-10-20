@@ -48,6 +48,9 @@ public nonisolated struct ActionContext: OptionSet, Sendable, Hashable {
     public static let codeEditorFocused = ActionContext(rawValue: 1 << 18)
     /// `home.channelsEnabled` is on (cx-frn2y): the Channels actions (Open Channels) are available.
     public static let homeChannelsEnabled = ActionContext(rawValue: 1 << 19)
+    /// Debug Settings' Side sessions (/btw) is on (`AgentPaneTunables.sideSessions`, published by
+    /// `ActionRegistry.publishSideSessions`): Ask a Side Question… is offered only then.
+    public static let sideSessions = ActionContext(rawValue: 1 << 20)
 
     /// Contexts whose page owns bare keys (no Command, Control or Option):
     /// only while one holds, and no text field has the keyboard, may a
