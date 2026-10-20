@@ -73,20 +73,6 @@ public nonisolated enum HomeEngineStrings {
     static var harness: String { String(localized: "home.engine.harness", defaultValue: "Harness", table: "Home", bundle: .module) }
     static var model: String { String(localized: "home.engine.model", defaultValue: "Model", table: "Home", bundle: .module) }
     static var effort: String { String(localized: "home.engine.effort", defaultValue: "Effort", table: "Home", bundle: .module) }
-
-    /// An effort level's name (the brain's ids: optchat-chief `EFFORTS`); one the app does not
-    /// know shows as the brain names it.
-    static func effortTitle(_ id: String) -> String {
-        switch id {
-        case "minimal": String(localized: "home.engine.effort.minimal", defaultValue: "Minimal", table: "Home", bundle: .module)
-        case "low": String(localized: "home.engine.effort.low", defaultValue: "Low", table: "Home", bundle: .module)
-        case "medium": String(localized: "home.engine.effort.medium", defaultValue: "Medium", table: "Home", bundle: .module)
-        case "high": String(localized: "home.engine.effort.high", defaultValue: "High", table: "Home", bundle: .module)
-        case "xhigh": String(localized: "home.engine.effort.xhigh", defaultValue: "Extra High", table: "Home", bundle: .module)
-        case "max": String(localized: "home.engine.effort.max", defaultValue: "Max", table: "Home", bundle: .module)
-        default: id
-        }
-    }
     static var defaultValue: String { String(localized: "home.engine.default", defaultValue: "Default", table: "Home", bundle: .module) }
     /// A picker's "Default" item naming what it runs: "Default (claude)", "Default (Opus 5.5)".
     static var defaultNamedFormat: String {
@@ -122,6 +108,15 @@ public nonisolated enum HomeEngineStrings {
     static var useDefaultPicture: String {
         String(localized: "home.engine.useDefaultPicture", defaultValue: "Use Default Picture", table: "Home", bundle: .module)
     }
+    /// "%@ did not pass its check…" (the harness's name).
+    static var harnessCheckFailedFormat: String {
+        String(localized: "home.engine.harnessCheckFailed", defaultValue: "%@ did not pass its check, so the Chief stays on what it runs now.",
+               table: "Home", bundle: .module)
+    }
+    /// "Checking %@…" (the harness's name) while its backend check runs.
+    static var harnessCheckingFormat: String {
+        String(localized: "home.engine.harnessChecking", defaultValue: "Checking %@…", table: "Home", bundle: .module)
+    }
     static var renameRefused: String {
         String(localized: "home.engine.renameRefused", defaultValue: "The Chief's name could not be changed. Try again in a moment.",
                table: "Home", bundle: .module)
@@ -145,15 +140,11 @@ public nonisolated enum HomeEngineStrings {
     /// "Last turn: claude-sr, claude-opus-5-5, 7.8 s, 1 tool call, 50% cached, $0.144".
     static func lastTurn(_ turn: HomeEngineTurn) -> String {
         let engine = [turn.harness, turn.model].compactMap { $0 }.joined(separator: ", ")
-        // Numbers in the reader's own format (decimal mark, percent sign, currency).
-        let hit = turn.hitRate.map { $0.formatted(.percent.precision(.fractionLength(0)).rounded(rule: .toNearestOrAwayFromZero)) } ?? "-"
-        let cost = turn.cost.map { $0.formatted(.currency(code: "USD").precision(.fractionLength(3))) } ?? "-"
-        let (tools, errors) = (turn.tools, turn.toolErrors)
-        let calls = String(localized: "home.engine.toolCalls", defaultValue: "\(tools) tool calls", table: "Home", bundle: .module)
-        let failed = String(localized: "home.engine.toolFailures", defaultValue: "\(errors) failed", table: "Home", bundle: .module)
+        let hit = turn.hitRate.map { "\(Int(($0 * 100).rounded()))%" } ?? "-"
+        let cost = turn.cost.map { String(format: "$%.3f", $0) } ?? "-"
         let format = String(localized: "home.engine.lastTurn",
-                            defaultValue: "Last turn: %1$@, %2$@ s, %3$@ (%4$@), %5$@ cached, %6$@",
+                            defaultValue: "Last turn: %1$@, %2$@ s, %3$lld tool calls (%4$lld failed), %5$@ cached, %6$@",
                             table: "Home", bundle: .module)
-        return String(format: format, engine, turn.seconds.formatted(.number.precision(.fractionLength(1))), calls, failed, hit, cost)
+        return String(format: format, engine, String(format: "%.1f", turn.seconds), turn.tools, turn.toolErrors, hit, cost)
     }
 }
