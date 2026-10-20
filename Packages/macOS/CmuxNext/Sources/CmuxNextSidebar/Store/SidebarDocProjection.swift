@@ -34,6 +34,10 @@ public nonisolated struct SidebarDocProjection: Hashable, Sendable {
         public var memberItems: [String] = []
         /// The url, tab and app members (any item that is not a workspace or a group), in order.
         public var listed: [Listed] = []
+        /// The group it sits in (a nested group); nil at the top level.
+        public var parent: String?
+        /// Group levels above it: 0 at the top level.
+        public var depth = 0
 
         /// A url, tab or app member and the workspace member's item it follows (nil: first).
         public struct Listed: Hashable, Sendable {
