@@ -132,6 +132,9 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `focusRing.color` | string |  |  | Color |
 | `focusRing.width` | real | `1` | 0.5 to 8 | Width |
 | `focusRing.showWhenSinglePane` | boolean | `false` |  | Show With One Pane |
+| `appearance.backgroundVideo` | string | `"play"` | `play`, `whenActive`, `still` | Video Background. A video background plays while you can see it. It pauses when hidden or covered, in Low Power Mode and with Reduce Motion. |
+| `appearance.backgroundVideoOnBattery` | string | `"play"` | `play`, `pause` | On Battery. Whether a video background keeps playing on battery. Low Power Mode always pauses it. |
+| `appearance.backgroundAvoidPanes` | boolean | `true` |  | Keep Paintings Clear of Panes. Frames a painting so its subject shows beside the sidebar and the agent chat, not under them. |
 | `appearance.surfaces.sidebar.color` | string |  |  | Sidebar Color |
 | `appearance.surfaces.sidebar.opacity` | real |  | 0 to 1 | Sidebar Opacity |
 | `appearance.surfaces.tabBar.color` | string |  |  | Tab Bar Color |
@@ -178,13 +181,14 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `diff.lineNumbers` | boolean | `true` |  | Line Numbers |
 | `diff.showBackgrounds` | boolean | `true` |  | Change Backgrounds |
 | `diff.expandUnchanged` | boolean | `false` |  | Expand Unchanged Lines |
-| `markdown.layout.width` | real | `72` | 40 to 160 | Text Width. The widest a line of text gets, in characters. Wide tables and code scroll sideways in their own box. |
+| `markdown.layout.width` | real | `72` | 30 to 1000 | Text Width. The widest a line of text gets, in characters (30 to 1000). On a wider window the text stays centered with margins. Wide tables and code scroll sideways in their own box. |
 | `markdown.layout.fullWidth` | boolean | `false` |  | Full Width. Text fills the whole pane instead of the text width. |
 | `markdown.font.size` | real | `16` | 8 to 40 | Default Font Size. The text size every markdown viewer opens at. Cmd-= and Cmd-- change it in one viewer; Cmd-0 goes back to this size. |
 | `markdown.font.preset` | string | `"system"` | `system`, `serif`, `mono` | Font |
 | `markdown.font.lineHeight` | real | `1.6` | 1 to 2.4 | Line Height |
 | `markdown.spacing.paragraph` | real | `1` | 0 to 3 | Paragraph Spacing. The gap after each paragraph, as a share of the text size. |
-| `markdown.code.blockSize` | real | `14` | 8 to 32 | Code Font Size |
+| `markdown.code.scale` | real | `0.875` | 0.6 to 1.25 | Code Font Size. Code as a share of the text size. A monospaced font looks bigger than the text font at the same size, so code is a little smaller by default. |
+| `markdown.code.blockSize` | real |  | 8 to 32 | Code Block Size |
 | `markdown.tables` | string | `"scroll"` | `scroll`, `wrap` | Wide Tables |
 | `markdown.theme` | string | `"app"` | `app`, `light`, `dark` | Page Theme |
 | `terminal.fontFamily` | string |  |  | Font Family. A monospaced font installed on this Mac. |
@@ -381,6 +385,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `browser.passwords.allowExport` | boolean | `false` |  | Allow Password Export. Lets the Passwords page write every saved password to a plain-text CSV file, after you confirm with Touch ID or your password. |
 | `home.attachments.keepLocation` | boolean | `false` |  | Keep Location in Photos and Videos. When off, location data is removed from photos and videos before they are attached. |
 | `home.channelsEnabled` | boolean | `false` |  | Channels. Show Channels below Home in the sidebar. You can also turn it on or off from the command palette. |
+| `home.chiefPictureMotion` | string | `"hover"` | `always`, `hover`, `never` | Animated Pictures. Whether a Chief's GIF or animated picture moves on Home pages. Reduce Motion always shows its first frame. |
 | `notifications.dismissal` | string | `"keystroke"` | `keystroke`, `click`, `focus`, `explicit`, `timeout`, `never` | Clear Notification When |
 | `notifications.timeoutSeconds` | real | `30` | 1 to 86400 | Timeout. Used when a source clears after a timeout. |
 | `notifications.sources.agent.dismissal` | string |  | `keystroke`, `click`, `focus`, `explicit`, `timeout`, `never` | Agents |

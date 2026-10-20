@@ -32,11 +32,13 @@ public struct BackdropSelectionSetting: Sendable {
     /// publishes a different wallpaper set.
     static var acceptedSamples: [JSONValue] {
         [.string("none"), .string(dailyID), .string(BackdropSelection.desktopID)] + BackdropArt.allCases.map { .string($0.rawValue) } +
-            [.string("system:/System/Library/Desktop Pictures/Solid Colors/Blue.heic"), .string("file:/Users/Shared/Harbor.png")]
+            [.string("system:/System/Library/Desktop Pictures/Solid Colors/Blue.heic"), .string("file:/Users/Shared/Harbor.png"),
+             .string("collage:c-2f9a1b7c04de")]
     }
 
     static var refusedSamples: [JSONValue] {
-        [.string("system:relative/path.heic"), .string("system:"), .string("file:relative.png"), .string("file:"), .string("__not_a_backdrop__"), .number(1), .bool(true)]
+        [.string("system:relative/path.heic"), .string("system:"), .string("file:relative.png"), .string("file:"), .string("collage:"),
+         .string("collage:../evil"), .string("__not_a_backdrop__"), .number(1), .bool(true)]
     }
 
     /// The background when neither key is set, or the set one is invalid: off. Art is opt-in

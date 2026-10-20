@@ -588,6 +588,12 @@
       "title" : "Background",
       "type" : "string"
     },
+    "appearance.backgroundAvoidPanes" : {
+      "default" : true,
+      "description" : "Frames a painting so its subject shows beside the sidebar and the agent chat, not under them.",
+      "title" : "Keep Paintings Clear of Panes",
+      "type" : "boolean"
+    },
     "appearance.backgroundBlur" : {
       "description" : "Unset, the window follows Ghostty's background-opacity and background-blur.",
       "enum" : [
@@ -605,6 +611,27 @@
       "minimum" : 0,
       "title" : "Opacity",
       "type" : "number"
+    },
+    "appearance.backgroundVideo" : {
+      "default" : "play",
+      "description" : "A video background plays while you can see it. It pauses when hidden or covered, in Low Power Mode and with Reduce Motion.",
+      "enum" : [
+        "play",
+        "whenActive",
+        "still"
+      ],
+      "title" : "Video Background",
+      "type" : "string"
+    },
+    "appearance.backgroundVideoOnBattery" : {
+      "default" : "play",
+      "description" : "Whether a video background keeps playing on battery. Low Power Mode always pauses it.",
+      "enum" : [
+        "play",
+        "pause"
+      ],
+      "title" : "On Battery",
+      "type" : "string"
     },
     "appearance.borders" : {
       "default" : "default",
@@ -2044,6 +2071,17 @@
       "title" : "Channels",
       "type" : "boolean"
     },
+    "home.chiefPictureMotion" : {
+      "default" : "hover",
+      "description" : "Whether a Chief's GIF or animated picture moves on Home pages. Reduce Motion always shows its first frame.",
+      "enum" : [
+        "always",
+        "hover",
+        "never"
+      ],
+      "title" : "Animated Pictures",
+      "type" : "string"
+    },
     "labs.classicHome" : {
       "default" : false,
       "description" : "Show Home as a full page instead of a workspace with the Chief docked on the left. Takes effect after cmux restarts.",
@@ -2242,10 +2280,17 @@
       "type" : "string"
     },
     "markdown.code.blockSize" : {
-      "default" : 14,
       "description" : "markdown.code.blockSize",
       "maximum" : 32,
       "minimum" : 8,
+      "title" : "Code Block Size",
+      "type" : "number"
+    },
+    "markdown.code.scale" : {
+      "default" : 0.875,
+      "description" : "Code as a share of the text size. A monospaced font looks bigger than the text font at the same size, so code is a little smaller by default.",
+      "maximum" : 1.25,
+      "minimum" : 0.6,
       "title" : "Code Font Size",
       "type" : "number"
     },
@@ -2284,9 +2329,9 @@
     },
     "markdown.layout.width" : {
       "default" : 72,
-      "description" : "The widest a line of text gets, in characters. Wide tables and code scroll sideways in their own box.",
-      "maximum" : 160,
-      "minimum" : 40,
+      "description" : "The widest a line of text gets, in characters (30 to 1000). On a wider window the text stays centered with margins. Wide tables and code scroll sideways in their own box.",
+      "maximum" : 1000,
+      "minimum" : 30,
       "title" : "Text Width",
       "type" : "number"
     },
