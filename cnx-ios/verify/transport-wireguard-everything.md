@@ -409,4 +409,31 @@ async fn tcp_bench(mbit: f64, secs: f64) { /* ... */ }
 
 ## Live comparison (2026-10-19)
 
-PENDING
+Rig: `mini-cmuxs-mac-mini-3`, one headless iPhone 17 Pro simulator (iOS 26.5)
+and the tagged cmux-next Mac app `cnx-e2e-3793fcd0` (fleet job
+`de0d2897987380ef5113c7d8`, branch commit `3793fcd064a`, with this branch's
+cnx-hostd), both on the mini, against the dev Worker (API 0.9.0) and
+Cloudflare TURN. The phone dialed WireGuard; Settings > Developer > Relay
+only gave TURN over UDP, Block UDP gave TURN over TLS on 443 (no plain UDP
+and no TURN over UDP on the phone; the Mac sends plain UDP to the phone's
+relayed address). Script: `verify/e2e/turn_live.py`; evidence (git-ignored)
+in `verify/evidence/2026-10-19/turn-live/`.
+
+| | TURN over UDP | TURN over TLS (UDP blocked) |
+| --- | --- | --- |
+| Phone's link line | "Connected · WireGuard relay (TURN) · 15 ms" | "Connected · WireGuard relay (TURN over TLS) · 15 ms" |
+| Mac's label (cnx-hostd) | `Turn` | `TurnTls` |
+| Connected after the toggle (redial) | 3.5 s | 3.0 s |
+| Link RTT shown by the phone, 12 samples over 20 s | median 14 ms (14 to 15) | median 15.5 ms (14 to 16) |
+| Command typed on the phone's soft keyboard, Send to output on the Mac (8 runs) | median 1184 ms (1082 to 2165) | median 1449 ms (1251 to 3352) |
+| Terminal | `echo <marker>` typed on the phone, output on the Mac and back on the phone | same |
+| Browser tab | | a browser workspace opened from the phone; example.com typed in its address bar rendered, streamed over the media lane in the tunnel ("wg-rtp", latency 39 to 45 ms; cnx-hostd: media feedback delay 37 ms, no loss) |
+
+The typed round trip is dominated by the rig's `axe` taps (0.3 to 0.7 s
+each from the host call to the touch, PROTOCOL-independent) and by the
+mini's load: during the TLS run a CI job pushed the 1-minute load from about
+8 to over 250, and the signaling WebSocket of both the Mac and the phone was
+reset by the network several times (the phone then redialed, each time
+straight back onto TURN over TLS). The link RTT is the like-for-like
+number: TURN over TLS adds about 1 ms over TURN over UDP to the nearest
+Cloudflare PoP from this mini.
