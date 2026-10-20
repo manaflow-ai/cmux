@@ -26,7 +26,7 @@ mod history;
 mod machine;
 mod name_flags;
 pub(super) use history::DAEMON_VERBS as HISTORY_DAEMON_VERBS;
-mod plan;
+pub(super) mod plan;
 mod screen;
 mod server_ensure;
 mod sidebar_doc;
@@ -99,15 +99,6 @@ impl Selectors {
         }
         self.values.insert(scope, value.to_string());
         Ok(())
-    }
-
-    /// Whether a structural scope is `caller` or `current`, which the CLI
-    /// resolves against the caller before it sends the request
-    /// ([`Resolve::Caller`]).
-    fn names_caller_or_current(&self) -> bool {
-        CALLER_SCOPES.iter().any(|scope| {
-            self.values.get(scope).is_some_and(|value| value == "caller" || value == "current")
-        })
     }
 
     fn params(&self) -> Map<String, Value> {
@@ -1865,9 +1856,7 @@ fn request(
     flags: &mut Flags,
     mut params: Map<String, Value>,
 ) -> Result<CommandPlan, UsageError> {
-    for (key, value) in selectors.params() {
-        params.insert(key, value);
-    }
+    params.extend(selectors.params());
     add_routing_defaults(operation, &mut params);
     if correlated_creation(operation)
         && let Some(correlation_key) = flags.take("correlation-key")
@@ -1881,13 +1870,8 @@ fn request(
         validate_decimal("--expected-revision", &revision)?;
         params.insert("expected_revision".into(), Value::String(revision));
     }
-    let mut plan = finalize_request(WireOperation::Typed(operation), Value::Object(params), flags)?;
-    if let CommandPlan::Protocol(plan) = &mut plan
-        && selectors.names_caller_or_current()
-    {
-        plan.resolve.push(Resolve::Caller);
-    }
-    Ok(plan)
+    finalize_request(WireOperation::Typed(operation), Value::Object(params), flags)
+        .map(|plan| plan::with_caller_lookup(plan, &selectors.values))
 }
 
 const fn correlated_creation(operation: ResourceOperation) -> bool {
@@ -1944,9 +1928,6 @@ fn finalize_request(
         view: ResponseView::Full,
     })))
 }
-
-/// The scopes a `caller` selector names, outermost first.
-pub(super) const CALLER_SCOPES: [&str; 5] = ["workspace", "screen", "pane", "tab", "terminal"];
 
 fn structural_ancestors(scope: &str) -> &'static [&'static str] {
     match scope {

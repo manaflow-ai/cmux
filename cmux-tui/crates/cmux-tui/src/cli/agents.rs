@@ -359,7 +359,7 @@ fn run_resource<B: Backend>(
     // the focused object, as for every MCP tool, and it has no `caller`.
     let caller = json!("caller");
     if plan.params.as_object().is_some_and(|params| {
-        super::command::CALLER_SCOPES.iter().any(|scope| params.get(*scope) == Some(&caller))
+        super::command::plan::CALLER_SCOPES.iter().any(|scope| params.get(*scope) == Some(&caller))
     }) {
         return Err(AgentFailure::Usage(
             "cmux agents takes ids, current or names; `caller` is for the cmux resource commands"

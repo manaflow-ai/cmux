@@ -185,3 +185,25 @@ mod tests {
         assert_eq!(plan.view, ResponseView::TerminalProgramStatus);
     }
 }
+
+/// The scopes a `caller` selector names, outermost first.
+pub(in crate::cli) const CALLER_SCOPES: [&str; 5] =
+    ["workspace", "screen", "pane", "tab", "terminal"];
+
+/// `plan` with a [`Resolve::Caller`] lookup when a structural selector is
+/// `caller` or `current`, which the CLI resolves against the caller before it
+/// sends the request.
+pub(super) fn with_caller_lookup(
+    mut plan: super::CommandPlan,
+    selectors: &std::collections::BTreeMap<&'static str, String>,
+) -> super::CommandPlan {
+    let named = CALLER_SCOPES.iter().any(|scope| {
+        selectors.get(scope).is_some_and(|value| value == "caller" || value == "current")
+    });
+    if let super::CommandPlan::Protocol(plan) = &mut plan
+        && named
+    {
+        plan.resolve.push(Resolve::Caller);
+    }
+    plan
+}

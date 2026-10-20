@@ -184,8 +184,7 @@ fn wait(global: &GlobalArgs, selector: &str, until: Until, timeout: Option<Durat
         .and_then(|stream| {
             let _ = stream.set_read_timeout(Some(ANSWER_TIMEOUT));
             let mut reader = BufReader::new(stream);
-            let app = wire::app_socket(global, &socket);
-            let route = SocketRoute { path: &socket, derived, app };
+            let route = SocketRoute::new(&socket, derived, global);
             // `terminal current wait` waits on the caller's own terminal.
             let caller_route = global.socket.is_none() && global.session.is_none();
             resolve::apply(&mut reader, &mut plan, caller_route, &route)?;

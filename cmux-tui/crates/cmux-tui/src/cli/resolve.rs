@@ -12,7 +12,8 @@ use cmux_tui_core::platform::transport;
 use cmux_tui_core::resource::{MAX_MESSAGE_BYTES, PROTOCOL, ResourceOperation, ResponseEnvelope};
 use serde_json::{Map, Value, json};
 
-use super::command::{CALLER_SCOPES, RequestPlan, Resolve, ZoomStep, random_prefixed};
+use super::command::plan::CALLER_SCOPES;
+use super::command::{RequestPlan, Resolve, ZoomStep, random_prefixed};
 use super::wire::{print_local_error, print_operation_error, random_request_id, read_envelope};
 use super::{GlobalArgs, OutputMode};
 
@@ -62,6 +63,20 @@ pub(super) struct SocketRoute<'a> {
     /// where an agent session's chat is (`system.identify`).
     #[cfg_attr(not(unix), allow(dead_code))]
     pub(super) app: Option<PathBuf>,
+}
+
+impl<'a> SocketRoute<'a> {
+    /// The route of a request on `path`, with the app that owns that daemon.
+    pub(super) fn new(path: &'a Path, derived: bool, global: &super::GlobalArgs) -> Self {
+        #[cfg(unix)]
+        let app = super::frontend_browser::owning_app_socket(global, path);
+        #[cfg(not(unix))]
+        let app = {
+            let _ = global;
+            None
+        };
+        Self { path, derived, app }
+    }
 }
 
 /// Applies every pending lookup of `plan` and clears them.
