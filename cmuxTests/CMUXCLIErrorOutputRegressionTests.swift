@@ -3834,7 +3834,7 @@ import Testing
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-cli-bare-open-\(UUID().uuidString)", isDirectory: true)
-        let workingDirectory = root.appendingPathComponent("project", isDirectory: true)
+        let workingDirectory = root.appendingPathComponent("cmux-bare-directory-fixture", isDirectory: true)
         try FileManager.default.createDirectory(at: workingDirectory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
 
@@ -3861,7 +3861,7 @@ import Testing
 
         let result = runProcess(
             executablePath: cliPath,
-            arguments: ["project"],
+            arguments: ["cmux-bare-directory-fixture"],
             environment: environment,
             currentDirectoryURL: root
         )
