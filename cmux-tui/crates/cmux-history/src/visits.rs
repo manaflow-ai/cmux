@@ -8,6 +8,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use rusqlite::types::Value as Sql;
 use rusqlite::{Connection, OptionalExtension, params, params_from_iter};
+use sha2::{Digest, Sha256};
 use url::Url;
 
 use crate::entry::{HistoryEntry, HistoryKind};
@@ -23,29 +24,6 @@ const MAX_IMPORT_FILE_BYTES: u64 = 256 * 1024 * 1024;
 const MAX_IMPORT_URL_BYTES: i64 = 8_192;
 const MAX_IMPORT_TITLE_BYTES: i64 = 1_024;
 const MAX_IMPORT_TAB_BYTES: i64 = 1_024;
-
-struct ImportMetadata {
-    source_bytes: u64,
-    source_modified: u128,
-    components: [Option<(u64, u128)>; 3],
-}
-
-impl ImportMetadata {
-    fn marker(&self, path: &Path) -> String {
-        let components = self
-            .components
-            .iter()
-            .map(|component| {
-                component.map_or_else(
-                    || "missing".into(),
-                    |(size, modified)| format!("{size}:{modified}"),
-                )
-            })
-            .collect::<Vec<_>>()
-            .join("|");
-        format!("{}|{}|{}|{components}", path.display(), self.source_bytes, self.source_modified)
-    }
-}
 
 const SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS visits(
@@ -456,8 +434,8 @@ impl VisitStore {
     /// own `History.sqlite` from before the daemon owned page history) in
     /// one transaction, keeping times, titles and tabs; new ids. The other
     /// file is opened read-only and never changed. The same transaction
-    /// records the file (path, size, modification time), so the same file
-    /// is never imported twice, also not by another session. Returns how
+    /// records the path and validated row digest, so the same generation is
+    /// never imported twice, also not by another session. Returns how
     /// many visits came in (0 for a file imported before).
     pub fn import(&self, other: &Path) -> Result<usize, HistoryError> {
         let now_ms = SystemTime::now()
@@ -470,10 +448,7 @@ impl VisitStore {
 
     /// [`VisitStore::import`] at an explicit retention time.
     pub fn import_at(&self, other: &Path, now_ms: i64) -> Result<usize, HistoryError> {
-        let metadata = Self::import_metadata(other)?;
-        // Keep the v3 marker's leading fields so its source remains legible;
-        // WAL/SHM identity distinguishes a later complete SQLite generation.
-        let marker = metadata.marker(other);
+        Self::import_metadata(other)?;
         let mut source = Connection::open_with_flags(
             other,
             rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY
@@ -527,13 +502,9 @@ impl VisitStore {
              FROM visits ORDER BY visit_time_ms, id LIMIT ?1",
         )?;
         let transaction = self.connection.unchecked_transaction()?;
-        let seen = transaction
-            .prepare("SELECT 1 FROM imported_logs WHERE source = ?1")?
-            .exists(params![marker])?;
-        if seen {
-            return Ok(0);
-        }
         let mut imported = 0;
+        let mut imported_digest = Sha256::new();
+        imported_digest.update(other.to_string_lossy().as_bytes());
         {
             let mut insert = transaction.prepare(
                 "INSERT INTO visits(url, title, visit_time_ms, tab) VALUES (?1, ?2, ?3, ?4)",
@@ -569,11 +540,39 @@ impl VisitStore {
                 }
                 let (url, title, at_ms, tab): (String, Option<String>, i64, Option<String>) =
                     (row.get(7)?, row.get(8)?, row.get(9)?, row.get(10)?);
+                imported_digest.update((url.len() as u64).to_le_bytes());
+                imported_digest.update(url.as_bytes());
+                match &title {
+                    Some(title) => {
+                        imported_digest.update([1]);
+                        imported_digest.update((title.len() as u64).to_le_bytes());
+                        imported_digest.update(title.as_bytes());
+                    }
+                    None => imported_digest.update([0]),
+                }
+                imported_digest.update(at_ms.to_le_bytes());
+                match &tab {
+                    Some(tab) => {
+                        imported_digest.update([1]);
+                        imported_digest.update((tab.len() as u64).to_le_bytes());
+                        imported_digest.update(tab.as_bytes());
+                    }
+                    None => imported_digest.update([0]),
+                }
                 imported += insert.execute(params![url, title, at_ms, tab])?;
             }
         }
         drop(rows);
         source_transaction.commit()?;
+        let digest = imported_digest.finalize();
+        let digest = digest.iter().map(|byte| format!("{byte:02x}")).collect::<String>();
+        let marker = format!("v4|{}|{digest}", other.display());
+        let seen = transaction
+            .prepare("SELECT 1 FROM imported_logs WHERE source = ?1")?
+            .exists(params![marker])?;
+        if seen {
+            return Ok(0);
+        }
         transaction.execute(
             "INSERT INTO imported_logs(source, visits) VALUES (?1, ?2)",
             params![marker, i64::try_from(imported).unwrap_or(i64::MAX)],
@@ -594,12 +593,9 @@ impl VisitStore {
 
     /// Size and latest modification of the legacy database and its SQLite
     /// sidecars. Every present component must be a regular file, never a link.
-    fn import_metadata(path: &Path) -> Result<ImportMetadata, HistoryError> {
+    fn import_metadata(path: &Path) -> Result<(), HistoryError> {
         let mut bytes = 0_u64;
-        let mut source_bytes = 0_u64;
-        let mut source_modified = 0_u128;
-        let mut components = [None; 3];
-        for (index, suffix) in ["", "-wal", "-shm"].into_iter().enumerate() {
+        for suffix in ["", "-wal", "-shm"] {
             let candidate = if suffix.is_empty() {
                 path.to_path_buf()
             } else {
@@ -627,18 +623,8 @@ impl VisitStore {
                     "source is too large (maximum {MAX_IMPORT_FILE_BYTES} bytes)"
                 )));
             }
-            let stamp = metadata
-                .modified()
-                .ok()
-                .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
-                .map_or(0, |elapsed| elapsed.as_nanos());
-            if suffix.is_empty() {
-                source_bytes = metadata.len();
-                source_modified = stamp;
-            }
-            components[index] = Some((metadata.len(), stamp));
         }
-        Ok(ImportMetadata { source_bytes, source_modified, components })
+        Ok(())
     }
 
     pub fn count(&self) -> Result<u64, HistoryError> {

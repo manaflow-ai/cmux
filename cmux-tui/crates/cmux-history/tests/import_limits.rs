@@ -112,3 +112,47 @@ fn import_prunes_expired_visits_in_the_import_transaction() {
         "an expired import survived until the next hourly prune"
     );
 }
+
+#[test]
+fn import_distinguishes_replacements_with_the_same_size_and_modified_time() {
+    let scratch = Scratch::new("generation-identity");
+    let source_path = scratch.path("History.sqlite");
+    let replacement_path = scratch.path("replacement.sqlite");
+    let now_ms = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as i64;
+    let first = source(&source_path);
+    first
+        .execute(
+            "INSERT INTO visits(url, visit_time_ms) VALUES ('https://a.example.test', ?1)",
+            [now_ms],
+        )
+        .unwrap();
+    drop(first);
+    let original = std::fs::metadata(&source_path).unwrap();
+    let original_modified = original.modified().unwrap();
+
+    let second = source(&replacement_path);
+    second
+        .execute(
+            "INSERT INTO visits(url, visit_time_ms) VALUES ('https://b.example.test', ?1)",
+            [now_ms],
+        )
+        .unwrap();
+    drop(second);
+    assert_eq!(std::fs::metadata(&replacement_path).unwrap().len(), original.len());
+    std::fs::File::open(&replacement_path)
+        .unwrap()
+        .set_times(std::fs::FileTimes::new().set_modified(original_modified))
+        .unwrap();
+
+    let target = VisitStore::open(&scratch.path("target.sqlite")).unwrap();
+    assert_eq!(target.import(&source_path).unwrap(), 1);
+    std::fs::remove_file(&source_path).unwrap();
+    std::fs::rename(&replacement_path, &source_path).unwrap();
+    std::fs::File::open(&source_path)
+        .unwrap()
+        .set_times(std::fs::FileTimes::new().set_modified(original_modified))
+        .unwrap();
+
+    assert_eq!(target.import(&source_path).unwrap(), 1);
+    assert_eq!(target.count().unwrap(), 2);
+}
