@@ -92,6 +92,24 @@ def test_dispatchable_jobs_with_external_credentials_use_environments() -> None:
             assert not inherited, f"{path.name} {job_name} inherits every caller secret"
     assert checked >= 50, "dispatchable credential consumers were not comprehensively inspected"
 
+    secretless_pr_jobs = (
+        ("ci.yml", "changes", "ci-routing-agent", True),
+        ("ci-macos.yml", "admission-placement", "ci-routing-agent", True),
+        ("ci-macos.yml", "macos-compile-admission", "ci-build-cache-reader", True),
+        ("ci-macos.yml", "late-placement", "ci-routing-agent", True),
+        ("cmux-next.yml", "macos-placement", "ci-routing-agent", False),
+        ("cmux-next.yml", "release-compile", "ci-build-cache-reader", False),
+        ("test-ios.yml", "runner", "ci-routing-agent", True),
+    )
+    for name, job_name, trusted_environment, has_merge_group in secretless_pr_jobs:
+        environment = workflow(name)["jobs"][job_name].get("environment", "")
+        assert trusted_environment in environment
+        assert "pull_request" in environment and f"'{trusted_environment}' || ''" in environment, (
+            f"{name} {job_name} exposes an environment credential to PR code"
+        )
+        if has_merge_group:
+            assert "merge_group" in environment
+
 
 def test_cloud_dogfood_keeps_the_public_installer_out_of_the_secret_job() -> None:
     jobs = workflow("cloud-vm-dogfood.yml")["jobs"]
