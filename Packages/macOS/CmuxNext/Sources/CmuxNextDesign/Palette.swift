@@ -118,6 +118,12 @@ public struct Palette {
     /// Whether `highlight` is the theme's own accent (its ANSI blue), not
     /// Ghostty's default palette standing in for a theme that names none.
     public static var hasThemeAccent: Bool { (ThemeContext.active ?? ThemeScope.app.tokens).hasThemeAccent }
+    /// Whether the theme or `appearance.accent` names an accent, so `accentFill` has a hue; false
+    /// keeps the neutral default, where `accentFill` is the primary text (``ThemeTokens/accent``).
+    public static var hasChosenAccent: Bool {
+        let tokens = ThemeContext.active ?? ThemeScope.app.tokens
+        return tokens.accent != tokens.textPrimary
+    }
     /// Glyphs on `highlight`.
     public static var highlightText: NSColor { color(\.highlightText, opaque: true, dynamic: PaletteDynamic.highlightText) }
 

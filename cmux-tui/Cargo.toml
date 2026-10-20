@@ -284,7 +284,8 @@ quick-xml = { version = "0.41", default-features = false }
 # Ed25519 verification of the signed channel manifest (cmux-server-core).
 # ring is already in the graph through rustls; this adds no new code.
 ring = "0.17"
-socket2 = { version = "0.5", features = ["all"] }
+# TCP keepalive on accepted daemon WebSocket sockets (cmux-tui-core).
+socket2 = { version = "0.6", features = ["all"] }
 snow = "0.10"
 tokio = { version = "1", features = ["fs", "io-std", "io-util", "macros", "net", "process", "rt-multi-thread", "signal", "sync", "time"] }
 tokio-tungstenite = { version = "0.29", default-features = false, features = ["connect", "handshake", "rustls-tls-native-roots"] }

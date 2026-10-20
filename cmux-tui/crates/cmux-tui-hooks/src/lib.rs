@@ -2031,7 +2031,9 @@ fn emit_hook_command(quoted_binary: &str, provider: &str, event: &str) -> String
 }
 
 /// Codex's shared app-server may run hooks without the launching terminal's
-/// environment. Carry that route in the command, using the embedded helper
+/// environment. Carry that route in the command (`CMUX_TUI_HOOK_ROUTE=launch`
+/// marks it as this launch's own, which the helper still trusts below the
+/// daemon), using the embedded helper
 /// so hosts deployed with only the cmux-tui binary work too. Like
 /// `hook_command`, an event that delivers messages lets the helper print the
 /// reply itself and echoes `{}` only when the helper fails.
@@ -2044,7 +2046,7 @@ fn codex_contextual_hook_command(
 ) -> String {
     let reply = if delivers_messages("codex", event) { "||echo {}" } else { "||:;echo {}" };
     format!(
-        "CMUX_TUI_SOCKET={} CMUX_TUI_TERMINAL_ID={} {} {HOOK_MODE_ARG} codex {} 2>/dev/null{reply};#{COMMAND_MARKER}",
+        "CMUX_TUI_HOOK_ROUTE=launch CMUX_TUI_SOCKET={} CMUX_TUI_TERMINAL_ID={} {} {HOOK_MODE_ARG} codex {} 2>/dev/null{reply};#{COMMAND_MARKER}",
         shell_quote(&socket.to_string_lossy()),
         shell_quote(terminal),
         shell_quote(&launcher.to_string_lossy()),

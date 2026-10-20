@@ -364,6 +364,7 @@
     "setting.browser.toolbar.reload": true,
     "setting.browser.toolbarButtons": ["media", "zoom", "downloads"],
     "setting.browser.urlsToAlwaysOpenExternally": [],
+    "setting.browser.verificationAutofill.enabled": false,
     "setting.computerUse.driver": "legacy",
     "setting.computerUse.enabled": false,
     "setting.diff.colors": "theme",

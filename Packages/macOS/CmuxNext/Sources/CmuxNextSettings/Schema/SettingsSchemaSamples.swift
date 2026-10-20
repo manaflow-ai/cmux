@@ -1,4 +1,3 @@
-import CryptoKit
 import Foundation
 
 /// Candidate values per setting kind for the schema export: the export keeps
@@ -68,13 +67,5 @@ nonisolated enum SettingsSchemaSamples {
         let span = max(high - low, 1)
         return ([.number(low), .number(high), .number(low + (high - low) / 2)],
                 [.number(low - span), .number(high + span), .string("1")])
-    }
-}
-
-/// SHA-256 of the canonical rows JSON, lowercase hex: the daemon reports it
-/// so a client can tell that it renders the schema the owner validates.
-nonisolated enum SettingsSchemaHash {
-    static func hex(_ data: Data) -> String {
-        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
 }
