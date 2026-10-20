@@ -300,6 +300,8 @@ export interface Env {
   readonly ADDRESS_DO: DurableObjectNamespace<AddressDO>
   /** Secret: HMAC key that turns a normalized email or phone into its `addr_` id. */
   readonly HOME_ADDRESS_KEY?: string
+  /** Secret: the Sentry project DSN for the Cloud Home health check-ins (home-health.ts); absent = log only. */
+  readonly SENTRY_DSN?: string
   /** Private R2 bucket of Home attachments (objects `home/v1/<conversation>/<sha256>/<upload id>`); no public access. */
   readonly HOME_ATTACHMENTS?: R2Bucket
   /** Secret: HMAC key of attachment upload slots and download URLs (at least 32 characters); unset = attachments off. */
