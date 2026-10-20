@@ -92,9 +92,9 @@ function Slider({
   return (
     <label className="density-field">
       <span>{label}</span>
-      {/* oxlint-disable-next-line jsx-a11y/control-has-associated-label -- the <label> around it carries its text */}
       <input
         type="range"
+        aria-label={label}
         name={name}
         min={range.min}
         max={range.max}
@@ -185,10 +185,10 @@ export function DensityCard() {
           const custom = !PRESETS.some((preset) => preset.id === density.id);
           return (
             <button
+              // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- the ARIA radio pattern on a tile button; an <input type="radio"> would change the tile's keys and look.
+              role="radio"
               key={density.id}
               type="button"
-              // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a preview tile in a radio group; a native radio cannot draw the tile
-              role="radio"
               aria-checked={on}
               className="density-tile"
               data-density={density.id}
@@ -249,9 +249,9 @@ export function DensityCard() {
           <div className="density-fields">
             <label className="density-field">
               <span>{t("settingsWindow.density.name")}</span>
-              {/* oxlint-disable-next-line jsx-a11y/control-has-associated-label -- the <label> around it carries its text */}
               <input
                 type="text"
+                aria-label={t("settingsWindow.density.name")}
                 name="density-name"
                 value={editing.name}
                 onChange={(event) => edit({ name: event.target.value })}

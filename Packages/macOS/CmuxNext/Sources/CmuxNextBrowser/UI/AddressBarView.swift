@@ -103,7 +103,9 @@ public final class AddressBarView: NSView {
     public var isReadOnly = false {
         didSet {
             field.isEditable = !isReadOnly
-            field.isSelectable = true // text-focus-allow: AddressField is a ChromeTextField, whose init sets focusRingType = .none
+            field.isSelectable = true
+            // The omnibar shows focus through its own capsule, never AppKit's ring.
+            field.focusRingType = .none
         }
     }
 

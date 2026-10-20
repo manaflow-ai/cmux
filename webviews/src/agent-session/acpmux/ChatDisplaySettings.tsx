@@ -66,9 +66,9 @@ export function ChatDisplayRows() {
         onChange={(value) => changeChatDisplay(c.width.key, value)}
       />
       <label className="acpmux-display-row acpmux-display-check">
-        {/* oxlint-disable-next-line jsx-a11y/control-has-associated-label -- the <label> around it carries its text */}
         <input
           type="checkbox"
+          aria-label={t("chatDisplay.fullWidth")}
           checked={display.fullWidth}
           onChange={(event) => changeChatDisplay(c.fullWidth.key, event.currentTarget.checked ? true : null)}
         />
@@ -77,6 +77,7 @@ export function ChatDisplayRows() {
       <label className="acpmux-display-row">
         <span>{t("chatDisplay.font")}</span>
         <select
+          aria-label={t("chatDisplay.font")}
           value={fontChoice}
           onChange={(event) =>
             changeChatDisplay(c.font.key, event.currentTarget.value === "markdown" ? null : event.currentTarget.value)
@@ -104,9 +105,9 @@ export function ChatDisplayRows() {
       />
       <label className="acpmux-display-row">
         <span>{t("chatDisplay.codeFont")}</span>
-        {/* oxlint-disable-next-line jsx-a11y/control-has-associated-label -- the <label> around it carries its text */}
         <input
           type="text"
+          aria-label={t("chatDisplay.codeFont")}
           list={listId}
           value={codeFamily}
           placeholder={display.codeFamily ?? t("chatDisplay.sameAsMarkdown")}
@@ -115,8 +116,9 @@ export function ChatDisplayRows() {
         />
         <datalist id={listId}>
           {CODE_FONT_SUGGESTIONS.map((name) => (
-            // oxlint-disable-next-line jsx-a11y/control-has-associated-label -- a datalist suggestion: its value is its text
-            <option key={name} value={name} />
+            <option key={name} value={name}>
+              {name}
+            </option>
           ))}
         </datalist>
       </label>
@@ -152,9 +154,9 @@ function Slider({
   return (
     <label className="acpmux-display-row">
       <span>{label}</span>
-      {/* oxlint-disable-next-line jsx-a11y/control-has-associated-label -- the <label> around it carries its text */}
       <input
         type="range"
+        aria-label={label}
         min={range.min}
         max={range.max}
         step={range.step}

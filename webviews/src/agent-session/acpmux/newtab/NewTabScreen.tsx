@@ -827,10 +827,10 @@ export function NewTabScreen(props: Props) {
   const modeRow = shell ? undefined : (
     // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role, jsx-a11y/no-noninteractive-element-interactions -- A pointer convenience only: the buttons inside are the controls.
     <span
+      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a pointer convenience only: the buttons inside are the controls (a <fieldset> would draw a border and change layout).
+      role="group"
       ref={modeSwitch}
       className="nt-mode"
-      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a pointer convenience around the mode buttons; a fieldset would bring its own box
-      role="group"
       aria-label={nt("mode.label")}
       data-mode={mode}
       onMouseDown={focusFromRow}
