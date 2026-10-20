@@ -14,9 +14,11 @@
 //! ([`crate::state::sidebar_doc_sync::write_back`]) and `personal_revision`
 //! advances, so clients of `sidebar-layout-v1` and `profiles-v1` follow.
 //!
-//! `reset` also closes this machine's placed workspaces that are no longer
-//! open ([`closes_for_reset`]): Pinned and custom sections kept them, and
-//! the machine sections a reset moves them into do not.
+//! `reset` and `unpin` also close this machine's placed workspaces that are
+//! no longer open ([`closes_for_reset`]): Pinned and custom sections kept
+//! them, and the machine sections a reset or an unpin moves them into do
+//! not. The close removes the groups it empties there, as closing the last
+//! workspace does.
 
 use std::collections::HashSet;
 
@@ -60,9 +62,10 @@ pub(crate) fn ops_of(operation: &str, fields: &Map<String, Value>) -> anyhow::Re
     Ok(vec![op])
 }
 
-/// When `ops` hold a `reset`, append a `close` of this machine's placed
-/// workspaces that are not open (a reset moves them from Pinned or a custom
-/// section into their machine section, which does not keep closed items).
+/// When `ops` hold a `reset` or an `unpin`, append a `close` of this machine's placed
+/// workspaces that are not open (a reset or an unpin moves them from Pinned
+/// or a custom section into their machine section, which does not keep
+/// closed items).
 pub(crate) fn closes_for_reset(
     connection: &Connection,
     doc: &Doc,
@@ -94,7 +97,7 @@ pub(crate) fn closes_for_reset(
 /// Whether `ops` can move closed workspaces out of a section that keeps them
 /// (Pinned, custom) into a machine section, which does not.
 fn returns_closed_items(ops: &[Op]) -> bool {
-    ops.iter().any(|op| matches!(op, Op::Reset))
+    ops.iter().any(|op| matches!(op, Op::Reset | Op::Unpin { .. }))
 }
 
 /// Whether a commit changed what Pinned shows (an item that is in Pinned,
