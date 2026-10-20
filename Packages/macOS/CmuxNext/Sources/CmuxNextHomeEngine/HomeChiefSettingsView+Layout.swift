@@ -31,7 +31,15 @@ extension HomeChiefSettingsView {
         place.ink = .secondary
         place.lineBreakMode = .byTruncatingTail
         place.stringValue = HomeEngineStrings.runsHere
-        let text = NSStackView(views: [box, place])
+        hostSwitch.isBordered = false
+        hostSwitch.bezelStyle = .inline
+        hostSwitch.font = Typography.caption
+        hostSwitch.contentTintColor = .controlAccentColor
+        hostSwitch.target = self
+        hostSwitch.action = #selector(switchHost)
+        hostSwitch.isHidden = true
+        hostSwitch.setAccessibilityIdentifier("cmux.home.chief.switchHost")
+        let text = NSStackView(views: [box, place, hostSwitch])
         text.orientation = .vertical
         text.alignment = .leading
         text.spacing = Metrics.space1
@@ -127,12 +135,10 @@ extension HomeChiefSettingsView {
         }
         failure.preferredMaxLayoutWidth = Self.width - 2 * Self.inset
         brain.stringValue = String(format: HomeEngineStrings.brainFormat, muxHome.path)
-        // Show Traces and, in DEV and nightly like its palette action, Show Memory: plain links.
+        // Show Traces and Show Memory (the built-in Memory Inspector, every build): plain links.
         let traces = HomeChiefLinkButton(title: HomeEngineStrings.openTraces, target: self, action: #selector(openTraces))
         links.addArrangedSubview(traces)
-        if DevTools.isEnabled {
-            links.addArrangedSubview(HomeChiefLinkButton(title: HomeEngineStrings.showMemory, target: self, action: #selector(showMemory)))
-        }
+        links.addArrangedSubview(HomeChiefLinkButton(title: HomeEngineStrings.showMemory, target: self, action: #selector(showMemory)))
         links.orientation = .horizontal
         links.spacing = Metrics.space4
         diagnostics.addArrangedSubview(links)

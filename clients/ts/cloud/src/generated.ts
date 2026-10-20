@@ -664,6 +664,7 @@ export type Host = {
   readonly kind?: HostKind
   readonly wg_public_key?: WgPublicKey
   readonly tags?: ReadonlyArray<string>
+  readonly network?: ServerNetworkState
   readonly orphaned?: {
     readonly at: number
     readonly former_owner: UserId
@@ -716,6 +717,12 @@ export type ManagedDevice = {
 export type MessageId = string
 
 export type Meter = "automation.steps" | "automation.cpu_ms" | "automation.invocations" | "automation.dynamic_workers" | "egress.requests" | "model.spend_usd"
+
+export type NativeDeviceId = string
+
+export type NativeMeshId = string
+
+export type NativeTenantId = string
 
 export type OpClass = "read" | "mutate-own" | "mutate-shared" | "execute" | "send-external" | "money" | "destructive" | "cloud-link" | "vm-self"
 
@@ -849,6 +856,29 @@ export type RunWithBody = {
 
 export type ServerCapability = string
 
+export type ServerNetworkBinding = {
+  readonly state: "confirmed"
+  readonly tenant: NativeTenantId
+  readonly mesh: NativeMeshId
+  readonly device: NativeDeviceId
+  readonly confirmed_at: number
+}
+
+export type ServerNetworkProof = {
+  readonly signedAt: number
+  readonly nonce: string
+  readonly signature: string
+}
+
+export type ServerNetworkReservation = {
+  readonly state: "reserved"
+  readonly tenant: NativeTenantId
+  readonly mesh: NativeMeshId
+  readonly device: NativeDeviceId
+}
+
+export type ServerNetworkState = ServerNetworkReservation | ServerNetworkBinding
+
 /** A Cloud machine snapshot. */
 export type SnapshotId = string
 
@@ -897,6 +927,19 @@ export type Step = {
   readonly type: "op"
   readonly op: "automation.list" | "automation.get" | "automation.runs.list" | "automation.run" | "usage.summary"
   readonly params: unknown
+} | {
+  readonly type: "machine"
+  readonly machine: MachineId
+  readonly command: string
+  readonly input_from?: number
+  readonly timeout_seconds: number
+} | {
+  readonly type: "agent"
+  readonly machine: MachineId
+  readonly harness: "claude" | "codex" | "opencode"
+  readonly prompt: string
+  readonly input_from?: number
+  readonly timeout_seconds: number
 }
 
 export type TargetPolicy = {
@@ -2291,6 +2334,20 @@ export interface CloudOps {
     }
     readonly result: Host
   }
+  /** Bind the calling client install's own host to a network device using a fresh policy read signed by that install key. Verify the authoritative team tenant and both public keys. This records identity only; current transport policy and serving permissions remain separate. */
+  readonly "host.network.bind": {
+    readonly params: {
+      readonly host: HostId
+      readonly mesh: NativeMeshId
+      readonly device: NativeDeviceId
+      readonly wg_public_key: WgPublicKey
+      readonly proof: ServerNetworkProof
+    }
+    readonly result: {
+      readonly host: HostId
+      readonly network: ServerNetworkBinding
+    }
+  }
   /** Remove a host from the team directory (its owner or a team admin). */
   readonly "host.remove": {
     readonly params: {
@@ -2830,18 +2887,33 @@ export interface CloudOps {
       readonly revision: string
     }
   }
-  /** Approve a pairing code: register the server's install key under you and add the server to the team directory. */
+  /** The paired daemon confirms its approved network reservation with a fresh signed policy read. Tenant, device and public keys must match the current owners. This records identity only; it does not activate transport or serving roles. */
+  readonly "server.network.confirm": {
+    readonly params: {
+      readonly host: HostId
+      readonly mesh: NativeMeshId
+      readonly device: NativeDeviceId
+      readonly proof: ServerNetworkProof
+    }
+    readonly result: {
+      readonly host: HostId
+      readonly network: ServerNetworkBinding
+    }
+  }
+  /** Approve a pairing code and register its install and host. With a Native mesh, pin the network request and deliver a short-lived key-bound enrollment code only to the waiting server. The result contains public network ids; pairing does not activate a role or grant execution. */
   readonly "server.pair.approve": {
     readonly params: {
       readonly code: PairingCode
       readonly team: TeamId
       readonly name: string
+      readonly mesh?: NativeMeshId
     }
     readonly result: {
       readonly host: HostId
       readonly team: TeamId
       readonly user: UserId
       readonly install: InstallId
+      readonly network?: ServerNetworkReservation
     }
   }
   /** Show what a pending pairing code would add: the server's name, platform, key thumbprint and location. */
@@ -3567,6 +3639,7 @@ export const cloudOpMeta = {
   "home.search": { class: "read", owner: "cloud:planetscale", risk: "read" },
   "home.settings.set": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
   "host.enroll": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-shared" },
+  "host.network.bind": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-own" },
   "host.remove": { class: "mutation", owner: "cloud:TeamDO", risk: "destructive" },
   "host.replica.purge": { class: "mutation", owner: "cloud:TeamDO", risk: "destructive" },
   "inbox.archive": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
@@ -3621,6 +3694,7 @@ export const cloudOpMeta = {
   "request.dismiss": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-own" },
   "run.get": { class: "read", owner: "cloud:SchedulerDO", risk: "read" },
   "run.list": { class: "read", owner: "cloud:SchedulerDO", risk: "read" },
+  "server.network.confirm": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-own" },
   "server.pair.approve": { class: "mutation", owner: "cloud:PairingDO", risk: "mutate-shared" },
   "server.pair.preview": { class: "read", owner: "cloud:PairingDO", risk: "read" },
   "server.revoke": { class: "mutation", owner: "cloud:TeamDO", risk: "destructive" },

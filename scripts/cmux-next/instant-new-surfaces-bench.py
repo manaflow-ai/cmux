@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Cmd-N, Cmd-T, Cmd-D and Cmd-Shift-D: key to visible, idle and under load (instant-new-surfaces).
+"""Cmd-N, Cmd-T, Ctrl-`, Cmd-D and Cmd-Shift-D: key to visible, idle and under load (instant-new-surfaces).
 
 Launches the tagged app itself (no activation, scratch config), makes a terminal workspace, then
 runs `debug.new_tab {action: bench_create, command}` for each command `--runs` times: the key goes
@@ -11,7 +11,11 @@ Two phases: `idle`, then `load` (every core busy with `yes`, plus `--storm` work
 tag's CLI against its daemon). With `--budget-frames N` the run fails when any command's p95
 display frame of visibility (1 = the first frame drawn after the key) is above N or a key's main-thread time is above `--budget-key-ms`.
 
-Usage: instant-new-surfaces-bench.py --tag TAG --app PATH [--runs 12] [--out DIR] [--json FILE]
+`--commands` picks the commands (default all); `--workspaces 10,100` runs every phase again at
+each workspace count (the app holds that many terminal workspaces; the bench's is the shown one).
+
+Usage: instant-new-surfaces-bench.py --tag TAG --app PATH [--runs 12] [--commands new_terminal]
+       [--workspaces 10,100] [--out DIR] [--json FILE]
 """
 import argparse, glob, json, os, re, signal, socket, subprocess, sys, tempfile, time
 
@@ -21,6 +25,8 @@ parser.add_argument("--app", required=True)
 parser.add_argument("--runs", type=int, default=12)
 parser.add_argument("--storm", type=int, default=8)
 parser.add_argument("--phases", default="idle,load")
+parser.add_argument("--commands", default="split_right,split_down,new_tab,new_terminal,new_workspace")
+parser.add_argument("--workspaces", default="", help="comma-separated workspace counts to run every phase at (empty: as launched)")
 parser.add_argument("--budget-frames", type=float, default=0, help="fail when a command's p95 display frame of visibility is above this (1: the first frame; 0: report only)")
 parser.add_argument("--budget-key-ms", type=float, default=16.7)
 parser.add_argument("--out", default="/tmp")
@@ -38,7 +44,7 @@ CLI_ENV = {"HOME": os.environ["HOME"], "PATH": "/usr/bin:/bin", "TMPDIR": os.env
            "CMUX_SOCKET_PATH": SOCKET, "CMUX_QUIET": "1", "CMUX_TAG": TAG,
            "CMUX_BUNDLE_ID": f"com.cmuxterm.app.debug.{TAG}", "CMUX_BUNDLED_CLI_PATH": CLI}
 LAUNCHED, LOAD = [], []
-COMMANDS = ["split_right", "split_down", "new_tab", "new_workspace"]
+COMMANDS = [c for c in opts.commands.split(",") if c]
 
 
 def run(*args, timeout=30):
@@ -157,6 +163,24 @@ def bench(phase, window):
     return rows
 
 
+def workspace_count():
+    snap = rpc("snapshot.get") or {}
+    topology = (snap.get("topology") or snap) if isinstance(snap, dict) else {}
+    return len(topology.get("workspaces") or [])
+
+
+def grow_workspaces(count):
+    """At least `count` terminal workspaces, the bench's still shown (scripts make them unfocused)."""
+    have = workspace_count()
+    for index in range(have, count):
+        rpc("action.run", {"action": "newTab", "args": {"name": f"bench-{index}"}, "wait": True})
+    now = workspace_count()
+    print(f"workspaces: {have} -> {now}", flush=True)
+    if now < count:
+        sys.exit(f"could not reach {count} workspaces (have {now})")
+    return now
+
+
 def frame_of(row, key="visible_ms"):
     """Which display frame after the key showed it (1 = the first frame the display link drew).
     The app's `frames_to_visible` divides by the refresh period, which counts a late first frame
@@ -238,13 +262,19 @@ def main():
     time.sleep(2)  # test harness: shell prompt
     window = window_key()
     rows = []
-    for phase in opts.phases.split(","):
-        if phase == "load":
-            start_load()
-        try:
-            rows += bench(phase, window)
-        finally:
-            stop_load()
+    counts = [int(c) for c in opts.workspaces.split(",") if c] or [None]
+    for count in counts:
+        suffix = ""
+        if count is not None:
+            ensure_terminal()
+            suffix = f"@{grow_workspaces(count)}ws"
+        for phase in opts.phases.split(","):
+            if phase == "load":
+                start_load()
+            try:
+                rows += bench(phase + suffix, window)
+            finally:
+                stop_load()
     result = {"tag": TAG, "host": os.uname().nodename, "cpus": os.cpu_count(), "summary": summary(rows), "runs": rows}
     print("\nSUMMARY", json.dumps(result["summary"], indent=1), flush=True)
     if opts.json:

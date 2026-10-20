@@ -9,8 +9,7 @@ import CmuxNextSettingsWindow
 
 /// Window and app-level actions (category `window`) not bound in
 /// `AppActions`: settings, show/hide, About, Keep Mac Awake, palette
-/// navigation. Features cmux-next has not built yet report a typed
-/// `ActionFailure` so the CLI and palette say so.
+/// navigation.
 enum WindowHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         // Settings and Debug Settings open as internal page tabs.
@@ -48,6 +47,8 @@ enum WindowHandlers {
         registry.bind("selectNextWindow", run: { _ in selectWindow(offset: 1, context) })
         registry.bind("selectPreviousWindow", run: { _ in selectWindow(offset: -1, context) })
         registry.bind("keepMacAwake", run: { _ in KeepAwakeService.shared.toggleManual() })
+        // Sleepy Mode: palette, Window menu, `cmux app sleepy-mode` and MCP all toggle the one controller.
+        registry.bind("palette.sleepyMode", run: { _ in context.services.sleepyMode.toggle() })
         registry.bind("commandPaletteNext", run: { _ in context.services.palette.model.handle(.moveDown) })
         // The palette's own keys as actions (PaletteKeyActionCatalog): the open palette runs the command.
         for id in PaletteKeyMap.paletteKeyActions {
@@ -55,15 +56,6 @@ enum WindowHandlers {
             registry.bind(id, run: { _ in context.services.palette.model.handle(command) })
         }
         registry.bind("commandPalettePrevious", run: { _ in context.services.palette.model.handle(.moveUp) })
-
-        let unbuilt: [(ActionID, String)] = [
-            ("palette.openTaskManager", "task-manager"),
-            ("taskManager.killProcess", "task-manager"),
-            ("palette.sleepyMode", "sleepy-mode"),
-        ]
-        for (id, feature) in unbuilt {
-            registry.bindUnavailable([id], ActionFailure.needsAppCapability(feature))
-        }
     }
 
     private static func showMainWindow(_ context: AppActionContext) {
