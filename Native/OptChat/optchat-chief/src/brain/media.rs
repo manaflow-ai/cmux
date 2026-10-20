@@ -47,38 +47,52 @@ pub fn media_type(path: &Path) -> Option<&'static str> {
 /// Makes a fresh, unguessable owner-only outbox for one turn. Existing names
 /// are never reused after a history rollback.
 pub fn prepare_turn_outbox(session_dir: &Path) -> Option<PathBuf> {
+    prepare_turn_outbox_result(session_dir).ok()
+}
+
+fn prepare_turn_outbox_result(session_dir: &Path) -> std::io::Result<PathBuf> {
     use ring::rand::SecureRandom as _;
-    let session = open_directory_chain(session_dir).ok()?;
+    let session = open_directory_chain(session_dir)?;
     let base_name = c".cmux-media";
     // SAFETY: `session` and `base_name` are valid descriptors/strings. A
     // pre-existing entry is opened below with O_NOFOLLOW before it is used.
     let made = unsafe { libc::mkdirat(session.as_raw_fd(), base_name.as_ptr(), 0o700) };
-    if made < 0 && std::io::Error::last_os_error().kind() != std::io::ErrorKind::AlreadyExists {
-        return None;
+    if made < 0 {
+        let error = std::io::Error::last_os_error();
+        if error.kind() != std::io::ErrorKind::AlreadyExists {
+            return Err(error);
+        }
     }
-    let base = open_child_directory(session.as_raw_fd(), base_name).ok()?;
+    let base = open_child_directory(session.as_raw_fd(), base_name)?;
     // SAFETY: `base` is the directory descriptor just opened without
     // following a symlink. A failure leaves media disabled for this turn.
     if unsafe { libc::fchmod(base.as_raw_fd(), 0o700) } < 0 {
-        return None;
+        return Err(std::io::Error::last_os_error());
     }
 
     let random = ring::rand::SystemRandom::new();
     for _ in 0..4 {
         let mut nonce = [0u8; 16];
-        random.fill(&mut nonce).ok()?;
+        random
+            .fill(&mut nonce)
+            .map_err(|_| std::io::Error::other("secure random generation failed"))?;
         let name = nonce.iter().map(|b| format!("{b:02x}")).collect::<String>();
-        let c_name = std::ffi::CString::new(name.as_bytes()).ok()?;
+        let c_name = std::ffi::CString::new(name.as_bytes())
+            .map_err(|_| std::io::Error::from(std::io::ErrorKind::InvalidInput))?;
         // SAFETY: `base` and `c_name` are valid; mkdirat creates only a
         // direct child of the verified outbox directory.
         if unsafe { libc::mkdirat(base.as_raw_fd(), c_name.as_ptr(), 0o700) } == 0 {
-            return Some(session_dir.join(".cmux-media").join(name));
+            return Ok(session_dir.join(".cmux-media").join(name));
         }
-        if std::io::Error::last_os_error().kind() != std::io::ErrorKind::AlreadyExists {
-            return None;
+        let error = std::io::Error::last_os_error();
+        if error.kind() != std::io::ErrorKind::AlreadyExists {
+            return Err(error);
         }
     }
-    None
+    Err(std::io::Error::new(
+        std::io::ErrorKind::AlreadyExists,
+        "could not allocate a unique turn outbox",
+    ))
 }
 
 /// Removes one generated outbox without following any component. Best effort:
@@ -434,5 +448,16 @@ mod tests {
         assert_eq!(media_type(Path::new("/a.mov")), Some("video/quicktime"));
         assert_eq!(media_type(Path::new("/a.svg")), None);
         assert_eq!(media_type(Path::new("/a.html")), None);
+    }
+
+    #[test]
+    fn security_a_turn_outbox_is_created_under_an_existing_session() {
+        let dir = tempfile::tempdir().unwrap();
+        let session = dir.path().join("session");
+        std::fs::create_dir(&session).unwrap();
+        let outbox = prepare_turn_outbox_result(&session).unwrap();
+        assert_eq!(outbox.parent(), Some(session.join(".cmux-media").as_path()));
+        assert!(outbox.is_dir());
+        cleanup_turn_outbox(Some(outbox));
     }
 }
