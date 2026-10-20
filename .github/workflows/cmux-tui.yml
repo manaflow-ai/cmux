@@ -959,11 +959,8 @@ jobs:
       - name: Test isolated TUI test-runner policy
         run: python3 .github/scripts/test_run_cmux_tui_core_tests_isolated.py
 
-      - name: cargo fmt
-        id: rustfmt-check
-        working-directory: cmux-tui
-        run: cargo fmt --check
-
+      # No `cargo fmt --check` here: lint (linux) gates formatting (and uploads
+      # the patch). Here a format-only diff ended the job before any test ran.
       - name: userland agent plugin package tests
         working-directory: cmux-tui
         # The reference plugin is an independent Cargo workspace, so the

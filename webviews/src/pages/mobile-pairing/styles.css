@@ -106,7 +106,7 @@
   width: 200px;
   height: 200px;
   border-radius: 8px;
-  background: white;
+  background: white; /* theme-fixed: a QR code scans as dark modules on white in every theme */
   image-rendering: pixelated;
 }
 
