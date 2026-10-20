@@ -200,6 +200,9 @@ public final class BrowserPopupWindow: NSWindow {
         if page.state.isLoading { page.stop() }
     }
 
+    /// Cmd-L (`focusBrowserAddressBar`) while the popup has the keyboard.
+    public func focusAddressBar() {}
+
     /// Every close path (close button, Cmd-W, `window.close()`) ends here once.
     override public func close() {
         observation?.cancel()
