@@ -97,6 +97,31 @@ const TABLE_EDITING = `# Team
 After the table.
 `;
 
+// Obsidian's syntax, drawn Live Preview style (test/markdown-obsidian-syntax.test.ts).
+const OBSIDIAN = `# Obsidian syntax
+
+Some ==highlighted words==, a %%hidden comment%%, tags #project/alpha and #todo, and links to
+[[Project Plan]] and [[notes/ideas#Next|the ideas]].
+
+> [!note] A note callout
+> Callouts take a type and an optional title.
+
+> [!warning]
+> No title: the type is the title.
+
+> [!tip]- Folded at first
+> Click the chevron to open it.
+
+Energy is $E = mc^2$, and the sum is:
+
+$$
+\\sum_{n=1}^{N} n = \\frac{N(N+1)}{2}
+$$
+
+- [x] Done
+- [ ] Open
+`;
+
 const TASK_CHECKED = "- [x] Checked task\n- [x] Another completed task\n";
 const TASK_UNCHECKED = "- [ ] Unchecked task\n- [ ] Follow-up still needed\n";
 const TASK_NESTED =
@@ -217,6 +242,11 @@ export default markdownPageEntry({
       note: "A small table: cell selection, Tab and Return, column resizing.",
       path: "/Users/you/src/atlas-web/TEAM.md",
       text: TABLE_EDITING,
+    },
+    obsidian: {
+      note: "Obsidian syntax: highlights, comments, tags, wikilinks, callouts, math.",
+      path: "/Users/you/src/atlas-web/VAULT.md",
+      text: OBSIDIAN,
     },
     long: {
       note: "A long document (40 sections).",
