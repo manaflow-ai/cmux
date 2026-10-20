@@ -2,19 +2,21 @@
 //! without progress are paused as a pair until the person resumes them. There is no cap on how
 //! many messages a turn may send; only a loop is stopped.
 //!
-//! Every agent message reaches a session here: a `session/prompt` whose provenance is
-//! `agent_message` (`prompt_provenance.rs`), checked in `Hub::prompt_with` before the prompt is
-//! recorded. That covers `cmux agent message` and every tool built on it (the cmux daemon's
-//! delivery pump) and acpmux's own session tools (`deliver.rs`). Only a sender that is a session
-//! of this daemon counts: the person's `cmux agent message` (sender `cli`), a terminal, or any
-//! other address passes untouched.
+//! Every agent message reaches a session here, checked in `Hub::prompt_with` before the prompt
+//! is recorded: a `session/prompt` whose provenance is `agent_message` (`prompt_provenance.rs`):
+//! `cmux agent message` and every tool built on it, `agents_chat_send` included (the cmux
+//! daemon's delivery pump); and a prompt one sub-session family member sends another
+//! (`subsession_message`, `subsessions.rs`): cmux-subsessions `send_message` and
+//! `start_session`'s first prompt. Both count toward the same pair. Only a sender that is a
+//! session of this daemon counts: the person's `cmux agent message` (sender `cli`), a terminal,
+//! or any other address passes untouched.
 //!
 //! A pair is the unordered pair of sender and receiver sessions. A message the receiver accepts
 //! (queued or started) is an exchange; one refused before that is none. Progress resets the
 //! pair: since the pair's last exchange, either session made a tool call that is not itself a
-//! messaging call (a `send_to_session`-style MCP tool, or a shell command that is only `cmux
-//! agent message` or `cmux agent inbox`), or wrote a file. Without progress the pair trips when
-//! either
+//! messaging call (a cmux-subsessions tool other than `start_session`, `agents_chat_send` or
+//! `agents_chat_read`, or a shell command that is only `cmux agent message` or `cmux agent
+//! inbox`), or wrote a file. Without progress the pair trips when either
 //!
 //! - `alternations` exchanges in a row go back and forth (default 10), or
 //! - one sender sends the receiver `repeats` near-identical messages in a row (default 3): the
@@ -26,13 +28,17 @@
 //! with `agent_pair.paused` (data `held: true`), whose text tells the agent the user resumes the
 //! pair, so it stops retrying. Both transcripts record `agent_pair_paused`; the receiver's
 //! records each `agent_pair_held`, with all the prompt needs to run, so a restarted daemon
-//! rebuilds the pause from the log (`queue.rs` `restore_queue`). Both chats are marked unread
-//! and the daemon's `notify_command` fires.
+//! rebuilds the pause from the log (`queue.rs` `restore_queue`): every held message that never
+//! reached the receiver, including one a resume had not delivered yet when the daemon stopped.
+//! Both chats are marked unread and the daemon's `notify_command` fires.
 //!
 //! Only the person resumes: `_acpmux/agent_pair_resume` from a connection that proved the person
 //! key (`hub/person.rs`), or a prompt such a connection sends into either session. Both record
-//! `agent_pair_resumed` (`by: request | person`) and deliver the held messages in order; until
-//! the last is recorded, a new message in the pair waits behind them.
+//! `agent_pair_resumed` (`by: request | person`) and deliver the held messages in order, flags
+//! (steer, interrupt) as sent; until the last is recorded, a new message in the pair waits
+//! behind them. One the receiver refuses then is dropped and recorded `agent_pair_dropped`.
+//! A cmux-subsessions `send_message` with `interrupt` stops the receiver's turn only once the
+//! message is accepted, so a held one stops nothing (`subsessions.rs`).
 //!
 //! The guard and its thresholds are read at daemon start (`PairGuard::from_env`); the app's
 //! Debug Settings toggle `agent.pairGuard` turns it off (`ACPMUX_AGENT_PAIR_GUARD=0`).
@@ -61,9 +67,19 @@ pub const MAX_HELD: usize = 50;
 /// The person's own sender address on the cmux daemon (`agent_message_store.rs` `CLI_SENDER`).
 const PERSON_SENDER: &str = "cli";
 
-/// MCP tools that only message or read another session: never progress.
-const MESSAGING_TOOLS: &[&str] =
-    &["send_to_session", "read_session", "list_sessions", "agents_chat_send", "agents_chat_read"];
+/// The cmux-subsessions tools (`subsession_mcp.rs`) that only message, read, wait on or stop
+/// another session of the family: never progress. `start_session` is not one: it hands work off.
+const SUBSESSION_TOOLS: &[&str] = &[
+    "send_message",
+    "list_sessions",
+    "get_session",
+    "wait_for_sessions",
+    "stop_session",
+    "set_session_limits",
+];
+/// The cmux MCP tools that message or read another chat (`cmux-tui` `cli/mcp/agent_tools.rs`):
+/// never progress, whatever the server is named.
+const CHAT_TOOLS: &[&str] = &["agents_chat_send", "agents_chat_read"];
 
 /// How long a release waits for each held message to be recorded before it sends the next.
 const RELEASE_WAIT: std::time::Duration = std::time::Duration::from_secs(10);
@@ -309,13 +325,60 @@ fn messaging_call(update: &Value) -> bool {
         return messaging_command(&command);
     }
     let title = update.get("title").and_then(Value::as_str).unwrap_or("").trim();
+    // Codex titles an MCP call `Tool: <server>/<tool>`.
+    let title = title.strip_prefix("Tool: ").map_or(title, str::trim);
     if title.contains(char::is_whitespace) {
         return messaging_command(title);
     }
-    // `mcp__cmux-sessions__send_to_session`, `cmux-sessions.send_to_session`, or the bare name.
-    let name = title.rsplit(['.', '/', ':']).next().unwrap_or(title);
-    let name = name.rsplit("__").next().unwrap_or(name);
-    MESSAGING_TOOLS.contains(&name)
+    messaging_tool(title)
+}
+
+/// Whether an MCP tool call's title (`mcp__cmux-subsessions__send_message`,
+/// `cmux-subsessions.send_message`, `cmux-subsessions/send_message`, or the bare name) names a
+/// messaging tool. A sub-session tool name another server also uses is that server's work.
+fn messaging_tool(title: &str) -> bool {
+    let title = title.strip_prefix("mcp__").unwrap_or(title);
+    let (server, name) =
+        match title.rsplit_once("__").or_else(|| title.rsplit_once(['.', '/', ':'])) {
+            Some((server, name)) => (Some(server), name),
+            None => (None, title),
+        };
+    CHAT_TOOLS.contains(&name)
+        || (SUBSESSION_TOOLS.contains(&name)
+            && server.is_none_or(|s| s == crate::subsession_mcp::SERVER_NAME))
+}
+
+/// The messages a receiver's log shows held and still owed, by sender, oldest first: an
+/// `agent_pair_held` whose prompt id never reached the session (`recorded`) and has no
+/// `agent_pair_dropped` after it.
+fn still_held(
+    session: &str,
+    records: Vec<EventRecord>,
+    recorded: &HashSet<String>,
+) -> HashMap<String, Vec<Held>> {
+    let mut held: HashMap<String, Vec<Held>> = HashMap::new();
+    for rec in records {
+        match rec.kind.as_str() {
+            "agent_pair_held" => {
+                if let Some(h) = Held::from_record(session, &rec.msg)
+                    && !recorded.contains(&h.prompt_id)
+                {
+                    let list = held.entry(h.from.clone()).or_default();
+                    if !list.iter().any(|x| x.prompt_id == h.prompt_id) {
+                        list.push(h);
+                    }
+                }
+            }
+            "agent_pair_dropped" => {
+                if let Some(id) = rec.msg.get("promptId").and_then(Value::as_str) {
+                    held.values_mut().for_each(|list| list.retain(|h| h.prompt_id != id));
+                }
+            }
+            _ => {}
+        }
+    }
+    held.retain(|_, list| !list.is_empty());
+    held
 }
 
 /// Whether a log record shows the session doing work: a tool call that is not a messaging
@@ -342,13 +405,15 @@ impl Hub {
         self.agent_pairs.state.lock().unwrap_or_else(|e| e.into_inner())
     }
 
-    /// The sending session of an agent message: a session of this daemon, by its exact id (the
-    /// cmux daemon writes it `acp:<id>`). `None` for any other prompt, for a sender that is no
-    /// session here (the person's `cli`, a terminal, another actor), and for acpmux's own
-    /// withdraw notices.
+    /// The sending session of an agent message (`agent_message`) or of a cmux-subsessions
+    /// `send_message` or `start_session` (`subsession_message`): a session of this daemon, by
+    /// its exact id (the cmux daemon writes it `acp:<id>`). `None` for any other prompt, for a
+    /// sender that is no session here (the person's `cli`, a terminal, another actor), and for
+    /// acpmux's own withdraw notices.
     fn agent_message_sender(&self, provenance: Option<&Value>) -> Option<Arc<Session>> {
         let p = provenance?;
-        if p.get("kind").and_then(Value::as_str) != Some("agent_message") {
+        let kind = p.get("kind").and_then(Value::as_str);
+        if !matches!(kind, Some("agent_message" | super::subsessions::PROVENANCE_KIND)) {
             return None;
         }
         if p.get("msgId").and_then(Value::as_str).is_some_and(|id| id.ends_with(".withdrawn")) {
@@ -563,25 +628,17 @@ impl Hub {
         });
     }
 
-    /// Rebuilds the pauses `session`'s log shows: messages held for it after the last resume of
-    /// their pair (`queue.rs` `restore_queue`, at load and for a chat moved here).
-    pub(super) fn restore_agent_pairs(&self, session: &str, records: Vec<EventRecord>) {
-        let mut held: HashMap<String, Vec<Held>> = HashMap::new();
-        for rec in records {
-            match rec.kind.as_str() {
-                "agent_pair_held" => {
-                    if let Some(h) = Held::from_record(session, &rec.msg) {
-                        held.entry(h.from.clone()).or_default().push(h);
-                    }
-                }
-                "agent_pair_resumed" => {
-                    if let Some(peer) = rec.msg.get("peer").and_then(Value::as_str) {
-                        held.remove(peer);
-                    }
-                }
-                _ => {}
-            }
-        }
+    /// Rebuilds the pauses `session`'s log shows (`queue.rs` `restore_queue`, at load and for a
+    /// chat moved here): every message held for it that never reached it (`recorded`: the prompt
+    /// ids of its `queued` and `user_message` records) and was not dropped. A resume that a
+    /// restart cut short leaves its undelivered messages held, for the person to resume again.
+    pub(super) fn restore_agent_pairs(
+        &self,
+        session: &str,
+        records: Vec<EventRecord>,
+        recorded: &HashSet<String>,
+    ) {
+        let held = still_held(session, records, recorded);
         let mut state = self.pairs_state();
         for (from, list) in held {
             let pair = state.pairs.entry(pair_key(&from, session)).or_default();
@@ -690,9 +747,12 @@ impl Hub {
                 continue;
             };
             let (tx, rx) = oneshot::channel::<()>();
+            let accepted = Arc::new(AtomicBool::new(false));
+            let accept = accepted.clone();
             let opts = PromptOptions {
                 prompt_id: Some(h.prompt_id.clone()),
                 on_accepted: Some(Box::new(move |_| {
+                    accept.store(true, Ordering::SeqCst);
                     let _ = tx.send(());
                 })),
                 // A message a restart rebuilt may have run before: the log answers it.
@@ -707,10 +767,21 @@ impl Hub {
             let hub = self.clone();
             let (blocks, client, steer) = (h.blocks, h.client, h.steer);
             let prompt_id = h.prompt_id;
+            let from = h.from;
             tokio::spawn(async move {
-                if let Err(e) = hub.prompt_with(&session, blocks, &client, steer, opts).await {
+                // A refusal before the session recorded it (no live agent, a steer with no turn
+                // to steer): it is dropped, and a restart does not hold it again.
+                if let Err(e) = hub.prompt_with(&session, blocks, &client, steer, opts).await
+                    && !accepted.load(Ordering::SeqCst)
+                {
                     hub.pairs_state().releasing.remove(&prompt_id);
                     tracing::warn!(session = %session.id, "held agent message: {}", e.message);
+                    hub.append(
+                        &session,
+                        "mux",
+                        "agent_pair_dropped",
+                        json!({"peer": from, "promptId": prompt_id, "error": e.message}),
+                    );
                 }
             });
             let _ = tokio::time::timeout(RELEASE_WAIT, rx).await;
@@ -765,12 +836,12 @@ mod tests {
             msg: json!({"params": {"update": update}}),
             host_seq: None,
         };
-        assert!(!progress_record(&rec(json!({"title": "mcp__cmux-sessions__send_to_session"}))));
+        assert!(!progress_record(&rec(json!({"title": "mcp__cmux-subsessions__send_message"}))));
         assert!(!progress_record(&rec(
             json!({"title": "Bash", "rawInput": {"command": "cmux agent message acp:b hi"}})
         )));
         assert!(progress_record(&rec(json!({"title": "Edit notes.md", "kind": "edit"}))));
-        assert!(!progress_record(&rec(json!({"title": "cmux-sessions.send_to_session"}))));
+        assert!(!progress_record(&rec(json!({"title": "Tool: cmux-subsessions/send_message"}))));
         assert!(!progress_record(&rec(
             json!({"title": "Shell", "rawInput": {"command": ["bash", "-lc", "cmux agent inbox"]}})
         )));
@@ -811,6 +882,42 @@ mod tests {
         }
     }
 
+    /// A restart rebuilds what is still owed: a held message a cut-short resume never delivered
+    /// stays held; one that reached the session, or was dropped, does not.
+    #[test]
+    fn a_restart_holds_only_what_never_reached_the_session() {
+        let rec = |kind: &str, msg: Value| EventRecord {
+            seq: 1,
+            at: 0,
+            dir: "mux".into(),
+            kind: kind.into(),
+            msg,
+            host_seq: None,
+        };
+        let held = |id: &str| {
+            rec(
+                "agent_pair_held",
+                json!({"from": "a", "to": "b", "promptId": id, "client": "acpmux",
+                       "prompt": [{"type": "text", "text": id}],
+                       "provenance": {"kind": "subsession_message", "from": "a", "to": "b"},
+                       "interrupt": id == "h3"}),
+            )
+        };
+        let records = vec![
+            held("h1"),
+            held("h2"),
+            held("h3"),
+            held("h4"),
+            rec("agent_pair_dropped", json!({"peer": "a", "promptId": "h2"})),
+        ];
+        let recorded: HashSet<String> = ["h1".to_owned()].into();
+        let owed = still_held("b", records, &recorded);
+        let ids: Vec<&str> = owed["a"].iter().map(|h| h.prompt_id.as_str()).collect();
+        assert_eq!(ids, ["h3", "h4"]);
+        assert!(owed["a"][0].interrupt, "the flags come back as sent");
+        assert!(still_held("b", vec![held("h1")], &recorded).is_empty());
+    }
+
     #[test]
     fn only_a_whole_messaging_call_is_not_progress() {
         let rec = |update: Value| EventRecord {
@@ -822,7 +929,7 @@ mod tests {
             host_seq: None,
         };
         // An edit of a file that mentions a messaging tool is an edit.
-        assert!(progress_record(&rec(json!({"title": "Edit send_to_session.rs", "kind": "edit"}))));
+        assert!(progress_record(&rec(json!({"title": "Edit send_message.rs", "kind": "edit"}))));
         // A command that also runs something else is work.
         assert!(progress_record(&rec(json!({"title": "Bash",
             "rawInput": {"command": "cargo test && cmux agent message acp:b done"}}))));
