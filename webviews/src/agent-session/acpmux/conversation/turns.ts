@@ -394,6 +394,8 @@ const staysOut = (row: AcpmuxRow) =>
   // who answers it; folded, nobody would see it happened.
   row.kind === "compaction" ||
   row.kind === "failover" ||
+  // Where the session started: what it runs on and how it compacts.
+  row.kind === "sessionStart" ||
   // A session offer waits for the person's Start or Dismiss.
   row.kind === "sessionOffer";
 

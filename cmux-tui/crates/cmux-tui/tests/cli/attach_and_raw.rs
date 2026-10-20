@@ -1,5 +1,10 @@
 use super::*;
 
+// Raw `send` guards; declared here because `cli.rs` is at its size baseline.
+#[cfg(unix)]
+#[path = "send_expect_foreground.rs"]
+mod send_expect_foreground;
+
 #[cfg(unix)]
 #[test]
 fn host_terminal_disconnect_exits_frontend_without_stopping_server() {
