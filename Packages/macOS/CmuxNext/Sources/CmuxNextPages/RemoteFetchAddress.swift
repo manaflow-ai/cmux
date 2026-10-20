@@ -80,7 +80,7 @@ public nonisolated enum RemoteAddress: Hashable, Sendable {
 
 /// Resolves a host name to addresses: the fetch's one lookup. The app's is getaddrinfo; a test
 /// may answer for itself.
-public protocol RemoteAddressResolving: Sendable {
+public nonisolated protocol RemoteAddressResolving: Sendable {
     func resolve(_ host: String) async throws -> [RemoteAddress]
 }
 

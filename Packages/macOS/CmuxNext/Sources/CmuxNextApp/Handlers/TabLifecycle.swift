@@ -25,7 +25,7 @@ enum TabLifecycle {
             setting: ctx.services.settings?.snapshot.newTerminalOpensWorkspace ?? NewTerminalWorkspaceSetting.fallback,
             toggled: invocation["toggleWorkspace"]?.boolValue == true
         )
-        if invocation.origin == .user, opensWorkspace, case let windows = ctx.services.windows,
+        if invocation.origin == .user, opensWorkspace, !invocation.opensTabInPane, case let windows = ctx.services.windows,
            let windowID = ctx.activeWindow?.state.id {
             let daemon = ctx.services.daemon(for: focused)
             let selected = ctx.services.paneController(for: focused)?.selectedTab

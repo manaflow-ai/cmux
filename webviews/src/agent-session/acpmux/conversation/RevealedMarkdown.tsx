@@ -1,9 +1,11 @@
 // A reply as it streams: the text flows in over display frames (StreamReveal) instead of in
 // bursts, one per acpmux delta. The same element shows the reply before and after the stream
 // ends, so nothing remounts when it settles.
-import { useLayoutEffect, useRef, useState } from "react";
+import { useContext, useLayoutEffect, useRef, useState } from "react";
 import { StreamReveal } from "../streamReveal";
+import { useLab } from "../labs";
 import { Markdown } from "./Markdown";
+import { ReplySourceIconsContext } from "../chips/ReplySourceIconsContext";
 import { MessageBoundary } from "./MessageBoundary";
 
 /// The display frames the reveal runs on (tests drive their own).
@@ -105,10 +107,25 @@ function Revealed({
   streaming: boolean;
   githubRepository?: string;
 }) {
+  const replyIcons = useContext(ReplySourceIconsContext);
   const { visible, fresh, now, settled } = useStreamReveal(text, streaming);
+  const live = useLab("liveRender");
+  // A finished transport can still have unrevealed tokens. Keep its frame until the fence draws
+  // its closing line too (Lucas 2026-10-18).
+  const revealing = streaming || (live && visible.length < text.length);
   return (
-    <Markdown streaming={streaming} fresh={fresh} now={now} waiting={settled} githubRepository={githubRepository}>
-      {visible}
-    </Markdown>
+    <ReplySourceIconsContext.Provider value={replyIcons && !streaming && settled}>
+      <Markdown
+        streaming={revealing}
+        turnStreaming={streaming}
+        receivedText={live ? text : undefined}
+        fresh={fresh}
+        now={now}
+        waiting={settled}
+        githubRepository={githubRepository}
+      >
+        {visible}
+      </Markdown>
+    </ReplySourceIconsContext.Provider>
   );
 }

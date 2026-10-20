@@ -52,7 +52,8 @@ Object.assign(scope, replacements);
 
 const VIEWPORT = 600;
 Object.defineProperty(dom.window.HTMLElement.prototype, "clientHeight", { configurable: true, get: () => VIEWPORT });
-Object.defineProperty(dom.window.HTMLElement.prototype, "clientWidth", { configurable: true, get: () => 760 });
+let paneWidth = 760;
+Object.defineProperty(dom.window.HTMLElement.prototype, "clientWidth", { configurable: true, get: () => paneWidth });
 const offsets = new WeakMap<object, number>();
 Object.defineProperty(dom.window.HTMLElement.prototype, "scrollTop", {
   configurable: true,
@@ -73,7 +74,7 @@ dom.window.HTMLElement.prototype.getBoundingClientRect = function (this: HTMLEle
 
 const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
-const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
+const { VirtualTranscript, shellRowsFrom } = await import("../src/agent-session/acpmux/App");
 
 afterAll(() => {
   dom.window.close();
@@ -151,6 +152,7 @@ test("a long chat draws each update as a fresh layout would: streaming, redraws,
   const redraw = async (id: string, height: number) => {
     drawnHeights.set(id, height);
     const node = dom.window.document.querySelector(`[data-row-id="${id}"]`)!;
+    expect(observers.has(node)).toBe(true);
     await act(async () => observers.get(node)?.([{ target: node }]));
   };
   try {
@@ -239,4 +241,195 @@ test("a late answer that lands before the next prompt previews in its own turn's
     ...answered.slice(2),
   ];
   expect(minimapTurns(late, "s", before).turns).toEqual(minimapTurns(late, "s").turns);
+});
+
+test("a streaming delta renders only its row, keeping the history and minimap ticks", async () => {
+  const { acpmuxPerf } = await import("../src/agent-session/acpmux/perf");
+  paneWidth = 1040;
+  const history = Array.from({ length: 300 }, (_, index) => finishedTurn(index)).flat();
+  const prompt = row("render-live-user", "user", { text: "Keep streaming" });
+  let reply = row("render-live-answer", "assistant", { text: "First words", streaming: true });
+  const root = createRoot(dom.window.document.getElementById("root")!);
+  const expanded = new Set<string>();
+  const onToggleActivity = () => {};
+  let view: TurnView | undefined;
+  const draw = async () => {
+    view = turnViewFrom([...history, prompt, reply], expanded, { working: true, now: at }, view);
+    await act(async () =>
+      root.render(
+        <VirtualTranscript rows={view!.rows} working onToggleActivity={onToggleActivity} expanded={expanded} />,
+      ),
+    );
+  };
+  acpmuxPerf.enable();
+  try {
+    await draw();
+    expect(dom.window.document.querySelectorAll(".acpmux-minimap__tick")).toHaveLength(301);
+    const { isBlank } = await import("../src/agent-session/acpmux/perf");
+    const contentHeight = parseFloat(dom.window.document.querySelector<HTMLElement>(".acpmux-spacer")!.style.height);
+    expect(acpmuxPerf.contentHeight).toBe(contentHeight);
+    expect(isBlank(acpmuxPerf.mounted, contentHeight - VIEWPORT + 8, VIEWPORT, acpmuxPerf.contentHeight)).toBe(false);
+    expect(
+      isBlank(
+        acpmuxPerf.mounted.map(([top, bottom]) => [top, bottom - 100]),
+        contentHeight - VIEWPORT,
+        VIEWPORT,
+        acpmuxPerf.contentHeight,
+      ),
+    ).toBe(true);
+    acpmuxPerf.resetFrames();
+    acpmuxPerf.markFrame(0, false);
+    reply = { ...reply, version: reply.version + 1, text: `${reply.text} and more.` };
+    await draw();
+    acpmuxPerf.markFrame(16, false);
+    const spans = acpmuxPerf.stats().spans as Record<string, { max_ms: number }>;
+    expect(spans["row.renders"]?.max_ms ?? 0).toBe(1);
+    expect(spans["vt.renders"]?.max_ms ?? 0).toBe(1);
+    expect(spans["minimap.tick.renders"]?.max_ms ?? 0).toBe(0);
+  } finally {
+    await act(async () => root.unmount());
+    acpmuxPerf.enabled = false;
+    paneWidth = 760;
+  }
+});
+
+test("a registry configure redraws a kept custom renderer and measures its new height", async () => {
+  const rows = [row("custom-answer", "assistant", { text: "Answer" }), row("custom-next", "assistant")];
+  let label = "before";
+  const Custom = () => <div>{label}</div>;
+  let registry = { assistant: Custom };
+  const root = createRoot(dom.window.document.getElementById("root")!);
+  const expanded = new Set<string>();
+  const onToggleActivity = () => {};
+  const draw = () =>
+    act(async () =>
+      root.render(
+        <VirtualTranscript rows={rows} registry={registry} expanded={expanded} onToggleActivity={onToggleActivity} />,
+      ),
+    );
+  try {
+    await draw();
+    expect(dom.window.document.querySelector('[data-row-id="custom-answer"]')!.textContent).toBe("before");
+    label = "after";
+    drawnHeights.set("custom-answer", 240);
+    // configure keeps the renderer function and replaces the registry (Lucas 2026-10-19).
+    registry = { ...registry };
+    await draw();
+    expect(dom.window.document.querySelector('[data-row-id="custom-answer"]')!.textContent).toBe("after");
+    expect(placement().filter((entry) => entry.gap !== 0)).toEqual([]);
+  } finally {
+    await act(async () => root.unmount());
+    drawnHeights.delete("custom-answer");
+  }
+});
+
+test("streaming outside an unchanged selection keeps the selected rows memoized", async () => {
+  const { acpmuxPerf } = await import("../src/agent-session/acpmux/perf");
+  let rows = [
+    row("selected-user", "user", { text: "Question" }),
+    row("selected-answer", "assistant", { text: "Answer" }),
+    row("other-answer", "assistant", { text: "Streaming" }),
+  ];
+  const expanded = new Set<string>();
+  const onToggleActivity = () => {};
+  const root = createRoot(dom.window.document.getElementById("root")!);
+  const draw = () =>
+    act(async () =>
+      root.render(<VirtualTranscript rows={rows} expanded={expanded} onToggleActivity={onToggleActivity} />),
+    );
+  acpmuxPerf.enable();
+  try {
+    await draw();
+    const first = dom.window.document.querySelector<HTMLButtonElement>(
+      '[data-row-id="selected-user"] .acpmux-row__copy',
+    )!;
+    await act(async () => {
+      first.focus();
+      first.dispatchEvent(
+        new dom.window.KeyboardEvent("keydown", {
+          key: "ArrowDown",
+          shiftKey: true,
+          bubbles: true,
+        }),
+      );
+    });
+    expect(dom.window.document.querySelectorAll('[data-transcript-selected="true"]')).toHaveLength(2);
+    acpmuxPerf.resetFrames();
+    acpmuxPerf.markFrame(0, false);
+    rows = [...rows.slice(0, 2), { ...rows[2]!, text: "Streaming more", version: 2 }];
+    await draw();
+    acpmuxPerf.markFrame(16, false);
+    const spans = acpmuxPerf.stats().spans as Record<string, { max_ms: number }>;
+    expect(spans["row.renders"]?.max_ms).toBe(1);
+  } finally {
+    await act(async () => root.unmount());
+    acpmuxPerf.enabled = false;
+  }
+});
+
+test("unchanged height reports do not invalidate distant placement on a later resize", async () => {
+  let rows = Array.from({ length: 400 }, (_, index) => row(`drawn-${index}`, "assistant", { text: "Answer" }));
+  let distantIdReads = 0;
+  Object.defineProperty(rows[5], "id", {
+    enumerable: true,
+    get: () => {
+      distantIdReads += 1;
+      return "drawn-5";
+    },
+  });
+  const expanded = new Set<string>();
+  const onToggleActivity = () => {};
+  const root = createRoot(dom.window.document.getElementById("root")!);
+  const draw = () =>
+    act(async () =>
+      root.render(<VirtualTranscript rows={rows} expanded={expanded} onToggleActivity={onToggleActivity} />),
+    );
+  try {
+    await draw();
+    const scroller = dom.window.document.querySelector<HTMLElement>(".acpmux-scroll")!;
+    scroller.scrollTop = 0;
+    await act(async () => void scroller.dispatchEvent(new dom.window.Event("scroll")));
+    // A version changes without changing its drawn height, then the reader leaves it behind.
+    rows = rows.map((one, index) => (index === 1 ? { ...one, version: 2 } : one));
+    await draw();
+    scroller.scrollTop = 1e9;
+    await act(async () => void scroller.dispatchEvent(new dom.window.Event("scroll")));
+    const last = dom.window.document.querySelector<HTMLElement>('[data-row-id="drawn-399"]')!;
+    expect(observers.has(last)).toBe(true);
+    distantIdReads = 0;
+    drawnHeights.set("drawn-399", 250);
+    await act(async () => observers.get(last)?.([{ target: last }]));
+    // A distant unchanged row needs no height lookup when only the tail grew.
+    expect(distantIdReads).toBe(0);
+    expect(placement().filter((entry) => entry.gap !== 0)).toEqual([]);
+  } finally {
+    await act(async () => root.unmount());
+    drawnHeights.delete("drawn-399");
+  }
+});
+
+test("shell rows keep unchanged run objects across snapshots and replace changed runs", async () => {
+  const { insertByTime, withShellRows } = await import("../src/agent-session/acpmux/shell/shellRuns");
+  const run = {
+    id: "first",
+    command: "pwd",
+    startedAt: 10,
+    status: "done" as const,
+    output: "/tmp",
+    truncated: false,
+    version: 1,
+  };
+  const other = { ...run, id: "second", startedAt: 20, status: "running" as const };
+  const before = shellRowsFrom([run, other]);
+  const unchanged = shellRowsFrom([run, other], before);
+  expect(unchanged[0]).toBe(before[0]);
+  expect(unchanged[1]).toBe(before[1]);
+  const changedRun = { ...other, output: "more", version: 2 };
+  const changed = shellRowsFrom([run, changedRun], unchanged);
+  expect(changed[0]).toBe(before[0]);
+  expect(changed[1]).not.toBe(before[1]);
+  expect(changed[1]!.shell).toBe(changedRun);
+  const transcript = [row("shell-neighbor", "assistant", { at: 15 })];
+  expect(insertByTime(transcript, changed)).toEqual(withShellRows(transcript, [run, changedRun]));
+  expect(shellRowsFrom([], changed)).toEqual([]);
 });

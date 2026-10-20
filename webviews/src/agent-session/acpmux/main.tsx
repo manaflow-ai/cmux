@@ -5,6 +5,7 @@ import "../../ui/ghost.css";
 import React from "react";
 import { createRoot } from "react-dom/client";
 import { AcpmuxApp } from "./App";
+import { prepareRenderPreview } from "./conversation/renderPreview";
 import { PaneBoundary } from "./PaneBoundary";
 import { AcpmuxDirectClient, nextFrame } from "./direct";
 import { UiProvider } from "../../ui/UiProvider";
@@ -20,6 +21,7 @@ AcpmuxDirectClient.scheduleFrame = nextFrame;
 document.documentElement.dataset.cmuxWebviewKind = "acpmux-agent-session";
 // The native context menu learns which message is under the pointer (conversation/messageMenu.ts).
 installMessageMenuReporter(document);
+Object.assign(window, { cmuxPrepareRenderPreview: prepareRenderPreview });
 // The composer shows its caret only while the page is the key one (pageKey.ts).
 installPageKey(document);
 const root = document.getElementById("root")!;

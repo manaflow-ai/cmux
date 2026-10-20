@@ -1,5 +1,7 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAgentPane
+import CmuxNextDesign
 @testable import CmuxNextApp
 import CmuxNextLayout
 import Foundation
@@ -70,6 +72,22 @@ struct RightSidebarTests {
         root.layoutSubtreeIfNeeded()
         #expect(!h.controller.rightSidebar.isVisible && panel.isHidden)
         #expect(root.contentHost.frame.width == fullWidth)
+    }
+
+    @Test func chatSideColumnTrialKeepsItsToggleWhenTheNativeSidebarIsRegistered() throws {
+        let h = try Self.harness()
+        defer { h.close() }
+        TunableStore.shared.activate(file: nil)
+        TunableStore.shared.register(TunableCatalog.all)
+        TunableStore.shared.set("agentChat.sideColumn", .bool(true))
+        defer { TunableStore.shared.set("agentChat.sideColumn", nil) }
+        // With no chat, the trial refuses instead of opening the unrelated native sidebar.
+        _ = h.services.registry.perform("toggleRightSidebar")
+        #expect(!h.controller.rightSidebar.isVisible)
+        // Read on every press: switching the trial off restores the native action at once.
+        TunableStore.shared.set("agentChat.sideColumn", .bool(false))
+        #expect(h.services.registry.perform("toggleRightSidebar"))
+        #expect(h.controller.rightSidebar.isVisible)
     }
 
     @Test(arguments: [("switchRightSidebarToSessions", RightSidebarMode.sessions), ("switchRightSidebarToFeed", .feed),
