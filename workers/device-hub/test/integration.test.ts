@@ -86,11 +86,12 @@ describe("audit per device", () => {
     await approvedSession(host, viewer);
     const all = (await viewer.call("GET", "/v1/audit?limit=200")).json.entries as any[];
     const mine = (await third.call("GET", `/v1/audit?limit=200&device=${third.id}`)).json.entries as any[];
-    // Only its own device_added: no session or permission names it.
-    expect(mine.map((e) => e.event)).toEqual(["device_added"]);
+    // Only device events, which every device's History shows: no session or permission names it.
+    expect(new Set(mine.map((e) => e.event))).toEqual(new Set(["device_added"]));
+    expect(mine).toHaveLength(3);
     const hostOnly = (await viewer.call("GET", `/v1/audit?limit=200&device=${host.id}`)).json.entries as any[];
     expect(hostOnly.length).toBeGreaterThan(0);
-    expect(hostOnly.every((e) => e.hostId === host.id || e.viewerId === host.id || e.deviceId === host.id)).toBe(true);
-    expect(hostOnly.length).toBeLessThan(all.length);
+    expect(hostOnly.every((e) => e.hostId === host.id || e.viewerId === host.id || e.event === "device_added")).toBe(true);
+    expect(mine.length).toBeLessThan(all.length);
   });
 });

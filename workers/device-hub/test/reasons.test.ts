@@ -1,5 +1,6 @@
+import { runInDurableObject } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
-import { Device, approvedSession, setup, signIn } from "./helpers";
+import { Device, approvedSession, hubEnv, setup, signIn } from "./helpers";
 
 async function live(ctx: Awaited<ReturnType<typeof setup>>, scope: "view" | "full" = "full") {
   const s = await approvedSession(ctx.host, ctx.viewer, scope);
@@ -101,8 +102,33 @@ describe("sign-out", () => {
     expect((await ctx.viewer.user!.waitClosed()).code).toBe(4003);
     await s.h.waitClosed();
     expect(await endedDetail(ctx.host, s.sid)).toBe("signed_out");
-    // The device stays registered.
-    expect((await ctx.host.call("GET", "/v1/devices")).json.devices.map((d: any) => d.id)).toContain(ctx.viewer.id);
+    await ctx.host.user!.next((f) => f.type === "devices.changed");
+    // The device stays registered, offline.
+    const listed = (await ctx.host.call("GET", "/v1/devices")).json.devices.find((d: any) => d.id === ctx.viewer.id);
+    expect(listed.online).toBe(false);
+  });
+});
+
+describe("sign-out marks the device offline at once", () => {
+  it("counts a socket the server has closed as offline before the client acknowledges it", async () => {
+    const ctx = await setup();
+    const stub = hubEnv.USER_DO.get(hubEnv.USER_DO.idFromName(ctx.account.userId));
+    // Same turn as the close: the client cannot have answered the close frame yet,
+    // like an app that drops its socket without a close handshake.
+    const state = await runInDurableObject(stub, (instance: any, s) => {
+      for (const ws of s.getWebSockets(ctx.viewer.id)) ws.close(4003, "signed out");
+      return { sockets: s.getWebSockets(ctx.viewer.id).length, online: instance.online(ctx.viewer.id) };
+    });
+    expect(state.online).toBe(false);
+  });
+
+  it("pushes devices.changed and lists the device offline right after sign-out", async () => {
+    const ctx = await setup();
+    const res = await ctx.viewer.call("POST", `/v1/devices/${ctx.viewer.id}/sign-out`);
+    expect(res.status).toBe(200);
+    const listed = (await ctx.host.call("GET", "/v1/devices")).json.devices.find((d: any) => d.id === ctx.viewer.id);
+    expect(listed.online).toBe(false);
+    await ctx.host.user!.next((f) => f.type === "devices.changed");
   });
 });
 

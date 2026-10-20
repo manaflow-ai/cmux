@@ -80,12 +80,14 @@ describe("audit per device includes device events", () => {
   it("lists device_added and device_removed under the affected device", async () => {
     const { host, viewer } = await setup();
     const added = (await host.call("GET", `/v1/audit?limit=200&device=${viewer.id}`)).json.entries as any[];
-    expect(added.filter((e) => e.event === "device_added").map((e) => e.deviceId)).toEqual([viewer.id]);
+    expect(added.filter((e) => e.event === "device_added").map((e) => e.deviceId)).toContain(viewer.id);
     await host.call("DELETE", `/v1/devices/${viewer.id}`);
     const removed = (await host.call("GET", `/v1/audit?limit=200&device=${viewer.id}`)).json.entries as any[];
     expect(removed.map((e) => e.event)).toContain("device_removed");
+    // The remaining device's History shows the removal too.
     const hostOnly = (await host.call("GET", `/v1/audit?limit=200&device=${host.id}`)).json.entries as any[];
-    expect(hostOnly.some((e) => e.event === "device_removed")).toBe(false);
+    expect(hostOnly.filter((e) => e.event === "device_removed").map((e) => e.deviceId)).toEqual([viewer.id]);
+    expect(hostOnly.filter((e) => e.event === "device_added").map((e) => e.deviceId).sort()).toEqual([host.id, viewer.id].sort());
   });
 });
 

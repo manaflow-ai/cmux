@@ -196,8 +196,29 @@ export class UserDO extends DurableObject<Env> {
     return (row?.scope as PermissionScope | undefined) ?? "ask";
   }
 
+  /**
+   * Live sockets only. A socket the server closed (sign-out, removal,
+   * replacement) stays in getWebSockets until the client answers the close
+   * frame, which an app that drops its socket never does.
+   */
+  private liveSockets(deviceId: string): WebSocket[] {
+    return this.ctx.getWebSockets(deviceId).filter((ws) => ws.readyState === WebSocket.OPEN && !(ws.deserializeAttachment() as { closed?: boolean } | null)?.closed);
+  }
+
   private online(deviceId: string): boolean {
-    return this.ctx.getWebSockets(deviceId).length > 0;
+    return this.liveSockets(deviceId).length > 0;
+  }
+
+  /** Closes a device's sockets and marks them closed so they stop counting as online at once. */
+  private closeSockets(deviceId: string, code: number, reason: string) {
+    for (const ws of this.ctx.getWebSockets(deviceId)) {
+      try {
+        ws.serializeAttachment({ closed: true });
+        ws.close(code, reason);
+      } catch {
+        // already closed
+      }
+    }
   }
 
   private audit(
@@ -378,13 +399,7 @@ export class UserDO extends DurableObject<Env> {
 
   private openSocket(request: Request, me: DeviceRow): Response {
     if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") throw new ApiError(426, "bad_request", "expected a WebSocket upgrade");
-    for (const old of this.ctx.getWebSockets(me.id)) {
-      try {
-        old.close(4000, "replaced");
-      } catch {
-        // already closed
-      }
-    }
+    this.closeSockets(me.id, 4000, "replaced");
     const pair = new WebSocketPair();
     this.ctx.acceptWebSocket(pair[1], [me.id]);
     this.sql.exec("DELETE FROM offline WHERE device_id = ?", me.id);
@@ -415,7 +430,7 @@ export class UserDO extends DurableObject<Env> {
 
   /** Starts the grace period for a device whose last socket went away. */
   private async markOffline(deviceId: string, closing: WebSocket) {
-    const others = this.ctx.getWebSockets(deviceId).filter((w) => w !== closing && w.readyState === WebSocket.OPEN);
+    const others = this.liveSockets(deviceId).filter((w) => w !== closing);
     if (others.length > 0) return;
     const d = this.device(deviceId);
     if (!d || d.removed_at !== null) return;
@@ -486,14 +501,8 @@ export class UserDO extends DurableObject<Env> {
     const open = this.sql.exec("SELECT * FROM sessions WHERE state != 'ended' AND (viewer_id = ? OR host_id = ?)", id, id).toArray() as unknown as SessionRow[];
     for (const s of open) await this.endSession(s, `device_removed:${s.viewer_id === id ? "viewer" : "host"}`, "revoked", true);
     this.audit("device_removed", { deviceId: id, detail: `${id} ${target.name}` });
+    this.closeSockets(id, 4001, "device removed");
     this.broadcast({ type: "devices.changed" });
-    for (const ws of this.ctx.getWebSockets(id)) {
-      try {
-        ws.close(4001, "device removed");
-      } catch {
-        // already closed
-      }
-    }
     return json({});
   }
 
@@ -506,13 +515,8 @@ export class UserDO extends DurableObject<Env> {
     const open = this.sql.exec("SELECT * FROM sessions WHERE state != 'ended' AND (viewer_id = ? OR host_id = ?)", id, id).toArray() as unknown as SessionRow[];
     for (const s of open) await this.endSession(s, "signed_out", "revoked", true);
     this.sql.exec("DELETE FROM offline WHERE device_id = ?", id);
-    for (const ws of this.ctx.getWebSockets(id)) {
-      try {
-        ws.close(4003, "signed out");
-      } catch {
-        // already closed
-      }
-    }
+    this.closeSockets(id, 4003, "signed out");
+    this.broadcast({ type: "devices.changed" }, id);
     return json({});
   }
 
@@ -826,8 +830,9 @@ export class UserDO extends DurableObject<Env> {
       binds.push(Number(before));
     }
     if (device) {
-      where.push("(viewer_id = ? OR host_id = ? OR device_id = ?)");
-      binds.push(device, device, device);
+      // Device events belong to every device's History: each shows the account's devices coming and going.
+      where.push("(viewer_id = ? OR host_id = ? OR event IN ('device_added', 'device_removed'))");
+      binds.push(device, device);
     }
     const rows = this.sql
       .exec(`SELECT * FROM audit ${where.length ? `WHERE ${where.join(" AND ")}` : ""} ORDER BY ts DESC, rowid DESC LIMIT ?`, ...binds, limit)
