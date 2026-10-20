@@ -226,6 +226,7 @@
         "CmuxNextRemoteLocalhostService",
         "CmuxNextRemoteView",
         "CmuxNextResources",
+        "CmuxNextScreenshots",
         "CmuxNextServer",
         "CmuxNextServerHelper",
         "CmuxNextSettings",
@@ -281,6 +282,7 @@
         "CmuxNextDaemonRecovery",
         "CmuxNextDaemonService",
         "CmuxNextDiff",
+        "CmuxNextFileGrid",
         "CmuxNextFloating",
         "CmuxNextFocus",
         "CmuxNextFocusUI",
@@ -292,6 +294,7 @@
         "CmuxNextProcessEnvironment",
         "CmuxNextRemote",
         "CmuxNextRemoteLocalhostService",
+        "CmuxNextScreenshots",
         "CmuxNextTabs",
         "CmuxNextTasks",
         "CmuxNextTerminalGeometry",
@@ -307,6 +310,7 @@
       "reads": [
         "Resources/cmux-themes/",
         "Resources/ghostty/themes/",
+        "Resources/markdown-viewer/ondine.min.js",
         "plans/cmux-next/",
         "schemas/keybindings/keybinding-vectors.json",
         "scripts/cmux-next/bundle-ghostty-resources.sh",
@@ -665,6 +669,12 @@
         "CmuxNextIcons",
         "CmuxNextWakeups"
       ],
+      "packages": []
+    },
+    "CmuxNextFileGrid": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextFileGrid",
+      "targets": [],
       "packages": []
     },
     "CmuxNextFiles": {
@@ -1050,6 +1060,24 @@
         "CmuxNextWakeups"
       ],
       "packages": []
+    },
+    "CmuxNextScreenshots": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextScreenshots",
+      "targets": [
+        "CmuxNextFileGrid"
+      ],
+      "packages": []
+    },
+    "CmuxNextScreenshotsTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextScreenshotsTests",
+      "targets": [
+        "CmuxNextFileGrid",
+        "CmuxNextScreenshots"
+      ],
+      "packages": [],
+      "reads": []
     },
     "CmuxNextServer": {
       "kind": "regular",
