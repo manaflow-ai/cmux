@@ -26,6 +26,33 @@ enum RemoteGroupHandlers {
                 do { try make(text) } catch { CloudPresenter.failure(error, in: CloudHandlers.window(context)) }
             }
         }
+        // Back to rows of the one list; the host stays connected and its workspaces stay.
+        registry.bind("remote.removeGroup", run: { invocation in
+            guard let session = session(invocation, context) else {
+                throw ActionFailure.invalidTarget(WorkspaceVerbStrings.noMachine)
+            }
+            guard let store = SidebarDocStore.current, SidebarDocWiring.isActive else {
+                throw ActionFailure.invalidTarget(WorkspaceVerbStrings.subgroupNeedsDocument)
+            }
+            let ops = SidebarDocHostGroupPlan(session: session, records: store.records, on: false).ops
+            guard !ops.isEmpty else { return }
+            do throws(SidebarDocSendRefusal) {
+                try store.sendChecked(ops: ops, title: RemoteStrings.newGroupTitle)
+            } catch {
+                throw ActionFailure.invalidTarget(error.message)
+            }
+        })
+        // Only a remote group's header offers it.
+        ActionTargetVisibility.hide("remote.removeGroup", in: registry) { invocation in
+            guard let session = session(invocation, context), let store = SidebarDocStore.current else { return true }
+            return store.records.sections["sec_m_\(session)"]?.hostGroup != true
+        }
+    }
+
+    /// The daemon session of the invocation's machine (target or `machine` argument).
+    private static func session(_ invocation: ActionInvocation, _ context: AppActionContext) -> String? {
+        guard let machine = invocation.target?.id ?? invocation["machine"]?.stringValue else { return nil }
+        return context.services.machines.anyDaemon(machine: machine)?.store.registryID
     }
 
     /// Marks `session`'s machine section a remote group once its daemon names its session; gives up

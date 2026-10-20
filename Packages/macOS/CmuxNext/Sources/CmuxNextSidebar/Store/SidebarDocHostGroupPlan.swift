@@ -8,19 +8,30 @@ public nonisolated struct SidebarDocHostGroupPlan {
     /// The ops to send; empty when the section already is a remote group.
     public let ops: [[String: Any]]
 
-    /// Plans the remote group of the machine whose daemon session is `session`.
+    /// Plans marking (`on`) or unmarking the remote group of daemon session `session`. Unmarking
+    /// leaves the section and its rows; only the header goes, back to the one list.
     /// - Parameters:
     ///   - session: the host daemon's session id (its `registryID`).
     ///   - records: the document as the mirror holds it.
-    /// Unmarking: not planned yet (slice 5).
-    public init(session: String, records: SidebarDocRecords, on: Bool) { ops = [] }
-
-    public init(session: String, records: SidebarDocRecords) {
+    ///   - on: true marks, false unmarks.
+    public init(session: String, records: SidebarDocRecords, on: Bool) {
         let id = "sec_m_\(session)"
-        if let section = records.sections[id] {
-            ops = section.hostGroup ? [] : [["op": "section.update", "id": id, "patch": ["host_group": true]]]
+        if on {
+            ops = Self.markOps(id: id, session: session, records: records)
         } else {
-            ops = [["op": "section.add", "section": ["id": id, "kind": ["type": "machine", "session_id": session], "host_group": true]]]
+            ops = records.sections[id]?.hostGroup == true ? [["op": "section.update", "id": id, "patch": ["host_group": false]]] : []
         }
+    }
+
+    /// Plans marking the remote group of daemon session `session`.
+    public init(session: String, records: SidebarDocRecords) {
+        ops = Self.markOps(id: "sec_m_\(session)", session: session, records: records)
+    }
+
+    private static func markOps(id: String, session: String, records: SidebarDocRecords) -> [[String: Any]] {
+        if let section = records.sections[id] {
+            return section.hostGroup ? [] : [["op": "section.update", "id": id, "patch": ["host_group": true]]]
+        }
+        return [["op": "section.add", "section": ["id": id, "kind": ["type": "machine", "session_id": session], "host_group": true]]]
     }
 }

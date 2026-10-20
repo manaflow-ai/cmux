@@ -181,6 +181,7 @@ nonisolated extension ActionSurfaceCatalog {
         "remote.disconnect": [p(.sshMachine, .connection, 101)],
         "remote.install": [p(.sshMachine, .connection, 102)],
         "remote.forget": [p(.sshMachine, .close, 200)],
+        "remote.removeGroup": [p(.machineSection, .identity, 2)],
         "machine.setIcon": [p(.machineSection, .identity, 0, folder: .appearance, label: IconMenuLabels.setIcon)],
         "machine.clearIcon": [p(.machineSection, .identity, 1, folder: .appearance, label: IconMenuLabels.removeIcon)],
         "hibernateTab": [p(.tab, .connection, 0, folder: .options)],

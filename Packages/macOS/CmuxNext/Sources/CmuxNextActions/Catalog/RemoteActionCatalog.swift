@@ -34,6 +34,12 @@ nonisolated enum RemoteActionCatalog: ActionCatalogGroup {
                 cliName: "remote new-group"
             ),
             ActionDescriptor(
+                id: "remote.removeGroup",
+                title: String(localized: "action.remote.removeGroup", defaultValue: "Remove Remote Group", table: "RemoteActions", bundle: .module),
+                keywords: ["remote", "host", "group", "header", "list"], category: .remote, symbol: "rectangle.stack.badge.minus",
+                surfaces: [.palette, .contextMenu], targets: [.machine], cliName: "remote remove-group"
+            ),
+            ActionDescriptor(
                 id: "remote.newWorkspace",
                 title: String(localized: "action.remote.newWorkspace", defaultValue: "New Workspace on Machine", table: "RemoteActions", bundle: .module),
                 keywords: ["ssh", "remote", "host", "terminal"], category: .remote, symbol: "plus.rectangle.on.rectangle",

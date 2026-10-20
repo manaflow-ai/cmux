@@ -37,6 +37,7 @@ final class SectionHeaderRowView: SidebarRowView {
         // The section's kind, not its nodes: comparing 1,000 children per
         // reload would defeat the point.
         var kind: SidebarSection.Kind
+        var isHostGroup: Bool
         var titlesProjects: Bool
         var collapsed: Bool
         var isEmpty: Bool
@@ -44,12 +45,27 @@ final class SectionHeaderRowView: SidebarRowView {
         var iconSize: CGFloat
     }
 
-    /// The status text beside a machine header's dot. Stub until slice 5.
-    static func statusText(_ status: SidebarMachine.Status, hostGroup: Bool) -> String? { nil }
+    /// The status text beside a machine header's dot. A remote group (remote-groups-DESIGN.md slice 5)
+    /// names every state, Connected and Offline included; another machine only what needs attention.
+    static func statusText(_ status: SidebarMachine.Status, hostGroup: Bool) -> String? {
+        switch status {
+        case .connected: hostGroup ? Strings.statusConnected : nil
+        case .connecting: hostGroup ? Strings.statusConnecting : nil
+        case .offline: hostGroup ? Strings.statusOffline : nil
+        case .updateAvailable: Strings.statusUpdateAvailable
+        case .reconnecting: Strings.statusReconnecting
+        case .updateRequired: Strings.statusUpdateRequired
+        case .installRequired: Strings.statusInstallRequired
+        case .installing: Strings.statusInstalling
+        case .authFailed: Strings.statusAuthFailed
+        case .unreachable: Strings.statusUnreachable
+        case .failed: Strings.statusFailed
+        }
+    }
 
     func configure(_ section: SidebarSection, row: SidebarRow) {
         let content = Content(
-            kind: section.kind, titlesProjects: row.titlesProjects, collapsed: row.isCollapsed, isEmpty: section.nodes.isEmpty,
+            kind: section.kind, isHostGroup: section.isHostGroup, titlesProjects: row.titlesProjects, collapsed: row.isCollapsed, isEmpty: section.nodes.isEmpty,
             fontSize: SidebarStyle.headerFont.pointSize, iconSize: Metrics.smallIconSize
         )
         guard needsConfigure(content) else { return }
@@ -101,17 +117,7 @@ final class SectionHeaderRowView: SidebarRowView {
             case .unreachable: label += ", " + Strings.statusUnreachable
             case .failed: label += ", " + Strings.statusFailed
             }
-            badgeText = switch machine.status {
-            case .updateAvailable: Strings.statusUpdateAvailable
-            case .reconnecting: Strings.statusReconnecting
-            case .updateRequired: Strings.statusUpdateRequired
-            case .installRequired: Strings.statusInstallRequired
-            case .installing: Strings.statusInstalling
-            case .authFailed: Strings.statusAuthFailed
-            case .unreachable: Strings.statusUnreachable
-            case .failed: Strings.statusFailed
-            default: nil
-            }
+            badgeText = Self.statusText(machine.status, hostGroup: section.isHostGroup)
             themedToolTip = machine.detail
             setAccessibilityLabel(label)
             setAccessibilityHelp(machine.detail)
