@@ -115,8 +115,9 @@ test("the Cards page: one field with Search | Ask, a chip row under it, three ch
     expect(toolbar!.querySelector(".nt-location")).not.toBeNull();
     expect(toolbar!.querySelector(".nt-pickers .acpmux-mic")).not.toBeNull();
     expect(box.querySelector(".nt-location")).toBeNull();
-    // Return sends; the page draws no Send disc.
+    // Return sends; the page draws no Send disc and no create row.
     expect(host.querySelector(".nt-send")).toBeNull();
+    expect(host.querySelector(".nt-create")).toBeNull();
     // Three tall cards in a grid, "All Chats >" beside the Chats header.
     expect(host.querySelectorAll(".nt-cards[data-variant=cards] .nt-card").length).toBe(3);
     await act(async () => host.querySelector<HTMLButtonElement>(".nt-chats-all")!.click());
