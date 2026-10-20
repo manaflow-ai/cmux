@@ -601,7 +601,15 @@ impl App {
                 t.status = "running".into();
             }
         }
-        let params = json!({"sessionId": id, "prompt": Self::prompt_blocks(&text, &images), "_meta": {"acpmux": {"steer": steer}}});
+        // Enter mid-turn queues in the TUI (Ctrl-s steers); acpmux stops a running turn for a
+        // prompt that does not ask to queue, so it says so.
+        let queue = !steer
+            && self.transcripts.get(&id).is_some_and(|t| {
+                t.items.last().is_some_and(|i| {
+                    matches!(i, crate::transcript::Item::User { queued: true, .. })
+                })
+            });
+        let params = json!({"sessionId": id, "prompt": Self::prompt_blocks(&text, &images), "_meta": {"acpmux": {"steer": steer, "queue": queue}}});
         self.request_bg(method::SESSION_PROMPT, params, None);
     }
 
