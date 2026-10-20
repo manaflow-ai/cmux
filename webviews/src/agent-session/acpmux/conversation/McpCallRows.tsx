@@ -9,7 +9,7 @@ import type { AcpmuxActivity } from "../model";
 import { toolImages } from "../toolImages";
 import { ChevronRight, Spinner, ToolGroup } from "./icons";
 import { menuPartRef } from "./menuParts";
-import { mcpCall, mcpLabel, McpNamesContext, prettyOutput, prettyValue, type McpCall } from "./mcpCalls";
+import { mcpCall, mcpLabel, McpNamesContext, mcpRawName, prettyOutput, prettyValue, type McpCall } from "./mcpCalls";
 import { isFailed, isRunning } from "./toolGroups";
 import { OutputMore, useOutput } from "./toolOutput";
 import { ToolImages } from "./ToolRow";
@@ -39,6 +39,7 @@ function McpGroupRow({ items, disclosureKey }: { items: readonly AcpmuxActivity[
         className={`cv-tool is-toggle${running ? " is-live" : " is-strong"}`}
         aria-expanded={open}
         aria-controls={open ? detailsId : undefined}
+        title={mcpRawName(items[0]!.tool!, calls[0]!)}
         onClick={() => setOpen((value) => !value)}
       >
         <span className="cv-tool__icon">
@@ -80,6 +81,8 @@ function McpCallRow({ item }: { item: AcpmuxActivity }) {
   const detailsId = useId();
   const tool = item.tool!;
   const call = useMemo(() => mcpCall(tool)!, [tool]);
+  // The machine name stays at hand: the line's tooltip and the opened call's first line.
+  const raw = mcpRawName(tool, call);
   const images = useMemo(() => toolImages(tool), [tool]);
   const running = isRunning(tool);
   return (
@@ -89,6 +92,7 @@ function McpCallRow({ item }: { item: AcpmuxActivity }) {
         className={`cv-tool is-toggle${running ? " is-live" : " is-strong"}`}
         aria-expanded={open}
         aria-controls={open ? detailsId : undefined}
+        title={raw}
         onClick={() => setOpen((value) => !value)}
       >
         <span className="cv-tool__icon">
@@ -105,14 +109,26 @@ function McpCallRow({ item }: { item: AcpmuxActivity }) {
         />
       </button>
       {images.length > 0 && <ToolImages sources={images} />}
-      {open && <McpCallDetails id={detailsId} call={call} output={tool.output} reveal={reveal} />}
+      {open && <McpCallDetails id={detailsId} call={call} raw={raw} output={tool.output} reveal={reveal} />}
     </>
   );
 }
 
 /// The opened call: its request, then its response (only its end while long), each as a tight
 /// block; a block with nothing in it is left out.
-function McpCallDetails({ id, call, output, reveal }: { id: string; call: McpCall; output?: string; reveal: number }) {
+function McpCallDetails({
+  id,
+  call,
+  raw,
+  output,
+  reveal,
+}: {
+  id: string;
+  call: McpCall;
+  raw: string;
+  output?: string;
+  reveal: number;
+}) {
   const t = useT();
   const request = useMemo(() => prettyValue(call.args), [call]);
   const response = useOutput(
@@ -121,6 +137,7 @@ function McpCallDetails({ id, call, output, reveal }: { id: string; call: McpCal
   );
   return (
     <div id={id} className="cv-mcp-call" ref={menuPartRef({ output: response.text })}>
+      <code className="cv-mcp-call__name selectable">{raw}</code>
       {request && (
         <div className="cv-mcp-call__part">
           <div className="cv-mcp-call__head">{t("tools.mcp.request")}</div>

@@ -1,6 +1,6 @@
 // Consecutive calls of one kind under one line ("Ran 3 commands", "Read 4 files", "Edited
-// App.tsx +12 -3") that opens to the calls on a tree guide: commands as command rows, edits
-// as their diffs, reads and searches as their own rows.
+// App.tsx +12 -3") over the calls on a tree guide: commands as command rows, edits as their
+// diffs, reads and searches as their own rows.
 import { useFindReveal } from "./chatFind";
 import { useId, useMemo, type ReactNode } from "react";
 import { toolFiles } from "../diff";
@@ -26,8 +26,13 @@ function groupIcon(kind: ToolGroupKind): ReactNode {
   }
 }
 
-/// A live group stays closed as calls join it, so the transcript's height holds still; its
-/// glyph turns while any call runs.
+/// How many of a group's latest calls show under its open line; the earlier ones wait behind
+/// "+K more", so a long run stays dense (one line per call) without hiding what just ran.
+export const GROUP_TAIL = 5;
+
+/// Commands, reads and searches open by default, one row per call, as the Codex and Claude Code
+/// desktop apps list them; edits stay closed, since each opens to its whole diff. The glyph turns
+/// while any call runs.
 export function ToolGroupRow({
   kind,
   items,
@@ -38,8 +43,16 @@ export function ToolGroupRow({
   disclosureKey: string;
 }) {
   const t = useT();
-  const [open, setOpen] = useTranscriptDisclosure(disclosureKey);
+  const [open, setOpen] = useTranscriptDisclosure(disclosureKey, kind !== "edits");
+  const [all, setAll] = useTranscriptDisclosure(`${disclosureKey}:all`);
+  const hidden = kind === "edits" || all ? 0 : Math.max(0, items.length - GROUP_TAIL);
   useFindReveal(items, () => setOpen(true));
+  // A match in a call behind "+K more" shows the whole group.
+  useFindReveal(
+    useMemo(() => items.slice(0, hidden), [items, hidden]),
+    () => setAll(true),
+  );
+  const shown = hidden ? items.slice(hidden) : items;
   const detailsId = useId();
   const tools = useMemo(() => items.map((item) => item.tool!), [items]);
   const files = useMemo(() => (kind === "edits" ? toolFiles(tools) : []), [kind, tools]);
@@ -80,12 +93,17 @@ export function ToolGroupRow({
       </button>
       {open && (
         <div className="cv-tool-group" id={detailsId}>
+          {hidden > 0 && (
+            <button type="button" className="cv-tool cv-tool-group__more" onClick={() => setAll(true)}>
+              <span className="cv-tool__text">{t("tools.more", { n: hidden })}</span>
+            </button>
+          )}
           {kind === "commands"
-            ? items.map((item, index) => <CommandRow key={item.tool!.id || index} item={item} />)
+            ? shown.map((item, index) => <CommandRow key={item.tool!.id || index} item={item} />)
             : [
                 ...files.map((file) => <EditDiff key={file.path} file={file} />),
                 // Reads and searches, and edits that carried no diff (a delete, a move), as rows.
-                ...items
+                ...shown
                   .filter((item) => !files.length || !item.tool!.diffs?.length)
                   .map((item, index) => <ToolRow key={item.tool!.id || index} item={item} />),
               ]}

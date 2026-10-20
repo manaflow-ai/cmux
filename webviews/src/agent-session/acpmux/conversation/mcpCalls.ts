@@ -43,7 +43,7 @@ export function mcpKey(call: McpCall): string {
 }
 
 /// What a call does, from its tool's first word.
-export type McpAction = "message" | "read" | "list" | "search" | "create" | "update" | "delete" | "call";
+export type McpAction = "message" | "read" | "list" | "search" | "create" | "start" | "update" | "delete" | "call";
 
 const VERBS: Record<string, McpAction> = {
   send: "message",
@@ -65,7 +65,9 @@ const VERBS: Record<string, McpAction> = {
   create: "create",
   add: "create",
   new: "create",
-  start: "create",
+  start: "start",
+  launch: "start",
+  spawn: "start",
   update: "update",
   edit: "update",
   set: "update",
@@ -150,6 +152,34 @@ export function mcpTarget(call: McpCall, names: McpNames): string | undefined {
   return undefined;
 }
 
+/// The name a call has before it is humanized: Claude Code's `mcp__<server>__<tool>`, or Codex's
+/// `<server>.<tool>`. Rows keep it as their tooltip and in their opened details.
+export function mcpRawName(tool: Tool, call: McpCall): string {
+  const title = tool.title.trim();
+  return CLAUDE_NAME.test(title) ? title : `${call.server}.${call.tool}`;
+}
+
+/// An MCP server's name in plain words: `codex_apps` reads "codex apps".
+function serverWords(server: string): string {
+  return server.replace(/_+/g, " ").trim() || server;
+}
+
+/// A call in plain words where no translation is at hand (the running line, a permission's
+/// subject): the server, then the tool's words and what it acts on, as in
+/// "cmux-subsessions · start session sidebar-drag-bugs" or "cmux · list workspaces".
+export function mcpPlainName(call: McpCall, names: McpNames = new Map()): string {
+  const target = mcpTarget(call, names);
+  const action = words(call.tool).join(" ") || call.tool;
+  return `${serverWords(call.server)} · ${action}${target ? ` ${target}` : ""}`;
+}
+
+/// The plain name of a title that is an MCP tool id (`mcp__<server>__<tool>`), from the title
+/// alone, or nil for any other title.
+export function mcpTitleName(title: string): string | undefined {
+  const name = CLAUDE_NAME.exec(title.trim());
+  return name ? mcpPlainName({ server: name[1]!, tool: name[2]!, args: undefined }) : undefined;
+}
+
 /// The rest of the tool's name after its verb, for a call with no target: `read_chat` reads "chat".
 function toolNoun(call: McpCall): string {
   const all = words(call.tool);
@@ -168,9 +198,13 @@ export function mcpLabel(t: Translate, calls: readonly McpCall[], names: McpName
     if (target) return n === 1 ? t("tools.mcp.message.one", { target }) : t("tools.mcp.message.other", { n, target });
     return n === 1 ? t("tools.mcp.message.oneBare") : t("tools.mcp.message.otherBare", { n });
   }
-  const object = target ?? toolNoun(first);
+  // A start names what it started and its name: "Started session sidebar-drag-bugs".
+  const noun = toolNoun(first);
+  const object = target ? (action === "start" && noun !== first.tool ? `${noun} ${target}` : target) : noun;
   const line =
-    action === "call" ? t("tools.mcp.call", { target: first.tool }) : t(`tools.mcp.${action}`, { target: object });
+    action === "call"
+      ? t("tools.mcp.call", { target: `${serverWords(first.server)} · ${noun}` })
+      : t(`tools.mcp.${action}`, { target: object });
   return n > 1 ? `${line} ×${n}` : line;
 }
 

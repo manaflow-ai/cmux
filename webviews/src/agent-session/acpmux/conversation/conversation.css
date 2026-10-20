@@ -1536,6 +1536,16 @@ pre.cv-math-source {
   gap: 6px;
   margin: 2px 0 8px;
 }
+/* The call's machine name (`mcp__<server>__<tool>`) over its request, quiet and copyable. */
+.cv-mcp-call__name {
+  display: block;
+  margin: 0 0 4px 2px;
+  color: var(--cv-text-muted);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--text-caption);
+  line-height: 14px;
+  overflow-wrap: anywhere;
+}
 .cv-mcp-call__head {
   margin: 0 0 2px 2px;
   color: var(--cv-text-muted);

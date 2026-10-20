@@ -2,6 +2,7 @@ import React, { useEffect, useId, useRef, useState } from "react";
 import { pathName } from "../chips/paths";
 import { EditDiff } from "../conversation/EditDiff";
 import { ChevronRight } from "../conversation/icons";
+import { mcpTitleName } from "../conversation/mcpCalls";
 import { ShellBlock } from "../conversation/ShellBlock";
 import { toolIcon } from "../conversation/ToolRow";
 import { toolFiles } from "../diff";
@@ -75,7 +76,11 @@ function askOf(item: PermissionGroupItem, fallback: string) {
     kind,
     // The title already says what the call does ("Edit upload.sh"): no verb before it.
     verb: named !== undefined ? verbs[kind ?? ""] : undefined,
-    subject: named ?? text(tool?.title) ?? fallback,
+    subject:
+      named ??
+      (typeof tool?.title === "string" ? mcpTitleName(tool.title) : undefined) ??
+      text(tool?.title) ??
+      fallback,
     code: named !== undefined,
     command,
     cwd: text(input?.cwd),
