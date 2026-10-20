@@ -37,7 +37,7 @@ afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
-type Machine = { root: string; home: string; bin: string; calls: string; auth: string; kind: string; launchers: Record<Agent, string> };
+type Machine = { root: string; home: string; bin: string; calls: string; auth: string; config: string; kind: string; launchers: Record<Agent, string> };
 
 /**
  * A HOME; for each agent a fake executable that prints the env and arguments
@@ -57,6 +57,8 @@ function machine(): Machine {
   writeFileSync(kind, "owner\n");
   const auth = path.join(root, "agent-auth.sh");
   writeFileSync(auth, readFileSync(path.join(templateDir, "agent-auth.sh"), "utf8").replaceAll("/etc/cmux/vm-kind", kind));
+  const config = path.join(root, "agent-config.sh");
+  writeFileSync(config, readFileSync(path.join(templateDir, "agent-config.sh"), "utf8").replaceAll("/etc/cmux/vm-kind", kind));
   writeFileSync(
     path.join(bin, "curl"),
     [
@@ -90,7 +92,7 @@ function machine(): Machine {
     writeFileSync(
       launcher,
       readFileSync(path.join(templateDir, `cmux-${agent}`), "utf8")
-        .replaceAll("/etc/cmux/agent-config.sh", path.join(templateDir, "agent-config.sh"))
+        .replaceAll("/etc/cmux/agent-config.sh", config)
         .replaceAll("/etc/cmux/agent-auth.sh", auth)
         .replaceAll(`/usr/local/libexec/cmux-${agent}-real`, real),
     );
@@ -98,7 +100,7 @@ function machine(): Machine {
     chmodSync(launcher, 0o755);
     launchers[agent] = launcher;
   }
-  return { root, home, bin, calls, auth, kind, launchers };
+  return { root, home, bin, calls, auth, config, kind, launchers };
 }
 
 /** The env a login shell on the machine starts from: the baked model plane. */
@@ -124,7 +126,7 @@ function parse(stdout: string): Record<string, string> {
 async function launch(m: Machine, agent: Agent, extra: Record<string, string> = {}, shellPrefix = "") {
   const result = await runChild(
     "/bin/bash",
-    ["-c", `. ${path.join(templateDir, "agent-config.sh")}; ${shellPrefix} ${m.launchers[agent]} --resume x`],
+    ["-c", `. ${m.config}; ${shellPrefix} ${m.launchers[agent]} --resume x`],
     { env: bootEnv(m, extra) },
   );
   expect(result.stderr).toBe("");
@@ -596,6 +598,11 @@ describe("cr use", () => {
       { listMembers: async () => ({ memberIds: ["user-owner", "user-teammate"] }) },
     );
     expect(kind).toBe("team");
+    const soloTeamKind = await resolveVmGuestKind(
+      { userId: "user-owner", ownerTeamId: "team-solo" },
+      { listMembers: async () => ({ memberIds: ["user-owner"] }) },
+    );
+    expect(soloTeamKind).toBe("team");
     const modelEnv = path.join(m.root, "model-plane.env");
     writeFileSync(modelEnv, `export CMUX_CODEROUTER_URL='${ORIGIN}'\nexport OPENAI_API_KEY='${PLACEHOLDER}'\n`);
     const synced = await runChild("/bin/sh", [path.join(templateDir, "cmux-vm-kind-sync")], {
@@ -651,6 +658,12 @@ describe("cr use", () => {
     expect(forcedOpenCode.OPENAI_API_KEY).toBe(PLACEHOLDER);
     expect(forcedOpenCode.ANTHROPIC_API_KEY).toBe("<unset>");
     expect(forcedOpenCode.OPENCODE_CONFIG_DIR).toBe("<unset>");
+    const persistedPlane = readFileSync(path.join(m.home, ".config/cmux/model-plane.env"), "utf8");
+    expect(persistedPlane).not.toContain("personal-claude");
+    expect(persistedPlane).not.toContain("personal-token");
+    expect(persistedPlane).not.toContain("personal-codex");
+    expect(persistedPlane).not.toContain("personal-opencode");
+    expect(persistedPlane).not.toContain("personal-anthropic");
 
     const status = await cr(m, ["--json"], { FAKE_ACCESS: ALL });
     expect(status.stdout).toBe(
