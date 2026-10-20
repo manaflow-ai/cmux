@@ -214,7 +214,7 @@ fn probe(stream: Box<dyn cmux_tui_core::platform::transport::Stream>, deadline: 
         // A full send buffer for one short line: the owner reads nothing.
         Err(error) if is_timeout(&error) => return Probe::Silent,
         // A full owner may close before this write lands.
-        Err(_) if super::refused_after_write(&mut connection) => return Probe::Refused,
+        Err(_) if super::identify::refused_after_write(&mut connection) => return Probe::Refused,
         Err(_) => return Probe::Answered,
     }
     let mut line = Vec::new();
@@ -227,7 +227,7 @@ fn probe(stream: Box<dyn cmux_tui_core::platform::transport::Stream>, deadline: 
             return Probe::Answered;
         }
         match connection.read_until(b'\n', &mut line) {
-            Ok(_) if super::is_refusal(&line) => return Probe::Refused,
+            Ok(_) if super::identify::is_refusal(&line) => return Probe::Refused,
             Ok(_) => return Probe::Answered,
             Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
             Err(error) if is_timeout(&error) => {}
