@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use std::ops::Range;
 
 use crate::Kind;
+use crate::context::Contexts;
 use crate::fold::{fold, starts_word};
 
 /// One name the window can find by fuzzy match.
@@ -13,7 +14,8 @@ pub struct NameDoc {
     /// Unique; upserting a name with a key already present replaces it.
     pub key: String,
     pub kind: Kind,
-    /// Where it jumps (a workspace, tab or pane id, a path, a URL).
+    /// Where it jumps (a workspace, tab or pane id, a path, a URL). Its
+    /// [`crate::TargetContext`], when set, also matches query words.
     pub target: String,
     /// The name shown and matched (a path for files).
     pub title: String,
@@ -37,6 +39,8 @@ pub(crate) struct NameEntry {
 pub(crate) struct NameMatch {
     pub tier: u8,
     pub quality: u32,
+    /// Query words found in the target's context.
+    pub context_words: u32,
     /// Byte ranges in the original title.
     pub highlights: Vec<Range<usize>>,
 }
@@ -80,22 +84,46 @@ impl NameTable {
         self.by_key.len()
     }
 
+    pub fn resident_bytes(&self) -> usize {
+        self.iter()
+            .map(|entry| {
+                entry.doc.key.capacity() * 2
+                    + entry.doc.target.capacity()
+                    + entry.doc.title.capacity()
+                    + entry.doc.subtitle.capacity()
+                    + entry.folded.capacity()
+                    + entry.starts.capacity()
+                    + size_of::<NameEntry>()
+                    + 48
+            })
+            .sum()
+    }
+
     pub fn iter(&self) -> impl Iterator<Item = &NameEntry> {
         self.entries.iter().flatten()
     }
 
-    /// Every live name matching `terms` (folded, non-empty) of `kinds`
-    /// (every kind when empty).
+    /// Every live name of `kinds` (every kind when empty) whose title, or
+    /// title and context together, match every one of `terms` (folded).
     pub fn matches<'a>(
         &'a self,
         terms: &'a [Vec<u8>],
         kinds: &'a [Kind],
+        contexts: &'a Contexts,
     ) -> impl Iterator<Item = (&'a NameEntry, NameMatch)> + 'a {
         let mask = terms.iter().fold(0u64, |mask, term| mask | letters(term));
         self.iter()
             .filter(move |entry| kinds.is_empty() || kinds.contains(&entry.doc.kind))
-            .filter(move |entry| entry.mask & mask == mask)
-            .filter_map(move |entry| entry.match_terms(terms).map(|found| (entry, found)))
+            .filter_map(move |entry| {
+                let context = contexts.get(&entry.doc.target);
+                let present = entry.mask | context.map_or(0, |context| context.mask);
+                if present & mask != mask {
+                    return None;
+                }
+                entry
+                    .match_terms(terms, context.map(|context| &context.folded[..]))
+                    .map(|found| (entry, found))
+            })
     }
 }
 
@@ -108,14 +136,14 @@ impl NameEntry {
             0
         };
         let mask = letters(&folded);
-        // Camel humps need the original case, which only maps byte for byte
-        // when folding kept the length (ASCII titles).
+        // Camel humps need the original case, which maps byte for byte only
+        // for ASCII titles.
         let title = doc.title.as_bytes();
-        let same = doc.title.is_ascii();
+        let ascii = doc.title.is_ascii();
         let starts = (0..folded.len())
             .map(|index| {
                 starts_word(&folded, index)
-                    || (same
+                    || (ascii
                         && index > 0
                         && title[index].is_ascii_uppercase()
                         && title[index - 1].is_ascii_lowercase())
@@ -124,49 +152,68 @@ impl NameEntry {
         Self { doc, folded, base, mask, starts }
     }
 
-    fn match_terms(&self, terms: &[Vec<u8>]) -> Option<NameMatch> {
+    /// Each term matches the title; a term that does not may match the
+    /// context instead (then the tier is at most 3), but one term at least
+    /// must match the title.
+    fn match_terms(&self, terms: &[Vec<u8>], context: Option<&[u8]>) -> Option<NameMatch> {
         let mut tier = u8::MAX;
         let mut quality = 0u32;
+        let mut in_title = 0u32;
+        let mut context_words = 0u32;
         let mut ranges: Vec<Range<usize>> = Vec::new();
         for term in terms {
-            let (term_tier, term_quality, positions) = self.match_term(term)?;
-            tier = tier.min(term_tier);
-            quality += term_quality;
-            ranges.extend(positions);
+            let in_context =
+                context.is_some_and(|context| memchr::memmem::find(context, term).is_some());
+            match self.match_term(term) {
+                Some((term_tier, term_quality, positions)) => {
+                    tier = tier.min(term_tier);
+                    quality += term_quality;
+                    in_title += 1;
+                    ranges.extend(positions);
+                }
+                None if in_context => tier = tier.min(3),
+                None => return None,
+            }
+            context_words += u32::from(in_context);
         }
-        quality /= terms.len().max(1) as u32;
-        Some(NameMatch { tier, quality, highlights: self.original_ranges(ranges) })
+        if in_title == 0 {
+            return None;
+        }
+        quality /= in_title;
+        Some(NameMatch { tier, quality, context_words, highlights: self.original_ranges(ranges) })
     }
 
-    /// (tier, quality 0..99, folded byte ranges) for one term.
+    /// (tier, quality 0..99, folded byte ranges) for one term. Quality falls
+    /// with the name's length and with how far into it the match starts.
     fn match_term(&self, term: &[u8]) -> Option<(u8, u32, Vec<Range<usize>>)> {
         let name = &self.folded[..];
         let base = &name[self.base..];
         let length_quality = 99u32.saturating_sub((name.len() / 4) as u32);
+        let at = |start: usize| length_quality.saturating_sub((start.min(60) / 3) as u32);
         if name == term || base == term || stem(base) == term {
             let start = if name == term { 0 } else { self.base };
-            return Some((5, 99, vec![start..start + term.len()]));
+            return Some((5, 99, one(start..start + term.len())));
         }
         if base.starts_with(term) {
-            return Some((4, length_quality, vec![self.base..self.base + term.len()]));
+            return Some((4, length_quality, one(self.base..self.base + term.len())));
         }
         if name.starts_with(term) {
-            return Some((4, length_quality, vec![0..term.len()]));
+            return Some((4, length_quality, one(0..term.len())));
         }
         let mut anywhere = None;
         for start in memchr::memmem::find_iter(name, term) {
             if self.starts[start] {
-                let bonus = if start >= self.base { 0 } else { 10 };
+                let outside_base = if start >= self.base { 0 } else { 10 };
                 return Some((
                     3,
-                    length_quality.saturating_sub(bonus),
-                    vec![start..start + term.len()],
+                    at(start.saturating_sub(self.base)).saturating_sub(outside_base),
+                    one(start..start + term.len()),
                 ));
             }
             anywhere.get_or_insert(start);
         }
         if let Some(start) = anywhere {
-            return Some((2, length_quality, vec![start..start + term.len()]));
+            return Some((2, at(start), one(start..start + term.len())));
         }
         self.fuzzy(term).map(|(quality, ranges)| (1, quality, ranges))
     }
@@ -181,29 +228,28 @@ impl NameEntry {
             let mut positions = Vec::with_capacity(term.len());
             positions.push(start);
             let mut at = start + 1;
-            let mut ok = true;
+            let mut complete = true;
             for &byte in &term[1..] {
-                // Prefer the next word start holding the letter, else the next letter.
                 let rest = &name[at..];
-                let next = rest
+                // The next letter, unless a later word start holds it.
+                let next_word_start = rest
                     .iter()
                     .enumerate()
                     .find(|&(offset, &candidate)| candidate == byte && self.starts[at + offset])
                     .map(|(offset, _)| offset)
-                    .filter(|&offset| offset > 0 && rest[0] != byte)
-                    .or_else(|| memchr::memchr(byte, rest));
-                match next {
+                    .filter(|&offset| offset > 0 && rest.first() != Some(&byte));
+                match next_word_start.or_else(|| memchr::memchr(byte, rest)) {
                     Some(offset) => {
                         positions.push(at + offset);
                         at += offset + 1;
                     }
                     None => {
-                        ok = false;
+                        complete = false;
                         break;
                     }
                 }
             }
-            if !ok {
+            if !complete {
                 break;
             }
             let score = self.fuzzy_score(&positions);
@@ -212,7 +258,7 @@ impl NameEntry {
             }
         }
         let (score, positions) = best?;
-        let max = 16 * term.len() as i64 + 8 * term.len() as i64 + 10;
+        let max = 24 * term.len() as i64 + 10;
         let quality = ((score.max(0) * 99) / max.max(1)).clamp(0, 99) as u32;
         let ranges = positions.into_iter().map(|position| position..position + 1).collect();
         Some((quality, ranges))
@@ -225,7 +271,7 @@ impl NameEntry {
             if self.starts[position] {
                 score += 16;
             }
-            if position >= self.base && self.base > 0 {
+            if self.base > 0 && position >= self.base {
                 score += 2;
             }
             match previous {
@@ -246,16 +292,17 @@ impl NameEntry {
         } else {
             crate::fold::fold_with_map(title).1
         };
+        let last = map.len().saturating_sub(1);
         ranges.sort_by_key(|range| range.start);
         let mut merged: Vec<Range<usize>> = Vec::new();
         for range in ranges {
-            let start = map[range.start.min(map.len() - 1)];
-            let mut end = map[range.end.min(map.len() - 1)];
+            let start = map[range.start.min(last)];
+            let mut end = map[range.end.min(last)];
             if end <= start {
                 end = next_char_end(title, start);
             }
             match merged.last_mut() {
-                Some(last) if start <= last.end => last.end = last.end.max(end),
+                Some(previous) if start <= previous.end => previous.end = previous.end.max(end),
                 _ => merged.push(start..end),
             }
         }
@@ -263,8 +310,15 @@ impl NameEntry {
     }
 }
 
+/// One range as a list (the shape every match returns).
+fn one(range: Range<usize>) -> Vec<Range<usize>> {
+    let mut ranges = Vec::with_capacity(1);
+    ranges.push(range);
+    ranges
+}
+
 fn next_char_end(text: &str, start: usize) -> usize {
-    text[start..].chars().next().map_or(start, |ch| start + ch.len_utf8())
+    text.get(start..).and_then(|rest| rest.chars().next()).map_or(start, |ch| start + ch.len_utf8())
 }
 
 /// `name` without its last extension (`main.rs` -> `main`).
@@ -276,13 +330,13 @@ fn stem(name: &[u8]) -> &[u8] {
 }
 
 /// A bit per letter or digit class present in `text`.
-fn letters(text: &[u8]) -> u64 {
+pub(crate) fn letters(text: &[u8]) -> u64 {
     let mut mask = 0u64;
     for &byte in text {
         let bit = match byte {
             b'a'..=b'z' => byte - b'a',
             b'0'..=b'9' => 26 + byte - b'0',
-            b' ' => continue,
+            b' ' | b'\n' => continue,
             0x80..=0xFF => 63,
             other => 36 + other % 26,
         };

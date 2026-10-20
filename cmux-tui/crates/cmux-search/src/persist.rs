@@ -1,75 +1,72 @@
-//! The index on disk: `manifest.json` (strings, removed sources, names,
-//! frecency, segment files) and one `seg-<n>.bin` per sealed segment. Save
-//! seals the live segment first. Every file is written to a temp name and
-//! renamed, the manifest last, so a crash leaves the previous index whole.
+//! The index on disk: `manifest.json` (strings, removed sources, keyed
+//! docs, names, contexts, opens and focus history, segment ids with their
+//! deleted bits) and one `seg-<id>.bin` image per sealed segment. With an
+//! index directory, sealing writes the image right away and reads it back
+//! on demand; `save` seals the live segment and rewrites the manifest.
+//! Files are written to a temp name and renamed, the manifest last, so a
+//! crash leaves the previous index whole.
 
-use std::fs;
+use std::collections::HashMap;
+use std::fs::{self, File};
 use std::io::{self, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use crate::context::{ContextEntry, TargetContext};
 use crate::engine::{EngineConfig, SearchEngine};
 use crate::frecency::Frecency;
 use crate::names::NameDoc;
-use crate::segment::{BlockMeta, DocMeta, Postings, Segment};
+use crate::segment::{Live, Sealed, Segment, Store, invalid};
 
-const MAGIC: &[u8; 8] = b"CMXSEG01";
-const FORMAT: u32 = 1;
+const FORMAT: u32 = 2;
 
 #[derive(Serialize, Deserialize)]
 struct Manifest {
     format: u32,
+    next_segment: u64,
     strings: Vec<String>,
     removed: Vec<u32>,
+    keyed: Vec<(String, u64, u32)>,
     names: Vec<NameDoc>,
-    frecency: Frecency,
-    segments: Vec<String>,
+    contexts: Vec<(String, TargetContext)>,
+    opens: Frecency,
+    focus: Frecency,
+    segments: Vec<(u64, Vec<u64>)>,
+}
+
+fn segment_path(dir: &Path, id: u64) -> PathBuf {
+    dir.join(format!("seg-{id}.bin"))
+}
+
+/// Writes `image` to its file in `dir` and opens it; keeps it in memory
+/// without a directory or when the write fails.
+pub(crate) fn store_image(dir: Option<&Path>, id: u64, image: Vec<u8>) -> Store {
+    // Red: sealed images stay in memory.
+    let Some(dir) = dir.filter(|_| false) else { return Store::Memory(image) };
+    let path = segment_path(dir, id);
+    let written = fs::create_dir_all(dir)
+        .and_then(|()| write_atomic(&path, &image))
+        .and_then(|()| File::open(&path));
+    match written {
+        Ok(file) => Store::File { file, path },
+        Err(_) => Store::Memory(image),
+    }
 }
 
 impl SearchEngine {
-    /// Writes the index to `dir` (created when missing).
-    pub fn save(&mut self, dir: &Path) -> io::Result<()> {
-        self.seal();
-        fs::create_dir_all(dir)?;
-        let mut files = Vec::new();
-        for (index, segment) in self.segments.iter().enumerate() {
-            if segment.docs.is_empty() || !segment.is_sealed() {
-                continue;
-            }
-            let name = format!("seg-{index}.bin");
-            let path = dir.join(&name);
-            // A sealed segment never changes except its deleted bits, so
-            // rewriting it is only needed when they did; v1 always rewrites.
-            write_atomic(&path, &encode_segment(segment))?;
-            files.push(name);
-        }
-        let manifest = Manifest {
-            format: FORMAT,
-            strings: self.strings.clone(),
-            removed: (0..self.removed.len() as u32)
-                .filter(|&id| self.removed[id as usize])
-                .collect(),
-            names: self.names.iter().map(|entry| entry.doc.clone()).collect(),
-            frecency: self.frecency.clone(),
-            segments: files.clone(),
-        };
-        let json = serde_json::to_vec(&manifest).map_err(io::Error::other)?;
-        write_atomic(&dir.join("manifest.json"), &json)?;
-        // Drop segment files no manifest names (an earlier save's).
-        for entry in fs::read_dir(dir)? {
-            let entry = entry?;
-            let name = entry.file_name().to_string_lossy().into_owned();
-            if name.starts_with("seg-") && name.ends_with(".bin") && !files.contains(&name) {
-                let _ = fs::remove_file(entry.path());
-            }
-        }
-        Ok(())
+    /// Opens the index in `dir` (an empty one when `dir` holds none). Sealed
+    /// segments are written there and read from there on demand.
+    pub fn open(dir: &Path, config: EngineConfig) -> io::Result<Self> {
+        let mut engine = Self::load(dir, config)?;
+        engine.dir = Some(dir.to_path_buf());
+        Ok(engine)
     }
 
-    /// Opens the index saved in `dir`; an empty engine when `dir` holds none.
+    /// [`SearchEngine::open`].
     pub fn load(dir: &Path, config: EngineConfig) -> io::Result<Self> {
         let mut engine = SearchEngine::new(config);
+        engine.dir = Some(dir.to_path_buf());
         let manifest_path = dir.join("manifest.json");
         if !manifest_path.exists() {
             return Ok(engine);
@@ -92,192 +89,98 @@ impl SearchEngine {
         }
         engine.strings = manifest.strings;
         let mut segments = Vec::new();
-        for name in &manifest.segments {
-            segments.push(decode_segment(&fs::read(dir.join(name))?)?);
+        for (id, deleted) in manifest.segments {
+            let path = segment_path(dir, id);
+            let file = File::open(&path)?;
+            segments.push(Segment::Sealed(Sealed::open(id, Store::File { file, path }, deleted)?));
         }
-        segments.push(Segment::new_live());
+        segments.push(Segment::Live(Live::new(manifest.next_segment)));
+        engine.next_segment = manifest.next_segment + 1;
         engine.segments = segments;
-        for (segment_index, segment) in engine.segments.iter().enumerate() {
-            for (doc_index, doc) in segment.docs.iter().enumerate() {
-                if doc.key != crate::segment::NONE_U32 && !segment.is_deleted(doc_index as u32) {
-                    let key = engine.strings[doc.key as usize].clone();
-                    engine.keyed.insert(key, (segment_index as u32, doc_index as u32));
-                }
-            }
-        }
+        engine.keyed = manifest
+            .keyed
+            .into_iter()
+            .map(|(key, segment, doc)| (key, (segment, doc)))
+            .collect::<HashMap<_, _>>();
         for name in manifest.names {
             engine.names.upsert(name);
         }
-        engine.frecency = manifest.frecency;
+        for (target, context) in manifest.contexts {
+            engine.contexts.entries.insert(target, ContextEntry::new(context));
+        }
+        engine.opens = manifest.opens;
+        engine.focus = manifest.focus;
         Ok(engine)
     }
-}
 
-fn invalid(error: impl ToString) -> io::Error {
-    io::Error::new(io::ErrorKind::InvalidData, error.to_string())
+    /// Seals the live segment and writes the index to `dir` (created when
+    /// missing). Afterwards the engine reads its segments from `dir`.
+    pub fn save(&mut self, dir: &Path) -> io::Result<()> {
+        if self.dir.as_deref() != Some(dir) {
+            self.dir = Some(dir.to_path_buf());
+        }
+        self.seal();
+        fs::create_dir_all(dir)?;
+        let mut listed = Vec::new();
+        for segment in &mut self.segments {
+            let Segment::Sealed(sealed) = segment else { continue };
+            let path = segment_path(dir, sealed.id);
+            let moved = match &sealed.store {
+                Store::Memory(image) => Some(image.clone()),
+                Store::File { path: current, .. } if *current != path => Some(fs::read(current)?),
+                Store::File { .. } => None,
+            };
+            if let Some(image) = moved {
+                write_atomic(&path, &image)?;
+                sealed.store = Store::File { file: File::open(&path)?, path: path.clone() };
+            }
+            listed.push((sealed.id, sealed.deleted.clone()));
+        }
+        let live_id = self.segments.last().map_or(self.next_segment, Segment::id);
+        let manifest = Manifest {
+            format: FORMAT,
+            next_segment: live_id,
+            strings: self.strings.clone(),
+            removed: (0..self.removed.len() as u32)
+                .filter(|&id| self.removed[id as usize])
+                .collect(),
+            keyed: self
+                .keyed
+                .iter()
+                .map(|(key, &(segment, doc))| (key.clone(), segment, doc))
+                .collect(),
+            names: self.names.iter().map(|entry| entry.doc.clone()).collect(),
+            contexts: self
+                .contexts
+                .entries
+                .iter()
+                .map(|(target, entry)| (target.clone(), entry.context.clone()))
+                .collect(),
+            opens: self.opens.clone(),
+            focus: self.focus.clone(),
+            segments: listed.clone(),
+        };
+        let json = serde_json::to_vec(&manifest).map_err(io::Error::other)?;
+        write_atomic(&dir.join("manifest.json"), &json)?;
+        // Drop segment files the manifest does not name (a crashed seal's).
+        let keep: Vec<String> = listed.iter().map(|(id, _)| format!("seg-{id}.bin")).collect();
+        for entry in fs::read_dir(dir)? {
+            let entry = entry?;
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if name.starts_with("seg-") && name.ends_with(".bin") && !keep.contains(&name) {
+                let _ = fs::remove_file(entry.path());
+            }
+        }
+        Ok(())
+    }
 }
 
 fn write_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
     let temp = path.with_extension("tmp");
     {
-        let mut file = fs::File::create(&temp)?;
+        let mut file = File::create(&temp)?;
         file.write_all(bytes)?;
         file.sync_all()?;
     }
     fs::rename(&temp, path)
-}
-
-fn encode_segment(segment: &Segment) -> Vec<u8> {
-    let Postings::Sealed { keys, counts, offsets, data } = &segment.postings else {
-        return Vec::new();
-    };
-    let mut out = Vec::with_capacity(segment.text.len() + data.len() + segment.docs.len() * 48);
-    out.extend_from_slice(MAGIC);
-    put_bytes(&mut out, &segment.text);
-    put_u64(&mut out, segment.docs.len() as u64);
-    for doc in &segment.docs {
-        out.push(doc.kind);
-        for value in [doc.source, doc.target, doc.title, doc.key, doc.start, doc.len] {
-            out.extend_from_slice(&value.to_le_bytes());
-        }
-        out.extend_from_slice(&doc.position.to_le_bytes());
-        out.extend_from_slice(&doc.at_ms.to_le_bytes());
-    }
-    put_u64(&mut out, segment.blocks.len() as u64);
-    for block in &segment.blocks {
-        for value in [block.first_doc, block.end_doc, block.text_start] {
-            out.extend_from_slice(&value.to_le_bytes());
-        }
-        out.extend_from_slice(&block.kinds.to_le_bytes());
-    }
-    for list in [keys, counts, offsets] {
-        put_u64(&mut out, list.len() as u64);
-        for value in list {
-            out.extend_from_slice(&value.to_le_bytes());
-        }
-    }
-    put_bytes(&mut out, data);
-    put_u64(&mut out, segment.deleted.len() as u64);
-    for word in &segment.deleted {
-        out.extend_from_slice(&word.to_le_bytes());
-    }
-    out
-}
-
-fn put_u64(out: &mut Vec<u8>, value: u64) {
-    out.extend_from_slice(&value.to_le_bytes());
-}
-
-fn put_bytes(out: &mut Vec<u8>, bytes: &[u8]) {
-    put_u64(out, bytes.len() as u64);
-    out.extend_from_slice(bytes);
-}
-
-struct Reader<'a> {
-    bytes: &'a [u8],
-    at: usize,
-}
-
-impl<'a> Reader<'a> {
-    fn take(&mut self, count: usize) -> io::Result<&'a [u8]> {
-        let end = self.at.checked_add(count).filter(|&end| end <= self.bytes.len());
-        let end = end.ok_or_else(|| invalid("segment file is truncated"))?;
-        let slice = &self.bytes[self.at..end];
-        self.at = end;
-        Ok(slice)
-    }
-
-    fn array<const N: usize>(&mut self) -> io::Result<[u8; N]> {
-        let mut array = [0u8; N];
-        array.copy_from_slice(self.take(N)?);
-        Ok(array)
-    }
-
-    fn u16(&mut self) -> io::Result<u16> {
-        Ok(u16::from_le_bytes(self.array()?))
-    }
-
-    fn u32(&mut self) -> io::Result<u32> {
-        Ok(u32::from_le_bytes(self.array()?))
-    }
-
-    fn u64(&mut self) -> io::Result<u64> {
-        Ok(u64::from_le_bytes(self.array()?))
-    }
-
-    fn i64(&mut self) -> io::Result<i64> {
-        Ok(i64::from_le_bytes(self.array()?))
-    }
-
-    fn len(&mut self) -> io::Result<usize> {
-        let value = self.u64()?;
-        // No count can exceed the bytes left; this rejects corrupt lengths.
-        usize::try_from(value)
-            .ok()
-            .filter(|&value| value <= self.bytes.len())
-            .ok_or_else(|| invalid("segment file has a bad length"))
-    }
-
-    fn u32s(&mut self) -> io::Result<Vec<u32>> {
-        let count = self.len()?;
-        (0..count).map(|_| self.u32()).collect()
-    }
-}
-
-fn decode_segment(bytes: &[u8]) -> io::Result<Segment> {
-    let mut reader = Reader { bytes, at: 0 };
-    if reader.take(MAGIC.len())? != MAGIC {
-        return Err(invalid("not a cmux search segment"));
-    }
-    let text_len = reader.len()?;
-    let text = reader.take(text_len)?.to_vec();
-    let doc_count = reader.len()?;
-    let mut docs = Vec::with_capacity(doc_count);
-    for _ in 0..doc_count {
-        let kind = reader.take(1)?[0];
-        let source = reader.u32()?;
-        let target = reader.u32()?;
-        let title = reader.u32()?;
-        let key = reader.u32()?;
-        let start = reader.u32()?;
-        let len = reader.u32()?;
-        let position = reader.i64()?;
-        let at_ms = reader.i64()?;
-        if start as usize + len as usize > text.len() {
-            return Err(invalid("segment doc is out of range"));
-        }
-        docs.push(DocMeta { kind, source, target, title, key, position, at_ms, start, len });
-    }
-    let block_count = reader.len()?;
-    let mut blocks = Vec::with_capacity(block_count);
-    for _ in 0..block_count {
-        let first_doc = reader.u32()?;
-        let end_doc = reader.u32()?;
-        let text_start = reader.u32()?;
-        let kinds = reader.u16()?;
-        if first_doc > end_doc || end_doc as usize > docs.len() {
-            return Err(invalid("segment block is out of range"));
-        }
-        blocks.push(BlockMeta { first_doc, end_doc, kinds, text_start });
-    }
-    let keys = reader.u32s()?;
-    let counts = reader.u32s()?;
-    let offsets = reader.u32s()?;
-    let data_len = reader.len()?;
-    let data = reader.take(data_len)?.to_vec();
-    if counts.len() != keys.len()
-        || offsets.len() != keys.len() + 1
-        || offsets.iter().any(|&offset| offset as usize > data.len())
-    {
-        return Err(invalid("segment postings are inconsistent"));
-    }
-    let deleted_len = reader.len()?;
-    let deleted = (0..deleted_len).map(|_| reader.u64()).collect::<io::Result<Vec<u64>>>()?;
-    Ok(Segment {
-        text,
-        docs,
-        blocks,
-        postings: Postings::Sealed { keys, counts, offsets, data },
-        deleted,
-    })
 }

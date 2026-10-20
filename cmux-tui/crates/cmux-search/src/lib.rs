@@ -6,6 +6,12 @@
 //! tabs, panes, file paths, pages) up to date. A query returns one list,
 //! names and content ranked together on shared match tiers.
 //!
+//! Ranking uses every signal (design 7.3): the match tier (exact, phrase,
+//! word starts, anywhere, fuzzy) and where the match falls, the hit's kind,
+//! words that name its place ([`TargetContext`]: workspace, group, title,
+//! folder, git branch, agent), recency, opens (frecency), focus history and
+//! the current workspace.
+//!
 //! Content is found through trigram -> block postings (zoekt / Code Search
 //! shape): docs are packed into ~16 KiB blocks, a query intersects the block
 //! lists of its trigrams, rarest first, then verifies candidate blocks newest
@@ -31,6 +37,7 @@
 //! assert_eq!(result.hits[0].snippet, "error: migration 0042 failed");
 //! ```
 
+mod context;
 mod corpus;
 mod engine;
 mod fold;
@@ -42,6 +49,7 @@ mod persist;
 mod segment;
 mod trigram;
 
+pub use context::TargetContext;
 pub use corpus::SyntheticCorpus;
 pub use engine::{Doc, EngineConfig, Hit, Query, SearchEngine, SearchResult, Stats};
 pub use fold::fold;

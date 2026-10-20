@@ -1,16 +1,19 @@
-//! The engine: appends, names, removal, and one ranked query over all of it.
+//! The engine: appends, names, contexts, removal, and one ranked query over
+//! all of it.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::ops::Range;
+use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use memchr::memmem::Finder;
 
 use crate::Kind;
+use crate::context::{ContextEntry, Contexts, TargetContext};
 use crate::fold::{ends_word, fold, fold_into, fold_with_map, starts_word};
-use crate::frecency::Frecency;
+use crate::frecency::{FOCUS, Frecency, OPENS};
 use crate::names::{NameDoc, NameTable};
-use crate::segment::{DocMeta, LiveScratch, NONE_I64, NONE_U32, Segment};
+use crate::segment::{BlockData, DocMeta, Live, LiveScratch, NONE_I64, NONE_U32, Segment};
 use crate::trigram;
 
 /// Sizes the engine packs and seals at.
@@ -36,7 +39,9 @@ pub struct Doc {
     pub kind: Kind,
     /// The unit [`SearchEngine::remove_source`] drops (`term:<id>`, `acp:<session>`).
     pub source: String,
-    /// Where a hit jumps (a terminal, a chat session, a Chief, a path).
+    /// Where a hit jumps (a terminal, a chat session, a Chief, a path). Its
+    /// [`TargetContext`] (set with [`SearchEngine::set_context`]) also
+    /// matches query words and ranks the hit.
     pub target: String,
     /// The first line (scrollback), the turn (chat), the frame time (screen).
     pub position: Option<i64>,
@@ -58,16 +63,25 @@ pub struct Query {
     /// The kinds to search; empty: every kind.
     pub kinds: Vec<Kind>,
     pub limit: usize,
-    /// Now, for recency and frecency.
+    /// Now, for recency, frecency and focus.
     pub now_ms: i64,
     /// Content scanning stops after this long and the result is `partial`.
     pub budget: Option<Duration>,
+    /// The workspace the user is in: its hits rank higher.
+    pub workspace_id: Option<String>,
 }
 
 impl Query {
     /// A query over every kind, 50 hits, no time budget.
     pub fn new(text: impl Into<String>, now_ms: i64) -> Self {
-        Self { text: text.into(), kinds: Vec::new(), limit: 50, now_ms, budget: None }
+        Self {
+            text: text.into(),
+            kinds: Vec::new(),
+            limit: 50,
+            now_ms,
+            budget: None,
+            workspace_id: None,
+        }
     }
 }
 
@@ -112,46 +126,64 @@ pub struct Stats {
     pub blocks: usize,
     pub segments: usize,
     pub text_bytes: usize,
-    /// Postings, doc and block tables (not the text).
+    /// Postings, doc and block tables (not the text), memory and disk.
     pub index_bytes: usize,
+    /// Bytes the engine holds in process memory (the page cache aside).
+    pub resident_bytes: usize,
     pub names: usize,
+    pub contexts: usize,
+    /// Reads of sealed segments that failed (a damaged file); the blocks
+    /// they cover are skipped.
+    pub read_errors: usize,
 }
 
 /// The search-everything index. One owner writes it (the daemon's search
 /// thread); queries take `&self`.
 pub struct SearchEngine {
     pub(crate) config: EngineConfig,
+    /// Sealed segment files go here; `None`: they stay in memory.
+    pub(crate) dir: Option<PathBuf>,
     pub(crate) segments: Vec<Segment>,
+    pub(crate) next_segment: u64,
     pub(crate) strings: Vec<String>,
     pub(crate) string_ids: HashMap<String, u32>,
     /// A flag per string id: the source with this id was removed.
     pub(crate) removed: Vec<bool>,
-    pub(crate) keyed: HashMap<String, (u32, u32)>,
+    /// Key -> (segment id, doc).
+    pub(crate) keyed: HashMap<String, (u64, u32)>,
     pub(crate) names: NameTable,
-    pub(crate) frecency: Frecency,
+    pub(crate) contexts: Contexts,
+    pub(crate) opens: Frecency,
+    pub(crate) focus: Frecency,
+    pub(crate) read_errors: std::sync::atomic::AtomicUsize,
     scratch: LiveScratch,
 }
 
-/// A content candidate: segment and doc.
-#[derive(Clone, Copy)]
+/// A content candidate, copied out of its block.
 struct Found {
-    segment: u32,
-    doc: u32,
+    meta: DocMeta,
+    text: String,
 }
 
 const DAY_MS: f64 = 86_400_000.0;
 
 impl SearchEngine {
+    /// An engine that keeps everything in memory (tests, benches).
     pub fn new(config: EngineConfig) -> Self {
         Self {
             config,
-            segments: vec![Segment::new_live()],
+            dir: None,
+            segments: vec![Segment::Live(Live::new(0))],
+            next_segment: 1,
             strings: Vec::new(),
             string_ids: HashMap::new(),
             removed: Vec::new(),
             keyed: HashMap::new(),
             names: NameTable::default(),
-            frecency: Frecency::default(),
+            contexts: Contexts::default(),
+            opens: Frecency::default(),
+            focus: Frecency::default(),
+            read_errors: std::sync::atomic::AtomicUsize::new(0),
             scratch: LiveScratch::new(),
         }
     }
@@ -167,7 +199,8 @@ impl SearchEngine {
         id
     }
 
-    /// Indexes `doc`. A keyed doc replaces the doc with its key.
+    /// Indexes `doc`. A keyed doc replaces the doc with its key. Cost: the
+    /// doc's own text (fold + trigrams); never a rescan.
     pub fn append(&mut self, doc: Doc) {
         let mut text = doc.text.as_str();
         if text.len() > self.config.max_doc_bytes {
@@ -191,31 +224,59 @@ impl SearchEngine {
             start: 0,
             len: 0,
         };
-        let segment = self.segments.len() - 1;
-        let live = &mut self.segments[segment];
-        let index = live.append(meta, text, self.config.block_bytes, &mut self.scratch);
-        if let (Some(key), Some(index)) = (doc.key, index) {
-            self.keyed.insert(key, (segment as u32, index));
-        }
-        if self.segments[segment].text_len() >= self.config.segment_bytes {
-            self.seal();
+        let block_bytes = self.config.block_bytes;
+        let segment_bytes = self.config.segment_bytes;
+        let scratch = &mut self.scratch;
+        let appended = match self.segments.last_mut() {
+            Some(Segment::Live(live)) => {
+                let index = live.append(meta, text, block_bytes, scratch);
+                Some((live.id, index, live.text_len() >= segment_bytes))
+            }
+            _ => None,
+        };
+        if let Some((segment, index, full)) = appended {
+            if let Some(key) = doc.key {
+                self.keyed.insert(key, (segment, index));
+            }
+            if full {
+                self.seal();
+            }
         }
     }
 
-    /// Seals the live segment (when it holds docs) and opens a new one.
+    /// Seals the live segment (when it holds docs) and opens a new one. With
+    /// an index directory the sealed image goes to a file and leaves memory.
     pub fn seal(&mut self) {
-        let last = self.segments.len() - 1;
-        if self.segments[last].docs.is_empty() {
+        let Some(Segment::Live(live)) = self.segments.last() else { return };
+        if live.doc_count() == 0 {
             return;
         }
-        self.segments[last].seal(&mut self.scratch);
-        self.segments.push(Segment::new_live());
+        let image = live.encode(&mut self.scratch);
+        let deleted = live.deleted().to_vec();
+        let id = live.id;
+        let store = crate::persist::store_image(self.dir.as_deref(), id, image);
+        match crate::segment::Sealed::open(id, store, deleted) {
+            Ok(sealed) => {
+                if let Some(last) = self.segments.last_mut() {
+                    *last = Segment::Sealed(sealed);
+                }
+                self.segments.push(Segment::Live(Live::new(self.next_segment)));
+                self.next_segment += 1;
+            }
+            // The image could not be read back: keep the live segment.
+            Err(_) => {
+                self.read_errors.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            }
+        }
     }
 
     /// Drops the doc appended with `key`.
     pub fn remove_key(&mut self, key: &str) {
-        if let Some((segment, doc)) = self.keyed.remove(key) {
-            self.segments[segment as usize].delete(doc);
+        if let Some((segment_id, doc)) = self.keyed.remove(key)
+            && let Some(segment) =
+                self.segments.iter_mut().find(|segment| segment.id() == segment_id)
+        {
+            segment.delete(doc);
         }
     }
 
@@ -237,23 +298,51 @@ impl SearchEngine {
         self.names.remove(key);
     }
 
+    /// Sets what surrounds `target` (workspace, group, title, folder,
+    /// branch, agent).
+    pub fn set_context(&mut self, target: &str, context: TargetContext) {
+        self.contexts.entries.insert(target.to_owned(), ContextEntry::new(context));
+    }
+
+    pub fn remove_context(&mut self, target: &str) {
+        self.contexts.entries.remove(target);
+    }
+
     /// Records that the user opened a hit jumping to `target`.
     pub fn record_open(&mut self, target: &str, now_ms: i64) {
-        self.frecency.record(target, now_ms);
+        self.opens.record(target, now_ms, OPENS);
+    }
+
+    /// Records that the user focused `target` (a tab, pane, terminal or
+    /// chat), the focus history signal.
+    pub fn record_focus(&mut self, target: &str, now_ms: i64) {
+        self.focus.record(target, now_ms, FOCUS);
     }
 
     pub fn stats(&self) -> Stats {
         let mut stats = Stats {
-            segments: self.segments.iter().filter(|segment| !segment.docs.is_empty()).count(),
+            segments: self.segments.iter().filter(|segment| segment.doc_count() > 0).count(),
             names: self.names.len(),
+            contexts: self.contexts.entries.len(),
+            read_errors: self.read_errors.load(std::sync::atomic::Ordering::Relaxed),
             ..Stats::default()
         };
         for segment in &self.segments {
-            stats.docs += segment.docs.len();
-            stats.blocks += segment.blocks.len();
+            stats.docs += segment.doc_count();
+            stats.blocks += segment.blocks().len();
             stats.text_bytes += segment.text_len();
             stats.index_bytes += segment.index_bytes();
+            stats.resident_bytes += segment.resident_bytes();
         }
+        stats.resident_bytes += self.names.resident_bytes()
+            + self.strings.iter().map(|value| value.capacity() * 2 + 48).sum::<usize>()
+            + self
+                .contexts
+                .entries
+                .values()
+                .map(|entry| entry.folded.capacity() * 2 + 96)
+                .sum::<usize>()
+            + self.scratch.resident_bytes();
         stats
     }
 
@@ -272,19 +361,22 @@ impl SearchEngine {
         SearchResult { hits, partial, took: started.elapsed() }
     }
 
+    fn signals(&self, target: &str, query: &Query) -> f64 {
+        // Red: opens, focus and the current workspace are not ranked yet.
+        let _ = (target, query, &self.opens, &self.focus, OPENS, FOCUS);
+        0.0
+    }
+
     fn search_names(&self, words: &[Vec<u8>], query: &Query) -> Vec<Hit> {
         let mut hits: Vec<Hit> = self
             .names
-            .matches(words, &query.kinds)
+            .matches(words, &query.kinds, &Contexts::default())
             .map(|(entry, found)| {
                 let doc = &entry.doc;
-                let score = score(
-                    found.tier,
-                    doc.kind,
-                    doc.at_ms,
-                    query.now_ms,
-                    self.frecency.bonus(&doc.target, query.now_ms),
-                ) + f64::from(found.quality) / 3.0;
+                let score = score(found.tier, doc.kind, doc.at_ms, query.now_ms)
+                    + self.signals(&doc.target, query)
+                    + context_bonus(found.context_words)
+                    + f64::from(found.quality) / 3.0;
                 Hit {
                     kind: doc.kind,
                     source: doc.key.clone(),
@@ -309,14 +401,38 @@ impl SearchEngine {
 
     /// Content hits (newest first, up to 4x the limit, then ranked), and
     /// whether the budget cut the scan.
+    ///
+    /// A word found in a target's context need not be in that target's
+    /// text, but at least one word (the anchor) must be in the text: every
+    /// word no context holds, or else the longest word.
     fn search_content(
         &self,
         words: &[Vec<u8>],
         query: &Query,
         started: Instant,
     ) -> (Vec<Hit>, bool) {
-        if !words.iter().any(|word| word.len() >= 3) {
-            return (Vec::new(), false);
+        // Per word, the target ids whose context holds it.
+        let context_targets: Vec<HashSet<u32>> = words
+            .iter()
+            .map(|word| {
+                // Red: contexts do not match query words yet.
+                self.contexts
+                    .entries
+                    .iter()
+                    .filter(|(_, entry)| entry.contains(word) && word.is_empty())
+                    .filter_map(|(target, _)| self.string_ids.get(target).copied())
+                    .collect()
+            })
+            .collect();
+        let mut anchors: Vec<bool> = context_targets.iter().map(HashSet::is_empty).collect();
+        if !words.iter().zip(&anchors).any(|(word, &anchor)| anchor && word.len() >= 3) {
+            let Some(longest) = (0..words.len())
+                .filter(|&index| words[index].len() >= 3)
+                .max_by_key(|&index| words[index].len())
+            else {
+                return (Vec::new(), false);
+            };
+            anchors[longest] = true;
         }
         let mut kind_mask: u16 = 0;
         for kind in &query.kinds {
@@ -327,8 +443,9 @@ impl SearchEngine {
         }
         let mut keys: Vec<u32> = words
             .iter()
-            .filter(|word| word.len() >= 3)
-            .flat_map(|word| trigram::distinct(word))
+            .zip(&anchors)
+            .filter(|(word, anchor)| **anchor && word.len() >= 3)
+            .flat_map(|(word, _)| trigram::distinct(word))
             .collect();
         keys.sort_unstable();
         keys.dedup();
@@ -337,11 +454,16 @@ impl SearchEngine {
         let mut found: Vec<Found> = Vec::new();
         let mut folded = Vec::new();
         let mut buffer = Vec::new();
+        let mut block = BlockData::default();
         let mut partial = false;
-        'segments: for (segment_index, segment) in self.segments.iter().enumerate().rev() {
+        'segments: for segment in self.segments.iter().rev() {
             let candidates = match segment.candidates(&keys, &mut buffer) {
-                Some(candidates) => candidates,
-                None => (0..segment.blocks.len() as u32).collect(),
+                Ok(Some(candidates)) => candidates,
+                Ok(None) => (0..segment.blocks().len() as u32).collect(),
+                Err(_) => {
+                    self.read_errors.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    continue;
+                }
             };
             for &block_id in candidates.iter().rev() {
                 if let Some(budget) = query.budget
@@ -350,21 +472,30 @@ impl SearchEngine {
                     partial = true;
                     break 'segments;
                 }
-                let block = segment.blocks[block_id as usize];
-                if block.kinds & kind_mask == 0 {
+                let Some(meta) = segment.blocks().get(block_id as usize) else { continue };
+                if meta.kinds & kind_mask == 0 {
                     continue;
                 }
-                for doc_index in (block.first_doc..block.end_doc).rev() {
-                    let doc = &segment.docs[doc_index as usize];
+                if segment.load_block(block_id, &mut block).is_err() {
+                    self.read_errors.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    continue;
+                }
+                for (offset, doc) in block.docs.iter().enumerate().rev() {
+                    let doc_index = meta.first_doc + offset as u32;
                     if kind_mask & (1 << doc.kind) == 0
                         || segment.is_deleted(doc_index)
-                        || self.removed[doc.source as usize]
+                        || self.removed.get(doc.source as usize).copied().unwrap_or(true)
                     {
                         continue;
                     }
-                    fold_into(segment.doc_text(doc), &mut folded);
-                    if finders.iter().all(|finder| finder.find(&folded).is_some()) {
-                        found.push(Found { segment: segment_index as u32, doc: doc_index });
+                    let text = block.doc_text(doc);
+                    fold_into(text, &mut folded);
+                    let matched = finders.iter().enumerate().all(|(index, finder)| {
+                        finder.find(&folded).is_some()
+                            || (!anchors[index] && context_targets[index].contains(&doc.target))
+                    });
+                    if matched {
+                        found.push(Found { meta: *doc, text: text.to_owned() });
                         if found.len() >= want {
                             break 'segments;
                         }
@@ -373,38 +504,57 @@ impl SearchEngine {
             }
         }
         let mut hits: Vec<Hit> =
-            found.into_iter().filter_map(|found| self.content_hit(found, words, query)).collect();
+            found.iter().filter_map(|found| self.content_hit(found, words, query)).collect();
         hits.sort_by(|a, b| b.score.total_cmp(&a.score));
         hits.truncate(query.limit);
         (hits, partial)
     }
 
-    fn content_hit(&self, found: Found, words: &[Vec<u8>], query: &Query) -> Option<Hit> {
-        let segment = &self.segments[found.segment as usize];
-        let doc = &segment.docs[found.doc as usize];
+    fn content_hit(&self, found: &Found, words: &[Vec<u8>], query: &Query) -> Option<Hit> {
+        let doc = &found.meta;
         let kind = Kind::from_code(doc.kind)?;
-        let text = segment.doc_text(doc);
-        let (folded, map) = fold_with_map(text);
-        let phrase = join_words(words);
-        let (tier, at) = content_tier(&folded, words, &phrase);
+        let target = self.strings.get(doc.target as usize)?.clone();
+        let title = self.strings.get(doc.title as usize)?.clone();
+        let (folded, map) = fold_with_map(&found.text);
+        let in_text: Vec<Vec<u8>> = words
+            .iter()
+            .filter(|word| memchr::memmem::find(&folded, word).is_some())
+            .cloned()
+            .collect();
+        if in_text.is_empty() {
+            return None;
+        }
+        let (mut tier, at) = content_tier(&folded, &in_text, &join_words(&in_text));
+        if in_text.len() < words.len() {
+            tier = tier.min(3);
+        }
+        let context = self.contexts.get(&target);
+        let folded_title = fold(&title).into_bytes();
+        let context_words = words
+            .iter()
+            .filter(|word| {
+                context.is_some_and(|context| context.contains(word))
+                    || memchr::memmem::find(&folded_title, word).is_some()
+            })
+            .count() as u32;
         let line = folded[..at].iter().filter(|&&byte| byte == b'\n').count() as u32;
-        let (snippet, highlights) = snippet(text, &map, at, words);
-        let target = self.strings[doc.target as usize].clone();
-        let bonus = self.frecency.bonus(&target, query.now_ms);
+        let (snippet, highlights) = snippet(&found.text, &map, at, &in_text);
         Some(Hit {
             kind,
-            source: self.strings[doc.source as usize].clone(),
-            target,
+            source: self.strings.get(doc.source as usize)?.clone(),
             position: (doc.position != NONE_I64).then_some(doc.position),
             line,
-            title: self.strings[doc.title as usize].clone(),
-            subtitle: String::new(),
+            title,
+            subtitle: context.map_or(String::new(), |context| context.context.workspace.clone()),
             snippet,
             highlights,
             at_ms: doc.at_ms,
             tier,
-            score: score(tier, kind, doc.at_ms, query.now_ms, bonus),
+            score: score(tier, kind, doc.at_ms, query.now_ms)
+                + self.signals(&target, query)
+                + context_bonus(context_words),
             is_name: false,
+            target,
         })
     }
 }
@@ -473,7 +623,7 @@ fn content_tier(folded: &[u8], words: &[Vec<u8>], phrase: &[u8]) -> (u8, usize) 
     if let Some(at) = phrase_at {
         return (2, at);
     }
-    let at = memchr::memmem::find(folded, &words[0]).unwrap_or(0);
+    let at = words.first().and_then(|word| memchr::memmem::find(folded, word)).unwrap_or(0);
     (1, at)
 }
 
@@ -520,9 +670,20 @@ fn snippet(text: &str, map: &[usize], at: usize, words: &[Vec<u8>]) -> (String, 
     (format!("{prefix}{core}{suffix}"), merged)
 }
 
-/// Design 7.3: tier x 1000 + (weight - 1) x 500 + 400 x recency + frecency.
-fn score(tier: u8, kind: Kind, at_ms: i64, now_ms: i64, frecency: f64) -> f64 {
+/// Design 7.3: tier x 1000 + (weight - 1) x 500 + 250 x recency. The other
+/// signals (opens <= 200, focus <= 150, same workspace 100, context <= 150,
+/// name quality <= 33) are added by the caller; together they stay under
+/// 1000, so a better tier always wins.
+fn score(tier: u8, kind: Kind, at_ms: i64, now_ms: i64) -> f64 {
     let age_days = (now_ms - at_ms).max(0) as f64 / DAY_MS;
     let recency = (-age_days / 7.0).exp();
-    f64::from(tier) * 1000.0 + (kind.weight() - 1.0) * 500.0 + 400.0 * recency + frecency
+    f64::from(tier) * 1000.0 + (kind.weight() - 1.0) * 500.0 + 250.0 * recency
+}
+
+/// Query words that name the hit's place (workspace, group, title, folder,
+/// branch, agent): 60 points each, at most 150.
+fn context_bonus(words: u32) -> f64 {
+    // Red: context words are not ranked yet.
+    let _ = words;
+    0.0
 }
