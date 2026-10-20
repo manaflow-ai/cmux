@@ -18,6 +18,9 @@ import Security
 public actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
     private static let accessTokenAccount = "cmux-auth-access-token"
     private static let refreshTokenAccount = "cmux-auth-refresh-token"
+    #if canImport(Security)
+    static let keychainAccessibility = kSecAttrAccessibleAfterFirstUnlock as String
+    #endif
     private let service: String
     private let accessGroup: String?
     private let legacyProjectID: String?
@@ -222,17 +225,20 @@ public actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
     private func keychainWrite(_ value: String, account: String) -> Bool {
         guard let data = value.data(using: .utf8) else { return false }
         let lookup = baseQuery(account: account)
+        let attributes: [String: Any] = [
+            kSecValueData as String: data,
+            kSecAttrAccessible as String: Self.keychainAccessibility,
+        ]
         let updateStatus = SecItemUpdate(
             lookup as CFDictionary,
-            [kSecValueData as String: data] as CFDictionary
+            attributes as CFDictionary
         )
         if updateStatus == errSecSuccess { return true }
         if updateStatus != errSecItemNotFound {
             log.log("keychain UPDATE status=\(updateStatus) account=\(account)")
         }
         var insert = lookup
-        insert[kSecValueData as String] = data
-        insert[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
+        insert.merge(attributes) { _, new in new }
         let addStatus = SecItemAdd(insert as CFDictionary, nil)
         if addStatus != errSecSuccess {
             log.log("keychain ADD status=\(addStatus) account=\(account)")

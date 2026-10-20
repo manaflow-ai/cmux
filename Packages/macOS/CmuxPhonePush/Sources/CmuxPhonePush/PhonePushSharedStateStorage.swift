@@ -34,6 +34,7 @@ extension Bundle {
 /// Generic-password items in the host app's keychain access group.
 public struct PhonePushKeychainStateStorage: PhonePushSharedStateStorage {
     static let service = "ai.manaflow.cmux.phone-push.shared-state"
+    static let keychainAccessibility = kSecAttrAccessibleAfterFirstUnlock as String
 
     private let accessGroup: String?
 
@@ -78,7 +79,7 @@ public struct PhonePushKeychainStateStorage: PhonePushSharedStateStorage {
         }
         let attributes: [String: Any] = [
             kSecValueData as String: data,
-            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock,
+            kSecAttrAccessible as String: Self.keychainAccessibility,
         ]
         guard SecItemUpdate(query as CFDictionary, attributes as CFDictionary) == errSecItemNotFound else {
             return

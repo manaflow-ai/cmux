@@ -232,6 +232,8 @@ public struct PhonePushKeyMaterial: Sendable {
 }
 
 extension PhonePushKeyMaterial {
+    static let keychainAccessibility = kSecAttrAccessibleAfterFirstUnlock as String
+
     public static func current(bundleID: String, accessGroup: String? = nil) throws -> PhonePushKeyMaterial {
         let service = "ai.manaflow.cmux.phone-push.\(bundleID)"
         var query: [String: Any] = [
@@ -241,7 +243,7 @@ extension PhonePushKeyMaterial {
             kSecReturnData as String: true,
         ]
         if let accessGroup { query[kSecAttrAccessGroup as String] = accessGroup }
-        let accessibility: CFString = kSecAttrAccessibleAfterFirstUnlock
+        let accessibility = keychainAccessibility
         var result: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
         let data: Data
