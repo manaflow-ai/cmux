@@ -11,6 +11,7 @@ mod common;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use base64::Engine as _;
 use cmux_conversation::{
     Change, Message, Origin, Part, Participant, ParticipantKind, Summary, TextRun,
 };
@@ -349,6 +350,44 @@ fn security_a_non_owner_side_turn_does_not_receive_private_dm_memory() {
         "the scoped turn lost its own message: {group_prompt}"
     );
     assert_eq!(agents.specs[1].policy, "ask");
+}
+
+#[test]
+fn security_a_non_owner_message_does_not_download_files_to_the_owner_mac() {
+    let mut h = Harness::new(default_script());
+    h.connect();
+    h.add_side("conv_team", "user_teammate");
+    let hash = "a".repeat(64);
+    let message = {
+        let mut owner = h.owner.lock().unwrap();
+        owner.attachments.insert(
+            (hash.clone(), "original".into()),
+            base64::engine::general_purpose::STANDARD.encode(b"untrusted file"),
+        );
+        let store = owner.stores.get_mut("conv_team").unwrap();
+        let mut message = side_message("conv_team", 1, "user_teammate", "");
+        message.parts = vec![Part::Attachment {
+            hash,
+            name: "archive.zip".into(),
+            mime_type: "application/zip".into(),
+            byte_count: 14,
+            width: None,
+            height: None,
+            duration_ms: None,
+            poster: None,
+            preview: None,
+        }];
+        store.messages.push(message.clone());
+        store.summary.last_seq = 1;
+        message
+    };
+
+    h.wake(&[("conv_team", message.seq)]);
+
+    assert!(
+        h.owner.lock().unwrap().attachment_reads.is_empty(),
+        "a teammate's wake downloaded attachment bytes before owner approval"
+    );
 }
 
 #[test]
