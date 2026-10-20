@@ -563,6 +563,7 @@
       "page-credential",
       "ws-listen",
       "cloud-inbox-list",
+      "cloud-requests-list",
       "cloud-conversation-snapshot",
       "cloud-conversation-history",
       "cloud-conversation-thread",
@@ -1115,6 +1116,12 @@
     },
     {
       "name": "cloud-session-needed",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
+      "name": "cloud-host-replica-needed",
       "streams": [
         "subscribe"
       ]

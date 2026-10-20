@@ -21,7 +21,9 @@ public final class OmnibarToolbarView: ArrowCursorView {
         NSLayoutConstraint.activate([
             density.bind(addressBar.leadingAnchor.constraint(equalTo: leadingAnchor)) { OmnibarStyle.toolbarInset },
             density.bind(addressBar.trailingAnchor.constraint(equalTo: trailingAnchor)) { -OmnibarStyle.toolbarInset },
-            addressBar.topAnchor.constraint(equalTo: topAnchor, constant: OmnibarStyle.toolbarTopPadding),
+            density.bind(addressBar.topAnchor.constraint(equalTo: topAnchor)) { [weak self] in
+                OmnibarStyle.toolbarTopPadding(scale: self?.window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2)
+            },
             density.bind(addressBar.heightAnchor.constraint(equalToConstant: 0)) { OmnibarStyle.barHeight },
         ])
     }

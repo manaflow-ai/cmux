@@ -74,16 +74,20 @@ export function ArtBrowser({ onClose }: { onClose: () => void }) {
               aria-busy={using === result.key}
               disabled={using !== null}
               onClick={() => void use(result.key)}
+              /* tooltip-allow: the credit the one-line tile drops (macOS 15 tester: tile text overlapped) */ title={[
+                result.title,
+                [result.artist, result.date, result.source].filter(Boolean).join(" · "),
+              ]
+                .filter(Boolean)
+                .join("\n")}
             >
               <img className="backdrop-thumb" alt="" src={`museum/${encodeURIComponent(result.key)}`} />
               <span className="backdrop-title">{result.title}</span>
-              <span className="row-help">
-                {using === result.key
-                  ? t("settingsWindow.artBrowser.downloading")
-                  : failedKey === result.key
-                    ? t("settingsWindow.artBrowser.failed")
-                    : [result.artist, result.date, result.source].filter(Boolean).join(" · ")}
-              </span>
+              {(using === result.key || failedKey === result.key) && (
+                <span className="backdrop-title backdrop-status">
+                  {using === result.key ? t("settingsWindow.artBrowser.downloading") : t("settingsWindow.artBrowser.failed")}
+                </span>
+              )}
             </button>
           ))}
         </div>
