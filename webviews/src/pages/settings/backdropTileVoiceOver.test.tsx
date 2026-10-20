@@ -22,6 +22,9 @@ test("a moving wallpaper's tile says it is a video; a still one says nothing ext
   expect(described(video)).toBe("Video");
   const still = page.container.querySelector<HTMLButtonElement>('[aria-label="The Starry Night"]')!;
   expect(described(still)).toBe("");
+  // The descriptions are not text of their own in the card's reading order.
+  const ids = (video.getAttribute("aria-describedby") ?? "").split(" ").filter(Boolean);
+  expect(ids.every((id) => (document.getElementById(id) as HTMLElement).hidden)).toBe(true);
   page.unmount();
 });
 

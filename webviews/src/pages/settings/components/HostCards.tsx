@@ -73,6 +73,8 @@ export function useBackdropsShown(): boolean {
 export function Backdrops({ focus = null, workspace = null }: { focus?: string | null; workspace?: string | null }) {
   const store = useStore();
   // What a tile's badges say to VoiceOver (the ▶ of a video, the cloud of a pending download).
+  // It stands in for the credit tooltip as VoiceOver's description; the credit stays the pointer's
+  // tooltip, and a video's title already names the wallpaper.
   const describe = useId();
   const state = useSettingsState();
   const { host, rows } = state;
@@ -222,10 +224,11 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
   return (
     <section className="group" data-card="backdrop">
       <h3 className="group-title">{t("settingsWindow.backdropPicker.title")}</h3>
-      <span id={`${describe}-video`} className="visually-hidden">
+      {/* Hidden: read only as a tile's description, never as text of their own in the card. */}
+      <span id={`${describe}-video`} hidden>
         {t("settingsWindow.backdropPicker.video")}
       </span>
-      <span id={`${describe}-pending`} className="visually-hidden">
+      <span id={`${describe}-pending`} hidden>
         {t("settingsWindow.backdropPicker.downloadInSystemSettings")}
       </span>
       {workspaceBackground && (
