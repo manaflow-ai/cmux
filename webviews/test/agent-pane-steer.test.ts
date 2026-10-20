@@ -3,8 +3,10 @@
 // stand-in acpmux daemon whose one chat has a turn running, and which answers prompts as acpmux
 // does: a plain prompt waits behind the turn (`queued`), a steer goes into it (`user_message`).
 //
-// - Enter queues: the queue row shows the prompt and the composer is free for the next one. The
-//   prompt shows there from the send on, never first as a transcript bubble.
+// - Enter sends now, with no queue flag: acpmux stops the running turn and runs it next (its default
+//   since 2026-10-20, "We do not like queuing here").
+// - ⌥Enter queues (`_meta.acpmux.queue`): the queue row shows the prompt and the composer is free for
+//   the next one. The prompt shows there from the send on, never first as a transcript bubble.
 // - ⌘Enter steers, and an agent that cannot steer is told to stop the turn and run it next
 //   (`_meta.acpmux.interrupt`); the button says so.
 // - Esc on an empty composer stops the turn.
@@ -100,20 +102,24 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
     prompts.push(params);
     const meta = params._meta?.acpmux ?? {};
     const text = (params.prompt ?? []).map((block: { text?: string }) => block.text ?? "").join("");
+    // A steer goes into the turn; a prompt with no queue flag stops it and starts (acpmux's
+    // default): both echo as `user_message`. Only `_meta.acpmux.queue` waits (`queued`).
     const msg = meta.steer
       ? { text, promptId: meta.promptId, turnId: "turn-1", steer: true }
-      : {
-          text,
-          promptId: meta.promptId,
-          turnId: `turn-${meta.promptId}`,
-          position: prompts.length,
-        };
+      : !meta.queue
+        ? { text, promptId: meta.promptId, turnId: `turn-${meta.promptId}` }
+        : {
+            text,
+            promptId: meta.promptId,
+            turnId: `turn-${meta.promptId}`,
+            position: prompts.length,
+          };
     const event = {
       sessionId: SESSION,
       seq: ++seq,
       at: Date.now(),
       dir: "mux",
-      kind: meta.steer ? "user_message" : "queued",
+      kind: meta.steer || !meta.queue ? "user_message" : "queued",
       msg,
     };
     const deliver = () => ws.send(JSON.stringify({ jsonrpc: "2.0", method: "_acpmux/event", params: event }));
@@ -212,7 +218,22 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
   const composerText = (page: Page) => page.locator(".acpmux-composer-prompt .ProseMirror").innerText();
 
   describe("queue and steer while a turn runs", () => {
-    test("Enter queues each prompt behind the turn and frees the composer for the next", async () => {
+    test("Enter sends now without a queue flag: acpmux stops the turn", async () => {
+      const page = await openChat();
+      await page.locator(".acpmux-composer-prompt").click();
+      await page.keyboard.type("stop and do this instead");
+      await page.keyboard.press("Enter");
+      await page.waitForFunction(
+        () => document.querySelector(".acpmux-composer-prompt .ProseMirror")?.textContent?.trim() === "",
+      );
+      expect({
+        meta: prompts.map((p) => ({ queue: p._meta?.acpmux?.queue, steer: p._meta?.acpmux?.steer })),
+        queued: await page.locator(".acpmux-queued").count(),
+      }).toEqual({ meta: [{ queue: undefined, steer: undefined }], queued: 0 });
+      await page.close();
+    });
+
+    test("⌥Enter queues each prompt behind the turn and frees the composer for the next", async () => {
       const page = await openChat();
       await page.locator(".acpmux-composer-prompt").click();
       await page.keyboard.type("first follow-up");
@@ -222,19 +243,20 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
         page.waitForFunction(
           () => document.querySelector(".acpmux-composer-prompt .ProseMirror")?.textContent?.trim() === "",
         );
-      await page.keyboard.press("Enter");
+      await page.keyboard.press("Alt+Enter");
       await page.locator(".acpmux-queued", { hasText: "first follow-up" }).waitFor();
       await emptied();
       await page.keyboard.type("second follow-up");
-      await page.keyboard.press("Enter");
+      await page.keyboard.press("Alt+Enter");
       await page.locator(".acpmux-queued", { hasText: "second follow-up" }).waitFor();
       await emptied();
       expect({
         rows: await page.locator(".acpmux-queued").count(),
         composer: (await composerText(page)).trim(),
         steers: prompts.filter((p) => p._meta?.acpmux?.steer).length,
+        queued: prompts.filter((p) => p._meta?.acpmux?.queue === true).length,
         sent: prompts.length,
-      }).toEqual({ rows: 2, composer: "", steers: 0, sent: 2 });
+      }).toEqual({ rows: 2, composer: "", steers: 0, queued: 2, sent: 2 });
       await page.close();
     });
 
@@ -253,7 +275,7 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
       });
       await page.locator(".acpmux-composer-prompt").click();
       await page.keyboard.type("queued a beat late");
-      await page.keyboard.press("Enter");
+      await page.keyboard.press("Alt+Enter");
       await page.locator(".acpmux-queued", { hasText: "queued a beat late" }).waitFor();
       await page.waitForTimeout(600);
       expect(await page.locator(".acpmux-queued", { hasText: "queued a beat late" }).count()).toBe(1);
@@ -288,7 +310,7 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
       const page = await openChat();
       await page.locator(".acpmux-composer-prompt").click();
       await page.keyboard.type("refused at its turn");
-      await page.keyboard.press("Enter");
+      await page.keyboard.press("Alt+Enter");
       const failed = page.locator(".cv-user__status--failed", { hasText: "the chat's mode changed" });
       await failed.waitFor();
       expect(await failed.getByRole("button", { name: "Retry" }).count()).toBe(1);
