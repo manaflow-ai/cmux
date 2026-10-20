@@ -121,6 +121,7 @@ impl ResourceOperation {
                 | Self::WorkspaceGroupList
                 | Self::WorkspaceLogList
                 | Self::WorkspaceStatusList
+                | Self::WorkspaceChecklistList
                 | Self::WorkspaceAgentStartGet
         ) {
             OperationClass::Read

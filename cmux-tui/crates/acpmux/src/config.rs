@@ -631,6 +631,12 @@ pub struct Config {
     /// `webRoots`: folders a Web connection may use (`server/remote_guard.rs`).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub web_roots: Vec<String>,
+    /// `vmHost`: this machine is a dedicated agent VM (a Chief's cloud
+    /// subagent host), so the VM boundary is the sandbox: a remote chain's
+    /// Claude Code runs there without Seatbelt (`hub/remote_sandbox.rs`).
+    /// Honored off macOS only, read from this file only (no RPC sets it).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub vm_host: bool,
     /// `pool`: hidden pre-created sessions that make a harness switch
     /// instant (`hub/pool/`).
     #[serde(default, skip_serializing_if = "PoolConfig::is_default")]

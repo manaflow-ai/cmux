@@ -6,7 +6,7 @@ import CmuxNextTabs
 /// Drag a pane by its tab bar onto another pane to swap them (cx-8bv1j, iTerm's pane drag). The
 /// press starts on empty strip space; tabs, chips and + keep their own presses. In the window's top
 /// row, where a plain press moves the window, Option-drag drags the pane. The pane under the pointer
-/// is outlined, the drop swaps, and Escape cancels.
+/// previews with the join fill a tab drop shows (drop-zones DESIGN.md), the drop swaps, and Escape cancels.
 @MainActor
 final class PaneSwapDrag: NSObject, NSGestureRecognizerDelegate {
     private weak var strip: TabStripView?
@@ -78,8 +78,8 @@ final class PaneSwapDrag: NSObject, NSGestureRecognizerDelegate {
         case .began, .changed:
             guard armed else { return }
             if recognizer.state == .began { watchEscape(recognizer) }
-            if let target, let window = layout.window {
-                layout.showTabDragOutline(screenRect: window.convertToScreen(layout.convert(target.frame, to: nil)))
+            if let target {
+                layout.showPaneDragTarget(target.pane, locationInWindow: layout.convert(recognizer.location(in: layout), to: nil))
             } else {
                 layout.hideTabDragHighlight()
             }

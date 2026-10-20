@@ -21,6 +21,24 @@ fn call(command: AppCommand) -> (&'static str, Value) {
     }
 }
 
+/// `cmux window screenshot --out FILE` names a file of the caller's working
+/// directory, so the app (which runs elsewhere) gets it absolute; `--out -`
+/// (the PNG inline in the reply) and an absolute path go as given.
+#[test]
+fn screenshot_out_is_made_absolute_except_stdout() {
+    let out = |value: &str| {
+        let (method, params) =
+            call(parse(&args(&["window", "screenshot", "--out", value])).unwrap().unwrap());
+        assert_eq!(method, "action.run");
+        assert_eq!(params["action"], "window screenshot");
+        params["args"]["out"].as_str().unwrap().to_owned()
+    };
+    let cwd = std::env::current_dir().unwrap();
+    assert_eq!(out("shot.png"), cwd.join("shot.png").to_string_lossy());
+    assert_eq!(out("-"), "-");
+    assert_eq!(out("/tmp/shot.png"), "/tmp/shot.png");
+}
+
 #[test]
 fn non_app_scopes_are_left_to_the_resource_grammar() {
     assert_eq!(parse(&args(&["workspace", "list"])).unwrap(), None);

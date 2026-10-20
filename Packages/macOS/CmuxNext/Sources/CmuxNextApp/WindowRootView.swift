@@ -237,6 +237,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         var lightsMaxX: CGFloat = 0
         var midY = bounds.maxY - rowHeight / 2
         if let window, let lights = WindowTitlebar.trafficLightsFrame(in: window) {
+            (window as? ShellWindow)?.noteTrafficLights(lights)
             let local = convert(lights, from: nil)
             lightsMaxX = local.maxX
             midY = local.midY

@@ -367,6 +367,34 @@ body {
   overscroll-behavior-x: contain;
 }
 
+/* A wide table fades out at each edge with more table past it (tables.ts sets `data-overflow`
+   to "start", "end" or both), so it shows that it scrolls sideways even while macOS hides the
+   overlay scrollbar (user 2026-10-20: tables must scroll "such that it's intuitive"). A table
+   that fits has no attribute and no fade. */
+.md-prose .tableWrapper[data-overflow] {
+  --cmux-md-table-fade: 2.5em;
+  -webkit-mask-image: var(--cmux-md-table-mask);
+  mask-image: var(--cmux-md-table-mask);
+}
+
+.md-prose .tableWrapper[data-overflow="end"] {
+  --cmux-md-table-mask: linear-gradient(to right, black calc(100% - var(--cmux-md-table-fade)), transparent);
+}
+
+.md-prose .tableWrapper[data-overflow="start"] {
+  --cmux-md-table-mask: linear-gradient(to left, black calc(100% - var(--cmux-md-table-fade)), transparent);
+}
+
+.md-prose .tableWrapper[data-overflow="start end"] {
+  --cmux-md-table-mask: linear-gradient(
+    to right,
+    transparent,
+    black var(--cmux-md-table-fade),
+    black calc(100% - var(--cmux-md-table-fade)),
+    transparent
+  );
+}
+
 /* Table borders (MARKDOWN-OBSIDIAN-PARITY, user 2026-10-19: in transparency mode "when the border
    and the tables intersect with each other, the color looks kind of different"). The separator is
    translucent there, and the collapsed border model paints each cell's border, so two strokes
