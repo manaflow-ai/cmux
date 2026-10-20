@@ -41,6 +41,12 @@ protocol ChatIntents: AnyObject {
     /// My send can be cancelled (an upload, or a failed send): Cancel Upload.
     func canCancelSend(_ message: ID) -> Bool
     func cancelSend(_ message: ID)
+    /// My send is "Not Delivered": Try Again and Delete are offered.
+    func canRetrySend(_ message: ID) -> Bool
+    /// Try Again: the send goes again (`HomeStore.retry`).
+    func retrySend(_ message: ID)
+    /// Delete: the failed send goes (`HomeStore.discardFailed`).
+    func deleteFailedSend(_ message: ID)
     /// Open an attachment's bytes in the app the system picks (the context menu).
     func openAttachment(_ message: ID, _ attachment: ID)
     /// A click on a video bubble: play or pause it in place.

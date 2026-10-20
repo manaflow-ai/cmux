@@ -792,6 +792,9 @@ pub(crate) fn capture_closed(
         if super::workspace_status_store::forget_workspace(transaction, workspace_id)? {
             queue_change(transaction, &state_delete("workspace_status", workspace_id))?;
         }
+        if super::workspace_checklist_store::forget_workspace(transaction, workspace_id)? {
+            queue_change(transaction, &state_delete("workspace_checklist", workspace_id))?;
+        }
     }
     for screen_id in &closing.screens {
         capture_screen(transaction, screen_id, &closing_workspaces, &stashed, &mut capture)?;
