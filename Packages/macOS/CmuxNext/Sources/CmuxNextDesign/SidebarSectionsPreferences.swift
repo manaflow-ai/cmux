@@ -74,6 +74,13 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     /// age such as `3d`) on the name's line. Off by default (Lawrence 2026-10-19: "By default in the
     /// sidebar, we should never show timestamps"); the hover card keeps its times either way.
     public var showTimestamps = false
+    /// `sidebar.groupHeader.memberCount`: a collapsed group's header shows how many workspaces it
+    /// holds after its name. Off by default (Lawrence 2026-10-20: "All we care about is the
+    /// loading"); the header shows only its loading spinner.
+    public var groupHeaderMemberCount = false
+    /// `sidebar.groupHeader.unreadCount`: a collapsed group's header shows its members' unread
+    /// total on the right. Off by default, as ``groupHeaderMemberCount``.
+    public var groupHeaderUnreadCount = false
     /// Compact (the default), comfortable or expanded workspace rows
     /// (`sidebar.density`); minimal mode wins over expanded content.
     public var density: SidebarDensity = .compact

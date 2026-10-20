@@ -22,6 +22,11 @@ Layers (each one only on files the push changes under Packages/macOS/CmuxNext, c
 Tool versions are pinned in scripts/cmux-next/lint-tools.lock and downloaded once (sha256 checked)
 to $CMUX_LINT_TOOLS_DIR (default ~/Library/Caches/cmux-lint-tools, ~/.cache/cmux-lint-tools on Linux).
 
+Also on every push, whatever it changes: "Ghostty-default keys" (check-ghostty-reserved-keys.py): the
+exported default keymap keeps Ghostty's split keys (schemas/keybindings/ghostty-reserved-keys.json),
+and the push removes no reserved entry. CMUX_NEXT_CHECKS_SKIP_REASON does not skip it; only a
+`Ghostty-defaults-OK: <the user's words>` trailer on a pushed commit does (Lawrence 2026-10-20).
+
 Not here (they stay on CI and the fleet): generated-file freshness (gen-*.py --check), god files,
 the app size cap, script tests, Swift and Rust builds and tests.
 
@@ -90,6 +95,13 @@ SCANNERS = (
     ("Capability texts never say update the app", ["python3", "-I", "{s}/check-capability-text.py", "--root", "{root}"], ("cmux-tui/",)),
     ("Browser chrome icons", ["python3", "-I", "{s}/lint-browser-chrome-icons.py"], (PKG + "/",)),
 )
+
+# Ghostty's default split keys stay Ghostty's (Lawrence 2026-10-20, after 2f3e1f95983).
+RESERVED_CHECK = "Ghostty-default keys (schemas/keybindings/ghostty-reserved-keys.json)"
+RESERVED_SCRIPT = SCRIPTS + "/check-ghostty-reserved-keys.py"
+RESERVED_LIST = "schemas/keybindings/ghostty-reserved-keys.json"
+RESERVED_SURFACES = "plans/cmux-next/action-surfaces.json"
+RESERVED_OK = re.compile(r"^Ghostty-defaults-OK:\s*\S", re.MULTILINE)
 
 # Reviewed escapes the CI scanners honor, per ast-grep rule (same line or the comment block above).
 ESCAPES = {
@@ -247,11 +259,12 @@ def ls_tree(repo: Path, rev: str, prefix: str) -> list[str]:
     return [p for p in out.split("\0") if p]
 
 
-def build_trees(repo: Path, base: str, head: str, changed: list[str], work: Path) -> tuple[Path, Path]:
+def build_trees(repo: Path, base: str, head: str, changed: list[str], work: Path,
+                trusted_scripts: Path | None = None) -> tuple[Path, Path]:
     # The check scripts and their data sit at the top of scripts/cmux-next (plus lint/); its test,
     # release and harness subfolders are not read by any check and would only slow the copy.
-    scripts = [p for p in ls_tree(repo, head, SCRIPTS + "/")
-               if "/" not in p[len(SCRIPTS) + 1:] or p.startswith(SCRIPTS + "/lint/")]
+    scripts = [] if trusted_scripts else [p for p in ls_tree(repo, head, SCRIPTS + "/")
+                                          if "/" not in p[len(SCRIPTS) + 1:] or p.startswith(SCRIPTS + "/lint/")]
     base_data = set(ls_tree(repo, base, SCRIPTS + "/"))
     trees = []
     for side, rev in (("base", base), ("head", head)):
@@ -265,6 +278,8 @@ def build_trees(repo: Path, base: str, head: str, changed: list[str], work: Path
             files[p] = rev
         dest = work / side
         write_tree(repo, dest, files)
+        if trusted_scripts:
+            shutil.copytree(trusted_scripts, dest / SCRIPTS, dirs_exist_ok=True)
         trees.append(dest)
     return trees[0], trees[1]
 
@@ -397,17 +412,62 @@ def swiftlint(binary: Path, config: Path, tree: Path, swift: list[str]) -> str:
 
 # ---------------------------------------------------------------- gate
 
+<<<<<<< HEAD
+def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
+         trusted_scripts: Path | None = None) -> list[tuple[str, list[str]]]:
+=======
+def reserved_keys(repo: Path, base: str, head: str) -> list[str]:
+    """What head adds to the Ghostty-default keys check (RESERVED_CHECK) over base."""
+    def blob(rev: str, path: str) -> bytes | None:
+        result = subprocess.run(["git", "-C", str(repo), "show", f"{rev}:{path}"], capture_output=True)
+        return result.stdout if result.returncode == 0 else None
+
+    script = blob(head, RESERVED_SCRIPT)
+    if script is None:
+        return []  # a commit older than this check
+    with tempfile.TemporaryDirectory(prefix="cmux-reserved-") as tmp:
+        work = Path(tmp)
+        (work / "check.py").write_bytes(script)
+
+        def findings(rev: str, base_list: bytes | None) -> list[str] | None:
+            reserved, surfaces = blob(rev, RESERVED_LIST), blob(rev, RESERVED_SURFACES)
+            if reserved is None or surfaces is None:
+                return None
+            (work / f"{rev}.reserved.json").write_bytes(reserved)
+            (work / f"{rev}.surfaces.json").write_bytes(surfaces)
+            cmd = ["python3", "-I", str(work / "check.py"), "--reserved", str(work / f"{rev}.reserved.json"),
+                   "--surfaces", str(work / f"{rev}.surfaces.json")]
+            if base_list is not None:
+                (work / "base-list.json").write_bytes(base_list)
+                cmd += ["--base-reserved", str(work / "base-list.json")]
+            _, out = run(cmd, work)
+            return [line for line in out.splitlines() if line.strip()]
+
+        head_lines = findings(head, blob(base, RESERVED_LIST)) or []
+        base_lines = findings(base, None) or []
+    fresh = [line for line in head_lines if line not in base_lines]
+    if fresh and RESERVED_OK.search(git(repo, "log", "--format=%B", f"{base}..{head}", check=False).decode(errors="replace")):
+        log(f"prepush-gate: {RESERVED_CHECK}: allowed by a Ghostty-defaults-OK trailer:\n  " + "\n  ".join(fresh))
+        return []
+    return fresh
+
+
 def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool) -> list[tuple[str, list[str]]]:
+>>>>>>> 7dd30cbfaa3 (fix(next): Cmd-Opt-arrows focus panes again (Ghostty goto_split); Ghostty split keys reserved)
     """[(check, new findings)] that head adds over base."""
+    reserved: list[tuple[str, list[str]]] = []
+    if only is None or "reserved" in only:
+        fresh = reserved_keys(repo, base, head)
+        reserved = [(RESERVED_CHECK, fresh)] if fresh else []
     changed = changed_files(repo, base, head)
     if not changed:
-        return []
+        return reserved
     swift = [p for p in changed if p.startswith(SWIFT_SCOPE) and p.endswith(".swift")]
     sources = [p for p in swift if p.startswith(PKG + "/Sources/")]
     started = time.monotonic()
-    found: list[tuple[str, list[str]]] = []
+    found: list[tuple[str, list[str]]] = list(reserved)
     with tempfile.TemporaryDirectory(prefix="cmux-prepush-") as tmp:
-        base_tree, head_tree = build_trees(repo, base, head, changed, Path(tmp))
+        base_tree, head_tree = build_trees(repo, base, head, changed, Path(tmp), trusted_scripts)
         # The tool rules and pins come from the head; a commit older than the gate uses the checkout's.
         config_root = head_tree if (head_tree / SCRIPTS / "lint-tools.lock").is_file() else repo
         lint = config_root / SCRIPTS / "lint"
@@ -487,13 +547,17 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--base")
     parser.add_argument("--head", default="HEAD")
     parser.add_argument("--pre-push", action="store_true", help="read pre-push stdin (the hook)")
+    parser.add_argument("--trusted-scripts-dir", help="installed reviewed checker snapshot (required with --pre-push)")
     parser.add_argument("--commits", help="CI: check each non-merge commit of RANGE against its first parent")
-    parser.add_argument("--only", help="comma list of layers: scanners,ast-grep,swiftformat,swiftlint")
+    parser.add_argument("--only", help="comma list of layers: scanners,ast-grep,swiftformat,swiftlint,reserved")
     parser.add_argument("--timings", action="store_true")
     args = parser.parse_args(argv)
     repo = Path(args.repo or git(Path.cwd(), "rev-parse", "--show-toplevel").decode().strip())
     only = set(args.only.split(",")) if args.only else None
     started = time.monotonic()
+    trusted_scripts = Path(args.trusted_scripts_dir).resolve() if args.trusted_scripts_dir else None
+    if args.pre_push and (trusted_scripts is None or not trusted_scripts.is_dir()):
+        raise SystemExit("prepush-gate: --pre-push requires the installed --trusted-scripts-dir snapshot")
 
     if args.commits:
         commits = git(repo, "rev-list", "--reverse", "--no-merges", args.commits).decode().split()
@@ -502,7 +566,7 @@ def main(argv: list[str] | None = None) -> int:
             parent = f"{sha}^"
             if not rev_ok(repo, parent):
                 continue
-            found = gate(repo, parent, sha, only, args.timings)
+            found = gate(repo, parent, sha, only, args.timings, trusted_scripts)
             if found:
                 bad += 1
                 subject = git(repo, "log", "-1", "--format=%h %an: %s", sha).decode().strip()
@@ -519,14 +583,17 @@ def main(argv: list[str] | None = None) -> int:
         ranges = [(args.base or default_base(repo, args.head), args.head)]
     found_any = []
     for base, head in ranges:
-        found_any += gate(repo, base, head, only, args.timings)
+        found_any += gate(repo, base, head, only, args.timings, trusted_scripts)
     elapsed = time.monotonic() - started
     if not found_any:
         print(f"prepush-gate: no new violations ({elapsed:.1f}s)")
         return 0
     skip = os.environ.get("CMUX_NEXT_CHECKS_SKIP_REASON", "").strip()
     print_findings(found_any, "prepush-gate: this push adds violations:")
-    if skip:
+    if skip and any(name == RESERVED_CHECK for name, _ in found_any):
+        print(f"prepush-gate: CMUX_NEXT_CHECKS_SKIP_REASON does not skip {RESERVED_CHECK}. Changing a Ghostty-default "
+              "shortcut needs the user's explicit OK, quoted in a `Ghostty-defaults-OK: <the user's words>` commit trailer.")
+    elif skip:
         print(f"prepush-gate: SKIPPED by CMUX_NEXT_CHECKS_SKIP_REASON={skip!r}. Say so in your report; "
               "CI still names the commit.")
         return 0

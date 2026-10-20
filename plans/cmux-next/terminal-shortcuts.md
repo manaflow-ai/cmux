@@ -46,7 +46,7 @@ terminal program gets the encoded key. FIXED = changed by this audit.
 | Action | Shipping cmux | Ghostty default | cmux-next | State |
 | --- | --- | --- | --- | --- |
 | Split right / down | Cmd-D / Cmd-Shift-D | `new_split:right` / `new_split:down` | Cmd-D `splitRight` / Cmd-Shift-D `splitDown` | match |
-| Focus pane in a direction | Cmd-Opt-arrows | Cmd-Opt-arrows `goto_split` | Cmd-Opt-arrows `focusLeft` etc. (also Ctrl-Cmd-H/J/K/L) | match |
+| Focus pane in a direction | Cmd-Opt-arrows | Cmd-Opt-arrows `goto_split` | Cmd-Opt-arrows `focusLeft` etc. (also Ctrl-Cmd-H/J/K/L). 2f3e1f95983 had moved Cmd-Opt-Left / Right to the sidebar; back to pane focus 2026-10-20 and reserved (schemas/keybindings/ghostty-reserved-keys.json) | match |
 | Focus previous / next pane, focus history | Cmd-[ / Cmd-] focus history Back / Forward (no pane previous / next key) | Cmd-[ / Cmd-] `goto_split:previous/next` | Cmd-[ / Cmd-] `focusHistoryBack` / `focusHistoryForward` everywhere but a web page (Back / Forward there), also Ctrl-- / Ctrl-Shift-- outside a terminal. Before: the key router consumed Cmd-[ / Cmd-] outside a browser, so they did nothing in a terminal | FIXED (chief decision): matches the shipping cmux; a `super+[` / `super+]` keybind in the user's Ghostty config still wins |
 | Focus pane N | Ctrl-Cmd-1...9 | none | Ctrl-Cmd-1...9 `focusPaneByNumber` | match |
 | Resize pane | Ctrl-Shift-H/J/K/L; Ctrl-Cmd-arrows (Ghostty) | Ctrl-Cmd-arrows `resize_split` | both, `resizePane*` | match |
@@ -63,7 +63,7 @@ terminal program gets the encoded key. FIXED = changed by this audit.
 | Close other tabs in pane | Cmd-Opt-T | none | Cmd-Opt-T `closeOtherTabsInPane` | match |
 | Cmd-Opt-W | nothing (Ghostty `close_tab:this` unbound) | `close_tab:this` | Before: Ghostty `close_tab:this` closed the tab | FIXED: unbound in cmux's Ghostty defaults; the key goes to the program |
 | Cmd-Opt-Shift-W | nothing (Ghostty `close_all_windows` unbound) | `close_all_windows` | Before: Ghostty closed every window | FIXED: unbound in cmux's Ghostty defaults |
-| Next / previous tab | Cmd-Shift-] / [; Ctrl-Tab / Ctrl-Shift-Tab | Cmd-Shift-] / [, Ctrl-Tab / Ctrl-Shift-Tab `next_tab` / `previous_tab` | Cmd-Shift-] / [ and Ctrl-Tab / Ctrl-Shift-Tab: the focused pane's next / previous tab (`nextSurface` / `prevSurface`, Lawrence 2026-10-15, #20116); Cmd-Opt-Right / Left, Ctrl-PageDown / Up and Ctrl-Cmd-] / [: next / previous sidebar item (`nextSidebarTab` / `prevSidebarTab`, Leo 2026-10-12); they win over Ghostty keybinds | match for Cmd-Shift-] / [ and Ctrl-Tab |
+| Next / previous tab | Cmd-Shift-] / [; Ctrl-Tab / Ctrl-Shift-Tab | Cmd-Shift-] / [, Ctrl-Tab / Ctrl-Shift-Tab `next_tab` / `previous_tab` | Cmd-Shift-] / [ and Ctrl-Tab / Ctrl-Shift-Tab: the focused pane's next / previous tab (`nextSurface` / `prevSurface`, Lawrence 2026-10-15, #20116); Ctrl-PageDown / Up and Ctrl-Cmd-] / [: next / previous sidebar item (`nextSidebarTab` / `prevSidebarTab`, Leo 2026-10-12; Cmd-Opt-Right / Left went back to pane focus, Lawrence 2026-10-20); they win over Ghostty keybinds | match for Cmd-Shift-] / [ and Ctrl-Tab |
 | Tab N | Ctrl-1...9 (9 = last) | none | Ctrl-1...9 `selectSurfaceByNumber` | match |
 | Workspace N | Cmd-1...9 | Cmd-1...8 `goto_tab`, Cmd-9 `last_tab` | Cmd-1...9 `selectWorkspaceByNumber` | match |
 | Move tab | Cmd-Opt-Shift-[ / ]; Cmd-Opt-Shift-arrows; Ctrl-Shift-Cmd-[ / ] | none on macOS | the same keys, `moveSurface*` | match |

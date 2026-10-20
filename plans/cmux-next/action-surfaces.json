@@ -1102,18 +1102,6 @@
         {
           "keys" : [
             {
-              "key" : "",
-              "modifiers" : [
-                "opt",
-                "cmd"
-              ]
-            }
-          ],
-          "when" : null
-        },
-        {
-          "keys" : [
-            {
               "key" : "",
               "modifiers" : [
                 "ctrl"
@@ -1167,18 +1155,6 @@
 
       ],
       "default_aliases" : [
-        {
-          "keys" : [
-            {
-              "key" : "",
-              "modifiers" : [
-                "opt",
-                "cmd"
-              ]
-            }
-          ],
-          "when" : null
-        },
         {
           "keys" : [
             {
@@ -6188,13 +6164,24 @@
 
       ],
       "default_aliases" : [
-
+        {
+          "keys" : [
+            {
+              "key" : "h",
+              "modifiers" : [
+                "ctrl",
+                "cmd"
+              ]
+            }
+          ],
+          "when" : null
+        }
       ],
       "default_chord" : null,
       "default_shortcut" : {
-        "key" : "h",
+        "key" : "",
         "modifiers" : [
-          "ctrl",
+          "opt",
           "cmd"
         ]
       },
@@ -6222,13 +6209,24 @@
 
       ],
       "default_aliases" : [
-
+        {
+          "keys" : [
+            {
+              "key" : "l",
+              "modifiers" : [
+                "ctrl",
+                "cmd"
+              ]
+            }
+          ],
+          "when" : null
+        }
       ],
       "default_chord" : null,
       "default_shortcut" : {
-        "key" : "l",
+        "key" : "",
         "modifiers" : [
-          "ctrl",
+          "opt",
           "cmd"
         ]
       },
@@ -9405,17 +9403,7 @@
 
       ],
       "default_aliases" : [
-        {
-          "keys" : [
-            {
-              "key" : "n",
-              "modifiers" : [
-                "cmd"
-              ]
-            }
-          ],
-          "when" : "topPage == home || surfaceKind == home || surfaceKind == home-dock"
-        }
+
       ],
       "default_chord" : null,
       "default_shortcut" : null,

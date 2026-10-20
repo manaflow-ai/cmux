@@ -335,7 +335,7 @@ final class TopHomePageView: NSView {
 
     // MARK: New Message
 
-    /// New Message (the compose button, Cmd-N on Home, the palette, the
+    /// New Message (the compose button, the palette, the
     /// File menu, `cmux action run home.newMessage`): a selected "New
     /// Message" row at the top of the list and the New Message page in the
     /// transcript column, with the caret in To:. A kept draft comes back as

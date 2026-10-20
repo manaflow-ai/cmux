@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>cmux-next · Find pill gallery</title>
+<style>
+  :root { color-scheme: light dark; font: 13px -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif; }
+  body { margin: 0; padding: 24px 28px 60px; background: #0f1115; color: #e8e8ea; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  p.lead { color: #a2a6ad; margin: 0 0 20px; max-width: 900px; line-height: 1.45; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(520px, 1fr)); gap: 22px; }
+  .card { border-radius: 14px; overflow: hidden; background: #171a20; border: 1px solid #262a32; }
+  .card.rec { outline: 2px solid #5aa2ff; }
+  .head { padding: 12px 14px 10px; display: flex; gap: 8px; align-items: baseline; }
+  .head b { font-size: 14px; }
+  .tag { font-size: 11px; padding: 2px 8px; border-radius: 999px; background: #5aa2ff26; color: #8cc0ff; }
+  .head span.d { color: #a2a6ad; font-size: 12px; }
+  .stage { position: relative; height: 210px; overflow: hidden; }
+  .stage.light { background: linear-gradient(135deg, #f3d9c4, #c9dcf3 60%, #e7e0f7); color: #1d1d1f; }
+  .stage.dark { background: linear-gradient(135deg, #1b2a3f, #2b1c33 60%, #12161c); color: #e6e6e6; }
+  .stage pre { margin: 0; padding: 14px 16px; font: 12px/1.5 "SF Mono", Menlo, monospace; opacity: .92; white-space: pre-wrap; }
+  .stage .chat { padding: 52px 18px 0; display: grid; gap: 8px; }
+  .stage .bubble { max-width: 70%; padding: 8px 12px; border-radius: 16px; background: #ffffffb3; color: #1d1d1f; }
+  .stage.dark .bubble { background: #ffffff1c; color: #eee; }
+  .stage .bubble.me { justify-self: end; background: #0a84ff; color: white; }
+  mark { background: #ffd60a99; color: inherit; border-radius: 3px; padding: 0 1px; }
+  mark.cur { background: #ff9f0a; color: #000; box-shadow: 0 0 0 1.5px #ff9f0a; }
+  .notes { padding: 10px 14px 14px; color: #a2a6ad; font-size: 12px; line-height: 1.45; }
+  .row { display: grid; grid-template-columns: 1fr 1fr; }
+  .row .stage + .stage { border-left: 1px solid #00000022; }
+
+  /* ---------- shared glass ---------- */
+  .glass {
+    --tint: rgba(255,255,255,.42); --rim: rgba(255,255,255,.75); --ink: #1d1d1f; --ink2: #3c3c43b3; --sep: #3c3c4333;
+    background: var(--tint);
+    -webkit-backdrop-filter: blur(22px) saturate(180%); backdrop-filter: blur(22px) saturate(180%);
+    box-shadow: inset 0 0.5px 0 var(--rim), inset 0 0 0 0.5px rgba(255,255,255,.35), 0 8px 24px rgba(0,0,0,.16), 0 1px 3px rgba(0,0,0,.12);
+    color: var(--ink);
+  }
+  .dark .glass { --tint: rgba(40,40,46,.48); --rim: rgba(255,255,255,.22); --ink: #f2f2f7; --ink2: #ebebf599; --sep: #ffffff24;
+    box-shadow: inset 0 0.5px 0 var(--rim), inset 0 0 0 0.5px rgba(255,255,255,.10), 0 8px 24px rgba(0,0,0,.45), 0 1px 3px rgba(0,0,0,.4); }
+  .glass.solid { -webkit-backdrop-filter: none; backdrop-filter: none; --tint: #f5f5f7; }
+  .dark .glass.solid { --tint: #2c2c2e; }
+
+  .pill { position: absolute; display: flex; align-items: center; gap: 2px; }
+  .pill .ic { width: 16px; height: 16px; display: grid; place-items: center; color: var(--ink2); flex: none; }
+  .pill input { all: unset; color: var(--ink); width: 150px; font-size: 13px; }
+  .pill input::placeholder { color: var(--ink2); }
+  .pill .count { font-variant-numeric: tabular-nums; color: var(--ink2); font-size: 12px; min-width: 52px; text-align: right; }
+  .pill .count.none { color: #ff453a; }
+  .pill .sep { width: 1px; height: 16px; background: var(--sep); margin: 0 4px; }
+  .pill button { all: unset; width: 24px; height: 24px; border-radius: 999px; display: grid; place-items: center; color: var(--ink2); cursor: default; }
+  .pill button:hover { background: color-mix(in srgb, var(--ink) 9%, transparent); color: var(--ink); }
+  .pill button.on { background: color-mix(in srgb, #0a84ff 22%, transparent); color: #0a84ff; }
+  .pill button.txt { width: auto; padding: 0 6px; font-size: 11px; font-weight: 600; }
+  svg { width: 13px; height: 13px; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+
+  /* A: capsule (recommended) */
+  .vA { top: 10px; right: 10px; height: 34px; padding: 0 5px 0 12px; border-radius: 17px; }
+  /* B: split capsules */
+  .vB { top: 10px; right: 10px; gap: 6px; background: none; box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none; }
+  .vB > .glass { height: 34px; border-radius: 17px; display: flex; align-items: center; gap: 2px; }
+  .vB > .glass:first-child { padding: 0 12px; }
+  .vB > .glass:last-child { padding: 0 5px; }
+  /* C: compact chip */
+  .vC { top: 8px; right: 8px; height: 28px; padding: 0 4px 0 10px; border-radius: 14px; font-size: 12px; }
+  .vC input { width: 120px; font-size: 12px; }
+  .vC .count { min-width: 0; padding: 1px 7px; border-radius: 999px; background: color-mix(in srgb, var(--ink) 9%, transparent); margin-right: 2px; }
+  .vC button { width: 22px; height: 22px; }
+  /* D: centered top */
+  .vD { top: 10px; left: 50%; transform: translateX(-50%); height: 38px; padding: 0 6px 0 14px; border-radius: 19px; }
+  .vD input { width: 220px; font-size: 14px; }
+  /* E: bottom floating */
+  .vE { bottom: 14px; left: 50%; transform: translateX(-50%); height: 40px; padding: 0 6px 0 14px; border-radius: 20px; }
+  .vE input { width: 200px; }
+  /* F: grouped with tinted current-match pip */
+  .vF { top: 10px; right: 10px; height: 34px; padding: 0 5px 0 5px; border-radius: 17px; }
+  .vF .field { display: flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px; border-radius: 13px; background: color-mix(in srgb, var(--ink) 7%, transparent); }
+  .vF .field input { width: 140px; }
+</style>
+</head>
+<body>
+<h1>Find pill: one design for every Cmd-F</h1>
+<p class="lead">One native Swift pill (<code>FindPillView</code> in CmuxNextDesign) for terminal and browser, and a pixel-matched web twin (<code>FindPill.tsx</code> + <code>find-pill.css</code>) for Agent chat and the diff viewer. Liquid Glass on macOS 26, frosted material on macOS 14–15, solid under Reduce Transparency, no motion under Reduce Motion or the no-animation setting. Each card shows light and dark backdrops. The highlighted card is the recommended one and is the one being built.</p>
+
+<div class="grid" id="grid"></div>
+
+<template id="ico">
+  <svg data-k="search" viewBox="0 0 16 16"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5 14 14"/></svg>
+  <svg data-k="up" viewBox="0 0 16 16"><path d="M4 10l4-4 4 4"/></svg>
+  <svg data-k="down" viewBox="0 0 16 16"><path d="M4 6l4 4 4-4"/></svg>
+  <svg data-k="x" viewBox="0 0 16 16"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7"/></svg>
+</template>
+
+<script>
+const ico = (k) => document.querySelector(`#ico svg[data-k="${k}"]`).outerHTML;
+const term = `$ cargo test -p cmux-tui
+   Compiling cmux-tui v0.1.0
+warning: unused <mark>error</mark> variant
+test layout::split ... ok
+test focus::<mark class="cur">error</mark>_path ... ok
+test find::<mark>error</mark>_count ... FAILED`;
+const chat = `<div class="chat"><div class="bubble">The build <mark>error</mark> is in FindBarView.swift.</div><div class="bubble me">Fix the <mark class="cur">error</mark> and push.</div></div>`;
+const btns = (extra = "") => `${extra}<button title="Previous match (⇧↩)">${ico("up")}</button><button title="Next match (↩)">${ico("down")}</button><button title="Close (Esc)">${ico("x")}</button>`;
+const toggles = `<button class="txt on" title="Match case">Aa</button><button class="txt" title="Regular expression">.*</button>`;
+const field = (w) => `<span class="ic">${ico("search")}</span><input placeholder="Find" value="error" ${w ? `style="width:${w}px"` : ""}>`;
+const variants = [
+  { id: "A", name: "Capsule", rec: true, cls: "vA", desc: "Top-trailing, 34 pt capsule, one glass shape.",
+    html: () => `${field()}<span class="count">2 of 3</span><span class="sep"></span>${toggles}<span class="sep"></span>${btns()}`,
+    notes: "Recommended. Reads like Safari 26 and Xcode 26 find: one continuous Liquid Glass capsule, radius = height / 2, 0.5 pt rim light, soft shadow. Count in tabular digits; red only for “No matches”. Toggles shown only where the surface supports them (browser and Agent chat: case; terminal: none, Ghostty matches case-insensitively). Same position in every pane: 10 pt from top and trailing edge, so it never jumps between terminal, browser and chat." },
+  { id: "B", name: "Split capsules", cls: "vB", desc: "Field and controls in two merged glass shapes.",
+    html: () => `<div class="glass">${field()}<span class="count">2 of 3</span></div><div class="glass">${toggles}<span class="sep"></span>${btns()}</div>`,
+    notes: "Closest to the macOS 26 toolbar glass groups. Pretty, but takes ~40 pt more width and splits the hit target; on narrow panes the two shapes crowd." },
+  { id: "C", name: "Compact chip", cls: "vC", desc: "28 pt, count as a tinted badge.",
+    html: () => `${field()}<span class="count">2/3</span>${btns()}`,
+    notes: "Smallest footprint; good for dense mode. The 22 pt buttons are under Apple's 24 pt minimum for pointer targets, and the badge reads as a button." },
+  { id: "D", name: "Centered top", cls: "vD", desc: "Spotlight-like, centered, wider field.",
+    html: () => `${field(220)}<span class="count">2 of 3</span><span class="sep"></span>${toggles}<span class="sep"></span>${btns()}`,
+    notes: "Feels important, but covers the middle of the first line of text (terminal prompts, chat headers) and moves with pane width." },
+  { id: "E", name: "Bottom floating", cls: "vE", desc: "iOS Safari-style bar at the bottom.",
+    html: () => `${field()}<span class="count">2 of 3</span><span class="sep"></span>${btns()}`,
+    notes: "Natural on iOS. On Mac it sits on top of the terminal prompt and the chat composer: rejected for cmux." },
+  { id: "F", name: "Inset well", cls: "vF", desc: "Capsule with an inset field well.",
+    html: () => `<span class="field">${field()}</span><span class="count">2 of 3</span>${toggles}<span class="sep"></span>${btns()}`,
+    notes: "Clear field affordance, but the double capsule looks heavier than Apple's own find bars and adds a second edge to the glass." },
+];
+const grid = document.getElementById("grid");
+for (const v of variants) {
+  const stage = (scheme, kind, solid) => `<div class="stage ${scheme}">${kind === "chat" ? chat : `<pre>${term}</pre>`}
+      ${v.cls === "vB" ? `<div class="pill vB">${v.html()}</div>` : `<div class="pill glass ${v.cls} ${solid ? "solid" : ""}">${v.html()}</div>`}</div>`;
+  grid.insertAdjacentHTML("beforeend", `<section class="card ${v.rec ? "rec" : ""}">
+    <div class="head"><b>${v.id} · ${v.name}</b>${v.rec ? `<span class="tag">Recommended</span>` : ""}<span class="d">${v.desc}</span></div>
+    <div class="row">${stage("light", "term")}${stage("dark", "chat")}</div>
+    ${v.rec ? `<div class="row">${stage("light", "chat", true)}${stage("dark", "term", true)}</div>` : ""}
+    <div class="notes">${v.rec ? "<b>Second row:</b> Reduce Transparency (solid). " : ""}${v.notes}</div></section>`);
+}
+</script>
+</body>
+</html>
