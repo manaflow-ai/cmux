@@ -52,3 +52,20 @@ struct ClearBrowserHistoryActionTests {
         #expect(keptHistory.entries.contains { $0.url == page }, "another profile's history was cleared too")
     }
 }
+
+/// Toggle Omnibar runs on the focused browser tab instead of showing a
+/// greyed-out reason, and says why with no browser tab to act on.
+@MainActor @Suite(.serialized)
+struct ToggleOmnibarActionTests {
+    @Test func toggleOmnibarIsAvailableAndNeedsABrowserTab() {
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        AppActions.bind(services)
+        #expect(services.registry.unavailableReason(for: "palette.browserToggleOmnibar") == nil,
+                "Toggle Omnibar is still greyed out")
+        let refusal = services.registry.capturingRefusal {
+            _ = services.registry.perform("palette.browserToggleOmnibar", invocation: ActionInvocation())
+        }
+        #expect(refusal != nil, "a run with no browser tab did nothing silently")
+    }
+}
