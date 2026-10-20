@@ -38,9 +38,9 @@ mod closed_history_tests;
 #[cfg(test)]
 mod closed_layout_tests;
 mod closed_pane_split;
-mod closed_screen_layout;
 #[cfg(test)]
 mod closed_relaunch_tests;
+mod closed_screen_layout;
 mod closed_tab_groups;
 pub(crate) mod command_history_store;
 pub(crate) mod commit;

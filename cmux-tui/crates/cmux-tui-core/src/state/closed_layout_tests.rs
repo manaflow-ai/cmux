@@ -188,7 +188,8 @@ fn a_reopened_workspace_shows_its_shown_screen_zoom_and_presentation() {
     assert!(mux.focus_pane(s));
     mux.zoom_pane(Some(t), ZoomMode::On).unwrap();
     let id = workspace_public_id(&mux, workspace);
-    let params = json!({"workspace": id, "title": "Two", "color": "#336699", "icon": "server.rack"});
+    let params =
+        json!({"workspace": id, "title": "Two", "color": "#336699", "icon": "server.rack"});
     mutate(&mux, "workspace.update", params, "present");
     let before = layout_of(&mux, "two");
     assert_eq!(before["shown"], 1, "{before}");
