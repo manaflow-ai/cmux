@@ -20,7 +20,7 @@ import Testing
         #expect(glass.artOpacity == WindowBackdrop.windowGlassArtOpacity)
         #expect(glass.artOpacity < 1)
         // Whatever is behind the window shows through the art: the floor holds over any colors.
-        #expect(glass.legibleTintOpacity == tokens.legibleTintOpacity(over: .any, requested: 0))
+        #expect(glass.legibleTintOpacity == tokens.legibleTintOpacity(over: .any, requested: 0, legibility: .primary))
         #expect(glass.tintOpacity >= glass.legibleTintOpacity)
     }
 
