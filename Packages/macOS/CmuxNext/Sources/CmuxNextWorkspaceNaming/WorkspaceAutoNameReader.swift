@@ -54,7 +54,7 @@ public struct WorkspaceAutoNameReader {
         rule.label(name: workspace.name, title: workspace.title, front: front(tab), anchor: work.flatMap { front($0) })
     }
 
-    /// What `tab` gives a workspace it fronts:an agent chat its chat's
+    /// What `tab` gives a workspace it fronts: an agent chat its chat's
     /// title (none for a New Tab page), a browser its page's, a terminal
     /// what a workspace made from it would take. A page, app or Home
     /// conversation tab gives nothing (nil): its record is titled `about:blank`.

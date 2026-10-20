@@ -24,6 +24,24 @@ struct SidebarWorkTabTests {
         return try #require(store.workspaces.first)
     }
 
+    /// A page tab (Settings, a diff) gives the row no name, so the work tab passes over it.
+    @Test func aPageTabIsNotWork() throws {
+        let store = DaemonStore()
+        var settings = TabSnapshot(surface: 2, kind: .conversation, title: "about:blank", url: "about:blank")
+        settings.conversation = ConversationTabRef(page: "settings")
+        let panes = [
+            PaneSnapshot(id: 1, focusedAt: 1, tabs: [TabSnapshot(surface: 1, kind: .pty, title: "a")]),
+            PaneSnapshot(id: 2, focusedAt: 2, tabs: [settings]),
+            PaneSnapshot(id: 3, focusedAt: 3, tabs: [TabSnapshot(surface: 3, kind: .browser, title: "PR", url: "https://github.com")]),
+        ]
+        let layout = LayoutNode.split(id: nil, resourceID: nil, direction: .right, ratio: 0.5, a: .leaf(1),
+                                      b: .split(id: nil, resourceID: nil, direction: .right, ratio: 0.5, a: .leaf(2), b: .leaf(3)))
+        store.apply(snapshot: DaemonTree(workspaces: [WorkspaceSnapshot(id: 1, key: nil, name: "workspace-3",
+                                                                        screens: [ScreenSnapshot(id: 1, layout: layout, panes: panes)])]))
+        let workspace = try #require(store.workspaces.first)
+        #expect(SidebarMapping.shared.workTab(workspace, selectedTab: { _ in nil })?.title == "a")
+    }
+
     @Test func aPageInASplitYieldsToTheLastFocusedWork() throws {
         let laterB = try Self.workspace(a: 1, b: 2, page: 3)
         #expect(SidebarMapping.shared.frontTab(laterB, selectedTab: { _ in nil })?.kind == .browser)

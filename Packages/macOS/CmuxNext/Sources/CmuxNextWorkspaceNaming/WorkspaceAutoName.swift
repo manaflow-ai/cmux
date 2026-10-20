@@ -44,10 +44,7 @@ public nonisolated struct WorkspaceAutoName: Equatable, Sendable {
     /// keeps naming it, so the row does not flip to whatever page is focused.
     public func label(name: String, title: String?, front: Front?, anchor: Front? = nil) -> String? {
         guard enabled, !Self.isUserNamed(name: name, title: title), let front else { return nil }
-        if case .browser = front, let anchor {
-            if case .browser = anchor { return Self.derived(front) }
-            return Self.derived(anchor)
-        }
+        if case .browser = front, let anchor { return Self.derived(anchor) }
         return Self.derived(front)
     }
 
