@@ -50,6 +50,9 @@ export class SubagentFold {
   /// Each subagent view's rows, while its version holds.
   private readonly drawn = new Map<string, { version: number; rows: AcpmuxRow[] }>();
   private readonly versions = new Map<string, number>();
+  /// Subagents read as stopped because nothing reported them after a stop or a restart
+  /// (``stopRunning``): one that reports again is running again.
+  private readonly unheard = new Set<string>();
 
   /// Folds one session/update record; true when it belongs to subagents and draws no row.
   reduce(event: Event, update: any): boolean {
@@ -58,6 +61,7 @@ export class SubagentFold {
     for (const change of events) this.apply(change, event);
     const owner = typeof mux?.subagent === "string" ? this.agents.get(mux.subagent) : undefined;
     if (owner) {
+      this.heard(owner);
       if ((update?.sessionUpdate === "tool_call" || update?.sessionUpdate === "tool_call_update") && update.title)
         owner.action = String(update.title);
       const kind = update?.sessionUpdate;
@@ -78,6 +82,29 @@ export class SubagentFold {
       return true;
     }
     return events.length > 0;
+  }
+
+  /// Its turn was stopped (`cancelled`) or the agent behind it went away (`disconnected`): every
+  /// subagent still running reads as stopped, since nothing will end it, until it reports again
+  /// (a background subagent's progress). Returns whether any changed.
+  stopRunning(state: "cancelled" | "disconnected", at: number): boolean {
+    let changed = false;
+    for (const agent of this.agents.values()) {
+      if (agent.state !== "running") continue;
+      agent.state = state;
+      agent.endedAt = at;
+      this.unheard.add(agent.id);
+      this.touch(agent);
+      changed = true;
+    }
+    return changed;
+  }
+
+  /// A subagent read as stopped by ``stopRunning`` that reports again runs again.
+  private heard(agent: Subagent): void {
+    if (!this.unheard.delete(agent.id)) return;
+    agent.state = "running";
+    agent.endedAt = undefined;
   }
 
   /// Ends the current batch: the next subagent the session spawns starts a new group.
@@ -164,6 +191,8 @@ export class SubagentFold {
     const started = count(change.agents?.started);
     if (done !== undefined && started !== undefined) agent.agents = { done, started };
     const state = text(change.state);
+    // Its own word on its state, live or ended, settles what stopRunning guessed.
+    if (state) this.unheard.delete(agent.id);
     if (state && state !== agent.state) {
       agent.state = state;
       agent.endedAt = state === "running" ? undefined : event.at;
@@ -180,6 +209,18 @@ export class SubagentFold {
     this.changed.add(group);
   }
 }
+
+/// Why acpmux's record `kind` leaves a running subagent with no one to end it: its turn was
+/// stopped (`cancelled`), or the agent process behind the chat went away or was started again
+/// (`disconnected`: an exit or stop, a reopen or resume, a new host, a daemon restart), as
+/// acpmux's own process table reads them (hub/processes.rs).
+export function subagentsLeft(kind: string, msg: any): "cancelled" | "disconnected" | undefined {
+  if (kind === "turn_result" && msg?.detail === "outcome_unknown") return "disconnected";
+  if (kind === "turn_result" && msg?.status === "cancelled") return "cancelled";
+  if (kind === "status" && msg?.detail === "restart") return "disconnected";
+  return HARNESS_GONE.has(kind) ? "disconnected" : undefined;
+}
+const HARNESS_GONE = new Set(["exited", "stopped", "reopened", "resumed", "host_started", "host_ended"]);
 
 const text = (value: unknown) => (typeof value === "string" && value.trim() ? value.trim() : undefined);
 const count = (value: unknown) =>
