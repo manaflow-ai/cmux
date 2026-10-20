@@ -358,6 +358,9 @@ while True:
         if said.startswith("env:"):
             name = said[4:].strip()
             text = f"{name}={os.environ.get(name, '')}"
+        if said.startswith("envs:"):
+            names = [name.strip() for name in said[5:].split(",") if name.strip()]
+            text = json.dumps({name: os.environ.get(name, "") for name in names}, sort_keys=True)
         if said.endswith("settings-probe"):
             text = json.dumps({"said": said, "settings": FLAG_SETTINGS, "argv": sys.argv[1:]})
         if said.strip() == "history-probe" and STORE and LAYOUT:

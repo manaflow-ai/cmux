@@ -8,7 +8,12 @@
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
 // This process runs stand-in agents (the fake agents under tests/).
-const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
+const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().with_env(&[
+    ("ANTHROPIC_AUTH_TOKEN", "synthetic-daemon-token"),
+    ("CMUX_REMOTE_TEST_SECRET", "synthetic-cmux-secret"),
+    ("SSH_AUTH_SOCK", "/synthetic/ssh-agent.sock"),
+    ("UNRELATED_TOKEN", "synthetic-unrelated-token"),
+]);
 
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;
@@ -29,17 +34,29 @@ fn dir(tag: &str) -> PathBuf {
     std::fs::canonicalize(&d).unwrap()
 }
 
-fn hub(d: &Path) -> Arc<Hub> {
+fn hub_with(d: &Path, vm_host: bool) -> Arc<Hub> {
     let mut cfg: Config = serde_json::from_value(json!({
-        "harnesses": {"fakeclaude": {"argv": ["python3", FAKE_CLAUDE], "kind": "claude-stdio"}},
+        "harnesses": {"fakeclaude": {
+            "argv": ["python3", FAKE_CLAUDE],
+            "kind": "claude-stdio",
+            "env": {
+                "ANTHROPIC_AUTH_TOKEN": "synthetic-profile-token",
+                "REMOTE_PROFILE_VALUE": "profile-authorized"
+            }
+        }},
         "defaultHarness": "fakeclaude",
         "permissionPolicy": "ask",
         "webRoots": [d.join("work")],
+        "vmHost": vm_host,
     }))
     .unwrap();
     cfg.store.mode = StoreMode::Memory;
     let store = acpmux::store::open(&cfg.store, Path::new("/nonexistent")).unwrap();
     Hub::new(cfg, store)
+}
+
+fn hub(d: &Path) -> Arc<Hub> {
+    hub_with(d, false)
 }
 
 struct Client(mpsc::Sender<String>, mpsc::Receiver<String>, i64);
@@ -91,6 +108,45 @@ impl Client {
             .filter_map(|e| e.pointer("/msg/params/update/content/text").and_then(Value::as_str))
             .collect())
     }
+}
+
+#[tokio::test]
+async fn a_remote_chain_inherits_only_profile_and_safe_base_environment() {
+    let d = dir("environment");
+    // Off macOS, vmHost is the sandbox boundary and still needs the same
+    // least-authority process environment. A Mac keeps Seatbelt too.
+    let hub = hub_with(&d, true);
+    let names = [
+        "ANTHROPIC_AUTH_TOKEN",
+        "CMUX_REMOTE_TEST_SECRET",
+        "SSH_AUTH_SOCK",
+        "UNRELATED_TOKEN",
+        "REMOTE_PROFILE_VALUE",
+        "HOME",
+        "PATH",
+    ];
+    let prompt = format!("envs: {}", names.join(","));
+
+    let mut local = Client::new(&hub, Origin::Local);
+    let inherited: Value =
+        serde_json::from_str(&local.run(&d, &prompt).await.unwrap_or_else(|e| panic!("{e}")))
+            .unwrap();
+    assert_eq!(inherited["CMUX_REMOTE_TEST_SECRET"], "synthetic-cmux-secret");
+    assert_eq!(inherited["SSH_AUTH_SOCK"], "/synthetic/ssh-agent.sock");
+    assert_eq!(inherited["UNRELATED_TOKEN"], "synthetic-unrelated-token");
+
+    let mut web = Client::new(&hub, Origin::Web);
+    let remote: Value =
+        serde_json::from_str(&web.run(&d, &prompt).await.unwrap_or_else(|e| panic!("{e}")))
+            .unwrap();
+    assert_eq!(remote["ANTHROPIC_AUTH_TOKEN"], "synthetic-profile-token");
+    assert_eq!(remote["REMOTE_PROFILE_VALUE"], "profile-authorized");
+    for dropped in ["CMUX_REMOTE_TEST_SECRET", "SSH_AUTH_SOCK", "UNRELATED_TOKEN"] {
+        assert_eq!(remote[dropped], "", "remote child inherited {dropped}: {remote}");
+    }
+    assert!(remote["HOME"].as_str().is_some_and(|v| !v.is_empty()), "{remote}");
+    assert!(remote["PATH"].as_str().is_some_and(|v| !v.is_empty()), "{remote}");
+    let _ = std::fs::remove_dir_all(&d);
 }
 
 #[tokio::test]
