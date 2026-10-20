@@ -70,7 +70,8 @@ export default agentPaneEntry({
       checks: {
         layoutShiftMax: {
           value: 0.005,
-          reason: "The composer grows a line upward at each Shift-Enter (0.0013-0.0016 per line), the state under test.",
+          reason:
+            "The composer grows a line upward at each Shift-Enter (0.0013-0.0016 per line), the state under test.",
         },
       },
     },
