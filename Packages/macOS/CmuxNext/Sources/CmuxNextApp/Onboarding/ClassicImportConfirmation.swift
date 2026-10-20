@@ -8,7 +8,7 @@ struct ClassicImportConfirmation {
     static let identifier = "cmux.dialog.classicImport"
 
     let plan: ClassicImportPlan
-    unowned let services: AppServices
+    let services: AppServices
 
     func ask() async -> Bool {
         let window = services.windows.active?.window ?? NSApp.keyWindow ?? NSApp.mainWindow
