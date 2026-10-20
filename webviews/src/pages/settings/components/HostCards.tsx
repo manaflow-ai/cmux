@@ -75,6 +75,10 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
   const [browsing, setBrowsing] = useState(false);
   const [linking, setLinking] = useState(false);
   const [usage, setUsage] = useState<number | null>(null);
+  const [adjustRefused, setAdjustRefused] = useState(false);
+  const shownBackground = rows.get(BACKGROUND_KEY)?.value;
+  // A refusal was about the background shown then; another one may be placed.
+  useEffect(() => setAdjustRefused(false), [shownBackground]);
   const dwell = useRef<ReturnType<typeof setTimeout> | null>(null);
   // How to end the running preview: the app's, or a workspace's.
   const previewing = useRef<(() => void) | null>(null);
@@ -237,6 +241,28 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
           <WindowGlass />
         </div>
       )}
+      {/* Place the picture by hand in the window (backgrounds plan phase 6): a still only. */}
+      {!own &&
+        current !== "none" &&
+        current !== "desktop" &&
+        !backdrops.find((choice) => choice.id === current)?.video && (
+          <div className="backdrop-own-bar backdrop-adjust-bar">
+            <button
+              type="button"
+              className="button"
+              onClick={() => void store.adjustBackdrop().then((ok) => setAdjustRefused(!ok))}
+            >
+              {t("settingsWindow.backdropPicker.adjust")}
+            </button>
+            <span className="row-help">
+              {t(
+                adjustRefused
+                  ? "settingsWindow.backdropPicker.notAdjustable"
+                  : "settingsWindow.backdropPicker.adjustHelp",
+              )}
+            </span>
+          </div>
+        )}
       <div className="backdrop-grid">
         {own &&
           tile(

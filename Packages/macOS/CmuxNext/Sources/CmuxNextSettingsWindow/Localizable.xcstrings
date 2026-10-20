@@ -41600,6 +41600,402 @@
         }
       }
     },
+    "settingsWindow.backdropPicker.adjust": {
+      "comment": "Button that starts placing the background picture by hand in the window.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ضبط الموضع…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prilagodi položaj…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Juster placering…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Position anpassen …"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adjust Placement…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajustar posición…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajuster la position…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Regola posizione…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "位置を調整…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កែទីតាំង…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "위치 조정…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Juster plassering …"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dostosuj położenie…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajustar posição…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Настроить положение…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ปรับตำแหน่ง…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Konumu Ayarla…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Налаштувати розташування…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Điều chỉnh vị trí…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "调整位置…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "調整位置…"
+          }
+        }
+      }
+    },
+    "settingsWindow.backdropPicker.adjustHelp": {
+      "comment": "Help beside Adjust Placement… in the background picker.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اسحب الصورة في النافذة وكبّرها؛ يعيد زر إعادة التعيين الإطار التلقائي."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prevucite sliku u prozoru i zumirajte je; Vrati vraća automatsko kadriranje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Træk billedet i vinduet og zoom; Nulstil går tilbage til den automatiske beskæring."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ziehe das Bild im Fenster und zoome es; „Zurücksetzen“ stellt den automatischen Ausschnitt wieder her."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Drag the picture in the window and zoom it; Reset goes back to the automatic framing."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arrastra la imagen en la ventana y haz zoom; Restablecer vuelve al encuadre automático."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Faites glisser l’image dans la fenêtre et zoomez ; Réinitialiser revient au cadrage automatique."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trascina l’immagine nella finestra e fai zoom; Ripristina torna all’inquadratura automatica."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ウインドウ内で画像をドラッグしてズームします。リセットで自動の配置に戻ります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អូសរូបភាពក្នុងបង្អួច ហើយពង្រីកវា។ កំណត់ឡើងវិញ នឹងត្រឡប់ទៅការដាក់ស្វ័យប្រវត្តិ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "창에서 사진을 드래그하고 확대/축소하세요. 재설정하면 자동 배치로 돌아갑니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dra bildet i vinduet og zoom; Tilbakestill går tilbake til den automatiske beskjæringen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przeciągnij obraz w oknie i powiększ go; Resetuj przywraca automatyczne kadrowanie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arraste a imagem na janela e dê zoom; Redefinir volta ao enquadramento automático."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перетащите изображение в окне и измените масштаб; «Сбросить» вернёт автоматическое кадрирование."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ลากรูปภาพในหน้าต่างและซูม กดรีเซ็ตเพื่อกลับไปจัดวางอัตโนมัติ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Görseli pencerede sürükleyip yakınlaştırın; Sıfırla otomatik kadrajlamaya döner."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перетягніть зображення у вікні й змініть масштаб; «Скинути» поверне автоматичне кадрування."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kéo hình trong cửa sổ và thu phóng; Đặt lại sẽ trở về cách căn tự động."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在窗口中拖动并缩放图片；“重置”会恢复自动取景。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在視窗中拖移並縮放圖片；「重設」會回到自動取景。"
+          }
+        }
+      }
+    },
+    "settingsWindow.backdropPicker.notAdjustable": {
+      "comment": "Shown when no window shows a still background picture to place by hand.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا توجد نافذة تعرض صورة ثابتة لضبطها الآن."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nijedan prozor trenutno ne prikazuje sliku za postavljanje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Intet vindue viser et stillbillede at placere lige nu."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gerade zeigt kein Fenster ein Standbild, das sich platzieren lässt."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No window shows a still picture to place right now."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ahora ninguna ventana muestra una imagen fija que colocar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucune fenêtre n’affiche d’image fixe à placer pour le moment."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Al momento nessuna finestra mostra un’immagine fissa da posizionare."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "いま配置できる静止画を表示しているウインドウはありません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ឥឡូវនេះគ្មានបង្អួចណាបង្ហាញរូបភាពនឹងសម្រាប់ដាក់ទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "지금 배치할 정지 사진을 보여 주는 창이 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ingen vinduer viser et stillbilde å plassere nå."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Żadne okno nie pokazuje teraz obrazu do ułożenia."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nenhuma janela mostra uma imagem estática para posicionar agora."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сейчас ни одно окно не показывает неподвижное изображение, которое можно расположить."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ขณะนี้ไม่มีหน้าต่างใดแสดงภาพนิ่งให้จัดวาง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Şu anda yerleştirilecek sabit bir görsel gösteren pencere yok."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Зараз жодне вікно не показує нерухоме зображення, яке можна розмістити."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hiện không có cửa sổ nào hiển thị ảnh tĩnh để đặt vị trí."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "目前没有窗口显示可调整位置的静态图片。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "目前沒有視窗顯示可調整位置的靜態圖片。"
+          }
+        }
+      }
+    },
     "settingsPage.theme.terminalHelp": {
       "comment": "Help under the Terminal Theme row of Settings > Theme.",
       "extractionState": "manual",
