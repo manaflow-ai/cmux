@@ -188,10 +188,11 @@ public final class CEFEngine: BrowserEngine {
     public var crashLog: BrowserCrashLog { CEFRuntime.shared.crashLog }
 
     /// Runs once CEF is initialized in this process (process-wide), after the
-    /// person's password settings reach Chromium (`setPasswordPolicy`).
+    /// person's password settings (`setPasswordPolicy`) and search engine
+    /// (`setDefaultSearch`) reach Chromium.
     public var onReady: (() -> Void)? {
         get { CEFRuntime.shared.onReady }
-        set { CEFRuntime.shared.onReady = { CEFPasswordPolicy.apply(); newValue?() } }
+        set { CEFRuntime.shared.onReady = { CEFPasswordPolicy.apply(); CEFDefaultSearch.apply(); newValue?() } }
     }
 
     /// Runs when starting CEF fails in this process (process-wide). A failed

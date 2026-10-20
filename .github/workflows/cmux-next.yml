@@ -180,6 +180,9 @@ on:
       - tests/test_cmux_next_stale_pcm_cleanup.sh
       - tests/test_check_app_personalities.sh
       - scripts/lint-ios-package-conventions*
+      - scripts/cmux-next/lint-browser-chrome-icons.py
+      - scripts/icons/**
+      - design/icons/**
       - scripts/lint_swift_namespaces.py
       - scripts/lint-namespace-types-*.txt
       - scripts/swift_source_mask.py
@@ -371,6 +374,9 @@ on:
       - tests/test_cmux_next_stale_pcm_cleanup.sh
       - tests/test_check_app_personalities.sh
       - scripts/lint-ios-package-conventions*
+      - scripts/cmux-next/lint-browser-chrome-icons.py
+      - scripts/icons/**
+      - design/icons/**
       - scripts/lint_swift_namespaces.py
       - scripts/lint-namespace-types-*.txt
       - scripts/swift_source_mask.py
@@ -1221,6 +1227,7 @@ jobs:
             bash scripts/cmux-next/tests/check-test-notification-centers.test.sh
             python3 scripts/cmux-next/tests/count-swift-code-lines.test.py
             bash scripts/cmux-next/tests/check-app-size.test.sh
+            bash scripts/cmux-next/tests/version-surfaces.test.sh
             bash scripts/cmux-next/tests/ratchet-tiers.test.sh
             bash scripts/cmux-next/tests/base-autofix.test.sh
             bash scripts/cmux-next/tests/pr-autofix.test.sh
@@ -1279,6 +1286,17 @@ jobs:
         id: package-conventions
         continue-on-error: true
         run: ./scripts/lint-ios-package-conventions.sh
+
+      # The browser chrome draws Chromium's own icons (design/icons/chromium): the
+      # generated batch is current and no browser control uses an SF Symbol or a
+      # non-Chromium pack icon.
+      - name: Browser chrome icons
+        id: browser-chrome-icons
+        continue-on-error: true
+        run: |
+          python3 scripts/icons/chromium_icons.py --check
+          python3 scripts/icons/build_pack.py --check
+          python3 scripts/cmux-next/lint-browser-chrome-icons.py
 
       - name: Checks job structure
         id: checks-structure
@@ -1415,6 +1433,7 @@ jobs:
             ${{ steps.ghostty-resources-bundle.outcome }}|Ghostty resources bundle
             ${{ steps.bundled-terminfo.outcome }}|Bundled terminfo
             ${{ steps.package-conventions.outcome }}|Package conventions lint
+            ${{ steps.browser-chrome-icons.outcome }}|Browser chrome icons
             ${{ steps.capability-text.outcome }}|Capability texts never say update the app
             ${{ steps.checks-structure.outcome }}|Checks job structure
             ${{ steps.tier-routing.outcome }}|Tier routing

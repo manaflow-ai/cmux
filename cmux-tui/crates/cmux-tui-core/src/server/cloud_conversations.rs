@@ -214,8 +214,9 @@ pub(super) struct TypingParams {
     on: bool,
 }
 
-/// `cloud-mux-subscribe` / `cloud-mux-unsubscribe`: no fields at all, so a
-/// client cannot name a chief (the queue is the lease token's).
+/// `cloud-mux-subscribe` / `cloud-mux-unsubscribe` / `cloud-requests-list`: no
+/// fields at all, so a client cannot name a chief (the queue is the lease
+/// token's) or another person (the requests are the lease's).
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct NoParams {
@@ -346,6 +347,11 @@ fn worker_user_id(project: &str, account: &str) -> String {
 
 pub(super) fn inbox_list(mux: &Mux, client: u64, params: InboxListParams) -> anyhow::Result<Value> {
     Ok(lease_user(mux, client)?.inbox_list(params.limit, params.include_archived)?)
+}
+
+/// `cloud-requests-list`: the person's open message requests (`home.requests.list`).
+pub(super) fn requests_list(mux: &Mux, client: u64) -> anyhow::Result<Value> {
+    Ok(lease_user(mux, client)?.requests_list()?)
 }
 
 pub(super) fn snapshot(mux: &Mux, client: u64, params: SnapshotParams) -> anyhow::Result<Value> {
@@ -485,6 +491,7 @@ pub(super) fn is_network(cmd: &Command) -> bool {
     matches!(
         cmd,
         Command::CloudInboxList(_)
+            | Command::CloudRequestsList(_)
             | Command::CloudConversationSnapshot(_)
             | Command::CloudConversationHistory(_)
             | Command::CloudConversationThread(_)
@@ -631,3 +638,7 @@ mod tests;
 #[cfg(test)]
 #[path = "cloud_lease_gate_tests.rs"]
 mod lease_gate_tests;
+
+#[cfg(test)]
+#[path = "cloud_request_tests.rs"]
+mod request_tests;

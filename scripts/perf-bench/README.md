@@ -36,6 +36,17 @@ Local, against bundles you have: `python3 scripts/perf-bench/xbench.py run --out
 --app cmux=/path/cmux.app --app chrome=/path/Chrome.app --browsers cmux-chromium,chrome`,
 then `xbench.py report --out /tmp/xb --md BENCH.md --json results.json`.
 
+## Tab switch in a real window
+
+By default the step also builds a tagged Debug app and runs
+`scripts/cmux-next/tab-switch-matrix.py` (a118's): one pane holding 2, 10 and 30 tabs of
+each kind (browser Chromium and WebKit, Markdown, chat), warm, switched with Ctrl-Tab,
+Cmd-Shift-] and strip clicks through the app's real key and mouse paths. Each row is end to
+end: OS input event age + intent to the Core Animation commit that shows the tab (p50 / p90
+ms), with frames missed. BENCH.md gets a "Tab switch" section and the gate gets
+`tab-switch-<kind>-<count>-<input>` rows. `--arg=tabswitch=off` skips it;
+`--arg=tabswitch=chromium,markdown --arg=tabcounts=2,30` narrows it.
+
 ## Method
 
 Follows Ardia's `docs/perf/vs-browsers.md` so the numbers compare:
@@ -71,7 +82,7 @@ Follows Ardia's `docs/perf/vs-browsers.md` so the numbers compare:
   scroll tab 30 s → video tab 30 s → hide, 60 s (power-idle-hidden) → close to 1
   tab, 30 s → memory-closed → quit.
 - **Machine state**: browsers interleave and rotate each round; each item waits
-  (≤ 5 min) for the 1-minute load to fall under 4; `caffeinate -dimsu` holds the
+  (≤ 2 min) for the 1-minute load to fall under 4; `caffeinate -dimsu` holds the
   display awake. The step runs `--class exclusive`, alone on its worker.
 
 ## Files
