@@ -53,12 +53,14 @@ RELEASE_WORDS = (
     r"(sign(ing)?|codesign|notari[sz]\w*|appcast|sparkle|release|publish|deploy|nightly|promote|rollback)([-_.][^/]*)?$"
 )
 RULES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
-    # Prose, copy, lockfiles and logs stay low even inside a high directory (a relay's LICENSE, the
-    # updater's strings, an auth service's package-lock). CODEOWNERS is not among them.
+    # Prose, copy and logs stay low even inside a high directory (a relay's LICENSE, the updater's
+    # strings). CODEOWNERS is not among them.
     ("low", "docs or copy", (
-        "*.md", "*.mdx", "LICENSE*", "*/LICENSE*", "*.xcstrings", "*.strings", "docs/*", "release-notes/*",
-        "*.lock", "*-lock.json", "*.log",
+        "*.md", "*.mdx", "LICENSE*", "*/LICENSE*", "*.xcstrings", "*.strings", "docs/*", "release-notes/*", "*.log",
     )),
+    # Lockfiles are the package graph: never high (an auth service's package-lock), never low (a
+    # swapped dependency still gets agent review).
+    ("normal", "package graph", ("*.lock", "*-lock.json")),
     ("low", "test", (
         "*/Tests/*", "*/tests/*", "tests/*", "tests_v2/*", "*/test/*", "*_test.*", "*_tests.*",
         "*/tests.rs", "*/test_*.py", "*.test.*", "*Tests.swift", "*/fixtures/*", "*/__snapshots__/*",
@@ -106,7 +108,7 @@ RULES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
         ".github/CODEOWNERS", ".github/workflows/risk-tier.yml", ".github/workflows/risk-tier-tests.yml",
         "scripts/ci/risk_tier.py",
         # What refuses a red `risk evidence`: gh-merge-green, and next-autoland's batch lander.
-        "scripts/gh-merge-green", "scripts/ci/next_batch.py",
+        "scripts/gh-merge-green", "scripts/ci/next_batch.py", ".github/workflows/cmux-next-batch.yml",
     )),
     ("low", "docs, plans or skills", (
         "*.md", "*.mdx", "docs/*", "skills/*", "plans/*", "LICENSE*",
@@ -184,11 +186,19 @@ def delete_lines(patch: str, sign: str) -> list[str]:
     return found
 
 
+def in_delete_scope(path: str) -> bool:
+    """Product code, where a delete can reach a user's data: not low, a script, CI or generated."""
+    return classify_path(path)[0] != "low" and not any(matches(path, p) for p in DELETE_SCOPE_EXCLUDED + GENERATED)
+
+
 def new_delete_files(patches: dict[str, str]) -> set[str]:
     """The product-code files that gain a delete of files or rows. A delete line the pull request
     also removes, in the same file or another, was moved; a file that removes as many delete lines
     as it adds was edited. Neither is new."""
-    removed = {path: Counter(delete_lines(patch, "-")) for path, patch in patches.items()}
+    # Only product code can be the source of a move: a cleanup line taken out of a test, a doc or a
+    # script and put into product code is a new delete there.
+    removed = {path: Counter(delete_lines(patch, "-") if in_delete_scope(path) else [])
+               for path, patch in patches.items()}
     added = {path: delete_lines(patch, "+") for path, patch in patches.items()}
     unmatched: dict[str, list[str]] = {}
     # A moved line cancels one removal of the same text, in its own file first, then anywhere.
@@ -201,7 +211,7 @@ def new_delete_files(patches: dict[str, str]) -> set[str]:
                 removed[source][line] -= 1
     flagged = set()
     for path, lines in unmatched.items():
-        if classify_path(path)[0] == "low" or any(matches(path, p) for p in DELETE_SCOPE_EXCLUDED + GENERATED):
+        if not in_delete_scope(path):
             continue
         # A delete line still removed here was rewritten: each one pays for one added line.
         if len(lines) > sum(removed[path].values()):
