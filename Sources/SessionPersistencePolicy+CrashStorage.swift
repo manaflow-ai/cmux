@@ -186,9 +186,9 @@ extension SessionPersistencePolicy {
             // A crash can write two generations of the same window. The later
             // generation may contain additional agent checkpoints, so its
             // fingerprint is not byte-for-byte equal to the earlier one. When
-            // both generations have the same workspace cardinality and one
-            // checkpoint set contains the other, they are still the same
-            // window. Prefer the copy with the stronger persisted fidelity.
+            // both generations have the same workspace cardinality and the
+            // exact checkpoint set, they are still the same window. Unique
+            // checkpoint sets remain separate so no worktree is discarded.
             if let existingIndex = result.firstIndex(where: {
                 areCrashDuplicateWindows($0, window)
             }) {
