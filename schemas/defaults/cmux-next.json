@@ -572,7 +572,7 @@
     "setting.sidebar.minimal": false,
     "setting.sidebar.minimalMode": "off",
     "setting.sidebar.nowPlaying.enabled": false,
-    "setting.sidebar.numbering": "workspacesOnly",
+    "setting.sidebar.numbering": "allItems",
     "setting.sidebar.pinnedBandsScroll": true,
     "setting.sidebar.sectionLook": "quiet",
     "setting.sidebar.showChats": true,
