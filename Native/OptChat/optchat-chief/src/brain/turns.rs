@@ -613,6 +613,7 @@ impl Brain {
                 )]
                 .into(),
                 fast: self.turn_fast(&engine, family),
+                peer: None,
             },
             blocks,
             system_prompt,

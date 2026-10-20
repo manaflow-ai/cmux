@@ -168,6 +168,29 @@ pub struct QueuedStart {
     pub extra: Option<String>,
 }
 
+/// Where cloud subagents run (plans/cmux-next/cloud-subagents-DESIGN.md):
+/// an acpmux peer on a cloud VM. Set from `OPTCHAT_SUBAGENT_PEER`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CloudPlacement {
+    /// The acpmux peer name (`acpmux host ls`).
+    pub peer: String,
+    /// The folder sessions start in on the peer (`OPTCHAT_SUBAGENT_PEER_DIR`).
+    pub dir: PathBuf,
+    /// The peer's harness profile (`OPTCHAT_SUBAGENT_PEER_HARNESS`).
+    pub harness: String,
+    /// The subagent system text: local presets do not exist on the peer, so
+    /// it goes in front of the first message.
+    pub instructions: String,
+}
+
+/// The repo a `spawn(cwd)` folder on the Mac names, for its clone on the VM
+/// (`~/src/<repo>`): the folder's last part, a `<repo>-worktrees/<x>`
+/// folder's repo.
+pub fn cloud_repo(cwd: Option<&str>) -> Option<String> {
+    let _ = cwd;
+    None
+}
+
 /// A queued subagent's launch.
 struct Waiting {
     spawn: String,
@@ -201,6 +224,8 @@ pub struct Spawner {
     /// Queued ids of a spawn the grant refused, with the refusal: the queue
     /// starter fails them with it when the brain dequeues them.
     refused: Mutex<BTreeMap<String, String>>,
+    /// Cloud placement: new subagents start on this acpmux peer.
+    cloud: Option<CloudPlacement>,
 }
 
 impl Spawner {
@@ -224,7 +249,14 @@ impl Spawner {
             log,
             grant: None,
             refused: Mutex::new(BTreeMap::new()),
+            cloud: None,
         }
+    }
+
+    /// New subagents start on this peer (None: on this machine).
+    pub fn with_cloud(mut self, cloud: Option<CloudPlacement>) -> Spawner {
+        self.cloud = cloud;
+        self
     }
 
     /// The person's harness grant (empty: every harness).
@@ -366,6 +398,7 @@ impl Spawner {
                 .map(|k| ("CMUX_WORKSPACE_ID".to_owned(), crate::workspaces::env_id(k)))
                 .collect(),
             fast: false,
+            peer: None,
         };
         // The folder the host made for its subagents is trusted up front, so
         // the user's first message in a subagent's pane is never held behind

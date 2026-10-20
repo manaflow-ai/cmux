@@ -34,6 +34,9 @@ pub struct SessionSpec {
     /// The fast service tier (codex-acp's `fast-mode` config option, set
     /// right after session/new); false: the harness's default speed.
     pub fast: bool,
+    /// The acpmux peer (`acpmux host ls`) the session is created on
+    /// (`_meta.acpmux.peer`; a cloud subagent); None: this machine.
+    pub peer: Option<String>,
 }
 
 /// The tag on every session the Chief itself runs (its turns and its
