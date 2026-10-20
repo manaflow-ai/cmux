@@ -523,10 +523,10 @@ viewer has no runtime CDN dependency.
 
 ### Mermaid
 
-- **Version:** 11.4.1
+- **Version:** 11.17.2
 - **License:** MIT License
-- **Copyright:** Copyright (c) 2014-2024 Knut Sveidqvist and Mermaid contributors
-- **Source:** https://github.com/mermaid-js/mermaid/releases/tag/mermaid%4011.4.1
+- **Copyright:** Copyright (c) 2014-2026 Knut Sveidqvist and Mermaid contributors
+- **Source:** https://github.com/mermaid-js/mermaid/releases/tag/mermaid%4011.17.2
 
 ### Ondine
 

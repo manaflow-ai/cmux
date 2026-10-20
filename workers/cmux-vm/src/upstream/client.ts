@@ -14,8 +14,11 @@
 import type { Named } from "@gdp-ts/core";
 import { Context, Data, Effect, Schema } from "effect";
 import type { Principal } from "../domain/principal.ts";
+import type { VmNetworkAllowed } from "../proofs/vm-network.ts";
+import type { VmImageAllowed } from "../proofs/vm-image.ts";
 import type { SnapshotId, UpstreamId, VmId } from "../lib/ids.ts";
 import type { KeyHasScope } from "../proofs/key-has-scope.ts";
+import type { TenantMayGrow } from "../proofs/tenant-may-grow.ts";
 import type { TenantMayCreate } from "../proofs/tenant-may-create.ts";
 import type { TenantOwnsResource } from "../proofs/tenant-owns-resource.ts";
 
@@ -32,6 +35,7 @@ export const UpstreamVm = Schema.Struct({
   idleTimeoutSeconds: Schema.optional(Schema.NullOr(Schema.Number)),
   maxRunSeconds: Schema.optional(Schema.NullOr(Schema.Number)),
   autoDeleteSeconds: Schema.optional(Schema.NullOr(Schema.Number)),
+  maxRunTotalSeconds: Schema.optional(Schema.NullOr(Schema.Number)),
   createdAt: Schema.String,
   updatedAt: Schema.String,
 });
@@ -51,7 +55,21 @@ export interface SizeRequest {
   readonly diskMib?: number | undefined;
 }
 
+/** Provider-confirmed resources must satisfy every requested floor. */
+export const resourceFloorsReached = (vm: UpstreamVm, size: SizeRequest): boolean =>
+  (size.vcpus === undefined || vm.resources.cpu >= size.vcpus)
+  && (size.memoryMib === undefined || vm.resources.memory >= size.memoryMib)
+  && (size.diskMib === undefined || vm.resources.storage >= size.diskMib);
+
 export interface CreateVmSpec {
+  readonly createdBy?: string;
+  /** Private effect journal: persist only the opaque request/context digest before provider I/O. */
+  readonly journal?: {
+    readonly context: string | null;
+    readonly beforeSend: (context: string) => Effect.Effect<void, UpstreamError>;
+    /** The provider definitely made nothing (a 4xx create answer, then no VM at the exact slug): drop the intent and its slot. */
+    readonly rejected: () => Effect.Effect<void>;
+  };
   readonly cmuxId: VmId;
   readonly idleTimeoutSeconds: number;
   readonly maxRunSeconds?: number;
@@ -83,10 +101,35 @@ export interface FileEntryRecord {
   readonly kind: string;
 }
 
+export interface FileStatRecord {
+  readonly kind: "file" | "directory" | "symlink" | "other";
+  readonly size: number;
+  readonly mode: number;
+  readonly mtime: number | null;
+  readonly owner: string;
+  readonly group: string;
+}
+
 export type Owns<C, R> = TenantOwnsResource<C, R>;
 type Write<C> = KeyHasScope<C, "vm:write">;
 
 export interface UpstreamClientService {
+  /** Identifies this exact canonical allocation, without exposing its private provider ID. */
+  readonly instanceFingerprint: <C, R>(vm: Named<R, VmId>, proofs: { readonly owns: Owns<C, R>; readonly scope: KeyHasScope<C, "vm:read"> }) => Effect.Effect<string>;
+  /** Reads saved-disk metadata without running guest code, including when retired. */
+  readonly statFile: <C, R>(vm: Named<R, VmId>, proofs: { readonly owns: Owns<C, R>; readonly scope: KeyHasScope<C, "vm:files"> }, path: string) => Effect.Effect<FileStatRecord, UpstreamError>;
+  /** Irreversibly fences this owned VM; success requires a confirmed zero budget and no running compute. */
+  readonly retireVm: <C, R>(vm: Named<R, VmId>, proofs: { readonly owns: Owns<C, R>; readonly scope: Write<C> }) => Effect.Effect<UpstreamVm, UpstreamError>;
+  /** Ensure resource floors on exactly this owned VM; never deletes it on failure. */
+  readonly resizeVm: <C, R>(
+    vm: Named<R, VmId>,
+    proofs: { readonly owns: Owns<C, R>; readonly scope: Write<C>; readonly mayGrow: TenantMayGrow<C> },
+    size: SizeRequest,
+  ) => Effect.Effect<UpstreamVm, UpstreamError>;
+  readonly replaceVmHttpsProxy: <C, R>(
+    vm: Named<R, VmId>,
+    proofs: { readonly owns: Owns<C, R>; readonly scope: KeyHasScope<C, "vm:network">; readonly network: VmNetworkAllowed<C> },
+  ) => Effect.Effect<"updated" | "missing" | "ambiguous", UpstreamError>;
   readonly getVm: <C, R>(
     vm: Named<R, VmId>,
     proofs: { readonly owns: Owns<C, R>; readonly scope: KeyHasScope<C, "vm:read"> },
@@ -107,6 +150,8 @@ export interface UpstreamClientService {
     proofs: {
       readonly mayCreate: TenantMayCreate<C, "vm">;
       readonly scope: Write<C>;
+      readonly network?: VmNetworkAllowed<C>;
+      readonly image?: VmImageAllowed<C>;
       readonly source?: { readonly snapshot: Named<S, SnapshotId>; readonly owns: Owns<C, S> };
     },
   ) => Effect.Effect<

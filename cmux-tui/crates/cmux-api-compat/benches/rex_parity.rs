@@ -89,8 +89,12 @@ fn scenario(name: &str, rev: u32) -> Change {
                 to: format!("title_{k}"),
             },
         },
-        // Adds leaf retypes and cross-parent moves, which parse subtrees.
-        "mixed-materializing" => match k % 4 {
+        // mixed-streaming with one rule in 60 swapped for a retype or a
+        // cross-parent move (167 of 10,000), which parse the subtrees they touch.
+        "mixed-materializing" if k % 60 != 1 => scenario("mixed-streaming", rev),
+        "mixed-materializing" => scenario("all-materializing", BASE + k / 60),
+        // Worst case: every rule is a retype or a cross-parent move on one node.
+        "all-materializing" => match k % 4 {
             0 => Change::Retype {
                 path: "/workspaces/*/unread".into(),
                 up: Conversion::NumberToString,
@@ -162,7 +166,15 @@ pub fn run(out: &mut dyn std::io::Write, runs: usize) {
         REVISIONS
     )
     .unwrap();
-    for name in ["rename-churn", "wide-unrelated", "mixed-streaming", "mixed-materializing"] {
+    for name in [
+        "rename-churn",
+        "wide-unrelated",
+        "mixed-streaming",
+        "mixed-materializing",
+        "all-materializing",
+    ] {
+        // The worst case costs milliseconds per message: time fewer runs.
+        let runs = if name == "all-materializing" { (runs / 200).max(5) } else { runs };
         let compat = build(name);
         let start = Instant::now();
         let up = compat.program(KIND, BASE, top).unwrap();
