@@ -80,7 +80,7 @@ class RelevantPathTests(unittest.TestCase):
     def test_ios_changes_are_relevant(self):
         prefixes = ib.relevant_prefixes(PACKAGE_SWIFT)
         for path in ("cnx-ios/App/RootView.swift", "Packages/iOS/CmuxTabsKit/Sources/X.swift",
-                     "cmux-tui/crates/cmux-wg/src/lib.rs", ".github/workflows/cnx-ios-internal-next.yml",
+                     "cmux-tui/crates/cmux-wg/src/lib.rs", ".github/workflows/ios-internal-nightly.yml",
                      "scripts/ci/ios_internal_builder.py", "Packages/Shared/CmuxGhosttyKit/Package.swift"):
             self.assertTrue(ib.touches_ios([path], prefixes), path)
 
@@ -159,7 +159,7 @@ class AdmitTests(unittest.TestCase):
     def env(self, **kw):
         env = {
             "GITHUB_REPOSITORY": "manaflow-ai/cmux",
-            "GITHUB_WORKFLOW_REF": "manaflow-ai/cmux/.github/workflows/cnx-ios-internal-next.yml@refs/heads/rc/cnx-ios-builder",
+            "GITHUB_WORKFLOW_REF": "manaflow-ai/cmux/.github/workflows/ios-internal-nightly.yml@refs/heads/rc/cnx-ios-builder",
             "GITHUB_JOB": "archive",
             "GITHUB_EVENT_NAME": "workflow_dispatch",
             "GITHUB_REF": "refs/heads/rc/cnx-ios-builder",

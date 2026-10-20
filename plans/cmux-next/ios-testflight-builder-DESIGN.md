@@ -40,7 +40,7 @@ Sibling: `plans/cmux-next/nightly-builder-DESIGN.md` (the Mac nightly on cmux22)
    job asks for `glaeda-runner-cmux23-ios-internal` (repo variable
    `CI_IOS_INTERNAL_RUNNER` can move it). The admission hook
    (`ios_internal_builder.py admit`, `ACTIONS_RUNNER_HOOK_JOB_STARTED`) admits
-   only repo `manaflow-ai/cmux`, workflow `cnx-ios-internal-next.yml`, job
+   only repo `manaflow-ai/cmux`, workflow `ios-internal-nightly.yml`, job
    `archive`, event `workflow_dispatch`, ref `refs/heads/rc/cnx-ios-builder`,
    with at least 40 GiB free.
 3. **No secret on the mini.** The mini archives with
@@ -59,7 +59,7 @@ Sibling: `plans/cmux-next/nightly-builder-DESIGN.md` (the Mac nightly on cmux22)
    what runs with the signing key. Changing the builder means an admin
    fast-forwards `rc/cnx-ios-builder` (see "Operations").
 5. **Trigger: every `feat-cmux-next` push, plus a periodic fallback.**
-   `cnx-ios-internal-next-trigger.yml` runs on each `feat-cmux-next` push (and
+   `ios-internal-nightly-trigger.yml` runs on each `feat-cmux-next` push (and
    on a 2-hour schedule once the file reaches the default branch, and on
    dispatch). Its `decide` job (`ios_internal_builder.py plan`, Ubuntu, no
    secrets) dispatches the build with the head SHA when:
@@ -115,7 +115,7 @@ ssh cmux23 'python3 ~/ios-internal-builder/ios_internal_builder.py status'
 
 ## Fallback
 
-- A dispatch of `cnx-ios-internal-next.yml` with `runner=macos-26` archives on
+- A dispatch of `ios-internal-nightly.yml` with `runner=macos-26` archives on
   GitHub-hosted macOS instead of cmux23.
 - Aziz's manual lane (`rc/cnx-ios-internal-*` push) keeps working; both use
   timestamp build numbers, so they interleave without collisions.
