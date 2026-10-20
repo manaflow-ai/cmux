@@ -16,9 +16,11 @@ public struct HomeGroupInfo: Hashable, Sendable {
     public var canMute: Bool
     /// Alerts are hidden.
     public var muted: Bool
+    /// A large group's member count (``members`` is then a roster); nil when ``members`` is everyone.
+    public var memberCount: Int?
 
     public init(conversation: ConversationID, isGroup: Bool, title: String, displayTitle: String, members: [HomeGroupMember],
-                canMute: Bool, muted: Bool) {
+                canMute: Bool, muted: Bool, memberCount: Int? = nil) {
         self.conversation = conversation
         self.isGroup = isGroup
         self.title = title
@@ -26,5 +28,15 @@ public struct HomeGroupInfo: Hashable, Sendable {
         self.members = members
         self.canMute = canMute
         self.muted = muted
+        self.memberCount = memberCount
+    }
+
+    /// The members list's header: "Members", or "5,000 members" for a large group.
+    public var membersHeader: String { Self.membersHeader(count: memberCount) }
+
+    /// The header for `count` members; nil gives the plain "Members".
+    public static func membersHeader(count: Int?) -> String {
+        guard let count else { return HomeConversationStrings.infoMembers }
+        return HomeConversationStrings.infoMemberCount(count)
     }
 }

@@ -15,6 +15,8 @@ public enum HomeGroupOutcome: Hashable, Sendable {
     case ownerOnly
     /// The owner refused the change for this user (`forbidden`).
     case forbidden
+    /// I am a read-only member of the group (`read_only`): I can read it, not change or post to it.
+    case readOnly
     /// A DM or a Chief conversation: no name, members or leave (`kind_forbids`).
     case notAGroup
     /// No conversation with that id is listed.
@@ -49,6 +51,7 @@ public enum HomeGroupOutcome: Hashable, Sendable {
         case .invalid(let reason):
             switch reason {
             case "forbidden": self = removing ? .ownerOnly : .forbidden
+            case "read_only": self = .readOnly
             case "not_reachable": self = .notReachable(naming)
             case "kind_forbids": self = .notAGroup
             case "unknown_conversation": self = .unknownConversation

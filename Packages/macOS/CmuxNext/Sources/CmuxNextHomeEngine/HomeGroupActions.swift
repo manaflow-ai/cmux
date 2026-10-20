@@ -38,7 +38,8 @@ public struct HomeGroupActions: Sendable {
         let ordered = members.filter(\.isMe) + members.filter { !$0.isMe }
         let title = row.summary.title.isHomeInternalID ? "" : row.summary.title
         return HomeGroupInfo(conversation: id, isGroup: row.kind == .group, title: title, displayTitle: row.title,
-                             members: ordered, canMute: muting.canMute(id), muted: muting.isMuted(id) || row.summary.muted)
+                             members: ordered, canMute: muting.canMute(id), muted: muting.isMuted(id) || row.summary.muted,
+                             memberCount: row.summary.memberCount)
     }
 
     /// The people the user can add to `id`: contacts not already in it.

@@ -155,6 +155,13 @@ enum HomeConversationStrings {
     static var infoInvited: String { String(localized: "home.info.invited", defaultValue: "Invited", bundle: .module) }
     static var infoAgent: String { String(localized: "home.info.agent", defaultValue: "Agent", bundle: .module) }
     static var infoRemove: String { String(localized: "home.info.remove", defaultValue: "Remove", bundle: .module) }
+    static var infoRoleOwner: String { String(localized: "home.info.role.owner", defaultValue: "Owner", bundle: .module) }
+    static var infoRoleAdmin: String { String(localized: "home.info.role.admin", defaultValue: "Admin", bundle: .module) }
+    static var infoRoleReadOnly: String { String(localized: "home.info.role.readOnly", defaultValue: "Read-only", bundle: .module) }
+    /// A large group's header; the count is already formatted for the locale ("5,000").
+    static func infoMemberCount(_ count: Int) -> String {
+        String(format: String(localized: "home.info.memberCount", defaultValue: "%@ members", bundle: .module), count.formatted())
+    }
     static var infoAddPeople: String { String(localized: "home.info.addPeople", defaultValue: "Add People…", bundle: .module) }
     static var infoAdd: String { String(localized: "home.info.add", defaultValue: "Add", bundle: .module) }
     static var infoAddSearch: String { String(localized: "home.info.addSearch", defaultValue: "Search people", bundle: .module) }
@@ -184,6 +191,8 @@ enum HomeConversationStrings {
             String(localized: "home.group.outcome.ownerOnly", defaultValue: "Only the group’s owner can remove people.", bundle: .module)
         case .forbidden:
             String(localized: "home.group.outcome.forbidden", defaultValue: "You can’t change this group.", bundle: .module)
+        case .readOnly:
+            String(localized: "home.group.outcome.readOnly", defaultValue: "You can only read this group.", bundle: .module)
         case .notAGroup:
             String(localized: "home.group.outcome.notAGroup", defaultValue: "Only a group has a name and members to change.",
                    bundle: .module)

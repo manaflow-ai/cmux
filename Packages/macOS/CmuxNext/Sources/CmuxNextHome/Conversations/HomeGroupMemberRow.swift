@@ -39,6 +39,7 @@ struct HomeGroupMemberRow: View {
     private var tags: [String] {
         var tags: [String] = []
         if member.isMe { tags.append(HomeConversationStrings.infoYou) }
+        if let role = member.roleTag { tags.append(role) }
         if member.isAgent { tags.append(HomeConversationStrings.infoAgent) }
         if member.isInvited { tags.append(HomeConversationStrings.infoInvited) }
         return tags
