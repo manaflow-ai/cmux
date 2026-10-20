@@ -14,8 +14,8 @@ nonisolated enum BrowserSettingsSchema {
             BrowserToolbarButtonsSetting.descriptor(group: toolbar),
             SettingDescriptor(
                 BrowserDefaultEngine.configPath, section: .browser, group: engine,
-                title: SettingsText.keyed("settings.browser.defaultEngine", "Default Engine"),
-                help: SettingsText.keyed("settings.browser.defaultEngine.help", "New browser tabs open in this engine."),
+                title: SettingsText.keyed("settings.browser.defaultEngine", "Browser Engine"),
+                help: SettingsText.keyed("settings.browser.defaultEngine.help", "Browser tabs and cmux pages, such as History and Apps, open in this engine."),
                 kind: .choice([
                     SettingChoice(BrowserDefaultEngine.chromium.rawValue, "Chromium"),
                     SettingChoice(BrowserDefaultEngine.webkit.rawValue, "WebKit"),
