@@ -114,6 +114,9 @@ def read_marker(api: Api, artifact: dict, key: str) -> dict | None:
     if marker.get("origin") in ("push", "dispatch"):
         if dev_daily and marker.get("origin") != "push":
             return None
+        # A dispatch may run on a tag; a push marker names a branch.
+        if marker.get("ref_kind", "heads") not in (("heads", "tags") if marker["origin"] == "dispatch" else ("heads",)):
+            return None
         return marker if REF.match(str(marker.get("branch", ""))) else None
     if marker.get("origin") == "pull_request":
         if not re.fullmatch(r"[0-9]{1,9}", str(marker.get("pr", ""))):
@@ -145,6 +148,9 @@ def is_current(api: Api, repo: str, marker: dict) -> bool:
         # admission signal for this marker. same-tree mode checks out the
         # recorded SHA and the publisher's source gate verifies it again.
         if marker.get("dev_daily"):
+            return True
+        # A tag has no head to move on (and is not a branch to look up).
+        if marker.get("ref_kind") == "tags":
             return True
         head = api.get(f"repos/{repo}/git/ref/heads/{marker['branch']}")
         return head.get("object", {}).get("sha") == marker["sha"]

@@ -24,7 +24,7 @@ feat-cmux-next and `next-batch/*`, same-tree runs and the DEV daily keep a run
 of their own and are never cancelled. When a dispatch's cmux-tui tree is still
 building, its tree jobs start once the tree publishes, as for a push; the
 marker records the run as a dispatch, so that same-tree run also runs
-`cmux-next daemon tests` (a push's skips them). `cmux-next web bundles` runs on
+`cmux-next daemon tests` (a push's skips them). A tag dispatch's marker names the tag, which never moves, so its tree jobs start whenever the tree publishes. `cmux-next web bundles` runs on
 a pull request only when a tier that restores them (swift, daemon, generated)
 is routed.
 

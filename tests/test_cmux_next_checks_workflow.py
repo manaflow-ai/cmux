@@ -1459,11 +1459,24 @@ class SameRepositoryPullRequestsRunTheirTiers(unittest.TestCase):
     def test_a_dispatch_whose_tree_was_building_gets_its_daemon_tests_later(self):
         # The marker says dispatch, not push: a same-tree run for a push skips daemon-test
         # (push CI is the app build), and nothing else tests a working branch's tree.
-        marker = next(step for step in self.jobs()["path_route"]["steps"] if step.get("id") == "marker")
-        self.assertIn('origin="dispatch" if env["EVENT_NAME"] == "workflow_dispatch"', marker["run"])
+        step = next(step for step in self.jobs()["path_route"]["steps"] if step.get("id") == "marker")
+        self.assertEqual(step["env"]["REF_TYPE"], "${{ github.ref_type }}")
+
+        def marker(event: str, ref_type: str = "branch", dev_daily: str = "false") -> dict:
+            with tempfile.TemporaryDirectory() as directory:
+                env = {**os.environ, "RUNNER_TEMP": directory, "GITHUB_OUTPUT": f"{directory}/out",
+                       "GITHUB_RUN_ID": "5", "KEY": "k", "DAEMON": "true", "SCHEME": "false", "SHA": "a" * 40,
+                       "STATUS_SHA": "a" * 40, "BRANCH": "topic", "REF_TYPE": ref_type, "EVENT_NAME": event,
+                       "DEV_DAILY": dev_daily, "DEV_DAILY_SHA": ""}
+                subprocess.run(["bash", "-c", step["run"]], env=env, check=True, capture_output=True, text=True)
+                return json.loads(Path(directory, "cmux-next-tree-wait/marker.json").read_text())
+
+        self.assertEqual(marker("push")["origin"], "push")
+        self.assertNotIn("ref_kind", marker("push"))
+        self.assertEqual((marker("workflow_dispatch")["origin"], marker("workflow_dispatch")["ref_kind"]), ("dispatch", "heads"))
         # A tag dispatch's marker says so; the notifier never looks a tag up as a branch.
-        self.assertEqual(marker["env"]["REF_TYPE"], "${{ github.ref_type }}")
-        self.assertIn('ref_kind="tags" if env["REF_TYPE"] == "tag" else "heads"', marker["run"])
+        self.assertEqual(marker("workflow_dispatch", ref_type="tag")["ref_kind"], "tags")
+        self.assertEqual(marker("workflow_dispatch", dev_daily="true")["origin"], "push")
         same_tree = self.context("workflow_dispatch", ref="refs/heads/topic", same_tree_sha="a" * 40,
                                  same_tree_state="ready", same_tree_tiers="daemon", same_tree_origin="dispatch")
         self.assertTrue(evaluate(self.jobs()["daemon-test"]["if"], same_tree))

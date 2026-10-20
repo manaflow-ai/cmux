@@ -734,6 +734,7 @@ jobs:
           SHA: ${{ github.sha }}
           STATUS_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
           BRANCH: ${{ github.ref_name }}
+          REF_TYPE: ${{ github.ref_type }}
           DEV_DAILY: ${{ inputs.dev_daily || false }}
           DEV_DAILY_SHA: ${{ inputs.dev_daily_sha }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
@@ -758,8 +759,11 @@ jobs:
           else:
               # A dispatch on a working branch (#22303) is not a push: its same-tree run still
               # runs daemon-test, which a push's skips. The DEV daily stays a feat-cmux-next push.
-              marker.update(origin="dispatch" if env["EVENT_NAME"] == "workflow_dispatch" and env["DEV_DAILY"] != "true" else "push",
-                            branch=env["BRANCH"])
+              if env["EVENT_NAME"] == "workflow_dispatch" and env["DEV_DAILY"] != "true":
+                  marker.update(origin="dispatch", branch=env["BRANCH"],
+                                ref_kind="tags" if env["REF_TYPE"] == "tag" else "heads")
+              else:
+                  marker.update(origin="push", branch=env["BRANCH"])
           with open(sys.argv[1], "w", encoding="utf-8") as stream:
               json.dump(marker, stream)
           print(json.dumps(marker))
