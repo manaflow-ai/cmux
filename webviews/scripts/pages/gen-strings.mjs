@@ -128,6 +128,27 @@ export const PAGES = {
         file: `${sources}/CmuxNextActions/ActionCatalog.xcstrings`,
         keys: () => ["action.reloadConfiguration"],
       },
+      {
+        // Agents > Chiefs (u2586) draws the channels Home's Chief editor (ChiefPage.tsx).
+        file: "webviews/src/pages/home-channels/Localizable.xcstrings",
+        keys: (all) =>
+          all.filter(
+            (key) =>
+              key.startsWith("chief.") ||
+              [
+                "sheet.newChief.title",
+                "sheet.newChief.lead",
+                "sheet.editChief.title",
+                "sheet.editChief.lead",
+                "edit.cancel",
+              ].includes(key),
+          ),
+      },
+      {
+        // Machines > Add Server… (u3849): the palette action's own title.
+        file: `${sources}/CmuxNextActions/ServerActions.xcstrings`,
+        keys: () => ["action.server.addServer"],
+      },
     ],
   },
   history: {
@@ -185,10 +206,25 @@ export const PAGES = {
     out: "webviews/src/pages/files/generated/strings.json",
     catalogs: [{ file: "webviews/src/pages/files/Localizable.xcstrings" }],
   },
+  // The Mobile Pairing page shares its table with its Swift provider (`mobilePairing.page.` keys).
+  "mobile-pairing": {
+    out: "webviews/src/pages/mobile-pairing/generated/strings.json",
+    catalogs: [
+      {
+        file: `${sources}/CmuxNextApp/Resources/MobilePairing.xcstrings`,
+        keys: (all) => all.filter((key) => key.startsWith("mobilePairing.page.")),
+      },
+    ],
+  },
   // The Stats page (cmux-page://cmux.stats/, hq#1920); its table lives next to it.
   stats: {
     out: "webviews/src/pages/stats/generated/strings.json",
     catalogs: [{ file: "webviews/src/pages/stats/Localizable.xcstrings" }],
+  },
+  // The Chief Usage page (cmux-page://cmux.chief-usage/); its table lives next to it.
+  "chief-usage": {
+    out: "webviews/src/pages/chief-usage/generated/strings.json",
+    catalogs: [{ file: "webviews/src/pages/chief-usage/Localizable.xcstrings" }],
   },
   // The CodeRouter page (cmux-page://cmux.coderouter/) has no Swift page; its table lives next to it.
   coderouter: {

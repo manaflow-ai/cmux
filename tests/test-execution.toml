@@ -969,6 +969,18 @@ path = "tests/test_web_lint_prepush.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cmux_next_prepush_gate.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_app_store_rules.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cnx_ios_test_notes_retry.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_bead_autoclose.py"
 lane = "linux-guard"
 
@@ -1502,10 +1514,6 @@ path = "tests/test_pr_proof_section.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_pr_status.py"
-lane = "linux-guard"
-
-[[test]]
 path = "tests/test_stale_agent_prs.py"
 lane = "linux-guard"
 
@@ -1514,5 +1522,17 @@ path = "tests/test_risk_tier.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cmux_next_pr_autofix_push_gate.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_target_graph.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ios_internal_builder.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ios_internal_notes.py"
 lane = "linux-guard"

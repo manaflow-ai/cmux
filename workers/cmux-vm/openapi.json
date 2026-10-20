@@ -39,13 +39,252 @@
         "summary": "Liveness check; no credentials needed"
       }
     },
-    "/v1/vms": {
+    "/v1/vms/{vmId}/identity": {
+      "get": {
+        "tags": [
+          "vms"
+        ],
+        "operationId": "vms.getVmInstanceIdentity",
+        "parameters": [
+          {
+            "name": "vmId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "name": "x-cmux-team-id",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 128 character(s) long",
+              "title": "maxLength(128)",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "required": false,
+            "description": "a string at most 128 character(s) long"
+          },
+          {
+            "name": "checkPresence",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true"
+              ]
+            },
+            "required": false
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "VmInstanceIdentity",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VmInstanceIdentity"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request did not match the expected schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpApiDecodeError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFound",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFound"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "QuotaExceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceeded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        },
+        "description": "Read a VM allocation's instance fingerprint. Requires the vm:read scope. Identifies the canonical allocation without exposing its private instance ID. sha256-v1 is lowercase SHA-256 of UTF-8 cmux-vm-instance-v1, a newline, then the exact guest instance ID. Stable across power changes; a new allocation has a different fingerprint. By default this reads only the ownership record. checkPresence=true also reads provider state without waking the guest and returns present or missing; only a caller that owns the allocation can receive missing, while an inaccessible allocation remains 404. Neither result grants access. Binding still requires a guest signature, single-use nonce and current epoch. Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.",
+        "summary": "Read a VM allocation's instance fingerprint"
+      }
+    },
+    "/v1/vms/{vmId}/retire": {
       "post": {
         "tags": [
           "vms"
         ],
-        "operationId": "vms.createVm",
+        "operationId": "vms.retireVm",
         "parameters": [
+          {
+            "name": "vmId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "name": "x-cmux-team-id",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 128 character(s) long",
+              "title": "maxLength(128)",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "required": false,
+            "description": "a string at most 128 character(s) long"
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "RetiredVm",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RetiredVm"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request did not match the expected schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpApiDecodeError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFound",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFound"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "QuotaExceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceeded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        },
+        "description": "Retire a VM permanently. Requires the vm:write scope. Confirms a zero lifetime run budget and a paused or stopped VM. Later starts, inbound wakes, exec and file writes are refused. File reads and deletion remain available, subject to existing deletion deadlines. Syncs an already running guest first, best effort and bounded; never starts a paused guest. There is no unretire operation. Retrying is safe; 503 can mean the fence applied but its final state is unconfirmed. No active VM plan is required to retire an existing VM. Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.",
+        "summary": "Retire a VM permanently"
+      }
+    },
+    "/v1/vms/{vmId}/resize": {
+      "post": {
+        "tags": [
+          "vms"
+        ],
+        "operationId": "vms.resizeVm",
+        "parameters": [
+          {
+            "name": "vmId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
           {
             "name": "x-cmux-team-id",
             "in": "header",
@@ -79,7 +318,7 @@
           }
         ],
         "responses": {
-          "201": {
+          "200": {
             "description": "Vm",
             "content": {
               "application/json": {
@@ -177,7 +416,251 @@
             }
           }
         },
-        "description": "Create a VM. Requires the vm:write scope. Refused with 402 when the tenant's plan does not include VMs and 429 at the tenant's VM quota. Dev/test tenants may not ask for an idle timeout over 300 seconds and default to 300; other tenants default to -1 (never pause for idleness). A retry with the same Idempotency-Key returns the first VM instead of creating another; the same key with a different body is 409. Keys with a resource allowlist cannot create. Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.",
+        "description": "Grow a VM. Requires the vm:write scope. Requires the tenant's VM plan. Requested axes are minimums: larger values are retained, never shrunk. Disk growth requires a running VM. The API confirms resource floors before success, including after a failed provider response. A retry with the same Idempotency-Key replays the current VM; changed resource intent is 409. A partial failure can leave grown resources; no VM is deleted. Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.",
+        "summary": "Grow a VM",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResizeVmRequest"
+              }
+            }
+          },
+          "required": true
+        }
+      }
+    },
+    "/v1/vm-images": {
+      "get": {
+        "tags": [
+          "vms"
+        ],
+        "operationId": "vms.listVmImages",
+        "parameters": [
+          {
+            "name": "x-cmux-team-id",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 128 character(s) long",
+              "title": "maxLength(128)",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "required": false,
+            "description": "a string at most 128 character(s) long"
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "VmImageList",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VmImageList"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request did not match the expected schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpApiDecodeError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "QuotaExceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceeded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        },
+        "description": "List approved VM images. Requires the vm:read scope. Returns only image descriptors approved for the authenticated service. Provider snapshot references are not exposed. An ordinary tenant credential sees an empty catalog. Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.",
+        "summary": "List approved VM images"
+      }
+    },
+    "/v1/vms": {
+      "post": {
+        "tags": [
+          "vms"
+        ],
+        "operationId": "vms.createVm",
+        "parameters": [
+          {
+            "name": "x-cmux-team-id",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 128 character(s) long",
+              "title": "maxLength(128)",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "required": false,
+            "description": "a string at most 128 character(s) long"
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 255 character(s) long",
+              "title": "maxLength(255)",
+              "minLength": 1,
+              "maxLength": 255
+            },
+            "required": false,
+            "description": "a string at most 255 character(s) long"
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "CreatedVm",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreatedVm"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request did not match the expected schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/HttpApiDecodeError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/BadRequest"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unauthorized"
+                }
+              }
+            }
+          },
+          "402": {
+            "description": "PaymentRequired",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentRequired"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFound",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFound"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Conflict"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "QuotaExceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceeded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        },
+        "description": "Create a VM. Requires the vm:write scope. Refused with 402 when the tenant's plan does not include VMs and 429 at the tenant's VM quota. Dev/test tenants may not ask for an idle timeout over 300 seconds and default to 300; other tenants default to -1 (never pause for idleness). When no Idempotency-Key is supplied, the API issues a public creationKey and journals the allocation. Save this handle and use it as Idempotency-Key for retries; a separate request without a key is a new intent. GET /v1/vm-creations can recover a lost server-issued handle. Unconfirmed allocations retain quota until reconciliation or verified cancellation. Server-issued handles never expire into permission to allocate again. A retry with the same Idempotency-Key returns the first VM instead of creating another; the same key with a different body is 409. Keys with a resource allowlist cannot create. initialNetwork additionally requires vm:network; proxy destinations must be enabled by the deployment. When initialNetwork is requested, its receipt confirms the accepted policy. A missing receipt means the API does not support that request; do not assume the policy was applied. Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.",
         "summary": "Create a VM",
         "requestBody": {
           "content": {
@@ -208,6 +691,19 @@
             },
             "required": false,
             "description": "a string at most 128 character(s) long"
+          },
+          {
+            "name": "createdBy",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "caller"
+              ],
+              "description": "Only resources created by the authenticated caller. Intersects all existing access restrictions; omit for the usual tenant-wide list. Service identity survives key rotation; distinct API keys have distinct creators."
+            },
+            "required": false,
+            "description": "Only resources created by the authenticated caller. Intersects all existing access restrictions; omit for the usual tenant-wide list. Service identity survives key rotation; distinct API keys have distinct creators."
           },
           {
             "name": "limit",
@@ -343,6 +839,164 @@
         },
         "description": "List the tenant's VMs, newest first. Requires the vm:read scope. A key with a resource allowlist sees only those VMs. Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.",
         "summary": "List the tenant's VMs, newest first"
+      }
+    },
+    "/v1/vms/{vmId}/https-proxies/{hostname}": {
+      "put": {
+        "tags": [
+          "vms"
+        ],
+        "operationId": "vms.replaceVmHttpsProxy",
+        "parameters": [
+          {
+            "name": "vmId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "name": "hostname",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "name": "x-cmux-team-id",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 128 character(s) long",
+              "title": "maxLength(128)",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "required": false,
+            "description": "a string at most 128 character(s) long"
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 255 character(s) long",
+              "title": "maxLength(255)",
+              "minLength": 1,
+              "maxLength": 255
+            },
+            "required": false,
+            "description": "a string at most 255 character(s) long"
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "VmHttpsProxyReceipt",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VmHttpsProxyReceipt"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request did not match the expected schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/HttpApiDecodeError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/BadRequest"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFound",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFound"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Conflict"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "QuotaExceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceeded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        },
+        "description": "Replace an HTTPS proxy. Requires the vm:network scope. Replaces only an existing HTTP proxy whose source is exactly this VM, never a shared-network or public rule. The destination must be approved by the deployment. Missing rules are 404; multiple matches are 409. Credentials are write-only. With an Idempotency-Key, identical retries replay the receipt; changed policy or credentials are 409. This does not install guest hosts entries or create new proxy rules. Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.",
+        "summary": "Replace an HTTPS proxy",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReplaceVmHttpsProxyRequest"
+              }
+            }
+          },
+          "required": true
+        }
       }
     },
     "/v1/vms/{vmId}": {
@@ -1095,11 +1749,11 @@
         ],
         "responses": {
           "201": {
-            "description": "Vm",
+            "description": "CreatedVm",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Vm"
+                  "$ref": "#/components/schemas/CreatedVm"
                 }
               }
             }
@@ -1199,7 +1853,7 @@
             }
           }
         },
-        "description": "Fork a VM into a new VM with the same memory and disk. Requires the vm:write scope. Fork is a snapshot of the source followed by a create from that snapshot, so it costs more than a create and is not atomic. The source must be running or paused (409 otherwise). On success the intermediate snapshot is deleted. If the snapshot succeeds and the create fails, the answer is 503 ForkIncomplete with the kept snapshot's id, which belongs to the caller's tenant; a retry with the same Idempotency-Key creates from that snapshot without taking a second one. Billing, quota, idle-timeout and idempotency rules are those of create. Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.",
+        "description": "Fork a VM into a new VM with the same memory and disk. Requires the vm:write scope. Fork is a snapshot of the source followed by a create from that snapshot, so it costs more than a create and is not atomic. A fresh source must be running or paused (409 otherwise); a retained snapshot or destination can be recovered after source deletion. On success the intermediate snapshot is deleted. If the snapshot succeeds and the create fails, the answer is 503 ForkIncomplete when allocation cannot be confirmed, with the kept snapshot's id and a server-issued creationKey when the caller omitted its key, which belongs to the caller's tenant; a retry with the same Idempotency-Key creates from that snapshot without taking a second one. Billing, quota, idle-timeout and idempotency rules are those of create. Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.",
         "summary": "Fork a VM into a new VM with the same memory and disk",
         "requestBody": {
           "content": {
@@ -1211,6 +1865,492 @@
           },
           "required": true
         }
+      }
+    },
+    "/v1/vm-creations": {
+      "get": {
+        "tags": [
+          "vmCreations"
+        ],
+        "operationId": "vmCreations.listVmCreations",
+        "parameters": [
+          {
+            "name": "x-cmux-team-id",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 128 character(s) long",
+              "title": "maxLength(128)",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "required": false,
+            "description": "a string at most 128 character(s) long"
+          },
+          {
+            "name": "state",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "pending"
+              ]
+            },
+            "required": false
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "description": "a string matching the pattern ^(?:[a-f0-9]{64}|(?:p1_[a-f0-9]{16}-[a-f0-9]{64}|i1_[a-f0-9]{32}(?:_[a-f0-9]{16}-[a-f0-9]{64})?))$",
+              "pattern": "^(?:[a-f0-9]{64}|(?:p1_[a-f0-9]{16}-[a-f0-9]{64}|i1_[a-f0-9]{32}(?:_[a-f0-9]{16}-[a-f0-9]{64})?))$"
+            },
+            "required": false,
+            "description": "a string matching the pattern ^(?:[a-f0-9]{64}|(?:p1_[a-f0-9]{16}-[a-f0-9]{64}|i1_[a-f0-9]{32}(?:_[a-f0-9]{16}-[a-f0-9]{64})?))$"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "description": "a string to be decoded into a number"
+            },
+            "required": false,
+            "description": "a string to be decoded into a number"
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "VmCreationList",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VmCreationList"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request did not match the expected schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/HttpApiDecodeError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/BadRequest"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "QuotaExceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceeded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        },
+        "description": "List server-issued VM creation handles. Requires the vm:read scope. Bounded creation history for requests that omitted their key. Never lists caller-supplied keys or contacts the provider. Current service labels apply; resource-allowlisted keys cannot list. Empty filtered pages can still have a nextCursor.",
+        "summary": "List server-issued VM creation handles"
+      }
+    },
+    "/v1/vm-creations/by-key": {
+      "get": {
+        "tags": [
+          "vmCreations"
+        ],
+        "operationId": "vmCreations.getVmCreation",
+        "parameters": [
+          {
+            "name": "x-cmux-team-id",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 128 character(s) long",
+              "title": "maxLength(128)",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "required": false,
+            "description": "a string at most 128 character(s) long"
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 255 character(s) long",
+              "title": "maxLength(255)",
+              "minLength": 1,
+              "maxLength": 255
+            },
+            "required": true,
+            "description": "a string at most 255 character(s) long"
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "VmCreationStatus",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VmCreationStatus"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request did not match the expected schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpApiDecodeError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFound",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFound"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "QuotaExceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceeded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        },
+        "description": "Inspect a VM creation by its Idempotency-Key. Requires the vm:read scope. Reads retained intent and ownership only; never contacts the provider. Unknown keys return 404.",
+        "summary": "Inspect a VM creation by its Idempotency-Key"
+      }
+    },
+    "/v1/vm-creations/by-key/reconcile": {
+      "post": {
+        "tags": [
+          "vmCreations"
+        ],
+        "operationId": "vmCreations.reconcileVmCreation",
+        "parameters": [
+          {
+            "name": "x-cmux-team-id",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 128 character(s) long",
+              "title": "maxLength(128)",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "required": false,
+            "description": "a string at most 128 character(s) long"
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 255 character(s) long",
+              "title": "maxLength(255)",
+              "minLength": 1,
+              "maxLength": 255
+            },
+            "required": true,
+            "description": "a string at most 255 character(s) long"
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "VmCreationStatus",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VmCreationStatus"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request did not match the expected schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpApiDecodeError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFound",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFound"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "QuotaExceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceeded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        },
+        "description": "Reconcile a retained VM creation. Requires the vm:write scope. Records a verified allocation or finishes a previously requested cancellation. Never creates, starts or grows a VM. Provider absence alone is not cancellation.",
+        "summary": "Reconcile a retained VM creation"
+      }
+    },
+    "/v1/vm-creations/by-key/cancel": {
+      "post": {
+        "tags": [
+          "vmCreations"
+        ],
+        "operationId": "vmCreations.cancelVmCreation",
+        "parameters": [
+          {
+            "name": "x-cmux-team-id",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 128 character(s) long",
+              "title": "maxLength(128)",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "required": false,
+            "description": "a string at most 128 character(s) long"
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 255 character(s) long",
+              "title": "maxLength(255)",
+              "minLength": 1,
+              "maxLength": 255
+            },
+            "required": true,
+            "description": "a string at most 255 character(s) long"
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "VmCreationCancellation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VmCreationCancellation"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request did not match the expected schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpApiDecodeError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFound",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFound"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Conflict"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "QuotaExceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceeded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        },
+        "description": "Cancel a pending VM creation. Requires the vm:write scope. Fences future sends before cleanup. Unknown work stays cancelling; cancelled requires verified rejection or deletion. Completed or legacy creates return 409. Keys reported cancelled cannot be reused.",
+        "summary": "Cancel a pending VM creation"
       }
     },
     "/v1/vms/{vmId}/exec": {
@@ -1341,6 +2481,131 @@
           },
           "required": true
         }
+      }
+    },
+    "/v1/vms/{vmId}/files/stat": {
+      "get": {
+        "tags": [
+          "files"
+        ],
+        "operationId": "files.statFile",
+        "parameters": [
+          {
+            "name": "vmId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "name": "x-cmux-team-id",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 128 character(s) long",
+              "title": "maxLength(128)",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "required": false,
+            "description": "a string at most 128 character(s) long"
+          },
+          {
+            "name": "path",
+            "in": "query",
+            "schema": {
+              "$ref": "#/components/schemas/GuestPath"
+            },
+            "required": true
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "FileStat",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FileStat"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request did not match the expected schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/HttpApiDecodeError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/BadRequest"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFound",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFound"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "QuotaExceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceeded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        },
+        "description": "Read file metadata from a VM. Requires the vm:files scope. Reads metadata directly from saved disk on paused, stopped or retired VMs without starting or executing the guest. Symlinks are reported as symlinks even if their target is a file or directory. A missing path is 404 File not found. Malformed provider metadata answers 503 instead of inventing size, permissions or timestamps. The API adds no read audit row. Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.",
+        "summary": "Read file metadata from a VM"
       }
     },
     "/v1/vms/{vmId}/files/content": {
@@ -1793,6 +3058,729 @@
         "summary": "List a directory in a VM"
       }
     },
+    "/v1/snapshot-creations": {
+      "get": {
+        "tags": [
+          "snapshots"
+        ],
+        "operationId": "snapshots.listSnapshotCreations",
+        "parameters": [
+          {
+            "name": "x-cmux-team-id",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 128 character(s) long",
+              "title": "maxLength(128)",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "required": false,
+            "description": "a string at most 128 character(s) long"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "description": "a string to be decoded into a number"
+            },
+            "required": false,
+            "description": "a string to be decoded into a number"
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "description": "a string matching the pattern ^[a-f0-9]{16}-snap_[0-9a-hjkmnp-tv-z]{26}$",
+              "pattern": "^[a-f0-9]{16}-snap_[0-9a-hjkmnp-tv-z]{26}$"
+            },
+            "required": false,
+            "description": "a string matching the pattern ^[a-f0-9]{16}-snap_[0-9a-hjkmnp-tv-z]{26}$"
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "SnapshotCreationList",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SnapshotCreationList"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request did not match the expected schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpApiDecodeError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "QuotaExceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceeded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        },
+        "description": "List snapshot captures, newest first. Requires the snapshot:read scope. Reads retained public intent only. Current service labels apply; resource-allowlisted keys cannot list. Filtered empty pages may have a nextCursor.",
+        "summary": "List snapshot captures, newest first"
+      }
+    },
+    "/v1/snapshot-creations/by-key/cancel": {
+      "post": {
+        "tags": [
+          "snapshots"
+        ],
+        "operationId": "snapshots.cancelSnapshotCreationByKey",
+        "parameters": [
+          {
+            "name": "x-cmux-team-id",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 128 character(s) long",
+              "title": "maxLength(128)",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "required": false,
+            "description": "a string at most 128 character(s) long"
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 255 character(s) long",
+              "title": "maxLength(255)",
+              "minLength": 1,
+              "maxLength": 255
+            },
+            "required": true,
+            "description": "a string at most 255 character(s) long"
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "SnapshotKeyCancellation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SnapshotKeyCancellation"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request did not match the expected schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpApiDecodeError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unauthorized"
+                }
+              }
+            }
+          },
+          "402": {
+            "description": "PaymentRequired",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentRequired"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFound",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFound"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Conflict"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "QuotaExceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceeded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        },
+        "description": "Stop captures under an original key and delete its verified snapshot. Requires the snapshot:write scope. Fences before cleanup, including absent keys and already committed captures. Fenced with id:null stops future admission; it does not prove legacy unrecorded effects were deleted. Cancelling retains unknown work. Fencing a never-admitted key requires snapshot entitlement; existing captures and fences can be cancelled after plan loss. Resource-allowlisted keys must use id-addressed controls.",
+        "summary": "Stop captures under an original key and delete its verified snapshot",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CancelSnapshotKeyRequest"
+              }
+            }
+          },
+          "required": true
+        }
+      }
+    },
+    "/v1/snapshot-creations/by-key": {
+      "get": {
+        "tags": [
+          "snapshots"
+        ],
+        "operationId": "snapshots.getSnapshotCreationByKey",
+        "parameters": [
+          {
+            "name": "x-cmux-team-id",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 128 character(s) long",
+              "title": "maxLength(128)",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "required": false,
+            "description": "a string at most 128 character(s) long"
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 255 character(s) long",
+              "title": "maxLength(255)",
+              "minLength": 1,
+              "maxLength": 255
+            },
+            "required": true,
+            "description": "a string at most 255 character(s) long"
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "SnapshotCreationStatus",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SnapshotCreationStatus"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request did not match the expected schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpApiDecodeError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFound",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFound"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Conflict"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "QuotaExceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceeded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        },
+        "description": "Inspect a capture by its original Idempotency-Key. Requires the snapshot:read scope. Read only; never contacts the provider or requires the source VM. Legacy uncertain records return 409; unknown keys return 404.",
+        "summary": "Inspect a capture by its original Idempotency-Key"
+      }
+    },
+    "/v1/snapshot-creations/{snapshotId}": {
+      "get": {
+        "tags": [
+          "snapshots"
+        ],
+        "operationId": "snapshots.getSnapshotCreation",
+        "parameters": [
+          {
+            "name": "snapshotId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "name": "x-cmux-team-id",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 128 character(s) long",
+              "title": "maxLength(128)",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "required": false,
+            "description": "a string at most 128 character(s) long"
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "SnapshotCreationStatus",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SnapshotCreationStatus"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request did not match the expected schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpApiDecodeError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFound",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFound"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "QuotaExceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceeded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        },
+        "description": "Inspect a snapshot capture. Requires the snapshot:read scope. Read only; never contacts the provider.",
+        "summary": "Inspect a snapshot capture"
+      }
+    },
+    "/v1/snapshot-creations/{snapshotId}/reconcile": {
+      "post": {
+        "tags": [
+          "snapshots"
+        ],
+        "operationId": "snapshots.reconcileSnapshotCreation",
+        "parameters": [
+          {
+            "name": "snapshotId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "name": "x-cmux-team-id",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 128 character(s) long",
+              "title": "maxLength(128)",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "required": false,
+            "description": "a string at most 128 character(s) long"
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "SnapshotCreationStatus",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SnapshotCreationStatus"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request did not match the expected schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpApiDecodeError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFound",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFound"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "QuotaExceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceeded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        },
+        "description": "Reconcile a snapshot capture. Requires the snapshot:write scope. Adopts a verified capture or finishes a requested cancellation. Never takes a new snapshot.",
+        "summary": "Reconcile a snapshot capture"
+      }
+    },
+    "/v1/snapshot-creations/{snapshotId}/cancel": {
+      "post": {
+        "tags": [
+          "snapshots"
+        ],
+        "operationId": "snapshots.cancelSnapshotCreation",
+        "parameters": [
+          {
+            "name": "snapshotId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "name": "x-cmux-team-id",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 128 character(s) long",
+              "title": "maxLength(128)",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "required": false,
+            "description": "a string at most 128 character(s) long"
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "SnapshotCreationStatus",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SnapshotCreationStatus"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request did not match the expected schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpApiDecodeError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFound",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFound"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Conflict"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "QuotaExceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceeded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        },
+        "description": "Cancel a pending snapshot capture. Requires the snapshot:write scope. Fences before cleanup. An absent provider snapshot does not prove cancellation. Completed captures return 409; delete their snapshot instead.",
+        "summary": "Cancel a pending snapshot capture"
+      }
+    },
     "/v1/vms/{vmId}/snapshots": {
       "post": {
         "tags": [
@@ -1932,7 +3920,7 @@
             }
           }
         },
-        "description": "Snapshot a running or paused VM. Requires the snapshot:write scope. The snapshot captures memory and disk; VMs can boot from it as soon as this returns. A VM booted from a snapshot resumes from the captured memory. Whether the guest kernel's random number generator is reseeded, and whether the machine id, hostname and clock change on restore, is not documented by the platform and is not yet verified: assume every VM booted from one snapshot starts with identical RNG state, machine id and hostname, and reseed, regenerate and resync them in the guest when that matters.",
+        "description": "Snapshot a running or paused VM. Requires the snapshot:write scope. Each capture is journaled before sending. A key permanently identifies one capture; use a fresh key for a new capture. Retained failures return pendingSnapshotId. Inspect, reconcile or cancel it at /v1/snapshot-creations/:snapshotId; reconcile never captures again. Omitted-key requests are separate captures; recover a lost handle from GET /v1/snapshot-creations. Unknown outcomes retain quota. A VM booted from a snapshot resumes from the captured memory. Whether the guest kernel's random number generator is reseeded, and whether the machine id, hostname and clock change on restore, is not documented by the platform and is not yet verified: assume every VM booted from one snapshot starts with identical RNG state, machine id and hostname, and reseed, regenerate and resync them in the guest when that matters.",
         "summary": "Snapshot a running or paused VM",
         "requestBody": {
           "content": {
@@ -1965,6 +3953,19 @@
             },
             "required": false,
             "description": "a string at most 128 character(s) long"
+          },
+          {
+            "name": "createdBy",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "caller"
+              ],
+              "description": "Only resources created by the authenticated caller. Intersects all existing access restrictions; omit for the usual tenant-wide list. Service identity survives key rotation; distinct API keys have distinct creators."
+            },
+            "required": false,
+            "description": "Only resources created by the authenticated caller. Intersects all existing access restrictions; omit for the usual tenant-wide list. Service identity survives key rotation; distinct API keys have distinct creators."
           },
           {
             "name": "limit",
@@ -4255,6 +6256,126 @@
         "summary": "What this device may reach"
       }
     },
+    "/v1/devices/{deviceId}/overlay-policy": {
+      "get": {
+        "tags": [
+          "mesh"
+        ],
+        "operationId": "mesh.getDeviceOverlayPolicy",
+        "parameters": [
+          {
+            "name": "deviceId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "name": "x-cmux-team-id",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 128 character(s) long",
+              "title": "maxLength(128)",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "required": false,
+            "description": "a string at most 128 character(s) long"
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "DeviceOverlayPolicy",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceOverlayPolicy"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request did not match the expected schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpApiDecodeError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFound",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFound"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Conflict"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "QuotaExceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceeded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        },
+        "description": "Read a device's directed overlay policy. Requires the mesh:join scope. Only the principal that enrolled the device or a tenant admin (an API key with the admin scope, or a team admin session) sees it; anyone else gets 404. Public identities and inbound/outbound permissions only. Experiment: answers 404 unless the mesh experiment is enabled for the team.",
+        "summary": "Read a device's directed overlay policy"
+      }
+    },
     "/v1/meshes/{meshId}/enrollment-codes": {
       "post": {
         "tags": [
@@ -5254,6 +7375,116 @@
         }
       }
     },
+    "/v1/devices/{deviceId}/signed/overlay-policy": {
+      "post": {
+        "tags": [
+          "meshDevice"
+        ],
+        "operationId": "meshDevice.signedDeviceOverlayPolicy",
+        "parameters": [
+          {
+            "name": "deviceId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "DeviceOverlayPolicy",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceOverlayPolicy"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request did not match the expected schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/HttpApiDecodeError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/BadRequest"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFound",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFound"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Conflict"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "QuotaExceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceeded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        },
+        "description": "Signed with the distinct purpose overlay-policy. No credential: the device's install-key signature authenticates it for this one device only. An unknown or deleted device, a signature by another key, for another device or for another request, a device whose owner left the team or whose API key was revoked, and a team without the experiment are all 404; a stale signedAt (more than 120 s off) is 403, a replayed request 409. Experiment: answers 404 unless the mesh experiment is enabled for the team.",
+        "summary": "A device reads its own overlay policy",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SignedDeviceRequest"
+              }
+            }
+          },
+          "required": true
+        }
+      }
+    },
     "/v1/devices/{deviceId}/signed/peers": {
       "post": {
         "tags": [
@@ -5693,6 +7924,1078 @@
           "required": true
         }
       }
+    },
+    "/v1/meshes/{meshId}/overlay-server-codes": {
+      "post": {
+        "tags": [
+          "overlayServers"
+        ],
+        "operationId": "overlayServers.createOverlayServerCode",
+        "parameters": [
+          {
+            "name": "meshId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "name": "x-cmux-team-id",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 128 character(s) long",
+              "title": "maxLength(128)",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "required": false,
+            "description": "a string at most 128 character(s) long"
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 255 character(s) long",
+              "title": "maxLength(255)",
+              "minLength": 1,
+              "maxLength": 255
+            },
+            "required": false,
+            "description": "a string at most 255 character(s) long"
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "An approved server-only invitation, valid for 10 minutes. Only its hash is stored. The reserved device id supports signed policy recovery after a lost enrollment response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OverlayServerCode"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request did not match the expected schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/HttpApiDecodeError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/BadRequest"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFound",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFound"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Conflict"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "QuotaExceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceeded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        },
+        "description": "Approve a server enrollment code. Requires the mesh:join scope. Pins the approved name, WireGuard and install public keys; creates no server or tunnel. Shown once, 10 minutes, at most 20 per mesh per hour. Deliver through the approved pairing channel. Answers 404 unless the mesh experiment is enabled for this tenant.",
+        "summary": "Approve a server enrollment code",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OverlayServerBinding"
+              }
+            }
+          },
+          "required": true
+        }
+      }
+    },
+    "/v1/meshes/{meshId}/overlay-servers": {
+      "post": {
+        "tags": [
+          "overlayServers"
+        ],
+        "operationId": "overlayServers.enrollOverlayServer",
+        "parameters": [
+          {
+            "name": "meshId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "name": "x-cmux-team-id",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 128 character(s) long",
+              "title": "maxLength(128)",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "required": false,
+            "description": "a string at most 128 character(s) long"
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 255 character(s) long",
+              "title": "maxLength(255)",
+              "minLength": 1,
+              "maxLength": 255
+            },
+            "required": false,
+            "description": "a string at most 255 character(s) long"
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "A provider-free mesh server, excluded from source wildcards. Device-to-device initiation requires an explicit source-id grant. Enrollment does not enable a role, relay admission or execution.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OverlayServer"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request did not match the expected schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/HttpApiDecodeError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/BadRequest"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFound",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFound"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Conflict"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "QuotaExceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceeded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        },
+        "description": "Enroll a provider-free server destination. Requires the mesh:join scope. Sign cmux-mesh-v1 with purpose enroll-overlay-server and the mesh id as target, the server's WireGuard/install keys and name. No tunnel is created. A fresh signed retry with unchanged identity returns the same record. Answers 404 unless the mesh experiment is enabled for this tenant.",
+        "summary": "Enroll a provider-free server destination",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EnrollDeviceRequest"
+              }
+            }
+          },
+          "required": true
+        }
+      },
+      "get": {
+        "tags": [
+          "overlayServers"
+        ],
+        "operationId": "overlayServers.listOverlayServers",
+        "parameters": [
+          {
+            "name": "meshId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "name": "x-cmux-team-id",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 128 character(s) long",
+              "title": "maxLength(128)",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "required": false,
+            "description": "a string at most 128 character(s) long"
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OverlayServerList",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OverlayServerList"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request did not match the expected schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpApiDecodeError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFound",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFound"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "QuotaExceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceeded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        },
+        "description": "List visible provider-free servers. Requires the mesh:read scope. Only its enrolling principal or a tenant admin may read or revoke it; resource restrictions still apply. Answers 404 unless the mesh experiment is enabled for this tenant.",
+        "summary": "List visible provider-free servers"
+      }
+    },
+    "/v1/overlay-servers/{deviceId}": {
+      "get": {
+        "tags": [
+          "overlayServers"
+        ],
+        "operationId": "overlayServers.getOverlayServer",
+        "parameters": [
+          {
+            "name": "deviceId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "name": "x-cmux-team-id",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 128 character(s) long",
+              "title": "maxLength(128)",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "required": false,
+            "description": "a string at most 128 character(s) long"
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A provider-free mesh server, excluded from source wildcards. Device-to-device initiation requires an explicit source-id grant. Enrollment does not enable a role, relay admission or execution.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OverlayServer"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request did not match the expected schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpApiDecodeError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFound",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFound"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "QuotaExceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceeded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        },
+        "description": "Read a provider-free server. Requires the mesh:join scope. Only its enrolling principal or a tenant admin may read or revoke it; resource restrictions still apply. Answers 404 unless the mesh experiment is enabled for this tenant.",
+        "summary": "Read a provider-free server"
+      },
+      "delete": {
+        "tags": [
+          "overlayServers"
+        ],
+        "operationId": "overlayServers.revokeOverlayServer",
+        "parameters": [
+          {
+            "name": "deviceId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "name": "x-cmux-team-id",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 128 character(s) long",
+              "title": "maxLength(128)",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "required": false,
+            "description": "a string at most 128 character(s) long"
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Success"
+          },
+          "400": {
+            "description": "The request did not match the expected schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpApiDecodeError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFound",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFound"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Conflict"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "QuotaExceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceeded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        },
+        "description": "Revoke a provider-free server identity. Requires the mesh:join scope. Only its enrolling principal or a tenant admin may read or revoke it; resource restrictions still apply. No provider I/O. New policy reads omit it. Answers 404 unless the mesh experiment is enabled for this tenant.",
+        "summary": "Revoke a provider-free server identity"
+      }
+    },
+    "/v1/overlay-servers/{deviceId}/policy": {
+      "get": {
+        "tags": [
+          "overlayServers"
+        ],
+        "operationId": "overlayServers.getOverlayServerPolicy",
+        "parameters": [
+          {
+            "name": "deviceId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "name": "x-cmux-team-id",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "description": "a string at most 128 character(s) long",
+              "title": "maxLength(128)",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "required": false,
+            "description": "a string at most 128 character(s) long"
+          }
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OverlayServerPolicy",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OverlayServerPolicy"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request did not match the expected schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpApiDecodeError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFound",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFound"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Conflict"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "QuotaExceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceeded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        },
+        "description": "Read a server's directed overlay policy. Requires the mesh:join scope. Only its enrolling principal or a tenant admin may read or revoke it; resource restrictions still apply. The server is excluded from source wildcards; an explicit source-id grant permits device-to-device initiation. Answers 404 unless the mesh experiment is enabled for this tenant.",
+        "summary": "Read a server's directed overlay policy"
+      }
+    },
+    "/v1/meshes/{meshId}/overlay-server-enrollments": {
+      "post": {
+        "tags": [
+          "overlayServerDevice"
+        ],
+        "operationId": "overlayServerDevice.codeEnrollOverlayServer",
+        "parameters": [
+          {
+            "name": "meshId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "security": [],
+        "responses": {
+          "201": {
+            "description": "A provider-free mesh server, excluded from source wildcards. Device-to-device initiation requires an explicit source-id grant. Enrollment does not enable a role, relay admission or execution.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OverlayServer"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request did not match the expected schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/HttpApiDecodeError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/BadRequest"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFound",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFound"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Conflict"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "QuotaExceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceeded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        },
+        "description": "No credential: sign cmux-mesh-v1 with purpose enroll-overlay-server, mesh id as target, the pinned keys, and code:name as the name line. Fresh (120 s), single use. Authentication failures burn unused codes; capacity and dependency failures leave them usable. A fresh signed retry acknowledges the exact live reserved identity until expiry; revocation never recreates it. Answers 404 unless the mesh experiment is enabled for this tenant.",
+        "summary": "Redeem an approved server code",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CodeEnrollOverlayServerRequest"
+              }
+            }
+          },
+          "required": true
+        }
+      }
+    },
+    "/v1/overlay-servers/{deviceId}/signed/policy": {
+      "post": {
+        "tags": [
+          "overlayServerDevice"
+        ],
+        "operationId": "overlayServerDevice.signedOverlayServerPolicy",
+        "parameters": [
+          {
+            "name": "deviceId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "OverlayServerPolicy",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OverlayServerPolicy"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request did not match the expected schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/HttpApiDecodeError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/BadRequest"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFound",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFound"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Conflict"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "QuotaExceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceeded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        },
+        "description": "No credential: sign with purpose overlay-server-policy, device id as target, empty WireGuard key/name and the recorded install key. Fresh (120 s), single use, owner checked afresh. Invalid identity is 404. Answers 404 unless the mesh experiment is enabled for this tenant.",
+        "summary": "A server reads its own overlay policy",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SignedDeviceRequest"
+              }
+            }
+          },
+          "required": true
+        }
+      }
+    },
+    "/v1/overlay-servers/{deviceId}/signed/revoke": {
+      "post": {
+        "tags": [
+          "overlayServerDevice"
+        ],
+        "operationId": "overlayServerDevice.signedRevokeOverlayServer",
+        "parameters": [
+          {
+            "name": "deviceId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "security": [],
+        "responses": {
+          "204": {
+            "description": "Success"
+          },
+          "400": {
+            "description": "The request did not match the expected schema",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/HttpApiDecodeError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/BadRequest"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Forbidden"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "NotFound",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotFound"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Conflict"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "QuotaExceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaExceeded"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ServiceUnavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceUnavailable"
+                }
+              }
+            }
+          }
+        },
+        "description": "No credential: sign with distinct purpose revoke-overlay-server, device id as target, empty WireGuard key/name and the recorded install key. Fresh and single use. Existing grants do not activate another role. Answers 404 unless the mesh experiment is enabled for this tenant.",
+        "summary": "A server revokes its own overlay identity",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SignedDeviceRequest"
+              }
+            }
+          },
+          "required": true
+        }
+      }
     }
   },
   "components": {
@@ -5806,54 +9109,256 @@
           }
         ]
       },
-      "CreateVmRequest": {
+      "VmInstanceIdentity": {
         "type": "object",
-        "required": [],
+        "required": [
+          "id",
+          "scheme",
+          "fingerprint"
+        ],
         "properties": {
-          "displayName": {
+          "id": {
             "type": "string",
-            "description": "a string at most 100 character(s) long",
-            "title": "maxLength(100)",
-            "minLength": 1,
-            "maxLength": 100
+            "description": "a string matching the pattern ^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$",
+            "pattern": "^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$"
           },
-          "snapshotId": {
+          "scheme": {
             "type": "string",
-            "description": "Boot from one of the tenant's snapshots; omit for the base image.",
+            "enum": [
+              "sha256-v1"
+            ]
+          },
+          "fingerprint": {
+            "type": "string",
+            "description": "a string matching the pattern ^[0-9a-f]{64}$",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "presence": {
+            "type": "string",
+            "enum": [
+              "present",
+              "missing"
+            ],
+            "description": "Present only when checkPresence=true. Missing means this caller owns the allocation but its VM is gone; an inaccessible allocation remains 404."
+          }
+        },
+        "additionalProperties": false
+      },
+      "Unauthorized": {
+        "type": "object",
+        "required": [
+          "message",
+          "_tag"
+        ],
+        "properties": {
+          "message": {
+            "type": "string"
+          },
+          "_tag": {
+            "type": "string",
+            "enum": [
+              "Unauthorized"
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "Forbidden": {
+        "type": "object",
+        "required": [
+          "message",
+          "_tag"
+        ],
+        "properties": {
+          "message": {
+            "type": "string"
+          },
+          "missingScope": {
+            "type": "string",
+            "x-extensible-enum": [
+              "vm:read",
+              "vm:write",
+              "vm:network",
+              "vm:exec",
+              "vm:files",
+              "vm:terminal",
+              "snapshot:*",
+              "snapshot:read",
+              "snapshot:write",
+              "domain:*",
+              "deploy:*",
+              "git:*",
+              "mesh:read",
+              "mesh:write",
+              "mesh:join",
+              "acl:read",
+              "acl:write",
+              "admin"
+            ]
+          },
+          "_tag": {
+            "type": "string",
+            "enum": [
+              "Forbidden"
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "ServiceUnavailable": {
+        "type": "object",
+        "required": [
+          "message",
+          "_tag"
+        ],
+        "properties": {
+          "message": {
+            "type": "string"
+          },
+          "creationKey": {
+            "$ref": "#/components/schemas/VmCreationKey"
+          },
+          "pendingSnapshotId": {
+            "type": "string",
+            "description": "a string matching the pattern ^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$",
             "pattern": "^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$"
           },
+          "_tag": {
+            "type": "string",
+            "enum": [
+              "ServiceUnavailable"
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "VmCreationKey": {
+        "type": "string",
+        "description": "Server-issued recovery handle; use as Idempotency-Key. Not an authentication credential.",
+        "pattern": "^vcr_[0123456789abcdefghjkmnpqrstvwxyz]{26}$"
+      },
+      "NotFound": {
+        "type": "object",
+        "required": [
+          "message",
+          "_tag"
+        ],
+        "properties": {
+          "message": {
+            "type": "string"
+          },
+          "creationKey": {
+            "$ref": "#/components/schemas/VmCreationKey"
+          },
+          "pendingSnapshotId": {
+            "type": "string",
+            "description": "a string matching the pattern ^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$",
+            "pattern": "^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$"
+          },
+          "_tag": {
+            "type": "string",
+            "enum": [
+              "NotFound"
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "QuotaExceeded": {
+        "type": "object",
+        "required": [
+          "message",
+          "_tag"
+        ],
+        "properties": {
+          "message": {
+            "type": "string"
+          },
+          "creationKey": {
+            "$ref": "#/components/schemas/VmCreationKey"
+          },
+          "pendingSnapshotId": {
+            "type": "string",
+            "description": "a string matching the pattern ^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$",
+            "pattern": "^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$"
+          },
+          "retryAfterSeconds": {
+            "$ref": "#/components/schemas/Int"
+          },
+          "budget": {
+            "type": "string",
+            "enum": [
+              "snapshots",
+              "vms",
+              "rate",
+              "capacity",
+              "mesh.perTenant",
+              "device.perMesh",
+              "firewallRule.perMesh",
+              "firewallRule.perResource",
+              "firewallRule.account",
+              "aclApply.perMeshPerMinute",
+              "enrollmentCode.perMeshPerHour",
+              "address.perDevice"
+            ]
+          },
+          "_tag": {
+            "type": "string",
+            "enum": [
+              "QuotaExceeded"
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "Int": {
+        "type": "integer",
+        "description": "an integer",
+        "title": "int"
+      },
+      "RetiredVm": {
+        "type": "object",
+        "required": [
+          "id",
+          "state",
+          "retired"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "a string matching the pattern ^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$",
+            "pattern": "^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "paused",
+              "stopped"
+            ]
+          },
+          "retired": {
+            "type": "boolean",
+            "enum": [
+              true
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "ResizeVmRequest": {
+        "type": "object",
+        "required": [
+          "resources"
+        ],
+        "properties": {
           "resources": {
-            "$ref": "#/components/schemas/RequestedResources"
-          },
-          "idleTimeoutSeconds": {
-            "$ref": "#/components/schemas/Int",
-            "description": "Seconds without network activity before the VM pauses itself (memory kept; start or resume continues it). Only network traffic to or from the VM counts as activity: CPU work and disk I/O alone do not keep it awake. A long job without traffic needs -1 or a larger value. -1 never pauses for idleness. Dev/test tenants: 1 to 300, default 300. Other tenants: default -1 (the cmux app pauses product machines itself).",
-            "title": "between(-1, 604800)",
-            "minimum": -1,
-            "maximum": 604800
-          },
-          "maxRunSeconds": {
-            "$ref": "#/components/schemas/Int",
-            "description": "Pause the VM once a single run has lasted this many seconds, however busy it is; each start gives a fresh budget. -1 or omitted: no cap.",
-            "title": "between(-1, 2592000)",
-            "minimum": -1,
-            "maximum": 2592000
-          },
-          "autoDeleteSeconds": {
-            "$ref": "#/components/schemas/Int",
-            "description": "Delete the VM once it has gone this many seconds without running; each start resets the clock, and a running VM is never deleted for this. 0 deletes it as soon as it stops. -1 or omitted: never.",
-            "title": "between(-1, 31536000)",
-            "minimum": -1,
-            "maximum": 31536000
-          },
-          "labels": {
-            "$ref": "#/components/schemas/Labels"
+            "$ref": "#/components/schemas/ResizeVmResources"
           }
         },
         "additionalProperties": false,
-        "description": "Without snapshotId the VM boots the cmux base image, Ubuntu 24.04 LTS, with 4 vCPUs, 8192 MiB memory and 32768 MiB disk unless resources says otherwise."
+        "description": "Grow an existing VM to at least the requested resources. Omitted axes stay unchanged; already larger axes are kept. Disk growth requires a running VM."
       },
-      "RequestedResources": {
+      "ResizeVmResources": {
         "type": "object",
         "required": [],
         "properties": {
@@ -5880,22 +9385,8 @@
           }
         },
         "additionalProperties": false,
-        "description": "Size of the new VM. Omitted axes keep the base image's size. The VM boots from the largest base size that fits within the request on every axis, then grows to the exact request. Growing is a second step after the create and is not atomic: if it fails, the new VM is deleted and the create answers 409. Sizes can only grow, so a VM booted from a snapshot cannot be made smaller than the snapshot."
-      },
-      "Int": {
-        "type": "integer",
-        "description": "an integer",
-        "title": "int"
-      },
-      "Labels": {
-        "type": "object",
-        "required": [],
-        "properties": {},
-        "additionalProperties": {
-          "type": "string",
-          "description": "a string matching the pattern ^[A-Za-z0-9._:/@-]{0,63}$",
-          "pattern": "^[A-Za-z0-9._:/@-]{0,63}$"
-        }
+        "description": "Nonempty minimum resource floors. Omitted axes stay unchanged and larger axes are retained.",
+        "minProperties": 1
       },
       "Vm": {
         "type": "object",
@@ -5984,9 +9475,26 @@
           },
           "updatedAt": {
             "type": "string"
+          },
+          "creation": {
+            "type": "string",
+            "enum": [
+              "pending"
+            ],
+            "description": "Present while the create that made this VM has not finished: the VM could not be grown to the requested size. Retry that create with its Idempotency-Key or creationKey to finish it, or delete the VM."
           }
         },
         "additionalProperties": false
+      },
+      "Labels": {
+        "type": "object",
+        "required": [],
+        "properties": {},
+        "additionalProperties": {
+          "type": "string",
+          "description": "a string matching the pattern ^[A-Za-z0-9._:/@-]{0,63}$",
+          "pattern": "^[A-Za-z0-9._:/@-]{0,63}$"
+        }
       },
       "VmResources": {
         "type": "object",
@@ -6018,108 +9526,18 @@
           "message": {
             "type": "string"
           },
+          "creationKey": {
+            "$ref": "#/components/schemas/VmCreationKey"
+          },
+          "pendingSnapshotId": {
+            "type": "string",
+            "description": "a string matching the pattern ^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$",
+            "pattern": "^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$"
+          },
           "_tag": {
             "type": "string",
             "enum": [
               "BadRequest"
-            ]
-          }
-        },
-        "additionalProperties": false
-      },
-      "Unauthorized": {
-        "type": "object",
-        "required": [
-          "message",
-          "_tag"
-        ],
-        "properties": {
-          "message": {
-            "type": "string"
-          },
-          "_tag": {
-            "type": "string",
-            "enum": [
-              "Unauthorized"
-            ]
-          }
-        },
-        "additionalProperties": false
-      },
-      "Forbidden": {
-        "type": "object",
-        "required": [
-          "message",
-          "_tag"
-        ],
-        "properties": {
-          "message": {
-            "type": "string"
-          },
-          "missingScope": {
-            "type": "string",
-            "x-extensible-enum": [
-              "vm:read",
-              "vm:write",
-              "vm:exec",
-              "vm:files",
-              "vm:terminal",
-              "snapshot:*",
-              "snapshot:read",
-              "snapshot:write",
-              "domain:*",
-              "deploy:*",
-              "git:*",
-              "mesh:read",
-              "mesh:write",
-              "mesh:join",
-              "acl:read",
-              "acl:write",
-              "admin"
-            ]
-          },
-          "_tag": {
-            "type": "string",
-            "enum": [
-              "Forbidden"
-            ]
-          }
-        },
-        "additionalProperties": false
-      },
-      "ServiceUnavailable": {
-        "type": "object",
-        "required": [
-          "message",
-          "_tag"
-        ],
-        "properties": {
-          "message": {
-            "type": "string"
-          },
-          "_tag": {
-            "type": "string",
-            "enum": [
-              "ServiceUnavailable"
-            ]
-          }
-        },
-        "additionalProperties": false
-      },
-      "NotFound": {
-        "type": "object",
-        "required": [
-          "message",
-          "_tag"
-        ],
-        "properties": {
-          "message": {
-            "type": "string"
-          },
-          "_tag": {
-            "type": "string",
-            "enum": [
-              "NotFound"
             ]
           }
         },
@@ -6134,6 +9552,14 @@
         "properties": {
           "message": {
             "type": "string"
+          },
+          "creationKey": {
+            "$ref": "#/components/schemas/VmCreationKey"
+          },
+          "pendingSnapshotId": {
+            "type": "string",
+            "description": "a string matching the pattern ^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$",
+            "pattern": "^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$"
           },
           "_tag": {
             "type": "string",
@@ -6163,44 +9589,347 @@
         },
         "additionalProperties": false
       },
-      "QuotaExceeded": {
+      "VmImageList": {
         "type": "object",
         "required": [
-          "message",
-          "_tag"
+          "items"
         ],
         "properties": {
-          "message": {
-            "type": "string"
-          },
-          "retryAfterSeconds": {
-            "$ref": "#/components/schemas/Int"
-          },
-          "budget": {
-            "type": "string",
-            "enum": [
-              "snapshots",
-              "vms",
-              "rate",
-              "capacity",
-              "mesh.perTenant",
-              "device.perMesh",
-              "firewallRule.perMesh",
-              "firewallRule.perResource",
-              "firewallRule.account",
-              "aclApply.perMeshPerMinute",
-              "enrollmentCode.perMeshPerHour",
-              "address.perDevice"
-            ]
-          },
-          "_tag": {
-            "type": "string",
-            "enum": [
-              "QuotaExceeded"
-            ]
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/VmImage"
+            }
           }
         },
         "additionalProperties": false
+      },
+      "VmImage": {
+        "type": "object",
+        "required": [
+          "id",
+          "revision",
+          "displayName"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "a string matching the pattern ^[a-z][a-z0-9-]*$",
+            "title": "maxLength(63)",
+            "minLength": 1,
+            "maxLength": 63,
+            "pattern": "^[a-z][a-z0-9-]*$"
+          },
+          "revision": {
+            "type": "string",
+            "description": "a string matching the pattern ^[A-Za-z0-9][A-Za-z0-9._-]*$",
+            "title": "maxLength(64)",
+            "minLength": 1,
+            "maxLength": 64,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+          },
+          "displayName": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "description": "Public image identity; provider snapshot references are never returned."
+      },
+      "CreateVmRequest": {
+        "type": "object",
+        "required": [],
+        "properties": {
+          "image": {
+            "$ref": "#/components/schemas/VmImageSelection"
+          },
+          "initialNetwork": {
+            "$ref": "#/components/schemas/InitialVmNetwork"
+          },
+          "displayName": {
+            "type": "string",
+            "description": "a string at most 100 character(s) long",
+            "title": "maxLength(100)",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "snapshotId": {
+            "type": "string",
+            "description": "Boot from one of the tenant's snapshots; mutually exclusive with image. Omit both for the base image.",
+            "pattern": "^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$"
+          },
+          "resources": {
+            "$ref": "#/components/schemas/RequestedResources"
+          },
+          "idleTimeoutSeconds": {
+            "$ref": "#/components/schemas/Int",
+            "description": "Seconds without network activity before the VM pauses itself (memory kept; start or resume continues it). Only network traffic to or from the VM counts as activity: CPU work and disk I/O alone do not keep it awake. A long job without traffic needs -1 or a larger value. -1 never pauses for idleness. Dev/test tenants: 1 to 300, default 300. Other tenants: default -1 (the cmux app pauses product machines itself).",
+            "title": "between(-1, 604800)",
+            "minimum": -1,
+            "maximum": 604800
+          },
+          "maxRunSeconds": {
+            "$ref": "#/components/schemas/Int",
+            "description": "Pause the VM once a single run has lasted this many seconds, however busy it is; each start gives a fresh budget. -1 or omitted: no cap.",
+            "title": "between(-1, 2592000)",
+            "minimum": -1,
+            "maximum": 2592000
+          },
+          "autoDeleteSeconds": {
+            "$ref": "#/components/schemas/Int",
+            "description": "Delete the VM once it has gone this many seconds without running; each start resets the clock, and a running VM is never deleted for this. 0 deletes it as soon as it stops. -1 or omitted: never.",
+            "title": "between(-1, 31536000)",
+            "minimum": -1,
+            "maximum": 31536000
+          },
+          "labels": {
+            "$ref": "#/components/schemas/Labels"
+          }
+        },
+        "additionalProperties": false,
+        "description": "Without snapshotId or image the VM boots the cmux base image, Ubuntu 24.04 LTS, with 4 vCPUs, 8192 MiB memory and 32768 MiB disk unless resources says otherwise."
+      },
+      "VmImageSelection": {
+        "type": "object",
+        "required": [
+          "id",
+          "revision"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "a string matching the pattern ^[a-z][a-z0-9-]*$",
+            "title": "maxLength(63)",
+            "minLength": 1,
+            "maxLength": 63,
+            "pattern": "^[a-z][a-z0-9-]*$"
+          },
+          "revision": {
+            "type": "string",
+            "description": "a string matching the pattern ^[A-Za-z0-9][A-Za-z0-9._-]*$",
+            "title": "maxLength(64)",
+            "minLength": 1,
+            "maxLength": 64,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+          }
+        },
+        "additionalProperties": false,
+        "description": "An operator-approved service image at an exact revision. Mutually exclusive with snapshotId."
+      },
+      "InitialVmNetwork": {
+        "type": "object",
+        "required": [],
+        "properties": {
+          "publicEgress": {
+            "type": "boolean"
+          },
+          "httpsProxies": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/VmHttpsProxy"
+            },
+            "description": "an array of at most 8 item(s)",
+            "title": "maxItems(8)",
+            "maxItems": 8
+          }
+        },
+        "additionalProperties": false,
+        "description": "Network intent for the new VM only. Requires vm:network in addition to vm:write. Omit to keep the private default."
+      },
+      "VmHttpsProxy": {
+        "type": "object",
+        "required": [
+          "hostname",
+          "destination"
+        ],
+        "properties": {
+          "hostname": {
+            "type": "string",
+            "description": "a string at most 253 character(s) long",
+            "title": "maxLength(253)",
+            "minLength": 1,
+            "maxLength": 253
+          },
+          "destination": {
+            "type": "string",
+            "description": "A bare HTTPS origin enabled by the deployment's proxy policy.",
+            "title": "maxLength(2048)",
+            "minLength": 1,
+            "maxLength": 2048
+          },
+          "headers": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/VmProxyHeaders"
+              }
+            ],
+            "description": "Redacted(<redacted>)"
+          }
+        },
+        "additionalProperties": false
+      },
+      "VmProxyHeaders": {
+        "type": "object",
+        "additionalProperties": {
+          "type": "string"
+        },
+        "maxProperties": 16,
+        "writeOnly": true
+      },
+      "RequestedResources": {
+        "type": "object",
+        "required": [],
+        "properties": {
+          "vcpus": {
+            "$ref": "#/components/schemas/Int",
+            "description": "a number between 2 and 32",
+            "title": "between(2, 32)",
+            "minimum": 2,
+            "maximum": 32
+          },
+          "memoryMib": {
+            "$ref": "#/components/schemas/Int",
+            "description": "a number between 4096 and 65536",
+            "title": "between(4096, 65536)",
+            "minimum": 4096,
+            "maximum": 65536
+          },
+          "diskMib": {
+            "$ref": "#/components/schemas/Int",
+            "description": "a number between 16384 and 131072",
+            "title": "between(16384, 131072)",
+            "minimum": 16384,
+            "maximum": 131072
+          }
+        },
+        "additionalProperties": false,
+        "description": "Size of the new VM. Omitted axes keep the base image's size. The VM boots from the largest base size that fits within the request on every axis, then grows to the exact request. Growing is a second step after the create and is not atomic. A failed or unconfirmed grow retains the allocation and quota; inspect or retry the same creation intent, or cancel it. The error is 503, or 429 for capacity. Sizes can only grow, so a VM booted from a snapshot cannot be made smaller than the snapshot."
+      },
+      "CreatedVm": {
+        "type": "object",
+        "required": [
+          "id",
+          "displayName",
+          "labels",
+          "state",
+          "resources",
+          "idleTimeoutSeconds",
+          "maxRunSeconds",
+          "autoDeleteSeconds",
+          "createdAt",
+          "updatedAt"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "a string matching the pattern ^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$",
+            "pattern": "^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$"
+          },
+          "displayName": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The name given at create or fork; null when none was given."
+          },
+          "labels": {
+            "$ref": "#/components/schemas/Labels"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "starting",
+              "running",
+              "pausing",
+              "paused",
+              "stopped",
+              "unknown"
+            ],
+            "description": "starting: booting. running: up. pausing/paused: frozen with memory kept; resume continues it exactly. stopped: shut down, disk kept, memory gone; start boots it again. unknown: a state this API version does not name."
+          },
+          "resources": {
+            "$ref": "#/components/schemas/VmResources"
+          },
+          "idleTimeoutSeconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Seconds without network activity before the VM pauses itself (memory kept; start or resume continues it). Only network traffic to or from the VM counts as activity: CPU work and disk I/O alone do not keep it awake. A long job without traffic needs -1 or a larger value. -1 never pauses for idleness."
+          },
+          "maxRunSeconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pauses the VM once a single run lasts this long; each start resets it. Null: no cap."
+          },
+          "autoDeleteSeconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Deletes the VM once it has gone this long without running; each start resets the clock. Null: never."
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
+          },
+          "creation": {
+            "type": "string",
+            "enum": [
+              "pending"
+            ],
+            "description": "Present while the create that made this VM has not finished: the VM could not be grown to the requested size. Retry that create with its Idempotency-Key or creationKey to finish it, or delete the VM."
+          },
+          "creationKey": {
+            "$ref": "#/components/schemas/VmCreationKey"
+          },
+          "initialNetwork": {
+            "$ref": "#/components/schemas/InitialVmNetworkReceipt"
+          },
+          "bootImage": {
+            "$ref": "#/components/schemas/VmImage"
+          }
+        },
+        "additionalProperties": false
+      },
+      "InitialVmNetworkReceipt": {
+        "type": "object",
+        "required": [
+          "publicEgress",
+          "httpsProxyHosts"
+        ],
+        "properties": {
+          "publicEgress": {
+            "type": "boolean"
+          },
+          "httpsProxyHosts": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "description": "Accepted creation-time policy. Proxy credentials and destination origins are never returned."
       },
       "VmList": {
         "type": "object",
@@ -6225,6 +9954,49 @@
               }
             ],
             "description": "Pass as `cursor` to read the next page; null on the last page."
+          }
+        },
+        "additionalProperties": false
+      },
+      "ReplaceVmHttpsProxyRequest": {
+        "type": "object",
+        "required": [
+          "destination"
+        ],
+        "properties": {
+          "destination": {
+            "type": "string",
+            "description": "A bare HTTPS origin enabled by the deployment's proxy policy.",
+            "title": "maxLength(2048)",
+            "minLength": 1,
+            "maxLength": 2048
+          },
+          "headers": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/VmProxyHeaders"
+              }
+            ],
+            "description": "Redacted(<redacted>)"
+          }
+        },
+        "additionalProperties": false,
+        "description": "Replace an existing creation-time HTTPS proxy; destinations must remain approved by the deployment. Omitted headers clear the previous header set."
+      },
+      "VmHttpsProxyReceipt": {
+        "type": "object",
+        "required": [
+          "id",
+          "hostname"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "a string matching the pattern ^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$",
+            "pattern": "^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$"
+          },
+          "hostname": {
+            "type": "string"
           }
         },
         "additionalProperties": false
@@ -6290,6 +10062,14 @@
             "description": "a string matching the pattern ^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$",
             "pattern": "^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$"
           },
+          "creationKey": {
+            "$ref": "#/components/schemas/VmCreationKey"
+          },
+          "pendingSnapshotId": {
+            "type": "string",
+            "description": "a string matching the pattern ^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$",
+            "pattern": "^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$"
+          },
           "_tag": {
             "type": "string",
             "enum": [
@@ -6298,7 +10078,229 @@
           }
         },
         "additionalProperties": false,
-        "description": "The fork's snapshot was taken but the new VM was not created. The snapshot is kept in the caller's tenant; retry with the same Idempotency-Key to create from it without a second snapshot."
+        "description": "The fork's snapshot was taken but the VM allocation could not be confirmed. The snapshot stays in the caller's tenant. Inspect or retry with the original Idempotency-Key or returned creationKey; an unknown allocation may already exist."
+      },
+      "VmCreationList": {
+        "type": "object",
+        "required": [
+          "items",
+          "nextCursor"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/VmCreationListItem"
+            }
+          },
+          "nextCursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "pendingIndex": {
+            "type": "string",
+            "enum": [
+              "ready",
+              "building",
+              "unavailable"
+            ],
+            "description": "Present for state=pending. Building needs the next cursor; unavailable means some older retained slots have no recoverable journal. Never treat either as complete history."
+          }
+        },
+        "additionalProperties": false
+      },
+      "VmCreationListItem": {
+        "type": "object",
+        "required": [
+          "state",
+          "id",
+          "creationKey",
+          "createdAt",
+          "operation",
+          "displayName"
+        ],
+        "properties": {
+          "state": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "committed",
+              "deleted",
+              "unresolved"
+            ]
+          },
+          "cancellation": {
+            "type": "string",
+            "enum": [
+              "requested",
+              "completed"
+            ],
+            "description": "Requested retains unknown provider work; completed means verified rejection/deletion. A completed cancellation permanently fences this key."
+          },
+          "id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "description": "a string matching the pattern ^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$",
+                "pattern": "^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "receipt": {
+            "$ref": "#/components/schemas/VmCreationReceipt"
+          },
+          "creationKey": {
+            "$ref": "#/components/schemas/VmCreationKey"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "operation": {
+            "type": "string",
+            "enum": [
+              "create",
+              "fork"
+            ]
+          },
+          "displayName": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "sourceId": {
+            "type": "string",
+            "description": "a string matching the pattern ^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$",
+            "pattern": "^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$"
+          }
+        },
+        "additionalProperties": false
+      },
+      "VmCreationReceipt": {
+        "type": "object",
+        "required": [
+          "id",
+          "displayName",
+          "labels",
+          "idleTimeoutSeconds"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "a string matching the pattern ^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$",
+            "pattern": "^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$"
+          },
+          "displayName": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "labels": {
+            "type": "object",
+            "required": [],
+            "properties": {},
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "idleTimeoutSeconds": {
+            "type": "number"
+          },
+          "bootImage": {
+            "$ref": "#/components/schemas/VmImage"
+          },
+          "initialNetwork": {
+            "$ref": "#/components/schemas/InitialVmNetworkReceipt"
+          }
+        },
+        "additionalProperties": false,
+        "description": "Original accepted creation intent. Contains no provider identifiers or proxy credentials."
+      },
+      "VmCreationStatus": {
+        "type": "object",
+        "required": [
+          "state",
+          "id"
+        ],
+        "properties": {
+          "state": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "committed",
+              "deleted",
+              "unresolved"
+            ]
+          },
+          "cancellation": {
+            "type": "string",
+            "enum": [
+              "requested",
+              "completed"
+            ],
+            "description": "Requested retains unknown provider work; completed means verified rejection/deletion. A completed cancellation permanently fences this key."
+          },
+          "id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "description": "a string matching the pattern ^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$",
+                "pattern": "^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "receipt": {
+            "$ref": "#/components/schemas/VmCreationReceipt"
+          }
+        },
+        "additionalProperties": false
+      },
+      "VmCreationCancellation": {
+        "type": "object",
+        "required": [
+          "state",
+          "id"
+        ],
+        "properties": {
+          "state": {
+            "type": "string",
+            "enum": [
+              "cancelling",
+              "cancelled",
+              "deleted"
+            ]
+          },
+          "id": {
+            "type": "string",
+            "description": "a string matching the pattern ^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$",
+            "pattern": "^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$"
+          },
+          "receipt": {
+            "$ref": "#/components/schemas/VmCreationReceipt"
+          }
+        },
+        "additionalProperties": false
       },
       "ExecRequest": {
         "type": "object",
@@ -6381,6 +10383,70 @@
         "minLength": 1,
         "maxLength": 4096
       },
+      "FileStat": {
+        "type": "object",
+        "required": [
+          "kind",
+          "size",
+          "mode",
+          "mtime",
+          "owner",
+          "group"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "file",
+              "directory",
+              "symlink",
+              "other"
+            ]
+          },
+          "size": {
+            "$ref": "#/components/schemas/Int",
+            "description": "a number between 0 and 9007199254740991",
+            "title": "between(0, 9007199254740991)",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "mode": {
+            "$ref": "#/components/schemas/Int",
+            "description": "POSIX permission bits, including setuid/setgid/sticky, as an integer (420 is 0644). File-type bits are excluded.",
+            "title": "between(0, 4095)",
+            "minimum": 0,
+            "maximum": 4095
+          },
+          "mtime": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Int",
+                "description": "a number between -62167219200 and 253402300799",
+                "title": "between(-62167219200, 253402300799)",
+                "minimum": -62167219200,
+                "maximum": 253402300799
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Last modification time, epoch seconds. Null when unavailable on the saved disk; never inferred from the VM's timestamps."
+          },
+          "owner": {
+            "type": "string",
+            "description": "a string at most 256 character(s) long",
+            "title": "maxLength(256)",
+            "maxLength": 256
+          },
+          "group": {
+            "type": "string",
+            "description": "a string at most 256 character(s) long",
+            "title": "maxLength(256)",
+            "maxLength": 256
+          }
+        },
+        "additionalProperties": false
+      },
       "PayloadTooLarge": {
         "type": "object",
         "required": [
@@ -6441,6 +10507,181 @@
         },
         "additionalProperties": false
       },
+      "SnapshotCreationList": {
+        "type": "object",
+        "required": [
+          "items",
+          "nextCursor"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SnapshotCreationStatus"
+            }
+          },
+          "nextCursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "SnapshotCreationStatus": {
+        "type": "object",
+        "required": [
+          "state",
+          "id",
+          "receipt"
+        ],
+        "properties": {
+          "state": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "committed",
+              "deleted"
+            ]
+          },
+          "id": {
+            "type": "string",
+            "description": "a string matching the pattern ^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$",
+            "pattern": "^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$"
+          },
+          "receipt": {
+            "$ref": "#/components/schemas/SnapshotSummary"
+          },
+          "cancellation": {
+            "type": "string",
+            "enum": [
+              "requested",
+              "completed"
+            ]
+          },
+          "retryCreate": {
+            "type": "boolean",
+            "description": "True only when admission needs the original create request retried with its original key; false for an uncertain capture send."
+          }
+        },
+        "additionalProperties": false
+      },
+      "SnapshotSummary": {
+        "type": "object",
+        "required": [
+          "id",
+          "sourceVmId",
+          "displayName",
+          "labels",
+          "createdAt"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "a string matching the pattern ^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$",
+            "pattern": "^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$"
+          },
+          "sourceVmId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "description": "a string matching the pattern ^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$",
+                "pattern": "^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "displayName": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "labels": {
+            "$ref": "#/components/schemas/SnapshotLabels"
+          },
+          "createdAt": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "SnapshotLabels": {
+        "type": "object",
+        "required": [],
+        "properties": {},
+        "additionalProperties": {
+          "type": "string",
+          "description": "a string matching the pattern ^[A-Za-z0-9._:/@-]{0,63}$",
+          "pattern": "^[A-Za-z0-9._:/@-]{0,63}$"
+        }
+      },
+      "CancelSnapshotKeyRequest": {
+        "type": "object",
+        "required": [
+          "expectedSnapshotId"
+        ],
+        "properties": {
+          "expectedSnapshotId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "description": "a string matching the pattern ^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$",
+                "pattern": "^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The capture id just inspected; null fences only an absent key. A different current id returns 409 without deleting anything."
+          }
+        },
+        "additionalProperties": false
+      },
+      "SnapshotKeyCancellation": {
+        "type": "object",
+        "required": [
+          "state",
+          "id"
+        ],
+        "properties": {
+          "state": {
+            "type": "string",
+            "enum": [
+              "fenced",
+              "cancelling",
+              "cancelled"
+            ]
+          },
+          "id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "description": "a string matching the pattern ^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$",
+                "pattern": "^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "receipt": {
+            "$ref": "#/components/schemas/SnapshotSummary"
+          }
+        },
+        "additionalProperties": false
+      },
       "CreateSnapshotRequest": {
         "type": "object",
         "required": [],
@@ -6471,16 +10712,6 @@
           }
         },
         "additionalProperties": false
-      },
-      "SnapshotLabels": {
-        "type": "object",
-        "required": [],
-        "properties": {},
-        "additionalProperties": {
-          "type": "string",
-          "description": "a string matching the pattern ^[A-Za-z0-9._:/@-]{0,63}$",
-          "pattern": "^[A-Za-z0-9._:/@-]{0,63}$"
-        }
       },
       "Snapshot": {
         "type": "object",
@@ -6584,52 +10815,6 @@
                 "type": "null"
               }
             ]
-          }
-        },
-        "additionalProperties": false
-      },
-      "SnapshotSummary": {
-        "type": "object",
-        "required": [
-          "id",
-          "sourceVmId",
-          "displayName",
-          "labels",
-          "createdAt"
-        ],
-        "properties": {
-          "id": {
-            "type": "string",
-            "description": "a string matching the pattern ^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$",
-            "pattern": "^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$"
-          },
-          "sourceVmId": {
-            "anyOf": [
-              {
-                "type": "string",
-                "description": "a string matching the pattern ^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$",
-                "pattern": "^vm_[0123456789abcdefghjkmnpqrstvwxyz]{26}$"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "displayName": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "labels": {
-            "$ref": "#/components/schemas/SnapshotLabels"
-          },
-          "createdAt": {
-            "type": "string"
           }
         },
         "additionalProperties": false
@@ -6805,6 +10990,7 @@
               "enum": [
                 "vm:read",
                 "vm:write",
+                "vm:network",
                 "vm:exec",
                 "vm:files",
                 "vm:terminal",
@@ -6885,6 +11071,7 @@
               "x-extensible-enum": [
                 "vm:read",
                 "vm:write",
+                "vm:network",
                 "vm:exec",
                 "vm:files",
                 "vm:terminal",
@@ -6978,6 +11165,7 @@
               "x-extensible-enum": [
                 "vm:read",
                 "vm:write",
+                "vm:network",
                 "vm:exec",
                 "vm:files",
                 "vm:terminal",
@@ -7392,6 +11580,105 @@
         },
         "additionalProperties": false
       },
+      "DeviceOverlayPolicy": {
+        "type": "object",
+        "required": [
+          "deviceId",
+          "meshId",
+          "wgPublicKey",
+          "installPublicKey",
+          "aclVersion",
+          "policyDigest",
+          "peers"
+        ],
+        "properties": {
+          "deviceId": {
+            "type": "string",
+            "description": "a string matching the pattern ^dev_[0123456789abcdefghjkmnpqrstvwxyz]{26}$",
+            "pattern": "^dev_[0123456789abcdefghjkmnpqrstvwxyz]{26}$"
+          },
+          "meshId": {
+            "type": "string",
+            "description": "a string matching the pattern ^mesh_[0123456789abcdefghjkmnpqrstvwxyz]{26}$",
+            "pattern": "^mesh_[0123456789abcdefghjkmnpqrstvwxyz]{26}$"
+          },
+          "wgPublicKey": {
+            "type": "string",
+            "description": "The device's WireGuard public key, base64. The private key never leaves the device.",
+            "pattern": "^[A-Za-z0-9+/]{42}[AEIMQUYcgkosw048]=$"
+          },
+          "installPublicKey": {
+            "type": "string",
+            "description": "The device's install public key: ECDSA P-256, the 65-byte uncompressed point, base64. The private key never leaves the device.",
+            "pattern": "^B[A-Za-z0-9+/]{86}=$"
+          },
+          "aclVersion": {
+            "$ref": "#/components/schemas/Int"
+          },
+          "policyDigest": {
+            "type": "string",
+            "description": "SHA-256 identity of this projection, including public keys and ACL version. Changes when peers or keys change at the same ACL version; not an ordering, freshness or authorization proof.",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "peers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OverlayPeer"
+            }
+          },
+          "tenantId": {
+            "type": "string",
+            "description": "The tenant that owns this device. Account identity binding must require it and match its authoritative team-to-tenant mapping and both public keys.",
+            "title": "maxLength(128)",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9_-]+$"
+          }
+        },
+        "additionalProperties": false
+      },
+      "OverlayPeer": {
+        "type": "object",
+        "required": [
+          "deviceId",
+          "wgPublicKey",
+          "installPublicKey",
+          "inbound",
+          "outbound"
+        ],
+        "properties": {
+          "deviceId": {
+            "type": "string",
+            "description": "a string matching the pattern ^dev_[0123456789abcdefghjkmnpqrstvwxyz]{26}$",
+            "pattern": "^dev_[0123456789abcdefghjkmnpqrstvwxyz]{26}$"
+          },
+          "wgPublicKey": {
+            "type": "string",
+            "description": "The device's WireGuard public key, base64. The private key never leaves the device.",
+            "pattern": "^[A-Za-z0-9+/]{42}[AEIMQUYcgkosw048]=$"
+          },
+          "installPublicKey": {
+            "type": "string",
+            "description": "The device's install public key: ECDSA P-256, the 65-byte uncompressed point, base64. The private key never leaves the device.",
+            "pattern": "^B[A-Za-z0-9+/]{86}=$"
+          },
+          "inbound": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PeerAllow"
+            },
+            "description": "Connections this peer may initiate toward the requesting device."
+          },
+          "outbound": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PeerAllow"
+            },
+            "description": "Connections the requesting device may initiate toward this peer. Replies do not grant reverse initiation."
+          }
+        },
+        "additionalProperties": false
+      },
       "CreateEnrollmentCodeRequest": {
         "$id": "/schemas/%7B%7D",
         "anyOf": [
@@ -7554,7 +11841,7 @@
               "title": "maxLength(64)",
               "maxLength": 64
             },
-            "description": "Devices: dev_ ids or device:* (every device of the mesh).",
+            "description": "dev_ ids, or device:* for gateway clients. Provider-free servers require an explicit source id for device-to-device initiation and cannot source provider VM firewall rules.",
             "title": "maxItems(64)",
             "minItems": 1,
             "maxItems": 64
@@ -7567,7 +11854,7 @@
               "title": "maxLength(64)",
               "maxLength": 64
             },
-            "description": "VMs: vm_ ids or vm:* (every VM member of the mesh).",
+            "description": "VMs: vm_ ids or vm:*. Devices: dev_ ids or device:*. Device destinations use directed overlay permissions, never provider firewall rules. Self edges are omitted.",
             "title": "maxItems(64)",
             "minItems": 1,
             "maxItems": 64
@@ -7644,6 +11931,14 @@
           },
           "applyMs": {
             "$ref": "#/components/schemas/Int"
+          },
+          "overlayRuleCount": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Int"
+              }
+            ],
+            "description": "Directed device overlay permissions, when nonzero. Separate from ruleCount, which counts provider firewall rules."
           }
         },
         "additionalProperties": false
@@ -7726,7 +12021,7 @@
           }
         },
         "additionalProperties": false,
-        "description": "A device's own request, authenticated only by its install key: the cmux-mesh-v1 message with purpose peers or tunnel, the device id as target, an empty WireGuard key and name, and the device's recorded install public key. Fresh (120 s) and single use."
+        "description": "An identity's own request, authenticated only by its install key: the cmux-mesh-v1 message with the purpose specified by the endpoint, the device id as target, an empty WireGuard key and name, and the recorded install public key. Fresh (120 s) and single use."
       },
       "PublishAddressRequest": {
         "type": "object",
@@ -7797,6 +12092,255 @@
         },
         "additionalProperties": false,
         "description": "The device's published address. Each VM the ACL lets this device reach now accepts UDP 4101 (the overlay endpoint) from exactly this address on its public IPv6; nothing else is opened."
+      },
+      "OverlayServerBinding": {
+        "type": "object",
+        "required": [
+          "name",
+          "wgPublicKey",
+          "installPublicKey"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "a string matching the pattern ^[A-Za-z0-9][A-Za-z0-9._ -]{0,62}$",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._ -]{0,62}$"
+          },
+          "wgPublicKey": {
+            "type": "string",
+            "description": "The device's WireGuard public key, base64. The private key never leaves the device.",
+            "pattern": "^[A-Za-z0-9+/]{42}[AEIMQUYcgkosw048]=$"
+          },
+          "installPublicKey": {
+            "type": "string",
+            "description": "The device's install public key: ECDSA P-256, the 65-byte uncompressed point, base64. The private key never leaves the device.",
+            "pattern": "^B[A-Za-z0-9+/]{86}=$"
+          }
+        },
+        "additionalProperties": false
+      },
+      "OverlayServerCode": {
+        "type": "object",
+        "required": [
+          "code",
+          "deviceId",
+          "meshId",
+          "tenantId",
+          "expiresAt",
+          "binding"
+        ],
+        "properties": {
+          "code": {
+            "type": "string",
+            "description": "a string matching the pattern ^msc_[0-9a-hjkmnp-tv-z]{26}$",
+            "pattern": "^msc_[0-9a-hjkmnp-tv-z]{26}$"
+          },
+          "deviceId": {
+            "type": "string",
+            "description": "a string matching the pattern ^dev_[0123456789abcdefghjkmnpqrstvwxyz]{26}$",
+            "pattern": "^dev_[0123456789abcdefghjkmnpqrstvwxyz]{26}$"
+          },
+          "meshId": {
+            "type": "string",
+            "description": "a string matching the pattern ^mesh_[0123456789abcdefghjkmnpqrstvwxyz]{26}$",
+            "pattern": "^mesh_[0123456789abcdefghjkmnpqrstvwxyz]{26}$"
+          },
+          "tenantId": {
+            "type": "string",
+            "description": "a string matching the pattern ^[A-Za-z0-9_-]+$",
+            "title": "maxLength(128)",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9_-]+$"
+          },
+          "expiresAt": {
+            "type": "string"
+          },
+          "binding": {
+            "$ref": "#/components/schemas/OverlayServerBinding"
+          }
+        },
+        "additionalProperties": false,
+        "description": "An approved server-only invitation, valid for 10 minutes. Only its hash is stored. The reserved device id supports signed policy recovery after a lost enrollment response."
+      },
+      "OverlayServer": {
+        "type": "object",
+        "required": [
+          "id",
+          "meshId",
+          "name",
+          "wgPublicKey",
+          "installPublicKey",
+          "createdAt",
+          "kind",
+          "transport"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "a string matching the pattern ^dev_[0123456789abcdefghjkmnpqrstvwxyz]{26}$",
+            "pattern": "^dev_[0123456789abcdefghjkmnpqrstvwxyz]{26}$"
+          },
+          "meshId": {
+            "type": "string",
+            "description": "a string matching the pattern ^mesh_[0123456789abcdefghjkmnpqrstvwxyz]{26}$",
+            "pattern": "^mesh_[0123456789abcdefghjkmnpqrstvwxyz]{26}$"
+          },
+          "name": {
+            "type": "string"
+          },
+          "wgPublicKey": {
+            "type": "string",
+            "description": "The device's WireGuard public key, base64. The private key never leaves the device.",
+            "pattern": "^[A-Za-z0-9+/]{42}[AEIMQUYcgkosw048]=$"
+          },
+          "installPublicKey": {
+            "type": "string",
+            "description": "The device's install public key: ECDSA P-256, the 65-byte uncompressed point, base64. The private key never leaves the device.",
+            "pattern": "^B[A-Za-z0-9+/]{86}=$"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "server"
+            ]
+          },
+          "transport": {
+            "type": "string",
+            "enum": [
+              "overlay"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "description": "A provider-free mesh server, excluded from source wildcards. Device-to-device initiation requires an explicit source-id grant. Enrollment does not enable a role, relay admission or execution."
+      },
+      "OverlayServerList": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OverlayServer"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "OverlayServerPolicy": {
+        "type": "object",
+        "required": [
+          "deviceId",
+          "meshId",
+          "wgPublicKey",
+          "installPublicKey",
+          "aclVersion",
+          "policyDigest",
+          "peers",
+          "tenantId"
+        ],
+        "properties": {
+          "deviceId": {
+            "type": "string",
+            "description": "a string matching the pattern ^dev_[0123456789abcdefghjkmnpqrstvwxyz]{26}$",
+            "pattern": "^dev_[0123456789abcdefghjkmnpqrstvwxyz]{26}$"
+          },
+          "meshId": {
+            "type": "string",
+            "description": "a string matching the pattern ^mesh_[0123456789abcdefghjkmnpqrstvwxyz]{26}$",
+            "pattern": "^mesh_[0123456789abcdefghjkmnpqrstvwxyz]{26}$"
+          },
+          "wgPublicKey": {
+            "type": "string",
+            "description": "The device's WireGuard public key, base64. The private key never leaves the device.",
+            "pattern": "^[A-Za-z0-9+/]{42}[AEIMQUYcgkosw048]=$"
+          },
+          "installPublicKey": {
+            "type": "string",
+            "description": "The device's install public key: ECDSA P-256, the 65-byte uncompressed point, base64. The private key never leaves the device.",
+            "pattern": "^B[A-Za-z0-9+/]{86}=$"
+          },
+          "aclVersion": {
+            "$ref": "#/components/schemas/Int"
+          },
+          "policyDigest": {
+            "type": "string",
+            "description": "SHA-256 identity of this projection, including public keys and ACL version. Changes when peers or keys change at the same ACL version; not an ordering, freshness or authorization proof.",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "peers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OverlayPeer"
+            }
+          },
+          "tenantId": {
+            "type": "string",
+            "description": "The Native tenant that owns this mesh. A backend binding must match its authoritative tenant mapping and both public keys; an opaque mesh id alone is insufficient.",
+            "title": "maxLength(128)",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9_-]+$"
+          }
+        },
+        "additionalProperties": false
+      },
+      "CodeEnrollOverlayServerRequest": {
+        "type": "object",
+        "required": [
+          "name",
+          "wgPublicKey",
+          "installPublicKey",
+          "signedAt",
+          "nonce",
+          "signature",
+          "code"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "a string matching the pattern ^[A-Za-z0-9][A-Za-z0-9._ -]{0,62}$",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._ -]{0,62}$"
+          },
+          "wgPublicKey": {
+            "type": "string",
+            "description": "The device's WireGuard public key, base64. The private key never leaves the device.",
+            "pattern": "^[A-Za-z0-9+/]{42}[AEIMQUYcgkosw048]=$"
+          },
+          "installPublicKey": {
+            "type": "string",
+            "description": "The device's install public key: ECDSA P-256, the 65-byte uncompressed point, base64. The private key never leaves the device.",
+            "pattern": "^B[A-Za-z0-9+/]{86}=$"
+          },
+          "signedAt": {
+            "$ref": "#/components/schemas/Int",
+            "description": "When the device signed, in unix milliseconds; accepted within 120 s of the server's clock.",
+            "title": "positive",
+            "exclusiveMinimum": 0
+          },
+          "nonce": {
+            "type": "string",
+            "description": "16 random bytes, base64url without padding.",
+            "pattern": "^[A-Za-z0-9_-]{22}$"
+          },
+          "signature": {
+            "type": "string",
+            "description": "ECDSA P-256 SHA-256 signature (64-byte r||s, base64) by the install key over the cmux-mesh-v1 message.",
+            "pattern": "^[A-Za-z0-9+/]{86}==$"
+          },
+          "code": {
+            "type": "string",
+            "description": "a string matching the pattern ^msc_[0-9a-hjkmnp-tv-z]{26}$",
+            "pattern": "^msc_[0-9a-hjkmnp-tv-z]{26}$"
+          }
+        },
+        "additionalProperties": false
       }
     },
     "securitySchemes": {
@@ -7814,6 +12358,9 @@
     },
     {
       "name": "vms"
+    },
+    {
+      "name": "vmCreations"
     },
     {
       "name": "exec"
@@ -7838,6 +12385,12 @@
     },
     {
       "name": "meshDevice"
+    },
+    {
+      "name": "overlayServers"
+    },
+    {
+      "name": "overlayServerDevice"
     }
   ],
   "servers": [

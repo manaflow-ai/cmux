@@ -6,6 +6,13 @@ import Foundation
 /// actor) can prove it agrees with Swift on every row.
 nonisolated enum SettingsSchemaSamples {
     static func samples(for descriptor: SettingDescriptor) -> (accept: [JSONValue], refuse: [JSONValue]) {
+        if descriptor.path == CustomDensitiesSetting().configPath {
+            let tight = JSONValue.object(["id": .string("my-tight"), "name": .string("My Tight"), "level": .number(-0.25),
+                                          "fontSize": .number(11.5), "tokens": .object(["sidebarRowHeight": .number(22)])])
+            return ([.array([]), .array([tight])],
+                    [.string("my-tight"), .array([.object([:])]), .array([.object(["id": .string("Bad Id"), "name": .string("x")])]),
+                     .array([.object(["id": .string("a"), "name": .string("A"), "level": .string("1")])])])
+        }
         if descriptor.path == ChatSettings.rootsPath {
             return ([.array([]), .array([.string("/opt/cmux-chat-data")])],
                     [.string("/opt/cmux-chat-data"), .array([.string("~/chats")]), .array([.string("/")]), .array([.string("/Volumes/chats")]), .array([.number(1)])])

@@ -113,6 +113,10 @@ and render-server field animation, blurred header and native scrolling.
   disc while paused), `CmuxStrings` (Resources/CmuxHome.xcstrings),
   `HomeLinkPreviews` (which links may fetch a preview), `HomeLinkSend` (the
   preview a send attaches),
+  `HomeDiagramRowProvider` (closed ```` ```mermaid ```` fences as drawn custom
+  rows, `Part.custom` kind `cmux.mermaid`: sized by the injected
+  `HomeDiagramRendering` before the image, a refused source stays text;
+  `HomeMapping.parts` splits only while it is registered),
   `HomeMarkdown` (an agent's Markdown as MessagesLab text and style runs;
   people's text stays plain), `HomeFlightRecorder` (the flight recorder's
   policy, log folder and Save Last 10 Seconds, plus the helpers it calls from
@@ -153,6 +157,7 @@ and render-server field animation, blurred header and native scrolling.
 | Layout | `MessagesLabLocalization`'s default is the package bundle (`Bundle(for:)` of a class in a linked package is the app's); the image placeholder and code-text strings carry all 21 app languages in Localizable.xcstrings |
 | TranscriptAccess (pinned at bd65bbf) | MessagesLab 30495be's accessibility fix only: one element per visible message id, kept on `TranscriptSelection.axElements` and reused (an element made per call was freed, and VoiceOver and AX clients saw an empty Messages list); the rest of the newer file (selection menu, speech, search) is not rolled in. MessagesLab 2281879's selection outline is ported: the selected bubble's path is the drawn balloon (`RowDraw.balloon`, its frame's corners), with 267d218's half-circle ends of a 1-line text (`RowDraw.circularEnds`) |
 | TranscriptAccess (drag selection) | the drag selection hit-tests and highlights through the row's drawn geometry (`PartRow.geometry(width:)`: MarkdownLayout, TextLayout or the long layout), not `PartRow.text`: a markdown row's `text` is a one-line proxy of its display string, so the highlight ran past the bubble and off the glyphs (scrawl 2026-10-18). Highlights are clipped to the bubble body; double-click words use the same geometry |
+| Model, Layout, RowDrawing, Transcript | group chats show who sent each message, as iMessage (`Conversation.cmuxGroup`, set from CmuxHomeCore `ConversationSummary.kind(me:) == .group`): a `.senderName` row (11 pt, secondary) above the first bubble of each run of another person's messages, and that person's avatar (`Cmux/SenderAvatar.swift`: monogram disc, or the mapped picture) beside the run's last bubble. A group's incoming bubbles, and their thread connectors, sit `SenderAvatar.bubbleInset` right of the left edge (`PartRow.cmuxIndent`, `cmuxBodyX`). No name row above a reply that draws a connector. Direct and Chief chats are unchanged. Not indented yet: the typing bubble, thread previews and incoming Edited labels |
 | SwipeReply, TranscriptAccess (own pins) | crash program (plans/cmux-next/crash-elimination.md): no force unwraps, `try!`, `as!` or IUOs. From eb1ed28 the rest of the crash program is upstream (586d5f0 CrashGuard/CrashSafeGraphics, ef7da0a the decided hunks), and so are the per-view widths, the 434 pt text column, the scroller's own right edge and the macOS 14 gates (60e79ec LabGlass) |
 
 ## Updating

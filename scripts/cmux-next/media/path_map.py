@@ -37,8 +37,8 @@ AGENT_PANE = re.compile(r"(?:agent.?pane|agent-session|AgentPane|acpmux)", re.IG
 NOW_PLAYING = re.compile(r"(?:now.?playing|music)", re.IGNORECASE)
 # Pinned tabs and the tab strip's close rules: the pinned-tabs tour pins, closes others and unpins.
 PINNED_TABS = re.compile(r"(?:Pinned|PinCommands|/Pins/)")
-# The sidebar's workspace hover card (its surface and content), in dark, light and over art.
-HOVER_CARD = re.compile(r"(?:WorkspaceHoverCard|HoverCards/HoverCardPanel)")
+# The hover cards (the sidebar workspace card, the tab card, their shared rows and panel), in dark, light and over art.
+HOVER_CARD = re.compile(r"(?:WorkspaceHoverCard|TabHoverCard|HoverCards/|HoverCardGallery)")
 # The sidebar's native Update Ready card and its popup window (the popup's React page is gallery work).
 UPDATE_CARD = re.compile(r"(?:SidebarUpdateCard|SidebarUpdateNotes|UpdateReadyCard|UpdateSurfaceIsland)")
 # The Chief's settings popover and the Home view that opens it.
@@ -51,8 +51,9 @@ HOME = re.compile(r"(?:MessagesLabSidebar|CmuxNextHome/Sidebar/|HomeSidebar|TopH
 WEBVIEW = re.compile(r"^webviews/")
 # Webview code that talks to the app or the daemon: the gallery's mock providers never run it.
 NATIVE_BRIDGE = re.compile(r"(?:/(?:native|nativeError|bridge|bridgeSocket|wire|message-port)\.tsx?$|/protocol/)")
-# A tour's own file: a pull request that edits a tour gets that tour's shots.
-TOUR_FILE = re.compile(r"^scripts/cmux-next/media/tours/([a-z0-9-]+)\.json$")
+# A tour file selects its own tour, a new one (a launch clip, a feature walkthrough) too, so a pull
+# request that adds or edits one records it without touching app code.
+TOUR_FILE = re.compile(r"^scripts/cmux-next/media/tours/(?P<name>[a-z0-9][a-z0-9-]{0,39})\.json$")
 
 
 def is_ui_path(path: str) -> bool:
@@ -64,7 +65,7 @@ def tours_for_path(path: str) -> list[str]:
     normalized = path.strip().lstrip("./")
     tour_file = TOUR_FILE.match(normalized)
     if tour_file:
-        return [tour_file[1]] if tour_file[1] in TOUR_ORDER else []
+        return [tour_file.group("name")]
     if not is_ui_path(normalized):
         return []
     if WEBVIEW.search(normalized) and not NATIVE_BRIDGE.search(normalized):
@@ -105,8 +106,10 @@ def map_paths(paths: list[str]) -> dict[str, object]:
     matches: dict[str, list[str]] = {tour: [] for tour in TOUR_ORDER}
     for path in clean:
         for tour in tours_for_path(path):
-            matches[tour].append(path)
-    tours = [tour for tour in TOUR_ORDER if matches[tour]]
+            matches.setdefault(tour, []).append(path)
+    # Built-in tours first, in their fixed order; tours named by their own file after.
+    extra = sorted(tour for tour in matches if tour not in TOUR_ORDER)
+    tours = [tour for tour in (*TOUR_ORDER, *extra) if matches[tour]]
     return {
         "is_ui": bool(tours),
         "tours": tours,

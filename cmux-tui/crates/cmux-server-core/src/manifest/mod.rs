@@ -42,7 +42,7 @@ pub const SCHEMA: u32 = 1;
 /// `cmux server` mount passes that crate's `CARGO_PKG_VERSION`; the
 /// standalone `cmux-server` binary reports this constant, and a cmux-tui
 /// test keeps the two equal. Nothing stamps a version at build time.
-pub const CMUX_VERSION: &str = "0.1.0";
+pub const CMUX_VERSION: &str = "1.0.0";
 pub const SIGNATURE_LEN: usize = 64;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

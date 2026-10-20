@@ -8974,6 +8974,9 @@
     "request:identify": {
       "/machine_metadata": {
         "ty": "boolean"
+      },
+      "/revisions": {
+        "ty": "boolean"
       }
     },
     "request:ids": {
@@ -9249,6 +9252,20 @@
         "required": true
       },
       "/index": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
+    "request:move-column": {
+      "/direction": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "left",
+          "right"
+        ]
+      },
+      "/pane": {
         "ty": "uint64",
         "required": true
       }
@@ -10903,6 +10920,10 @@
         "ty": "string",
         "nullable": true
       },
+      "/install": {
+        "ty": "string",
+        "nullable": true
+      },
       "/kind": {
         "ty": "string",
         "nullable": true
@@ -10912,6 +10933,10 @@
         "nullable": true
       },
       "/user_id": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/version": {
         "ty": "string",
         "nullable": true
       }
@@ -11616,6 +11641,20 @@
       },
       "/surfaces/*": {
         "ty": "uint64"
+      }
+    },
+    "request:terminal-resume-command": {
+      "/command": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/surface": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/terminal_id": {
+        "ty": "string",
+        "nullable": true
       }
     },
     "request:undo-layout": {
@@ -16288,6 +16327,10 @@
         "ty": "string",
         "nullable": true
       },
+      "/data/crate_version": {
+        "ty": "string",
+        "nullable": true
+      },
       "/data/daemon_handoff": {
         "ty": "literal",
         "required": true,
@@ -16300,6 +16343,10 @@
         "required": true
       },
       "/data/ghostty_commit": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/install": {
         "ty": "string",
         "nullable": true
       },
@@ -16359,6 +16406,10 @@
       "/data/terminal_revision": {
         "ty": "uint64",
         "required": true
+      },
+      "/data/update_command": {
+        "ty": "string",
+        "nullable": true
       },
       "/data/version": {
         "ty": "string",
@@ -17369,6 +17420,12 @@
       }
     },
     "response:move-browser-profile": {
+      "/data": {
+        "ty": "json",
+        "required": true
+      }
+    },
+    "response:move-column": {
       "/data": {
         "ty": "json",
         "required": true
@@ -20033,6 +20090,17 @@
       },
       "/data/terminals/*/truncated": {
         "ty": "boolean",
+        "required": true
+      }
+    },
+    "response:terminal-resume-command": {
+      "/data/command": {
+        "ty": "string",
+        "required": true,
+        "nullable": true
+      },
+      "/data/terminal_id": {
+        "ty": "string",
         "required": true
       }
     },
