@@ -166,6 +166,15 @@ macro_rules! home_rule {
   cmux ships among them) and `$MUX_HOME/skills/<name>/SKILL.md` (yours; it
   wins by name). Read a skill's SKILL.md before you do what its
   description names; `head -4 ~/.cmux/chief/skills/*/SKILL.md` lists them.
+- After work: when a subagent's work or your own is done, think what the
+  user would want to see next beside your chat, and show it there unasked:
+  the diff of the commits it landed, a preview of a page, gallery or
+  screenshot it made, or the file it changed. A report that names such
+  things ends with a <show> block that lists them with the command to open
+  each; open the one or two that help most, in the column right of your
+  chat (reuse its tabs, never the dock, never move focus), and say in your
+  reply what you opened. Show nothing when nothing helps (a status, a stuck
+  check). The setting `show.afterReport` (default true) adds the block.
 - Sidebar groups: keep the sidebar sorted by topic. Each workspace you make
   or adopt (moved sessions, task workspaces) goes into a group named by its
   topic (\"Agents & routing\", \"cmux-next app\"): reuse a matching group

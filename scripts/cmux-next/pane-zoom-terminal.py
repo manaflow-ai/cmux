@@ -174,7 +174,12 @@ def main():
     print(f"launched pid {app.pid} macOS {subprocess.run(['sw_vers', '-productVersion'], capture_output=True, text=True).stdout.strip()}",
           flush=True)
     if not wait(lambda: os.path.exists(SOCKET) and (rpc("debug.windows") or {}).get("windows"), 120):
-        sys.exit("the tagged app did not come up")
+        # The step log is stdout only: say why here, with the app's own log.
+        print(f"the tagged app did not come up: socket {SOCKET} exists={os.path.exists(SOCKET)} "
+              f"debug.windows={rpc('debug.windows')} alive={app.poll() is None}", flush=True)
+        log.flush()
+        print(open(os.path.join(opts.out, f"app-{TAG}.log"), errors="replace").read()[-6000:], flush=True)
+        sys.exit(1)
     time.sleep(5)  # test harness: launch work settles
     report = {"tag": TAG, "stream": opts.stream, "scrollback": opts.scrollback, "runs": []}
     for name in opts.layouts.split(","):
@@ -214,6 +219,9 @@ def main():
 
 try:
     main()
+except Exception:  # the step log is stdout only
+    import traceback
+    traceback.print_exc(file=sys.stdout)
 finally:
     cleanup()
     print("\nRESULT", "PASS" if ROWS and all(r[3] for r in ROWS) else "FAIL", f"({sum(r[3] for r in ROWS)}/{len(ROWS)})")

@@ -169,6 +169,8 @@ public final class SidebarDocStore {
     }
 
     nonisolated public static let pinnedSection = "sec_pinned"
+    /// A machine section's id is this prefix and the machine's session (the reducer's `machine_section_id`).
+    nonisolated public static let machineSectionPrefix = "sec_m_"
 
     // MARK: Intents
 
