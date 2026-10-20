@@ -17,6 +17,7 @@ mod app;
 mod app_focus;
 #[cfg(unix)]
 mod apps_run;
+mod capability_cache;
 #[cfg(unix)]
 mod chief;
 mod chief_target;
@@ -33,7 +34,6 @@ mod fix_command;
 mod frontend_browser;
 #[cfg(unix)]
 mod host_mount;
-mod capability_cache;
 mod launch_credential;
 mod lifecycle;
 #[cfg(unix)]
