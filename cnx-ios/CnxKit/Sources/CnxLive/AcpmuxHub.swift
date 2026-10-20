@@ -545,7 +545,8 @@ public final class AcpmuxSessionSource: AgentSessionSource {
             case "remote.lasting_grant_refused": return "From an iPhone you can allow once or deny. Allow for this chat on the Mac."
             default:
                 if error.message.hasPrefix("no pending permission") { return "Already answered on your Mac." }
-                return error.message
+                // An agent's raw JSON error (a model the account lacks) reads as a sentence.
+                return TurnFailureCopy.plain(error.message)
             }
         }
         return LinkController.reason(error)

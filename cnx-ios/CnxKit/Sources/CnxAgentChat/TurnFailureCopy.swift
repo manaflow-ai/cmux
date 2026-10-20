@@ -10,7 +10,7 @@ public struct TurnFailureCopy: Hashable, Sendable {
     public enum Kind: String, Hashable, Sendable {
         case trustPending, trustUntrusted
         case modelServiceUnavailable, modelServiceNotConnected, modelServiceExpired, modelServiceUnreachable
-        case rateLimited, unreachable, invalidKey, subscriptionLogin, proxyAuth, auth, other
+        case rateLimited, unreachable, invalidKey, subscriptionLogin, proxyAuth, auth, modelUnavailable, other
     }
 
     public let kind: Kind
@@ -51,11 +51,19 @@ public struct TurnFailureCopy: Hashable, Sendable {
         case .proxyAuth: "\(via ?? "The route") refused \(name)’s request (\(status ?? "401")). Check that route’s key or account."
         case .subscriptionLogin: "\(name) is signed out or its sign-in expired."
         case .auth: "The provider refused \(name)’s credentials (\(status ?? "401"))."
+        case .modelUnavailable: "\(name) can't use this model with the Mac's account. Pick another model."
         case .other: parts.message.map(Self.capitalized) ?? raw
         }
         self.kind = kind
         self.sentence = sentence
         detail = sentence == raw ? nil : raw
+    }
+
+    /// `message` for a toast or a refusal line: a JSON error body becomes its sentence;
+    /// plain text stays as it is.
+    public static func plain(_ message: String, harness: String? = nil, harnessName: String? = nil) -> String {
+        guard message.contains("{"), message.contains("}") else { return message }
+        return TurnFailureCopy(message: message, harness: harness, harnessName: harnessName).sentence
     }
 
     // MARK: - Classification (the Mac's order: trust, capacity and network first)
@@ -75,6 +83,8 @@ public struct TurnFailureCopy: Hashable, Sendable {
         if routerRefusal, parts.code == "auth.forbidden" || raw.range(of: #"\b403\b"#, options: .regularExpression) != nil {
             return .modelServiceUnavailable
         }
+        // The account can't run the chat's model (Codex with a ChatGPT account, a retired model).
+        if matches(Self.modelUnavailable, parts.message ?? raw) { return .modelUnavailable }
         if matches(Self.rate, raw) { return .rateLimited }
         if matches(Self.unreachable, raw) { return .unreachable }
         let via = via(raw, harness: harness)
@@ -98,6 +108,7 @@ public struct TurnFailureCopy: Hashable, Sendable {
         return (code, message?.isEmpty == false ? message : nil)
     }
 
+    private static let modelUnavailable = #"\bmodel\b.{0,80}\b(?:is not supported|isn't supported|not supported|does not exist|is not available|not available|not found|unknown model|no access)|(?:unknown|unsupported|invalid) model"#
     private static let rate = #"\b(?:429|529)\b|rate.?limit|too many requests|overloaded|at capacity|no non-exhausted|usage limit|quota|\b503\b|service unavailable"#
     private static let unreachable = #"ECONNREFUSED|ENOTFOUND|ETIMEDOUT|EAI_AGAIN|ECONNRESET|EHOSTUNREACH|fetch failed|socket hang up|connection (?:refused|reset|closed|error)|could not (?:connect|resolve)|network (?:error|is unreachable)|\bunreachable\b|timed out"#
     private static let invalidKey = #"invalid[ _-]?(?:x-)?api[ _-]?key|incorrect api key|api key (?:is )?(?:missing|not set|not found|invalid)|no api key|(?:ANTHROPIC|OPENAI)_API_KEY"#

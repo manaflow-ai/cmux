@@ -148,7 +148,9 @@ struct ChatComposer: View {
                         .accessibilityAddTraits(.isButton)
                         .accessibilityLabel(placeholder)
                 } else {
-                    if store.currentModelName != nil || !store.modes.isEmpty { modelPill }
+                    // The menu is there whenever the agent offers models, even when the
+                    // current one is not among them (a default the account lacks, D4).
+                    if store.currentModelName != nil || !store.models.isEmpty || !store.modes.isEmpty { modelPill }
                     Spacer(minLength: 0)
                     if let usage = store.contextUsage { ContextUsageRing(usage: usage) }
                 }
@@ -309,7 +311,7 @@ struct ChatComposer: View {
 
     private func modelPillLabel(withEffort: Bool) -> some View {
         HStack(spacing: 4) {
-            Text(store.currentModelName ?? currentModeName ?? "")
+            Text(store.currentModelName ?? store.currentModelID ?? currentModeName ?? "Model")
             if withEffort, store.currentModelName != nil, let mode = currentModeName, store.currentModeID != store.modes.first?.id {
                 Text(mode).foregroundStyle(.secondary)
             }
