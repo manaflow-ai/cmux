@@ -61,7 +61,7 @@ final class LegacyHistoryFile: @unchecked Sendable, Equatable {
     }
 
     var isUnchanged: Bool {
-        Self.directoryIdentity(at: parentURL) == parentIdentity
+        Self.directoryIdentity(at: parentURL)?.isSameObject(as: parentIdentity) == true
             && Self.identity(at: parentDescriptor, name: name) == identity
     }
 
@@ -104,7 +104,7 @@ final class LegacyHistoryFile: @unchecked Sendable, Equatable {
     }
 
     private func quarantineIfUnchanged() -> String? {
-        guard Self.directoryIdentity(at: parentURL) == parentIdentity,
+        guard Self.directoryIdentity(at: parentURL)?.isSameObject(as: parentIdentity) == true,
               Self.identity(at: parentDescriptor, name: name) == identity else { return nil }
         let quarantine = ".cmux-history-cleanup-\(UUID().uuidString.lowercased())"
         guard renameat(parentDescriptor, name, parentDescriptor, quarantine) == 0 else { return nil }
@@ -148,6 +148,10 @@ final class LegacyHistoryFile: @unchecked Sendable, Equatable {
 
         var isDirectory: Bool { kind == S_IFDIR }
         var isRegularFile: Bool { kind == S_IFREG }
+
+        func isSameObject(as other: Identity) -> Bool {
+            device == other.device && inode == other.inode && kind == other.kind
+        }
     }
 
     private static func identity(at url: URL) -> Identity? {
