@@ -6802,5 +6802,16 @@
         ]
       }
     }
+  },
+  "home.engine.section.agent": {
+    "source": "Agent",
+    "identityLocales": {
+      "bs": "Agent is the standard noun for an AI agent in this language; the translated entry is still required.",
+      "da": "Agent is the standard noun for an AI agent in this language; the translated entry is still required.",
+      "de": "Agent is the standard noun for an AI agent in this language; the translated entry is still required.",
+      "fr": "Agent is the standard noun for an AI agent in this language; the translated entry is still required.",
+      "nb": "Agent is the standard noun for an AI agent in this language; the translated entry is still required.",
+      "pl": "Agent is the standard noun for an AI agent in this language; the translated entry is still required."
+    }
   }
 }
