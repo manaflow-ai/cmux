@@ -3,10 +3,12 @@ import AppKit
 /// Pasteboard access shared by clipboard callbacks, paste, and drops.
 enum TerminalPasteboard {
     static let selectionName = NSPasteboard.Name("com.cmuxterm.next.selection")
+    /// The system clipboard; a test points it at a pasteboard of its own.
+    static var standard: NSPasteboard = .general
 
     static func pasteboard(_ location: TerminalPasteboardLocation) -> NSPasteboard {
         switch location {
-        case .standard: .general
+        case .standard: standard
         case .selection: NSPasteboard(name: selectionName)
         }
     }

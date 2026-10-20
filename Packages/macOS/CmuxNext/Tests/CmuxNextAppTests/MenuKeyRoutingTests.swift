@@ -206,4 +206,39 @@ import CmuxNextFocus
         try? await Task.sleep(for: .milliseconds(200))
         #expect(harness.written.isEmpty, "the terminal got \(harness.written.debugDescription) for a menu chord")
     }
+
+    static func pasteProbe() throws {
+        let harness = try Self.harness(userConfig: "")
+        defer { harness.close() }
+        var trace: [String] = []
+        TerminalKeyEquivalent.trace = { trace.append($0) }
+        harness.services.keyRouter.trace = { trace.append($0) }
+        defer { TerminalKeyEquivalent.trace = nil }
+        let menu = MainMenu.make(registry: harness.services.registry)
+        var took = false
+        try Self.withMenu(menu, harness) { () throws in
+            took = try Self.press("v", keyCode: 9, in: harness)
+        }
+        let deadline = Date().addingTimeInterval(3)
+        while !harness.written.contains("cmdv-probe-text"), Date() < deadline {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.02))
+        }
+        print("PROBE took=\(took) written=\(harness.written.debugDescription) trace=\(trace) lastInterception=\(String(describing: harness.services.keyRouter.lastInterception))")
+        #expect(harness.written.contains("cmdv-probe-text"), "Cmd-V wrote \(harness.written.debugDescription); trace \(trace)")
+    }
+}
+
+/// Cmd-V and Cmd-C in a terminal through the real menu bar (`MainMenu`): the router decides the
+/// key-down, the terminal gets it as a key equivalent, and the clipboard text reaches the program.
+@MainActor @Suite(.serialized) struct TerminalPasteKeyRoutingProbe {
+    @Test func cmdVPastesTheClipboardIntoTheTerminal() async throws {
+        let pasteboard = NSPasteboard(name: NSPasteboard.Name("cmux-next-paste-probe-\(UUID().uuidString)"))
+        let previous = TerminalPasteboard.standard
+        TerminalPasteboard.standard = pasteboard
+        defer { TerminalPasteboard.standard = previous; pasteboard.releaseGlobally() }
+        pasteboard.clearContents()
+        pasteboard.setString("cmdv-probe-text", forType: .string)
+        print("PROBE pasteboard string=\(String(describing: pasteboard.string(forType: .string)))")
+        try MenuKeyRoutingTests.pasteProbe()
+    }
 }
