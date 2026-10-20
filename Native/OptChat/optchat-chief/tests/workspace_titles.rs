@@ -11,6 +11,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use common::*;
+use optchat_chief::brain::Input;
 use optchat_chief::state::SubStatus;
 use optchat_chief::subagents::{Spawner, SubagentSettings};
 use optchat_chief::tools::Orchestrator;
@@ -160,19 +161,37 @@ fn a_finished_subagents_workspace_keeps_its_name_without_a_check_mark() {
         sp.spawn(vec!["Title: Sidebar group drag\nsay hello".into()], None)
     });
     let until = Instant::now() + Duration::from_secs(10);
-    let finished = |h: &Harness| {
+    let status = |h: &Harness| h.brain.state().sub("a1").map(|(_, s)| s.status);
+    let attached = |h: &Harness| {
         h.brain
             .state()
             .sub("a1")
-            .is_some_and(|(_, s)| matches!(s.status, SubStatus::Done | SubStatus::Reported))
+            .is_some_and(|(_, s)| s.workspace.is_some() && s.status == SubStatus::Running)
     };
-    while !(worker.is_finished() && finished(&h)) && Instant::now() < until {
+    while !(worker.is_finished() && attached(&h)) && Instant::now() < until {
         if let Ok(input) = h.rx.recv_timeout(Duration::from_millis(10)) {
             h.brain.step(input);
         }
     }
     let answer = worker.join().unwrap().unwrap();
-    assert!(finished(&h), "a1 never finished");
+    assert!(
+        attached(&h),
+        "a1 never ran in its workspace: {:?}",
+        status(&h)
+    );
+    // Its run ends (a failed prompt ends it at once, deterministically).
+    h.tx.send(Input::SubagentAnswer {
+        id: "a1".into(),
+        answer: Err("the test ends it".into()),
+    })
+    .unwrap();
+    let finished = |h: &Harness| matches!(status(h), Some(SubStatus::Done | SubStatus::Reported));
+    while !finished(&h) && Instant::now() < until {
+        if let Ok(input) = h.rx.recv_timeout(Duration::from_millis(10)) {
+            h.brain.step(input);
+        }
+    }
+    assert!(finished(&h), "a1 never finished: {:?}", status(&h));
     while let Ok(input) = h.rx.recv_timeout(Duration::from_millis(200)) {
         h.brain.step(input);
     }

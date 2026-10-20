@@ -190,15 +190,27 @@ fn cut_clause(s: &str) -> String {
 /// `s` on one line, at most ``TITLE_CHARS`` characters (cut at a word, with
 /// "…"), its first letter upper case.
 fn clip(s: &str) -> String {
-    let flat = s.split_whitespace().collect::<Vec<_>>().join(" ");
+    let flat = s
+        .replace('✓', " ")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
     let mut out = if flat.chars().count() <= TITLE_CHARS {
         flat
     } else {
         let head: String = flat.chars().take(TITLE_CHARS - 1).collect();
-        let cut = head
-            .rfind(' ')
-            .filter(|&i| i >= TITLE_CHARS / 2)
-            .unwrap_or(head.len());
+        // A whole word when the next character ends it.
+        let whole = flat
+            .chars()
+            .nth(TITLE_CHARS - 1)
+            .is_some_and(char::is_whitespace);
+        let cut = if whole {
+            head.len()
+        } else {
+            head.rfind(' ')
+                .filter(|&i| i >= TITLE_CHARS / 2)
+                .unwrap_or(head.len())
+        };
         format!("{}…", head[..cut].trim_end_matches([',', ';', ':', ' ']))
     };
     if let Some(c) = out.chars().next()
@@ -218,6 +230,20 @@ pub const TOPICS: &[(&str, &[&str])] = &[
         "Crashes & QA",
         &[
             "crash", "crashes", "sentry", "fuzz", "qa", "tester", "testers",
+        ],
+    ),
+    (
+        "Performance",
+        &[
+            "perf",
+            "performance",
+            "bench",
+            "benchmark",
+            "latency",
+            "power",
+            "wakeups",
+            "memory",
+            "cpu",
         ],
     ),
     (
