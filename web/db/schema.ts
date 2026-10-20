@@ -369,6 +369,10 @@ export const runEvents = pgTable(
     externalId: text("external_id"),
     kind: runEventKind("kind").notNull(),
     payload: jsonb("payload").$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
+    /** Lease that wrote this event. A retry of it is answered only for this lease or the live holder. */
+    writerLeaseGeneration: integer("writer_lease_generation"),
+    /** SHA-256 of the writer's lease token; raw lease tokens are never stored on events. */
+    writerLeaseTokenHash: text("writer_lease_token_hash"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
@@ -396,6 +400,9 @@ export const runArtifacts = pgTable(
     digest: text("digest").notNull(),
     uri: text("uri").notNull(),
     metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
+    /** Lease that recorded this manifest; see runEvents.writerLeaseGeneration. */
+    writerLeaseGeneration: integer("writer_lease_generation"),
+    writerLeaseTokenHash: text("writer_lease_token_hash"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [

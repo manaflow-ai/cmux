@@ -1,4 +1,4 @@
-import { address as homeAddress, invites } from "@cmux/home-core"
+import { address as homeAddress, conversation as homeConversation, invites } from "@cmux/home-core"
 import type { OwnerFrame, Principal } from "@cmux/ownership"
 import type { RequestPreview } from "./conversation-do.ts"
 import type { Env } from "./env.ts"
@@ -29,6 +29,7 @@ interface ConversationRequestStub {
 }
 interface UserDomainStub {
   homeVerifiedEmailDomain(entity: string): Promise<string | null>
+  homeSameDomainReach(entity: string, senderDomain: string): Promise<{ display_name: string; allow_requests_from: homeConversation.AllowRequestsFrom } | null>
 }
 
 const addressStub = (env: Env, id: string) => env.ADDRESS_DO.get(env.ADDRESS_DO.idFromName(id)) as unknown as AddressRequestStub
@@ -59,6 +60,25 @@ export const linkVerifiedAddress = async (env: Env, p: Principal): Promise<void>
     // Linking only improves reach; the sign-in must not fail on it. No address in the log.
     console.log(JSON.stringify({ msg: "home address link failed", at: new Date().toISOString(), reason: e instanceof Error ? e.name : "error" }))
   }
+}
+
+/**
+ * DESIGN 2.4, trust same domain by default: adds the `same_domain` reach fact for `target` when
+ * the caller's verified email and the target's share a company domain and the target trusts it.
+ * Without it the principal is unchanged (the DM falls back to the invite, a message request).
+ */
+export const withSameDomainReach = async (env: Env, principal: Principal, target: string): Promise<Principal> => {
+  if (principal.agent || principal.email_verified !== true) return principal
+  const mine = invites.emailDomain(principal.email)
+  if (!mine) return principal
+  const fact = await userStub(env, target).homeSameDomainReach(target, mine).catch(() => null)
+  if (!fact) return principal
+  const others = (principal.home_reach ?? []).filter((r) => r.user !== target)
+  const prior = (principal.home_reach ?? []).find((r) => r.user === target)
+  const reach: homeConversation.HumanReach = prior
+    ? { ...prior, same_domain: true }
+    : { user: target, display_name: fact.display_name, shared_team: false, connected: false, same_domain: true, allow_requests_from: fact.allow_requests_from }
+  return { ...principal, home_reach: [...others, reach] }
 }
 
 /** The account an address id is linked to, or null. */

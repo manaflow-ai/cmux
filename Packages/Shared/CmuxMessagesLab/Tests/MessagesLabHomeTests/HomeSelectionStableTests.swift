@@ -28,7 +28,8 @@ import Testing
     static let me = ParticipantID("user_me")
     static let them = ParticipantID("agent_chief")
 
-    private func pane() -> Pane {
+    /// `windowStart`: older messages exist above the loaded window (a page can load there).
+    private func pane(windowStart: Int? = nil) -> Pane {
         let people = [CmuxHomeCore.Participant(id: Self.me, kind: .human, displayName: "Me"),
                       CmuxHomeCore.Participant(id: Self.them, kind: .agent, displayName: "Chief", agentClass: .chief)]
         let base = Date(timeIntervalSince1970: 1_800_000_000)
@@ -45,7 +46,7 @@ import Testing
         window.isReleasedWhenClosed = false
         let controller = ChatController(host: HostView(frame: NSRect(x: 0, y: 0, width: 600, height: 700)), wake: NoWake())
         window.contentView = controller.host
-        controller.install(conv, windowStart: w.start, total: w.total)
+        controller.install(conv, windowStart: windowStart ?? w.start, total: windowStart.map { $0 + w.total } ?? w.total)
         controller.host.layoutSubtreeIfNeeded()
         return Pane(window: window, controller: controller)
     }
@@ -131,6 +132,33 @@ import Testing
         #expect(after.carriedByRow, "the highlight is drawn outside its row: it jumps while the row springs")
         #expect(abs(after.rects.minX - before.rects.minX) < 0.5 && abs(after.rects.minY - before.rects.minY) < 0.5)
         #expect(abs(after.rects.width - before.rects.width) < 0.5 && abs(after.rects.height - before.rects.height) < 0.5)
+    }
+
+    // MARK: An older page loads above
+
+    @Test func anOlderPageLoadingAboveKeepsTheSelectionInPlace() throws {
+        let p = pane(windowStart: 3)
+        let key = try selectWord(p)
+        let text = p.controller.selection.selectedText
+        let before = try drawnHighlight(p, key: key)
+        let top = try #require(cell(p, key: key)).convert(CGRect.zero, to: p.demo).minY
+        let rows = p.demo.model.count
+        let older = (0..<3).map { i in
+            MessagesLabHome.Message(id: "msg_old_\(i)", senderId: Self.them.rawValue,
+                                    sentAt: Instant.format(Date(timeIntervalSince1970: 1_799_999_000 + Double(i))),
+                                    parts: [.text("An older message \(i) from the page above", runs: [])], replyTo: nil, status: nil,
+                                    edits: nil, retractedAt: nil, reactions: [])
+        }
+        p.controller.dispatch(.prependPage(older))
+        settle(p)
+        try #require(p.demo.model.count > rows, "the page did not load")
+        #expect(p.controller.selection.selectedText == text)
+        let after = try drawnHighlight(p, key: key)
+        #expect(after.carriedByRow)
+        #expect(abs(after.rects.minY - before.rects.minY) < 0.5 && abs(after.rects.minX - before.rects.minX) < 0.5)
+        // Rows land above: the selected row keeps its place on screen.
+        let nowTop = try #require(cell(p, key: key)).convert(CGRect.zero, to: p.demo).minY
+        #expect(abs(nowTop - top) < 0.5, "the selected row moved \(nowTop - top) pt when a page loaded above")
     }
 
     // MARK: A streaming reply grows and ends
