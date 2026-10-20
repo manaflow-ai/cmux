@@ -194,6 +194,24 @@ import Testing
         if case .unavailable = await supervisor.current.phase {} else { Issue.record("expected unavailable") }
     }
 
+    @Test func symlinkedHostdIsUnavailableBeforeLaunch() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("cnx-link-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let target = directory.appendingPathComponent("target")
+        try "#!/bin/sh\nexit 0\n".write(to: target, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: target.path)
+        let link = directory.appendingPathComponent("cnx-hostd")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: target)
+
+        let supervisor = CnxHostSupervisor()
+        await supervisor.start(.init(launch: Self.launch(executable: link), accessToken: { _ in "must-not-be-requested" },
+                                     acpmux: { nil }, log: nil))
+
+        if case .unavailable = await supervisor.current.phase {} else { Issue.record("expected symlinked hostd to be unavailable") }
+        await supervisor.stop()
+    }
+
     @Test func phonesGroupTheirLinkAndPresenceIDs() {
         let phones = CnxKnownPhone.group([
             CnxRegisteredDevice(deviceID: "a", kind: "phone", name: "Aziz's iPhone", updatedAt: "2026-10-13T10:00:00Z"),
