@@ -274,6 +274,7 @@ pub use socket_path::{
 pub(crate) mod activity;
 mod browser_input;
 mod chief_control;
+mod chief_engine_mirror;
 mod chief_inspect;
 mod chief_manage;
 mod chief_registry_resource;
@@ -436,6 +437,13 @@ pub const NOTIFICATION_MARK_UNREAD_CAPABILITY: &str = "notification-mark-unread-
 /// resource's `extra.marked_unread`. It needs no notification; clients clear
 /// it when the person views the tab.
 pub const TAB_MARK_UNREAD_CAPABILITY: &str = "tab-mark-unread-v1";
+/// A workspace's description: `description` on `workspace.update` (null
+/// clears it) and the workspace snapshot's `extra.description` while set.
+pub const WORKSPACE_DESCRIPTION_CAPABILITY: &str = "workspace-description-v1";
+/// A workspace's manual task status (classic cmux lanes `todo`, `working`,
+/// `needs-attention`, `review`, `done`): `task_status` on `workspace.update`
+/// (null is automatic) and the workspace snapshot's `extra.task_status`.
+pub const WORKSPACE_STATUS_CAPABILITY: &str = "workspace-status-v1";
 /// Tab metadata in the raw tree: `set-tab-pinned` with pinned-first order,
 /// `Tab.pinned`, `Tab.cwd`, `Tab.git_branch`, `Tab.git_detached`, and the `tab-changed` delta.
 pub const TAB_METADATA_CAPABILITY: &str = "tab-metadata-v1";

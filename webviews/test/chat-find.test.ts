@@ -257,7 +257,8 @@ await requireBrowserLane("chat-find.test.ts", async () => {
 
     // A starved page (#19761, op-next-cmdclick's runs on 10-13) measures the fold Find opened for
     // seconds, and each late measure pushes the match down. Find holds it in view until it stops
-    // moving, not for a fixed 600 ms: here the match's block grows for 2 s from when it is drawn.
+    // moving, not for a fixed 600 ms: here the match moves down for 2 s from when it is drawn, inside
+    // its command's capped output (a scroller of its own), so the hold must scroll that box too.
     test("keeps a Find match in view while what is above it keeps measuring", async () => {
       if (!installed) return;
       const page = await browser!.newPage({ viewport: { width: 900, height: 700 } });
@@ -278,7 +279,7 @@ await requireBrowserLane("chat-find.test.ts", async () => {
         ][0];
         const block = range?.startContainer.parentElement;
         if (!block) throw new Error("no current match");
-        // 40 steps of 20 px over 2 s: more than the viewport, in steps the transcript measures.
+        // 40 steps of 20 px over 2 s: more than the output box and the viewport.
         for (let step = 1; step <= 40; step += 1) {
           block.style.marginTop = `${step * 20}px`;
           await new Promise((resolve) => setTimeout(resolve, 50));

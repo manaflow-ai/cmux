@@ -318,6 +318,7 @@ async fn dispatch_request(
             {
                 return Err(RpcError::invalid_params(format!("route {r:?} is not a route id")));
             }
+            let asked_policy = policy.is_some();
             let req = crate::hub::NewRequest {
                 harness: pick("harness"),
                 preset: pick("preset"),
@@ -340,6 +341,20 @@ async fn dispatch_request(
             let s = hub.new_session(req).await?;
             if conn.origin.web_class() {
                 super::remote_guard::settle_web_session_mode(hub, &s).await?;
+                // A dedicated agent VM (vmHost): a session its owner's peer
+                // daemon starts with no policy runs approve-all; the VM is the
+                // sandbox (hub/remote_sandbox.rs). Web clients still ask.
+                let vm_host = hub.config.read().await.vm_host;
+                if !asked_policy
+                    && crate::hub::vm_host_peer_approves(
+                        vm_host,
+                        cfg!(target_os = "macos"),
+                        super::remote_guard::control_of(conn.origin, conn.auth, &params)
+                            == crate::hub::Control::Peer,
+                    )
+                {
+                    hub.set_policy(&s, crate::config::PermissionPolicy::ApproveAll).await;
+                }
             } else {
                 hub.start_in_mode(conn.is_person(), conn.caller(), &params, &s, adopting).await?;
             }

@@ -35,6 +35,50 @@ pub struct DaemonOptions {
     pub dev: bool,
 }
 
+/// The daemon's panic log, `$ACPMUX_HOME/panics.jsonl` (cmux-panic-log):
+/// a panic in a request task ends only that task and used to leave just
+/// two lines in `daemon.log` (the 2026-10-14 sort panic). The cmux-next
+/// app sends new lines to Sentry.
+pub fn panic_log_path() -> std::path::PathBuf {
+    home().join("panics.jsonl")
+}
+
+/// Debug builds only: `thread` makes a worker thread panic once the hook
+/// is installed (tests/panic_log.rs). Its line carries `"test": true`.
+#[cfg(debug_assertions)]
+const TEST_PANIC_ENV: &str = "ACPMUX_TEST_PANIC";
+#[cfg(debug_assertions)]
+const TEST_PANIC_THREAD: &str = "acpmux-panic-test";
+
+/// Install the panic log hook; the previous hook (stderr, so `daemon.log`) still runs.
+fn install_panic_log() {
+    let mut fields = cmux_panic_log::Fields::new();
+    fields.insert("process".into(), "acpmux".into());
+    fields.insert("pid".into(), std::process::id().into());
+    fields.insert("version".into(), env!("CARGO_PKG_VERSION").into());
+    cmux_panic_log::install(panic_log_path(), fields, is_test_panic_thread);
+    #[cfg(debug_assertions)]
+    if std::env::var(TEST_PANIC_ENV).as_deref() == Ok("thread") {
+        let _ = std::thread::Builder::new()
+            .name(TEST_PANIC_THREAD.into())
+            // crash-allow: debug-only test trigger for the acpmux panic log
+            .spawn(|| panic!("acpmux test panic"));
+    }
+}
+
+/// The debug test trigger's thread; its line carries `"test": true`.
+fn is_test_panic_thread(thread: &str) -> bool {
+    #[cfg(debug_assertions)]
+    {
+        thread == TEST_PANIC_THREAD
+    }
+    #[cfg(not(debug_assertions))]
+    {
+        let _ = thread;
+        false
+    }
+}
+
 /// How long SIGTERM or `_acpmux/shutdown` may take before the daemon exits
 /// anyway.
 pub const SHUTDOWN_BUDGET: Duration = Duration::from_secs(5);
@@ -72,6 +116,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     // State holds tokens, prompts and tool output. Older builds created the
     // home with the process umask; narrow it before reading any of them.
     crate::config::private_state_dir(&home())?;
+    install_panic_log();
     let mut config = Config::load()?;
     // config.json holds the dashboard token: owner-only, also when another
     // tool wrote it with the umask's mode and the daemon never saves it.

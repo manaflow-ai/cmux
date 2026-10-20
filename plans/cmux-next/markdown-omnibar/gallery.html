@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Markdown omnibar: 6 variants</title>
+<style>
+  :root {
+    --bg: #1b1a20; --pane: #232229; --bar: #2a2931; --field: #34333c; --field-hi: #3d3c46;
+    --text: #e8e6ee; --dim: #9a98a6; --faint: #6d6b78; --accent: #8ab4ff; --green: #5fd38d;
+    --amber: #f2c14e; --red: #ff7b72; --line: rgba(255,255,255,.07);
+    font: 13px/1.45 -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+  }
+  body { margin: 0; background: var(--bg); color: var(--text); padding: 28px 32px 80px; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .sub { color: var(--dim); margin: 0 0 24px; max-width: 900px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(560px, 1fr)); gap: 22px; }
+  .card { background: var(--pane); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
+  .card.rec { outline: 2px solid var(--accent); }
+  .head { display: flex; align-items: baseline; gap: 10px; padding: 12px 16px 6px; }
+  .num { color: var(--faint); font-variant-numeric: tabular-nums; }
+  .name { font-weight: 600; }
+  .badge { margin-left: auto; background: var(--accent); color: #0b1a33; font-size: 11px; font-weight: 700;
+           padding: 2px 8px; border-radius: 999px; }
+  .desc { color: var(--dim); padding: 0 16px 12px; }
+  .win { margin: 0 14px 14px; border-radius: 10px; overflow: hidden; border: 1px solid var(--line); background: #1e1d23; }
+  .tabs { display: flex; gap: 2px; padding: 6px 8px 0; background: #212027; }
+  .tab { background: var(--bar); border-radius: 7px 7px 0 0; padding: 5px 10px; font-size: 12px; display: flex; gap: 6px; align-items: center; }
+  .tab.off { background: transparent; color: var(--faint); }
+  .bar { display: flex; align-items: center; gap: 6px; padding: 6px 8px; background: var(--bar); border-bottom: 1px solid var(--line); position: relative; }
+  .btn { width: 26px; height: 26px; border-radius: 7px; display: grid; place-items: center; color: var(--dim); flex: none; }
+  .btn:hover { background: var(--field); }
+  .field { flex: 1; min-width: 0; height: 28px; border-radius: 8px; background: var(--field); display: flex; align-items: center;
+           gap: 6px; padding: 0 8px; white-space: nowrap; overflow: hidden; }
+  .field .p { color: var(--dim); overflow: hidden; text-overflow: ellipsis; }
+  .field .p b { color: var(--text); font-weight: 500; }
+  .chip { flex: none; display: inline-flex; align-items: center; gap: 4px; font-size: 11.5px; padding: 2px 7px; border-radius: 6px;
+          background: rgba(255,255,255,.07); color: var(--text); }
+  .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+  .g { background: var(--green); } .a { background: var(--amber); } .r { background: var(--red); } .n { background: var(--faint); }
+  .share { flex: none; height: 26px; padding: 0 10px; border-radius: 7px; background: var(--field-hi); display: flex; align-items: center; gap: 5px; font-size: 12px; }
+  .share.primary { background: var(--accent); color: #0b1a33; font-weight: 600; }
+  .sep { color: var(--faint); }
+  .crumb { color: var(--dim); padding: 1px 3px; border-radius: 4px; }
+  .crumb:hover { background: var(--field-hi); color: var(--text); }
+  .crumb.last { color: var(--text); font-weight: 500; }
+  .doc { padding: 16px 26px 20px; color: #d6d4de; font-size: 12.5px; }
+  .doc h2 { font-size: 17px; margin: 0 0 8px; } .doc p { margin: 0 0 6px; color: var(--dim); }
+  .meta { display: flex; gap: 14px; padding: 3px 12px 5px; background: var(--bar); color: var(--faint); font-size: 11.5px; border-bottom: 1px solid var(--line); }
+  .pop { position: absolute; right: 8px; top: 38px; width: 300px; background: #2f2e37; border: 1px solid rgba(255,255,255,.1);
+         border-radius: 12px; box-shadow: 0 12px 32px rgba(0,0,0,.45); padding: 6px; z-index: 2; }
+  .row { display: flex; gap: 10px; padding: 8px; border-radius: 8px; align-items: flex-start; }
+  .row:hover { background: rgba(255,255,255,.05); }
+  .row .t { font-weight: 600; font-size: 12.5px; } .row .s { color: var(--dim); font-size: 11.5px; }
+  .row.disabled { opacity: .5; }
+  .ico { width: 22px; height: 22px; border-radius: 6px; background: var(--field-hi); display: grid; place-items: center; flex: none; font-size: 12px; }
+  .url { font-family: ui-monospace, "SF Mono", monospace; font-size: 11px; color: var(--accent); }
+  .kbd { margin-left: auto; color: var(--faint); font-size: 11px; }
+  h3 { margin: 40px 0 10px; font-size: 16px; }
+  table { border-collapse: collapse; width: 100%; max-width: 1180px; background: var(--pane); border-radius: 12px; overflow: hidden; }
+  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--dim); font-weight: 600; font-size: 12px; }
+  td .field { height: 24px; min-width: 300px; }
+  svg { width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+</style>
+</head>
+<body>
+<h1>Markdown viewer with an omnibar: 6 variants</h1>
+<p class="sub">Each one reuses the browser omnibar (same field, glass, focus ring and keyboard). The field shows the real path, not a URL, and turns
+into a path editor on focus (Cmd+L). Git state comes from the file's repo. Share gives a local live link today and a GitHub link when the file is pushed.
+Pick a number to change the default; <b>#1 is the Chief's default</b>.</p>
+
+<div class="grid">
+
+<!-- 1 -->
+<div class="card rec">
+  <div class="head"><span class="num">#1</span><span class="name">Path omnibar + repo chip</span><span class="badge">Recommended</span></div>
+  <div class="desc">Same omnibar as the browser. Trailing chip = repo and branch with a git state glyph (✓ pushed, ↑2 unpushed, ● edited, ? untracked). The field shows the full path; the page-info chip and the repo chip open the Share menu (#5). <b>Shipped in v1</b> (the <code>~</code> form is in the menu for now).</div>
+  <div class="win">
+    <div class="tabs"><div class="tab">📝 markdown-omnibar-DESIGN.md</div><div class="tab off">google.com</div></div>
+    <div class="bar">
+      <span class="btn"><svg viewBox="0 0 16 16"><path d="M10 3 5 8l5 5"/></svg></span>
+      <span class="btn"><svg viewBox="0 0 16 16"><path d="M6 3l5 5-5 5"/></svg></span>
+      <div class="field">
+        <span class="btn" style="width:20px;height:20px">ⓘ</span>
+        <span class="p">/Users/lawrence/fun/cmux/plans/cmux-next/<b>markdown-omnibar-DESIGN.md</b></span>
+        <span style="margin-left:auto" class="chip">cmux · feat-cmux-next ✓</span>
+      </div>
+    </div>
+    <div class="doc"><h2>Markdown omnibar</h2><p>Reuse the browser omnibar as the Markdown viewer's top bar…</p></div>
+  </div>
+</div>
+
+<!-- 2 -->
+<div class="card">
+  <div class="head"><span class="num">#2</span><span class="name">Breadcrumb path</span></div>
+  <div class="desc">Every folder is a click target (opens it in Files). Good for deep repos; long paths collapse the middle into "…".</div>
+  <div class="win">
+    <div class="tabs"><div class="tab">📝 README.md</div></div>
+    <div class="bar">
+      <span class="btn"><svg viewBox="0 0 16 16"><path d="M10 3 5 8l5 5"/></svg></span>
+      <div class="field">
+        <span class="dot a"></span>
+        <span class="crumb">~</span><span class="sep">›</span><span class="crumb">fun</span><span class="sep">›</span>
+        <span class="crumb">cmux</span><span class="sep">›</span><span class="crumb">…</span><span class="sep">›</span>
+        <span class="crumb">cmux-next</span><span class="sep">›</span><span class="crumb last">README.md</span>
+      </div>
+      <span class="share"><svg viewBox="0 0 16 16"><path d="M8 10V2M5 5l3-3 3 3M3 9v4h10V9"/></svg>Share</span>
+    </div>
+    <div class="doc"><h2>README</h2><p>Amber dot: committed, not pushed yet.</p></div>
+  </div>
+</div>
+
+<!-- 3 -->
+<div class="card">
+  <div class="head"><span class="num">#3</span><span class="name">GitHub-first</span></div>
+  <div class="desc">When tracked and pushed, the field reads like the GitHub blob path. Local path shows on hover and on focus.</div>
+  <div class="win">
+    <div class="tabs"><div class="tab">📝 browser.md</div></div>
+    <div class="bar">
+      <span class="btn"><svg viewBox="0 0 16 16"><path d="M10 3 5 8l5 5"/></svg></span>
+      <div class="field">
+        <span class="chip">⎇ manaflow-ai/cmux</span>
+        <span class="p">feat-cmux-next <span class="sep">/</span> plans/cmux-next/<b>browser.md</b></span>
+      </div>
+      <span class="share"><svg viewBox="0 0 16 16"><path d="M6 10a3 3 0 0 0 4 0l2-2a3 3 0 0 0-4-4l-1 1M10 6a3 3 0 0 0-4 0L4 8a3 3 0 0 0 4 4l1-1"/></svg>Copy GitHub link</span>
+    </div>
+    <div class="doc"><h2>Browser</h2><p>Green: matches origin, the GitHub link shows exactly this text.</p></div>
+  </div>
+</div>
+
+<!-- 4 -->
+<div class="card">
+  <div class="head"><span class="num">#4</span><span class="name">Quiet title, path on focus</span></div>
+  <div class="desc">Safari-style: centered file name while reading; click or Cmd+L shows the full path, selected, ready to edit or copy.</div>
+  <div class="win">
+    <div class="tabs"><div class="tab">📝 notes.md</div></div>
+    <div class="bar">
+      <span class="btn"><svg viewBox="0 0 16 16"><path d="M10 3 5 8l5 5"/></svg></span>
+      <div class="field" style="justify-content:center"><span class="dot n"></span><b>notes.md</b><span class="p">— Desktop</span></div>
+      <span class="btn"><svg viewBox="0 0 16 16"><path d="M8 10V2M5 5l3-3 3 3M3 9v4h10V9"/></svg></span>
+    </div>
+    <div class="bar" style="border-top:1px solid var(--line)">
+      <span class="btn"></span>
+      <div class="field" style="outline:2px solid var(--accent)"><span class="p" style="background:rgba(138,180,255,.25);color:var(--text)">~/Desktop/notes.md</span></div>
+      <span class="btn"></span>
+    </div>
+    <div class="doc"><p>Top: reading. Bottom: after Cmd+L. Grey dot: not in a git repo.</p></div>
+  </div>
+</div>
+
+<!-- 5 -->
+<div class="card">
+  <div class="head"><span class="num">#5</span><span class="name">#1 with the Share menu open</span></div>
+  <div class="desc">The share menu every variant uses. v1 ships the first two rows; Live share is designed, off until a hosted backend is approved.</div>
+  <div class="win">
+    <div class="tabs"><div class="tab">📝 markdown-omnibar-DESIGN.md</div></div>
+    <div class="bar">
+      <div class="field">
+        <span class="chip"><span class="dot r"></span>cmux · feat-cmux-next</span>
+        <span class="p">~/fun/cmux/plans/cmux-next/<b>markdown-omnibar-DESIGN.md</b></span>
+      </div>
+      <span class="share primary">Share</span>
+      <div class="pop">
+        <div class="row"><span class="ico">⌁</span><div><div class="t">Copy local live link</div><div class="s">Auto-reloads on save. Only this Mac.</div><div class="url">http://127.0.0.1:47213/md/k7Q2…/markdown-omnibar-DESIGN.md</div></div></div>
+        <div class="row"><span class="ico">⎇</span><div><div class="t">Copy GitHub link</div><div class="s">Uncommitted changes: the link shows the last pushed version.</div><div class="url">github.com/manaflow-ai/cmux/blob/feat-cmux-next/plans/…</div></div></div>
+        <div class="row"><span class="ico">⎘</span><div><div class="t">Copy path</div><div class="s">~/fun/cmux/plans/cmux-next/markdown-omnibar-DESIGN.md</div></div><span class="kbd">⌥⌘C</span></div>
+        <div class="row"><span class="ico">⌕</span><div><div class="t">Reveal in Finder</div></div><span class="kbd">⇧⌘R</span></div>
+        <div class="row disabled"><span class="ico">◉</span><div><div class="t">Live share with presence</div><div class="s">Hosted link with cursors. Coming later.</div></div></div>
+      </div>
+    </div>
+    <div class="doc" style="height:200px"><p>Red dot: uncommitted edits.</p></div>
+  </div>
+</div>
+
+<!-- 6 -->
+<div class="card">
+  <div class="head"><span class="num">#6</span><span class="name">Two-line: path + status strip</span></div>
+  <div class="desc">#1 plus a thin strip with git state in words, last saved time and words. Most information, costs 20 pt of height.</div>
+  <div class="win">
+    <div class="tabs"><div class="tab">📝 roadmap.md</div></div>
+    <div class="bar">
+      <span class="btn"><svg viewBox="0 0 16 16"><path d="M10 3 5 8l5 5"/></svg></span>
+      <div class="field">
+        <span class="chip">⇄ cmux-lawrence</span>
+        <span class="p">ssh://cmux-lawrence/~/work/hq/docs/<b>roadmap.md</b></span>
+      </div>
+      <span class="share">Share</span>
+    </div>
+    <div class="meta"><span>● 2 uncommitted changes</span><span>main · 3 ahead</span><span>saved 14:02</span><span>1,284 words</span><span style="margin-left:auto">Remote file</span></div>
+    <div class="doc"><h2>Roadmap</h2><p>Remote (SSH) file: chip shows the host.</p></div>
+  </div>
+</div>
+
+</div>
+
+<h3>How the field reads in each case (variant #1)</h3>
+<table>
+<tr><th>Case</th><th>Field</th><th>Dot</th><th>Share menu</th></tr>
+<tr><td>Git repo, pushed, clean</td><td><div class="field"><span class="chip"><span class="dot g"></span>cmux · main</span><span class="p">~/fun/cmux/<b>README.md</b></span></div></td><td>green</td><td>GitHub link (exact), local live link, path</td></tr>
+<tr><td>Git repo, committed, not pushed</td><td><div class="field"><span class="chip"><span class="dot a"></span>cmux · my-branch ↑2</span><span class="p">~/fun/cmux/<b>NOTES.md</b></span></div></td><td>amber</td><td>GitHub link points at the commit on origin if the branch exists, else disabled ("push first"); local live link</td></tr>
+<tr><td>Git repo, dirty</td><td><div class="field"><span class="chip"><span class="dot r"></span>cmux · main</span><span class="p">~/fun/cmux/<b>README.md</b></span></div></td><td>red</td><td>GitHub link with warning "shows last pushed version"; local live link shows your edits</td></tr>
+<tr><td>Git repo, untracked</td><td><div class="field"><span class="chip"><span class="dot n"></span>cmux · main · untracked</span><span class="p">~/fun/cmux/<b>scratch.md</b></span></div></td><td>grey</td><td>GitHub link disabled ("not committed"); local live link</td></tr>
+<tr><td>Plain local file</td><td><div class="field"><span class="p">~/Desktop/<b>notes.md</b></span></div></td><td>none</td><td>local live link, path, Reveal in Finder</td></tr>
+<tr><td>Outside home</td><td><div class="field"><span class="p">/Volumes/Work/specs/<b>api.md</b></span></div></td><td>none</td><td>same as plain local (no <code>~</code>)</td></tr>
+<tr><td>Remote / SSH file</td><td><div class="field"><span class="chip">⇄ cmux-lawrence</span><span class="p">~/work/hq/<b>roadmap.md</b></span></div></td><td>from remote git</td><td>GitHub link if pushed (git runs on the host); no local live link in v1; copy <code>ssh://</code> path</td></tr>
+</table>
+</body>
+</html>

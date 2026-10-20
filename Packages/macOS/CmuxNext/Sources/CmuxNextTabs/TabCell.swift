@@ -11,6 +11,8 @@ final class TabCell {
     let layer = CALayer()
     /// VoiceOver and automation element for this tab.
     let accessibility = TabAccessibilityElement()
+    /// The strip's handler behind the element's Mute tab / Unmute tab action.
+    var accessibilityToggleAudio: (@MainActor () -> Void)? { didSet { updateAccessibility() } }
     private(set) var item: TabItem
     /// Instant (L4): the content switches in one frame, so the highlight does too.
     var isSelected = false {
@@ -26,6 +28,9 @@ final class TabCell {
     var isHovered = false { didSet { if oldValue != isHovered { stateChanged() } } }
     var isCloseHovered = false { didSet { if oldValue != isCloseHovered { updateColors(animated: true, showing: isCloseHovered) } } }
     var isClosePressed = false { didSet { if oldValue != isClosePressed { updateColors(animated: false) } } }
+    /// The pointer is on the speaker button, or presses it (TabCell+AudioBadge).
+    var isAudioHovered = false { didSet { if oldValue != isAudioHovered { updateColors(animated: true, showing: isAudioHovered) } } }
+    var isAudioPressed = false { didSet { if oldValue != isAudioPressed { updateColors(animated: false) } } }
     var isLifted = false { didSet { if oldValue != isLifted { updateLift() } } }
     /// The strip's window is main (in front); off, the selected tab has no fill, so only it repaints.
     var isWindowMain = true { didSet { if oldValue != isWindowMain, isSelected { updateColors(animated: false) } } }
@@ -116,13 +121,14 @@ final class TabCell {
     var profileLayer: CALayer? // browser profile dot (TabCell+ProfileBadge)
     var presenceLayer: CALayer? // the acting agent's dot (TabCell+PresenceDot)
     var audioLayer: CALayer? // speaker of a tab playing sound (TabCell+AudioBadge)
+    var audioBackgroundLayer: CALayer? // the speaker button's hover and press fill
     var hibernationRingLayer: CAShapeLayer? // dotted ring of a hibernated tab (TabCell+HibernationRing)
 
     var hasCloseLayers: Bool { closeBackgroundLayer != nil || closeGlyphLayer != nil }
 
     private(set) var visibility = TabChromeVisibility(showsIcon: true, showsTitle: true, showsClose: false, centersContent: false)
-    /// Close button frame in this view's coordinates, or nil when hidden.
-    private(set) var closeButtonRect: CGRect?
+    /// Close button frame in this view's coordinates, or nil when hidden. Set with `setCloseButtonRect(_:pill:)`.
+    var closeButtonRect: CGRect?
 
     /// Title font; the strip updates it when the chrome font size changes.
     var titleFont = Typography.body {
@@ -271,7 +277,7 @@ final class TabCell {
         let token = animated ? ChromeHover.fade(showing: showing ?? (isLifted || fillsSelection || isMultiSelected || isHovered)) : nil
         // An instant change also ends a fill still easing in.
         if (token.map(Motion.duration) ?? 0) == 0 {
-            for layer in [backgroundLayer, closeBackgroundLayer].compactMap({ $0 }) { layer.removeAnimation(forKey: "backgroundColor") }
+            for layer in [backgroundLayer, closeBackgroundLayer, audioBackgroundLayer].compactMap({ $0 }) { layer.removeAnimation(forKey: "backgroundColor") }
         }
         Motion.transaction(token) { applyColors() }
     }
@@ -433,7 +439,7 @@ final class TabCell {
         } else {
             removeCloseLayers()
         }
-        closeButtonRect = closeRect
+        setCloseButtonRect(closeRect, pill: bounds)
 
         if visibility.showsTitle {
             // The title always spans to the trailing inset, so it never moves
@@ -458,7 +464,7 @@ final class TabCell {
             }
         } else {
             titleLayer.opacity = 0
-            for badge in [machineLayer, profileLayer, presenceLayer, audioLayer] { badge?.opacity = 0 }
+            for badge in [machineLayer, profileLayer, presenceLayer, audioLayer, audioBackgroundLayer] { badge?.opacity = 0 }
             if onPath {
                 pathTitle = nil
             } else {

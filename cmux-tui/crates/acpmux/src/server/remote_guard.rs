@@ -472,7 +472,16 @@ async fn web_starts_asking(
 ) -> Result<(), RpcError> {
     // A remote chain never resumes a local harness session (REMOTE-FLOOR v3).
     let web = control == crate::hub::Control::Web;
+    // On a dedicated agent VM (vmHost, not a Mac) the owner's peer daemon's
+    // session with no policy stays without one: `requests.rs` starts it
+    // approve-all (hub/remote_sandbox.rs `vm_host_peer_approves`).
+    let vm_host_peer = crate::hub::vm_host_peer_approves(
+        hub.config.read().await.vm_host,
+        cfg!(target_os = "macos"),
+        control == crate::hub::Control::Peer,
+    );
     if m == method::SESSION_NEW
+        && !vm_host_peer
         && params.get("policy").is_none_or(Value::is_null)
         && params.pointer("/_meta/acpmux/policy").is_none_or(Value::is_null)
     {

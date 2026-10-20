@@ -72,6 +72,8 @@ public final class BrowserChromeView: NSView {
         return isToolbarHidden ? 0 : currentToolbarHeight
     }
     private var observation: ObservationLoop?
+    /// A typed https upgrade in flight (Chrome's http fallback).
+    var httpsFallback = HTTPSUpgradeFallback()
     private var showsStop = false
     var isToolbarHidden = false
     private let density = DensityBinding()
@@ -221,7 +223,7 @@ public final class BrowserChromeView: NSView {
             navigation.centerYAnchor.constraint(equalTo: addressBar.centerYAnchor),
             density.bind(addressBar.leadingAnchor.constraint(equalTo: navigation.trailingAnchor)) { OmnibarStyle.barMargin },
             density.bind(addressBar.topAnchor.constraint(equalTo: toolbar.topAnchor)) { [weak self] in // R101 gaps
-                OmnibarStyle.toolbarTopPadding(scale: self?.window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2)
+                OmnibarStyle.barTop(scale: self?.window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2)
             },
             density.bind(extensionSlot.leadingAnchor.constraint(equalTo: addressBar.trailingAnchor)) { OmnibarStyle.barMargin },
             density.bind(toolbarButtons.leadingAnchor.constraint(equalTo: extensionSlot.trailingAnchor)) { BrowserMetrics.buttonSpacing },
@@ -282,6 +284,10 @@ public final class BrowserChromeView: NSView {
         reloadButton.action = #selector(reloadOrStop)
         addressBar.onEvent = { [weak self] event in self?.omnibarEvent(event) }
         addressBar.pageTitle = { [weak self] in self?.tab.state.title }
+        addressBar.onTypedHTTPSUpgrade = { [weak self] url in
+            guard let self else { return }
+            httpsFallback.expect(url, current: tab.state.loadError)
+        }
     }
 
     private func omnibarEvent(_ event: OmnibarEvent) {
@@ -332,6 +338,10 @@ public final class BrowserChromeView: NSView {
 
     private func render() {
         let state = tab.state
+        if let http = httpsFallback.observe(state) {
+            // task-owner: one load, after this render (never a load inside the observed render).
+            Task { @MainActor [weak self] in self?.tab.load(http) }
+        }
         backButton.isEnabled = state.canGoBack
         forwardButton.isEnabled = state.canGoForward
 
@@ -357,7 +367,9 @@ public final class BrowserChromeView: NSView {
     /// A move to a screen with another scale snaps the toolbar gap again.
     public override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
-        if !isToolbarHidden { toolbarHeight.constant = currentToolbarHeight }
+        // Every scale-snapped value, not only the row height: the omnibar's top was computed
+        // before the view had a window, at the main screen's scale (1 pt off on a 1x display).
+        density.reapply()
     }
 
     public override func layout() {
