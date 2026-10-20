@@ -55,11 +55,7 @@ struct WorkspaceCanvasHostView: View {
             return CanvasPaneDescriptor(
                 id: panelId,
                 contentIdentity: ObjectIdentifier(panel),
-                tab: CanvasTabChrome(
-                    id: panelId,
-                    title: panel.displayTitle,
-                    iconSystemName: panel.displayIcon ?? Self.defaultIcon(for: panel.panelType)
-                ),
+                tab: Self.tabChrome(panelId: panelId, panel: panel, workspace: workspace),
                 isFocused: isFocused,
                 closeActionLabel: closeActionLabel,
                 makeMount: { [weak workspace] container in
@@ -101,6 +97,14 @@ struct WorkspaceCanvasHostView: View {
                 }
             )
         }
+    }
+
+    static func tabChrome(panelId: UUID, panel: any Panel, workspace: Workspace) -> CanvasTabChrome {
+        CanvasTabChrome(
+            id: panelId,
+            title: panel.displayTitle,
+            iconSystemName: panel.displayIcon ?? defaultIcon(for: panel.panelType)
+        )
     }
 
     static func defaultIcon(for panelType: PanelType) -> String {
