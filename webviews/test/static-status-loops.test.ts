@@ -45,6 +45,7 @@ await requireBrowserLane("static-status-loops.test.ts", async () => {
     `<button class="acpmux-mic" data-state="starting">mic</button>` +
     `<span class="acpmux-mp-refresh-spinner"></span><span class="acpmux-harness-spinner"></span>` +
     `<span class="acpmux-floating-status" data-status="streaming"></span>` +
+    `<span class="cv-tool"><svg class="cv-spinner" width="16" height="16"></svg></span>` +
     `<div class="cv-md"><span class="cv-thinking">Thinking</span></div>` +
     `<div class="cv-md is-waiting"><span class="cv-caret"></span></div>` +
     `<button class="acpmux-jump-latest" data-shown data-working><span class="acpmux-jump-latest__dots"><i></i><i></i><i></i></span></button>` +
