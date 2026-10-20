@@ -21,6 +21,7 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
     let showsGitBranch: Bool
     let branchDirectory: SidebarWorkspaceBranchDirectorySettings
     let details: SidebarWorkspaceDetailSettings
+    let identity: SidebarWorkspaceIdentitySettings
     let showsGitBranchIcon: Bool
     let showsCloudDeviceIcons: Bool
     let makesPullRequestsClickable: Bool
@@ -57,6 +58,7 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
         let betaFeatures = BetaFeaturesCatalogSection()
         branchDirectory = SidebarWorkspaceBranchDirectorySettings(defaults: defaults)
         details = SidebarWorkspaceDetailSettings(defaults: defaults)
+        identity = SidebarWorkspaceIdentitySettings(defaults: defaults)
 
         sidebarShortcutHintXOffset = ShortcutHintDebugSettings.defaultSidebarHintX
         sidebarShortcutHintYOffset = ShortcutHintDebugSettings.defaultSidebarHintY
@@ -64,6 +66,8 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
         sidebarFontScale = SidebarTabItemFontScale.scale(for: sidebarFontSize)
         showsGitBranch = Self.bool(defaults: defaults, key: "sidebarShowGitBranch", defaultValue: true)
         showsGitBranchIcon = Self.bool(defaults: defaults, key: "sidebarShowGitBranchIcon", defaultValue: false)
+        // Keep the legacy projection available to the footer and older
+        // callers; workspace rows use the independent identity values above.
         showsCloudDeviceIcons = settings.value(for: sidebar.showCloudDeviceIcons)
         makesPullRequestsClickable = settings.value(for: sidebar.makePullRequestsClickable)
         openPullRequestLinksInCmuxBrowser = BrowserLinkOpenSettings.openSidebarPullRequestLinksInCmuxBrowser(

@@ -134,6 +134,8 @@ Sidebar content and metadata visibility from Settings > Sidebar.
 | `sidebar.showNotificationMessage` | boolean | `true` | Show the latest notification text in the sidebar. |
 | `sidebar.showBranchDirectory` | boolean | `true` | Show the workspace working directory. |
 | `sidebar.showCloudDeviceIcons` | boolean | `true` | Show Cloud machine and device icons beside remote workspace titles independently of Git branch and directory details. |
+| `sidebar.showCloudWorkspaceIdentity` | boolean | `true` | Show Cloud workspace identity independently of Repository branch and directory details. |
+| `sidebar.showLocalDeviceIdentity` | boolean | `true` | Show local device identity independently of Repository branch and directory details. |
 | `sidebar.showPullRequests` | boolean | `true` | Show pull request metadata in the sidebar. |
 | `sidebar.makePullRequestsClickable` | boolean | `true` | Allow sidebar pull request metadata to open links when clicked. |
 | `sidebar.openPullRequestLinksInCmuxBrowser` | boolean | `true` | Open sidebar pull request links in the embedded cmux browser. |
