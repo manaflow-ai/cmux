@@ -118,7 +118,8 @@ public final class AccountsModel {
     private func runConnect(_ provider: AIProvider, pasted: String?) async -> String? {
         do {
             try await services.connect(provider, pasted: pasted)
-            let accounts = (try? await services.linkedAccounts()) ?? []
+            // A reload that fails keeps what the row showed; the next refresh adds the new account.
+            let accounts = (try? await services.linkedAccounts()) ?? row(provider).linked
             apply(.connectSucceeded(accounts), to: provider)
             return nil
         } catch {
@@ -147,7 +148,8 @@ public final class AccountsModel {
     private func runRemove(_ account: LinkedAccount) async -> String? {
         do {
             try await services.remove(account)
-            let accounts = (try? await services.linkedAccounts()) ?? []
+            // A reload that fails keeps the row's other accounts (the reducer drops this one).
+            let accounts = (try? await services.linkedAccounts()) ?? row(account.provider).linked
             apply(.removeSucceeded(accounts), to: account.provider)
             return nil
         } catch {
