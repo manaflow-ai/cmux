@@ -143,7 +143,7 @@ async fn authority_ended(lease: &mut StreamLease) {
 
 #[cfg(test)]
 #[path = "host_inbound_tests.rs"]
-mod tests;
+mod receiver_tests;
 
 #[cfg(test)]
 #[path = "host_native_token_tests.rs"]
