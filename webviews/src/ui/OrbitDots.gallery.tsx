@@ -24,14 +24,16 @@ const ROWS: Row[] = [
   { title: "docs", state: "idle" },
 ];
 
-type Look = "before" | "after" | "reduced";
+type Look = "before" | "after" | "left" | "reduced";
 
 /** One row's mark in `look`: before, the Codex-like set on the right (a grey spinner for work);
- * after, the Orbit set on the left; reduced, the static look on the left. */
+ * after, the Orbit set on the right (the default: nothing on a row's left but its icon, Lawrence
+ * 2026-10-19); left, the Orbit set before the title (Debug Settings `sidebar.statusIconSide`);
+ * reduced, the static look on the right. */
 function Mark({ state, look }: { state: State; look: Look }) {
   if (state === "idle") return null;
   if (state === "working") {
-    if (look === "after") return <OrbitDots label="Working" />;
+    if (look === "after" || look === "left") return <OrbitDots label="Working" />;
     if (look === "reduced") return <StatusGlyph name="working" label="Working" />;
     return <span className="running-dots-spinner" aria-hidden="true" />;
   }
@@ -40,7 +42,7 @@ function Mark({ state, look }: { state: State; look: Look }) {
 }
 
 function Item({ title, state, look, session = false }: { title: string; state: State; look: Look; session?: boolean }) {
-  const left = look !== "before";
+  const left = look === "left";
   return (
     <li className="running-dots-row" data-session={session || undefined}>
       {left && (
@@ -74,7 +76,8 @@ function Sidebar({ look }: { look: Look }) {
 function RunningDotsSheet({ looks = ["before", "after"] }: { looks?: Look[] }) {
   const titles: Record<Look, string> = {
     before: "Before: Codex-like, on the right",
-    after: "After: Orbiting dots, on the left",
+    after: "After: Orbiting dots, on the right",
+    left: "Debug Settings: on the left",
     reduced: "Reduce Motion: the static look",
   };
   return (
@@ -103,8 +106,12 @@ export default componentEntry<{ looks?: Look[] }>({
   styles: () => Promise.all([import("./ui.css"), import("./OrbitDots.gallery.css")]),
   variants: {
     rows: {
-      note: "Leo 2026-10-18: a running row's mark on the left, like Claude Code's four orange dots that slowly turn and regroup. The web copy of the app's Orbit set (StatusIndicatorLayer+Orbit.swift) on sidebar rows and the sessions under them, next to the Codex-like look it replaces. One turn per 3.6 s, a regroup per 1.8 s, nothing fades.",
+      note: "Leo 2026-10-18: a running row's mark like Claude Code's four orange dots that slowly turn and regroup. The web copy of the app's Orbit set (StatusIndicatorLayer+Orbit.swift) on sidebar rows and the sessions under them, at the row's end (Lawrence 2026-10-19: nothing on the left but the icon), next to the Codex-like look it replaces. One turn per 3.6 s, a regroup per 1.8 s, nothing fades.",
       props: {},
+    },
+    "debug-left": {
+      note: "Debug Settings › Sidebar › Status icon side › Left: the mark in a fixed slot before the title, so titles line up.",
+      props: { looks: ["after", "left"] },
     },
     "reduce-motion": {
       note: "Under Reduce Motion or the Static mode nothing moves: the static look's working glyph takes the slot.",

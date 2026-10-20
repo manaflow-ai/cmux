@@ -31,7 +31,10 @@ import Testing
         try Self.withSide(nil) {
             let sidebar = Self.sidebar()
             let row = try Self.row(sidebar, Self.agent), quiet = try Self.row(sidebar, Self.quiet)
-            // No empty status slot is kept on the left either: the title starts where a quiet row's does.
+            // No empty status slot is kept on the left either: a text-only row's title starts at the
+            // row's inset (a kept slot moves every row's title right by the same amount).
+            #expect(abs(row.title.frame.minX - SidebarStyle.horizontalInset) < 0.5,
+                    "the title at \(row.title.frame.minX), the inset at \(SidebarStyle.horizontalInset)")
             #expect(abs(row.title.frame.minX - quiet.title.frame.minX) < 0.5,
                     "the working row's title at \(row.title.frame.minX), a quiet row's at \(quiet.title.frame.minX)")
             #expect(row.statusSide == .right)
