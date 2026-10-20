@@ -37,6 +37,7 @@ import { acpWire, redactEndpoint, type AcpWireLog } from "./wire";
 import { acpmuxPerf } from "./perf";
 import { translate } from "./i18n";
 import { OFFER_RESULT, offersShown } from "./offer/offersShown";
+import { incomingPrompt, type IncomingMessage } from "./conversation/incomingMessage";
 import { OfferChildren } from "./offer/offerChildren";
 import { errorMessage } from "./transportErrors";
 import { SessionPager, type SessionPage } from "./sessionPages";
@@ -722,6 +723,8 @@ export class AcpmuxDirectClient {
   /// What a prompt's sender is told once acpmux took the prompt (its `user_message` echo, or the
   /// reply), by prompt id. A refusal comes before either, so the composer keeps the prompt.
   private promptAccepts = new Map<string, () => void>();
+  /// Replies in place waiting for acpmux to take them (`_acpmux/prompt_accepted`), by prompt id.
+  private replyAccepts = new Map<string, () => void>();
   /// A prompt that was not sent, by its row: what Retry sends again.
   private failedPrompts = new Map<string, { input: string; attachments: ComposerAttachment[] }>();
   private firstSeq?: number;
@@ -1160,6 +1163,8 @@ export class AcpmuxDirectClient {
     } else if (isNotification(notification, "_acpmux/session_changed")) this.sessionChanged(notification.params);
     else if (isNotification(notification, "_acpmux/permission_pending")) this.applyPermission(notification.params);
     else if (notification.method === "_acpmux/lagged") this.resyncAfterLag(notification.params);
+    else if (notification.method === "_acpmux/prompt_accepted")
+      this.replyAccepts.get(String(notification.params?.promptId ?? ""))?.();
     else if (notification.method === "_acpmux/harnesses_changed") this.onHarnessesChanged?.();
     // A new chat's start mode may have changed (a pick in any pane, a config reload): pending
     // chats ask acpmux again (startMode.ts).
@@ -1913,6 +1918,16 @@ export class AcpmuxDirectClient {
         }
         this.streamingActivity = undefined;
         const received = offersShown() ? offerResult(msg) : undefined;
+        // Another agent's message or harness bookkeeping (conversation/incomingMessage.ts): the row
+        // keeps the sender's words, or the typed prompt without the bookkeeping; bookkeeping alone
+        // gets no row.
+        const incoming = received ? undefined : incomingPrompt(String(msg.text ?? ""), msg);
+        const shown =
+          incoming?.kind === "message"
+            ? { text: incoming.message.text, incoming }
+            : incoming?.kind === "notice"
+              ? { text: incoming.text, incoming }
+              : { text: incoming?.kind === "prompt" ? incoming.text : String(msg.text ?? "") };
         // Its queued line, if the result waited, gives way to this prompt's.
         if (received) this.rows.delete(`received-${received.offerId}`);
         if (received) this.receivedOffers.add(received.offerId);
@@ -1920,20 +1935,21 @@ export class AcpmuxDirectClient {
         if (msg.steer !== true) this.landSteer();
         const steer = msg.steer === true ? "waiting" : promptId && this.sentNow.has(promptId) ? "stopped" : undefined;
         if (steer === "waiting") this.waitingSteers.push({ rowId: `user-${event.seq}`, promptId });
-        this.rows.set(`user-${event.seq}`, {
-          id: `user-${event.seq}`,
-          version: 1,
-          at: event.at,
-          kind: "user",
-          text: String(msg.text ?? ""),
-          ...(sentByChief(msg) ? { from: "chief" as const } : {}),
-          ...(received ? { received } : {}),
-          ...(steer ? { steer } : {}),
-          ...(promptImages(msg.images).length > 0 && { images: promptImages(msg.images) }),
-          ...(fallbackPromptId && this.optimisticPromptAttachments.get(fallbackPromptId)?.length
-            ? { retryAttachments: this.optimisticPromptAttachments.get(fallbackPromptId) }
-            : {}),
-        });
+        if (incoming?.kind !== "hidden")
+          this.rows.set(`user-${event.seq}`, {
+            id: `user-${event.seq}`,
+            version: 1,
+            at: event.at,
+            kind: "user",
+            ...shown,
+            ...(sentByChief(msg) ? { from: "chief" as const } : {}),
+            ...(received ? { received } : {}),
+            ...(steer ? { steer } : {}),
+            ...(promptImages(msg.images).length > 0 && { images: promptImages(msg.images) }),
+            ...(fallbackPromptId && this.optimisticPromptAttachments.get(fallbackPromptId)?.length
+              ? { retryAttachments: this.optimisticPromptAttachments.get(fallbackPromptId) }
+              : {}),
+          });
         if (fallbackPromptId) {
           const attachments = this.optimisticPromptAttachments.get(fallbackPromptId);
           if (attachments?.length) this.retryAttachments.set(`user-${event.seq}`, attachments);
@@ -2750,6 +2766,47 @@ export class AcpmuxDirectClient {
       // A prompt acpmux refused shows in the chat itself.
       .catch(() => undefined);
   }
+  /// Reply in place to another agent's message (conversation/IncomingMessageCard.tsx): `text`
+  /// goes to the chat that sent it as this chat's message in the same thread. It is the prompt
+  /// send_to_session sends (acpmux session_mcp.rs: an `agent_message` provenance whose message id
+  /// is the prompt id), with `threadId` the message's thread and `replyTo` the message, so the
+  /// sender's chat draws it as this chat's reply. Sent unseen, as a started task's prompt is.
+  /// Resolves once acpmux took it; rejects with its refusal.
+  async reply(message: Pick<IncomingMessage, "sessionId" | "msgId" | "threadId">, text: string): Promise<void> {
+    const from = this.selectedSessionId;
+    // `cmux agent message` names its sender `acp:<id>`; acpmux's chat id is the bare one.
+    const to = message.sessionId?.replace(/^acp:/, "");
+    const body = text.trim();
+    if (!from || !to || to === from || !message.msgId || !body) throw new Error(translate("message.replyFailed"));
+    const msgId = `m-${crypto.randomUUID()}`;
+    const provenance = {
+      kind: "agent_message",
+      from,
+      fromName: senderName(
+        this.summary?.sessionId === from ? (this.summary?.title ?? this.summary?.name) : undefined,
+        from,
+      ),
+      to,
+      msgId,
+      threadId: message.threadId ?? message.msgId,
+      replyTo: message.msgId,
+    };
+    const accepted = new Promise<void>((resolve) => this.replyAccepts.set(msgId, resolve));
+    const sent = this.offerChildren.prompting(to, () =>
+      this.request("session/prompt", {
+        sessionId: to,
+        prompt: promptBlocks(body, []),
+        _meta: { acpmux: { promptId: msgId, provenance } },
+      }),
+    );
+    // Its turn may end long after acpmux took it; a refusal after that shows in the sender's chat.
+    sent.catch(() => undefined);
+    try {
+      await Promise.race([accepted, sent]);
+    } finally {
+      this.replyAccepts.delete(msgId);
+    }
+  }
   /// An offer the reducer draws: offers of one group share one card, in the order they came.
   private addOffer(offer: AcpmuxSessionOffer, at: number): void {
     const id = offer.groupId ? `offers-${offer.groupId}` : `offer-${offer.offerId}`;
@@ -3460,6 +3517,32 @@ export class AcpmuxDirectClient {
     }
     this.pending.clear();
   }
+}
+
+/// A reply's sender name (`fromName`): the chat's title on one line, at most 64 characters, as
+/// acpmux takes one (prompt_provenance.rs: no control, bidi or zero-width mark); the chat's id
+/// without a title.
+function senderName(title: unknown, sessionId: string): string {
+  const unshown = (c: string) => {
+    const code = c.codePointAt(0) ?? 0;
+    return (
+      code < 0x20 ||
+      (code >= 0x7f && code <= 0x9f) ||
+      (code >= 0x200b && code <= 0x200f) ||
+      (code >= 0x202a && code <= 0x202e) ||
+      (code >= 0x2066 && code <= 0x2069) ||
+      code === 0xfeff
+    );
+  };
+  const line = typeof title === "string" ? title.replace(/\s+/g, " ") : "";
+  const name = Array.from(line)
+    .filter((c) => !unshown(c))
+    .join("")
+    .trim();
+  return Array.from(name || sessionId)
+    .slice(0, 64)
+    .join("")
+    .trim();
 }
 
 /// The params field that carries a pick's gesture ticket, or nothing without one.
