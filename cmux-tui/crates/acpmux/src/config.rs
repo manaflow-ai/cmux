@@ -3,6 +3,7 @@
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 
 static HOME_OVERRIDE: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
@@ -64,13 +65,21 @@ pub(crate) fn private_state_dir(dir: &Path) -> Result<()> {
 /// owner and type, and narrow an older file to mode 0600 before reading it.
 #[cfg(unix)]
 pub(crate) fn private_state_file(path: &Path) -> Result<std::fs::File> {
-    use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
+    use std::os::unix::fs::OpenOptionsExt;
 
     let file = std::fs::OpenOptions::new()
         .read(true)
         .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
         .open(path)
         .with_context(|| format!("open private state file {}", path.display()))?;
+    validate_private_state_file(&file, path)?;
+    Ok(file)
+}
+
+#[cfg(unix)]
+fn validate_private_state_file(file: &std::fs::File, path: &Path) -> Result<()> {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+
     let metadata = file.metadata()?;
     // SAFETY: getuid has no preconditions.
     let uid = unsafe { libc::getuid() };
@@ -84,6 +93,41 @@ pub(crate) fn private_state_file(path: &Path) -> Result<std::fs::File> {
         file.set_permissions(std::fs::Permissions::from_mode(0o600))
             .with_context(|| format!("make {} owner-only", path.display()))?;
     }
+    Ok(())
+}
+
+/// Open or create an owner-only regular state file for read/write without
+/// following a pre-positioned final symlink (daemon.lock).
+#[cfg(unix)]
+pub(crate) fn private_state_rw(path: &Path) -> Result<std::fs::File> {
+    use std::os::unix::fs::OpenOptionsExt;
+
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .mode(0o600)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+        .open(path)
+        .with_context(|| format!("open private state file {}", path.display()))?;
+    validate_private_state_file(&file, path)?;
+    Ok(file)
+}
+
+/// Open or create an owner-only regular state file for append without
+/// following a pre-positioned final symlink (daemon.log).
+#[cfg(unix)]
+pub(crate) fn private_state_append(path: &Path) -> Result<std::fs::File> {
+    use std::os::unix::fs::OpenOptionsExt;
+
+    let file = std::fs::OpenOptions::new()
+        .append(true)
+        .create(true)
+        .mode(0o600)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+        .open(path)
+        .with_context(|| format!("open private state file {}", path.display()))?;
+    validate_private_state_file(&file, path)?;
     Ok(file)
 }
 
@@ -129,6 +173,16 @@ pub(crate) fn private_state_dir(dir: &Path) -> Result<()> {
 #[cfg(windows)]
 pub(crate) fn private_state_file(path: &Path) -> Result<std::fs::File> {
     Ok(crate::owner_only::open_read(path)?)
+}
+
+#[cfg(windows)]
+pub(crate) fn private_state_rw(path: &Path) -> Result<std::fs::File> {
+    Ok(crate::owner_only::open_rw(path)?)
+}
+
+#[cfg(windows)]
+pub(crate) fn private_state_append(path: &Path) -> Result<std::fs::File> {
+    Ok(crate::owner_only::open_append(path)?)
 }
 
 /// Unix socket path, by the rule every host and client shares
@@ -822,13 +876,17 @@ impl Config {
     /// `load_from` with explicit profile file sources.
     pub fn load_from_with(path: &Path, sources: &ProfileSources) -> Result<Self> {
         let path = path.to_owned();
-        let mut cfg = if path.exists() {
-            let text = std::fs::read_to_string(&path)
-                .with_context(|| format!("read {}", path.display()))?;
-            serde_json::from_str::<Config>(&text)
-                .with_context(|| format!("parse {}", path.display()))?
-        } else {
-            Config::default()
+        let mut cfg = match std::fs::symlink_metadata(&path) {
+            Ok(_) => {
+                let mut text = String::new();
+                private_state_file(&path)?
+                    .read_to_string(&mut text)
+                    .with_context(|| format!("read {}", path.display()))?;
+                serde_json::from_str::<Config>(&text)
+                    .with_context(|| format!("parse {}", path.display()))?
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Config::default(),
+            Err(error) => return Err(error.into()),
         };
         cfg.join_profiles(profiles::load(sources));
         let route = coderouter_claude_route(cfg.coderouter_claude_route.as_deref());

@@ -2,7 +2,7 @@
 
 use anyhow::Result;
 #[cfg(unix)]
-use anyhow::{Context, anyhow};
+use anyhow::anyhow;
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -24,12 +24,7 @@ impl Drop for DaemonLock {
 #[cfg(unix)]
 pub(super) fn acquire_lock(path: &PathBuf) -> Result<DaemonLock> {
     use std::os::unix::io::AsRawFd;
-    let file = std::fs::OpenOptions::new()
-        .create(true)
-        .write(true)
-        .truncate(false)
-        .open(path)
-        .with_context(|| format!("open {}", path.display()))?;
+    let file = crate::config::private_state_rw(path)?;
     let rc = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
     if rc != 0 {
         return Err(anyhow!("another acpmux daemon holds {}", path.display()));
@@ -42,12 +37,7 @@ pub(super) fn acquire_lock(path: &PathBuf) -> Result<DaemonLock> {
 #[cfg(windows)]
 pub(super) fn acquire_lock(path: &PathBuf) -> Result<DaemonLock> {
     use anyhow::{Context, anyhow};
-    let file = std::fs::OpenOptions::new()
-        .create(true)
-        .write(true)
-        .truncate(false)
-        .open(path)
-        .with_context(|| format!("open {}", path.display()))?;
+    let file = crate::config::private_state_rw(path)?;
     match file.try_lock() {
         Ok(()) => Ok(DaemonLock(file)),
         Err(std::fs::TryLockError::WouldBlock) => {
@@ -65,7 +55,7 @@ pub(super) fn acquire_lock(path: &PathBuf) -> Result<DaemonLock> {
 #[cfg(unix)]
 pub(super) async fn wait_for_lock_release(lock: PathBuf, budget: Duration) -> bool {
     use std::os::unix::io::AsRawFd;
-    let Ok(file) = std::fs::OpenOptions::new().read(true).write(true).open(&lock) else {
+    let Ok(file) = crate::config::private_state_rw(&lock) else {
         return true;
     };
     let deadline = tokio::time::Instant::now() + budget;
@@ -88,7 +78,7 @@ pub(super) async fn wait_for_lock_release(lock: PathBuf, budget: Duration) -> bo
 /// the Unix arm polls `flock`.
 #[cfg(windows)]
 pub(super) async fn wait_for_lock_release(lock: PathBuf, budget: Duration) -> bool {
-    let Ok(file) = std::fs::OpenOptions::new().read(true).write(true).open(&lock) else {
+    let Ok(file) = crate::config::private_state_rw(&lock) else {
         return true;
     };
     let deadline = tokio::time::Instant::now() + budget;

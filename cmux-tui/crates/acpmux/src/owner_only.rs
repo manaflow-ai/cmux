@@ -170,6 +170,29 @@ pub(crate) fn open_read(path: &Path) -> io::Result<File> {
     Ok(file)
 }
 
+/// Open or create a state file for read/write without following a reparse
+/// point, narrowing a wider DACL before it can be used as daemon.lock.
+pub(crate) fn open_rw(path: &Path) -> io::Result<File> {
+    use std::os::windows::fs::MetadataExt;
+
+    let file = open_owner_only(
+        path,
+        OPEN_ALWAYS,
+        GENERIC_READ | GENERIC_WRITE | 0x80,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+    )?;
+    if file.metadata()?.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("{} is a link, not a state file", path.display()),
+        ));
+    }
+    if !only_owner_reads(path)? {
+        restrict(path)?;
+    }
+    Ok(file)
+}
+
 fn open_owner_only(path: &Path, disposition: u32, access: u32, share: u32) -> io::Result<File> {
     let sd = descriptor(&user_sid()?, false)?;
     let attrs = attributes(&sd);

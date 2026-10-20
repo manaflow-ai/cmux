@@ -317,7 +317,10 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     hub.begin_startup(login_env);
     // The ACP Registry and agent CLI health, off the startup path (`hub/health_view.rs`).
     hub.start_harness_checks();
-    std::fs::write(home().join("daemon.pid"), std::process::id().to_string())?;
+    crate::config::write_atomic(
+        &home().join("daemon.pid"),
+        std::process::id().to_string().as_bytes(),
+    )?;
     // The listener's token is on the hub before the unix socket serves, so a
     // `_acpmux/web_token_rotate` can never be overwritten by the launch token.
     let ws_listener = ws_listener.map(|(l, token)| {
@@ -826,18 +829,7 @@ fn not_ready(path: &std::path::Path, ready: &str, error: &anyhow::Error) -> anyh
 /// with wider bits is narrowed to 0600.
 #[cfg(unix)]
 fn open_daemon_log(path: &std::path::Path) -> Result<std::fs::File> {
-    use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
-    let log = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .mode(0o600)
-        .open(path)
-        .with_context(|| format!("open {}", path.display()))?;
-    if log.metadata()?.permissions().mode() & 0o077 != 0 {
-        log.set_permissions(std::fs::Permissions::from_mode(0o600))
-            .with_context(|| format!("chmod 0600 {}", path.display()))?;
-    }
-    Ok(log)
+    crate::config::private_state_append(path)
 }
 
 #[cfg(all(test, unix))]
