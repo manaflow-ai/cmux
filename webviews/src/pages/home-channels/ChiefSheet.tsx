@@ -6,6 +6,7 @@
 import { useRef, useState } from "react";
 import type { Strings } from "../shared/i18n";
 import { Avatar } from "./Avatar";
+import { DialogButton } from "../../ui/DialogButton";
 import { FormDialog } from "./FormDialog";
 import {
   CENTERED,
@@ -156,12 +157,12 @@ export function ChiefSheet({ sheets, strings, chief, picture, grants }: ChiefShe
       busy={busy}
       actions={
         <>
-          <button type="button" className="hc-text-button" onClick={() => sheets.close()}>
+          <DialogButton dialogKey="escape" className="hc-text-button" onClick={() => sheets.close()}>
             {t("edit.cancel")}
-          </button>
-          <button type="submit" className="hc-text-button primary" disabled={!ready}>
+          </DialogButton>
+          <DialogButton dialogKey="return" type="submit" className="hc-text-button primary" disabled={!ready}>
             {t(chief ? "chief.save" : "chief.create")}
-          </button>
+          </DialogButton>
         </>
       }
     >
@@ -204,16 +205,18 @@ export function ChiefSheet({ sheets, strings, chief, picture, grants }: ChiefShe
       <div className="lg-form-field">
         <span className="lg-form-label">{t("chief.field.picture")}</span>
         <span className="lg-form-row">
-          <button
+          <DialogButton
+            dialogKey={null}
             type="button"
             className="hc-text-button"
             disabled={!chief && locked}
             onClick={() => fileInput.current?.click()}
           >
             {t(shownPicture || placing ? "chief.picture.change" : "chief.picture.choose")}
-          </button>
+          </DialogButton>
           {(shownPicture || placing) && (
-            <button
+            <DialogButton
+              dialogKey={null}
               type="button"
               className="hc-text-button"
               disabled={!chief && locked}
@@ -224,7 +227,7 @@ export function ChiefSheet({ sheets, strings, chief, picture, grants }: ChiefShe
               }}
             >
               {t("chief.picture.useDefault")}
-            </button>
+            </DialogButton>
           )}
           <input
             ref={fileInput}
