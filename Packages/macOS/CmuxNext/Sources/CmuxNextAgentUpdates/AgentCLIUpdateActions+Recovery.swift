@@ -56,7 +56,9 @@ extension AgentCLIUpdateActions {
                     try remember(receipt, for: input, in: intent)
                     try await persistence.attach(input, receipt)
                 case .notFound, .prepared:
-                    // Nothing runs for the key: the person may resume it or let it go.
+                    // Nothing runs for the key: the person may resume it or let it go. A lost reply's
+                    // replay would be a new execution request with no fresh gesture, so it waits for Resume.
+                    intent.unsent[input.cli] = nil
                     setFlags(resume: true, dismiss: true, key: input.key, in: intent)
                 case .indeterminate:
                     // The owner cannot tell; only the person can stop it blocking.
@@ -143,6 +145,8 @@ extension AgentCLIUpdateActions {
         if let intent {
             intent.jobs.removeAll { $0["intent_key"]?.stringValue == key }
             intent.inputs.removeAll { $0.key == key }
+            // A settled key is never replayed.
+            intent.unsent = intent.unsent.filter { $0.value != key }
         }
         // A failed delete keeps the key in `settled`; the next recovery deletes it again.
         try? await persistence?.settle([key])
@@ -178,10 +182,11 @@ extension AgentCLIUpdateActions {
         do {
             receipt = try await route.start(input.family, input.key)
         } catch {
-            // A refusal created nothing: the intent settles instead of staying resumable. A lost
-            // reply (or busy: this key may be running) may have created the terminal: it stays
-            // unknown, and refresh sends the same key again to learn which.
-            if Self.refusedBeforeCreation(error) { await settle(input.key, in: intent) } else { intent.unsent[input.cli] = input.key }
+            // A refusal created nothing: the intent settles instead of staying resumable. Neither did
+            // busy here: the owner answers it (inventory reservation, execution lock) before it looks
+            // up the key, and a first start always sends a fresh key. A lost reply may have created
+            // the terminal: it stays unknown, and refresh sends the same key again to learn which.
+            if Self.refusedBeforeCreation(error) || Self.busy(error) { await settle(input.key, in: intent) } else { intent.unsent[input.cli] = input.key }
             failures.append("\(input.cli): \(Self.text(error))")
             guard route.isCurrent() else { throw error }
             return
@@ -208,8 +213,11 @@ extension AgentCLIUpdateActions {
     /// re-capture after a reconnect included), under the gesture that sent it first; the owner
     /// replays an accepted key. A receipt attaches to the ledger row, a refusal settles it, and
     /// busy (the key's original request may still run) or another lost reply keeps both.
+    /// A replay holds its intent busy, so a dismiss cannot delete the row its receipt attaches to.
     func replayUnsent() async {
-        for intent in intents.values where !intent.busy {
+        for intent in intents.values where !intent.busy && !intent.unsent.isEmpty {
+            intent.busy = true
+            defer { intent.busy = false }
             for (family, key) in intent.unsent.sorted(by: { $0.key < $1.key }) {
                 guard let route = owner(of: intent) else { break }
                 // Recovery may have attached its receipt already, or the key settled.

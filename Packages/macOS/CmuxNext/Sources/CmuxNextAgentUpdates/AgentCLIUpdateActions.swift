@@ -333,21 +333,29 @@ public final class AgentCLIUpdateActions {
             }
         }
         // A batch that stops early (the route went away, or a receipt for another owner) never
-        // sent its remaining families: they settle, so no unsent row blocks a later update.
+        // sent its remaining families: they settle, so no unsent row blocks a later update, and
+        // the failure names each of them.
         for (sent, input) in inputs.enumerated() {
             guard route.isCurrent() else {
-                for left in inputs[sent...] { await settle(left.key, in: intent) }
-                throw DaemonError.notConnected
+                throw await stopEarly(intent, dropping: inputs[sent...], failures: failures, cause: DaemonError.notConnected)
             }
+            let listed = failures.count
             do {
                 try await send(input, intent: intent, route: route, failures: &failures)
             } catch {
-                for left in inputs[(sent + 1)...] { await settle(left.key, in: intent) }
-                throw error
+                if failures.count == listed { failures.append("\(input.cli): \(Self.text(error))") }
+                throw await stopEarly(intent, dropping: inputs[(sent + 1)...], failures: failures, cause: error)
             }
         }
         guard failures.isEmpty else { throw ActionFailure(message: failures.joined(separator: "\n")) }
         return .array(intent.jobs)
+    }
+
+    /// Settles the families a stopped batch never sent and names them with the failures so far.
+    private func stopEarly(_ intent: Intent, dropping left: ArraySlice<AgentCLIUpdateIntent>,
+                           failures: [String], cause: any Error) async -> ActionFailure {
+        for input in left { await settle(input.key, in: intent) }
+        return ActionFailure(message: (failures + left.map { "\($0.cli): \(Self.text(cause))" }).joined(separator: "\n"))
     }
 
     /// The rows of a `_acpmux/harness/health` answer by harness id; nil when it is not one.
@@ -371,7 +379,8 @@ public final class AgentCLIUpdateActions {
     /// terminal exists for the key. Any other failure may follow a creation.
     static func refusedBeforeCreation(_ error: any Error) -> Bool {
         guard case DaemonError.command(_, _, let code?, _, _) = error else { return false }
-        // Busy: the owner may be running this very key, so it stays tracked.
+        // Busy is not a refusal on a replay or resume: the owner may be running this very key.
+        // A first start's fresh key cannot be running, so `send` settles busy too.
         return code.hasPrefix("agent_cli_job.") && !busy(error)
     }
 
