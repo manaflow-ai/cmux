@@ -219,8 +219,11 @@ final class HoverCardPanel: NSPanel {
 
     private func place() {
         glass.layoutSubtreeIfNeeded()
-        let size = glass.fittingSize
-        var origin = Self.origin(for: placement, anchor: anchor, size: size)
+        let scale = max(parentWindowRef?.backingScaleFactor ?? 2, 1)
+        // Whole device pixels, so the edge `origin(for:)` puts on the target stays there.
+        let fitting = glass.fittingSize
+        let size = CGSize(width: (fitting.width * scale).rounded(.up) / scale, height: (fitting.height * scale).rounded(.up) / scale)
+        var origin = Self.origin(for: placement, anchor: anchor, size: size, scale: scale)
         if let screen = parentWindowRef?.screen ?? NSScreen.main {
             let visible = screen.visibleFrame
             let margin = Metrics.space2
@@ -249,13 +252,25 @@ final class HoverCardPanel: NSPanel {
 extension HoverCardPanel: ThemeResponsive {}
 
 extension HoverCardPanel {
-    /// The card's origin (screen coordinates, y up) for `placement` next to
-    /// `anchor`, before the screen clamp.
-    static func origin(for placement: HoverCardPlacement, anchor: CGRect, size: CGSize) -> CGPoint {
-        switch placement {
-        case .below: CGPoint(x: anchor.minX, y: anchor.minY - Metrics.space2 - size.height)
-        case .above: CGPoint(x: anchor.minX, y: anchor.maxY + Metrics.space2)
-        case .beside: CGPoint(x: anchor.maxX + Metrics.space2, y: anchor.maxY - size.height)
+    /// The room between a card and its target: none. The card touches its tab (or row), so the
+    /// pointer never crosses empty space between them (Lawrence 2026-10-19: "there is a gap in
+    /// between ... such that there is no gap in between").
+    static let targetGap: CGFloat = 0
+
+    /// The card's origin (screen coordinates, y up) for `placement` next to `anchor`, before
+    /// the screen clamp. The touching edge is snapped to a device pixel of `scale` toward the
+    /// target, so a fractional anchor overlaps it by under a pixel and never leaves a seam.
+    static func origin(for placement: HoverCardPlacement, anchor: CGRect, size: CGSize, scale: CGFloat = 2) -> CGPoint {
+        let scale = max(scale, 1)
+        func up(_ value: CGFloat) -> CGFloat { (value * scale).rounded(.up) / scale }
+        func down(_ value: CGFloat) -> CGFloat { (value * scale).rounded(.down) / scale }
+        return switch placement {
+        // The card's top edge on the tab's bottom edge (rounded up: into the tab, never below it).
+        case .below: CGPoint(x: anchor.minX, y: up(anchor.minY - targetGap) - size.height)
+        // The card's bottom edge on the tab's top edge (rounded down: into the tab).
+        case .above: CGPoint(x: anchor.minX, y: down(anchor.maxY + targetGap))
+        // The card's leading edge on the row's trailing edge, top-aligned.
+        case .beside: CGPoint(x: down(anchor.maxX + targetGap), y: anchor.maxY - size.height)
         }
     }
 }
