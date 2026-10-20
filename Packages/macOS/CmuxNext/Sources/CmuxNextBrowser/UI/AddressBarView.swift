@@ -71,13 +71,39 @@ public final class AddressBarView: NSView {
         // resolver, as `suggest` answers `finished`.
         resolver: { [weak self, suggestionEngine] in self?.resolver ?? suggestionEngine.resolver },
         suggest: { [weak self] request in
-            guard let self else { return OmniboxDelivery.finished }
+            guard let self, !isReadOnly else { return OmniboxDelivery.finished }
             var request = request
             request.tabKey = tabKey
             request.allowsChromiumSchemes = allowsChromiumSchemes
             return suggestionEngine.deliveries(for: request)
         }
     )
+
+    /// A bar that shows the page's address but never edits it: a system
+    /// sign-in window (`WebAuthSessionWindow`), where navigating away would
+    /// lose the sign-in. The same view, chip, URL styling, selection, copy
+    /// and keys as an editable bar; typing, paste, Return, Paste and Go and
+    /// suggestions do nothing. False for browser tabs and page popups.
+    public var isReadOnly = false {
+        didSet {
+            field.isEditable = !isReadOnly
+            field.isSelectable = true
+        }
+    }
+
+    /// The text the bar shows now (the compact URL at rest, the full address
+    /// or the typed text while editing).
+    public var displayedText: String { field.currentText }
+
+    /// Whether `key` reaches the state machine. A read-only bar keeps the
+    /// keys that select or leave (Cmd-A, Cmd-L, Home, Escape).
+    func admits(_ key: OmnibarInput.Key) -> Bool {
+        guard isReadOnly else { return true }
+        switch key {
+        case .escape, .selectAll, .focusLocation, .home: return true
+        default: return false
+        }
+    }
 
     /// Chromium tabs also load `chrome://` and `chrome-extension://` pages
     /// (Chromium's own WebUI and extension pages, which WebKit cannot show).
@@ -276,7 +302,8 @@ public final class AddressBarView: NSView {
     /// does. Returns false when the field is not editing.
     @discardableResult
     public func commit(_ disposition: OmnibarDisposition) -> Bool {
-        controller.send(.key(.enter(disposition)))
+        guard admits(.enter(disposition)) else { return false }
+        return controller.send(.key(.enter(disposition)))
     }
 
     /// Verification hook (`BrowserDebugWindow`, tests): focuses the field
@@ -371,13 +398,13 @@ public final class AddressBarView: NSView {
     }
 
     private func pasteAndGoTitle() -> String? {
-        guard let text = pastedText(), let destination = resolver.destination(for: text) else { return nil }
+        guard !isReadOnly, let text = pastedText(), let destination = resolver.destination(for: text) else { return nil }
         if case .search = destination { return Strings.pasteAndSearch }
         return Strings.pasteAndGo
     }
 
     private func pasteAndGo() {
-        guard let text = pastedText() else { return }
+        guard !isReadOnly, let text = pastedText() else { return }
         commitMarkedText()
         controller.send(.pasteAndGo(text))
     }

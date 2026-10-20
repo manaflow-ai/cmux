@@ -6,8 +6,8 @@ import Testing
 
 /// Popup windows follow Chrome's `TYPE_POPUP` window on macOS (user,
 /// 2026-10-13: "popup windows need parity with chrome"): an independent
-/// window with all three traffic lights and the page title, a read-only
-/// location bar, the requested page size, and no close on Escape or with
+/// window with all three traffic lights and the page title, the browser
+/// tab's omnibar as its location bar, the requested page size, and no close on Escape or with
 /// the opener.
 @MainActor @Suite(.serialized) struct BrowserPopupWindowTests {
     // MARK: Geometry (Blink `create_window.cc`, `WindowSizer`, `AdjustToFit`)
@@ -124,16 +124,16 @@ import Testing
         #expect(window.title == "Sign in - Example")
     }
 
-    @Test func theLocationBarShowsTheAddressReadOnly() async throws {
+    @Test func theLocationBarShowsTheAddressAsTheTabOmnibarDoes() async throws {
         let (popups, tab, window, _) = open("http://insecure.example.com/pay?id=1")
         defer { popups.closeAll() }
         tab.simulate(.securityChanged(.insecure))
-        try await waitUntil { window.locationBar.displayedText == "http://insecure.example.com/pay?id=1" }
-        #expect(window.locationBar.displayedText == "http://insecure.example.com/pay?id=1", "http:// stays, as in the omnibox")
+        try await waitUntil { window.addressBar.displayedText == "http://insecure.example.com/pay?id=1" }
+        #expect(window.addressBar.displayedText == "http://insecure.example.com/pay?id=1", "http:// stays, as in the omnibox")
         #expect(window.isToolbarShown)
         tab.load(URL(string: "https://www.example.com/done")!)
-        try await waitUntil { window.locationBar.displayedText == "example.com/done" }
-        #expect(window.locationBar.displayedText == "example.com/done")
+        try await waitUntil { window.addressBar.displayedText == "example.com/done" }
+        #expect(window.addressBar.displayedText == "example.com/done")
     }
 
     // MARK: One omnibar (user, 2026-10-19: "omnibar for popover web windows need to reuse the same omnibar code")
@@ -162,6 +162,31 @@ import Testing
         #expect(bar.debugTypeAndCommit("https://www.example.org/next"))
         try await waitUntil { tab.state.url?.absoluteString == "https://www.example.org/next" }
         #expect(tab.state.url?.absoluteString == "https://www.example.org/next", "Return loads the typed address in the popup's page, as in a tab")
+    }
+
+    @Test func aSignInWindowsOmnibarIsReadOnly() async throws {
+        let tab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://accounts.example.com/signin")))
+        let window = BrowserPopupWindow(page: tab, frame: CGRect(x: 0, y: 0, width: 480, height: 600), readOnlyAddress: true)
+        defer { window.close() }
+        let bars = descendants(of: window.contentView).compactMap { $0 as? AddressBarView }
+        #expect(bars.count == 1, "the same omnibar view, read-only")
+        #expect(window.addressBar.isReadOnly)
+        _ = window.addressBar.debugTypeAndCommit("https://evil.example.net/")
+        #expect(tab.state.url?.absoluteString == "https://accounts.example.com/signin", "typing and Return never navigate a sign-in window")
+        #expect(!window.addressBar.commit(.newForegroundTab), "no Cmd-Return either")
+    }
+
+    @Test func aModifiedCommitInAPopupOpensANewTabThroughThePagesHost() throws {
+        let (popups, tab, window, _) = open("https://accounts.example.com/signin")
+        defer { popups.closeAll() }
+        let host = IntentRecorder()
+        tab.delegate = host
+        #expect(window.addressBar.debugTypeAndCommit("https://www.example.org/docs", commit: false))
+        #expect(window.addressBar.commit(.newBackgroundTab))
+        #expect(tab.state.url?.absoluteString == "https://accounts.example.com/signin", "the popup keeps its page")
+        let opened = try #require(host.urls.first)
+        #expect(opened.0.absoluteString == "https://www.example.org/docs")
+        #expect(opened.1 == .backgroundTab)
     }
 
     @Test func fullscreenHidesTheLocationBar() {
@@ -216,5 +241,14 @@ import Testing
         while !condition(), ContinuousClock.now < deadline {
             try await Task.sleep(for: .milliseconds(20))
         }
+    }
+}
+
+/// Records the `.openURL` intents a page asks of its host.
+private final class IntentRecorder: BrowserTabDelegate {
+    var urls: [(URL, BrowserNewTabDisposition)] = []
+
+    func browserTab(_ tab: any BrowserTab, didRequest intent: BrowserTabIntent) {
+        if case .openURL(let url, let disposition) = intent { urls.append((url, disposition)) }
     }
 }
