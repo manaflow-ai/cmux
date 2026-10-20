@@ -87,7 +87,13 @@ extension TabHandlers {
             guard let (tab, pane) = ctx.daemonTab(invocation) else { return }
             // A read agent chat: acpmux marks it unread until it is shown again (cx-ncc.78), as the chat menu's row does.
             if !tab.showsUnread, tab.agentSession != nil, let view = ctx.services.agentTabs.existingView(tab.id) {
-                Task { if await !AgentPaneMarkUnread(view.model).run() { ctx.refuse(RefusalStrings.markUnreadUnsupported) } }
+                let daemon = ctx.services.daemon(for: pane)
+                let mark = AgentChatMarkUnread(acpmux: { await AgentPaneMarkUnread(view.model).run() },
+                                               daemon: { try TabUnreadMark.set(true, tab: tab, daemon: daemon) })
+                // task-owner: one mark; ends when acpmux or the daemon answers
+                Task {
+                    do { try await mark.run() } catch { ctx.refuse((error as? ActionFailure)?.message ?? RefusalStrings.describe(error)) }
+                }
                 return
             }
             try TabUnreadMark.toggle(tab, pane: pane, context: ctx)

@@ -1251,7 +1251,8 @@ export function Composer({
                 const files = [...(event.currentTarget.files ?? [])];
                 // Cleared, choosing the same file again still fires change.
                 event.currentTarget.value = "";
-                void attach(files);
+                // The person chose these files: what the composer can't attach is saved for the chat.
+                void attach(files, true);
               }}
             />
             {leading !== undefined ? (
