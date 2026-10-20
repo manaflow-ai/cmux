@@ -67,6 +67,8 @@ export interface CreateVmSpec {
   readonly journal?: {
     readonly context: string | null;
     readonly beforeSend: (context: string) => Effect.Effect<void, UpstreamError>;
+    /** The provider definitely made nothing (a 4xx create answer, then no VM at the exact slug): drop the intent and its slot. */
+    readonly rejected: () => Effect.Effect<void>;
   };
   readonly cmuxId: VmId;
   readonly idleTimeoutSeconds: number;

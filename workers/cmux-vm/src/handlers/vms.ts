@@ -163,6 +163,8 @@ const createRecorded = <C, S>(
       beforeSend: (context: string) => limits.advance(caller.value.tenantId, attempt.key, { phase: "creating", vmId: cmuxId, reservationId: proofs.mayCreate.reservationId, context, createdBy, ...(attempt.snapshotId === undefined ? {} : { snapshotId: attempt.snapshotId }) }).pipe(
         Effect.mapError(() => new UpstreamError({ operation: "persistCreateIntent", status: null })),
       ),
+      // Best effort: if the ledger cannot be reached, the intent stays retained and its own key can retry it.
+      rejected: () => limits.cancelIntent(caller.value.tenantId, attempt.key, cmuxId),
     };
     const created = yield* upstream
       .createVm(

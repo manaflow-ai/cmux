@@ -22,6 +22,8 @@ export class LimitsUnavailable extends Data.TaggedError("LimitsUnavailable")<{ r
 
 export interface TenantLimitsService {
   readonly creationReservation: (tenantId: TenantId, key: string, vmId: string) => Effect.Effect<string | null, LimitsUnavailable>;
+  /** Drops a creating intent the provider definitely rejected, with its retained slot. Best effort. */
+  readonly cancelIntent: (tenantId: TenantId, key: string, vmId: string) => Effect.Effect<void>;
   readonly rate: (tenantId: TenantId, rateClass: RateClass, rule: RateRule) => Effect.Effect<RateDecision, LimitsUnavailable>;
   readonly reserve: (tenantId: TenantId, kind: string, limit: number, liveCount: number) => Effect.Effect<ReserveDecision, LimitsUnavailable>;
   readonly release: (tenantId: TenantId, reservationId: string) => Effect.Effect<void>;
@@ -39,6 +41,7 @@ export class TenantLimits extends Context.Tag("cmux-vm/TenantLimits")<TenantLimi
 /** The ledger operations, whether a Durable Object stub or an in-process ledger. */
 interface LedgerHandle {
   creationReservation(key: string, vmId: string): Promise<string | null>;
+  cancelIntent(key: string, vmId: string): Promise<boolean>;
   rate(rateClass: RateClass, rule: RateRule, nowMs: number): Promise<RateDecision>;
   reserve(kind: string, limit: number, liveCount: number, nowMs: number, reservationId: string): Promise<ReserveDecision>;
   release(reservationId: string): Promise<void>;
@@ -56,6 +59,7 @@ const makeService = (ledgerFor: (tenantId: TenantId) => LedgerHandle): TenantLim
     );
   return {
     creationReservation: (tenantId, key, vmId) => call((ledger) => ledger.creationReservation(key, vmId))(tenantId),
+    cancelIntent: (tenantId, key, vmId) => call((ledger) => ledger.cancelIntent(key, vmId))(tenantId).pipe(Effect.ignore),
     rate: (tenantId, rateClass, rule) => call((ledger, now) => ledger.rate(rateClass, rule, now))(tenantId),
     reserve: (tenantId, kind, limit, liveCount) =>
       call((ledger, now) => ledger.reserve(kind, limit, liveCount, now, crypto.randomUUID()))(tenantId),
@@ -84,6 +88,7 @@ export const durableObjectLimitsLayer = (namespace: DurableObjectNamespace<Tenan
       const stub = namespace.get(namespace.idFromName(tenantId));
       return {
         creationReservation: (key, vmId) => decoded(Schema.NullOr(Schema.String))(stub.creationReservation(key, vmId)),
+        cancelIntent: (key, vmId) => decoded(Schema.Boolean)(stub.cancelIntent(key, vmId)),
         rate: (rateClass, rule, nowMs) => decoded(RateDecision)(stub.rate(rateClass, rule, nowMs)),
         reserve: (kind, limit, liveCount, nowMs, reservationId) =>
           decoded(ReserveDecision)(stub.reserve(kind, limit, liveCount, nowMs, reservationId)),
