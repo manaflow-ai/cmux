@@ -4,6 +4,10 @@ public import Foundation
 public nonisolated enum MotionFade: String, Sendable, CaseIterable {
     /// Hover and pressed fills easing in, and hover-revealed buttons.
     case hover
+    /// A group header's hover buttons (+ and more) fading in and out with the
+    /// pointer (Lawrence 2026-10-19, u2397): opacity only, ease-out. Instant
+    /// under Reduce Motion, as both hover tokens are.
+    case hoverReveal
     /// Hover and pressed fills clearing (`ChromeHover.fade(to:)`). 0, so
     /// instant, by default, as in Edge: a fast sweep down a list leaves no
     /// trail. Under Reduce Motion both hover tokens are instant.

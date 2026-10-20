@@ -36,6 +36,7 @@ enum AgentPanePageHost {
         events.append(.composer(view.model.composer))
         events.append(.sidebarPreviewVariant(view.model.sidebarPreviewVariant))
         events.append(.diffColors(view.model.diffColors))
+        events.append(.display(view.model.display))
         events.append(.toolCards(view.model.toolCards))
         events.append(view.model.tabRow.event)
         if !view.customization.isEmpty { events += AgentPageEvent.customization(view.customization) }

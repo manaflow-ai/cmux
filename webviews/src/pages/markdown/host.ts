@@ -65,6 +65,11 @@ export interface MarkdownConfig {
   hash: string;
   /** The file's GitHub `origin` repository (`owner/repo`), when it has one. */
   githubRepository?: string;
+  /**
+   * The native omnibar above the page shows the file's full path
+   * (plans/cmux-next/markdown-omnibar-DESIGN.md), so the toolbar shows no file name of its own.
+   */
+  omnibar?: boolean;
   /** The page may not save: see `readOnlyReason`. */
   readOnly?: boolean;
   /** Why the page may not save; the page names it. */
@@ -80,8 +85,6 @@ export interface MarkdownConfig {
   assetBase?: string;
   /** URL prefix of the diagram libraries; without it diagrams show their source only. */
   libBase?: string;
-  /** Mermaid renderer flag: "ondine" (default, Mermaid as fallback) or "mermaid" (Mermaid only). */
-  mermaidRenderer?: "ondine" | "mermaid";
   /**
    * URL prefix the host fetches remote (http, https) images under, `<remoteImageBase><base64url of
    * the URL>`; without it remote images do not load (the page CSP allows only its own origin).
