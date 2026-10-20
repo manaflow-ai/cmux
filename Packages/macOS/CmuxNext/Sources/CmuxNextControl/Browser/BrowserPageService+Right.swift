@@ -12,8 +12,8 @@ import Foundation
 /// `tab`, `pane`, `workspace`, `created`, `navigated` (the new tab already
 /// loads `url`).
 ///
-/// Order: the agent's own tab in that column, else (no URL) the browser tab
-/// the column shows, else a new tab opened in that column through the
+/// Order: the agent's own tab in that column, else (no URL) a tab there it
+/// already drives, else the browser tab the column shows, else a new tab opened in that column through the
 /// `openBrowser` action, never in the chat's dock and never with focus. A tab
 /// another agent holds answers `lease_held` naming the holder. With no
 /// column right of the chat it answers `not_found` with `dock_pane`, so the
@@ -54,6 +54,11 @@ extension BrowserPageService {
             if let own = await leases.openedTab(of: agent, among: Set(column.browserTabs.map(\.id))) {
                 if let holder = await leases.acquire(own, for: agent) { throw held(holder, own) }
                 return answer(own, created: false, navigated: false)
+            }
+            // A tab it already drives stays its own, even once another tab is shown.
+            if url == nil, let kept = await leases.heldTab(of: agent, among: column.browserTabs.map(\.id)) {
+                _ = await leases.acquire(kept, for: agent)
+                return answer(kept, created: false, navigated: false)
             }
             if url == nil, let shown = column.shownBrowserTab {
                 if let holder = await leases.acquire(shown.id, for: agent) { throw held(holder, shown.id) }

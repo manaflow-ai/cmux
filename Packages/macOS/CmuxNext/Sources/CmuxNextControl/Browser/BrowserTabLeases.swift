@@ -32,6 +32,12 @@ actor BrowserTabLeases {
         return tab
     }
 
+    /// A tab of `tabs` on which `agent` holds a live lease (the first in `tabs` order).
+    func heldTab(of agent: String, among tabs: [String]) -> String? {
+        let instant = now()
+        return tabs.first { leases[$0].map { $0.agent == agent && $0.expires > instant } ?? false }
+    }
+
     /// Gives `tab` to `agent` (renewing its lease) unless another agent's
     /// lease on it has not lapsed; returns that agent then, nil once claimed.
     /// `opened` records the tab as the agent's own. One step, so two agents

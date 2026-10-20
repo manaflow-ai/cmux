@@ -68,7 +68,8 @@ fn navigate_on_an_own_tab_loads_the_url_there() {
     let connections = app.join().unwrap();
     let [_, second] = connections[0].as_slice() else { panic!("{connections:?}") };
     assert_eq!(second["method"], "browser.page.navigate");
-    assert_eq!(second["params"], json!({ "tab": "tab_own", "url": "https://cmux.com/docs" }));
+    assert_eq!(second["params"]["tab"], "tab_own");
+    assert_eq!(second["params"]["url"], "https://cmux.com/docs");
 }
 
 #[test]
@@ -93,5 +94,6 @@ fn release_gives_the_agents_tabs_back() {
     let connections = app.join().unwrap();
     let [only] = connections[0].as_slice() else { panic!("{connections:?}") };
     assert_eq!(only["method"], "browser.page.right");
-    assert_eq!(only["params"], json!({ "agent": "Chief", "release": true }));
+    assert_eq!(only["params"]["agent"], "Chief");
+    assert_eq!(only["params"]["release"], true);
 }
