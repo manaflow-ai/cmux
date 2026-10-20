@@ -82,6 +82,15 @@ public final class AccountsModel {
         services.reauthenticate(provider, plan: provider.reauthPlan)
     }
 
+    /// Runs the provider's own logout in a terminal tab; re-detects when the
+    /// app becomes active again, like a re-authentication.
+    public func signOut(_ provider: AIProvider) {
+        guard row(provider).canSignOut, !row(provider).isBusy else { return }
+        apply(.reauthStarted, to: provider)
+        pendingReauth.insert(provider)
+        services.reauthenticate(provider, plan: provider.signOutPlan)
+    }
+
     /// Connect: asks for a paste first when there is no local secret to send.
     public func connect(_ provider: AIProvider, pasted: String? = nil, confirmed: Bool = false) {
         let state = row(provider)

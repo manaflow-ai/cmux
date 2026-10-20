@@ -59,6 +59,18 @@ extension AIProvider {
         }
     }
 
+    /// How a provider signs out of this Mac: its CLI's own logout, run in a
+    /// visible terminal tab like ``reauthPlan``. `.none` when cmux has no
+    /// way to (a key page, a local server, a login with no logout command).
+    public var signOutPlan: ReauthPlan {
+        switch self {
+        case .codex: .command(["codex", "logout"])
+        case .claude: .command(["claude", "auth", "logout"])
+        case .copilot: .command(["gh", "auth", "logout"])
+        default: .none
+        }
+    }
+
     public var codeRouterLink: CodeRouterLinkKind {
         switch self {
         case .codex: .codexOAuth

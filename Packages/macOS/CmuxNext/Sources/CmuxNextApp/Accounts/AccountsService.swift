@@ -146,8 +146,7 @@ final class AccountsService: AccountsServices {
 
     func openConsole(_ url: URL) {
         if let showcaseMock { showcaseMock.openConsole(url); return }
-        guard let pane = services.windows.active?.focusedPane else { return logger.info("no window for a browser tab") }
-        pane.newBrowserTab(url: url)
+        if !services.openInFrontBrowserTab(url) { logger.info("no window for a browser tab") }
     }
 
     func saveKey(_ key: String, for provider: AIProvider) throws {
@@ -161,8 +160,7 @@ final class AccountsService: AccountsServices {
     /// Types `line` and Return into a new terminal tab of the focused pane,
     /// so the provider's own login runs where the user can see and answer it.
     private func runInTerminal(_ line: String) {
-        guard let pane = services.windows.active?.focusedPane else { return logger.info("no window for a terminal tab") }
-        pane.newTerminalTab(typing: line + "\r")
+        if !services.runInFrontTerminal(line) { logger.info("no window for a terminal tab") }
     }
 }
 

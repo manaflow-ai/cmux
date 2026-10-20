@@ -119,10 +119,7 @@ struct PageFactory {
         provider.agents = services.agentHarnesses
         let harnesses = SettingsHarnesses(
             environment: { [weak services] in services.flatMap(QuitAgents.environment) },
-            openTerminal: { [weak services] line in
-                guard let pane = services?.windows.active?.focusedPane else { return }
-                pane.newTerminalTab(typing: line + "\r")
-            }
+            openTerminal: { [weak services] line in _ = services?.runInFrontTerminal(line) }
         )
         provider.harnessesState = { harnesses.state }
         provider.harnessesRun = { params, context in try await harnesses.run(params, context: context) }

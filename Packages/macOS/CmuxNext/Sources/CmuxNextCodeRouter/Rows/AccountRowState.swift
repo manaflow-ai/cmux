@@ -70,7 +70,7 @@ public struct AccountRowState: Sendable, Equatable {
         case .linkedFailed(let message):
             codeRouterProblem = message
         case .reauthStarted:
-            guard phase == .idle, canReauthenticate else { return }
+            guard phase == .idle, canReauthenticate || canSignOut else { return }
             phase = .reauthenticating
             outcome = nil
         case .reauthEnded:
@@ -111,6 +111,23 @@ public struct AccountRowState: Sendable, Equatable {
     public var isBusy: Bool { phase != .idle }
 
     public var canReauthenticate: Bool { provider.reauthPlan != .none }
+
+    /// Sign Out runs the provider's logout: only for a sign-in the CLI
+    /// saved (a file or the Keychain). A shell variable is not the CLI's to
+    /// remove; ``shellVariableInUse`` names it instead.
+    public var canSignOut: Bool {
+        guard provider.signOutPlan != .none, status == .signedIn || status == .expired else { return false }
+        return detection?.sources.contains { !$0.isEnvironment } == true
+    }
+
+    /// The shell variable the sign-in comes from (`$CLAUDE_CODE_OAUTH_TOKEN`),
+    /// for a provider whose CLI it overrides: while it is set, the CLI uses
+    /// it and ignores a re-authentication or a sign-out made here.
+    public var shellVariableInUse: String? {
+        guard provider.signOutPlan != .none, status == .signedIn, let first = detection?.sources.first,
+              first.isEnvironment else { return nil }
+        return first.label
+    }
 
     /// Whether CodeRouter can hold this provider at all.
     public var isLinkable: Bool { provider.codeRouterLink != .unsupported }

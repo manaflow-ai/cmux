@@ -5895,6 +5895,268 @@
           }
         }
       }
+    },
+    "accounts.action.signOut": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign Out"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サインアウト"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تسجيل الخروج"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Odjava"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Log ud"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abmelden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cerrar sesión"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se déconnecter"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esci"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ចេញ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로그아웃"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Logg ut"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wyloguj"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sair"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выйти"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ออกจากระบบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oturumu Kapat"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вийти"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đăng xuất"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "退出登录"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "登出"
+          }
+        }
+      }
+    },
+    "accounts.hint.shellVariable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your shell sets %@, which wins over a sign-in made here. Unset it for Re-authenticate or Sign Out to take effect."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "シェルで %@ が設定されており、ここでのサインインより優先されます。再認証やサインアウトを反映させるには、この変数を解除してください。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يعيّن الـ shell المتغير %@، وهو يتقدّم على أي تسجيل دخول يتم هنا. ألغِ تعيينه لكي تسري إعادة المصادقة أو تسجيل الخروج."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vaš shell postavlja %@, koji ima prednost nad prijavom napravljenom ovdje. Uklonite ga da bi ponovna prijava ili odjava imale efekta."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Din shell sætter %@, som vinder over et login foretaget her. Fjern den, så Godkend igen eller Log ud får virkning."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deine Shell setzt %@, und das hat Vorrang vor einer Anmeldung hier. Entferne die Variable, damit „Erneut authentifizieren“ oder „Abmelden“ wirkt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tu shell define %@, que tiene prioridad sobre un inicio de sesión hecho aquí. Elimínala para que Volver a autenticar o Cerrar sesión surtan efecto."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Votre shell définit %@, qui l’emporte sur une connexion faite ici. Supprimez-la pour que Réauthentifier ou Se déconnecter prenne effet."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La tua shell imposta %@, che prevale su un accesso fatto qui. Rimuovila perché Riautentica o Esci abbiano effetto."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shell របស់អ្នកកំណត់ %@ ដែលមានអាទិភាពលើការចូលដែលធ្វើនៅទីនេះ។ សូមលុបវាចេញ ដើម្បីឱ្យការផ្ទៀងផ្ទាត់ម្ដងទៀត ឬការចេញមានប្រសិទ្ធភាព។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "셸에서 %@을(를) 설정하고 있어 여기서 한 로그인보다 우선합니다. 다시 인증이나 로그아웃이 적용되려면 이 변수를 해제하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skallet ditt setter %@, som går foran en innlogging gjort her. Fjern den for at Autentiser på nytt eller Logg ut skal virke."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Twoja powłoka ustawia %@, która ma pierwszeństwo przed logowaniem wykonanym tutaj. Usuń ją, aby Uwierzytelnij ponownie lub Wyloguj zadziałały."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seu shell define %@, que tem prioridade sobre um login feito aqui. Remova essa variável para que Autenticar novamente ou Sair tenham efeito."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ваша оболочка задаёт %@, и она важнее входа, выполненного здесь. Удалите её, чтобы повторная аутентификация или выход вступили в силу."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เชลล์ของคุณตั้งค่า %@ ซึ่งมีผลเหนือการลงชื่อเข้าใช้ที่ทำที่นี่ ยกเลิกการตั้งค่าเพื่อให้การยืนยันตัวตนอีกครั้งหรือการออกจากระบบมีผล"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kabuğunuz %@ değişkenini ayarlıyor ve bu, burada yapılan bir girişten önce gelir. Yeniden Kimlik Doğrula veya Oturumu Kapat'ın etkili olması için onu kaldırın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ваша оболонка задає %@, і вона має перевагу над входом, виконаним тут. Видаліть її, щоб повторна автентифікація або вихід набули чинності."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shell của bạn đặt %@, biến này được ưu tiên hơn lần đăng nhập ở đây. Hãy bỏ đặt nó để Xác thực lại hoặc Đăng xuất có hiệu lực."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的 shell 设置了 %@，它优先于在这里完成的登录。取消设置它，重新验证或退出登录才会生效。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的 shell 設定了 %@，它優先於在這裡完成的登入。取消設定它，重新驗證或登出才會生效。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

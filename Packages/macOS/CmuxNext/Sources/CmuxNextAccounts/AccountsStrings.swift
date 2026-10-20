@@ -45,6 +45,10 @@ enum AccountsStrings {
     static var reauthenticate: String { text("accounts.action.reauth", "Re-authenticate") }
     static var signIn: String { text("accounts.action.signIn", "Sign In") }
     static var getKey: String { text("accounts.action.getKey", "Get Key") }
+    static var signOut: String { text("accounts.action.signOut", "Sign Out") }
+    static func shellVariableWins(_ variable: String) -> String {
+        String(format: text("accounts.hint.shellVariable", "Your shell sets %@, which wins over a sign-in made here. Unset it for Re-authenticate or Sign Out to take effect."), variable)
+    }
     static var addKey: String { text("accounts.action.addKey", "Add Key…") }
     static var deleteSavedKey: String { text("accounts.action.deleteSavedKey", "Delete Saved Key") }
     static var connect: String { text("accounts.action.connect", "Connect to CodeRouter") }

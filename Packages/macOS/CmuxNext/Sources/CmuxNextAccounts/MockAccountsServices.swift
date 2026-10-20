@@ -58,7 +58,7 @@ public final class MockAccountsServices: AccountsServices {
     }
 
     public func reauthenticate(_ provider: AIProvider, plan: ReauthPlan) {
-        calls.append("reauth:\(provider.rawValue)")
+        calls.append(plan == provider.signOutPlan ? "signOut:\(provider.rawValue)" : "reauth:\(provider.rawValue)")
     }
 
     public func runClaudeSetupToken() { calls.append("setupToken") }
