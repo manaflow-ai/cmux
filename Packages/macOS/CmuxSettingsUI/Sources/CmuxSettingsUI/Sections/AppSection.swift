@@ -78,6 +78,7 @@ public struct AppSection: View {
     @State private var warnCloseWindow: DefaultsValueModel<Bool>
     @State private var hideCloseButton: DefaultsValueModel<Bool>
     @State private var renameSelects: DefaultsValueModel<Bool>
+    @State private var findSelectsQuery: DefaultsValueModel<Bool>
     @State private var paletteAllSurfaces: DefaultsValueModel<Bool>
 
     @State private var languageAtAppear: AppLanguage?
@@ -154,6 +155,7 @@ public struct AppSection: View {
         _warnCloseWindow = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.warnBeforeClosingWindow))
         _hideCloseButton = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.hideTabCloseButton))
         _renameSelects = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.renameSelectsExistingName))
+        _findSelectsQuery = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.findSelectsExistingQuery))
         _paletteAllSurfaces = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.commandPaletteSearchesAllSurfaces))
     }
 
@@ -176,7 +178,7 @@ public struct AppSection: View {
             mainCard
         }
         .task {
-            startSettingsObservation([language, appIcon, placement, inheritDir, minimalMode, keepWorkspaceOpen, firstClick, focusHistoryIncludesPanesAndTabs, equalizeSplitsOnCreate, fileDrop, preferredEditor, openSupported, openMarkdown, globalFontMagnification, markdownFontSize, markdownFontFamily, markdownMaxWidth, canvasPaneGap, canvasSnapping, fileEditorWordWrap, fileEditorSyntaxHighlighting, fileEditorLineNumbers, fileEditorIndentGuides, fileEditorCurrentLineHighlight, fileEditorTabWidth, iMessage, reorder, dockBadge, menuBarOnly, showInMenuBar, paneRing, paneFlash, paneFlashDoubleBlink, paneFlashOnTyping, paneFlashThemeColor, desktopNotifications, agentPermissionPrompt, agentTurnComplete, agentIdleReminder, soundName, soundWhenFocused, soundCommand, customSoundFile, soundOverrides, telemetry, confirmQuit, warnCloseTab, warnCloseAgentSession, warnCloseX, warnCloseWorkspace, alwaysConfirmCloseWorkspace, warnCloseWindow, hideCloseButton, renameSelects, paletteAllSurfaces])
+            startSettingsObservation([language, appIcon, placement, inheritDir, minimalMode, keepWorkspaceOpen, firstClick, focusHistoryIncludesPanesAndTabs, equalizeSplitsOnCreate, fileDrop, preferredEditor, openSupported, openMarkdown, globalFontMagnification, markdownFontSize, markdownFontFamily, markdownMaxWidth, canvasPaneGap, canvasSnapping, fileEditorWordWrap, fileEditorSyntaxHighlighting, fileEditorLineNumbers, fileEditorIndentGuides, fileEditorCurrentLineHighlight, fileEditorTabWidth, iMessage, reorder, dockBadge, menuBarOnly, showInMenuBar, paneRing, paneFlash, paneFlashDoubleBlink, paneFlashOnTyping, paneFlashThemeColor, desktopNotifications, agentPermissionPrompt, agentTurnComplete, agentIdleReminder, soundName, soundWhenFocused, soundCommand, customSoundFile, soundOverrides, telemetry, confirmQuit, warnCloseTab, warnCloseAgentSession, warnCloseX, warnCloseWorkspace, alwaysConfirmCloseWorkspace, warnCloseWindow, hideCloseButton, renameSelects, findSelectsQuery, paletteAllSurfaces])
             await soundAgentCache.loadIfNeeded { await hostActions.notificationSoundAgentOptions() }
             if languageAtAppear == nil { languageAtAppear = language.current }; if telemetryAtAppear == nil { telemetryAtAppear = telemetry.current }
         }
@@ -1003,6 +1005,18 @@ public struct AppSection: View {
                 subtitle: String(localized: "settings.app.renameSelectsName.subtitle", defaultValue: "Renaming from the command palette selects the current name.")
             ) {
                 Toggle("", isOn: Binding(get: { renameSelects.current }, set: { renameSelects.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+            }
+            SettingsCardDivider()
+
+            // Find Selects Existing Query
+            SettingsCardRow(
+                configurationReview: .json(catalog.app.findSelectsExistingQuery.id),
+                catalog.app.findSelectsExistingQuery.userFacing!.title,
+                subtitle: String(localized: "settings.app.findSelectsQuery.subtitle", defaultValue: "Pressing Cmd+F while the find bar is open selects the whole query instead of restoring the previous cursor.")
+            ) {
+                Toggle("", isOn: Binding(get: { findSelectsQuery.current }, set: { findSelectsQuery.set($0) }))
                     .labelsHidden()
                     .controlSize(.small)
             }

@@ -132,6 +132,7 @@ extension Array where Element == CuratedSettingEntry {
             .init(userFacing: catalog.app.warnBeforeClosingWindow),
             .init(userFacing: catalog.app.hideTabCloseButton),
             .init(userFacing: catalog.app.renameSelectsExistingName),
+            .init(userFacing: catalog.app.findSelectsExistingQuery),
             .init(section: .app, id: "palette-search-all", title: String(localized: "settings.app.commandPaletteSearchAllSurfaces", defaultValue: "Command Palette Searches All Surfaces"), synonyms: "Command Palette Searches All Surfaces app.commandPaletteSearchesAllSurfaces command palette search all surfaces cmd-p terminal browser markdown"),
             .init(
                 section: .app,

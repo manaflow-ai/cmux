@@ -93,6 +93,7 @@ extension CmuxSettingsFileStore {
                     "hideTabCloseButton": AppCatalogSection().hideTabCloseButton.defaultValue,
                     "tabBarVisibility": AppCatalogSection().tabBarVisibility.defaultValue.rawValue,
                     "renameSelectsExistingName": AppCatalogSection().renameSelectsExistingName.defaultValue,
+                    "findSelectsExistingQuery": AppCatalogSection().findSelectsExistingQuery.defaultValue,
                     "commandPaletteSearchesAllSurfaces": AppCatalogSection().commandPaletteSearchesAllSurfaces.defaultValue,
                 ],
             ],

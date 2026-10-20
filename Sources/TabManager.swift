@@ -972,7 +972,12 @@ class TabManager: ObservableObject {
                 NotificationCenter.default.post(
                     name: .ghosttySearchFocus,
                     object: surface,
-                    userInfo: [FindFocusNotificationKey.selectAll: !hadExistingSearch && !recoveredNeedle.isEmpty]
+                    userInfo: [
+                        FindFocusNotificationKey.selectAll: cmuxFindFocusShouldSelectAll(
+                            barWasOpen: hadExistingSearch,
+                            recoveredNeedle: recoveredNeedle
+                        )
+                    ]
                 )
             }
 #if DEBUG

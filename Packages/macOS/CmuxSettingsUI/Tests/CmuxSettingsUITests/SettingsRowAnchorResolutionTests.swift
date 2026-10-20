@@ -40,6 +40,7 @@ struct SettingsRowAnchorResolutionTests {
         "app.commandPaletteSearchesAllSurfaces",
         "app.confirmQuit",
         "app.equalizeSplitsOnCreate",
+        "app.findSelectsExistingQuery",
         "app.focusPaneOnFirstClick",
         "app.focusHistoryIncludesPanesAndTabs",
         "app.globalFontMagnification",

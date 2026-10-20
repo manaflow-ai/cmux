@@ -1,4 +1,5 @@
 import AppKit
+import CmuxSettings
 
 enum FindFocusNotificationKey {
     static let selectAll = "cmux.find.selectAll"
@@ -105,6 +106,20 @@ func cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: TabManager?, wind
         ?? (workspace.browserPanel(for: focusedPanelId)?.searchState as AnyObject?)
     guard let owner else { return }
     cmuxStoreFindSelection(selection, for: owner)
+}
+
+/// Whether a Cmd+F that focuses the find field selects the whole query.
+/// A reopened bar selects only a recovered query; an already open bar selects
+/// when `app.findSelectsExistingQuery` is on and otherwise restores the caret.
+func cmuxFindFocusShouldSelectAll(
+    barWasOpen: Bool,
+    recoveredNeedle: String,
+    defaults: UserDefaults = .standard
+) -> Bool {
+    if barWasOpen {
+        return AppCatalogSection().findSelectsExistingQuery.value(in: defaults)
+    }
+    return !recoveredNeedle.isEmpty
 }
 
 @discardableResult

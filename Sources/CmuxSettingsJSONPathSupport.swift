@@ -239,6 +239,10 @@ enum AppSettingsFileMapping {
             defaultsKey: app.renameSelectsExistingName.userDefaultsKey
         ),
         .init(
+            jsonKey: "findSelectsExistingQuery",
+            defaultsKey: app.findSelectsExistingQuery.userDefaultsKey
+        ),
+        .init(
             jsonKey: "commandPaletteSearchesAllSurfaces",
             defaultsKey: app.commandPaletteSearchesAllSurfaces.userDefaultsKey
         ),

@@ -329,6 +329,7 @@ final class CommandPaletteSettingsToggleTests: XCTestCase {
                 catalog.app.warnBeforeClosingWindow,
                 catalog.app.hideTabCloseButton,
                 catalog.app.renameSelectsExistingName,
+                catalog.app.findSelectsExistingQuery,
             ]
 
             for key in keys {

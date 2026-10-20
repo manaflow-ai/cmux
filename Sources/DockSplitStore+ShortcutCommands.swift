@@ -458,8 +458,10 @@ extension DockSplitStore {
                     object: surface,
                     userInfo: [
                         FindFocusNotificationKey.selectAll:
-                            !hadExistingSearch
-                            && !recoveredNeedle.isEmpty
+                            cmuxFindFocusShouldSelectAll(
+                                barWasOpen: hadExistingSearch,
+                                recoveredNeedle: recoveredNeedle
+                            )
                     ]
                 )
             }
