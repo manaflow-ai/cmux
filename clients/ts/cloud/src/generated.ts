@@ -897,6 +897,19 @@ export type Step = {
   readonly type: "op"
   readonly op: "automation.list" | "automation.get" | "automation.runs.list" | "automation.run" | "usage.summary"
   readonly params: unknown
+} | {
+  readonly type: "machine"
+  readonly machine: MachineId
+  readonly command: string
+  readonly input_from?: number
+  readonly timeout_seconds: number
+} | {
+  readonly type: "agent"
+  readonly machine: MachineId
+  readonly harness: "claude" | "codex" | "opencode"
+  readonly prompt: string
+  readonly input_from?: number
+  readonly timeout_seconds: number
 }
 
 export type TargetPolicy = {

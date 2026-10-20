@@ -70,6 +70,9 @@ final class TabHoverCardController: HoverCardSource {
 
     init(coordinator: HoverCardCoordinator = HoverCardCoordinator()) {
         self.coordinator = coordinator
+        #if DEBUG
+        HoverCardGallery.register("tabs") { TabHoverCardGallery.cards() }
+        #endif
         let source = DispatchSource.makeMemoryPressureSource(eventMask: [.warning, .critical], queue: .main)
         source.setEventHandler { [weak self] in
             Task { @MainActor in
@@ -195,6 +198,7 @@ final class TabHoverCardController: HoverCardSource {
         // Its frame stays as it is while it fades out.
         if !cardIsShowing() {
             body?.setThumbnail(nil)
+            body?.resetResourceHistory()
             opensFresh = true
         }
     }
