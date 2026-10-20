@@ -8,7 +8,11 @@ import CmuxNextDesign
 /// leaves before the label (`barSlotY`). Line pitch matches
 /// `SidebarLayoutMetrics.statusHeight`.
 final class WorkspaceStatusView: NSView {
+    private static var pillHorizontalPadding: CGFloat { Metrics.space2 }
+    private static let pillFillAlpha: CGFloat = 0.16
+
     private var labels: [NSTextField] = []
+    private var pills: [NSView] = []
     private var status = SidebarWorkspaceStatus()
     private var reservesBar = false
 
@@ -20,11 +24,21 @@ final class WorkspaceStatusView: NSView {
         self.status = status
         self.reservesBar = reservesBar
         while labels.count < status.lines.count {
+            let pill = NSView()
+            pill.wantsLayer = true
+            pill.layer?.cornerCurve = .continuous
+            pills.append(pill)
+            addSubview(pill)
+
             let label = SidebarRowView.attributedLabel(font: SidebarStyle.subtitleFont)
             labels.append(label)
             addSubview(label)
         }
-        for (index, label) in labels.enumerated() { label.isHidden = index >= status.lines.count }
+        for (index, label) in labels.enumerated() {
+            let hidden = index >= status.lines.count
+            label.isHidden = hidden
+            pills[index].isHidden = hidden
+        }
         needsLayout = true
         needsDisplay = true
     }
@@ -41,8 +55,12 @@ final class WorkspaceStatusView: NSView {
         performWithTheme {
             for (index, line) in status.lines.enumerated() where index < labels.count {
                 labels[index].attributedStringValue = Self.text(for: line)
+                Self.paint(pill: pills[index], for: line)
             }
         }
+        // The pill width is content-sized, so a theme or font change needs a
+        // fresh layout after the attributed text is rebuilt.
+        needsLayout = true
     }
 
     override func layout() {
@@ -53,7 +71,20 @@ final class WorkspaceStatusView: NSView {
         var y: CGFloat = 0
         for (index, line) in status.lines.enumerated() {
             if case .progressLabel = line, reservesBar { y += metrics.progressBarHeight }
-            labels[index].frame = NSRect(x: 0, y: y - (labelHeight - lineHeight) / 2, width: bounds.width, height: labelHeight)
+            let rowY = y - (labelHeight - lineHeight) / 2
+            guard Self.isPill(line) else {
+                pills[index].isHidden = true
+                labels[index].frame = NSRect(x: 0, y: rowY, width: bounds.width, height: labelHeight)
+                y += lineHeight
+                continue
+            }
+            let width = Self.pillWidth(for: labels[index], maxWidth: bounds.width)
+            // The text arrives in updateLayer(), after the first layout; an
+            // empty pill would flash as a bare sliver until then.
+            pills[index].isHidden = labels[index].attributedStringValue.length == 0
+            pills[index].frame = NSRect(x: 0, y: rowY, width: width, height: labelHeight)
+            labels[index].frame = NSRect(x: Self.pillHorizontalPadding, y: rowY,
+                                         width: max(0, width - Self.pillHorizontalPadding * 2), height: labelHeight)
             y += lineHeight
         }
     }
@@ -74,6 +105,30 @@ final class WorkspaceStatusView: NSView {
         case .progressLabel(let label):
             return compose(icon: nil, color: Palette.textTertiary, text: label, textColor: Palette.textTertiary)
         }
+    }
+
+    private static func isPill(_ line: SidebarWorkspaceStatus.Line) -> Bool {
+        if case .entry(let entry) = line { return entry.isActionable }
+        return false
+    }
+
+    /// The cells own size includes the text fields inset, so the label fits
+    /// its text without truncating it.
+    private static func pillWidth(for label: NSTextField, maxWidth: CGFloat) -> CGFloat {
+        let natural = label.cell?.cellSize.width ?? label.intrinsicContentSize.width
+        return min(maxWidth, ceil(natural) + pillHorizontalPadding * 2)
+    }
+
+    // theme-scoped: called only from updateLayer(), inside performWithTheme
+    private static func paint(pill: NSView, for line: SidebarWorkspaceStatus.Line) {
+        guard case .entry(let entry) = line, entry.isActionable else {
+            pill.layer?.backgroundColor = nil
+            pill.layer?.cornerRadius = 0
+            return
+        }
+        let color = entry.tint.map(Self.color) ?? Palette.textSecondary
+        pill.layer?.backgroundColor = color.withAlphaComponent(pillFillAlpha).cgColor
+        pill.layer?.cornerRadius = Metrics.chipCornerRadius(height: SidebarStyle.subtitleFont.boundingRectForFont.height)
     }
 
     /// `icon` is an SF Symbol name or one emoji; an unknown symbol name (or a stored asset not

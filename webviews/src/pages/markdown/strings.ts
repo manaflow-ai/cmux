@@ -30,6 +30,8 @@ export const L = {
   rawSource: "block.source",
   plainText: "code.plainText",
   diagramFailed: "diagram.failed",
+  remoteImageBlocked: "remoteImage.blocked",
+  remoteImageLoad: "remoteImage.load",
   followHint: "link.followHint",
   clickHint: "link.clickHint",
   broken: "link.broken",

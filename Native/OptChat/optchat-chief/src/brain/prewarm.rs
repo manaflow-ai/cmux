@@ -57,7 +57,9 @@ impl Brain {
         // starts at once does not take it anyway. Not before the conversation
         // is read (the daemon is up), and not while a waking message waits:
         // that message starts a turn first.
+        // A kept session takes the next turn: no new process.
         if !matches!(self.settings.engine, Engine::Acpmux)
+            || self.kept.is_some()
             || !self.agents_up
             || self.phase != super::Phase::Idle
             || self.daemon.is_none()
@@ -73,7 +75,7 @@ impl Brain {
             // marks (every turn input has them, spec 5a, unless Claude Code
             // refused them lately).
             let ttl = self.turn_cache_ttl();
-            let ours = !self.marker_refused.is_off();
+            let ours = !self.marker_refused.is_off() && !self.settings.keep_turn_session;
             match crate::session_dir::set_session_cache(&self.settings.session_dir, ttl, ours) {
                 Ok(()) => {
                     self.prewarm_ttl = Some(ttl);
