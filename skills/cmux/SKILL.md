@@ -32,6 +32,10 @@ cmux tab tab_… move --workspace ws_… --screen screen_… --pane pane_… --i
 cmux pane flash-focused                            # attention cue (app action)
 ```
 
+## Which `cmux` to run
+
+Inside a cmux terminal, `$CMUX_BUNDLED_CLI_PATH` is the CLI that ships with the running app. A login shell (`zsh -lc`, which Codex and other agents use) can put an older `cmux` first on `PATH`, for example a `uv tool` or `pipx` install of the PyPI `cmux` package. That CLI can lack verbs such as `browser page`. When a verb or flag that this skill documents is missing, run `"$CMUX_BUNDLED_CLI_PATH"` instead, or define `cmux() { "${CMUX_BUNDLED_CLI_PATH:-cmux}" "$@"; }` once per shell. Do not run `cmux daemon stop` to cure a version mismatch: it stops the user's session.
+
 ## Selectors
 
 Every instance selector is a public id (`ws_…`, `pane_…`, `tab_…`, `term_…`), `current`, or an exact name. `name:<value>` forces a name; it is required for names equal to `current`, shaped like an id, or containing `_`. An ambiguous name fails with every candidate id. `current` is the focused object in the session, not the caller; use `$CMUX_TUI_TERMINAL_ID` for the caller. Ids are stable across app and daemon restarts. The old `window:N`, `workspace:N`, `pane:N` and `surface:N` refs are gone.
