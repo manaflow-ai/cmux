@@ -3,6 +3,8 @@
 // (main.tsx) over an in-page cmuxPage host (src/gallery/frame/pages.ts).
 import { markdownPageEntry } from "../../gallery/format";
 import SHOWCASE from "../../gallery/fixtures/markdown-showcase.md?raw";
+// The user's five table cases (MARKDOWN-TABLE-SCROLL, test/markdown-table-scroll-cases.test.ts).
+import TABLE_SCROLL_CASES from "../../gallery/fixtures/markdown-table-scroll-cases.md?raw";
 import SHOWCASE_SVG from "../../gallery/fixtures/markdown-showcase-assets/sample.svg?raw";
 
 const README = `# Atlas web
@@ -267,6 +269,11 @@ export default markdownPageEntry({
       note: "A table and a code line wider than the column: each scrolls sideways on its own.",
       path: "/Users/you/src/atlas-web/MATRIX.md",
       text: WIDE_TABLE,
+    },
+    "table-scroll": {
+      note: "Five tables: 20 columns, a long cell and code cells scroll sideways; 40 rows and a small table fit.",
+      path: "/Users/you/fun/markdown-table-scroll-test.md",
+      text: TABLE_SCROLL_CASES,
     },
     "table-editing": {
       note: "A small table: cell selection, Tab and Return, column resizing.",
