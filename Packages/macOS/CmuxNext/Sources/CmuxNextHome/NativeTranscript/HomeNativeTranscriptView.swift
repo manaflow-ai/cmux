@@ -186,6 +186,9 @@ public final class HomeNativeTranscriptView: NSView {
     /// The name pill's VoiceOver help.
     public func setNamePillHelp(_ help: String) { transcript.setNamePillHelp(help) }
 
+    /// The header band's height (avatar and name pill), from the top: a control placed under it never covers the name.
+    public var headerHeight: CGFloat { transcript.headerHeight }
+
     /// The primary input (spec/app-screens.md section 3): the message box's
     /// text view. Hosts focus this view, not the transcript.
     public var primaryInput: NSView { transcript.primaryInput }
