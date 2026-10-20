@@ -168,7 +168,7 @@ extension ChiefService {
         var previews: [ConversationID: String] = [:]
         var working = Set<ConversationID>()
         for summary in inbox.conversations {
-            let messages = (try? await owner.snapshot(of: summary.id, tail: ChiefService.previewTail).messages)
+            let messages = (try? await owner.previewMessages(of: summary.id, tail: ChiefService.previewTail))
                 ?? summary.lastMessage.map { [$0] }
                 ?? []
             previews[summary.id] = Self.controlPreview(messages, me: inbox.me.id)

@@ -96,10 +96,10 @@ extension ChiefService {
         let me = self.me
         // task-owner: one page read from the owner; ends with its reply
         Task { @MainActor [weak self] in
-            let page = try? await owner.snapshot(of: id, tail: Self.previewTail)
+            let messages = try? await owner.previewMessages(of: id, tail: Self.previewTail)
             guard let self else { return }
             self.previewReads.remove(id)
-            let line = page.flatMap { ChiefListPreview(messages: $0.messages, me: me).line }
+            let line = messages.flatMap { ChiefListPreview(messages: $0, me: me).line }
             let entry = ChiefPreviewEntry(stamp: stamp, line: line)
             guard self.previewLines[id] != entry else { return }
             self.previewLines[id] = entry
