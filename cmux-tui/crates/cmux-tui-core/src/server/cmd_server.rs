@@ -33,24 +33,22 @@ pub(super) fn server_stats(
     Ok(serde_json::to_value(server_stats::server_stats(mux, include.as_deref()))?)
 }
 
-pub(super) fn identify(mux: &Arc<Mux>, machine_metadata: bool) -> anyhow::Result<Value> {
+pub(super) fn identify(
+    mux: &Arc<Mux>,
+    machine_metadata: bool,
+    revisions: bool,
+) -> anyhow::Result<Value> {
     let (registry_id, generation) = mux.registry_identity();
     let (build_id, cli_path) = super::daemon_build::identify_build_fields();
     let mut identity = json!({
         "app": "cmux-tui",
         // The npm/PyPI release (the crate version in the app and local builds).
         "version": crate::release::DISTRIBUTION_VERSION,
-        "crate_version": env!("CARGO_PKG_VERSION"),
         "build_commit": stamped_build_commit(),
         "build_id": build_id,
         "cli_path": cli_path,
         "ghostty_commit": stamped_ghostty_commit(),
         "protocol": PROTOCOL_VERSION,
-        "api_revision": super::api_revision_wire::identify_fields().0,
-        "min_api_revision": super::api_revision_wire::identify_fields().1,
-        // How this daemon was installed and how to update it, for a client's refusal text.
-        "install": crate::release::InstallChannel::current().as_str(),
-        "update_command": crate::release::InstallChannel::current().update_command(),
         "capabilities": identify_capabilities(mux),
         "session": mux.session,
         "pid": std::process::id(),
@@ -64,6 +62,18 @@ pub(super) fn identify(mux: &Arc<Mux>, machine_metadata: bool) -> anyhow::Result
         "lifecycle_ready": mux.server_lifecycle_ready(),
         "launch_snapshot_path": mux.launch_snapshot_path(),
     });
+    // Opt-in like machine metadata: strict pre-revision SDKs decode the
+    // default reply with deny_unknown_fields (machine_identity_reader_tests.rs).
+    if revisions {
+        let (current, base) = super::api_revision_wire::identify_fields();
+        let channel = crate::release::InstallChannel::current();
+        identity["api_revision"] = json!(current);
+        identity["min_api_revision"] = json!(base);
+        identity["crate_version"] = json!(env!("CARGO_PKG_VERSION"));
+        // How this daemon was installed and how to update it, for a client's refusal text.
+        identity["install"] = json!(channel.as_str());
+        identity["update_command"] = json!(channel.update_command());
+    }
     if machine_metadata {
         identity["machine_id"] = json!(mux.machine_public_id);
         identity["session_resource_id"] = json!(mux.session_public_id);

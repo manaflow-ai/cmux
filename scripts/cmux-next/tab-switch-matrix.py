@@ -50,6 +50,7 @@ open(CONFIG, "w").write("{}\n")
 STAGES = ["input", "focus", "strip", "withdraw", "content", "reveal", "stripSync", "view", "present", "record", "apply", "commit"]
 COLORS = ["#c0392b", "#27ae60", "#2980b9", "#8e44ad", "#d35400", "#16a085", "#2c3e50", "#f39c12", "#7f8c8d", "#e84393"]
 ROWS, LAUNCHED = [], []
+PAGE_TABS = []
 app = None
 
 
@@ -79,7 +80,7 @@ def rpc(method, params=None, timeout=30):
         return {"error": str(error)}
 
 
-def action(name, args=None, timeout=60, origin="user"):
+def action(name, args=None, timeout=60, origin="script"):  # the socket refuses "user" (ControlOrigin)
     return rpc("action.run", {"action": name, "args": args or {}, "focus": True, "origin": origin}, timeout=timeout)
 
 
@@ -129,10 +130,36 @@ def pct(values, q):
     return values[min(len(values) - 1, int(len(values) * q))] if values else None
 
 
+# Each test page notes the first animation frame after it turns visible (epoch ms): the time its own
+# content draws again, which the app's commit (`debug.tab_switch`) does not cover (the page's process
+# commits it). `content_frames` collects them per switch.
+SHOWN_SCRIPT = ("<script>window.__shown=[];document.addEventListener('visibilitychange',()=>{"
+                "if(document.visibilityState==='visible')requestAnimationFrame(()=>"
+                "window.__shown.push(performance.timeOrigin+performance.now()))});</script>")
+
+
 def page_html(index):
     color = COLORS[index % len(COLORS)]
-    return (f"<!doctype html><title>page {index}</title><body style='margin:0;background:{color};color:white;"
+    return (f"<!doctype html><title>page {index}</title>{SHOWN_SCRIPT}<body style='margin:0;background:{color};color:white;"
             f"font:40px -apple-system'>" + f"<p>page {index} row</p>" * 40)
+
+
+def content_frames(tab_ids, sends):
+    """Per switch (epoch ms it was sent), the first page frame after it from any page: ms, or None."""
+    shown = []
+    for tab in tab_ids:
+        reply = rpc("browser.page.eval", {"tab": tab, "script": "JSON.stringify(window.__shown ? window.__shown.splice(0) : [])"}, timeout=10)
+        try:
+            shown += json.loads((reply or {}).get("value") or "[]")
+        except (TypeError, ValueError):
+            pass
+    shown.sort()
+    out = []
+    for index, sent in enumerate(sends):
+        until = sends[index + 1] if index + 1 < len(sends) else sent + 2000
+        first = next((t for t in shown if sent <= t < until), None)
+        out.append(None if first is None else round(first - sent, 2))
+    return out
 
 
 def maker(kind, index):
@@ -230,7 +257,9 @@ def time_switches(label, step, count, profile=None):
     kinds = classify(app.pid, APP)
     start = {pid: usage(pid) for pid in kinds}
     t0 = time.monotonic()
+    sends = []
     for index in range(count):
+        sends.append(time.time() * 1000)
         step(index)
         time.sleep(opts.interval)  # test harness pacing: one switch per interval
     time.sleep(0.8)  # test harness: the last commit lands
@@ -261,18 +290,24 @@ def time_switches(label, step, count, profile=None):
         for stage in STAGES + ["e2e"]:
             values = [r[stage + "_ms"] for r in rows if stage + "_ms" in r]
             if values:
-                line[stage] = {"p50": round(pct(values, 0.5), 3), "p90": round(pct(values, 0.9), 3), "max": round(max(values), 3)}
+                line[stage] = {"p50": round(pct(values, 0.5), 3), "p90": round(pct(values, 0.9), 3), "p95": round(pct(values, 0.95), 3), "max": round(max(values), 3)}
         late = [r.get("late_vsyncs", 0) for r in rows]
         line["late_switches"] = sum(1 for v in late if v > 0)
         line["late_max"] = max(late) if late else 0
         table[kind] = line
-        cells = " ".join(f"{st}={line[st]['p50']}/{line[st]['p90']}" for st in ("input", "apply", "commit", "e2e") if st in line)
-        print(f"  {label:<14} {kind:<10} n={len(rows):<3} p50/p90 ms: {cells} late={line['late_switches']}/{len(rows)} max={line['late_max']}", flush=True)
+        cells = " ".join(f"{st}={line[st]['p50']}/{line[st]['p90']}/{line[st]['p95']}" for st in ("input", "apply", "commit", "e2e") if st in line)
+        print(f"  {label:<14} {kind:<10} n={len(rows):<3} p50/p90/p95 ms: {cells} late={line['late_switches']}/{len(rows)} max={line['late_max']}", flush=True)
     stalls = {"count": hangs.get("count"), "max_ms": hangs.get("max_ms")}
     for record in (hangs.get("records") or [])[-3:]:
         frames = [f for f in record.get("frames", []) if "CmuxNext" in f or "Ghostty" in f][:8]
         print(f"    stall {record.get('duration_ms', 0):.1f} ms: " + " < ".join(str(f)[:90] for f in frames), flush=True)
-    return {"table": table, "switches": switches, "stalls": stalls, "cpu_percent_during": round(cpu, 1),
+    frames = content_frames(PAGE_TABS, sends) if PAGE_TABS else []
+    got = [f for f in frames if f is not None]
+    content = None
+    if frames:
+        content = {"switches": len(frames), "framed": len(got), "p50": pct(got, 0.5), "p90": pct(got, 0.9), "p95": pct(got, 0.95), "max": max(got) if got else None}
+        print(f"  {label:<14} page content frame: {content}", flush=True)
+    return {"table": table, "switches": switches, "stalls": stalls, "cpu_percent_during": round(cpu, 1), "content_frame_ms": content,
             "timed": len(switches), "asked": count, "profile": profiled}
 
 
@@ -302,6 +337,8 @@ def scenario(kind, count, baseline):
             time.sleep(0.4)  # test harness: the page loads before the next tab
     print(f"{name}: {count} tabs made in {time.time() - t0:.1f} s", flush=True)
     total = len(strip_tabs())
+    global PAGE_TABS
+    PAGE_TABS = [t[0] for t in strip_tabs()] if kind in ("chromium", "webkit") else []
     for _ in range(total):  # warm: every tab once
         rpc("debug.key", {"key": "tab", "modifiers": ["control"]})
         time.sleep(0.35 if kind != "terminal" else 0.15)  # test harness: slow warm-up visit

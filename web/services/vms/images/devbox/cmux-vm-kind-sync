@@ -1,0 +1,37 @@
+#!/bin/sh
+# Refreshes the root-owned machine sharing marker from the VM-bound reflection
+# route. Own agent logins are allowed only while this says `owner`; any missing
+# configuration or failed/invalid response writes `team` first (fail closed).
+set -eu
+
+kind_file=${CMUX_VM_KIND_FILE:-/etc/cmux/vm-kind}
+env_file=${CMUX_VM_MODEL_ENV_FILE:-/etc/cmux/model-plane.env}
+
+write_kind() {
+  kind=$1
+  dir=${kind_file%/*}
+  [ "$dir" != "$kind_file" ] || dir=.
+  mkdir -p "$dir"
+  tmp=$(mktemp "$dir/.vm-kind.XXXXXX")
+  trap 'rm -f "$tmp"' EXIT HUP INT TERM
+  printf '%s\n' "$kind" >"$tmp"
+  chmod 0644 "$tmp"
+  if [ "$(id -u)" = 0 ]; then chown root:root "$tmp"; fi
+  mv -f "$tmp" "$kind_file"
+  trap - EXIT HUP INT TERM
+}
+
+write_kind team
+[ -f "$env_file" ] || exit 0
+# Root-owned image data. It carries only alias origins and public placeholders.
+. "$env_file"
+origin=${CMUX_CODEROUTER_URL:-}
+case "$origin" in https://*) ;; *) exit 0 ;; esac
+key=${OPENAI_API_KEY:-cmux-vm-edge-placeholder}
+set -- -fsS --connect-timeout 2 --max-time 8 -H "authorization: Bearer $key" -H 'accept: application/json'
+if [ -f /usr/local/share/ca-certificates/freestyle-tls.crt ]; then
+  set -- "$@" --cacert /usr/local/share/ca-certificates/freestyle-tls.crt
+fi
+body=$(curl "$@" "${origin%/}/api/vm/reflection/kind" 2>/dev/null) || exit 0
+kind=$(printf '%s' "$body" | jq -er '.kind | select(. == "owner" or . == "team")' 2>/dev/null) || exit 0
+write_kind "$kind"

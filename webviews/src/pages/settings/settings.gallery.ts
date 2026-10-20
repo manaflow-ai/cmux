@@ -167,6 +167,23 @@ Object.assign(variants, {
     ],
     note: "Change Background…: the art picker and its Opacity slider on Appearance, with a public-safe sample thumbnail.",
   }),
+  // Leo, 10-19: "the knob, the slider still doesn't work". Over a picture the Opacity slider starts
+  // at the legibility floor the app reports (62% here, on the grid at 65%) and says why.
+  "backdrops-opacity-floor": variant("appearance", {
+    options: { values: { "appearance.background": "starryNight" } },
+    host: {
+      ...host,
+      derived: { "appearance.backgroundOpacity": 0.7 },
+      derived_min: { "appearance.backgroundOpacity": 0.62 },
+      backdrops: [{ id: "starryNight", title: "Sample night", attribution: "Gallery sample thumbnail" }],
+    },
+    backdropImages: { starryNight: VAN_GOGH_STARRY_NIGHT },
+    steps: [
+      wait('[data-card="backdrop"]'),
+      { selector: '[data-card="backdrop"] input[type="range"]', action: "focus" },
+    ],
+    note: "Over a picture the Opacity slider's travel is 65% to 95%, every step of which changes the window; the summary says why it starts at 65%.",
+  }),
   // Leo, 10-19: Appearance's floating Undo, Redo and Reset, after a background pick (Undo names it).
   "appearance-undo-bar": variant("appearance", {
     host: {
@@ -692,6 +709,15 @@ Object.assign(variants, {
     steps: [wait("[data-agent-harness]")],
     note: "Every harness acpmux knows: kind, source, a probe problem; Check and Remove on user profiles.",
   }),
+  // Settings > Agents > Chiefs (u2586): every Chief; a row opens the same editor as Home.
+  "agents-chiefs": variant("agents", {
+    steps: [wait('[data-card="chiefs"] [data-chief]')],
+    note: "Chiefs: picture, name, role, backend and a Locked badge; New Chief opens the editor.",
+  }),
+  "agents-chief-editor": variant("agents", {
+    steps: [click('[data-chief="agent_release"]'), wait('[data-card="chiefs"] section.chief-editor')],
+    note: "A Chief row opens its editor in the card: backend, lock and history, never a dialog.",
+  }),
   "agents-add-custom": variant("agents", {
     focus: "agents.add",
     steps: [wait("[data-agents-custom]")],
@@ -840,6 +866,7 @@ export default settingsPageEntry({
     "pages/settings/components/AccountsSection.tsx",
     "pages/settings/components/AgentHarnesses.tsx",
     "pages/settings/components/ComputerUseCard.tsx",
+    "pages/settings/components/ChiefsCard.tsx#ChiefsCard",
     "pages/settings/components/HarnessesCard.tsx",
     "pages/settings/components/AgentHarnesses.tsx#AgentHarnesses",
     "pages/settings/components/ActionRow.tsx",

@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "4633825b44cf1cd8d82b476aadb9d938af82ebe6107c28580c40a44dd11d363b";
+pub const ir_sha256 = "5e69f4f6edf2b8c3c330c70dcc2f1d5ece8784de7423f90cc4a35d660bc1c512";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -394,6 +394,24 @@ pub const CloseTerminalResult = struct {
 };
 
 pub const ColorHex = []const u8;
+
+pub const ColumnMoveDirection = enum {
+    left,
+    right,
+
+    pub fn fromWire(value: []const u8) !@This() {
+        if (std.mem.eql(u8, value, "left")) return .left;
+        if (std.mem.eql(u8, value, "right")) return .right;
+        return error.UnknownEnumValue;
+    }
+
+    pub fn toWire(self: @This()) []const u8 {
+        return switch (self) {
+            .left => "left",
+            .right => "right",
+        };
+    }
+};
 
 pub const ColumnPin = struct {
     edge: []const u8,
@@ -2976,6 +2994,11 @@ pub const TerminalResourcesResult = struct {
     missing: []const Id,
     sampled_at_ns: u64,
     terminals: []const TerminalResources,
+};
+
+pub const TerminalResumeCommandResult = struct {
+    command: wire.Nullable([]const u8),
+    terminal_id: []const u8,
 };
 
 pub const Tree = struct {
@@ -6021,9 +6044,11 @@ pub fn homeInbox(client: anytype, request: HomeInboxRequest) !wire.Decoded(HomeI
 
 pub const IdentifyRequest = struct {
     machine_metadata: ?bool = null,
+    revisions: ?bool = null,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "machine_metadata",
+        "revisions",
     };
 };
 
@@ -6037,6 +6062,7 @@ pub fn identify(client: anytype, request: IdentifyRequest) !wire.Decoded(Identif
             .capability = null,
             .fields = &.{
                 .{ .name = "machine_metadata", .since = 12, .capability = "machine-identity-v1" },
+                .{ .name = "revisions", .since = 12, .capability = null },
             },
         },
         request,
@@ -6518,6 +6544,26 @@ pub fn moveBrowserProfile(client: anytype, request: MoveBrowserProfileRequest) !
             .authority = "control",
             .since = 12,
             .capability = "browser-profiles-v1",
+        },
+        request,
+    );
+}
+
+pub const MoveColumnRequest = struct {
+    direction: ColumnMoveDirection,
+    pane: Id,
+};
+
+pub const MoveColumnResult = JsonValue;
+
+pub fn moveColumn(client: anytype, request: MoveColumnRequest) !wire.Decoded(MoveColumnResult) {
+    return client.callTyped(
+        MoveColumnResult,
+        .{
+            .name = "move-column",
+            .authority = "control",
+            .since = 12,
+            .capability = "column-move-v1",
         },
         request,
     );
@@ -9167,6 +9213,25 @@ pub fn terminalResources(client: anytype, request: TerminalResourcesRequest) !wi
     );
 }
 
+pub const TerminalResumeCommandRequest = struct {
+    command: wire.Field([]const u8) = .absent,
+    surface: wire.Field(Id) = .absent,
+    terminal_id: wire.Field([]const u8) = .absent,
+};
+
+pub fn terminalResumeCommand(client: anytype, request: TerminalResumeCommandRequest) !wire.Decoded(TerminalResumeCommandResult) {
+    return client.callTyped(
+        TerminalResumeCommandResult,
+        .{
+            .name = "terminal-resume-command",
+            .authority = "control",
+            .since = 12,
+            .capability = "resume-command",
+        },
+        request,
+    );
+}
+
 pub const UndoLayoutRequest = struct {
     confirm_close: ?bool = null,
     pane: Id,
@@ -11286,7 +11351,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 278;
+pub const command_count: usize = 280;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -11433,6 +11498,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "mint-terminal-renderer-by-terminal", .authority = "frontend", .since = 11, .capability = null, .stream = null },
     .{ .name = "move-bookmark", .authority = "control", .since = 12, .capability = "bookmarks-v1", .stream = null },
     .{ .name = "move-browser-profile", .authority = "control", .since = 12, .capability = "browser-profiles-v1", .stream = null },
+    .{ .name = "move-column", .authority = "control", .since = 12, .capability = "column-move-v1", .stream = null },
     .{ .name = "move-personal-group", .authority = "control", .since = 12, .capability = "profiles-v1", .stream = null },
     .{ .name = "move-profile", .authority = "control", .since = 12, .capability = "profiles-v1", .stream = null },
     .{ .name = "move-screen", .authority = "control", .since = 12, .capability = "screen-metadata-v1", .stream = null },
@@ -11542,6 +11608,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "terminal-history", .authority = "control", .since = 12, .capability = "terminal-snapshot-v1", .stream = null },
     .{ .name = "terminal-read-range", .authority = "control", .since = 12, .capability = "terminal-snapshot-v1", .stream = null },
     .{ .name = "terminal-resources", .authority = "control", .since = 12, .capability = "terminal-resources-v1", .stream = null },
+    .{ .name = "terminal-resume-command", .authority = "control", .since = 12, .capability = "resume-command", .stream = null },
     .{ .name = "undo-layout", .authority = "control", .since = 9, .capability = "layout-undo-v1", .stream = null },
     .{ .name = "ungroup-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
     .{ .name = "ungroup-tab-group", .authority = "control", .since = 12, .capability = "tab-groups-v1", .stream = null },
