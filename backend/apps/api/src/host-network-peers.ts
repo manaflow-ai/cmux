@@ -40,11 +40,14 @@ export const ownHost = (d: PeerDeps, p: Principal, id: string): NetworkHost | nu
     && host.network?.state === "confirmed" && host.network.install_grant === p.grant
     && (host.kind === "server" ? p.install_kind === "daemon" : ["mac", "ios", "cli"].includes(p.install_kind ?? "")) ? host : null
 }
-export const hostStamp = (d: PeerDeps, host: NetworkHost): string => {
+export const hostStamp = (d: Pick<PeerDeps, "state" | "rows" | "team">, host: NetworkHost): string => {
   const state = d.state(), role = roleOf(state, d.rows, host.owner_user)
   return digest([host.id, host.owner_user, host.enrolled_by, host.kind, host.network, host.wg_public_key,
     state.team && role ? teamAuthorityVersion(d.team, host.owner_user!, role, state.team.kind, currentPolicy(state).version, d.rows) : null])
 }
+/** The same install/host incarnation is used in peer views and signed dial credentials. */
+export const peerAuthorityVersion = (d: Pick<PeerDeps, "state" | "rows" | "team">, host: NetworkHost, identity: NetworkIdentity): string =>
+  digest(["cmux-network-peer-v1", hostStamp(d, host), identity.authority_version])
 export const identityMatches = (host: NetworkHost, identity: NetworkIdentity | null, now: number): identity is NetworkIdentity =>
   identity !== null && (identity.expires_at === null || identity.expires_at > now) && /^[0-9a-f]{64}$/.test(identity.authority_version)
     && (host.kind === "server" ? identity.kind === "daemon" : ["mac", "ios", "cli"].includes(identity.kind)) && pointOf(identity) !== null

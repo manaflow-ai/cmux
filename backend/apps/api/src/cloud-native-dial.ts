@@ -2,11 +2,12 @@ import type { Principal } from "@cmux/ownership"
 import { CloudVmNetwork, ServerNetworkProof } from "@cmux/protocol"
 import { Schema } from "effect"
 import { can, hostByInstall } from "./domains/team-members.ts"
-import { installPublicPoint } from "./install-public-point.ts"
+import { identityMatches, peerAuthorityVersion, pointOf, type NetworkIdentity } from "./host-network-peers.ts"
 import { networkOrigin, verifyNetworkIdentity, type NetworkIdentityDeps } from "./network-policy-read.ts"
 
-export type NativeDialDeps = Omit<NetworkIdentityDeps, "stream" | "submitSystem"> & {
+export type NativeDialDeps = Omit<NetworkIdentityDeps, "stream" | "submitSystem" | "key"> & {
   readonly allowed: () => ReadonlyArray<string>
+  readonly identity: (user: string, install: string, grant: string) => Promise<NetworkIdentity | null>
 }
 export interface NativeDialTarget { readonly vm: string; readonly origin: string; readonly network: typeof CloudVmNetwork.Type }
 export interface NativeDialPermit {
@@ -24,16 +25,17 @@ export interface NativeDialPermit {
   readonly services: ReadonlyArray<string>
   readonly aclVersion: number
   readonly policyDigest: string
+  readonly authorityVersion: string
+  readonly grantExpiresAt: number | null
 }
 type Failure = { readonly ok: false; readonly code: string; readonly message: string }
 export type NativeDialReply = { readonly ok: true; readonly permit: NativeDialPermit } | Failure
 const forbidden = (): Failure => ({ ok: false, code: "auth.forbidden", message: "the current client network policy does not authorize this dial" })
-const pointOf = (key: JsonWebKey | null): string | null => { try { return key ? installPublicPoint(key) : null } catch { return null } }
 
 /** A historical confirmation is a locator. Current grant, key, membership and policy decide access. */
 const currentBinding = (d: NativeDialDeps, p: Principal) => {
   const state = d.state()
-  if (p.kind !== "install" || p.agent || !p.user || !p.install || !p.grant || p.team !== d.team
+  if (p.kind !== "install" || p.agent !== undefined || !p.user || !p.install || !p.grant || p.team !== d.team
     || !["mac", "ios", "cli"].includes(p.install_kind ?? "") || state.team?.id !== d.team
     || state.team.deleted_at !== undefined || state.server_revocations?.[p.install]
     || !can(state, d.rows, p.user, "team.resources")) return null
@@ -82,9 +84,10 @@ export const authorizeNativeDial = async (
     || !Schema.is(CloudVmNetwork)(target.network) || !/^vm_[a-z0-9]{26}$/.test(target.vm)
     || target.network.tenant !== host.network.tenant || target.network.mesh !== host.network.mesh) return forbidden()
   try {
-    const [tenant, key] = await Promise.all([d.tenant(), d.key(p.user!, p.install!, p.grant!)])
-    const point = pointOf(key)
-    if (!point || tenant?.team !== d.team || tenant.project !== d.project || tenant.tenant !== target.network.tenant) return forbidden()
+    const [tenant, own] = await Promise.all([d.tenant(), d.identity(p.user!, p.install!, p.grant!)])
+    const point = pointOf(own)
+    if (!point || !identityMatches(host, own, d.now()) || tenant?.team !== d.team || tenant.project !== d.project || tenant.tenant !== target.network.tenant) return forbidden()
+    const authorityVersion = peerAuthorityVersion(d, host, own)
     const identity = { ...host.network, wg: host.wg_public_key!, point }
     const read = await verifyNetworkIdentity(d.http, origin, "device", identity, proof, d.now())
     if (!read.ok) return read
@@ -92,7 +95,8 @@ export const authorizeNativeDial = async (
     const permit: NativeDialPermit = {
       team: d.team, user: p.user!, install: p.install!, grant: p.grant!, host: host.id,
       tenant: identity.tenant, mesh: identity.mesh, device: identity.device, wg: identity.wg, point, origin,
-      services: [...services], aclVersion: read.policy.aclVersion as number, policyDigest: read.policy.policyDigest as string
+      services: [...services], aclVersion: read.policy.aclVersion as number, policyDigest: read.policy.policyDigest as string,
+      authorityVersion, grantExpiresAt: own.expires_at
     }
     return await recheckNativeDial(d, p, permit) ? { ok: true, permit } : forbidden()
   } catch { return { ok: false, code: "owner.unreachable", message: "current network authorization is unavailable" } }
@@ -102,9 +106,10 @@ export const authorizeNativeDial = async (
 export const recheckNativeDial = async (d: NativeDialDeps, p: Principal, permit: NativeDialPermit): Promise<boolean> => {
   if (permit.team !== d.team || permit.user !== p.user || permit.install !== p.install || permit.grant !== p.grant) return false
   try {
-    const [tenant, key] = await Promise.all([d.tenant(), d.key(permit.user, permit.install, permit.grant)])
+    const [tenant, own] = await Promise.all([d.tenant(), d.identity(permit.user, permit.install, permit.grant)])
     const current = currentBinding(d, p)
-    return pointOf(key) === permit.point && tenant?.team === d.team && tenant.project === d.project && tenant.tenant === permit.tenant
+    return !!current && identityMatches(current, own, d.now()) && peerAuthorityVersion(d, current, own) === permit.authorityVersion
+      && own.expires_at === permit.grantExpiresAt && pointOf(own) === permit.point && tenant?.team === d.team && tenant.project === d.project && tenant.tenant === permit.tenant
       && networkOrigin(d.origin) === permit.origin && servicesCurrent(d, permit.services) && current?.id === permit.host
       && current.wg_public_key === permit.wg && current.network?.tenant === permit.tenant && current.network.mesh === permit.mesh && current.network.device === permit.device
   } catch { return false }
