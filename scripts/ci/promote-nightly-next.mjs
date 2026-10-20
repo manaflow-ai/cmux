@@ -121,6 +121,22 @@ const COMMIT_FILE_CAP = 3000;
 // GitHub's secondary rate limit for concurrent requests.
 const READ_CONCURRENCY = 16;
 
+// GitHub answers a read with a 5xx now and then (run 39413299148). A read
+// that fails that way is tried again after a short wait, up to this many
+// times in all; a 4xx or a lasting 5xx still throws (fail closed).
+const READ_ATTEMPTS = 4;
+
+async function retrying(fn, sleep) {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return await fn();
+    } catch (error) {
+      if (!(error?.status >= 500) || attempt >= READ_ATTEMPTS) throw error;
+      await sleep(1000 * 2 ** attempt);
+    }
+  }
+}
+
 // fn over items with at most `limit` calls in flight; results in input order.
 async function mapLimit(items, limit, fn) {
   const results = new Array(items.length);
@@ -379,7 +395,7 @@ export async function decide({
   // A change no single commit shows (a merge that kept the other side's
   // version) is attributed to the range's merge commits.
   const detailed = await mapLimit(commits, READ_CONCURRENCY, async (commit) => {
-    const full = await commitWithFiles(github, owner, repo, commit.sha);
+    const full = await retrying(() => commitWithFiles(github, owner, repo, commit.sha), sleep);
     return full || { sha: commit.sha, truncated: true, files: [], parents: commit.parents || [] };
   });
   const touching = detailed.filter((commit) => commit.truncated || commit.files.some(touches));
@@ -398,7 +414,7 @@ export async function decide({
   const actors = await pushActors(github, owner, repo, compare, new Set(touching.map((commit) => commit.sha)), rangeSet, current);
   const landers = new Set();
   const unresolved = [];
-  const landerSets = await mapLimit(touching, READ_CONCURRENCY, (commit) => landersOf(github, owner, repo, commit, actors));
+  const landerSets = await mapLimit(touching, READ_CONCURRENCY, (commit) => retrying(() => landersOf(github, owner, repo, commit, actors), sleep));
   touching.forEach((commit, index) => {
     const logins = landerSets[index];
     if (!logins) unresolved.push(commit.sha);
