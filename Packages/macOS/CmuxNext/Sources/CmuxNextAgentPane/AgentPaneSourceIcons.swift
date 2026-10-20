@@ -29,7 +29,9 @@ public actor AgentPaneSourceIcons {
         self.maximumConcurrent = max(1, maximumConcurrent)
         self.maximumQueued = max(0, maximumQueued)
         self.fetch = fetch
-        self.elapsed = Self.timeSource(fetch.clock)
+        // A local copy lets the compiler open the existential clock (a stored property is not opened).
+        let clock = fetch.clock
+        self.elapsed = Self.timeSource(clock)
         self.cache = AgentPaneSourceIconCache(capacity: maximumCached)
         self.decode = decode ?? { AgentPaneSourceIconPNG().decode($0) }
     }

@@ -131,7 +131,9 @@ public nonisolated struct GuardedRemoteFetch: Sendable {
 
     /// The body of a 2xx answer for `url`, following checked redirects.
     public func fetch(_ url: URL) async -> Result<RemoteFetchResponse, RemoteFetchFailure> {
-        await fetch(url, clock: clock)
+        // A local copy lets the compiler open the existential clock (a stored property is not opened).
+        let clock = clock
+        return await fetch(url, clock: clock)
     }
 
     private func fetch<C: Clock>(_ url: URL, clock: C) async -> Result<RemoteFetchResponse, RemoteFetchFailure> where C.Duration == Duration {

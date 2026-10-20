@@ -7,7 +7,9 @@ nonisolated struct AgentPaneSourceIconChain: Sendable {
     let decode: @Sendable (Data) -> Data?
 
     func load(_ url: URL) async -> AgentPaneSourceIconResult {
-        await load(url, clock: fetch.clock)
+        // A local copy lets the compiler open the existential clock (a stored property is not opened).
+        let clock = fetch.clock
+        return await load(url, clock: clock)
     }
 
     private func load<C: Clock>(_ url: URL, clock: C) async -> AgentPaneSourceIconResult where C.Duration == Duration {
