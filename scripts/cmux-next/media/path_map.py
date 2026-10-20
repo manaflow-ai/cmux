@@ -23,12 +23,14 @@ import re
 import sys
 
 
-TOUR_ORDER = ("new-tab", "agent-pane", "now-playing", "pinned-tabs", "hover-card", "update-card", "glass", "fonts", "core")
+TOUR_ORDER = ("new-tab", "agent-pane", "now-playing", "pinned-tabs", "hover-card", "update-card", "glass", "fonts", "home", "core")
 UI_ROOTS = (
     re.compile(r"^(?:Packages/macOS/CmuxNext/Sources|webviews/(?:src|apps)|agent-chat/(?:src|app|components?)/)"),
     re.compile(r"^(?:Packages/macOS/CmuxNext/(?:Resources|Tests?)/|webviews/|agent-chat/)"),
     # cmux's own themes, which the app bundles next to Ghostty's.
     re.compile(r"^Resources/cmux-themes/"),
+    # MessagesLab's conversation list, Home's left column.
+    re.compile(r"^Packages/Shared/CmuxMessagesLab/Sources/MessagesLabSidebar/"),
 )
 NEW_TAB = re.compile(r"(?:new.?tab|NewTab)", re.IGNORECASE)
 AGENT_PANE = re.compile(r"(?:agent.?pane|agent-session|AgentPane|acpmux)", re.IGNORECASE)
@@ -44,6 +46,8 @@ GLASS = re.compile(r"(?:theme|glass|backdrop|WindowBackground|SurfaceBackground|
 # Font settings (appearance.fonts.*): the fonts tour opens Settings on the Fonts group and the chat
 # in each face.
 FONTS = re.compile(r"(?:AppFonts|FontPreview|app-fonts|font-variables)", re.IGNORECASE)
+# Home's conversation list column: its header, rows and width (the home tour's widths, light and dark).
+HOME = re.compile(r"(?:MessagesLabSidebar|CmuxNextHome/Sidebar/|HomeSidebar|TopHomePage)")
 # Webview code: the gallery advisory run captures it on Linux (glass, themes and fonts excepted).
 WEBVIEW = re.compile(r"^webviews/")
 # Webview code that talks to the app or the daemon: the gallery's mock providers never run it.
@@ -84,6 +88,8 @@ def tours_for_path(path: str) -> list[str]:
         selected.append("glass")
     if FONTS.search(normalized):
         selected.append("fonts")
+    if HOME.search(normalized):
+        selected.append("home")
     if not selected:
         selected.append("core")
     return selected
