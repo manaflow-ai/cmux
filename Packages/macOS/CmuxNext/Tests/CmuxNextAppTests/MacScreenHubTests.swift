@@ -124,6 +124,7 @@ struct MacScreenHubCardTests {
         #expect(MacScreenEndReason("signed_out") == .signedOut)
         #expect(MacScreenEndReason("peer_offline") == .peerOffline)
         #expect(MacScreenEndReason("failed") == .failed)
+        #expect(MacScreenEndReason("expired") == .expired)
         #expect(MacScreenEndReason("bye") == .other)
         #expect(MacScreenEndReason(nil) == .other)
         #expect(MacScreenHubReason.hostStopped.rawValue == "host_stopped")

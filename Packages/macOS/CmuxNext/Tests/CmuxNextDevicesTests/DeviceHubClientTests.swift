@@ -46,6 +46,17 @@ import Testing
         #expect(body["agreementKey"] as? String == identity.agreementKey)
     }
 
+    /// Sign-out ends this device's sessions on the hub (reason `signed_out`) before the account session goes.
+    @Test func signOutPostsThisDevicesSignOut() async throws {
+        let identity = DeviceIdentity.software()
+        let hub = StubHub.routes(["POST /v1/devices/\(identity.id)/sign-out": (200, "{}")])
+        let client = makeClient(hub, identity: identity)
+        try await client.signOutDevice()
+        let calls = hub.requests.filter { $0.url.path != "/v1/auth/stack" }
+        #expect(calls.map { "\($0.method) \($0.pathAndQuery)" } == ["POST /v1/devices/\(identity.id)/sign-out"])
+        for call in calls { expectSigned(call, by: identity) }
+    }
+
     @Test func everyEndpointHasItsMethodPathAndBody() async throws {
         let identity = DeviceIdentity.software()
         let device = #"{"device":{"id":"d2","name":"Phone"}}"#
