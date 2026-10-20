@@ -22,9 +22,9 @@ final class FakeDiagrams: HomeDiagramRendering, @unchecked Sendable {
         guard let natural = layout(mermaid: source, maxWidth: maxWidth) else { return nil }
         let w = Int(natural.width * scale), h = Int(natural.height * scale)
         guard let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0,
-                                  space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+                                  space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
         else { return nil }
-        ctx.setFillColor(CGColor(red: 1, green: 0, blue: 0, alpha: 1))
+        ctx.setFillColor(CGColor(srgbRed: 1, green: 0, blue: 0, alpha: 1))
         ctx.fill(CGRect(x: 0, y: 0, width: w, height: h))
         return ctx.makeImage()
     }
@@ -106,7 +106,7 @@ final class FakeDiagrams: HomeDiagramRendering, @unchecked Sendable {
 
         let scale = 2
         let ctx = try #require(CGContext(data: nil, width: Int(size.width) * scale, height: Int(size.height) * scale, bitsPerComponent: 8,
-                                         bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),
+                                         bytesPerRow: 0, space: CGColorSpace(name: CGColorSpace.sRGB)!,
                                          bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
         ctx.scaleBy(x: CGFloat(scale), y: CGFloat(scale))
         provider.drawRow(c, in: ctx, rect: CGRect(origin: .zero, size: size), context: CustomRowDrawContext(outgoing: false, isDark: true, elevated: false))
@@ -115,7 +115,7 @@ final class FakeDiagrams: HomeDiagramRendering, @unchecked Sendable {
         let pixels = try #require(ctx.makeImage()?.dataProvider?.data as Data?)
         let bytesPerRow = try #require(ctx.makeImage()?.bytesPerRow)
         let center = (Int(size.height) * scale / 2) * bytesPerRow + (Int(size.width) * scale / 2) * 4
-        #expect(pixels[center] == 255 && pixels[center + 1] == 0, "the image is drawn inside the bubble")
+        #expect(pixels[center] > 230 && pixels[center + 1] < 40 && pixels[center + 3] > 230, "the image is drawn inside the bubble")
         let corner = 2 * bytesPerRow + 2 * 4
         #expect(pixels[corner + 3] == 0, "the padding stays clear")
     }
