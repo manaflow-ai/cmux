@@ -7,8 +7,12 @@ import CmuxNextSettings
 /// - ``LinkPlacement/splitRight`` (default) and ``LinkPlacement/newColumn``: the pane right of
 ///   the source on its screen gets the new tab, so repeated opens reuse one pane; with no pane
 ///   there, a new split (or a new column) opens right of the source.
-/// - ``LinkPlacement/samePane``: a tab in the source pane, unless the source takes no new tabs
-///   (the pinned Home column), which acts as ``LinkPlacement/splitRight``.
+/// - ``LinkPlacement/samePane``: a tab in the source pane, unless the source takes no new tabs.
+///
+/// A source that takes no tabs (Home's pinned dock) never holds the opened tab, whatever the
+/// setting: the pane on its right, else ``Target/besideDock(_:)``. A split or column would make
+/// the tab in the source first and then move it, and a pinned dock refuses that move, so the tab
+/// stayed inside Home (Lawrence 2026-10-20).
 ///
 /// `Pane` is the caller's pane identity (`LayoutPaneID` in the app), so the rule runs without a
 /// window or a daemon.
@@ -34,6 +38,7 @@ struct LinkOpenPlacement<Pane: Equatable> {
     func target(source: Pane, takesTabs: Bool, right: Pane?) -> Target {
         if setting == .samePane, takesTabs { return .pane(source) }
         if let right, right != source { return .pane(right) }
+        if !takesTabs { return .besideDock(source) }
         return setting == .newColumn ? .newColumn(rightOf: source) : .splitRight(of: source)
     }
 
@@ -42,6 +47,12 @@ struct LinkOpenPlacement<Pane: Equatable> {
     /// `recency` lists panes newest first. The first column after the source's with a pane that
     /// takes tabs answers, with its most recent such pane (else its first). Nil when none.
     static func paneRight(of source: Pane, columns: [[Pane]], takesTabs: (Pane) -> Bool, recency: [Pane]) -> Pane? {
-        nil
+        guard let index = columns.firstIndex(where: { $0.contains(source) }) else { return nil }
+        for column in columns[(index + 1)...] {
+            let candidates = column.filter { $0 != source && takesTabs($0) }
+            guard let first = candidates.first else { continue }
+            return recency.first(where: candidates.contains) ?? first
+        }
+        return nil
     }
 }
