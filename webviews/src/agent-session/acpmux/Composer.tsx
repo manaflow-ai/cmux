@@ -112,6 +112,8 @@ export type ComposerHandle = {
   /// Adds a chip after the ones held, leaving the prompt as typed (the floating chat's Include
   /// focused tab); one with the same id is replaced. Nothing changes when it holds the most it can.
   attach(attachment: ComposerAttachment): void;
+  /// Takes out the chips with these ids, leaving the prompt as typed (a design mode highlight removed on the page).
+  detach(ids: readonly string[]): void;
   /// Sends what is typed now, as Enter would, even while `blocked` is still drawn (the user just
   /// answered Trust for the prompt the composer held). False when nothing went.
   send(): boolean;
@@ -420,6 +422,9 @@ export function Composer({
           const held = current.filter((chip) => chip.id !== attachment.id);
           return held.length >= MAX_ATTACHMENTS ? current : [...held, attachment];
         });
+      },
+      detach(ids) {
+        setAttachments((current) => current.filter((chip) => !ids.includes(chip.id)));
       },
       send: () => submitNow.current(true),
       focus: () => field.current?.focus(),

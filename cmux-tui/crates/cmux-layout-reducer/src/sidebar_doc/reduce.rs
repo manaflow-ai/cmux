@@ -812,7 +812,8 @@ fn pin(tx: &mut Tx, ids: &[ItemId]) -> Result<(), Refusal> {
 }
 
 /// Unpin. A member pinned in its group goes right under the group's other
-/// pinned members. An item in the Pinned band (or a custom section) goes
+/// pinned members; any other group member is not pinned and stays (a tree
+/// pinned with its top group unpins with it). An item in the Pinned band (or a custom section) goes
 /// back where it was pinned from when that place is still there, else to
 /// the top of its own machine section.
 fn unpin(tx: &mut Tx, ids: &[ItemId]) -> Result<(), Refusal> {
@@ -828,6 +829,11 @@ fn unpin(tx: &mut Tx, ids: &[ItemId]) -> Result<(), Refusal> {
                 group.as_deref().map_or(0, |group| pinned_members(tx.doc, &section, group, id));
             let to = Target { section, parent: group, index: Some(index), ..Target::default() };
             place(tx, std::slice::from_ref(id), &to)?;
+            continue;
+        }
+        // A member of a group that is not pinned in it is not pinned itself
+        // (in a pinned tree, it is pinned with its top group): it stays.
+        if item.parent.is_some() {
             continue;
         }
         let machine = tx.doc.item_machine(item).ok_or(Refusal::NoMachine)?;
@@ -1035,6 +1041,12 @@ fn update_section(tx: &mut Tx, id: &str, patch: &SectionPatch) -> Result<(), Ref
     }
     if let Some(scroll) = patch.scroll {
         section.scroll = scroll;
+    }
+    if let Some(host_group) = patch.host_group {
+        if host_group && section.kind.machine().is_none() {
+            return Err(Refusal::InvalidValue);
+        }
+        section.host_group = host_group;
     }
     validate_section_numbers(&section)?;
     if tx.doc.section(id) != Some(&section) {
