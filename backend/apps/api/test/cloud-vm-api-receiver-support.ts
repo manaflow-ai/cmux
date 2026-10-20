@@ -1,4 +1,4 @@
-import type { Principal } from "@cmux/ownership"
+import type { OwnerFrame, Principal } from "@cmux/ownership"
 import { env } from "cloudflare:workers"
 import { expect } from "vitest"
 import type { Env } from "../src/env.ts"
@@ -16,6 +16,7 @@ export const withReceiver = async (run: (f: {
   client: { host: string; user: string; install: string; grant: string; device: string; wg: string; point: string };
   native: Record<string, unknown>; requests: Request[]; read: (p?: Principal, params?: unknown) => Promise<any>;
   self: () => Promise<any>; sessionOp: (op: string, params: unknown) => Promise<any>;
+  power: (phase: "pause" | "start") => Promise<{ frames: ReadonlyArray<OwnerFrame> }>;
   onRead: (hook: () => Promise<void>) => void; remove: () => Promise<unknown>;
   onDial: (hook: () => Promise<void>) => void;
   grant: (which: "vm" | "client", patch: Record<string, unknown>) => Promise<void>;
@@ -119,6 +120,8 @@ export const withReceiver = async (run: (f: {
   await run({ team: w.team, user: w.user, tenant: w.tenant, machine, host: value.host, principal, client, native, requests,
     read: (p = principal, params = { machine }) => w.owner().readOp(w.team, p, "cloud.vm.network_policy", params),
     self: () => w.owner().readOp(w.team, principal, "cloud.vm.self.get", { machine }), sessionOp,
+    power: (phase) => w.owner().submit(w.team, { identity: `user:${w.user}`, kind: "session", user: w.user, team: w.team },
+      { t: "op", op: `cloud.machine.${phase}`, params: { machine }, idempotency_key: crypto.randomUUID(), origin: "cli" }),
     onRead: (value) => { hook = value }, remove: () => w.remove(machine),
     onDial: (value) => { dialHook = value },
     nativeResponse: (make) => { response = make }, badAllocation: () => { badAllocation = true },
