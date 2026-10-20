@@ -1,5 +1,5 @@
 #!/bin/bash
-# gh-merge-green REPO#PR [--full] [--wait SECONDS] [--main-fix] [--override "reason"] [--trust-fork-head SHA] [gh pr merge flags...]
+# gh-merge-green REPO#PR [--full] [--wait SECONDS] [--dry-run] [--sha SHA] [--main-fix] [--override "reason"] [--trust-fork-head SHA] [gh pr merge flags...]
 # gh-merge-green --revert REPO#PR: open a revert PR for a merged PR and land it (scripts/ci/revert_pr.py).
 # Optional helper: merges only when the PR head's checks are green.
 # Into feat-cmux-next it applies a FAST gate by default (scripts/ci/merge_fast_gate.py):
@@ -19,12 +19,23 @@ print_repair() {
   printf 'fix: %s\n%s\n' "$1" "$repair_note" >&2
 }
 
+# bash 3.2 (macOS /bin/bash) runs the ERR trap inside $(...) even under `if !`;
+# a subshell only hands its status back, and the caller decides what it means.
+# (2026-10-19: every refusal that went through base_red_excuse.py printed this
+# trap's generic line first.) In the main shell an unexpected failure names itself.
 on_error() {
-  local status=$?
+  local status="$1" line="$2" command="$3"
+  [ "${BASH_SUBSHELL:-0}" -gt 0 ] && exit "$status"
   if [ "$refusal_reported" -eq 0 ]; then
+    refusal_reported=1
+    printf 'not green: an unexpected command failed (exit %s) at gh-merge-green line %s: %s\n' "$status" "$line" "$command" >&2
     print_repair "inspect the failed GitHub query or command, then retry after it is healthy"
   fi
   exit "$status"
+}
+
+install_error_trap() {
+  trap 'on_error "$?" "$LINENO" "$BASH_COMMAND"' ERR
 }
 
 refuse() {
@@ -34,15 +45,27 @@ refuse() {
   exit 1
 }
 
-trap on_error ERR
+# Details first, then the one-line reason, so `| tail -5` still shows the reason.
+refuse_with_details() {
+  refusal_reported=1
+  [ -n "$2" ] && printf '%s\n' "$2" | sed 's/^/  /' >&2
+  printf '%s\n' "$1" >&2
+  print_repair "$3"
+  exit 1
+}
+
+install_error_trap
 
 case "${1:-}" in
   -h|--help)
     printf '%s\n' \
-      'usage: gh-merge-green OWNER/REPO#PR [--full] [--wait SECONDS] [--main-fix] [--override "reason"] [--trust-fork-head SHA] [gh pr merge flags...]' \
+      'usage: gh-merge-green OWNER/REPO#PR [--full] [--wait SECONDS] [--dry-run] [--sha SHA] [--main-fix] [--override "reason"] [--trust-fork-head SHA] [gh pr merge flags...]' \
       '       gh-merge-green --revert OWNER/REPO#PR' \
       'Merges only when the PR head'"'"'s required-in-practice checks are green.' \
       'Into feat-cmux-next it waits only for the fast gate (scripts/ci/merge_fast_gate.py); --full waits for every check.' \
+      '--dry-run runs every gate, then posts and merges nothing.' \
+      '--sha SHA (or --match-head-commit SHA) refuses unless SHA is the current head.' \
+      'gh pr merge flags passed on: --squash --merge --rebase --delete-branch --subject --body --body-file --author-email --auto --disable-auto --admin' \
       "$repair_note"
     exit 0
     ;;
@@ -160,6 +183,8 @@ full=0
 wait_seconds=2400
 override_reason=''
 trust_fork_head=''
+expected_head=''
+dry_run=0
 args=()
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -168,6 +193,42 @@ while [ "$#" -gt 0 ]; do
       ;;
     --full)
       full=1
+      ;;
+    --dry-run)
+      dry_run=1
+      ;;
+    --sha|--match-head-commit|--sha=*|--match-head-commit=*)
+      # The helper always pins gh pr merge to the head it checked; a caller's
+      # SHA is an assertion about that head (cmuxterm-hq#2554 passed --sha, which
+      # reached gh pr merge after every gate and died in its usage text).
+      case "$1" in
+        *=*) value="${1#*=}" ;;
+        *)
+          [ "$#" -ge 2 ] || refuse \
+            "not green: $1 requires the head commit SHA" \
+            "pass $1 followed by the head SHA you reviewed"
+          value="$2"
+          shift
+          ;;
+      esac
+      value=$(tr '[:upper:]' '[:lower:]' <<<"$value")
+      [[ "$value" =~ ^[0-9a-f]{7,40}$ ]] || refuse \
+        "not green: '$value' is not a commit SHA" \
+        'pass the head commit SHA (7 to 40 hex characters)'
+      expected_head="$value"
+      ;;
+    -s|--squash|-m|--merge|-r|--rebase|-d|--delete-branch|--auto|--disable-auto|--admin)
+      args+=("$1")
+      ;;
+    -t|--subject|-b|--body|-F|--body-file|-A|--author-email)
+      [ "$#" -ge 2 ] || refuse \
+        "not green: $1 requires a value" \
+        "pass $1 followed by its value, or drop it"
+      args+=("$1" "$2")
+      shift
+      ;;
+    --subject=*|--body=*|--body-file=*|--author-email=*)
+      args+=("$1")
       ;;
     --wait)
       [ "$#" -ge 2 ] && [[ "$2" =~ ^[0-9]+$ ]] || refuse \
@@ -203,7 +264,11 @@ while [ "$#" -gt 0 ]; do
       shift
       ;;
     *)
-      args+=("$1")
+      # Checked before any GitHub query: gh pr merge would otherwise refuse
+      # only after every gate ran, its usage text burying the reason.
+      refuse \
+        "not green: unknown option '$1' for $ref; nothing was checked or merged" \
+        'drop it; gh-merge-green --help lists its options and the gh pr merge flags it passes on'
       ;;
   esac
   shift
@@ -292,6 +357,11 @@ if [ -z "$sha" ] || [ -z "$base" ]; then
     "not green: GitHub metadata for $ref has no head SHA or base branch" \
     'refresh the pull request metadata and retry'
 fi
+if [ -n "$expected_head" ] && [ "${sha#"$expected_head"}" = "$sha" ]; then
+  refuse \
+    "not green: $ref head is $sha, not the expected $expected_head; nothing was checked or merged" \
+    'review the current head, then retry with its SHA'
+fi
 if jq -e 'any(.labels[]?; .name == "exploration")' <<<"$pr_json" >/dev/null 2>&1; then
   refuse \
     'exploration PR, needs a decision from Leo or the team before merging.' \
@@ -338,7 +408,9 @@ if [ "$fix" -eq 1 ]; then
       'set CMUX_REPO_ROOT to a cmux checkout containing scripts/ci/main_fix_evidence.py'
   fi
   gate_checked='main-fix compile and test evidence'
-  if ! python3 "$validator" "$ref" "$@"; then
+  check_only=()
+  [ "$dry_run" -eq 0 ] || check_only=(--check-only)
+  if ! python3 "$validator" "$ref" "${check_only[@]+"${check_only[@]}"}" "$@"; then
     refuse \
       "not green: --main-fix evidence refused $ref" \
       'read the validator evidence and repair the failing or missing exact-head checks'
@@ -461,7 +533,7 @@ workflow_on_base() {
   trap - ERR
   response=$(gh api --include "repos/$repo/contents/.github/workflows/$file" -X GET -f "ref=$base" 2>/dev/null)
   status=$?
-  trap on_error ERR
+  install_error_trap
   if [ "$status" -eq 0 ]; then
     workflow_response="$response"
     return 0
@@ -708,7 +780,7 @@ fi
 
 if [ "$base" = main ] && [ "$has_app_compile" -eq 1 ] && grep -q '^macos / macOS compile admission'$'\t' <<<"$runs"; then
   has_admission=0
-  for required in "${must[@]}"; do
+  for required in "${must[@]+"${must[@]}"}"; do
     [ "$required" = 'macos / macOS compile admission' ] && has_admission=1
   done
   [ "$has_admission" -eq 0 ] && must+=("macos / macOS compile admission")
@@ -848,17 +920,21 @@ if [ -z "$override_reason" ] && { [ "${#bad_required[@]}" -gt 0 ] || [ "${#excus
   tmp_files+=("$excuse_errors")
   if ! excused=$(python3 "$script_dir/ci/base_red_excuse.py" --repo "$repo" --base "$base" --sha "$sha" \
       "${excuse_args[@]}" 2>"$excuse_errors"); then
-    why=$(cat "$excuse_errors")
+    why=$(sed 's/^not excused: //' "$excuse_errors")
     rm -f "$excuse_errors"
-    refuse \
-      "not green: $(printf '%s; ' "${red_lanes[@]}" | sed 's/; $//') on $sha, not excused by $base (${why:-the base comparison failed})" \
+    refuse_with_details \
+      "not green: $(printf '%s; ' "${red_lanes[@]}" | sed 's/; $//') on $sha, not excused by $base (what it was compared with is listed above)" \
+      "${why:-the base comparison failed without saying why}" \
       "fix the failure on the exact head; a runner refusal needs a re-run, not a waiver"
   fi
   rm -f "$excuse_errors"
   printf '%s\n' "$excused" | sed 's/^/note: /' >&2
 fi
 failing=$(printf '%s\n' "$runs" | awk -F'\t' '$3=="failure"||$3=="timed_out"||$3=="cancelled"{print $1}' | sort -u)
-if [ -n "$failing" ]; then echo "note: other failing checks on $sha (${must[*]:-every reported check} decides):" >&2; printf '%s\n' "$failing" | sed 's/^/  /' >&2; fi
+if [ -n "$failing" ]; then
+  echo "note: other failing checks on $sha (${must[*]:-every reported check} decides):" >&2
+  printf '%s\n' "$failing" | sed 's/^/  /' >&2
+fi
 gate_checked="${must[*]:-every reported check}"
 }
 
@@ -944,10 +1020,11 @@ fast_gate() {
   if ! excused=$(python3 "$script_dir/ci/base_red_excuse.py" --repo "$repo" --base "$base" --sha "$sha" \
       "${excuse_args[@]}" 2>"$excuse_errors"); then
     local why
-    why=$(cat "$excuse_errors")
+    why=$(sed 's/^not excused: //' "$excuse_errors")
     rm -f "$excuse_errors"
-    refuse \
-      "not green: $(paste -sd ';' - <<<"$reds" | sed 's/;/; /g') red on $sha, not excused by $base (${why:-the base comparison failed})" \
+    refuse_with_details \
+      "not green: $(paste -sd ';' - <<<"$reds" | sed 's/;/; /g') red on $sha, not excused by $base (what it was compared with is listed above)" \
+      "${why:-the base comparison failed without saying why}" \
       "fix the failure on the exact head; a runner refusal needs a re-run, not a waiver"
   fi
   rm -f "$excuse_errors"
@@ -1188,6 +1265,14 @@ elif [ "$fast" -eq 1 ]; then
     merged_head_checks 1
   fi
 fi
+if [ "$dry_run" -eq 1 ]; then
+  printf 'dry-run: every gate passes for %s at %s; would run: gh pr merge %s --repo %s --match-head-commit %s%s\n' \
+    "$ref" "$sha" "$num" "$repo" "$sha" "$(printf ' %q' "$@")"
+  [ -z "$trust_fork_head" ] || echo "dry-run: would first comment merge-source-trust for $trust_fork_head" >&2
+  [ -z "$override_reason" ] || echo "dry-run: would first comment merge-override: $override_reason" >&2
+  outcome='dry-run passed'
+  exit 0
+fi
 if [ -n "$trust_fork_head" ]; then
   trust_scope='local merged-tree checks; normal CI, freeze, and merged-tree gates apply'
   [ "$fast" -eq 1 ] && trust_scope='the fast gate; its lanes, freezes and conflict markers apply, and the full suites run after the merge'
@@ -1292,10 +1377,11 @@ if ! gh pr merge "$num" --repo "$repo" --match-head-commit "$sha" "$@" 2>"$merge
   else
     merge_error=$(cat "$merge_error_file")
     rm -f "$merge_error_file"
-    [ -n "$merge_error" ] && printf '%s\n' "$merge_error" >&2
-    refuse \
-      "not green: GitHub refused to merge $ref" \
-      'read the GitHub refusal, repair the named issue, and retry the exact head'
+    merge_reason=$(grep -v '^[[:space:]]*$' <<<"$merge_error" | head -n 1 || true)
+    refuse_with_details \
+      "not merged: gh pr merge refused $ref at $sha: ${merge_reason:-no error text}" \
+      "$merge_error" \
+      'repair what gh pr merge names, then retry the exact head'
   fi
 fi
 rm -f "$merge_error_file"
