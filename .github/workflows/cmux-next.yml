@@ -954,7 +954,10 @@ jobs:
     name: cmux-next checks (god files, concurrency, crash safety, l10n)
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
-    # Pull requests into feat-cmux-next run the cheap static checks. The size
+    # Pull requests into feat-cmux-next run the cheap static checks, and so does
+    # every feat-cmux-next push: gh-merge-green excuses a PR's red lint only when
+    # the base's latest push run prints every finding too, so a base red no longer
+    # refuses every PR (2026-10-19). The size
     # cap and crash ratchet are cadence checks: they run on pushes and on the
     # full-ci batched integration PR, not on every contributor PR. God files and types are warn-only
     # (Lawrence 2026-10-10): over the hard ceiling (GODFILES_WARN_SLACK: allowance
@@ -962,8 +965,8 @@ jobs:
     # warning and passes. Other style ratchets warn under a hard ceiling and fail
     # over it: l10n style errors and custom scrollbars (by count).
     # A warning is ratchet debt: an annotation on the PR run (the issue-writing
-    # ratchet-debt job was removed 2026-10-13: it needed a push run, which skips
-    # this job, and never filed an issue). Concurrency, notification
+    # ratchet-debt job was removed 2026-10-13: push runs skipped this job then,
+    # and it never filed an issue). Concurrency, notification
     # centers and crash safety have no warning tier. Each ceiling is set on its
     # own step only: the script tests below expect every hit to fail.
     steps:
