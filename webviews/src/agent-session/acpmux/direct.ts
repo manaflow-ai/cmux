@@ -42,7 +42,7 @@ import { OfferChildren } from "./offer/offerChildren";
 import { errorMessage } from "./transportErrors";
 import { SessionPager, type SessionPage } from "./sessionPages";
 import { isWarmableCwd } from "./warmFolders";
-import { SubagentFold } from "./subagents/subagentFold";
+import { SubagentFold, subagentsLeft } from "./subagents/subagentFold";
 import { WORKSPACE_CONTEXT } from "./workspaceContext";
 import { BOOKMARKS_KIND, bookmarksHeard } from "./threadMinimap/bookmarks";
 import { type StartMode, startModeChanged } from "./startMode";
@@ -1176,9 +1176,13 @@ export class AcpmuxDirectClient {
     } else if (isNotification(notification, "_acpmux/session_changed")) this.sessionChanged(notification.params);
     else if (isNotification(notification, "_acpmux/permission_pending")) this.applyPermission(notification.params);
     else if (notification.method === "_acpmux/lagged") this.resyncAfterLag(notification.params);
-    else if (notification.method === "_acpmux/harnesses_changed") this.onHarnessesChanged?.();
-    // A new chat's start mode may have changed (a pick in any pane, a config reload): pending
-    // chats ask acpmux again (startMode.ts).
+    // A profile change may pin or free a harness's mode, which changes a new chat's start mode too.
+    else if (notification.method === "_acpmux/harnesses_changed") {
+      this.onHarnessesChanged?.();
+      startModeChanged();
+    }
+    // A new chat's start mode may have changed (a pick in any pane, a config reload, the
+    // `agents.defaultPermissionMode` setting): pending chats ask acpmux again (startMode.ts).
     else if (notification.method === "_acpmux/start_mode_changed") startModeChanged();
   }
 
@@ -1889,6 +1893,18 @@ export class AcpmuxDirectClient {
     });
   }
 
+  /// The subagent group rows that changed, into the transcript.
+  private takeSubagentRows(): void {
+    for (const row of this.subagents.takeRows()) {
+      // A new group ends the text and tool calls before it, like a tool call does.
+      if (!this.rows.has(row.id)) {
+        this.endAssistantSegment();
+        this.streamingActivity = undefined;
+      }
+      this.rows.set(row.id, row);
+    }
+  }
+
   private reduce(event: EventRecord): void {
     this.rows.current = event.seq;
     try {
@@ -1937,6 +1953,9 @@ export class AcpmuxDirectClient {
       return;
     }
     if (event.dir === "mux") {
+      // A stopped turn or a gone agent ends the subagents it would never report again.
+      const left = subagentsLeft(event.kind, msg);
+      if (left && this.subagents.stopRunning(left, event.at)) this.takeSubagentRows();
       if (event.kind === BOOKMARKS_KIND) {
         // Another pane (or the TUI) marked a prompt: the minimap shows acpmux's marks.
         bookmarksHeard(event.sessionId ?? this.selectedSessionId, event.msg?.bookmarks);
@@ -2024,6 +2043,7 @@ export class AcpmuxDirectClient {
         this.turnOpen = true;
       } else if (event.kind === "turn_started") {
         this.turnOpen = true;
+        this.subagents.startTurn();
         this.settleCompactions(event.seq);
         // A Stop before this turn never judges it.
         this.stopAnswered(event);
@@ -2082,14 +2102,7 @@ export class AcpmuxDirectClient {
     }
     if (!update) return;
     if (this.subagents.reduce(event, update)) {
-      for (const row of this.subagents.takeRows()) {
-        // A new group ends the text and tool calls before it, like a tool call does.
-        if (!this.rows.has(row.id)) {
-          this.endAssistantSegment();
-          this.streamingActivity = undefined;
-        }
-        this.rows.set(row.id, row);
-      }
+      this.takeSubagentRows();
       return;
     }
     const commands = commandsFromUpdate(update);

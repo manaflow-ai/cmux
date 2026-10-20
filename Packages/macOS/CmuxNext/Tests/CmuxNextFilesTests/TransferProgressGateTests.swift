@@ -17,18 +17,21 @@ struct TransferProgressGateTests {
         #expect(sent >= 150)
     }
 
+    // `admits` is mutating: #expect cannot call it on its own copy, so each result is read first.
     @Test func theFirstReportAlwaysGoesThrough() {
         var gate = TransferProgressGate(bytesTotal: 1_000_000)
-        #expect(gate.admits(10))
-        #expect(!gate.admits(20))
-        #expect(gate.admits(10 + 5_000))
+        let first = gate.admits(10), tooSoon = gate.admits(20), next = gate.admits(10 + 5_000)
+        #expect(first)
+        #expect(!tooSoon)
+        #expect(next)
     }
 
     @Test func aTinyTransferStillReports() {
         var gate = TransferProgressGate(bytesTotal: 0)
         #expect(gate.step == 1)
-        #expect(gate.admits(0))
-        #expect(gate.admits(1))
-        #expect(!gate.admits(1))
+        let zero = gate.admits(0), one = gate.admits(1), again = gate.admits(1)
+        #expect(zero)
+        #expect(one)
+        #expect(!again)
     }
 }
