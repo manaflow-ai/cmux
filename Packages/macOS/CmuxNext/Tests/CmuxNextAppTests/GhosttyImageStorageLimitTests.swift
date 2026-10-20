@@ -16,6 +16,7 @@ struct GhosttyImageStorageLimitTests {
     }
 
     private func resolvedLimit(_ text: String) throws -> UInt32 {
+        _ = GhosttyRuntime.shared // runs ghostty_init, which config_new needs
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("ghostty-image-limit-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
