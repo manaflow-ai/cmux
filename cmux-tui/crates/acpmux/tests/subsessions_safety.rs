@@ -461,3 +461,57 @@ async fn a_caller_that_does_not_ask_never_starts_an_unlisted_mode_of_another_fam
     }
     assert!(app.open_children(&parent).await.is_empty());
 }
+
+/// A hub whose `fake` harness a Web client drives: its folder is a Web root,
+/// its `normal` mode asks, and the daemon default policy asks.
+async fn web_family(s: &Scratch, own: &Path) -> (Arc<Hub>, String) {
+    s.decide(own, "trusted");
+    let extra = json!({
+        "webRoots": [own],
+        "webAskingModes": {"fake": ["normal", "strict"]},
+        "permissionPolicy": "ask",
+    });
+    let hub = hub_with(s, extra, None);
+    let mut web = Client::with_origin(&hub, Origin::Web);
+    let parent = web.new_session(own, "fake").await;
+    let prompt = json!({"sessionId": parent, "prompt": [{"type": "text", "text": "echo web"}]});
+    web.ok("session/prompt", prompt).await;
+    (hub, parent)
+}
+
+#[tokio::test]
+async fn a_family_prompt_from_an_agent_after_a_web_turn_runs_as_a_web_turn() {
+    let s = Scratch::new("webstart");
+    let own = s.dir("own");
+    let (hub, parent) = web_family(&s, &own).await;
+    let mut app = Client::new(&hub);
+    assert_eq!(app.turn_controls(&parent).await, ["web"]);
+    // The agent the Web turn drove starts a child: its prompt is held to the
+    // remote floor as that turn was.
+    let mut p = Client::as_session(&hub, &parent).await;
+    let child = p.ok(START, json!({"prompt": "echo from the web turn"})).await;
+    let child = child["sessionId"].as_str().unwrap().to_owned();
+    app.wait_ready(&child).await;
+    assert_eq!(app.turn_controls(&child).await, ["web"]);
+}
+
+#[tokio::test]
+async fn a_family_prompt_never_clears_its_receivers_web_floor() {
+    let s = Scratch::new("webfloor");
+    let own = s.dir("own");
+    let (hub, parent) = web_family(&s, &own).await;
+    let mut app = Client::new(&hub);
+    let mut p = Client::as_session(&hub, &parent).await;
+    let child = p.ok(START, json!({"prompt": "echo child"})).await;
+    let child = child["sessionId"].as_str().unwrap().to_owned();
+    app.wait_ready(&child).await;
+    // The child's last turn is a local one.
+    let prompt = json!({"sessionId": child, "prompt": [{"type": "text", "text": "echo local"}]});
+    app.ok("session/prompt", prompt).await;
+    // Its report runs in the parent, whose last turn was a Web turn: under the floor.
+    let mut c = Client::as_session(&hub, &child).await;
+    c.ok(SEND, json!({"sessionId": parent, "text": "echo report"})).await;
+    app.wait_ready(&parent).await;
+    let controls = app.turn_controls(&parent).await;
+    assert_eq!(controls.last().map(String::as_str), Some("web"), "{controls:?}");
+}
