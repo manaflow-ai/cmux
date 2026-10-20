@@ -89,6 +89,37 @@ nonisolated enum AcpmuxPersonKey {
         return mac.map { String(format: "%02x", $0) }.joined()
     }
 
+    /// Environment for the App's `acpmux process show` child: a capability for exactly one
+    /// chat/tool call, derived from the person key without passing that key to the child.
+    static func processViewerEnvironment(socketPath: String, session: String, toolCall: String) -> [String: String]? {
+        guard let key = keys.withLock({ $0[socketPath]?.key }) else { return nil }
+        let nonce = newKey()
+        guard let proof = processViewerProof(key: key, session: session, toolCall: toolCall, nonce: nonce) else { return nil }
+        return [
+            "ACPMUX_SOCKET": socketPath,
+            "ACPMUX_PROCESS_VIEWER_SOCKET": socketPath,
+            "ACPMUX_PROCESS_VIEWER_SESSION": session,
+            "ACPMUX_PROCESS_VIEWER_TOOL_CALL": toolCall,
+            "ACPMUX_PROCESS_VIEWER_NONCE": nonce,
+            "ACPMUX_PROCESS_VIEWER_PROOF": proof,
+        ]
+    }
+
+    /// HMAC-SHA256(key, `acpmux-process-viewer-v1` NUL session NUL tool-call NUL nonce).
+    static func processViewerProof(key: String, session: String, toolCall: String, nonce: String) -> String? {
+        guard let keyBytes = hexBytes(key), keyBytes.count == 32,
+              !session.isEmpty, session.utf8.count <= 256,
+              !toolCall.isEmpty, toolCall.utf8.count <= 256,
+              nonce.utf8.count == 64, hexBytes(nonce)?.count == 32 else { return nil }
+        var message = Data("acpmux-process-viewer-v1".utf8)
+        for part in [session, toolCall, nonce] {
+            message.append(0)
+            message.append(Data(part.utf8))
+        }
+        let mac = HMAC<SHA256>.authenticationCode(for: message, using: SymmetricKey(data: keyBytes))
+        return mac.map { String(format: "%02x", $0) }.joined()
+    }
+
     private static func hexBytes(_ text: String) -> Data? {
         let bytes = Array(text.utf8)
         guard bytes.count % 2 == 0 else { return nil }

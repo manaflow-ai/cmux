@@ -151,13 +151,12 @@ async fn claude_setup(claude: &std::path::Path, env: &[(&str, &str)]) -> (Arc<Hu
     cfg.permission_policy = PermissionPolicy::ApproveAll;
     let store = acpmux::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
     let hub = Hub::new(cfg, store);
+    hold_person_key(&hub);
     let (in_tx, in_rx) = mpsc::channel(64);
     let (out_tx, out_rx) = mpsc::channel(4096);
     tokio::spawn(serve_connection(hub.clone(), in_rx, out_tx));
     let mut c = TestClient { tx: in_tx, rx: out_rx, next: 0 };
-    c.request(method::INITIALIZE, json!({"protocolVersion": 1, "clientInfo": {"name": "pane"}}))
-        .await
-        .unwrap();
+    c.become_person().await;
     (hub, c)
 }
 

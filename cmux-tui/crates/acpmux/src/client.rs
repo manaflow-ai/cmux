@@ -100,18 +100,34 @@ impl Client {
         // daemon put in that session's env (`hub/person.rs` (a)), only to
         // the socket of the daemon that issued it (never to another daemon,
         // or whatever listens on a path the agent pointed the CLI at).
-        let caller = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty());
-        let issuer = caller(crate::hub::person::CALLER_SOCKET_ENV);
-        if let (Some(id), Some(token), true) = (
-            caller("ACPMUX_SESSION_ID"),
-            caller(crate::hub::person::CALLER_TOKEN_ENV),
-            issuer.is_some_and(|socket| Path::new(&socket) == path),
+        let env = |key: &str| std::env::var(key).ok().filter(|value| !value.is_empty());
+        let mut meta = serde_json::Map::new();
+        let viewer_socket = env(crate::hub::person::PROCESS_VIEWER_SOCKET_ENV);
+        if let (Some(session), Some(tool_call), Some(nonce), Some(proof), true) = (
+            env(crate::hub::person::PROCESS_VIEWER_SESSION_ENV),
+            env(crate::hub::person::PROCESS_VIEWER_TOOL_CALL_ENV),
+            env(crate::hub::person::PROCESS_VIEWER_NONCE_ENV),
+            env(crate::hub::person::PROCESS_VIEWER_PROOF_ENV),
+            viewer_socket.is_some_and(|socket| Path::new(&socket) == path),
         ) {
-            let mut meta = serde_json::Map::new();
             meta.insert(
-                crate::hub::person::CALLER_FIELD.to_owned(),
-                json!({"sessionId": id, "token": token}),
+                crate::hub::person::PROCESS_VIEWER_FIELD.to_owned(),
+                json!({"sessionId": session, "toolCallId": tool_call, "nonce": nonce, "proof": proof}),
             );
+        } else {
+            let issuer = env(crate::hub::person::CALLER_SOCKET_ENV);
+            if let (Some(id), Some(token), true) = (
+                env("ACPMUX_SESSION_ID"),
+                env(crate::hub::person::CALLER_TOKEN_ENV),
+                issuer.is_some_and(|socket| Path::new(&socket) == path),
+            ) {
+                meta.insert(
+                    crate::hub::person::CALLER_FIELD.to_owned(),
+                    json!({"sessionId": id, "token": token}),
+                );
+            }
+        }
+        if !meta.is_empty() {
             hello["_meta"] = json!({"acpmux": meta});
         }
         let init = client.request(method::INITIALIZE, hello).await?;

@@ -66,6 +66,8 @@ pub struct Conn {
     pub(super) holds_calls: std::sync::atomic::AtomicU32,
     /// The acpmux session it runs in, proven at its first `initialize` (`hub/person.rs` (a)).
     caller: std::sync::OnceLock<String>,
+    /// One App-authorized background-process viewer, bound by its first local `initialize`.
+    process_viewer: std::sync::OnceLock<crate::hub::person::ProcessViewerScope>,
 }
 
 impl Conn {
@@ -77,6 +79,20 @@ impl Conn {
     /// The acpmux session this connection proved it runs in (`hub/person.rs` (a)).
     pub(super) fn caller(&self) -> Option<&str> {
         self.caller.get().map(String::as_str)
+    }
+
+    /// The process methods' actor: person, agent session, or one scoped terminal viewer.
+    pub(super) fn process_access(&self) -> Option<crate::hub::ProcessAccess<'_>> {
+        if self.is_person() {
+            Some(crate::hub::ProcessAccess::Person)
+        } else if let Some(viewer) = self.process_viewer.get() {
+            Some(crate::hub::ProcessAccess::Viewer {
+                session: &viewer.session,
+                tool_call: &viewer.tool_call,
+            })
+        } else {
+            self.caller().map(crate::hub::ProcessAccess::Caller)
+        }
     }
 
     /// Whether this connection gets the person challenge: the unix socket or the proven local app.
@@ -93,6 +109,8 @@ impl Conn {
         let _ = params.as_mut().and_then(crate::hub::person::take_key);
         // Stripped from every request; read from a first unix `initialize` only (person.rs (a)).
         let caller = params.as_mut().and_then(crate::hub::person::take_caller);
+        // Likewise, but narrower: a child viewer receives a proof for one chat/tool call.
+        let viewer = params.as_mut().and_then(crate::hub::person::take_process_viewer);
         let n = self.requests.fetch_add(1, Ordering::SeqCst) + 1;
         if n == 1 && m == method::INITIALIZE && self.challengeable() {
             self.challenged.store(true, Ordering::SeqCst);
@@ -100,6 +118,11 @@ impl Conn {
         let first_local = n == 1 && m == method::INITIALIZE && self.origin == Origin::Local;
         if let Some(id) = caller.filter(|_| first_local).and_then(|c| hub.proven_caller(c)) {
             let _ = self.caller.set(id);
+        }
+        if let Some((scope, nonce, proof)) = viewer.filter(|_| first_local)
+            && hub.person.process_viewer_proves(&scope, &nonce, &proof)
+        {
+            let _ = self.process_viewer.set(scope);
         }
         if n == 2 && m == method::MUX_PERSON_PROVE && self.challenged.load(Ordering::SeqCst) {
             let proof = params.as_ref().and_then(|p| p.get("proof")).and_then(Value::as_str);
@@ -723,6 +746,7 @@ async fn serve_connection_from(
         person: AtomicBool::new(false),
         holds_calls: std::sync::atomic::AtomicU32::new(0),
         caller: std::sync::OnceLock::new(),
+        process_viewer: std::sync::OnceLock::new(),
     });
     tracing::debug!(conn = %conn.id, "client connected");
 

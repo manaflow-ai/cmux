@@ -209,6 +209,7 @@ process's command line and its kill never leave the machine.
   argues for leaving them and marking `lost` only those that really died.
 - Interactive stdin (Codex `write_stdin`; Claude Code has none): out of scope
   for this design; tail and kill cover servers and watchers.
-- Decided (coordinator, 2026-10-14): `process/list` stays symmetric with
-  `_acpmux/kill`, with no `hub/person.rs` change. A person-only list across
-  all chats is bead cx-r6tvw.
+- Security audit (2026-10-20): same uid is not process authority because a harness runs as that
+  uid and receives the daemon socket. A person-proved app may operate across chats; a connection
+  with a caller token sees only its own session's processes; the App's terminal child receives an
+  HMAC capability bound to one session/tool call; an unbound local, Web or peer client is refused.

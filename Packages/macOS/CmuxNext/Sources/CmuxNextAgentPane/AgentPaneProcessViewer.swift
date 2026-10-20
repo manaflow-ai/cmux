@@ -21,9 +21,14 @@ public struct AgentPaneProcessViewer: Sendable, Equatable {
     /// The viewer of the process tool call `toolCall` of chat `session` started, read from the
     /// acpmux `executable` serving `socket`. Nil when an id is not a plain token.
     public init?(executable: URL, socket: String, session: String, toolCall: String) {
-        guard Self.isToken(session), Self.isToken(toolCall), !socket.isEmpty else { return nil }
+        guard Self.isToken(session), Self.isToken(toolCall), !socket.isEmpty,
+              let environment = AcpmuxPersonKey.processViewerEnvironment(
+                  socketPath: socket,
+                  session: session,
+                  toolCall: toolCall
+              ) else { return nil }
         argv = [executable.path, "process", "show", "--follow", "--session", session, "--tool-call", toolCall]
-        environment = ["ACPMUX_SOCKET": socket]
+        self.environment = environment
         title = String(localized: "agentPane.processTerminal.title", defaultValue: "Background task", bundle: .module)
         self.session = session
         self.toolCall = toolCall

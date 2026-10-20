@@ -31,6 +31,40 @@ const TAIL_DEFAULT: u64 = 64 << 10;
 /// The most one tail reads, whatever `maxBytes` asks.
 const TAIL_MAX: u64 = 1 << 20;
 
+/// Authority presented by one local connection to the process API. A bare same-uid connection
+/// has none: agents run as this uid too, so only the person proof, a caller token, or the App's
+/// process-viewer capability establishes scope.
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum ProcessAccess<'a> {
+    Person,
+    Caller(&'a str),
+    Viewer { session: &'a str, tool_call: &'a str },
+}
+
+impl<'a> ProcessAccess<'a> {
+    fn allows(self, process: &Process) -> bool {
+        match self {
+            Self::Person => true,
+            Self::Caller(session) => {
+                process.session_id == session
+                    || process.subagent_session_id.as_deref() == Some(session)
+            }
+            Self::Viewer { session, tool_call } => {
+                (process.session_id == session
+                    || process.subagent_session_id.as_deref() == Some(session))
+                    && process.tool_call_id == tool_call
+            }
+        }
+    }
+
+    pub(crate) fn session(self) -> Option<&'a str> {
+        match self {
+            Self::Person => None,
+            Self::Caller(session) | Self::Viewer { session, .. } => Some(session),
+        }
+    }
+}
+
 /// Where a process is in its life.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -222,13 +256,13 @@ impl ProcessTable {
 
     /// The processes as the wire carries them, each with its output's
     /// length now.
-    fn values(&self) -> Vec<Value> {
+    fn values(&self, access: ProcessAccess<'_>) -> Vec<Value> {
         let listed = |p: &Process| {
             let mut p = p.clone();
-            p.output_bytes = p.output_file.as_deref().map(output_len);
+            p.output_bytes = p.output_file.as_deref().map(|file| output_len(file, &p.task_id));
             serde_json::to_value(p).ok()
         };
-        self.processes.iter().filter_map(listed).collect()
+        self.processes.iter().filter(|process| access.allows(process)).filter_map(listed).collect()
     }
 
     /// Every running process ends `lost` for `reason`; returns them.
@@ -268,8 +302,126 @@ pub(super) fn take_output_file(msg: &mut Value) -> Option<String> {
 
 /// The length of an output file; a missing one, or one that is not a
 /// regular file, is empty.
-fn output_len(file: &str) -> u64 {
-    std::fs::metadata(file).ok().filter(|m| m.is_file()).map_or(0, |m| m.len())
+fn output_len(file: &str, task_id: &str) -> u64 {
+    open_output_file(file, task_id)
+        .ok()
+        .flatten()
+        .and_then(|file| file.metadata().ok())
+        .filter(|metadata| metadata.is_file())
+        .map_or(0, |metadata| metadata.len())
+}
+
+/// The harness may name only its own `tasks/<task id>.output` shape. Traversal is refused before
+/// opening anything. macOS spells `/tmp` as a symlink to `/private/tmp`; normalize that one
+/// system-owned alias before the no-follow component walk.
+fn allowed_output_path(file: &str, task_id: &str) -> std::io::Result<std::path::PathBuf> {
+    use std::path::{Component, Path, PathBuf};
+
+    let path = Path::new(file);
+    let invalid = || {
+        std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            "background output is not the harness task's output path",
+        )
+    };
+    let expected = std::ffi::OsString::from(format!("{task_id}.output"));
+    if task_id.is_empty()
+        || !path.is_absolute()
+        || path.file_name() != Some(expected.as_os_str())
+        || path.parent().and_then(Path::file_name) != Some(std::ffi::OsStr::new("tasks"))
+    {
+        return Err(invalid());
+    }
+    if path.components().any(|component| {
+        !matches!(component, Component::RootDir | Component::Prefix(_) | Component::Normal(_))
+    }) {
+        return Err(invalid());
+    }
+
+    #[cfg(target_os = "macos")]
+    let path: PathBuf = match path.strip_prefix("/tmp") {
+        Ok(relative) => Path::new("/private/tmp").join(relative),
+        Err(_) => path.to_owned(),
+    };
+    #[cfg(not(target_os = "macos"))]
+    let path: PathBuf = path.to_owned();
+
+    Ok(path)
+}
+
+/// Opens an allowed task-output file without following a symlink in any component. The returned
+/// descriptor is the one later measured and read, closing check/open and rename races.
+#[cfg(unix)]
+fn open_output_file(file: &str, task_id: &str) -> std::io::Result<Option<std::fs::File>> {
+    use std::ffi::CString;
+    use std::os::fd::{AsRawFd, FromRawFd};
+    use std::os::unix::ffi::OsStrExt;
+    use std::os::unix::fs::OpenOptionsExt;
+    use std::path::Component;
+
+    let path = allowed_output_path(file, task_id)?;
+    let mut current = {
+        let mut options = std::fs::OpenOptions::new();
+        options.read(true).custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC);
+        options.open("/")?
+    };
+    let mut components = path
+        .components()
+        .filter_map(|component| match component {
+            Component::Normal(name) => Some(name),
+            _ => None,
+        })
+        .peekable();
+    while let Some(component) = components.next() {
+        let name = CString::new(component.as_bytes()).map_err(|_| {
+            std::io::Error::new(std::io::ErrorKind::InvalidInput, "NUL in background output path")
+        })?;
+        let last = components.peek().is_none();
+        let flags = libc::O_RDONLY
+            | libc::O_NOFOLLOW
+            | libc::O_CLOEXEC
+            | if last { libc::O_NONBLOCK } else { libc::O_DIRECTORY };
+        // SAFETY: `current` is an open directory descriptor for every non-final step, `name` is a
+        // NUL-terminated single component, and a successful descriptor is immediately owned.
+        let descriptor = unsafe { libc::openat(current.as_raw_fd(), name.as_ptr(), flags) };
+        if descriptor < 0 {
+            let error = std::io::Error::last_os_error();
+            return if error.kind() == std::io::ErrorKind::NotFound {
+                Ok(None)
+            } else {
+                Err(error)
+            };
+        }
+        // SAFETY: `openat` returned a new owned descriptor.
+        current = unsafe { std::fs::File::from_raw_fd(descriptor) };
+        let metadata = current.metadata()?;
+        if (last && !metadata.is_file()) || (!last && !metadata.is_dir()) {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "background output path is not a regular file",
+            ));
+        }
+    }
+    Ok(Some(current))
+}
+
+/// Non-Unix builds have no remote Seatbelt boundary. Refuse a final symlink and keep the same
+/// root/type policy; their process-output producer does not currently expose tail bytes.
+#[cfg(not(unix))]
+fn open_output_file(file: &str, task_id: &str) -> std::io::Result<Option<std::fs::File>> {
+    let path = allowed_output_path(file, task_id)?;
+    let metadata = match std::fs::symlink_metadata(&path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error),
+    };
+    if metadata.file_type().is_symlink() || !metadata.is_file() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "background output path is not a regular file",
+        ));
+    }
+    std::fs::File::open(path).map(Some)
 }
 
 /// Up to `max` bytes of `file` from `from` (`None`: its last `max`), where
@@ -278,23 +430,23 @@ fn output_len(file: &str) -> u64 {
 /// for a writer.
 async fn read_output(
     file: Option<&str>,
+    task_id: &str,
     from: Option<u64>,
     max: u64,
 ) -> std::io::Result<(Vec<u8>, u64, u64)> {
     use tokio::io::{AsyncReadExt, AsyncSeekExt};
     let Some(file) = file else { return Ok((Vec::new(), 0, 0)) };
-    match tokio::fs::metadata(file).await {
-        Ok(m) if m.is_file() => {}
-        Ok(_) => return Ok((Vec::new(), 0, 0)),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok((Vec::new(), 0, 0)),
-        Err(e) => return Err(e),
-    }
-    let opened = tokio::fs::File::open(file).await;
-    let mut f = match opened {
-        Ok(f) => f,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok((Vec::new(), 0, 0)),
-        Err(e) => return Err(e),
+    let Some(opened) = tokio::task::spawn_blocking({
+        let file = file.to_owned();
+        let task_id = task_id.to_owned();
+        move || open_output_file(&file, &task_id)
+    })
+    .await
+    .map_err(std::io::Error::other)??
+    else {
+        return Ok((Vec::new(), 0, 0));
     };
+    let mut f = tokio::fs::File::from_std(opened);
     let len = f.metadata().await?.len();
     let start = from.map_or(len.saturating_sub(max), |from| from.min(len));
     f.seek(std::io::SeekFrom::Start(start)).await?;
@@ -399,15 +551,19 @@ impl Hub {
     /// `_acpmux/process/list`: the session's processes; without one, those of
     /// every chat whose processes this daemon has read (any chat that ran one
     /// since it started, or that it adopted).
-    pub fn list_processes(&self, session: Option<&Session>) -> Value {
+    pub(crate) fn list_processes(
+        &self,
+        access: ProcessAccess<'_>,
+        session: Option<&Session>,
+    ) -> Value {
         let processes = match session {
-            Some(session) => self.process_table(session).values(),
+            Some(session) => self.process_table(session).values(access),
             None => self
                 .sessions()
                 .iter()
                 .flat_map(|s| {
                     let table = s.processes.lock().unwrap_or_else(|e| e.into_inner());
-                    if table.loaded { table.values() } else { Vec::new() }
+                    if table.loaded { table.values(access) } else { Vec::new() }
                 })
                 .collect(),
         };
@@ -428,25 +584,29 @@ impl Hub {
     /// `max`). `eof`: the process ended and this read reached the end of
     /// its output. A file Claude Code has not named or written yet reads
     /// empty. A Codex process is refused: its output is not kept yet.
-    pub async fn tail_process(
+    pub(crate) async fn tail_process(
         &self,
+        access: ProcessAccess<'_>,
         id: &str,
         from: Option<u64>,
         max: Option<u64>,
     ) -> Result<Value, RpcError> {
         use base64::Engine;
         let session = self.process_session(id)?;
-        let (file, running) = {
+        let (file, task, running) = {
             let table = self.process_table(&session);
             let p = table.processes.iter().find(|p| p.id == id);
             let p = p.ok_or_else(|| unknown_process(id))?;
+            if !access.allows(p) {
+                return Err(process_access_required());
+            }
             if p.harness == "codex" {
                 return Err(RpcError::invalid_params("tail is Claude Code only for now"));
             }
-            (p.output_file.clone(), p.state == ProcessState::Running)
+            (p.output_file.clone(), p.task_id.clone(), p.state == ProcessState::Running)
         };
         let max = max.unwrap_or(TAIL_DEFAULT).min(TAIL_MAX);
-        let (data, start, len) = read_output(file.as_deref(), from, max)
+        let (data, start, len) = read_output(file.as_deref(), &task, from, max)
             .await
             .map_err(|e| RpcError::internal(format!("cannot read the process's output: {e}")))?;
         let next = start + data.len() as u64;
@@ -463,9 +623,21 @@ impl Hub {
     /// end arrives as a `process_update`. One that already ended is left
     /// alone. Never starts a harness: with none running, the
     /// process ended with it and is `lost`.
-    pub async fn kill_process(&self, id: &str) -> Result<Value, RpcError> {
+    pub(crate) async fn kill_process(
+        &self,
+        access: ProcessAccess<'_>,
+        id: &str,
+    ) -> Result<Value, RpcError> {
         let unknown = || unknown_process(id);
         let session = self.process_session(id)?;
+        let (task, running, subagent) = {
+            let table = self.process_table(&session);
+            let p = table.processes.iter().find(|p| p.id == id).ok_or_else(unknown)?;
+            if !access.allows(p) {
+                return Err(process_access_required());
+            }
+            (p.task_id.clone(), p.state == ProcessState::Running, p.subagent_session_id.clone())
+        };
         let harness = session.meta().harness;
         let (claude, codex) = match self.config.read().await.profile(&harness) {
             Some(p) => (
@@ -480,11 +652,6 @@ impl Hub {
                 "only Claude Code's and Codex's background processes can be stopped",
             ));
         }
-        let (task, running, subagent) = {
-            let table = self.process_table(&session);
-            let p = table.processes.iter().find(|p| p.id == id).ok_or_else(unknown)?;
-            (p.task_id.clone(), p.state == ProcessState::Running, p.subagent_session_id.clone())
-        };
         if !running {
             return Ok(json!({}));
         }
@@ -529,4 +696,10 @@ impl Hub {
 /// No process has the id.
 fn unknown_process(id: &str) -> RpcError {
     RpcError::not_found(format!("no background process {id:?}"))
+}
+
+/// Process output and stops need the person's proof, a caller token for the owning session, or a
+/// scoped viewer capability. Same uid alone is deliberately not authority (`hub/person.rs`).
+pub(crate) fn process_access_required() -> RpcError {
+    crate::hub::person::person_required("reading or stopping background processes")
 }

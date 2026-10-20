@@ -81,6 +81,7 @@ mod permission_groups;
 mod permissions;
 pub mod person;
 mod processes;
+pub(crate) use processes::ProcessAccess;
 mod questions;
 mod remote_floor;
 mod remote_sandbox;

@@ -27,11 +27,22 @@ struct AgentPaneProcessViewerTests {
 
     @Test func theViewerRunsAcpmuxProcessShowForTheChatsToolCall() throws {
         let acpmux = URL(fileURLWithPath: "/Applications/cmux.app/Contents/Resources/bin/acpmux")
-        let viewer = try #require(AgentPaneProcessViewer(executable: acpmux, socket: "/tmp/acpmux-501/acpmux.sock",
-                                                         session: "0190a000-0000-7000-8000-0000000000e1", toolCall: "toolu_1"))
+        let socket = "/tmp/acpmux-501/acpmux.sock"
+        let session = "0190a000-0000-7000-8000-0000000000e1"
+        let toolCall = "toolu_1"
+        let key = AcpmuxPersonKey.spawnKey(for: socket)
+        let viewer = try #require(AgentPaneProcessViewer(executable: acpmux, socket: socket,
+                                                         session: session, toolCall: toolCall))
         #expect(viewer.argv == [acpmux.path, "process", "show", "--follow",
-                                "--session", "0190a000-0000-7000-8000-0000000000e1", "--tool-call", "toolu_1"])
-        #expect(viewer.environment == ["ACPMUX_SOCKET": "/tmp/acpmux-501/acpmux.sock"])
+                                "--session", session, "--tool-call", toolCall])
+        #expect(viewer.environment["ACPMUX_SOCKET"] == socket)
+        #expect(viewer.environment["ACPMUX_PROCESS_VIEWER_SOCKET"] == socket)
+        #expect(viewer.environment["ACPMUX_PROCESS_VIEWER_SESSION"] == session)
+        #expect(viewer.environment["ACPMUX_PROCESS_VIEWER_TOOL_CALL"] == toolCall)
+        let nonce = try #require(viewer.environment["ACPMUX_PROCESS_VIEWER_NONCE"])
+        let proof = try #require(viewer.environment["ACPMUX_PROCESS_VIEWER_PROOF"])
+        #expect(nonce.utf8.count == 64)
+        #expect(proof == AcpmuxPersonKey.processViewerProof(key: key, session: session, toolCall: toolCall, nonce: nonce))
         #expect(!viewer.title.isEmpty)
         #expect(AgentPaneProcessViewer(executable: acpmux, socket: "", session: "s", toolCall: "t") == nil)
     }
@@ -43,6 +54,7 @@ struct AgentPaneProcessViewerTests {
                                             openProcess: { opened.append($0); return true })
         model.transport.acpmuxSocket = "/tmp/acpmux.sock"
         model.transport.acpmuxExecutable = URL(fileURLWithPath: "/opt/acpmux")
+        _ = AcpmuxPersonKey.spawnKey(for: "/tmp/acpmux.sock")
         let reply = await model.respond(to: Self.request("toolu_9"))
         #expect(reply["ok"] as? Bool == true)
         #expect((reply["value"] as? [String: Any])?["opened"] as? Bool == true)

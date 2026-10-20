@@ -12,7 +12,7 @@
 //! refused before anything is read.
 
 use super::{Conn, HubEvent, str_param};
-use crate::hub::Hub;
+use crate::hub::{Hub, ProcessAccess};
 use crate::rpc::{Message, RpcError, method};
 use serde_json::{Value, json};
 use std::sync::Arc;
@@ -34,19 +34,39 @@ pub(super) async fn dispatch(
             "{m} (not served to a remote WebSocket connection or a peer)"
         ))));
     }
-    Some(handle(hub, m, params).await)
+    let Some(access) = conn.process_access() else {
+        return Some(Err(crate::hub::person::person_required(
+            "reading or stopping background processes",
+        )));
+    };
+    Some(handle(hub, access, m, params).await)
 }
 
-async fn handle(hub: &Arc<Hub>, m: &str, params: &Value) -> Result<Value, RpcError> {
+async fn handle(
+    hub: &Arc<Hub>,
+    access: ProcessAccess<'_>,
+    m: &str,
+    params: &Value,
+) -> Result<Value, RpcError> {
     if m == method::MUX_PROCESS_LIST {
         return match params.get("sessionId").filter(|v| !v.is_null()) {
-            None => Ok(hub.list_processes(None)),
+            None => Ok(hub.list_processes(access, None)),
             Some(key) => {
                 let key = key
                     .as_str()
                     .ok_or_else(|| RpcError::invalid_params("sessionId must be a string"))?;
+                if let Some(session) = access.session() {
+                    if session != key {
+                        return Err(crate::hub::person::person_required(
+                            "reading another session's background processes",
+                        ));
+                    }
+                    // A subagent's process is held by its parent chat's table; scan every loaded
+                    // table, then apply the actor filter rather than reading the empty child table.
+                    return Ok(hub.list_processes(access, None));
+                }
                 let session = hub.resolve(key)?;
-                Ok(hub.list_processes(Some(&*session)))
+                Ok(hub.list_processes(access, Some(&*session)))
             }
         };
     }
@@ -55,7 +75,7 @@ async fn handle(hub: &Arc<Hub>, m: &str, params: &Value) -> Result<Value, RpcErr
     if m == method::MUX_PROCESS_TAIL {
         let from = byte_param(params, "fromByte")?;
         let max = byte_param(params, "maxBytes")?;
-        return hub.tail_process(id, from, max).await;
+        return hub.tail_process(access, id, from, max).await;
     }
     // Claude Code's stop_task has no signal: both stop the task.
     match params.get("signal").filter(|v| !v.is_null()) {
@@ -63,7 +83,7 @@ async fn handle(hub: &Arc<Hub>, m: &str, params: &Value) -> Result<Value, RpcErr
         Some(signal) if matches!(signal.as_str(), Some("term" | "kill")) => {}
         Some(_) => return Err(RpcError::invalid_params("signal must be term or kill")),
     }
-    hub.kill_process(id).await
+    hub.kill_process(access, id).await
 }
 
 /// A byte count or offset: absent, null or a non-negative integer.

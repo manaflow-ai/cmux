@@ -99,6 +99,27 @@ async fn session_connection(hub: &Arc<Hub>, session: &str) -> TestClient {
     client
 }
 
+/// The App's read-only terminal child: one HMAC capability for one chat/tool call, never the
+/// person key itself.
+async fn viewer_connection(hub: &Arc<Hub>, session: &str, tool_call: &str) -> TestClient {
+    hold_person_key(hub);
+    let nonce = "ab".repeat(32);
+    let proof =
+        acpmux::hub::person::process_viewer_proof(PERSON_KEY, session, tool_call, &nonce).unwrap();
+    let mut client = connection(hub, Origin::Local);
+    client
+        .request(
+            method::INITIALIZE,
+            json!({"protocolVersion": 1, "clientInfo": {"name": "process-viewer"},
+                   "_meta": {"acpmux": {"processViewer": {
+                       "sessionId": session, "toolCallId": tool_call,
+                       "nonce": nonce, "proof": proof}}}}),
+        )
+        .await
+        .unwrap();
+    client
+}
+
 #[tokio::test]
 async fn initialize_advertises_the_process_methods() {
     let (hub, mut c, root) = claude_hub(&[]).await;
@@ -326,8 +347,8 @@ async fn a_harness_exit_marks_running_processes_lost() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
-/// The registry is served to this machine's clients only: a remote device
-/// or a peer daemon can neither list, tail nor kill; the local app can list.
+/// The registry is served only to scoped local clients: a remote device, a peer daemon, or an
+/// unproved local app can neither list, tail nor kill; the person-proved app can list.
 #[tokio::test]
 async fn a_web_or_peer_connection_cannot_list_or_kill_processes() {
     let (hub, mut c, root) = claude_hub(&[]).await;
@@ -351,7 +372,8 @@ async fn a_web_or_peer_connection_cannot_list_or_kill_processes() {
     let mut app = connection(&hub, Origin::LocalApp);
     let init = json!({"protocolVersion": 1, "clientInfo": {"name": "app"}});
     app.request(method::INITIALIZE, init).await.unwrap();
-    let r = app.request(LIST, json!({"sessionId": id})).await.unwrap();
+    assert!(app.request(LIST, json!({"sessionId": id})).await.is_err());
+    let r = c.request(LIST, json!({"sessionId": id})).await.unwrap();
     assert_eq!(r["processes"][0]["id"], pid.as_str(), "{r}");
     hub.shutdown_all().await;
     let _ = std::fs::remove_dir_all(&root);
@@ -413,6 +435,34 @@ async fn an_unbound_local_connection_cannot_read_or_stop_processes() {
     assert!(read.is_err(), "an unbound client read process output: {read:?}");
     assert!(stopped.is_err(), "an unbound client stopped a process: {stopped:?}");
     assert!(stop_tasks(&hub, &victim).is_empty(), "the victim received stop_task");
+
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// The read-only terminal's capability works for the selected task and no other chat or tool
+/// call. The viewer may stop its selected task only after its own y/N interaction.
+#[tokio::test]
+async fn a_scoped_viewer_can_read_and_stop_only_its_selected_process() {
+    let (hub, mut app, root) = claude_hub(&[]).await;
+    let (selected, process, _file) = output_chat(&mut app, &root).await;
+    let other = chat(&mut app, "bg-running").await;
+    let other_process = format!("{other}/r1");
+    let mut viewer = viewer_connection(&hub, &selected, "toolu_out").await;
+
+    let list = viewer.request(LIST, json!({})).await.unwrap();
+    let ids: Vec<_> = list["processes"]
+        .as_array()
+        .unwrap_or_else(|| panic!("no process list: {list}"))
+        .iter()
+        .filter_map(|row| row["id"].as_str())
+        .collect();
+    assert_eq!(ids, vec![process.as_str()], "the viewer escaped its scope: {list}");
+    assert!(viewer.request(TAIL, json!({"processId": process})).await.is_ok());
+    assert!(viewer.request(KILL, json!({"processId": process})).await.is_ok());
+    assert!(viewer.request(TAIL, json!({"processId": other_process})).await.is_err());
+    assert!(viewer.request(KILL, json!({"processId": other_process})).await.is_err());
+    assert!(stop_tasks(&hub, &other).is_empty(), "the other chat received stop_task");
 
     hub.shutdown_all().await;
     let _ = std::fs::remove_dir_all(&root);

@@ -312,6 +312,40 @@ pub const HOLDS_LIMIT: &str = "person.holds_limit";
 /// answers count only in their own HMAC domain.
 pub const HOLDS_PER_CONNECTION: u32 = 8;
 
+/// `_meta.acpmux` field of a first local `initialize`: a person's capability for one
+/// background-process viewer. The child gets only this scoped proof, never the person key.
+pub(crate) const PROCESS_VIEWER_FIELD: &str = "processViewer";
+/// Environment carried only by `acpmux process show` in the App's read-only viewer.
+pub(crate) const PROCESS_VIEWER_SESSION_ENV: &str = "ACPMUX_PROCESS_VIEWER_SESSION";
+pub(crate) const PROCESS_VIEWER_TOOL_CALL_ENV: &str = "ACPMUX_PROCESS_VIEWER_TOOL_CALL";
+pub(crate) const PROCESS_VIEWER_NONCE_ENV: &str = "ACPMUX_PROCESS_VIEWER_NONCE";
+pub(crate) const PROCESS_VIEWER_PROOF_ENV: &str = "ACPMUX_PROCESS_VIEWER_PROOF";
+pub(crate) const PROCESS_VIEWER_SOCKET_ENV: &str = "ACPMUX_PROCESS_VIEWER_SOCKET";
+
+/// The one chat/tool call a person-authorized process viewer may list, tail and stop.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ProcessViewerScope {
+    pub session: String,
+    pub tool_call: String,
+}
+
+/// Removes a process-viewer proof from `_meta.acpmux`; only the first local `initialize` may bind
+/// it (`server/mod.rs`). A field on any later request is dropped unread.
+pub(crate) fn take_process_viewer(
+    params: &mut Value,
+) -> Option<(ProcessViewerScope, String, String)> {
+    let taken = params
+        .pointer_mut("/_meta/acpmux")
+        .and_then(Value::as_object_mut)
+        .and_then(|m| m.remove(PROCESS_VIEWER_FIELD))?;
+    let field = |key: &str| taken.get(key).and_then(Value::as_str).map(str::to_owned);
+    Some((
+        ProcessViewerScope { session: field("sessionId")?, tool_call: field("toolCallId")? },
+        field("nonce")?,
+        field("proof")?,
+    ))
+}
+
 /// At most this many spent decision nonces are kept.
 pub const SPENT_LIMIT: usize = 4096;
 /// A spent decision nonce is kept this long.
@@ -596,6 +630,19 @@ impl PersonGate {
             .is_some_and(|expected| cmux_local_auth::tokens_match(proof, &expected))
     }
 
+    /// Whether the app that holds this run's person key authorized one read-only terminal viewer
+    /// for `session` and `tool_call`. The capability never widens to another process or method.
+    pub(crate) fn process_viewer_proves(
+        &self,
+        scope: &ProcessViewerScope,
+        nonce: &str,
+        proof: &str,
+    ) -> bool {
+        let key = self.key.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone();
+        key.and_then(|key| process_viewer_proof(&key, &scope.session, &scope.tool_call, nonce))
+            .is_some_and(|expected| cmux_local_auth::tokens_match(proof, &expected))
+    }
+
     /// Whether `presented` is this launch's key (constant time).
     pub fn matches(&self, presented: &str) -> bool {
         self.key
@@ -654,6 +701,33 @@ pub fn person_proof(key: &str, transport: &str, nonce: &str, connection: &str) -
     Some(cmux_local_auth::frontend_proof::hex(&cmux_local_auth::frontend_proof::hmac_sha256(
         &key,
         &proof_message(transport, nonce, connection),
+    )))
+}
+
+/// The app's scoped capability for one process viewer, as lowercase hex. `nonce` is fresh for
+/// each viewer; the scope itself limits a copied capability to that chat and tool call.
+pub fn process_viewer_proof(
+    key: &str,
+    session: &str,
+    tool_call: &str,
+    nonce: &str,
+) -> Option<String> {
+    let key = cmux_local_auth::frontend_proof::unhex::<32>(key).filter(|_| valid_key(key))?;
+    if session.is_empty()
+        || session.len() > 256
+        || tool_call.is_empty()
+        || tool_call.len() > 256
+        || !valid_key(nonce)
+    {
+        return None;
+    }
+    let mut message = b"acpmux-process-viewer-v1".to_vec();
+    for part in [session, tool_call, nonce] {
+        message.push(0);
+        message.extend_from_slice(part.as_bytes());
+    }
+    Some(cmux_local_auth::frontend_proof::hex(&cmux_local_auth::frontend_proof::hmac_sha256(
+        &key, &message,
     )))
 }
 
