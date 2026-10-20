@@ -161,9 +161,12 @@ await requireBrowserLane("popup-escape.test.ts", async () => {
     const rows = await page.locator(".ui-context-menu [role=menuitem]").count();
     const show = (await popupCalls(page)).find((call) => call.method === "popup.show");
     expect(show?.params).toMatchObject({ kind: "menu", side: "bottom" });
-    const next = String(Number(show?.params.highlighted) + 1);
     // Every row, its separator and its disabled state as the page has them.
     const items = show?.params.items as { separator?: boolean; disabled?: boolean }[];
+    // ArrowDown skips separators and disabled rows (Redo with no history, after Undo).
+    const from = Number(show?.params.highlighted);
+    const next = String(items.findIndex((item, index) => index > from && !item.separator && !item.disabled));
+    expect(next).not.toBe("-1");
     expect(items.filter((item) => !item.separator).map((item) => item.disabled)).toEqual(
       await page.$$eval(".ui-context-menu [role=menuitem]", (all) => all.map((row) => row.hasAttribute("disabled"))),
     );

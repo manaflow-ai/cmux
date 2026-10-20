@@ -6,7 +6,8 @@
   cmux-bug-triage inbox [--json] [sources]
 
 sources: --open-work FILE (lines "aN: task"), --prompt-commits FILE,
---sentry FILE (sentry-cli issues JSON), --repo DIR | --no-git.
+--sentry FILE (sentry-cli issues JSON), --github FILE (gh issue list --json
+number,title,url), --repo DIR | --no-git, --nightly-ref REF (default nightly-next).
 
 Stdlib only. Never opens images; the calling agent transcribes them into
 report.md under "## Images" first (see SKILL.md). See DESIGN.md for rules.
@@ -79,8 +80,14 @@ RULES = (
 
 # ---------- parsing ----------
 
+def hyphen_shortcuts(text: str) -> str:
+    """'Cmd-1/2/3', 'Cmd-W' (commit style) -> 'Cmd+1/2/3', 'Cmd+W'."""
+    return re.sub(r"(?i)\b(cmd|ctrl|opt|shift)-(?=\w\b|\w/)", lambda m: m.group(1) + "+", text)
+
+
 def normalize_shortcuts(text: str) -> str:
     """'Cmd+1 / Cmd+2 / Cmd+3' -> 'Cmd+1/2/3'."""
+    text = hyphen_shortcuts(text)
     return re.sub(r"(?i)\b(cmd|ctrl|opt)\+(\w)((?:\s*/\s*\1\+\w)+)",
                   lambda m: f"{m.group(1)}+{m.group(2)}" + "".join(
                       "/" + p.split("+")[-1] for p in re.findall(r"\w+\+\w", m.group(3))),
@@ -88,6 +95,7 @@ def normalize_shortcuts(text: str) -> str:
 
 
 def shortcut_tokens(text: str) -> set[str]:
+    text = hyphen_shortcuts(text)
     out: set[str] = set()
     for raw in SHORTCUT_RE.findall(text):
         tok = re.sub(r"\s+", "", raw.lower()).replace("command", "cmd").replace("control", "ctrl")
@@ -109,7 +117,7 @@ def stem(word: str) -> str:
 
 
 def words(text: str) -> set[str]:
-    stripped = SHORTCUT_RE.sub(" ", text.lower())
+    stripped = SHORTCUT_RE.sub(" ", hyphen_shortcuts(text).lower())
     return {stem(w) for w in re.findall(r"[a-z][a-z']+", stripped) if w not in STOP and len(w) > 2}
 
 
@@ -177,16 +185,46 @@ def load_git(repo: Path | None) -> list[dict]:
         return []
     try:
         proc = subprocess.run(
-            ["git", "-C", str(repo), "log", "--format=%h %s", "-n", "400", "origin/feat-cmux-next"],
+            ["git", "-C", str(repo), "log", "--abbrev=11", "--format=%h%x1f%s%x1f%b%x1e", "-n", "600",
+             "origin/feat-cmux-next"],
             capture_output=True, text=True, timeout=20,
         )
     except (OSError, subprocess.TimeoutExpired):
         return []
     out = []
-    for line in proc.stdout.splitlines():
-        sha, _, subject = line.partition(" ")
-        out.append({"kind": "landed", "ref": sha, "text": subject})
+    for rec in proc.stdout.split("\x1e"):
+        parts = rec.strip("\n").split("\x1f")
+        if len(parts) < 3 or not parts[0]:
+            continue
+        sha, subject, body = parts[0], parts[1], parts[2]
+        # The first body paragraph usually quotes the tester; trailers and long prose add noise.
+        lead = body.strip().split("\n\n", 1)[0][:500]
+        out.append({"kind": "landed", "ref": sha, "text": subject, "match": f"{subject} {lead}",
+                    "is_test": bool(re.match(r"(?i)test(\(|:)", subject))})
     return out
+
+
+def in_nightly(repo: Path | None, sha: str, ref: str) -> bool | None:
+    """True when sha is an ancestor of the nightly ref, None when unknown."""
+    if repo is None or not re.fullmatch(r"[0-9a-f]{7,40}", sha):
+        return None
+    try:
+        proc = subprocess.run(["git", "-C", str(repo), "merge-base", "--is-ancestor", sha, ref],
+                              capture_output=True, timeout=20)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return {0: True, 1: False}.get(proc.returncode)
+
+
+def load_github(path: Path | None) -> list[dict]:
+    if not path or not path.exists():
+        return []
+    try:
+        data = json.loads(path.read_text())
+    except json.JSONDecodeError:
+        return []
+    return [{"kind": "github", "ref": str(i.get("url") or f"#{i.get('number')}"), "text": str(i.get("title", ""))}
+            for i in data if isinstance(i, dict)]
 
 
 def load_sentry(path: Path | None) -> list[dict]:
@@ -203,18 +241,19 @@ def load_sentry(path: Path | None) -> list[dict]:
 
 # ---------- scoring ----------
 
-def match(bug: str, work: list[dict]) -> dict | None:
+def match(bug: str, work: list[dict], min_ratio: float = 0.5) -> dict | None:
     bw, bs = words(bug), shortcut_tokens(bug)
     weight = len(bw) + 2 * len(bs)
     if weight == 0:
         return None
     best, best_ratio = None, 0.0
     for item in work:
-        shared_w = bw & words(item["text"])
-        shared_s = bs & shortcut_tokens(item["text"])
+        text = item.get("match", item["text"])
+        shared_w = bw & words(text)
+        shared_s = bs & shortcut_tokens(text)
         shared = len(shared_w) + 2 * len(shared_s)
-        ratio = shared / weight
-        if (len(shared_w) >= 3 or (shared_s and len(shared_w) >= 1)) and ratio >= 0.5 and ratio > best_ratio:
+        ratio = shared / weight - (0.05 if item.get("is_test") else 0.0)
+        if (len(shared_w) >= 3 or (shared_s and len(shared_w) >= 1)) and ratio >= min_ratio and ratio > best_ratio:
             best, best_ratio = item, ratio
     return best
 
@@ -253,7 +292,9 @@ def macos_note(env: str) -> str:
     return ""
 
 
-def triage_text(text: str, work: list[dict], images: list[str], report_ref: str) -> dict:
+def triage_text(text: str, work: list[dict], images: list[str], report_ref: str,
+                issues: list[dict] | None = None, repo: Path | None = None,
+                nightly_ref: str = "nightly-next") -> dict:
     bug_texts, env = split_report(text)
     bugs, tasks = [], []
     for raw in bug_texts:
@@ -262,11 +303,19 @@ def triage_text(text: str, work: list[dict], images: list[str], report_ref: str)
         effort = 3 if LARGE.search(raw) else (1 if sev == 1 else 2)
         score = sev * 3 + reach - effort
         dup = match(raw, work)
+        # Issues only add a link, so a looser match is fine (a shared key plus a word).
+        issue = match(raw, issues or [], min_ratio=0.25)
+        fixed_by, nightly = None, None
         label = {3: "crash/data loss", 2: "broken feature", 1: "polish"}[sev]
         if len(words(raw) | shortcut_tokens(raw)) < 3:
             decision, reason = "skip", "too vague to act on; ask the tester for steps and a screenshot"
         elif dup and dup["kind"] == "landed":
-            decision, reason = "skip", f"likely fixed by {dup['ref']} ({dup['text'][:60]}); ask tester to retest on the next nightly"
+            fixed_by = dup["ref"]
+            nightly = in_nightly(repo, fixed_by, nightly_ref)
+            where = {True: f"in {nightly_ref}: ask tester to retest on it",
+                     False: f"not in {nightly_ref} yet: ask tester to retest after the next nightly",
+                     None: "ask tester to retest on the next nightly"}[nightly]
+            decision, reason = "skip", f"likely fixed by {fixed_by} ({dup['text'][:60]}); {where}"
         elif dup:
             decision, reason = "skip", f"already in work: {dup['kind']} {dup['ref']} ({dup['text'][:60]})"
         elif sev == 3 or score >= 6:
@@ -277,6 +326,7 @@ def triage_text(text: str, work: list[dict], images: list[str], report_ref: str)
             "text": raw, "environment": env, "severity": sev, "reach": reach, "effort": effort,
             "score": score, "decision": decision, "reason": reason, "title": title_for(raw),
             "group": group_for(raw), "report": report_ref,
+            "fixed_by": fixed_by, "in_nightly": nightly, "issue": issue["ref"] if issue else None,
         }
         bugs.append(bug)
         if decision == "fix now":
@@ -300,6 +350,8 @@ def make_task(kind: str, title: str, group: str, bugs: list[dict], images: list[
     if kind == "fix now":
         lines.append(f"Tester bug report ({bugs[0]['report']}), triaged fix now ({bugs[0]['reason']}):")
         lines.append(f'"{bugs[0]["text"]}"')
+        if bugs[0].get("issue"):
+            lines.append(f"Matching open GitHub issue: {bugs[0]['issue']} (close it with the fix).")
     else:
         lines.append("Tester bug reports, triaged batch (fix each, one commit pair per bug):")
         lines += [f'- "{b["text"]}" ({b["report"]})' for b in bugs]
@@ -316,7 +368,8 @@ def render_md(result: dict) -> str:
     if result["environment"]:
         out += [f"Environment: {result['environment']}", ""]
     for b in result["bugs"]:
-        out.append(f"- **{b['decision']}**: {b['title']} ({b['group']}): {b['reason']}")
+        issue = f" [issue {b['issue']}]" if b.get("issue") else ""
+        out.append(f"- **{b['decision']}**: {b['title']} ({b['group']}): {b['reason']}{issue}")
     if result["tasks"]:
         out += ["", "Tasks to spawn:"] + [f"- {t['title']} -> group \"{t['group']}\"" for t in result["tasks"]]
     return "\n".join(out) + "\n"
@@ -342,6 +395,12 @@ def gather_work(args) -> list[dict]:
     work += load_prompt_commits(pc)
     work += load_git(repo)
     return work
+
+
+def triage_opts(args) -> dict:
+    return {"issues": load_github(Path(args.github) if args.github else None),
+            "repo": None if args.no_git else Path(args.repo or os.getcwd()),
+            "nightly_ref": args.nightly_ref}
 
 
 def images_in(folder: Path) -> list[str]:
@@ -375,7 +434,7 @@ def cmd_triage(args) -> int:
     if report.is_dir():
         report = folder / "report.md"
     result = triage_text(report.read_text(errors="replace"), gather_work(args),
-                         images_in(folder), folder.name)
+                         images_in(folder), folder.name, **triage_opts(args))
     print(json.dumps(result, indent=2) if args.json else render_md(result), end="" if not args.json else "\n")
     return 0
 
@@ -398,6 +457,7 @@ def cmd_inbox(args) -> int:
             folder.mkdir(exist_ok=True)
             shutil.move(str(loose), folder / "report.md")
     work = gather_work(args)
+    opts = triage_opts(args)
     results, batch_new = [], []
     for folder in sorted(p for p in inbox.iterdir() if p.is_dir()):
         report = folder / "report.md"
@@ -408,7 +468,7 @@ def cmd_inbox(args) -> int:
             report = texts[0]
         if (folder / "triage.json").exists():
             continue
-        result = triage_text(report.read_text(errors="replace"), work, images_in(folder), folder.name)
+        result = triage_text(report.read_text(errors="replace"), work, images_in(folder), folder.name, **opts)
         result["tasks"] = [t for t in result["tasks"] if t["kind"] == "fix now"]
         (folder / "triage.json").write_text(json.dumps(result, indent=2) + "\n")
         (folder / "triage.md").write_text(render_md(result))
@@ -460,6 +520,8 @@ def main(argv: list[str]) -> int:
         p.add_argument("--sentry", help="JSON from sentry-cli issues list")
         p.add_argument("--repo", help="git repo for origin/feat-cmux-next log (default cwd)")
         p.add_argument("--no-git", action="store_true", help="skip the git log source")
+        p.add_argument("--github", help="JSON from gh issue list --json number,title,url (open issues)")
+        p.add_argument("--nightly-ref", default="nightly-next", help="published nightly tag (default nightly-next)")
 
     tri = sub.add_parser("triage", help="triage one report file or folder")
     tri.add_argument("report")

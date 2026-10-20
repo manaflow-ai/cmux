@@ -11,6 +11,8 @@ export const LINK_CLOSED = "cmux.protocol.closed";
 export type PageCommandName =
   | "find"
   | "focusSearch"
+  // The page's web view got the keyboard: focus its primary input if nothing has focus (pageFocus.ts).
+  | "focusContent"
   | "back"
   | "forward"
   | "reset"

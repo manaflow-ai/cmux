@@ -252,6 +252,8 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
                         | "chief.profile.delete"
                         | "chief.profile.avatar.set"
                         | "chief.profile.avatar.get"
+                        | "chief.profile.history"
+                        | "chief.profile.undo"
                         // `cmux avatar set|get` and the Channels page send these.
                         | "participant.avatar.set"
                         | "participant.avatar.get"

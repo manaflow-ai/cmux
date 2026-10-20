@@ -314,6 +314,9 @@ final class ChatController: NSObject, NSTextViewDelegate {
     weak var intents: ChatIntents?
     /// cmux: a click on an app link (`URL.isCmuxAppLink`): the host runs it; nil opens nothing.
     var onAppLink: ((URL) -> Void)?
+    /// cmux: the pointer moved over the transcript (or left it: nil), in screen coordinates; the
+    /// host's hover cards for link chips follow it (HomeLinkChip).
+    var onPointerMoved: ((CGPoint?) -> Void)?
     /// cmux: a click on any other link (`otherTarget`: Shift-Command held); the system opens it unless the host routes it.
     var onOpenLink: (_ url: URL, _ otherTarget: Bool) -> Void = { url, _ in NSWorkspace.shared.open(url) }
     /// cmux: one-shot wake-ups on the host's timer (CmuxNext: DemandTimer).
@@ -597,8 +600,20 @@ final class ChatController: NSObject, NSTextViewDelegate {
 
     func textDidChange(_ notification: Notification) {
         guard let demo else { return }
-        composerHistory.textChanged(to: demo.compose.textView.view.string)
-        dispatch(.setDraft(demo.compose.textView.view.string))
+        let tv = demo.compose.textView.view
+        let draft = store?.state.ui.draft.attachments ?? []
+        // cmux: attachments are in the text (Draft+InlineMarks.swift). An attachment character that
+        // stands for no draft attachment (a pasted U+FFFC, an undo of a removal) leaves the text.
+        if let storage = tv.textStorage {
+            let orphans = ComposeInlineText.orphanRanges(in: storage, keeping: Set(draft.map(\.id)))
+            for r in orphans { storage.replaceCharacters(in: r, with: "") }
+        }
+        composerHistory.textChanged(to: tv.string)
+        dispatch(.setDraft(tv.string))
+        // An attachment whose character the person deleted (Delete, a cut, the remove button) leaves the draft.
+        let shown = Set(tv.textStorage.map(ComposeInlineText.ids(in:)) ?? [])
+        let gone = draft.filter { !shown.contains($0.id) }
+        for a in gone { dispatch(.removeDraftAttachment(a.id)) }
         intents?.draftChanged()
     }
 

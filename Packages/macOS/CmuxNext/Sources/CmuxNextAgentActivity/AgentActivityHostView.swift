@@ -39,9 +39,8 @@ public final class AgentActivityHostView: NSView {
         webView.allowsBackForwardNavigationGestures = false
         webView.allowsLinkPreview = false
         if webView.responds(to: NSSelectorFromString("_setDrawsBackground:")) { webView.setValue(false, forKey: "drawsBackground") }
-        #if DEBUG
+        // Web Inspector in every build (Inspect Element, Cmd-Opt-I).
         webView.isInspectable = true
-        #endif
         bridge.view = self
         model.onChange = { [weak self] in self?.scheduleStatePush() }
         addSubview(webView)

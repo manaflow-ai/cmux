@@ -169,6 +169,14 @@ const OPEN_PAGE_BYTES = 128 * 1024;
 const OLDER_PAGE_BYTES = 256 * 1024;
 /** How long a session list that failed to load waits before it is read once more. */
 const SESSION_REREAD_MS = 2000;
+/// Each chat's slash commands from its last attach on this page (a few dozen chats): back on a
+/// chat, `/` lists them at once instead of "No commands" until the attach (Leo 2026-10-19).
+const knownCommands = new Map<string, SlashCommand[]>();
+function rememberCommands(sessionId: string, commands: SlashCommand[]) {
+  knownCommands.delete(sessionId);
+  knownCommands.set(sessionId, commands);
+  while (knownCommands.size > 32) knownCommands.delete(knownCommands.keys().next().value!);
+}
 /// The longest a chat switch keeps the chat before on screen while the new one attaches.
 const SWITCH_HOLD_MS = 400;
 /// The longest a connect keeps the pane's last snapshot on screen while it reads the chat.
@@ -1089,7 +1097,8 @@ export class AcpmuxDirectClient {
     this.groupedPermissions.clear();
     this.openQuestions.clear();
     this.heldEdits.clear();
-    this.commands = [];
+    // The chat's commands from its last visit on this page, so `/` lists them before the attach.
+    this.commands = (this.selectedSessionId && knownCommands.get(this.selectedSessionId)) || [];
     this.commandsApplied = false;
     this.handoff.select(this.selectedSessionId);
     this.permissions.select(this.selectedSessionId);
@@ -1620,6 +1629,7 @@ export class AcpmuxDirectClient {
     const commands = event ? commandsFromUpdate(sessionUpdate(event)) : undefined;
     if (!commands) return;
     this.commands = commands;
+    rememberCommands(sessionId, commands);
     this.emit("commands");
   }
 
@@ -2015,6 +2025,7 @@ export class AcpmuxDirectClient {
     if (commands) {
       this.commands = commands;
       this.commandsApplied = true;
+      if (this.selectedSessionId) rememberCommands(this.selectedSessionId, commands);
       return;
     }
     const text = textFromContent(update.content);
@@ -2655,8 +2666,9 @@ export class AcpmuxDirectClient {
   }
   /// Withdraws a queued prompt before its turn starts; `removed` is false once it started.
   async removeQueued(promptId: string): Promise<{ removed: boolean }> {
-    if (!this.selectedSessionId) return { removed: false };
-    return this.request("_acpmux/queue_remove", { sessionId: this.actingSessionId, promptId });
+    const sessionId = this.actingSessionId;
+    if (!sessionId) return { removed: false };
+    return this.request("_acpmux/queue_remove", { sessionId, promptId });
   }
   /// Archive has acpmux tag the selected chat `archived` (the lists hide it; acpmux values it with
   /// when); Unarchive removes the tag. The page sends it on its own connection (cx-jlzsf).
@@ -2919,6 +2931,10 @@ export class AcpmuxDirectClient {
     }
   }
   async permissionGroup(groupId: string, revision: number, decision: PermissionDecision): Promise<void> {
+    // During a switch's hold the card drawn is the chat before's, while the group client already
+    // reads the next chat: refuse here, so the next chat's permission state gets no error.
+    if (this.snapshotHold && this.shownSessionId !== this.selectedSessionId)
+      throw new Error(translate("permission.error.selectionChanged"));
     await this.permissions.respond(groupId, revision, decision);
   }
   async select(sessionId: string): Promise<string | undefined> {
@@ -3282,13 +3298,16 @@ export class AcpmuxDirectClient {
   async setConfig(configId: string, value: string, ticket?: string): Promise<void> {
     const sessionId = this.actingSessionId;
     if (!sessionId) return;
+    const generation = this.selectionGeneration;
     const result = await this.request("session/set_config_option", {
       sessionId,
       configId,
       value,
       ...gestureMeta(ticket),
     });
-    if (sessionId !== this.actingSessionId || !Array.isArray(result?.configOptions)) return;
+    // `summary` is the selected chat's: during a hold that is already the next chat, not the one acted on.
+    if (generation !== this.selectionGeneration || sessionId !== this.selectedSessionId) return;
+    if (!Array.isArray(result?.configOptions)) return;
     this.summary = { ...this.summary, configOptions: result.configOptions };
     this.emit();
   }
