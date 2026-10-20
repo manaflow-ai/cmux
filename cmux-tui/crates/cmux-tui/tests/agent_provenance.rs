@@ -36,6 +36,10 @@ fn cmux(dir: &Path, args: &[&str], env: &[(&str, &str)], path: Option<&Path>) ->
         "CODEX_SESSION_ID",
         "OPENCODE_SESSION_ID",
         "AGENT_LEASE_HOLDER",
+        "CALLSIGN_SESSION_ID",
+        "CALLSIGN_STATE_DIR",
+        "XDG_STATE_HOME",
+        "CMUX_AGENT_PROVENANCE",
     ] {
         command.env_remove(key);
     }
@@ -75,6 +79,8 @@ fn git(repo: &Path, args: &[&str]) -> String {
         .env("GIT_AUTHOR_EMAIL", "agent@example.com")
         .env("GIT_COMMITTER_NAME", "agent")
         .env("GIT_COMMITTER_EMAIL", "agent@example.com")
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
         .output()
         .unwrap();
     assert!(output.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&output.stderr));
@@ -123,6 +129,23 @@ fn provenance_link_prints_the_session_address_in_every_form() {
     assert_eq!(json["harness"], "claude");
     assert_eq!(json["session"], SESSION);
     assert!(json.get("account").is_none() && json.get("cwd").is_none(), "{json}");
+
+    // Provenance turned off: no trailer or PR line to stamp.
+    let mut off = agent_env();
+    off.push(("CMUX_AGENT_PROVENANCE", "0"));
+    for form in ["--trailer", "--footer"] {
+        assert_eq!(
+            cmux(&dir, &["agent", "link", form], &off, None).status.code(),
+            Some(1),
+            "{form}"
+        );
+    }
+    let help = stdout(&cmux(&dir, &["agent", "link", "--help"], &agent_env(), None));
+    assert!(help.contains("agent link"), "{help}");
+    // A session id the link grammar refuses is no session.
+    let bad = [("CMUX_AGENT_SESSION_ID", "not a session!")];
+    assert_eq!(cmux(&dir, &["agent", "link"], &bad, None).status.code(), Some(1));
+    assert_eq!(cmux(&dir, &["agent", "artifacts"], &bad, None).status.code(), Some(1));
 
     let outside = cmux(&dir, &["agent", "link"], &[], None);
     assert_eq!(outside.status.code(), Some(1));
@@ -226,5 +249,97 @@ fn provenance_artifacts_lists_the_sessions_commits_prs_and_runs() {
         human.contains("commits (2)") && human.contains("#42") && human.contains("runs/7"),
         "{human}"
     );
+    let _ = fs::remove_dir_all(dir);
+}
+
+/// The agent's name comes from the live callsign lease, as in
+/// tools/remote-agents/agent_identity.py: `CMUX_AGENT_NAME`, else the lease
+/// `callsign start` keeps for the session, else the lane of `AGENT_LEASE_HOLDER`.
+/// A pending or expired lease doesn't count.
+#[test]
+fn provenance_link_names_the_agent_by_its_live_callsign_lease() {
+    let dir = temp_dir("callsign");
+    let state = dir.join(".local/state/callsign");
+    fs::create_dir_all(&state).unwrap();
+    let lease = state.join("session-0f3c2a91_7d4e_4b8a_9c11_2e5f6a7b8c9d.json");
+    let env = [
+        ("CLAUDE_CODE_SESSION_ID", SESSION),
+        ("CMUX_AGENT_HOST", "build-mac"),
+        ("AGENT_LEASE_HOLDER", "lane-7@build-mac"),
+    ];
+    let link =
+        |env: &[(&str, &str)]| stdout(&cmux(&dir, &["agent", "link"], env, None)).trim().to_owned();
+    let named = |name: &str| format!("cmux://agent/claude/{SESSION}?host=build-mac&name={name}");
+
+    fs::write(
+        &lease,
+        r#"{"callsign":"Heron","expiresAt":"2999-01-01T00:00:00.000Z","generation":3}"#,
+    )
+    .unwrap();
+    assert_eq!(link(&env), named("Heron"));
+    // CALLSIGN_SESSION_ID keys the lease when set.
+    let mut keyed = env.to_vec();
+    keyed.push(("CALLSIGN_SESSION_ID", "Other Session"));
+    fs::write(
+        state.join("session-other_session.json"),
+        r#"{"callsign":"Wren","expiresAt":"2999-01-01T00:00:00Z"}"#,
+    )
+    .unwrap();
+    assert_eq!(link(&keyed), named("Wren"));
+    // CMUX_AGENT_NAME wins over the lease.
+    let mut explicit = env.to_vec();
+    explicit.push(("CMUX_AGENT_NAME", "Lanternfish"));
+    assert_eq!(link(&explicit), named("Lanternfish"));
+    // Pending and expired leases fall back to the lease holder's lane.
+    fs::write(&lease, r#"{"callsign":"Heron","pending":true,"expiresAt":"2999-01-01T00:00:00Z"}"#)
+        .unwrap();
+    assert_eq!(link(&env), named("lane-7"));
+    fs::write(&lease, r#"{"callsign":"Heron","expiresAt":"2001-01-01T00:00:00+00:00"}"#).unwrap();
+    assert_eq!(link(&env), named("lane-7"));
+    let _ = fs::remove_dir_all(dir);
+}
+
+/// `--github` still lists the session's commits when `gh` can't answer for
+/// some of them (an unpushed commit: GitHub answers 422), naming each failure.
+#[test]
+fn provenance_artifacts_github_keeps_the_commits_when_gh_fails_for_one() {
+    let dir = temp_dir("gh-partial");
+    let repo = dir.join("repo");
+    fs::create_dir_all(&repo).unwrap();
+    git(&repo, &["init", "-q", "-b", "main"]);
+    let trailer = stdout(&cmux(&dir, &["agent", "link", "--trailer"], &agent_env(), None));
+    let pushed = commit(&repo, "a.txt", "pushed work", Some(trailer.trim()));
+    let local = commit(&repo, "b.txt", "local work", Some(trailer.trim()));
+    let bin = dir.join("bin");
+    fs::create_dir_all(&bin).unwrap();
+    let gh = bin.join("gh");
+    fs::write(
+        &gh,
+        format!(
+            "#!/bin/sh\n\
+             case \"$*\" in\n\
+             *{local}*) echo 'gh: No commit found for SHA: {local} (HTTP 422)' >&2; exit 1 ;;\n\
+             \"api \"*) echo '[{{\"number\":5,\"html_url\":\"https://github.com/o/r/pull/5\",\"state\":\"open\",\"title\":\"t\",\"merged_at\":null}}]' ;;\n\
+             \"run list\"*) echo '[]' ;;\n\
+             *) echo '[]' ;;\n\
+             esac\n"
+        ),
+    )
+    .unwrap();
+    fs::set_permissions(&gh, fs::Permissions::from_mode(0o755)).unwrap();
+    let repo_arg = repo.to_str().unwrap();
+    let full: Value = serde_json::from_str(&stdout(&cmux(
+        &dir,
+        &["--json", "agent", "artifacts", "--repo", repo_arg, "--github"],
+        &agent_env(),
+        Some(&bin),
+    )))
+    .unwrap();
+    assert_eq!(full["commits"].as_array().unwrap().len(), 2, "{full}");
+    assert_eq!(full["pull_requests"][0]["number"], 5, "{full}");
+    let errors = full["github_errors"].as_array().unwrap();
+    assert_eq!(errors.len(), 1, "{full}");
+    assert_eq!(errors[0]["sha"], local.as_str());
+    assert!(errors.iter().all(|error| error["sha"] != pushed.as_str()), "{full}");
     let _ = fs::remove_dir_all(dir);
 }
