@@ -1575,18 +1575,6 @@
             {
               "keys": [
                 {
-                  "key": "",
-                  "modifiers": [
-                    "opt",
-                    "cmd"
-                  ]
-                }
-              ],
-              "when": null
-            },
-            {
-              "keys": [
-                {
                   "key": "",
                   "modifiers": [
                     "ctrl"
@@ -1643,18 +1631,6 @@
           },
           "chord": null,
           "aliases": [
-            {
-              "keys": [
-                {
-                  "key": "",
-                  "modifiers": [
-                    "opt",
-                    "cmd"
-                  ]
-                }
-              ],
-              "when": null
-            },
             {
               "keys": [
                 {
@@ -2942,14 +2918,27 @@
             "zh-TW": "聚焦左側窗格"
           },
           "shortcut": {
-            "key": "h",
+            "key": "",
             "modifiers": [
-              "ctrl",
+              "opt",
               "cmd"
             ]
           },
           "chord": null,
-          "aliases": []
+          "aliases": [
+            {
+              "keys": [
+                {
+                  "key": "h",
+                  "modifiers": [
+                    "ctrl",
+                    "cmd"
+                  ]
+                }
+              ],
+              "when": null
+            }
+          ]
         },
         {
           "id": "focusRight",
@@ -2977,14 +2966,27 @@
             "zh-TW": "聚焦右側窗格"
           },
           "shortcut": {
-            "key": "l",
+            "key": "",
             "modifiers": [
-              "ctrl",
+              "opt",
               "cmd"
             ]
           },
           "chord": null,
-          "aliases": []
+          "aliases": [
+            {
+              "keys": [
+                {
+                  "key": "l",
+                  "modifiers": [
+                    "ctrl",
+                    "cmd"
+                  ]
+                }
+              ],
+              "when": null
+            }
+          ]
         },
         {
           "id": "focusUp",

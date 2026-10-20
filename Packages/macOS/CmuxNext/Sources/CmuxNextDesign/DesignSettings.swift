@@ -32,7 +32,20 @@ public final class DesignSettings {
 
     /// Intentional Command/Control hold hints (`shortcuts.showModifierHoldHints`).
     public var showModifierHoldHints = true
-    public var density: Density = .compact
+    /// `appearance.density`: the active density's token set (plans/cmux-next/density-DESIGN.md).
+    public var densityTokens: DensityTokens = .compact
+    /// `appearance.customDensities`: the user's own densities, in file order.
+    public var customDensities: [DensityTokens] = []
+    /// Every density the user can pick: the built-ins, densest first, then the custom ones.
+    public var availableDensities: [DensityTokens] { DensityPreset.allCases.map(\.tokens) + customDensities }
+    /// The density with `id` among `availableDensities`.
+    public func density(id: String) -> DensityTokens? { availableDensities.first { $0.id == id } }
+    /// The two-way family of the active density (`DensityTokens.family`). Setting it picks that
+    /// built-in (Compact or Comfortable).
+    public var density: Density {
+        get { densityTokens.family }
+        set { densityTokens = newValue == .compact ? .compact : DensityPreset.comfortable.tokens }
+    }
     /// `app.uiScale`, the content/page scale. Chrome uses `interfaceScale`.
     /// Terminal content deliberately remains owned by Ghostty's font size.
     public var uiScale: CGFloat = 1

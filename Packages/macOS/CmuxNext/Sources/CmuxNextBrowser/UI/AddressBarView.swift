@@ -38,8 +38,10 @@ public final class AddressBarView: NSView {
     private let machineBadgeView = MachineBadgeView()
     private let profileBadgeView = ProfileBadgeView()
     let starButton = BookmarkStarButton()
-    /// The trailing badges (browser profile, machine, bookmark star); hidden ones take no room.
-    private lazy var badges = NSStackView(views: [profileBadgeView, machineBadgeView, starButton])
+    /// The trailing badges (browser focus mode, browser profile, machine, bookmark star); hidden ones take no room.
+    let focusModeBadgeView = FocusModeBadgeView()
+    private var focusModeBadgeWanted = false
+    private lazy var badges = NSStackView(views: [focusModeBadgeView, profileBadgeView, machineBadgeView, starButton])
     // Built on first use in init (no IUO).
     private lazy var fieldToEdge = field.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -OmnibarStyle.trailingPadding)
     private lazy var fieldToBadge = field.trailingAnchor.constraint(equalTo: badges.leadingAnchor, constant: -OmnibarStyle.textLeading)
@@ -184,6 +186,7 @@ public final class AddressBarView: NSView {
         addSubview(chip)
         addSubview(field)
         machineBadgeView.isHidden = true
+        focusModeBadgeView.isHidden = true
         profileBadgeView.isHidden = true
         starButton.isHidden = true
         badges.orientation = .horizontal
@@ -275,8 +278,43 @@ public final class AddressBarView: NSView {
     /// The badge shown now, for diagnostics (`debug.browser`).
     public var profileBadgeName: String? { profileBadgeView.isHidden ? nil : profileBadgeView.themedToolTip }
 
+    /// Browser focus mode's badge: nil hides it, else "Focus Mode" or, once
+    /// the first Escape armed the exit, "Esc again to exit". It fades in and
+    /// out (at once under Reduce Motion or the app's motion setting).
+    public func setFocusModeBadge(armed: Bool?) {
+        if let armed { focusModeBadgeView.show(armed: armed) }
+        let shown = armed != nil
+        guard focusModeBadgeWanted != shown else { return }
+        focusModeBadgeWanted = shown
+        // Reduce Motion or the motion setting: the badge appears and goes at once (no animator
+        // proxy, whose zero-length group can leave the old alpha until the next commit).
+        guard Motion.animatesFades, Motion.canAnimate(in: focusModeBadgeView) else {
+            focusModeBadgeView.alphaValue = shown ? 1 : 0
+            focusModeBadgeView.isHidden = !shown
+            return updateBadgeSpace()
+        }
+        if !shown {
+            Motion.animate(.fadeOut, in: focusModeBadgeView, { focusModeBadgeView.animator().alphaValue = 0 }) { [weak self] in
+                // Shown again while fading out: stay visible.
+                guard let self, !focusModeBadgeWanted else { return }
+                focusModeBadgeView.isHidden = true
+                updateBadgeSpace()
+            }
+        } else {
+            focusModeBadgeView.alphaValue = 0
+            focusModeBadgeView.isHidden = false
+            updateBadgeSpace()
+            Motion.animate(.fadeIn, in: focusModeBadgeView) { focusModeBadgeView.animator().alphaValue = 1 }
+        }
+    }
+
+    /// Whether the focus mode badge shows (or is fading in); tests, diagnostics.
+    public var showsFocusModeBadge: Bool { focusModeBadgeWanted }
+    /// The focus mode badge's text (tests, diagnostics).
+    public var focusModeBadgeText: String? { showsFocusModeBadge ? focusModeBadgeView.shownText : nil }
+
     func updateBadgeSpace() {
-        let visible = !machineBadgeView.isHidden || !profileBadgeView.isHidden || !starButton.isHidden
+        let visible = !machineBadgeView.isHidden || !profileBadgeView.isHidden || !starButton.isHidden || !focusModeBadgeView.isHidden
         guard fieldToBadge.isActive != visible else { return }
         fieldToEdge.isActive = !visible
         fieldToBadge.isActive = visible

@@ -479,7 +479,9 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
             // opens the link through the shared rule; Shift-Command asks for the other browser.
             externalLinkModifiers = action.modifierFlags
             let other = LinkRouter.isOtherTarget(action.modifierFlags)
-            if let url { (onOpenExternal ?? { LinkRouter.shared.open($0, otherTarget: other) })(url) }
+            if let url {
+                if let onOpenExternal { onOpenExternal(url) } else { LinkRouter.shared.open(url, otherTarget: other, from: self) }
+            }
             return .cancel
         case .cancel:
             return .cancel

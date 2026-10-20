@@ -35,7 +35,11 @@ enum BrowserHandlers {
                 throw ActionFailure(message: MiscHandlerStrings.noBrowser)
             }
             if window.focus.state.pane != pane.paneKey { window.focus.send(.focusPane(pane.paneKey, source: .intent)) }
-            window.focus.send(.toggleBrowserFocusMode(tab: entry.tab.id.rawValue))
+            let tab = entry.tab.id.rawValue
+            window.focus.send(.toggleBrowserFocusMode(tab: tab))
+            // Entering puts the keyboard in the page (classic cmux parity): from the
+            // address bar or find bar, focus mode would wait for a click otherwise.
+            if window.focus.state.browserFocusMode.contains(tab) { window.focus.send(.focusTarget(.content, source: .intent)) }
         })
         // Any focused web view (WebInspectorTarget): disabled with the reason while none is.
         registry.bind("toggleBrowserDeveloperTools", unavailable: { DevToolsHandlers.noTargetReason(context) }, run: { invocation in
@@ -50,14 +54,12 @@ enum BrowserHandlers {
         registry.bind("inspectBrowserElement", unavailable: { DevToolsHandlers.noTargetReason(context) }, run: {
             WebInspector.inspectElement(try DevToolsHandlers.target($0, context))
         })
-        // The toolbar shows the mode (BrowserPageModes); a new document starts with it off.
+        // Classic's Design Mode (plans/cmux-next/design-mode-DESIGN.md): highlights become cards in
+        // an agent chat. The toolbar shows the mode (BrowserPageModes); a new document starts with it off.
         registry.bind("toggleBrowserDesignMode", run: { invocation in
             let entry = try context.page(invocation)
-            let modes = entry.chrome.toolbarButtons.modes
-            modes.designMode.toggle()
-            let script = "document.designMode = '\(modes.designMode ? "on" : "off")'"
-            let tab = entry.tab
-            Task { _ = try? await tab.evaluate(script) }
+            guard let key = context.services.cache.key(of: entry.tab) else { return }
+            context.services.designMode.toggle(entry, key: key)
         })
         // React Grab (classic parity): the first toggle on a document loads the pinned library into
         // the page world, later toggles flip it. A load failure says so on the page.

@@ -836,7 +836,8 @@ impl Spawner {
 
     /// A queued subagent's launch after a restart: its saved launch, else its
     /// spawn call in the log; the harness is the engine of now. A launch
-    /// from the log has no saved floor: the floor of now applies.
+    /// from the log has no trustworthy saved floor, so it fails closed to
+    /// `ask` rather than inheriting a possibly lower floor from now.
     fn rebuild_waiting(&self, queued: &QueuedStart) -> Result<Waiting, String> {
         let (saved, from_log) = match queued.launch.clone() {
             Some(saved) => (saved, false),
@@ -855,7 +856,7 @@ impl Spawner {
         let run = self.engine_settings(queued.engine.as_ref());
         let (dir, _) = self.run_dir(saved.cwd.as_deref(), &run);
         let floor = if from_log {
-            self.spawn_floor()
+            Some(crate::approval::ASK.to_owned())
         } else {
             saved.floor
         };
