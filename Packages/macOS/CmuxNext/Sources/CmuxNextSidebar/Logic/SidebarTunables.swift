@@ -115,6 +115,7 @@ public nonisolated enum SidebarTunables {
             SidebarRowBadgeStackCap.tunable.descriptor,
             SidebarRowBadgeStyle.tunable.descriptor,
             updateCardButton.descriptor,
+            updateCardPictures.descriptor,
             workspaceOntoEnd.descriptor,
             workspaceOntoStart.descriptor,
             workspaceTitleMotion.descriptor,
