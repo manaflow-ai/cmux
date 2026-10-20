@@ -150,6 +150,8 @@ export type AcpmuxRow = {
   prompt?: string;
   /// An edited-files card of a turn that has ended, which offers Undo (conversation/turns.ts).
   ended?: boolean;
+  /// A todo list whose turn has ended: a step left in progress no longer spins (conversation/turns.ts).
+  turnEnded?: boolean;
   /// The edits an edited-files card merges (their row ids), so Find reaches each (chatFind.ts).
   merged?: string[];
   /// A shell mode command's block (shell/shellRuns.ts), which the page adds; never from acpmux.
@@ -554,8 +556,8 @@ function fallbackRowHeight(row: AcpmuxRow, width: number): number {
   if (row.kind === "agentPair") return row.agentPair?.resumed ? 37 : 37 + 24;
   // A session start: its facts line, and the compaction note under it until it is dismissed.
   if (row.kind === "sessionStart") return 37 + 44;
-  // The plan's 20px progress line over its 22px items, inside 8px margins (conversation/PlanList.tsx).
-  if (row.kind === "plan" && row.plan) return 24 + 20 + row.plan.length * 22;
+  // The plan card's 24px items inside 8px of padding and 8px margins (conversation/PlanList.tsx).
+  if (row.kind === "plan" && row.plan) return 40 + row.plan.length * 24;
   if (
     row.kind === "turnSummary" ||
     row.kind === "notice" ||

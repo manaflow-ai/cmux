@@ -2520,15 +2520,16 @@ pre.cv-math-source {
   backdrop-filter: none;
 }
 
-/* The agent's todo list (PlanList.tsx, cx-ncc.80). */
+/* The agent's todo list (PlanList.tsx, cx-ncc.80): a quiet card, as in Claude desktop. A filled
+   check is done, a thin spinner runs and a dashed circle waits; no heading, strike-through or bold. */
 .cv-plan {
+  position: relative;
   margin: 8px 0;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: var(--cv-card-fill);
+  box-shadow: inset 0 0 0 1px var(--cv-card-ring);
   font-size: var(--text-body);
-}
-.cv-plan__heading {
-  height: 20px;
-  font-size: var(--text-caption);
-  color: var(--cv-text-muted);
 }
 .cv-plan__items {
   margin: 0;
@@ -2537,9 +2538,16 @@ pre.cv-math-source {
 }
 .cv-plan__item {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 8px;
-  min-height: 22px;
+  min-height: 24px;
+  padding-block: 4px;
+  box-sizing: border-box;
+  line-height: 16px;
+}
+.cv-plan__text {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .cv-plan__mark {
   flex: 0 0 auto;
@@ -2549,10 +2557,12 @@ pre.cv-math-source {
   width: 12px;
   height: 12px;
   border: 1.5px solid var(--cv-text-muted);
+  margin-top: 2px;
   border-radius: 50%;
   box-sizing: border-box;
 }
-/* The item's state for screen readers only (the pane does not load ui.css's .ui-sr-only). */
+/* The progress and each item's state for screen readers only (the pane does not load ui.css's
+   .ui-sr-only). */
 .cv-plan__state {
   position: absolute;
   width: 1px;
@@ -2563,18 +2573,37 @@ pre.cv-math-source {
 }
 .cv-plan__item[data-status="completed"] {
   color: var(--cv-text-muted);
-  text-decoration: line-through;
 }
 .cv-plan__item[data-status="completed"] .cv-plan__mark {
   border-color: transparent;
   background: var(--cv-text-muted);
   color: var(--agent-accent-text, #fff);
 }
-.cv-plan__item[data-status="in_progress"] {
-  font-weight: 600;
+.cv-plan__item[data-status="pending"] .cv-plan__mark {
+  border-style: dashed;
 }
+/* A thin arc on a faint ring; it turns while the turn runs. */
 .cv-plan__item[data-status="in_progress"] .cv-plan__mark {
-  border-color: var(--agent-text);
+  border-color: var(--cv-card-ring);
+  border-top-color: var(--agent-text);
+}
+/* Left in progress when its turn ended: a plain ring, not an arc frozen mid-turn. */
+.cv-plan[data-ended] .cv-plan__item[data-status="in_progress"] .cv-plan__mark {
+  border-color: var(--cv-text-muted);
+}
+/* Static status indicators and Reduce Motion: the arc holds still. */
+@media (prefers-reduced-motion: no-preference) {
+  :root:not([data-status-indicators="static"])
+    .cv-plan:not([data-ended])
+    .cv-plan__item[data-status="in_progress"]
+    .cv-plan__mark {
+    animation: cv-plan-spin 0.9s linear infinite;
+  }
+}
+@keyframes cv-plan-spin {
+  to {
+    transform: rotate(1turn);
+  }
 }
 
 /* ---------- A background shell's end (BackgroundTaskNote.tsx, cx-ncc.84) ---------- */
