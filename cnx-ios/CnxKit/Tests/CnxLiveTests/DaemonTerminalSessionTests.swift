@@ -21,6 +21,9 @@ final class FakeTerminalDaemon: @unchecked Sendable {
     var terminals: [String: Int]? = nil
     /// The next N `resolve-terminal` answers have a null surface (restoring).
     var restoring = 0
+    /// Terminals whose process exited while no surface shows them:
+    /// `resolve-terminal` answers a null surface with lifecycle `exited`.
+    var exited: Set<String> = []
     /// The next N `resolve-terminal` answers are terminal_not_found (a registry
     /// still loading right after the Mac app restarted).
     var missing = 0
@@ -56,6 +59,9 @@ final class FakeTerminalDaemon: @unchecked Sendable {
                 return true
             }
             if restoringNow { return [reply(["surface": NSNull(), "terminal_id": object["terminal_id"] ?? ""])] }
+            if let terminal = object["terminal_id"] as? String, lock.withLock({ exited.contains(terminal) }) {
+                return [reply(["surface": NSNull(), "terminal_id": terminal, "lifecycle": "exited"])]
+            }
             let missingNow: Bool = lock.withLock {
                 guard missing > 0 else { return false }
                 missing -= 1
@@ -666,6 +672,32 @@ final class ChannelLog: @unchecked Sendable {
         #expect(session.connectionState != .reattaching(mac: nil), "never stuck reattaching")
         // Never attached to whatever the old number names now.
         #expect(daemon.recorded.filter { $0["cmd"] as? String == "attach-surface" }.count == 1)
+    }
+
+    /// PR #22555 review: a terminal whose shell exited during the outage
+    /// says so at once; it never waits "Reattaching…" and never offers a futile
+    /// "Type to try again".
+    @Test func aTerminalThatExitedWhileAwaySaysSoAtOnce() async throws {
+        let daemon = FakeTerminalDaemon()
+        daemon.terminals = ["term_a": 7]
+        let channels = ChannelLog()
+        let session = session(daemon, channels)
+        var events: [TerminalSessionEvent] = []
+        session.start { events.append($0) }
+        try await waitUntil { session.isAttached }
+        await channels.last?.close(code: "link_closed", reason: "link dropped")
+        try await waitUntil { !session.isAttached }
+
+        daemon.exited = ["term_a"]
+        session.reconnect()
+        try await waitUntil { events.contains(.exited(code: 0)) }
+        let text = events.compactMap { event -> String? in
+            if case .output(let data) = event { return String(decoding: data, as: UTF8.self) }
+            return nil
+        }.joined()
+        #expect(text.contains("process exited"))
+        #expect(!text.contains("Type to try again"))
+        #expect(daemon.recorded.filter { $0["cmd"] as? String == "resolve-terminal" }.count == 1, "no retry round")
     }
 
     /// Review finding 1: a daemon still adopting its terminals answers a null

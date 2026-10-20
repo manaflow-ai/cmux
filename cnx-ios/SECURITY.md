@@ -107,6 +107,12 @@ allowlist gets a local `forbidden` error line and never reaches the daemon.
     phone's own chat edited in its workspace folder, and every preview was
     refused). This does not widen what a phone can reach: an agent chat the
     phone starts there can already read those folders.
+  - A tab's folder is its shell's last reported cwd (OSC 7), which any
+    terminal output can set. So a folder inside a credential or settings tree
+    of home (`.ssh`, `.gnupg`, `.aws`, `.azure`, `.kube`, `.docker`,
+    `.config`, `.password-store`, `Library`; `SENSITIVE_HOME_TREES` in
+    `services.rs`) is never a workspace-folder root for previews (PR #22555
+    review).
   - The path is canonicalized (symlinks resolved) before the open.
   - After the open, the descriptor's real path (`F_GETPATH`) is checked again,
     so a component swapped for a symlink in between cannot escape.

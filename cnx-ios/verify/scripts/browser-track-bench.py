@@ -278,7 +278,8 @@ class Bench:
 
     def media_faults(self, mac, t0):
         """--kill-at / --blackhole-at (hy- configurations): signal cnx-hostd mid-recording
-        (media_session.rs): SIGUSR2 closes every WebRTC media session (it failed: video
+        (media_session.rs; hostd honors them only when its state folder holds a
+        `test-signals` file at start): SIGUSR2 closes every WebRTC media session (it failed: video
         falls back into the tunnel, the phone dials a new one); SIGUSR1 toggles a black
         hole under the sessions' tracks (a path that died silently: no feedback, so the
         Mac falls back within the stall time and retries after a backoff). Returns the

@@ -74,7 +74,9 @@ impl Hub {
         };
         // A catalog default (not a saved pick) is skipped when the harness doesn't offer it.
         let model_from_catalog = !model_pinned
-            && start_model.as_ref().is_some_and(|s| s.source == super::start_defaults::StartSource::Catalog);
+            && start_model
+                .as_ref()
+                .is_some_and(|s| s.source == super::start_defaults::StartSource::Catalog);
         let (model, model_soft) = match (model_pinned, start_model) {
             (true, _) | (false, None) => (pinned_model, false),
             (false, Some(start)) => (Some(start.value), true),

@@ -661,15 +661,24 @@ fn confine_open(_roots: &[PathBuf], _file: &tokio::fs::File) -> Result<(), Refus
 /// chats (`_acpmux/workspace_roots_set`, agentcwd). A folder that is `/`, the
 /// home folder or any ancestor of it is dropped, as acpmux drops it: a tab in
 /// `~` must not open `~/.ssh` to a phone.
+/// A tab's folder is its shell's last reported cwd (OSC 7), which any output
+/// can set, so a folder inside a credential or settings tree of home
+/// ([`SENSITIVE_HOME_TREES`]) is dropped too.
 pub fn shareable_workspace_folders(folders: Vec<PathBuf>, home: &Path) -> Vec<PathBuf> {
     let mut out: Vec<PathBuf> = Vec::new();
     for folder in folders {
-        if !home.starts_with(&folder) && !out.contains(&folder) {
+        let sensitive = SENSITIVE_HOME_TREES.iter().any(|tree| folder.starts_with(home.join(tree)));
+        if !home.starts_with(&folder) && !sensitive && !out.contains(&folder) {
             out.push(folder);
         }
     }
     out
 }
+
+/// Folders of home that are never shared as workspace folders, nor anything
+/// inside them: keys, credentials, app data and settings (PR #22555 review).
+pub const SENSITIVE_HOME_TREES: &[&str] =
+    &[".ssh", ".gnupg", ".aws", ".azure", ".kube", ".docker", ".config", ".password-store", "Library"];
 
 /// `path` resolved and spelled as the filesystem stores it (on macOS, `F_GETPATH`:
 /// the stored case and Unicode form), as acpmux's `fs_spelling` compares roots, so a
@@ -1249,6 +1258,10 @@ mod tests {
             PathBuf::from("/"),
             PathBuf::from("/tmp/scratch"),
             PathBuf::from("/Users/me/code/app"),
+            // A cwd any output can set (OSC 7) inside credential trees: never shared.
+            PathBuf::from("/Users/me/.ssh"),
+            PathBuf::from("/Users/me/Library/Keychains"),
+            PathBuf::from("/Users/me/.config/gh"),
         ];
         assert_eq!(
             shareable_workspace_folders(folders, home),
@@ -1261,7 +1274,11 @@ mod tests {
         let project = tempfile::tempdir().unwrap();
         std::fs::write(project.path().join("README.md"), "r").unwrap();
         let home = tempfile::tempdir().unwrap();
-        let roots = shared_file_roots(&[], vec![project.path().to_path_buf(), home.path().to_path_buf()], home.path());
+        let roots = shared_file_roots(
+            &[],
+            vec![project.path().to_path_buf(), home.path().to_path_buf()],
+            home.path(),
+        );
         assert!(confine(&roots, &project.path().join("README.md")).is_ok());
         assert_eq!(roots.len(), 1, "home is never a root: {roots:?}");
         // A home that doesn't resolve shares no workspace folder at all.

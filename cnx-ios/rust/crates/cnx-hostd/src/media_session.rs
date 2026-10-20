@@ -241,7 +241,8 @@ fn kills() -> tokio::sync::broadcast::Receiver<()> {
 }
 
 /// Test and measurement support, on Unix signals to hostd (a rig cannot
-/// pass hostd an environment):
+/// pass hostd an environment). Off unless hostd's state folder
+/// (`CNX_STATE_DIR`) holds a `test-signals` file when hostd starts (host.rs):
 ///
 /// - `SIGUSR1` toggles a black hole under every WebRTC media track: its RTP
 ///   and the RTCP it receives vanish while the peer connection stays

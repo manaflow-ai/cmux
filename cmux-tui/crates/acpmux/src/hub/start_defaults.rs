@@ -351,7 +351,12 @@ impl Hub {
     }
 
     /// Whether the catalog start model `model` is one `agent`'s harness offers ([`offers`]).
-    pub(super) fn harness_offers(&self, agent: &str, profile: &HarnessProfile, model: &str) -> bool {
+    pub(super) fn harness_offers(
+        &self,
+        agent: &str,
+        profile: &HarnessProfile,
+        model: &str,
+    ) -> bool {
         let curated = super::models_view::curated_for(&self.catalog, agent, profile);
         offers(&self.reported_model_ids(agent), &c_ids(curated.as_ref()), model)
     }

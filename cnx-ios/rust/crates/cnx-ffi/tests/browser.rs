@@ -287,7 +287,11 @@ fn open_message(tab: &str) -> String {
 /// could hold it while the shown one fell back to the channel. The tab the
 /// phone shows (`rb.visibility` true) takes the lane back, on every carrier
 /// of the lane.
-async fn the_shown_tab_takes_the_media_lane_back(transport: Transport, webrtc_media: bool, lane: &'static str) {
+async fn the_shown_tab_takes_the_media_lane_back(
+    transport: Transport,
+    webrtc_media: bool,
+    lane: &'static str,
+) {
     let server = FakeSignaling::start(FakeOptions::default()).await;
     let sockets = tempfile::tempdir().unwrap();
     let launches = Arc::new(std::sync::atomic::AtomicUsize::new(0));
@@ -335,7 +339,10 @@ async fn the_shown_tab_takes_the_media_lane_back(transport: Transport, webrtc_me
     .await
     .expect("connect");
     let shown = Arc::new(Recorder::default());
-    let a = handle.open_browser(r#"{"tab":"s3","url":"https://example.com/a"}"#.into(), shown.clone()).await.unwrap();
+    let a = handle
+        .open_browser(r#"{"tab":"s3","url":"https://example.com/a"}"#.into(), shown.clone())
+        .await
+        .unwrap();
     shown.until("welcome", |r| r.has("welcome", "encoder", "fake")).await;
     a.send_message(open_message("s3")).unwrap();
     let on = |stream: &Arc<cnx_ffi::BrowserStream>, want: &'static str| {
@@ -347,7 +354,10 @@ async fn the_shown_tab_takes_the_media_lane_back(transport: Transport, webrtc_me
     // A hidden tab opens after it (as every held tab did after a redial)
     // and takes the lane; the shown tab's video returns to its channel.
     let hidden = Arc::new(Recorder::default());
-    let b = handle.open_browser(r#"{"tab":"s4","url":"https://example.com/b"}"#.into(), hidden.clone()).await.unwrap();
+    let b = handle
+        .open_browser(r#"{"tab":"s4","url":"https://example.com/b"}"#.into(), hidden.clone())
+        .await
+        .unwrap();
     hidden.until("welcome", |r| r.has("welcome", "encoder", "fake")).await;
     b.send_message(open_message("s4")).unwrap();
     b.set_visible(false);
