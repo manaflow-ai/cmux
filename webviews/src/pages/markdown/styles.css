@@ -500,11 +500,12 @@ body {
   position: relative;
 }
 
+/* tables.ts sets the handle's left and width to the boundary's hit zone (5px either side, clipped
+   to the table's box) and --md-col-line to the boundary's offset in it: the line, the col-resize
+   cursor and the press always cover the same pixels. */
 .md-prose .md-col-resize {
   position: absolute;
   z-index: var(--layer-raised);
-  width: 9px;
-  margin-left: -5px;
   cursor: col-resize;
   user-select: none;
 }
@@ -518,7 +519,7 @@ body {
   position: absolute;
   top: 0;
   bottom: 0;
-  left: 3px;
+  left: clamp(0px, calc(var(--md-col-line, 5px) - 1.5px), calc(100% - 3px));
   width: 3px;
   border-radius: 2px;
   background: var(--cmux-md-link-color);
