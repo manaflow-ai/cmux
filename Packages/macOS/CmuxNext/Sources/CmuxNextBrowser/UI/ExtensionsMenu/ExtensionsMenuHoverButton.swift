@@ -137,6 +137,16 @@ final class ExtensionsMenuHoverButton: NSView {
         onHover?()
     }
 
+    /// Reads the hover again from the pointer: a menu shown from this button tracked the mouse,
+    /// so no exit event arrived while it was open.
+    func refreshHover() {
+        guard let window else { return }
+        let inside = bounds.contains(convert(window.mouseLocationOutsideOfEventStream, from: nil))
+        isPressed = false
+        isHovering = inside
+        if !inside, window.firstResponder === self { window.makeFirstResponder(nil) }
+    }
+
     override func mouseExited(with event: NSEvent) {
         isHovering = false
         isPressed = false

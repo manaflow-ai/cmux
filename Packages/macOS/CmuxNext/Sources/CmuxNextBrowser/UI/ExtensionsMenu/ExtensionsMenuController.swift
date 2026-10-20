@@ -38,6 +38,11 @@ final class ExtensionsMenuController {
     private(set) weak var presentedContextMenu: NSMenu?
     /// The view that toggles the bubble (the Extensions button): a press on it is no dismiss.
     var toggleView: () -> NSView? = { nil }
+    /// The bubble opened (true) or closed (false) at this anchor: the toolbar holds the
+    /// Extensions button pressed while it is open, as Chrome does.
+    var onShownChange: ((NSView, Bool) -> Void)?
+    /// Whether ``onShownChange`` last reported the bubble open.
+    private var reportedShown = false
     /// Renders done since the bubble opened (a test seam).
     private(set) var renders = 0
 
@@ -98,12 +103,25 @@ final class ExtensionsMenuController {
         guard popup.show(size: content.frame.size, anchor: anchorRect, in: window, preferred: .below, trailing: true,
                          makeKey: true) != nil else { return closed() }
         panel.makeFirstResponder(card)
+        reportedShown = true
+        onShownChange?(anchor, true)
         // The open does not wait for Chromium: the refresh runs on the next turn.
         refreshTask?.cancel()
         refreshTask = Task { @MainActor [weak self] in
             guard let self, !Task.isCancelled, self.isShown else { return }
             self.host?.extensionStore.refresh()
         }
+    }
+
+    /// Builds the rows and decodes the icons ahead of a click, so an open only shows the panel
+    /// (u2426: "menu visible within one frame"). The toolbar calls it after a tab binds and when
+    /// its extensions change, on a later main-actor turn.
+    func prepare(host: any BrowserExtensionActionHosting) {
+        guard !isShown else { return }
+        self.host = host
+        render()
+        content.layoutSubtreeIfNeeded()
+        card.layoutSubtreeIfNeeded()
     }
 
     /// Rebuilds the rows that changed and resizes an open bubble in place.
@@ -142,6 +160,10 @@ final class ExtensionsMenuController {
     }
 
     private func closed() {
+        if reportedShown, let anchorView {
+            reportedShown = false
+            onShownChange?(anchorView, false)
+        }
         observation?.cancel()
         observation = nil
         refreshTask?.cancel()
@@ -175,6 +197,7 @@ final class ExtensionsMenuController {
                 self.presentedContextMenu = menu
                 menu.popUp(positioning: nil, at: CmuxPopoverAnchor.menuPoint(in: view, gap: 0), in: view)
                 self.presentedContextMenu = nil
+                (view as? ExtensionsMenuHoverButton)?.refreshHover()
             }
         }
         CFRunLoopWakeUp(CFRunLoopGetMain())

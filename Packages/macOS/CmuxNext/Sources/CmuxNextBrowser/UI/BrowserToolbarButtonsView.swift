@@ -135,7 +135,11 @@ public final class BrowserToolbarButtonsView: NSStackView {
         CFRunLoopPerformBlock(CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue) { [weak self] in
             MainActor.assumeIsolated { // main-proof: a CFRunLoopGetMain() block runs on the main thread
                 guard let self, let anchor = self.anchor(for: button) else { return }
+                // Pressed while the menu is open, normal again when it closes (Chrome).
+                let pressed = anchor as? ChromeIconButton
+                pressed?.isMenuOpen = true
                 self.popUpMenu(menu, CmuxPopoverAnchor.menuPoint(in: anchor, gap: 4), anchor)
+                pressed?.isMenuOpen = false
             }
         }
         CFRunLoopWakeUp(CFRunLoopGetMain())

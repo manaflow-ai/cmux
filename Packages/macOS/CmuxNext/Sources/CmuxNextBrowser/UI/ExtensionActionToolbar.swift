@@ -37,6 +37,7 @@ final class ExtensionActionToolbar {
     /// The Extensions bubble (Chrome's `ExtensionsMenuView`).
     private(set) lazy var menuController: ExtensionsMenuController = {
         let controller = ExtensionsMenuController()
+        controller.onShownChange = { view, shown in (view as? ChromeIconButton)?.isMenuOpen = shown }
         controller.toggleView = { [weak self] in
             guard let self else { return nil }
             return self.puzzle.window == nil ? self.menuAnchor?() : self.puzzle
@@ -54,7 +55,7 @@ final class ExtensionActionToolbar {
 
     /// Pinned buttons the pane has room for (`BrowserToolbarLayout`).
     var visibleLimit = ExtensionActionToolbar.maxVisible {
-        didSet { if visibleLimit != oldValue { render(lastActions, showsPuzzle: showsPuzzle) } }
+        didSet { if visibleLimit != oldValue, !isRendering { render(lastActions, showsPuzzle: showsPuzzle) } }
     }
     /// Pinned actions of the bound tab (before the room limit), capped.
     var pinnedCount: Int { min(Self.maxVisible, lastActions.filter(\.isPinned).count) }
@@ -83,6 +84,10 @@ final class ExtensionActionToolbar {
         host = (tab as? any BrowserExtensionActionHosting).flatMap { $0.showsExtensionToolbar ? $0 : nil }
         anchorView = tab.contentView
         directHandler = nil
+        // Another tab's icons appear at once.
+        hasRendered = false
+        for view in leaving.values { view.removeFromSuperview() }
+        leaving = [:]
         guard let host else {
             render([], showsPuzzle: false)
             crashIndicator.update(store: nil, in: slot, before: puzzle)
@@ -95,6 +100,18 @@ final class ExtensionActionToolbar {
             self.render(actions, showsPuzzle: Self.showsPuzzle(host: host))
             self.crashIndicator.update(store: host.showsExtensionToolbar ? host.extensionStore : nil,
                                        in: self.slot, before: self.puzzle)
+            self.schedulePrepare()
+        }
+    }
+
+    private var prepareTask: Task<Void, Never>?
+
+    /// Builds the Extensions bubble's rows on a later turn, off the click's path.
+    private func schedulePrepare() {
+        prepareTask?.cancel()
+        prepareTask = Task { @MainActor [weak self] in
+            guard let self, !Task.isCancelled, let host = self.host, self.slot.window != nil else { return }
+            self.menuController.prepare(host: host)
         }
     }
 
@@ -119,21 +136,98 @@ final class ExtensionActionToolbar {
     func button(for id: String) -> NSView? { buttons[id] }
 
     private func render(_ actions: [CEFExtensionAction], showsPuzzle: Bool) {
-        let pinnedBefore = pinnedCount
-        let puzzleBefore = self.showsPuzzle
-        lastActions = actions
-        self.showsPuzzle = showsPuzzle
-        if pinnedBefore != pinnedCount || puzzleBefore != showsPuzzle { onPinnedCountChange?() }
-        let shown = Self.visible(actions, limit: visibleLimit)
+        isRendering = true
+        defer { isRendering = false }
+        let pinsChanged = actions.filter(\.isPinned).map(\.id) != lastActions.filter(\.isPinned).map(\.id)
+        // Chrome animates a pin or an unpin (about 0.2 s): the icon fades and the neighbours
+        // slide. Not on a tab's first render, not under Reduce Motion.
+        let animate = hasRendered && pinsChanged && Motion.animatesMovement && slot.window != nil
+        hasRendered = true
+        let update = { [self] () -> [() -> Void] in
+            let pinnedBefore = pinnedCount
+            let puzzleBefore = self.showsPuzzle
+            lastActions = actions
+            self.showsPuzzle = showsPuzzle
+            if pinnedBefore != pinnedCount || puzzleBefore != showsPuzzle { onPinnedCountChange?() }
+            return place(Self.visible(actions, limit: visibleLimit), showsPuzzle: showsPuzzle, animate: animate)
+        }
+        guard animate, let container = slot.superview else {
+            _ = update()
+            return
+        }
+        // Start from the frames on screen now.
+        container.layoutSubtreeIfNeeded()
+        // The toolbar's move token: about 0.2 s, like Chrome's toolbar icon animation.
+        Motion.animateTimed(.move, in: container, { [self] in
+            let before = Set(buttons.keys)
+            pendingFinish += update()
+            let after = Set(buttons.keys)
+            lastPinAnimation = (after.subtracting(before).sorted(), before.subtracting(after).sorted())
+            container.layoutSubtreeIfNeeded()
+        }, completion: { [weak self] in self?.finishPinAnimation() })
+    }
+
+    /// Work left for the end of the running pin animation (removing faded-out buttons).
+    private var pendingFinish: [() -> Void] = []
+
+    private func finishPinAnimation() {
+        let work = pendingFinish
+        pendingFinish = []
+        work.forEach { $0() }
+    }
+    /// Whether this tab rendered before (its first render does not animate).
+    private var hasRendered = false
+    /// A render is running: a `visibleLimit` change it causes does not render again.
+    private var isRendering = false
+    /// Buttons fading out after an unpin, kept over the toolbar until the fade ends.
+    private(set) var leaving: [String: NSView] = [:]
+    /// Ids of buttons fading in after a pin, until the fade ends.
+    private(set) var arriving: Set<String> = []
+    /// The last pin or unpin that animated: the ids that faded in and out (tests).
+    private(set) var lastPinAnimation: (arrived: [String], left: [String])?
+
+    /// Puts the `shown` buttons and the puzzle in the slot. Animating, a removed button fades
+    /// where it was and a new one fades in; returns the work to run when the animation ends.
+    private func place(_ shown: [CEFExtensionAction], showsPuzzle: Bool, animate: Bool) -> [() -> Void] {
+        var finish: [() -> Void] = []
         let ids = Set(shown.map(\.id))
         for (id, button) in buttons where !ids.contains(id) {
+            buttons[id] = nil
+            guard animate, let container = slot.superview else {
+                slot.removeArrangedSubview(button)
+                button.removeFromSuperview()
+                continue
+            }
+            // Out of the row at once, so the neighbours slide into its room while it fades
+            // where it was.
+            let frame = button.convert(button.bounds, to: container)
             slot.removeArrangedSubview(button)
             button.removeFromSuperview()
-            buttons[id] = nil
+            button.translatesAutoresizingMaskIntoConstraints = true
+            button.frame = frame
+            container.addSubview(button)
+            leaving[id] = button
+            button.animator().alphaValue = 0
+            finish.append { [weak self, weak button] in
+                guard let button else { return }
+                button.removeFromSuperview()
+                if self?.leaving[id] === button { self?.leaving[id] = nil }
+            }
         }
         for (index, action) in shown.enumerated() {
+            let isNew = buttons[action.id] == nil
+            if isNew, let old = leaving.removeValue(forKey: action.id) { old.removeFromSuperview() }
             let button = buttons[action.id] ?? makeButton(for: action.id)
             button.update(action)
+            if isNew, animate {
+                arriving.insert(action.id)
+                button.alphaValue = 0
+                button.animator().alphaValue = 1
+                let id = action.id
+                finish.append { [weak self] in self?.arriving.remove(id) }
+            } else if isNew {
+                button.alphaValue = 1
+            }
             if let current = slot.arrangedSubviews.firstIndex(of: button) {
                 guard current != index else { continue }
                 slot.removeArrangedSubview(button)
@@ -150,6 +244,7 @@ final class ExtensionActionToolbar {
             slot.removeArrangedSubview(puzzle)
             puzzle.removeFromSuperview()
         }
+        return finish
     }
 
     /// Where `id`'s popup anchors, in the tab's content view coordinates:
@@ -229,7 +324,12 @@ final class ExtensionActionToolbar {
         guard view.window != nil else { return }
         let previous = presentedMenu
         presentedMenu = menu
+        // Pressed while the menu is open, normal again when it closes (Chrome keeps the ink).
+        (view as? ExtensionActionButton)?.isMenuOpen = true
+        (view as? ChromeIconButton)?.isMenuOpen = true
         menu.popUp(positioning: nil, at: CmuxPopoverAnchor.menuPoint(in: view, gap: 0), in: view)
+        (view as? ExtensionActionButton)?.isMenuOpen = false
+        (view as? ChromeIconButton)?.isMenuOpen = false
         presentedMenu = previous
     }
 

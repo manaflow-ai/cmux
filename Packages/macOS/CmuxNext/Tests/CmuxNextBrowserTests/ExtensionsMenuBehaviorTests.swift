@@ -47,8 +47,10 @@ import Testing
             == ["Extension abc", "-", Strings.extensionContextSiteData, "-", Strings.extensionMenuTitle(.options),
                 Strings.extensionContextRemove, Strings.extensionMenuPinTooltip, "-", Strings.extensionContextManageExtension,
                 Strings.extensionContextViewWebPermissions])
-        for index in menu.items.indices where menu.items[index].isEnabled && !menu.items[index].isSeparatorItem {
-            menu.performActionForItem(at: index)
+        // As a click does (`performActionForItem` needs a running NSApplication).
+        for item in menu.items where item.isEnabled && !item.isSeparatorItem {
+            let target = try #require(item.target as? NSObject)
+            _ = target.perform(try #require(item.action), with: item)
         }
         #expect(recorder.performed.map(\.0) == [.homePage, .siteAccess, .options, .remove, .pin, .manageExtension, .webPermissions])
         #expect(recorder.performed.allSatisfy { $0.1 == "abc" })
