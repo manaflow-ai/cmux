@@ -616,8 +616,8 @@ export async function fileSearch(cwd: string, params: Record<string, unknown>) {
  * tracked and unignored files folded to their first component, folders first, then by name. */
 export async function fileList(cwd: string, params: Record<string, unknown>) {
   await topLevel(cwd, "git.files.list");
-  const folder = typeof params.path === "string" ? params.path : cwd;
-  if (folder !== cwd && !folder.startsWith(`${cwd.replace(/\/$/, "")}/`))
+  const folder = allowedPath(typeof params.path === "string" ? params.path : cwd, [cwd]);
+  if (!folder || !isFolder(folder))
     throw new AgentReadError("validation.invalid", "file.list stays inside the chat's folder");
   const listed = await gitOutput(folder, ["ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", "."]);
   const entries = new Map<string, "directory" | "file">();
