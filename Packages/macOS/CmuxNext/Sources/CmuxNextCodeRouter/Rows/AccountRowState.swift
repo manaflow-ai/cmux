@@ -131,7 +131,11 @@ public struct AccountRowState: Sendable, Equatable {
     /// The local sign-in is a model provider of the CLI's own config (sr, a
     /// router, a local server), not a sign-in CodeRouter can link.
     public var usesProviderConfig: Bool {
-        detection?.sources.contains { if case .providerConfig = $0 { true } else { false } } ?? false
+        guard let sources = detection?.sources else { return false }
+        return sources.contains { source in
+            if case .providerConfig = source { return true }
+            return false
+        }
     }
 
     /// Bedrock Connect sends AWS keys from the shell; a profile alone is not enough.

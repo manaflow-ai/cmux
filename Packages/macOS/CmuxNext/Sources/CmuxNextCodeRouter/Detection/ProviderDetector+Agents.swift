@@ -23,7 +23,7 @@ extension ProviderDetector {
             return login
         case .configured(let name, let envKey):
             return ProviderDetection(provider: .codex, status: .signedIn, detail: name,
-                                     sources: [source] + (envKey.map { [.environment($0)] } ?? []))
+                                     sources: [source] + (envKey.map { [DetectionSource.environment($0)] } ?? []))
         case .missing(let name):
             return login.status == .missing ? ProviderDetection(provider: .codex, status: .unknown, detail: name, sources: [source]) : login
         }
