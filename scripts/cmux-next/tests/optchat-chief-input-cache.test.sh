@@ -35,9 +35,13 @@ unrelated = { path = "../../../cmux-tui/crates/unrelated" }
 EOF
 echo 'page one' > "$chief/inspector/index.html"
 mkdir -p "$chief/src" "$chief/tests" "$src/schemas/chief-profile" "$src/mux"
-printf 'const TOOL: &str = include_str!("../../../../schemas/chief-profile/tool.json");\nconst PAGE: &str = include_str!(concat!(env!("OUT_DIR"), "/inspector.html"));\n' > "$chief/src/lib.rs"
+printf 'include!("../../../../schemas/chief-profile/generated.rs");\nconst TOOL: &str = include_str!("../../../../schemas/chief-profile/tool.json");\nconst PAGE: &str = include_str!(concat!(env!("OUT_DIR"), "/inspector.html"));\n' > "$chief/src/lib.rs"
 printf 'const CASES: &str = include_str!("../../../../mux/cases.json");\n' > "$chief/tests/corpus.rs"
 echo '{}' > "$src/schemas/chief-profile/tool.json"
+echo 'const G: u8 = 1;' > "$src/schemas/chief-profile/generated.rs"
+mkdir -p "$src/vendor/patched"
+printf '[package]\nname = "patched"\n' > "$src/vendor/patched/Cargo.toml"
+printf '\n[patch.crates-io]\npatched = { path = "../../../vendor/patched" }\n' >> "$chief/Cargo.toml"
 echo '[]' > "$src/mux/cases.json"
 printf '[package]\nname = "optchat-core"\n' > "$src/Native/OptChat/optchat-core/Cargo.toml"
 cat > "$src/cmux-tui/Cargo.toml" <<'EOF'
@@ -115,6 +119,11 @@ done
 # A file the binary compiles in from outside its crates is an input.
 echo '{"v":2}' > "$src/schemas/chief-profile/tool.json"; commit schema
 keyed; n=$((n + 1)); expect_builds "$n" "a change to an include_str! file outside the crates did not rebuild the Chief"
+echo 'const G: u8 = 2;' > "$src/schemas/chief-profile/generated.rs"; commit generated
+keyed; n=$((n + 1)); expect_builds "$n" "a change to an include! file outside the crates did not rebuild the Chief"
+# A [patch] path crate is an input.
+echo '# patched' >> "$src/vendor/patched/Cargo.toml"; commit patched
+keyed; n=$((n + 1)); expect_builds "$n" "a change to a [patch] path crate did not rebuild the Chief"
 # An include form the key cannot resolve keys by commit.
 printf 'const X: &str = include_str!(concat!(env!("HOME"), "/x"));\n' > "$src/Native/OptChat/optchat-core/lib.rs"
 git_q -C "$src" add -A; commit unresolvable
@@ -148,4 +157,8 @@ echo 'not toml [' > "$src/Native/OptChat/optchat-core/Cargo.toml"; commit broken
 keyed; n=$(builds)
 grep -q 'keying by commit' "$TMP/err" || fail "an unreadable manifest did not fall back to the commit key: $(cat "$TMP/err")"
 [[ -x "$TMP/cache/$(git -C "$src" rev-parse HEAD)/arm64/optchat-chief" ]] || fail "the fallback build is not in the commit-keyed cache"
+# Commit-keyed fallback entries are pruned too.
+for i in 1 2 3 4 5 6 7 8 9; do echo "# broken $i" >> "$src/docs/notes.md"; commit "broken $i"; keyed; done
+fallbacks=$(find "$TMP/cache" -maxdepth 1 -type d | grep -cE '/[0-9a-f]{40}$' || true)
+[[ "$fallbacks" -le 8 ]] || fail "the cache kept $fallbacks commit-keyed fallback entries"
 echo "optchat-chief-input-cache: ok ($n builds)"

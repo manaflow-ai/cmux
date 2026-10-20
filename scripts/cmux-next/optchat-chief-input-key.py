@@ -104,7 +104,11 @@ def path_closure() -> tuple[list[str], list[str]]:
         if root is not None:
             workspaces.add(root)
             inherited = manifest(root).get("workspace", {}).get("dependencies", {})
-        for table in dependency_tables(data):
+        tables = dependency_tables(data)
+        if directory == CRATE:
+            # [patch.<registry>] and [replace] apply from the root workspace only.
+            tables += list(data.get("patch", {}).values()) + [data.get("replace", {})]
+        for table in tables:
             for name, spec in table.items():
                 if not isinstance(spec, dict):
                     continue
@@ -166,11 +170,11 @@ def tree_state(directory: str) -> list[str]:
 # include_str!/include_bytes! of a literal path, or of
 # concat!(env!("CARGO_MANIFEST_DIR"), "/path"). Any other include form cannot
 # be resolved here, so it fails the key and the commit keys the cache.
-INCLUDE = re.compile(r'include_(?:str|bytes)!\s*\(')
-INCLUDE_LITERAL = re.compile(r'include_(?:str|bytes)!\s*\(\s*"([^"]+)"\s*\)')
+INCLUDE = re.compile(r'\binclude(?:_str|_bytes)?!\s*\(')
+INCLUDE_LITERAL = re.compile(r'\binclude(?:_str|_bytes)?!\s*\(\s*"([^"]+)"\s*\)')
 # OUT_DIR is the crate's own build.rs output, already keyed through its inputs.
-INCLUDE_OUT_DIR = re.compile(r'include_(?:str|bytes)!\s*\(\s*concat!\s*\(\s*env!\s*\(\s*"OUT_DIR"\s*\)')
-INCLUDE_MANIFEST = re.compile(r'include_(?:str|bytes)!\s*\(\s*concat!\s*\(\s*env!\s*\(\s*"CARGO_MANIFEST_DIR"\s*\)\s*,\s*"([^"]+)"\s*\)\s*\)')
+INCLUDE_OUT_DIR = re.compile(r'\binclude(?:_str|_bytes)?!\s*\(\s*concat!\s*\(\s*env!\s*\(\s*"OUT_DIR"\s*\)')
+INCLUDE_MANIFEST = re.compile(r'\binclude(?:_str|_bytes)?!\s*\(\s*concat!\s*\(\s*env!\s*\(\s*"CARGO_MANIFEST_DIR"\s*\)\s*,\s*"([^"]+)"\s*\)\s*\)')
 
 
 def outside_includes(crates: list[str]) -> list[str]:

@@ -28,7 +28,8 @@ Environment:
   CMUX_NEXT_OPTCHAT_CHIEF_INPUT_KEYED=1  key the cache by the build's inputs
                                  (optchat-chief-input-key.py) instead of the commit,
                                  so a commit that changes none of them reuses the binary;
-                                 keeps the 8 most recently used entries
+                                 keeps the 8 most recently used entries (and at
+                                 most 8 commit-keyed fallback entries)
 USAGE
 }
 
@@ -80,17 +81,22 @@ if [[ "${CMUX_NEXT_OPTCHAT_CHIEF_INPUT_KEYED:-0}" == 1 ]]; then
 fi
 cache_bin="$cache_dir/optchat-chief"
 
-# Input-keyed entries are touched on use; only the 8 most recently used stay.
+# In the input-keyed cache, which a trusted worker keeps between runs, entries
+# are touched on use and only the 8 most recently used stay; so do at most 8
+# commit-keyed entries that a fallback (unreadable inputs) left there.
 prune_input_keyed() {
-  [[ -n "$input_key" ]] || return 0
-  touch "$cache_root/inputs-$input_key"
-  local entry count=0
-  while IFS= read -r entry; do
-    count=$((count + 1))
-    if [[ "$count" -gt 8 && "$entry" =~ /inputs-[0-9a-f]{64}$ ]]; then
-      rm -rf "$entry"
-    fi
-  done < <(ls -1dt "$cache_root"/inputs-* 2>/dev/null)
+  [[ "${CMUX_NEXT_OPTCHAT_CHIEF_INPUT_KEYED:-0}" == 1 ]] || return 0
+  [[ -d "$cache_dir" ]] && touch "${cache_dir%/*}"
+  local pattern entry count
+  for pattern in 'inputs-[0-9a-f]{64}' '[0-9a-f]{40}'; do
+    count=0
+    while IFS= read -r entry; do
+      [[ "${entry##*/}" =~ ^${pattern}$ ]] || continue
+      count=$((count + 1))
+      [[ "$count" -gt 8 ]] && rm -rf "$entry"
+    done < <(ls -1dt "$cache_root"/* 2>/dev/null)
+  done
+  return 0
 }
 
 # Copies the cached binary to --output (when given) and reports where it is.
