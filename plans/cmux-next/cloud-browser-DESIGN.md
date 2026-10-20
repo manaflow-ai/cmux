@@ -270,6 +270,19 @@ A cloud subagent on a Freestyle VM uses the cloud browser on its own VM. The API
 4. Lifetime: Chrome outlives viewers and restarts after a crash (tested); it stops with the host, so
    the subagent's VM teardown also ends the browser.
 
+Landed for point 2 (CB-2): `cmux-rd host --browser-cdp-port N` (127.0.0.1 only, off by default),
+proven by a test that starts real Chrome under Xvfb, runs `Runtime.evaluate` over the DevTools
+WebSocket, sees the page title change, and checks the port does not answer on the VM's network
+address (`browser::tests::cdp_an_agent_drives_the_cloud_browser_on_loopback_only`, `--ignored`; needs
+Chrome and Xvfb). Image role: `/usr/local/bin/cmux-cloud-browser` and the `cmux-cloud-browser` unit in
+the devbox image, shipped but not enabled; it does nothing without `CMUX_CLOUD_BROWSER=1`. Gap: the
+`cmux-rd` binary is not in the image yet, so the unit exits with "cmux-rd is not installed" until
+it is; and per remote-desktop-DESIGN.md M3 the stream side moves to `cmux-screen-host`.
+
+Far users: one region (Freestyle, San Francisco) for now. Users far from the West Coast pay their
+RTT to SF on every input; above `remoteDesktop.interactiveMaxRttMs` (80 ms) the pane is view only
+until a second region exists.
+
 Changes to these four points must keep a VM subagent able to start, drive and hand off the browser.
 
 ## 5. Open questions for Lawrence
