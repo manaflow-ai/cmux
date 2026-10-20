@@ -144,12 +144,16 @@ export function PermissionCard({
   onAnswer,
   harness,
   focusComposer,
+  shortcuts = true,
   waiting = 0,
 }: {
   permission: AcpmuxPermission;
   onAnswer(optionId: string): void;
   harness?: string;
   focusComposer?: () => void;
+  /// False while another ask takes the permission shortcuts (a waiting permission group,
+  /// permissionKeys.ts `cardTakesShortcuts`): the card then neither answers them nor shows them.
+  shortcuts?: boolean;
   /// More asks waiting behind this one, answered after it.
   waiting?: number;
 }) {
@@ -167,14 +171,31 @@ export function PermissionCard({
   const denyShortcut = useShortcut(SHORTCUT_ACTIONS.permissionDeny);
   const shortcutLabels = useMemo(
     () =>
-      ({
-        allow_once: allowOnceShortcut,
-        allow_always: allowChatShortcut,
-        allow_chat: allowChatShortcut,
-        deny: denyShortcut,
-      }) satisfies Record<KnownPermissionKind, string | undefined>,
-    [allowOnceShortcut, allowChatShortcut, denyShortcut],
+      (shortcuts
+        ? {
+            allow_once: allowOnceShortcut,
+            allow_always: allowChatShortcut,
+            allow_chat: allowChatShortcut,
+            deny: denyShortcut,
+          }
+        : {
+            allow_once: undefined,
+            allow_always: undefined,
+            allow_chat: undefined,
+            deny: undefined,
+          }) satisfies Record<KnownPermissionKind, string | undefined>,
+    [shortcuts, allowOnceShortcut, allowChatShortcut, denyShortcut],
   );
+  // The option each shortcut answers: the first of its kind, as the agent lists them (a reject
+  // once before a reject always, Codex's decline before its cancel).
+  const shortcutOptions = useMemo(() => {
+    const options = new Map<KnownPermissionKind, string>();
+    for (const option of permission.options) {
+      const kind = permissionOptionKind(option);
+      if (kind && shortcutLabels[kind] && !options.has(kind)) options.set(kind, option.id);
+    }
+    return options;
+  }, [permission.options, shortcutLabels]);
   // The keys reach the group from its focused buttons, so it listens natively: it is a group,
   // not a control of its own.
   useEffect(() => {
@@ -195,12 +216,7 @@ export function PermissionCard({
   }, [permission.pending, permission.permissionId, permission.options, keys, onAnswer, focusComposer]);
   useEffect(() => {
     if (!permission.pending) return;
-    const actions = new Map<string, string>();
-    permission.options.forEach((option) => {
-      const kind = permissionOptionKind(option);
-      const shortcut = kind && shortcutLabels[kind];
-      if (kind && shortcut) actions.set(kind, option.id);
-    });
+    const actions = shortcutOptions;
     const handlers = (Object.keys(shortcutLabels) as KnownPermissionKind[]).map((kind) => {
       const event = `cmux-acpmux-${kind === "allow_once" ? "permissionAllowOnce" : kind === "deny" ? "permissionDeny" : "permissionAllowChat"}`;
       const handler = () => {
@@ -220,10 +236,8 @@ export function PermissionCard({
     permission.permissionId,
     permission.options,
     onAnswer,
-    allowOnceShortcut,
-    allowChatShortcut,
-    denyShortcut,
     shortcutLabels,
+    shortcutOptions,
     focusComposer,
   ]);
 
@@ -247,7 +261,7 @@ export function PermissionCard({
       <div className="acpmux-permission-buttons">
         {permission.options.map((option) => {
           const kind = permissionOptionKind(option);
-          const shortcut = kind ? shortcutLabels[kind] : undefined;
+          const shortcut = kind && shortcutOptions.get(kind) === option.id ? shortcutLabels[kind] : undefined;
           const deny = kind === "deny";
           return (
             <PermissionActionButton
