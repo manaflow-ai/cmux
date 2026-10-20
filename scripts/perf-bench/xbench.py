@@ -65,6 +65,7 @@ import subprocess
 import sys
 import time
 import urllib.parse
+import urllib.error
 import urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -331,6 +332,23 @@ class ChromiumBrowser(Browser):
 
     def activate(self, handle: str):
         self.cdp(f"/json/activate/{handle}")
+
+    def probe_cdp(self):
+        """Turns off switching and closing when this browser's CDP lacks /json/activate or
+        /json/close, so the session goes on to its other rows instead of ending."""
+        if not self.tabs:
+            return
+        for path, attr in ((f"/json/activate/{self.tabs[-1]}", "can_switch"), ("/json/close/xbench-missing-target", "can_close")):
+            try:
+                self.cdp(path)
+            except urllib.error.HTTPError as error:
+                # Chrome answers a missing target with 404 "No such target id"; a 404 without
+                # that text means the endpoint itself does not exist.
+                if error.code == 404 and "no such target" not in error.read().decode(errors="replace").lower():
+                    setattr(self, attr, False)
+                    log(f"{self.name}: CDP {path.split('/')[2]} unsupported (404), its rows are skipped")
+            except OSError:
+                pass
 
     def close(self, handle: str):
         self.cdp(f"/json/close/{handle}")
@@ -639,6 +657,8 @@ class Run:
             sleep(a.settle)
             self.window(browser, round_no, {"power-idle-visible": "mw", "idle-cpu-20": "cpu_pct",
                                             "idle-wakeups-20": "wakeups_per_s"}, a.idle)
+            if isinstance(browser, ChromiumBrowser):
+                browser.probe_cdp()  # Ardia's CDP has no /json/activate or /json/close
             if browser.can_switch or browser.name == "cmux-terminal":
                 latencies = []
 

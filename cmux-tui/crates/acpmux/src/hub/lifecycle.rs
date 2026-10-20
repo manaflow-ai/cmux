@@ -377,7 +377,7 @@ impl Hub {
         // runs with the harness initialized and its session created.
         if let Some(pooled) = self.pool_take_claimed(&session.id) {
             match self.adopt_pooled(session, pooled).await {
-                Ok(child) => return Ok(child),
+                Ok(child) => return Ok(self.keep_account_home(session, profile, child)),
                 // Not promotable: it was ended; start cold below.
                 Err(e) => tracing::warn!(session = %session.id, "pooled session not taken: {e:#}"),
             }
@@ -390,7 +390,7 @@ impl Hub {
         // own bounds: they serve agents that may be mid-turn.
         let budget = self.config.read().await.agent_start_timeout();
         match tokio::time::timeout(budget, self.cold_start(session, profile)).await {
-            Ok(result) => result,
+            Ok(result) => result.map(|child| self.keep_account_home(session, profile, child)),
             Err(_) => {
                 self.abandon_cold_start(session, budget).await;
                 Err(RpcError::deadline_exceeded("agent_start", budget))
