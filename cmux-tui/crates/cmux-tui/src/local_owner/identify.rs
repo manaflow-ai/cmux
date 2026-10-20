@@ -1,6 +1,7 @@
 //! One `identify` exchange with the session socket's owner, and the refusal
 //! line an owner at its connection limit sends instead of an answer.
 
+use std::io;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::time::{Duration, Instant};
 
