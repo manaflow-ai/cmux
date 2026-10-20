@@ -147,9 +147,7 @@ export function IncomingMessageCard({
               }
             }}
           />
-          {reply === "failed" && (
-            <output className="cv-message__note is-failed">{t("message.replyFailed")}</output>
-          )}
+          {reply === "failed" && <output className="cv-message__note is-failed">{t("message.replyFailed")}</output>}
         </div>
       )}
       {open && raw !== undefined && <pre className="cv-tool-output selectable">{raw}</pre>}
