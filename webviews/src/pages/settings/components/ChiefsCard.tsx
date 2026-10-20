@@ -33,11 +33,15 @@ export function ChiefsCard() {
       setChiefs(list);
       setUnavailable(false);
       const read = await Promise.all(
-        list.filter((chief) => chief.avatar).map(async (chief) => [chief.id, await host.picture(chief.id).catch(() => null)] as const),
+        list
+          .filter((chief) => chief.avatar)
+          .map(async (chief) => [chief.id, await host.picture(chief.id).catch(() => null)] as const),
       );
       setPictures(
         new Map(
-          read.flatMap(([id, picture]) => (picture ? [[id, `data:${picture.mediaType};base64,${picture.data}`] as const] : [])),
+          read.flatMap(([id, picture]) =>
+            picture ? [[id, `data:${picture.mediaType};base64,${picture.data}`] as const] : [],
+          ),
         ),
       );
     } catch {
