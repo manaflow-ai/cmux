@@ -664,9 +664,11 @@ impl Brain {
                     .map(|_| doing.label())
             });
             if let Some(label) = alive {
-                return self.tell_keyed(id, &text, None).map(|_| {
+                // `queue`: steered in when it can be, else after the call;
+                // never an interrupt.
+                return self.tell_with(id, &text, None, true).map(|_| {
                     format!(
-                        "outcome: done. {id} is alive, {label}. A restart would kill that call and run it again, so your message is steered in instead; it reads it when the call ends. To cut it now: control(action: \"interrupt\", id: \"{id}\", message: ...)."
+                        "outcome: done. {id} is alive, {label}. A restart would kill that call and run it again, so your message is steered in instead; it reads it between its tool calls or when the call ends. To cut it now: control(action: \"interrupt\", id: \"{id}\", message: ...)."
                     )
                 });
             }

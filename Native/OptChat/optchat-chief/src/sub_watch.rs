@@ -250,8 +250,9 @@ impl Watch {
                     .get("promptId")
                     .and_then(Value::as_str)
                     .unwrap_or("");
-                self.told_by_chief =
-                    prompt_id.starts_with(&format!("{}tell:", crate::subagents::PROMPT_PREFIX));
+                let p = crate::subagents::PROMPT_PREFIX;
+                self.told_by_chief = prompt_id.starts_with(&format!("{p}tell:"))
+                    || prompt_id.starts_with(&format!("{p}fyi:"));
             }
             ("mux", "turn_end" | "turn_error") => {
                 self.close_talk();
