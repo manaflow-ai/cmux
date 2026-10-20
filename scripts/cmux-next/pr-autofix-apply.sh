@@ -7,10 +7,22 @@
 # Prints one "applied: PATH" line per file; exits 1 and applies nothing when a
 # path is refused.
 #
-# Usage: scripts/cmux-next/pr-autofix-apply.sh PATCH REPO
+# With --changed FILE (the pull request's changed paths, one per line) it also
+# leaves out every path the pull request does not own (generated_outputs.py
+# drop): formatting of a file it did not change, and an output whose inputs it
+# did not change, regenerated against a newer base. Those are the base
+# autofix's; pushed into a pull request they conflicted with every other one
+# and a later merge could drop the base's newer rows (#21946). Prints one
+# "dropped: PATH" line for each.
+#
+# Usage: scripts/cmux-next/pr-autofix-apply.sh PATCH REPO [--changed FILE]
 set -euo pipefail
-patch="$(cd "$(dirname "${1:?usage: $0 PATCH REPO}")" && pwd)/$(basename "$1")"
-repo="$(cd "${2:?usage: $0 PATCH REPO}" && pwd)"
+patch="$(cd "$(dirname "${1:?usage: $0 PATCH REPO [--changed FILE]}")" && pwd)/$(basename "$1")"
+repo="$(cd "${2:?usage: $0 PATCH REPO [--changed FILE]}" && pwd)"
+changed=""
+if [[ "${3:-}" == --changed ]]; then
+  changed="$(cd "$(dirname "${4:?usage: $0 PATCH REPO [--changed FILE]}")" && pwd)/$(basename "$4")"
+fi
 
 allowed() { # repository-relative path -> 0 when an autofix repair writes it
   case "$1" in
@@ -47,5 +59,21 @@ while IFS=$'\t' read -r _ _ rel; do
 done < <(git -C "$repo" apply --numstat "$patch")
 (( refused )) && exit 1
 (( ${#files[@]} )) || exit 0
-git -C "$repo" apply "$patch"
+excludes=()
+if [[ -n "$changed" ]]; then
+  # The ownership table sits beside this script (the base's copy, like this one).
+  dropped="$(printf '%s\n' "${files[@]}" | python3 -I "$(dirname "$0")/generated_outputs.py" drop --changed "$changed")"
+  kept=()
+  for rel in "${files[@]}"; do
+    if grep -qxF -- "$rel" <<<"$dropped"; then
+      echo "dropped: $rel (the pull request did not change it or its inputs; the base autofix owns it)"
+      excludes+=(--exclude="$rel")
+    else
+      kept+=("$rel")
+    fi
+  done
+  (( ${#kept[@]} )) || exit 0
+  files=("${kept[@]}")
+fi
+git -C "$repo" apply ${excludes[@]+"${excludes[@]}"} "$patch"
 printf 'applied: %s\n' "${files[@]}"

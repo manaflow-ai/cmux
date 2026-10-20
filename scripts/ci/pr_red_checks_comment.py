@@ -13,13 +13,21 @@ TRACKED names, and writes the `checks` line of the pull request's status comment
   - none red, and the line says red -> "web and size checks: green";
   - none red and no red line -> nothing (no comment on a clean PR).
 Pending checks do not count. Several workflows call it (each after its own checks); every call
-recomputes from all check runs, so the line converges. A new advisory check is one more entry
+recomputes from all check runs, so the line converges.
+
+With BASE_SHA (the pull request's base commit), each red check is compared with the base commit's
+run of the same check (Leo 2026-10-19, after #20633 merged a new lint red behind a known base red):
+its failure signature is its failed step names plus its failure annotations (minus "Process
+completed with exit code N"). Anything in the pull request's signature that the base's lacks is
+NEW and blocks; the same signature is a base red and does not; a base with no finished run of the
+check cannot excuse it. A new advisory check is one more entry
 in TRACKED. The comment this used to keep on its own (LEGACY_MARKER) is deleted on the first write.
 
 Env: GITHUB_TOKEN, GITHUB_REPOSITORY, PR_NUMBER, HEAD_SHA, GITHUB_API_URL (default api.github.com).
 """
 import json
 import os
+import re
 import sys
 import urllib.error
 import urllib.request
@@ -34,17 +42,20 @@ TRACKED = (
     ("prefix", "web / "),                            # ci-web.yml jobs (ci.yml `web` caller)
     ("name", "cmux-next CmuxNextApp size cap"),       # cmux-next-guards.yml app-size job (hq-11)
     ("name", "cmux-next crash ratchet"),              # cmux-next-guards.yml crash-ratchet job
+    ("name", "cmux-next checks (god files, concurrency, crash safety, l10n)"),  # cmux-next.yml checks job
 )
 RED = {"failure", "timed_out", "action_required", "startup_failure"}
 GREEN_LINE = "web and size checks: green"
+BLOCK = "do not merge until green; see lane-rules"
+EXIT_CODE = re.compile(r"^Process completed with exit code \d+\.?$")
 
 
 def tracked(name):
     return any(name.startswith(v) if k == "prefix" else name == v for k, v in TRACKED)
 
 
-def red_checks(check_runs):
-    """Names of tracked checks whose newest completed run is red."""
+def newest_runs(check_runs):
+    """The newest run of each tracked check, by name."""
     newest = {}
     for run in check_runs:
         name = run.get("name") or ""
@@ -53,14 +64,50 @@ def red_checks(check_runs):
         key = (run.get("started_at") or "", run.get("id") or 0)
         if name not in newest or key > newest[name][0]:
             newest[name] = (key, run)
-    return sorted(n for n, (_, r) in newest.items() if r.get("status") == "completed" and r.get("conclusion") in RED)
+    return {n: r for n, (_, r) in newest.items()}
 
 
-def decide(check_runs, existing_line):
-    """The checks line to write, or None to leave it as it is."""
+def is_red(run):
+    return run is not None and run.get("status") == "completed" and run.get("conclusion") in RED
+
+
+def red_checks(check_runs):
+    """Names of tracked checks whose newest completed run is red."""
+    return sorted(n for n, r in newest_runs(check_runs).items() if is_red(r))
+
+
+def signature(steps, annotations):
+    """What failed in one check run: its failed step names and its failure annotations."""
+    sig = [f"step `{s.get('name')}`" for s in steps if s.get("conclusion") in RED]
+    for a in annotations:
+        message = " ".join((a.get("message") or "").split())
+        if a.get("annotation_level") == "failure" and message and not EXIT_CODE.match(message):
+            sig.append(f"`{message[:160]}`")
+    return list(dict.fromkeys(sig))
+
+
+def compare(name, pr_sig, base_run, base_sig, base_sha):
+    """The line for one red check, given the base commit's run of it (None: no finished run)."""
+    short = base_sha[:10]
+    if base_run is None or base_run.get("status") != "completed" or base_run.get("conclusion") not in RED | {"success"}:
+        # Missing, running, cancelled or skipped: no verdict on the base to excuse anything with.
+        return f"red: {name}; no finished base run on {short} to compare; {BLOCK}"
+    if not is_red(base_run):
+        return f"red: {name}; NEW: green on the base {short}; {BLOCK}"
+    new = [item for item in pr_sig if item not in base_sig]
+    if not new:
+        return f"red: {name}; base red: the same failure on the base {short}; does not block"
+    what = new[0] + (f" (+{len(new) - 1} more)" if len(new) > 1 else "")
+    verb = "passes" if new[0].startswith("step ") else "is not red"
+    return f"red: {name}; NEW: {what} {verb} on the base {short}; {BLOCK}"
+
+
+def decide(check_runs, existing_line, lines=None):
+    """The checks line to write, or None to leave it as it is. `lines` maps a red check to its
+    base-compared line (BASE_SHA); without it every red check blocks."""
     red = red_checks(check_runs)
     if red:
-        line = "\n".join(f"red: {n}; do not merge until green; see lane-rules" for n in red)
+        line = "\n".join((lines or {}).get(n) or f"red: {n}; {BLOCK}" for n in red)
     elif existing_line is not None and "red: " in existing_line:
         line = GREEN_LINE
     else:
@@ -94,13 +141,44 @@ class GitHub:
         return out
 
 
+def run_signature(gh, run):
+    steps = gh.call("GET", f"/repos/{gh.repo}/actions/jobs/{run['id']}").get("steps") or []
+    annotations = gh.call("GET", f"/repos/{gh.repo}/check-runs/{run['id']}/annotations?per_page=100") or []
+    return signature(steps, annotations)
+
+
+def base_lines(gh, runs, base_sha):
+    """Each red check's line compared with the base commit's run of it; {} without a base."""
+    red = red_checks(runs)
+    if not base_sha or not red:
+        return {}
+    try:
+        base = newest_runs(gh.pages(f"/repos/{gh.repo}/commits/{base_sha}/check-runs?filter=latest", key="check_runs"))
+    except (urllib.error.URLError, TimeoutError) as err:
+        print(f"pr-red-checks: base {base_sha[:10]} unreadable ({err}); every red blocks", file=sys.stderr)
+        return {}
+    mine = newest_runs(runs)
+    lines = {}
+    for name in red:
+        base_run = base.get(name)
+        try:
+            pr_sig = run_signature(gh, mine[name])
+            base_sig = run_signature(gh, base_run) if is_red(base_run) else []
+        except (urllib.error.URLError, TimeoutError) as err:
+            print(f"pr-red-checks: {name}: no signature ({err}); it blocks", file=sys.stderr)
+            continue
+        lines[name] = compare(name, pr_sig, base_run, base_sig, base_sha)
+    return lines
+
+
 def main():
     gh = GitHub(os.environ.get("GITHUB_API_URL", "https://api.github.com"), os.environ["GITHUB_REPOSITORY"],
                 os.environ["GITHUB_TOKEN"])
     pr, sha = os.environ["PR_NUMBER"], os.environ["HEAD_SHA"]
     runs = gh.pages(f"/repos/{gh.repo}/commits/{sha}/check-runs?filter=latest", key="check_runs")
     current = pr_status.section(gh.repo, int(pr), "checks", api=gh.call)
-    line = decide(runs, current)
+    lines = base_lines(gh, runs, os.environ.get("BASE_SHA", "").strip())
+    line = decide(runs, current, lines)
     action = None
     if line is not None:
         action = pr_status.upsert(gh.repo, int(pr), "checks", line, legacy=LEGACY_MARKER, api=gh.call)

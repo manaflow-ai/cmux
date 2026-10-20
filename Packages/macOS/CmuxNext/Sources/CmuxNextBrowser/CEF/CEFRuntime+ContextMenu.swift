@@ -12,7 +12,7 @@ extension CEFRuntime {
             shim?.contextMenuDone(token, -1, 0)
             return
         }
-        let all = BrowserContextMenuItem.decodeList(itemsJSON)
+        let all = extensionStores.withRowIcons(BrowserContextMenuItem.decodeList(itemsJSON), profile: tab.profileID)
         let target = BrowserContextMenuTarget.chromium(paramsJSON)
         let location = CGPoint(x: x, y: y)
         let done: (Int?) -> Void = { [weak self] id in self?.shim?.contextMenuDone(token, Int32(id ?? -1), 0) }

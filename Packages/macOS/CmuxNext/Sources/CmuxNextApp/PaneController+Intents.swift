@@ -18,11 +18,10 @@ extension PaneController {
         case .close(let id, _):
             CloseUndoToasts.close(in: self, [id])
         case .closeOthers(let keep):
-            CloseUndoToasts.close(in: self, stripModel.orderedTabs.filter { $0.id != keep && !$0.isPinned }.map(\.id))
+            CloseUndoToasts.close(in: self, stripModel.closedByCloseOthers(keeping: keep))
         case .closeToRight(let id):
-            let ids = orderedIDs
-            guard let index = ids.firstIndex(of: id) else { return }
-            CloseUndoToasts.close(in: self, Array(ids[(index + 1)...]))
+            // Pinned tabs after `id` stay, as in Chrome.
+            CloseUndoToasts.close(in: self, stripModel.closedByCloseToRight(of: id))
         case .reorder(let id, _, let to):
             StripOrder.reorder(id, to: to, in: self)
         case .newTab(_, let opensWorkspace, let sameKind):
@@ -56,7 +55,8 @@ extension PaneController {
     /// the focus coordinator, which selects and focuses (`applySelection`).
     /// An action run without view-change permission selects nothing.
     func select(_ id: StripTabID, source: FocusEvent.Source = .intent) {
-        if DebugTabSwitch.isRecording, stripModel.selectedID != id { DebugTabSwitch.began(self) }
+        // Only a switch this action may show is timed (a refused one never ends its interval).
+        if stripModel.selectedID != id, workspace != nil || ActionRunScope.viewChangeAllowed() { DebugTabSwitch.began(self) }
         // A user's tab switch may end link-tab opener relations (Chrome's rule).
         if source.isUserIntent, stripModel.selectedID != id {
             services.cache.pageRequests.openers.userActivated(from: selectedTab?.surface, to: tab(id)?.surface)
@@ -71,11 +71,15 @@ extension PaneController {
     /// Selects `id` and shows it; called by the focus applier, never moves focus.
     func applySelection(_ id: StripTabID) {
         guard stripModel.selectedID != id || currentTabKey != id.rawValue, let state else { return }
+        DebugTabSwitch.mark(self, "focus")
         state.selection.select(id.rawValue, in: paneKey)
         setStripSelection(id)
+        DebugTabSwitch.mark(self, "strip")
         presentSelection()
+        DebugTabSwitch.mark(self, "present")
         remapViewedTab()
         services.windows.recordSaver.stateDidChange(state)
+        DebugTabSwitch.mark(self, "record")
         DebugTabSwitch.shown(self, in: view.window)
     }
 
@@ -266,7 +270,8 @@ extension PaneController {
         let kept = Set(TabPromotion.menuRemovals(kind: workspaceKind))
         guard let tab, tab.kind == .browser else {
             // Hibernation discards a page; a terminal has none (Restart only once its shell ended).
-            let entries = ContextMenuCatalog.shared.entries(for: .tab, removing: kept.union(["hibernateTab", "wakeTab", "toggleTabAudioMute"]).union(TabRestart.hiddenMenuItems(tab)).union(CloudMove.hiddenMenuItems(tab)))
+            // Reload and Mute are a page's rows (Chrome's Reload, Mute Site).
+            let entries = ContextMenuCatalog.shared.entries(for: .tab, removing: kept.union(["hibernateTab", "wakeTab", "toggleTabAudioMute", "reloadTab"]).union(TabRestart.hiddenMenuItems(tab)).union(CloudMove.hiddenMenuItems(tab)))
             return registry.makeContextMenu(for: .tab, target: target, entries: entries)
         }
         // A browser tab offers the engine it is not on.

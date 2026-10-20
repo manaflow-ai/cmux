@@ -102,13 +102,18 @@ extension TranscriptDocumentView {
 /// A text position in the transcript: a row (by key) and a UTF-16 offset.
 struct TextPosition: Equatable { var key: String; var offset: Int }
 
-/// Drag-to-select across rows. The highlight is a shape layer over the rows,
-/// recomputed when the transcript moves or changes.
+/// Drag-to-select across rows. The selection is (row key, offset) pairs; each
+/// selected row draws its own part of the highlight in its cell
+/// (RowCell.selectionHighlight), so the highlight moves with its row's motions,
+/// recomputed when the transcript scrolls or changes.
 final class TranscriptSelection {
     /// cmux: MessagesLab 30495be: the transcript's accessibility elements, one per visible message id.
     var axElements: [ID: MessageAccessibilityElement] = [:]
     unowned let controller: ChatController
-    let layer = CAShapeLayer()
+    /// Screen blend of P3 (2.6, 37.7, 85): over the incoming bubble (59, 59, 61) it gives
+    /// Messages' highlight (61, 88, 126) and over its text (225) the selected text
+    /// (225, 229, 235) (lossless still selected-text.png).
+    static let highlightFill = Fixture.p3(2.6, 37.7, 85).cgColor
     private(set) var anchor: TextPosition?
     private(set) var focus: TextPosition?
     private var downPoint: CGPoint?
@@ -116,12 +121,14 @@ final class TranscriptSelection {
 
     init(controller: ChatController) {
         self.controller = controller
-        // Screen blend of P3 (2.6, 37.7, 85): over the incoming bubble (59, 59, 61) it gives
-        // Messages' highlight (61, 88, 126) and over its text (225) the selected text
-        // (225, 229, 235) (lossless still selected-text.png).
-        layer.fillColor = Fixture.p3(2.6, 37.7, 85).cgColor
-        layer.actions = ["path": NSNull(), "position": NSNull(), "bounds": NSNull()]
-        layer.compositingFilter = "screenBlendMode"
+    }
+
+    /// cmux: rows renamed in place (old key -> new key: a stream's final message took its rows,
+    /// MessagesWindowView.onRowsRenamed). The selection stays on the same text under the new keys.
+    func renameRows(_ map: [String: String]) {
+        if let a = anchor, let b = map[a.key] { anchor?.key = b }
+        if let f = focus, let b = map[f.key] { focus?.key = b }
+        if let k = selectedKey, let b = map[k] { selectedKey = b }
     }
 
     var isEmpty: Bool { anchor == nil || anchor == focus }
@@ -260,15 +267,23 @@ final class TranscriptSelection {
         return Self.geometry(spec)
     }
 
-    /// Rows with text, in transcript order (model index).
+    /// The shown cells with text: the cell, its row's model index, key and current spec. The key is
+    /// the cell's (a renamed row keeps its cell, whose spec is redrawn on its next configure).
+    private func textCells() -> [(cell: RowCell, index: Int, key: String, spec: RowSpec, geometry: RowTextGeometry)] {
+        guard let demo = controller.demo else { return [] }
+        var out: [(RowCell, Int, String, RowSpec, RowTextGeometry)] = []
+        for case let cell as RowCell in demo.collection.visibleCells where !cell.isHidden {
+            guard let i = demo.model.index[cell.key], let spec = demo.model.rows[checked: i]?.spec, let g = Self.geometry(spec) else { continue }
+            out.append((cell, i, cell.key, spec, g))
+        }
+        return out
+    }
+
+    /// Rows with text, in transcript order (model index); bodies in window content coordinates.
     private func textRows() -> [(index: Int, key: String, geometry: RowTextGeometry, body: CGRect)] {
         guard let demo = controller.demo else { return [] }
-        var out: [(Int, String, RowTextGeometry, CGRect)] = []
-        for case let cell as RowCell in demo.collection.visibleCells where !cell.isHidden {
-            guard let spec = cell.spec, let g = Self.geometry(spec), let i = demo.model.index[spec.key] else { continue }
-            out.append((i, spec.key, g, cell.convert(RowDraw.bodyRect(spec), to: demo)))
-        }
-        return out.sorted { $0.0 < $1.0 }
+        return textCells().map { ($0.index, $0.key, $0.geometry, $0.cell.convert(RowDraw.bodyRect($0.spec), to: demo)) }
+            .sorted { $0.0 < $1.0 }
     }
 
     /// The text position nearest to a point (window content coordinates).
@@ -314,6 +329,18 @@ final class TranscriptSelection {
 
     var selectedText: String { selectedRanges().map(\.text).joined(separator: "\n") }
 
+    /// The selected range of one row (nil: none of it is selected), without walking the others.
+    private func selectedRange(key: String, index i: Int, geometry g: RowTextGeometry) -> NSRange? {
+        guard let demo = controller.demo, let a = anchor, let f = focus, a != f,
+              let ia = demo.model.index.value(for: a.key), let fi = demo.model.index.value(for: f.key) else { return nil }
+        let (s, e) = (ia, a.offset) <= (fi, f.offset) ? (a, f) : (f, a)
+        guard i >= min(ia, fi), i <= max(ia, fi) else { return nil }
+        let len = g.length
+        let from = min(key == s.key ? s.offset : 0, len)
+        let to = min(key == e.key ? e.offset : len, len)
+        return to > from ? NSRange(location: from, length: to - from) : nil
+    }
+
     /// Highlight rects of one row's selected range, in the coordinates of `body`, only the
     /// lines inside `visible` (same coordinates). Drawn from the row's own geometry, so a
     /// markdown, plain or long row highlights exactly its drawn glyphs, inside its bubble.
@@ -327,21 +354,34 @@ final class TranscriptSelection {
         }
     }
 
-    /// Rebuild the highlight for the rows on screen.
+    /// Rebuild the highlight for the rows on screen: each selected row draws its part in its own
+    /// cell; every other shown cell drops what it drew (a reused cell, a range that shrank).
     func refresh() {
-        let path = CGMutablePath()
-        let ranges = Dictionary(selectedRanges().map { ($0.key, $0.range) }, uniquingKeysWith: { a, _ in a })
-        if !ranges.isEmpty, let demo = controller.demo {
-            let visible = demo.bounds.minY...demo.bounds.maxY
-            for r in textRows() {
-                guard let sel = ranges[r.key] else { continue }
-                for rect in Self.highlightRects(sel, body: r.body, geometry: r.geometry, visible: visible) { path.addRect(rect) }
-            }
-        }
         CATransaction.begin(); CATransaction.setDisableActions(true)
-        layer.path = path.isEmpty ? nil : path
+        if let demo = controller.demo {
+            for case let cell as RowCell in demo.collection.visibleCells { draw(cell) }
+        }
         if let l = current { l.path = selectedBubblePath() }
         CATransaction.commit()
+    }
+
+    /// One cell's part of the highlight (MessagesWindowView.onCellDecorated runs it for a cell the
+    /// list just configured, so a row that scrolls or springs into view shows its highlight at once).
+    func draw(_ cell: RowCell) {
+        guard !isEmpty, !cell.isHidden, let demo = controller.demo, let i = demo.model.index[cell.key],
+              let spec = demo.model.rows[checked: i]?.spec, let g = Self.geometry(spec),
+              let sel = selectedRange(key: cell.key, index: i, geometry: g) else {
+            cell.setSelectionHighlight(nil)
+            return
+        }
+        // Lines from a screen above to a screen below the transcript: a row that springs or slides
+        // into view brings its highlight along (a long row draws only these lines).
+        let h = demo.bounds.height
+        let top = cell.convert(CGRect.zero, to: demo).minY
+        let visible = (demo.bounds.minY - h - top)...(demo.bounds.maxY + h - top)
+        let path = CGMutablePath()
+        for rect in Self.highlightRects(sel, body: RowDraw.bodyRect(spec), geometry: g, visible: visible) { path.addRect(rect) }
+        cell.setSelectionHighlight(path.isEmpty ? nil : path)
     }
 }
 

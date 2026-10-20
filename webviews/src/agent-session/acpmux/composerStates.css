@@ -1,7 +1,8 @@
 /* Interaction states for the composer and its menus: every control gets a hover and a pressed
    state (focus rings are in styles.css). Each is a tonal step mixed from the theme's text color, so no
    accent hue appears and every theme keeps its character. Only colors change (never size,
-   padding or borders), so a state never shifts the layout.
+   padding or borders), so a state never shifts the layout; the composer chips' press adds a
+   transform, which draws the chip a hair smaller in place and moves nothing around it.
 
    Motion tokens: the native host sends its MotionFade durations with the theme
    (AgentPaneTheme.motion, after ui.animationSpeed and Reduce Motion), and these defaults are
@@ -17,6 +18,9 @@
   --agent-motion-move: 190ms;
   /* Core Animation's easeOut, which the native fades use. */
   --agent-ease-out: cubic-bezier(0, 0, 0.58, 1);
+  /* A pressed chip's spring back to full size: quick, with a slight overshoot. */
+  --acpmux-press-release: 140ms;
+  --acpmux-press-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
 .acpmux-shell {
@@ -33,8 +37,6 @@
   /* The composer's shadow (cg-design-judge, 10-14): the shared --elevation-1 in a light theme;
      none in a dark one, where a drop shadow on a dark page shows nothing. */
   --acpmux-composer-shadow: var(--elevation-1);
-  /* One step past hover, for the press. */
-  --acpmux-composer-press: color-mix(in srgb, var(--agent-text) 20%, var(--agent-page-bg, var(--acpmux-base)));
   --acpmux-menu-press: color-mix(in srgb, var(--agent-text) 20%, var(--acpmux-base));
 }
 
@@ -88,21 +90,17 @@
   --acpmux-composer-shadow: 0 0 transparent;
 }
 
-/* Composer chips: Plan, the mode, model and effort pickers, and +. */
+/* Composer chips: Plan, the mode, model and effort pickers, +, the mic and Steer. A press keeps the
+   hover's pill, with no brighter or tinted tone (Leo 2026-10-19): its feedback is the Claude app's,
+   a shrink of a hair with an almost invisible dip that springs back on release (below). The press
+   shows at once (cg-composer click polish, as Codex's chips): the hover's ease below never delays
+   the button going down; the release eases back. */
 .acpmux-picker-button:active,
-.acpmux-plan:active {
-  background: var(--acpmux-composer-press);
-}
-.acpmux-plan[aria-pressed="true"]:hover {
-  background: color-mix(in srgb, var(--agent-accent, var(--agent-text)) 22%, transparent);
-}
-.acpmux-plan[aria-pressed="true"]:active {
-  background: color-mix(in srgb, var(--agent-accent, var(--agent-text)) 28%, transparent);
-}
-/* A press shows at once (cg-composer click polish, as Codex's chips): the hover's ease below never
-   delays the tone under the button going down. */
-.acpmux-picker-button:active,
+.acpmux-picker-button[data-press-active],
 .acpmux-plan:active,
+.acpmux-steer:active,
+.acpmux-mic:active,
+.acpmux-fast:active,
 .acpmux-location-button:active {
   transition-duration: 0s;
 }
@@ -165,17 +163,10 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
   background: var(--acpmux-composer-hover);
   color: var(--agent-text);
 }
-.acpmux-mic:active {
-  background: var(--acpmux-composer-press);
-}
 .acpmux-mic[data-state="listening"]:hover,
 .acpmux-mic[data-state="finalizing"]:hover {
   background: color-mix(in srgb, var(--agent-danger) 24%, transparent);
   color: var(--agent-danger);
-}
-.acpmux-mic[data-state="listening"]:active,
-.acpmux-mic[data-state="finalizing"]:active {
-  background: color-mix(in srgb, var(--agent-danger) 32%, transparent);
 }
 .acpmux-dictation-settings:hover,
 .acpmux-dictation-dismiss:hover {
@@ -207,15 +198,33 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
 /* Hover and press colors ease, and the picker and slash menus fade in; with Reduce Motion they apply at once. */
 @media (prefers-reduced-motion: no-preference) {
   .acpmux-picker-button,
-  .acpmux-plan {
+  .acpmux-plan,
+  .acpmux-steer {
     transition:
       background-color var(--agent-motion-hover) var(--agent-ease-out),
-      color var(--agent-motion-hover) var(--agent-ease-out);
+      color var(--agent-motion-hover) var(--agent-ease-out),
+      transform var(--acpmux-press-release) var(--acpmux-press-spring),
+      opacity var(--acpmux-press-release) var(--agent-ease-out);
+  }
+  /* The press: 0.975 and a 4% dip, at once (transition-duration 0s above), springing back over
+     the release with a slight overshoot. Nothing lingers once the button is up. A chip that opens
+     its menu on pointerdown moves focus into the menu, and Chromium drops :active before the press
+     frame paints; popoverTrigger.ts's data-press-active holds the press until release. */
+  :is(.acpmux-picker-button, .acpmux-plan, .acpmux-steer, .acpmux-mic, .acpmux-fast):is(:active, [data-press-active]) {
+    transform: scale(0.975);
+    opacity: 0.96;
   }
   .acpmux-send {
     transition: background-color var(--agent-motion-hover) var(--agent-ease-out);
   }
   .acpmux-mic,
+  .acpmux-fast {
+    transition:
+      background-color var(--agent-motion-hover) var(--agent-ease-out),
+      color var(--agent-motion-hover) var(--agent-ease-out),
+      transform var(--acpmux-press-release) var(--acpmux-press-spring),
+      opacity var(--acpmux-press-release) var(--agent-ease-out);
+  }
   .acpmux-dictation-settings,
   .acpmux-dictation-dismiss {
     transition:
@@ -279,12 +288,30 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
    (Lawrence, Leo 10-14): the same one-device-pixel rim, never a wider ring or the accent, and clear
    with appearance.borders none. Its tone steps 30% toward the text (--acpmux-composer-edge-focus):
    the earlier 8% step was below what an eye can see, so a focused composer was pixel-identical to an
-   idle one in every theme (cg-composer focus audit, 10-14). The card's rim goes round the location
+   idle one in every theme (cg-composer focus audit, 10-14). Leo 2026-10-19 asked for a subtler focus,
+   so it steps 22%: still well clear of the invisible 8%. Over art the glass card also catches more
+   light on its top edge (below). The card's rim goes round the location
    strip too (composerLocation.css), so the focused rim stays one outline. Shell mode takes its own accent,
    the mode's mark. The prompt itself draws no ring (desktop.css, cx-ncc.57). */
 .acpmux-composer,
 .nt-composer {
-  --acpmux-composer-edge-focus: color-mix(in srgb, var(--agent-text) 30%, var(--acpmux-composer-edge));
+  --acpmux-composer-edge-focus: color-mix(in srgb, var(--agent-text) 22%, var(--acpmux-composer-edge));
+}
+/* Glass focus: over art (data-cmux-see-through) a focused card's top-lit rim (#21786) brightens, as
+   light catches a lifted pane of glass, instead of the ring growing heavier. Reduce Transparency
+   draws no rim layer at all (above), so it keeps the plain step. */
+/* The New Tab card is the same glass (#22114 left it out): its field focused or a control under
+   keyboard focus, never a chip a click focused. Only the key page lifts it (pageKey.ts). */
+:root[data-cmux-see-through]:not([data-page-inactive])
+  :is(
+    .acpmux-composer-box:has(:focus-visible),
+    .acpmux-composer:has(> .acpmux-composer-strip :focus-visible) > .acpmux-composer-box,
+    .nt-box:has(.nt-field:focus, :focus-visible)
+  ) {
+  --acpmux-composer-rim: inset 0 1px 0 light-dark(
+    color-mix(in srgb, var(--cmux-tone-light) 85%, transparent),
+    color-mix(in srgb, var(--cmux-tone-light) 22%, transparent)
+  );
 }
 :root[data-borders="none"] :is(.acpmux-composer, .nt-composer) {
   --acpmux-composer-edge-focus: transparent;
@@ -326,16 +353,16 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
    wash) and the ring sits on the wash's edge: one outline on a visible control, as Send's ring
    circles its own disc. Press still takes the row's press step (composerLocation.css loads after this
    file). Increase Contrast keeps the shared offset ring. */
-.acpmux-composer-bar .acpmux-picker-button:focus-visible {
+:is(.acpmux-composer-bar, .nt-pickers) .acpmux-picker-button:focus-visible {
   background: var(--acpmux-row-hover, var(--acpmux-composer-hover));
   outline-offset: 0;
 }
 /* Its ink steps up as on hover, so focus reads as hover with a ring. */
-.acpmux-composer-bar :is(.acpmux-model, .acpmux-effort, .acpmux-access) .acpmux-picker-button:focus-visible {
+:is(.acpmux-composer-bar, .nt-pickers) :is(.acpmux-model, .acpmux-effort, .acpmux-access) .acpmux-picker-button:focus-visible {
   color: var(--agent-text);
 }
 @media (prefers-contrast: more) {
-  .acpmux-composer-bar .acpmux-picker-button:focus-visible { outline-offset: 2px; }
+  :is(.acpmux-composer-bar, .nt-pickers) .acpmux-picker-button:focus-visible { outline-offset: 2px; }
 }
 .acpmux-composer[data-shell] .acpmux-composer-box:has(:focus-visible) {
   --acpmux-card-ring: inset 0 0 0 var(--cmux-hairline-ring, 1px) color-mix(in srgb, var(--acpmux-shell-accent) 85%, transparent);
@@ -350,6 +377,28 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
 }
 .acpmux-composer[data-shell] .acpmux-composer-box {
   --acpmux-card-ring: inset 0 0 0 var(--cmux-hairline-ring, 1px) color-mix(in srgb, var(--acpmux-shell-accent) 55%, transparent);
+}
+
+/* Caret and ring agree (Leo 2026-10-19; the Claude app's caret shows only while its composer is
+   focused). A field can hold DOM focus while the page is not the key one: the window is in the
+   background, another pane has the keyboard, or the New Tab page focused its field before the user
+   came to it (pageKey.ts marks the root data-page-inactive). Then no field draws a caret and every
+   composer draws its resting ring: the focused tone falls back to the resting edge, and the shell
+   and Increase Contrast rings, which do not use it, are reset here. Once the page is key both come
+   back together. */
+:root[data-page-inactive] :is(input, textarea, [contenteditable="true"]):focus {
+  caret-color: transparent;
+}
+:root[data-page-inactive] :is(.acpmux-composer, .nt-composer) {
+  --acpmux-composer-edge-focus: var(--acpmux-composer-edge);
+}
+:root[data-page-inactive] .acpmux-composer[data-shell] .acpmux-composer-box:has(:focus-visible) {
+  --acpmux-card-ring: inset 0 0 0 var(--cmux-hairline-ring, 1px) color-mix(in srgb, var(--acpmux-shell-accent) 55%, transparent);
+}
+@media (prefers-contrast: more) {
+  :root[data-page-inactive] :is(.acpmux-composer-box:has(:focus-visible), .nt-box:focus-within) {
+    --acpmux-card-ring: inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-composer-edge);
+  }
 }
 
 /* Queued prompts (ComposerQueue.tsx): the row's menu host stays out of the row's layout; a row

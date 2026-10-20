@@ -79,6 +79,14 @@ docs/mdm/com.manaflow.cmux.json merge=cmux-generated-v1
 docs/mdm/com.manaflow.cmux.plist merge=cmux-generated-v1
 docs/mdm/com.manaflow.cmux.intune.plist merge=cmux-generated-v1
 docs/mdm/managed-preferences.md merge=cmux-generated-v1
+# The settings source stamp merges by line on GitHub (an entry per source, so
+# two settings pull requests do not conflict there, #21946). A configured clone
+# keeps one side like the exports above, so a local merge of two settings
+# branches fails defaults_guard.py check-fresh until the exports are
+# regenerated; a line-merged stamp would call the one-side exports fresh. After
+# a GitHub merge the base autofix regenerates them (it runs whenever
+# CmuxNextSettings changed).
+schemas/settings-export/settings-schema.sources.sha256 merge=cmux-generated-v1
 Packages/macOS/CmuxNext/ci-target-graph.json merge=cmux-generated-v1
 # SDK wire layers (cmux-tui/bindings/codegen/generate.py): only the wholly
 # generated directories and files; go/raw and java mix in hand-written code.

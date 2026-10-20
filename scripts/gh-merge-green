@@ -306,13 +306,13 @@ graphql_workflow_response() {
 graphql_check_runs_response() {
   local owner="${repo%/*}" name="${repo#*/}" response
   response=$(gh api graphql \
-    -f query='query($owner:String!,$name:String!,$expr:String!){repository(owner:$owner,name:$name){object(expression:$expr){... on Commit{checkSuites(first:100){nodes{id app{slug} checkRuns(first:100){nodes{databaseId name status conclusion} pageInfo{hasNextPage}}} pageInfo{hasNextPage}}}}}}' \
+    -f query='query($owner:String!,$name:String!,$expr:String!){repository(owner:$owner,name:$name){object(expression:$expr){... on Commit{checkSuites(first:100){nodes{id app{slug} checkRuns(first:100){nodes{databaseId name status conclusion startedAt completedAt} pageInfo{hasNextPage}}} pageInfo{hasNextPage}}}}}}' \
     -f owner="$owner" -f name="$name" -f expr="$sha" 2>/dev/null) || return 1
   if jq -e '.errors? and (.errors | length > 0)' >/dev/null 2>&1 <<<"$response"; then
     return 1
   fi
   jq -e 'any(.data.repository.object.checkSuites.pageInfo.hasNextPage; . == true) or any(.data.repository.object.checkSuites.nodes[].checkRuns.pageInfo.hasNextPage; . == true)' <<<"$response" >/dev/null 2>&1 && return 1
-  jq '[{check_runs: [.data.repository.object.checkSuites.nodes[] as $suite | $suite.checkRuns.nodes[] | . + {id:(.databaseId // 0),status:(.status // "")|ascii_downcase,conclusion:(.conclusion // "")|ascii_downcase,app:{slug:$suite.app.slug},check_suite:{id:$suite.id}}]}]' <<<"$response" 2>/dev/null
+  jq '[{check_runs: [.data.repository.object.checkSuites.nodes[] as $suite | $suite.checkRuns.nodes[] | . + {id:(.databaseId // 0),status:(.status // "")|ascii_downcase,conclusion:(.conclusion // "")|ascii_downcase,started_at:(.startedAt // null),completed_at:(.completedAt // null),app:{slug:$suite.app.slug},check_suite:{id:$suite.id}}]}]' <<<"$response" 2>/dev/null
 }
 graphql_pr_files_response() {
   local owner="${repo%/*}" name="${repo#*/}" response
@@ -475,6 +475,66 @@ while IFS=$'\t' read -r name st co; do
       ;;
   esac
 done <<<"$runs"
+
+# `risk evidence` passes while advisory (before ENFORCE_FROM in the base's risk-tier.yml), and a
+# verdict from then stays green until the pull request is re-graded. After the cutover, only a
+# verdict whose job started after it counts (the evidence step decides advisory-or-not while the
+# job runs, so a job that started earlier may have graded as advisory), and a pull request with
+# no verdict at all is refused. GH_MERGE_GREEN_NOW overrides the clock for tests.
+# risk_enforce_from prints ENFORCE_FROM; exit 3 means the workflow is readable but has no
+# ENFORCE_FROM in the expected form, which refuses rather than skipping the gate. An unreadable
+# body (no content returned) prints nothing and exits 0.
+risk_enforce_from() {
+  python3 -c '
+import base64, json, re, sys
+raw = sys.stdin.read()
+try:
+    data = json.loads(raw)
+except Exception:
+    parts = re.split(r"\r?\n\r?\n", raw, maxsplit=1)
+    try:
+        data = json.loads(parts[1])
+    except Exception:
+        sys.exit(0)
+try:
+    text = base64.b64decode(data["content"]).decode() if data.get("encoding") == "base64" else ""
+except Exception:
+    sys.exit(0)
+if not text.strip():
+    sys.exit(0)
+match = re.search(r"ENFORCE_FROM:\s*[\x22\x27]?(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ)[\x22\x27]?\s*$", text, re.M)
+if not match:
+    sys.exit(3)
+print(match.group(1))
+' <<<"$workflow_response"
+}
+if [ "$base" = feat-cmux-next ] && workflow_on_base risk-tier.yml; then
+  enforce_status=0
+  enforce_from=$(risk_enforce_from) || enforce_status=$?
+  if [ "$enforce_status" -ne 0 ]; then
+    refuse \
+      "not green: cannot read ENFORCE_FROM (YYYY-MM-DDTHH:MM:SSZ) from $base:.github/workflows/risk-tier.yml" \
+      "restore ENFORCE_FROM in risk-tier.yml on $base, then retry"
+  fi
+  now=${GH_MERGE_GREEN_NOW:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}
+  if [ -n "$enforce_from" ] && [[ ! "$now" < "$enforce_from" ]]; then
+    risk_started=$(jq -r '
+      (map(.check_runs) | add) | map(select(.name == "risk evidence"))
+      | sort_by(.id // 0) | last
+      | if . != null and .status == "completed" then (.started_at // "") else "" end
+      ' <<<"$check_runs_json" 2>/dev/null || true)
+    if [ -z "$risk_started" ] || [ "$risk_started" = null ]; then
+      refuse \
+        "not green: no finished 'risk evidence' check on $sha; it is required since $enforce_from" \
+        "edit the description or push to grade the pull request (docs/ci/risk-tiers.md), then retry"
+    fi
+    if [[ "$risk_started" < "$enforce_from" ]]; then
+      refuse \
+        "not green: 'risk evidence' on $sha started at $risk_started, while it was advisory (before $enforce_from)" \
+        "edit the description or push to re-grade the pull request (docs/ci/risk-tiers.md), then retry"
+    fi
+  fi
+fi
 
 # Pull requests into feat-cmux-next also run the branch's dedicated cmux-next
 # workflow. Its Release and native app checks are separate check runs, so the
@@ -877,8 +937,14 @@ merged_head_checks() {
       "not merged: $ref does not merge cleanly into $base ($base_sha)" \
       'merge the base into the PR (scripts/merge-main.sh), push, and retry'
   fi
+  # The pages' strings tables are build output (#21946): vp check needs them, and
+  # gen-strings.mjs makes them from the catalogs and the settings schema.
+  local strings_inputs=()
+  if git -C "$repo_dir" cat-file -e "$merged_tree:schemas/settings" 2>/dev/null; then
+    strings_inputs+=(schemas/settings)
+  fi
   if ! git -C "$repo_dir" archive "$merged_tree" -- \
-      Packages/macOS/CmuxNext webviews scripts/cmux-next/check-no-godfiles.sh \
+      Packages/macOS/CmuxNext webviews ${strings_inputs[@]+"${strings_inputs[@]}"} scripts/cmux-next/check-no-godfiles.sh \
       scripts/cmux-next/godfile-baseline.tsv $(web_shared_paths "$merged_tree") | tar -x -C "$merged"; then
     rm -rf "$tmp"
     refuse \
@@ -911,7 +977,7 @@ merged_head_checks() {
     if ! bun=$(command -v bun); then
       status=2
       printf 'not merged: bun is not on PATH, so vp check cannot run on the merged head of %s\n' "$ref" >&2
-    elif ! output=$(cd "$merged/webviews" && "$bun" install --frozen-lockfile --ignore-scripts 2>&1 && "$bun" x vp check 2>&1); then
+    elif ! output=$(cd "$merged/webviews" && "$bun" install --frozen-lockfile --ignore-scripts 2>&1 && { [ ! -f scripts/pages/gen-strings.mjs ] || "$bun" scripts/pages/gen-strings.mjs --best-effort >/dev/null 2>&1; } && "$bun" x vp check 2>&1); then
       # A red the base already has is not this PR's: check the base tree with
       # the same install, and refuse only for files the base does not flag.
       local base_output new_files base_tree
@@ -921,9 +987,14 @@ merged_head_checks() {
       # base webviews separately for the red-base comparison instead of trying
       # to checkout the base in the archive (which exits 128 and hides the
       # actual vp diagnostic).
-      if ! git -C "$repo_dir" archive "$base_sha" -- webviews $(web_shared_paths "$base_sha") | tar -x -C "$base_tree"; then
+      local base_inputs=(webviews) shared_path
+      git -C "$repo_dir" cat-file -e "$base_sha:schemas/settings" 2>/dev/null && base_inputs+=(schemas/settings)
+      git -C "$repo_dir" cat-file -e "$base_sha:Packages/macOS/CmuxNext/Sources" 2>/dev/null \
+        && base_inputs+=(':(glob)Packages/macOS/CmuxNext/Sources/**/*.xcstrings')
+      while IFS= read -r shared_path; do base_inputs+=("$shared_path"); done < <(web_shared_paths "$base_sha")
+      if ! git -C "$repo_dir" archive "$base_sha" -- "${base_inputs[@]}" | tar -x -C "$base_tree"; then
         base_output=''
-      elif base_output=$(cd "$base_tree/webviews" && "$bun" install --frozen-lockfile --ignore-scripts >/dev/null 2>&1 && "$bun" x vp check 2>&1); then
+      elif base_output=$(cd "$base_tree/webviews" && "$bun" install --frozen-lockfile --ignore-scripts >/dev/null 2>&1 && { [ ! -f scripts/pages/gen-strings.mjs ] || "$bun" scripts/pages/gen-strings.mjs --best-effort >/dev/null 2>&1; } && "$bun" x vp check 2>&1); then
         new_files=$(vp_flagged_files <<<"$output")
       else
         new_files=$(LC_ALL=C comm -23 <(vp_flagged_files <<<"$output") <(vp_flagged_files <<<"$base_output"))
