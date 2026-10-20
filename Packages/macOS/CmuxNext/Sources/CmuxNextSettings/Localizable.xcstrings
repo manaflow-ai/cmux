@@ -136310,6 +136310,792 @@
           }
         }
       }
+    },
+    "settings.browser.agentMouseMotion": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent Pointer Motion"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حركة مؤشر الوكيل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kretanje pokazivača agenta"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agentens markørbevægelse"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zeigerbewegung des Agenten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Movimiento del puntero del agente"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mouvement du pointeur de l’agent"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Movimento del puntatore dell’agente"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントのポインタの動き"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ចលនាទ្រនិចរបស់ភ្នាក់ងារ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트 포인터 움직임"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agentens pekerbevegelse"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ruch wskaźnika agenta"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Movimento do ponteiro do agente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Движение указателя агента"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การเคลื่อนที่ของตัวชี้ของเอเจนต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajan işaretçi hareketi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Рух вказівника агента"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chuyển động con trỏ của tác tử"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理指针移动方式"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理指標移動方式"
+          }
+        }
+      }
+    },
+    "settings.browser.agentMouseMotion.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "How an agent moves the pointer in browser tabs. Human moves along a curved path and rests before each click, as a person does, so pages see hover and timing like a person's. Instant jumps to the target and clicks at once."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "كيف يحرّك الوكيل المؤشر في علامات تبويب المتصفح. «بشري» يتحرك في مسار منحنٍ ويتوقف قليلًا قبل كل نقرة كما يفعل الإنسان، فترى الصفحات التمرير والتوقيت كما لو كان إنسانًا. «فوري» يقفز إلى الهدف وينقر مباشرة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kako agent pomiče pokazivač u karticama preglednika. Ljudsko se kreće zakrivljenom putanjom i zastane prije svakog klika, kao osoba, pa stranice vide prelazak i tempo kao kod osobe. Trenutno skače na cilj i odmah klikne."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hvordan en agent flytter markøren i browserfaner. Menneskelig bevæger sig ad en buet bane og holder en pause før hvert klik, som en person, så sider ser hover og timing som fra en person. Øjeblikkelig springer til målet og klikker med det samme."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wie ein Agent den Zeiger in Browser-Tabs bewegt. Menschlich folgt einem gebogenen Weg und hält vor jedem Klick kurz an, wie ein Mensch, sodass Seiten Hover und Timing wie bei einem Menschen sehen. Sofort springt zum Ziel und klickt direkt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cómo mueve un agente el puntero en las pestañas del navegador. Humano sigue una trayectoria curva y se detiene antes de cada clic, como una persona, así las páginas ven el paso del puntero y el ritmo de una persona. Instantáneo salta al objetivo y hace clic de inmediato."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comment un agent déplace le pointeur dans les onglets du navigateur. Humain suit une trajectoire courbe et marque une pause avant chaque clic, comme une personne : les pages voient le survol et le rythme d’une personne. Instantané saute vers la cible et clique aussitôt."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Come un agente muove il puntatore nelle schede del browser. Umano segue un percorso curvo e si ferma prima di ogni clic, come una persona, così le pagine vedono passaggi e tempi come quelli di una persona. Istantaneo salta al bersaglio e fa clic subito."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザタブでエージェントがポインタを動かす方法です。「人間」は人と同じように曲線を描いて動き、クリックの前に少し止まるため、ページには人と同じホバーとタイミングが伝わります。「即時」は対象へ一瞬で移動してすぐにクリックします。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "របៀបដែលភ្នាក់ងារផ្លាស់ទីទ្រនិចក្នុងផ្ទាំងកម្មវិធីរុករក។ «មនុស្ស» ផ្លាស់ទីតាមផ្លូវកោង ហើយឈប់បន្តិចមុនការចុចនីមួយៗ ដូចមនុស្ស ដូច្នេះទំព័រឃើញការដាក់ពីលើ និងពេលវេលាដូចមនុស្ស។ «ភ្លាមៗ» លោតទៅគោលដៅ ហើយចុចភ្លាម។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "브라우저 탭에서 에이전트가 포인터를 움직이는 방식입니다. 사람은 사람처럼 곡선 경로로 움직이고 클릭 전에 잠시 멈추므로, 페이지는 사람과 같은 호버와 타이밍을 받습니다. 즉시는 대상으로 바로 이동해 곧바로 클릭합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hvordan en agent flytter pekeren i nettleserfaner. Menneskelig beveger seg langs en buet bane og stopper litt før hvert klikk, slik en person gjør, så sider ser hover og timing som fra en person. Umiddelbar hopper til målet og klikker med en gang."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jak agent porusza wskaźnikiem w kartach przeglądarki. Ludzki porusza się po zakrzywionej ścieżce i zatrzymuje się przed każdym kliknięciem, jak człowiek, więc strony widzą najechanie i tempo jak u człowieka. Natychmiastowy przeskakuje do celu i od razu klika."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Como um agente move o ponteiro nas abas do navegador. Humano segue um caminho curvo e pausa antes de cada clique, como uma pessoa, então as páginas veem o passar do ponteiro e o ritmo de uma pessoa. Instantâneo salta para o alvo e clica na hora."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Как агент двигает указатель во вкладках браузера. «Человек» движется по изогнутой траектории и замирает перед каждым щелчком, как человек, поэтому страницы видят наведение и ритм человека. «Мгновенно» перескакивает к цели и сразу щёлкает."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "วิธีที่เอเจนต์เลื่อนตัวชี้ในแท็บเบราว์เซอร์ แบบมนุษย์จะเคลื่อนเป็นเส้นโค้งและหยุดเล็กน้อยก่อนคลิกแต่ละครั้งเหมือนคน หน้าเว็บจึงเห็นการชี้และจังหวะเหมือนคน แบบทันทีจะกระโดดไปที่เป้าหมายแล้วคลิกทันที"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bir ajanın tarayıcı sekmelerinde işaretçiyi nasıl hareket ettirdiği. İnsan, bir kişi gibi eğri bir yol izler ve her tıklamadan önce durur; böylece sayfalar üzerine gelmeyi ve zamanlamayı bir kişininki gibi görür. Anında hedefe atlar ve hemen tıklar."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Як агент рухає вказівник у вкладках браузера. «Людина» рухається вигнутою траєкторією і зупиняється перед кожним клацанням, як людина, тож сторінки бачать наведення й ритм людини. «Миттєво» перестрибує до цілі й одразу клацає."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cách tác tử di chuyển con trỏ trong các tab trình duyệt. Như người di chuyển theo đường cong và dừng một chút trước mỗi lần nhấp như một người, nên trang thấy việc rê chuột và nhịp độ như của người. Tức thì nhảy tới mục tiêu và nhấp ngay."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理在浏览器标签页中移动指针的方式。“拟人”像人一样沿曲线移动，并在每次点击前稍作停顿，页面看到的悬停和节奏与真人相同。“即时”直接跳到目标并立即点击。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理在瀏覽器分頁中移動指標的方式。「擬人」像人一樣沿曲線移動，並在每次點按前稍作停頓，頁面看到的懸停與節奏和真人相同。「即時」直接跳到目標並立即點按。"
+          }
+        }
+      }
+    },
+    "settings.choice.agentMouseHuman": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Human"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "بشري"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ljudsko"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Menneskelig"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Menschlich"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Humano"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Humain"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Umano"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "人間"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មនុស្ស"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사람"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Menneskelig"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ludzki"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Humano"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Человек"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แบบมนุษย์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "İnsan"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Людина"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Như người"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拟人"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "擬人"
+          }
+        }
+      }
+    },
+    "settings.choice.agentMouseInstant": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Instant"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فوري"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trenutno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Øjeblikkelig"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sofort"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Instantáneo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Instantané"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Istantaneo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "即時"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ភ្លាមៗ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "즉시"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Umiddelbar"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Natychmiastowy"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Instantâneo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Мгновенно"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ทันที"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anında"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Миттєво"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tức thì"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "即时"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "即時"
+          }
+        }
+      }
+    },
+    "settings.browser.agentMouseMaxMove": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Longest Agent Pointer Move"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أطول حركة لمؤشر الوكيل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Najduži pomak pokazivača agenta"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Længste markørbevægelse for agent"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Längste Zeigerbewegung des Agenten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Movimiento más largo del puntero del agente"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Déplacement le plus long du pointeur de l’agent"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Movimento più lungo del puntatore dell’agente"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントのポインタ移動の最長時間"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការផ្លាស់ទីទ្រនិចរបស់ភ្នាក់ងារវែងបំផុត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트 포인터 이동 최대 시간"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lengste pekerbevegelse for agent"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Najdłuższy ruch wskaźnika agenta"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Movimento mais longo do ponteiro do agente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Самое долгое движение указателя агента"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การเลื่อนตัวชี้ของเอเจนต์ที่นานที่สุด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En uzun ajan işaretçi hareketi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Найдовший рух вказівника агента"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lần di chuyển con trỏ dài nhất của tác tử"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理指针单次移动最长时间"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理指標單次移動最長時間"
+          }
+        }
+      }
+    },
+    "settings.browser.agentMouseMaxMove.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The longest time one agent pointer move takes with human motion. Short moves take less."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أطول مدة تستغرقها حركة واحدة لمؤشر الوكيل مع الحركة البشرية. الحركات القصيرة تستغرق وقتًا أقل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Najduže vrijeme koje traje jedan pomak pokazivača agenta uz ljudsko kretanje. Kratki pomaci traju kraće."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den længste tid én markørbevægelse fra en agent tager med menneskelig bevægelse. Korte bevægelser tager kortere tid."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die längste Zeit, die eine Zeigerbewegung des Agenten mit menschlicher Bewegung dauert. Kurze Bewegungen dauern kürzer."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El tiempo máximo que tarda un movimiento del puntero del agente con movimiento humano. Los movimientos cortos tardan menos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La durée maximale d’un déplacement du pointeur de l’agent en mouvement humain. Les déplacements courts durent moins."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il tempo massimo di un movimento del puntatore dell’agente con movimento umano. I movimenti brevi durano meno."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「人間」の動きで、エージェントのポインタが 1 回移動するのにかかる最長時間です。短い移動はこれより短くなります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រយៈពេលវែងបំផុតដែលការផ្លាស់ទីទ្រនិចមួយដងរបស់ភ្នាក់ងារប្រើ ជាមួយចលនាដូចមនុស្ស។ ការផ្លាស់ទីខ្លីប្រើពេលតិចជាង។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사람 움직임에서 에이전트 포인터가 한 번 이동하는 데 걸리는 최대 시간입니다. 짧은 이동은 더 짧게 걸립니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den lengste tiden én pekerbevegelse fra en agent tar med menneskelig bevegelse. Korte bevegelser tar kortere tid."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Najdłuższy czas jednego ruchu wskaźnika agenta przy ludzkim ruchu. Krótkie ruchy trwają krócej."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O tempo máximo de um movimento do ponteiro do agente com movimento humano. Movimentos curtos levam menos tempo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Самое долгое время одного движения указателя агента в режиме «Человек». Короткие движения занимают меньше."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เวลานานที่สุดที่การเลื่อนตัวชี้ของเอเจนต์หนึ่งครั้งใช้เมื่อเคลื่อนแบบมนุษย์ การเลื่อนระยะสั้นใช้เวลาน้อยกว่า"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "İnsan hareketiyle bir ajan işaretçi hareketinin sürebileceği en uzun süre. Kısa hareketler daha az sürer."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Найдовший час одного руху вказівника агента в режимі «Людина». Короткі рухи тривають менше."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thời gian dài nhất cho một lần di chuyển con trỏ của tác tử khi dùng chuyển động như người. Di chuyển ngắn mất ít thời gian hơn."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用拟人移动时，代理指针单次移动所用的最长时间。短距离移动用时更短。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用擬人移動時，代理指標單次移動所用的最長時間。短距離移動用時更短。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
