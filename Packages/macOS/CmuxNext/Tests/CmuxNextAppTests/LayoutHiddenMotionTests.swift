@@ -79,6 +79,7 @@ struct LayoutHiddenMotionTests {
         let model = LayoutModel(screens: [LayoutScreen(id: "s", name: "s", layout: .splits(split))], activeScreenID: "s",
                                 focusedPane: "p1")
         let root = LayoutRootView(model: model, contentProvider: Panes())
+        root.context.reduceMotionOverride = false
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800), styleMask: [.borderless],
                               backing: .buffered, defer: true)
         window.contentView = root
