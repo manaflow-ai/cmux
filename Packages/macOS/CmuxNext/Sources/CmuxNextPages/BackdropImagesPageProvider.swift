@@ -29,14 +29,14 @@ public final class BackdropImagesPageProvider: PageProvider {
     private let reveal: @MainActor ([URL]) -> Void
     private let inUse: @MainActor () -> BackdropSelection?
     private let settings: SettingsController?
-    private let pickFolder: @MainActor () async -> URL?
+    private let pickFolder: (@MainActor () async -> URL?)?
 
     /// `use` copies a file into the folder and makes it the background, returning its id (the
     /// picker's own path, so a link is checked and written as a picked file is).
     /// `inUse` is the background the app shows now, which remove refuses.
     public init(images: BackdropUserImages, use: @escaping @MainActor (URL) async throws -> String,
                 inUse: @escaping @MainActor () -> BackdropSelection? = { nil },
-                settings: SettingsController? = nil, pickFolder: @escaping @MainActor () async -> URL? = { nil },
+                settings: SettingsController? = nil, pickFolder: (@MainActor () async -> URL?)? = nil,
                 reveal: @escaping @MainActor ([URL]) -> Void = { NSWorkspace.shared.revealInBackground($0) }) {
         self.images = images
         self.use = use
@@ -80,7 +80,7 @@ public final class BackdropImagesPageProvider: PageProvider {
         case Self.prefix + "usage":
             return try await usage()
         case Self.prefix + "folder":
-            guard let settings else { throw PageError(code: "cmux.page.unavailable", message: "no settings") }
+            guard let settings, let pickFolder else { throw PageError(code: "cmux.page.unavailable", message: "no settings or folder picker") }
             guard let folder = await pickFolder() else { return ["id": .null] }
             let id = BackdropSelectionSetting.folderPrefix + folder.standardizedFileURL.path
             try await settings.setSetting(at: BackdropSelectionSetting().configPath, to: .string(id), by: .user)
