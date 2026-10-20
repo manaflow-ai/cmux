@@ -23,8 +23,10 @@ nonisolated enum MarkdownViewerSettingsSchema {
     /// The page's default (`--cmux-md-code-scale`, as GitHub's 85%).
     static let codeScaleFallback: Double = 0.875
 
-    /// Every row's key (agents may set them: looks only).
-    static var keys: Set<String> { Set(descriptors.map(\.id)) }
+    /// Display-only keys agents may set. Automatic web images are a person's privacy choice.
+    static var agentSettableKeys: Set<String> {
+        Set(descriptors.map(\.id)).subtracting(["markdown.remoteImages"])
+    }
 
     static var descriptors: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.markdownViewer", "Markdown Viewer")
@@ -34,6 +36,10 @@ nonisolated enum MarkdownViewerSettingsSchema {
                               kind: kind, default: value, keywords: ["markdown", "viewer", "reading"] + keywords)
         }
         return [
+            row(["remoteImages"], SettingsText.keyed("settings.markdown.remoteImages", "Load Web Images Automatically"),
+                help: SettingsText.keyed("settings.markdown.remoteImages.help",
+                                         "Web image sites can see your address and when you open a document. When off, each document asks before loading its web images."),
+                .toggle, .bool(false), ["image", "web", "remote", "privacy", "tracking", "automatic"]),
             row(["layout", "width"], SettingsText.keyed("settings.markdown.width", "Text Width"),
                 help: SettingsText.keyed("settings.markdown.width.help",
                                          "The widest a line of text gets, in characters (30 to 1000). On a wider window the text stays centered with margins. Wide tables and code scroll sideways in their own box."),

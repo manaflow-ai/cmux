@@ -46,6 +46,23 @@ pub(crate) struct AppControlMessages {
     pub skew_classic: &'static str,
     pub skew_other: &'static str,
     pub skew_use_cli: &'static str,
+    /// `cmux version` (cli/app/version.rs): the text report's labels.
+    pub version: VersionLabels,
+}
+
+/// The labels of `cmux version`'s text report; the JSON keys stay English.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct VersionLabels {
+    pub cli: &'static str,
+    pub app: &'static str,
+    pub no_app: &'static str,
+    pub bundle: &'static str,
+    pub socket: &'static str,
+    pub cli_matches_app: &'static str,
+    pub yes: &'static str,
+    pub no: &'static str,
+    pub updates: &'static str,
+    pub last_check: &'static str,
 }
 
 pub(super) const ENGLISH: AppControlMessages = AppControlMessages {
@@ -78,7 +95,7 @@ pub(super) const ENGLISH: AppControlMessages = AppControlMessages {
     invalid_response: "the cmux app sent an answer this cmux cannot read",
     acp_open_usage: "usage: cmux acp open SESSION [--pane PANE]",
     chats_open_usage: "usage: cmux chats open HARNESS:SESSION_ID [--cwd DIR]; `cmux chats list` shows the keys",
-    browser_page_usage: "usage: cmux browser <tab_…|page|right> navigate URL | back | forward | reload | state | eval SCRIPT | snapshot [--selector S] [--max-depth N] [--interactive] | click|focus|text|value SELECTOR | fill|type SELECTOR TEXT | tabs [--all] | new-tab [URL] | select | close [--no-wait] | wait [SELECTOR] [--text T|--url-contains U|--load-state interactive|complete|--function JS] [--timeout-ms N] | screenshot [--out PATH|-] [--selector S|--full-page] | press KEY [--selector S] | hover|check|uncheck|scroll-into-view SELECTOR | select SELECTOR VALUE | scroll [SELECTOR] [--dx N] [--dy N] | cookies [get|set NAME VALUE|clear] [--name N] [--value V] [--url U] [--domain D] [--path P] [--expires UNIX] [--secure] [--http-only] | storage [local|session] [get [KEY]|set KEY VALUE|clear] | drag SELECTOR TARGET | upload SELECTOR FILE… ; any input verb takes --agent NAME (default $CMUX_AGENT_NAME, Claude or Codex): the name on its cursor; right is the browser right of the Home chat (the agent's own tab there, opened when needed; `right release` gives it back)",
+    browser_page_usage: "usage: cmux browser <tab_…|page|right> navigate URL | back | forward | reload | state | eval SCRIPT | snapshot [--selector S] [--max-depth N] [--interactive] | click|focus|text|value SELECTOR | fill|type SELECTOR TEXT | tabs [--all] | new-tab [URL] | select | close [--no-wait] | wait [SELECTOR] [--text T|--url-contains U|--load-state interactive|complete|--function JS] [--timeout-ms N] | screenshot [--out PATH|-] [--selector S|--full-page] | press KEY [--selector S] | hover|check|uncheck|scroll-into-view SELECTOR | select SELECTOR VALUE | scroll [SELECTOR] [--dx N] [--dy N] | cookies [get|set NAME VALUE|clear] [--name N] [--value V] [--url U] [--domain D] [--path P] [--expires UNIX] [--secure] [--http-only] | storage [local|session] [get [KEY]|set KEY VALUE|clear] | drag SELECTOR TARGET | upload SELECTOR FILE… | passkey [SELECTOR] (ask the person for a passkey: their click brings the tab forward, then SELECTOR is clicked) ; any input verb takes --agent NAME (default $CMUX_AGENT_NAME, Claude or Codex): the name on its cursor; right is the browser right of the Home chat (the agent's own tab there, opened when needed; only reads run on the person's shown tab unless --take, given only when the person handed it over; `right release` gives it back)",
     screenshot_write_failed: "could not write the screenshot to {path} ({error})",
     app_call_usage: "usage: cmux [--app-socket PATH] app call METHOD [JSON_OBJECT] (debug builds only)",
     app_call_bad_json: "app call: the params must be one JSON object, for example '{\"window\":\"win_1\"}'",
@@ -86,6 +103,18 @@ pub(super) const ENGLISH: AppControlMessages = AppControlMessages {
     skew_classic: "this cmux-next CLI ({cli}) sent {method}, but the app at {socket} is the classic cmux app{version}, which does not speak cmux-next methods. Run this in a cmux-next terminal, or use the classic app's own CLI.",
     skew_other: "this CLI ({cli}) sent {method}, but {app}{version} at {socket} does not support it. Use the CLI that ships with {app}, or quit {app} and open the app this CLI ships with.",
     skew_use_cli: "Its CLI: {path}",
+    version: VersionLabels {
+        cli: "CLI",
+        app: "App",
+        no_app: "no app answered",
+        bundle: "Bundle",
+        socket: "Socket",
+        cli_matches_app: "CLI is the app's",
+        yes: "yes",
+        no: "no, the app's CLI is",
+        updates: "Updates",
+        last_check: "Last check",
+    },
     search_text_usage: "usage: cmux {scope} search <text> [OPTIONS]; `cmux {scope} --help` lists the options",
     history_clear_range_usage: "usage: cmux history clear-range --range hour|today|week|month|all [--kind <kind,...>] [--profile <profile>]",
     history_text_bytes: "{what} must contain 1 to 1024 UTF-8 bytes",
@@ -123,7 +152,7 @@ pub(super) const JAPANESE: AppControlMessages = AppControlMessages {
     invalid_response: "cmux アプリの応答を読み取れません",
     acp_open_usage: "使い方: cmux acp open セッション [--pane ペイン]",
     chats_open_usage: "使い方: cmux chats open ハーネス:セッションID [--cwd フォルダ]。キーは `cmux chats list` で表示",
-    browser_page_usage: "使い方: cmux browser <tab_…|page|right> navigate URL | back | forward | reload | state | eval スクリプト | snapshot [--selector S] [--max-depth N] [--interactive] | click|focus|text|value セレクタ | fill|type セレクタ テキスト | tabs [--all] | new-tab [URL] | select | close [--no-wait] | wait [セレクタ] [--text T|--url-contains U|--load-state interactive|complete|--function JS] [--timeout-ms N] | screenshot [--out パス|-] [--selector S|--full-page] | press キー [--selector S] | hover|check|uncheck|scroll-into-view セレクタ | select セレクタ 値 | scroll [セレクタ] [--dx N] [--dy N] | cookies [get|set 名前 値|clear] [--name N] [--value V] [--url U] [--domain D] [--path P] [--expires UNIX秒] [--secure] [--http-only] | storage [local|session] [get [キー]|set キー 値|clear] | drag セレクタ 移動先 | upload セレクタ ファイル… ; 入力の各コマンドは --agent 名前 を受け付けます (既定は $CMUX_AGENT_NAME、Claude または Codex): カーソルに表示する名前。right は Home チャットの右のブラウザです (そこにあるエージェント自身のタブ、必要なら新しく開きます。`right release` で返します)",
+    browser_page_usage: "使い方: cmux browser <tab_…|page|right> navigate URL | back | forward | reload | state | eval スクリプト | snapshot [--selector S] [--max-depth N] [--interactive] | click|focus|text|value セレクタ | fill|type セレクタ テキスト | tabs [--all] | new-tab [URL] | select | close [--no-wait] | wait [セレクタ] [--text T|--url-contains U|--load-state interactive|complete|--function JS] [--timeout-ms N] | screenshot [--out パス|-] [--selector S|--full-page] | press キー [--selector S] | hover|check|uncheck|scroll-into-view セレクタ | select セレクタ 値 | scroll [セレクタ] [--dx N] [--dy N] | cookies [get|set 名前 値|clear] [--name N] [--value V] [--url U] [--domain D] [--path P] [--expires UNIX秒] [--secure] [--http-only] | storage [local|session] [get [キー]|set キー 値|clear] | drag セレクタ 移動先 | upload セレクタ ファイル… | passkey [セレクタ] (パスキーをユーザーに依頼します: クリックでタブを前面に出し、セレクタをクリックします) ; 入力の各コマンドは --agent 名前 を受け付けます (既定は $CMUX_AGENT_NAME、Claude または Codex): カーソルに表示する名前。right は Home チャットの右のブラウザです (そこにあるエージェント自身のタブ、必要なら新しく開きます。ユーザーが表示中のタブでは読み取りだけを実行します。ユーザーが任せた場合だけ --take を付けます。`right release` で返します)",
     screenshot_write_failed: "スクリーンショットを {path} に書き込めませんでした ({error})",
     app_call_usage: "使い方: cmux [--app-socket パス] app call メソッド [JSON オブジェクト] (デバッグビルドのみ)",
     app_call_bad_json: "app call: パラメータは 1 つの JSON オブジェクトにしてください (例: '{\"window\":\"win_1\"}')",
@@ -131,6 +160,18 @@ pub(super) const JAPANESE: AppControlMessages = AppControlMessages {
     skew_classic: "この cmux-next CLI ({cli}) は {method} を送りましたが、{socket} のアプリは従来の cmux アプリ{version} で、cmux-next のメソッドを話しません。cmux-next のターミナルで実行するか、従来のアプリ自身の CLI を使ってください。",
     skew_other: "この CLI ({cli}) は {method} を送りましたが、{socket} の {app}{version} はこのメソッドに対応していません。{app} に同梱された CLI を使うか、{app} を終了してこの CLI が同梱されたアプリを開いてください。",
     skew_use_cli: "その CLI: {path}",
+    version: VersionLabels {
+        cli: "CLI",
+        app: "アプリ",
+        no_app: "応答するアプリがありません",
+        bundle: "バンドル",
+        socket: "ソケット",
+        cli_matches_app: "アプリ同梱の CLI",
+        yes: "はい",
+        no: "いいえ。アプリの CLI は",
+        updates: "アップデート",
+        last_check: "最終確認",
+    },
     search_text_usage: "使い方: cmux {scope} search <テキスト> [オプション]。オプションは `cmux {scope} --help` で表示",
     history_clear_range_usage: "使い方: cmux history clear-range --range hour|today|week|month|all [--kind <種類,...>] [--profile <プロファイル>]",
     history_text_bytes: "{what} は 1 から 1024 バイトの UTF-8 にしてください",

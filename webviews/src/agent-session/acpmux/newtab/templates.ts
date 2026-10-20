@@ -21,19 +21,23 @@ export type ScreenSections = {
   prompt: boolean;
   /// The Recently Closed list (cx-d0d.60).
   closed: boolean;
+  /// Claude Code desktop's new-session layout (Leo 2026-10-19): the composer at the foot of the page,
+  /// and over it, centered in the free space, the environment card and the suggested actions card,
+  /// the recent chats under them. The other templates keep the composer at the top of the page.
+  stage: boolean;
 };
 
 const SECTIONS: Record<ScreenTemplate, ScreenSections> = {
   // Cards (u2851, from a scrawl of Aside's New Tab page): one rounded field with the Search | Ask
   // switch in it, the project and the agent's chips in a row under it, then three tall chat cards.
   // The page an unset template shows (shownTemplate).
-  cards: { chats: "cards", allChats: false, recent: 3, prompt: false, closed: false },
+  cards: { chats: "cards", allChats: false, recent: 3, prompt: false, closed: false, stage: false },
   // Calm (Leo 2026-10-11): the composer, then a few recent chats as quiet rows. The pane's
   // actions live in the palette and the pane's toolbar, not on the page.
-  default: { chats: "list", allChats: false, recent: 5, prompt: false, closed: false },
-  composer: { chats: "none", allChats: false, recent: 0, prompt: false, closed: false },
-  threads: { chats: "list", allChats: true, recent: 3, prompt: false, closed: true },
-  console: { chats: "list", allChats: true, recent: 3, prompt: true, closed: true },
+  default: { chats: "list", allChats: false, recent: 5, prompt: false, closed: false, stage: true },
+  composer: { chats: "none", allChats: false, recent: 0, prompt: false, closed: false, stage: false },
+  threads: { chats: "list", allChats: true, recent: 3, prompt: false, closed: true, stage: false },
+  console: { chats: "list", allChats: true, recent: 3, prompt: true, closed: true, stage: false },
 };
 
 export function screenSections(template: ScreenTemplate): ScreenSections {

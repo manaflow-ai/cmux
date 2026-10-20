@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 799b8337576dcd8bee3b1fe1fd6fd45ca0838886c6e828df95369ebbfa1dd913.
+// cmux-tui mux protocol 12, IR 5e69f4f6edf2b8c3c330c70dcc2f1d5ece8784de7423f90cc4a35d660bc1c512.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -2667,6 +2667,13 @@ pub struct TerminalResourcesResult {
     pub missing: Vec<Id>,
     pub sampled_at_ns: u64,
     pub terminals: Vec<TerminalResources>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TerminalResumeCommandResult {
+    pub command: Nullable<String>,
+    pub terminal_id: String,
 }
 
 #[rustfmt::skip]

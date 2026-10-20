@@ -136,7 +136,8 @@ public final class PaneToolbarView: NSView {
         let count = max(shownCount, reservedCount)
         guard count > 0 else { return NSSize(width: 0, height: NSView.noIntrinsicMetric) }
         let side = TitlebarBandButton.side
-        return NSSize(width: CGFloat(count) * side + CGFloat(count - 1) * Metrics.space1 / 2 + Metrics.space2, height: NSView.noIntrinsicMetric)
+        let inset = Self.edgeInset(height: PaneChromeMetrics.current.resolvedStripHeight(scale: 2))
+        return NSSize(width: CGFloat(count) * side + CGFloat(count - 1) * Metrics.space1 / 2 + inset, height: NSView.noIntrinsicMetric)
     }
 
     private var shownCount: Int { buttons.count + (hasMore ? 1 : 0) }
@@ -147,8 +148,8 @@ public final class PaneToolbarView: NSView {
         // Fixed slots from the trailing end: "…" in the last (kept while it hides), the buttons before it
         // in order, so Search Tabs keeps its place whichever tab is selected and fewer pins leave room
         // only at the leading end.
-        func slotX(_ fromTrailing: Int) -> CGFloat { bounds.width - Metrics.space2 - side - CGFloat(fromTrailing) * (side + gap) }
-        let y = ((bounds.height - side) / 2).rounded()
+        let y = Self.edgeInset(height: bounds.height)
+        func slotX(_ fromTrailing: Int) -> CGFloat { bounds.width - y - side - CGFloat(fromTrailing) * (side + gap) }
         moreButton.frame = moreFrame(revealed: reveal.isRevealed)
         for (index, button) in buttons.enumerated() {
             button.frame = NSRect(x: max(0, slotX(buttons.count - index)), y: y, width: side, height: side)
@@ -162,9 +163,10 @@ public final class PaneToolbarView: NSView {
     /// that part is invisible at rest and takes no clicks, since AppKit hit-tests inside the bounds only.
     func moreFrame(revealed: Bool) -> NSRect {
         let side = TitlebarBandButton.side
-        let slot = max(0, bounds.width - Metrics.space2 - side)
-        let x = revealed || !Motion.animatesMovement ? slot : slot - Self.moreSlide
-        return NSRect(x: x, y: ((bounds.height - side) / 2).rounded(), width: side, height: side)
+        let inset = Self.edgeInset(height: bounds.height)
+        let slot = max(0, bounds.width - inset - side)
+        let x = revealed || !Motion.tabs.animatesMovement ? slot : slot - Self.moreSlide
+        return NSRect(x: x, y: inset, width: side, height: side)
     }
 
     /// How far "…" travels as it appears: two grid steps.
@@ -174,11 +176,17 @@ public final class PaneToolbarView: NSView {
     private func slideMore(revealed: Bool) {
         let target = moreFrame(revealed: revealed)
         guard moreButton.frame != target else { return }
-        guard Motion.animatesMovement, window != nil else {
+        guard Motion.tabs.animatesMovement, window != nil else {
             moreButton.frame = target
             return
         }
-        Motion.animate(.hover, in: self) { moreButton.animator().frame = target }
+        Motion.feedback.animate(.hover, in: self) { moreButton.animator().frame = target }
+    }
+
+    /// The buttons' gap above them in a bar `height` tall, which is also the "…" button's gap to
+    /// the trailing edge, so it rests evenly in the pane's corner as the first tab does.
+    static func edgeInset(height: CGFloat) -> CGFloat {
+        max(0, ((height - TitlebarBandButton.side) / 2).rounded())
     }
 
     override public func viewDidChangeEffectiveAppearance() {

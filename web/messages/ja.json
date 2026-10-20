@@ -18,6 +18,7 @@
     "description": "ターミナルに戻ってセットアップを完了してください。"
   },
   "guestCLI": {
+    "useReasonSharedMachine": "必須: このマシンはチームで共有されています",
     "openURLUsage": "使い方: cmux open-url <http-or-https-url>",
     "openURLInvalid": "有効な HTTP または HTTPS の URL が必要です。",
     "openURLFallback": "この URL を開いてください: %s",

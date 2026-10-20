@@ -876,6 +876,7 @@ fn committed_resize_updates_cached_geometry_when_publication_fails() {
             acknowledge_with_replay,
             targeted_ack,
             response,
+            ..
         } = parser_commands.recv().unwrap()
         else {
             panic!("expected resize command");
