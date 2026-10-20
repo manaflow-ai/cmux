@@ -656,14 +656,52 @@ fn confine_open(_roots: &[PathBuf], _file: &tokio::fs::File) -> Result<(), Refus
     Ok(())
 }
 
+/// The workspace folders a phone may read from: the folders of the tabs the
+/// Mac's daemon lists, the same folders the app shares with phones for agent
+/// chats (`_acpmux/workspace_roots_set`, agentcwd). A folder that is `/`, the
+/// home folder or any ancestor of it is dropped, as acpmux drops it: a tab in
+/// `~` must not open `~/.ssh` to a phone.
+pub fn shareable_workspace_folders(folders: Vec<PathBuf>, home: &Path) -> Vec<PathBuf> {
+    let mut out: Vec<PathBuf> = Vec::new();
+    for folder in folders {
+        if !home.starts_with(&folder) && !out.contains(&folder) {
+            out.push(folder);
+        }
+    }
+    out
+}
+
+/// `CNX_FILE_ROOTS` (the Chat Folders) and the shareable workspace folders.
+pub fn shared_file_roots(file_roots: &[PathBuf], folders: Vec<PathBuf>, home: &Path) -> Vec<PathBuf> {
+    let home = std::fs::canonicalize(home).unwrap_or_else(|_| home.to_path_buf());
+    let mut roots = file_roots.to_vec();
+    for folder in shareable_workspace_folders(folders, &home) {
+        if !roots.contains(&folder) {
+            roots.push(folder);
+        }
+    }
+    roots
+}
+
 /// `file`: stream one regular file inside a workspace root, then close
-/// with `eof`.
+/// with `eof`. The roots are the Chat Folders, then (only when the file is
+/// outside them) the Mac's workspace folders as they are now.
 async fn file(config: &ServiceConfig, args: &Value, sender: &ChannelSender) -> Result<(), Refusal> {
     let requested = args
         .get("path")
         .and_then(Value::as_str)
         .ok_or_else(|| Refusal::new("bad_request", "missing path"))?;
-    let resolved = confine(&config.file_roots, Path::new(requested))?;
+    let (resolved, roots) = match confine(&config.file_roots, Path::new(requested)) {
+        Ok(resolved) => (resolved, config.file_roots.clone()),
+        Err(refusal) if refusal.code == "forbidden" => {
+            let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("/"));
+            // No daemon answer: only the Chat Folders (the refusal stands).
+            let folders = daemon_folders(config).await.unwrap_or_default();
+            let roots = shared_file_roots(&config.file_roots, folders, &home);
+            (confine(&roots, Path::new(requested))?, roots)
+        }
+        Err(refusal) => return Err(refusal),
+    };
     // Non-blocking, so a FIFO inside a root cannot hold the open; the checks below
     // refuse anything that is not a regular file.
     let mut file = tokio::fs::OpenOptions::new()
@@ -674,7 +712,7 @@ async fn file(config: &ServiceConfig, args: &Value, sender: &ChannelSender) -> R
         .map_err(|_| Refusal::new("not_found", "cannot open"))?;
     // A path component swapped for a symlink between the check and the open would
     // escape the roots: check again where the open descriptor really points.
-    confine_open(&config.file_roots, &file)?;
+    confine_open(&roots, &file)?;
     let metadata = file.metadata().await.map_err(|_| Refusal::new("not_found", "cannot stat"))?;
     if !metadata.is_file() {
         return Err(Refusal::new("bad_request", "not a regular file"));
