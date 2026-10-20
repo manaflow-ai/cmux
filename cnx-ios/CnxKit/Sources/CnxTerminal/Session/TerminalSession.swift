@@ -13,6 +13,9 @@ public enum TerminalSessionEvent: Sendable, Equatable {
     case exited(code: Int32)
     /// The session's link to the Mac's terminal changed (see ``TerminalConnectionState``).
     case connection(TerminalConnectionState)
+    /// Keys typed while the terminal was unreachable were dropped, not sent
+    /// late (a command must never run long after it was typed).
+    case inputNotSent(bytes: Int)
 }
 
 /// Whether the screen shows the Mac's terminal yet. Anything but `attached`
@@ -24,6 +27,10 @@ public enum TerminalConnectionState: Sendable, Equatable {
     case connecting(mac: String?)
     /// Was attached; the link dropped and the session is attaching again.
     case reattaching(mac: String?)
+    /// The Mac is offline or out of reach for longer than a blip: the page
+    /// keeps its last frame and says so, and attaches again by itself when
+    /// the Mac is back.
+    case offline(mac: String?)
     /// Attached: the screen mirrors the Mac's terminal.
     case attached
 
@@ -57,10 +64,46 @@ public enum TerminalConnectionState: Sendable, Equatable {
             return "Connecting to \(mac)…"
         case .reattaching:
             return "Reattaching…"
+        case .offline(let mac):
+            guard let mac, !mac.isEmpty else { return "Your Mac is offline" }
+            return "\(mac) is offline"
         case .attached:
             return nil
         }
     }
+
+    /// A dropped tab (reattaching, or its Mac offline): a warm surface keeps
+    /// its last frame live and readable under no overlay; the title pill says
+    /// what is going on.
+    public var keepsWarmFrame: Bool {
+        switch self {
+        case .reattaching, .offline: true
+        case .connecting, .attached: false
+        }
+    }
+
+    /// Whether the placeholder shows a spinner: not for an offline Mac,
+    /// which nothing on the phone is waiting on.
+    public var showsProgress: Bool {
+        if case .offline = self { return false }
+        return true
+    }
+
+    /// Why the composer's Send did not go (nil: attached, it goes). The text
+    /// stays in the composer: a command must never run long after it was
+    /// typed (termfix-r13 D5, T-INPUT-17).
+    public var composerNotSentNotice: String? {
+        func named(_ mac: String?) -> String { mac.flatMap { $0.isEmpty ? nil : $0 } ?? "your Mac" }
+        switch self {
+        case .attached: return nil
+        case .offline(let mac): return "Not sent: \(named(mac)) is offline. Send again when it's back."
+        case .connecting(let mac): return "Not sent: connecting to \(named(mac)). Send again when it's connected."
+        case .reattaching(let mac): return "Not sent: reconnecting to \(named(mac)). Send again when it's back."
+        }
+    }
+
+    /// Said once keys typed during an outage were dropped (``TerminalSessionEvent/inputNotSent(bytes:)``).
+    public static let inputNotSentNotice = "Keys typed while your Mac was unreachable were not sent."
 }
 
 /// One terminal on a Mac, as the phone sees it: bytes in, input out, resize and

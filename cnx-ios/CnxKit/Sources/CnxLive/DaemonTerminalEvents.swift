@@ -44,8 +44,18 @@ struct DaemonTerminalEventParser: Sendable {
             if let cols = object["cols"] as? Int, cols > 0 { out.append(.columns(cols)) }
             if let rows = object["rows"] as? Int, rows > 0 { out.append(.rows(rows)) }
             noteGrid(object)
-            emit(object["data"] as? String, into: &out)
-            emit(object["pending"] as? String, into: &out)
+            // The attach's replay rebuilds the whole screen: its final
+            // alternate screen state goes first, then its bytes, like a
+            // `resized` replay. A reattach to a TUI that is still running
+            // then never leaves TUI mode (termfix-r13 D2: the page flipped to
+            // the empty primary screen, blank ~170 ms, then half drawn), and
+            // a replay back on the primary screen leaves it before its rows.
+            detector = AlternateScreenDetector()
+            let chunks = [object["data"] as? String, object["pending"] as? String]
+                .compactMap { $0.flatMap { Data(base64Encoded: $0) } }.filter { !$0.isEmpty }
+            for chunk in chunks { _ = detector.scan(chunk) }
+            out.append(.alternateScreen(detector.isActive))
+            out.append(contentsOf: chunks.map { .output($0) })
         case "output":
             emit(object["data"] as? String, into: &out)
         case "resized":

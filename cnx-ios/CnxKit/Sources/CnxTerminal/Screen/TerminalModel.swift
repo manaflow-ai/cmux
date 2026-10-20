@@ -57,6 +57,10 @@ public final class TerminalModel {
     public internal(set) var isUploading = false
     /// Why the last send with attachments failed (shown over the composer).
     public internal(set) var attachmentError: String?
+    /// The composer's text was not sent (the Mac is unreachable), or keys
+    /// typed meanwhile were dropped: shown over the composer until the
+    /// person sends again or edits (termfix-r13 D5, T-INPUT-17).
+    public internal(set) var composerNotice: String?
     @ObservationIgnored private var uploadTask: Task<Void, Never>?
 
     // Artifacts
@@ -172,6 +176,8 @@ public final class TerminalModel {
             break
         case .connection:
             break
+        case .inputNotSent:
+            composerNotice = TerminalConnectionState.inputNotSentNotice
         }
     }
 
@@ -282,6 +288,7 @@ public final class TerminalModel {
     /// there was text (a prompt to run), not for paths alone, which the
     /// person finishes (`ComposerSubmit`).
     public func send() {
+        guard composerMaySend() else { return }
         guard attachments.isEmpty else {
             sendAttachments(pressReturn: true)
             return
@@ -291,12 +298,30 @@ public final class TerminalModel {
     }
 
     public func sendWithoutReturn() {
+        guard composerMaySend() else { return }
         guard attachments.isEmpty else {
             sendAttachments(pressReturn: false)
             return
         }
         controller?.surface.sendText(composerText, pressReturn: false)
         composerText = ""
+    }
+
+    /// The Mac's terminal can take a command now. Otherwise the text stays in
+    /// the composer, marked not sent: it is never queued to run whenever the
+    /// Mac comes back (termfix-r13 D5: a command ran 15.4 minutes later).
+    private func composerMaySend() -> Bool {
+        if let notice = connectionState.composerNotSentNotice {
+            composerNotice = notice
+            return false
+        }
+        composerNotice = nil
+        return true
+    }
+
+    /// The person edited the draft: an old "not sent" note no longer applies to it.
+    func composerEdited() {
+        if composerNotice != nil { composerNotice = nil }
     }
 
     private func sendAttachments(pressReturn: Bool) {
