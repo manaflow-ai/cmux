@@ -118,7 +118,7 @@ struct MoveToNewWindowTests {
                                                                            arguments: ["name": .string(name)], origin: .user)))
             let personal = services.daemon.store.personal
             // A personal group's members are its sidebar rows (not `WorkspaceModel.group`).
-            func group() -> WorkspaceGroupID? {
+            @MainActor func group() -> WorkspaceGroupID? {
                 personal.groups.first { $0.name == name }.flatMap { group in
                     let rows = services.windows.active?.sidebar.model.group(CmuxNextSidebar.GroupID(group.id.rawValue))?.workspaces ?? []
                     return rows.contains { $0.id.rawValue == workspace.id } ? group.id : nil
