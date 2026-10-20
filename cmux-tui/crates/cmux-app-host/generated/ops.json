@@ -215,6 +215,7 @@
     "mail.send",
     "mail.thread.get",
     "mail.threads.peek",
+    "memory.search",
     "memory_app.cycle_variant",
     "memory_app.open",
     "memory_app.reload",

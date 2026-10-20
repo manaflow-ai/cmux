@@ -60,6 +60,9 @@ pub const FAMILIES: &[&str] = &[
     // Session-host-owned agent environment operations. A host must still
     // register this family through the verified app/provider boundary.
     "agent_cli",
+    // The Agent Memory app's search (`memory.search`), answered on the Mac
+    // from the agent memory index (`optchat-chief agent-memory`).
+    "memory",
     "credential",
 ];
 
