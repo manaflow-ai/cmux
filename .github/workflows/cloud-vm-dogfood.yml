@@ -89,38 +89,29 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Fetch an attested cmux-tui binary
+      - name: Verify the public-installed cmux-tui binary
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           public="$RUNNER_TEMP/public-cmux/cmux"
           test -f "$public" && test ! -L "$public"
-          manifest="$RUNNER_TEMP/cmux-tui-manifest.json"
-          curl --proto '=https' --tlsv1.2 -fsSL --retry 3 \
-            https://files.cmux.com/cmux-tui/latest/manifest.json -o "$manifest"
-          case "$(uname -m)" in
-            x86_64|amd64) artifact=cmux-tui-x86_64-unknown-linux-gnu ;;
-            arm64|aarch64) artifact=cmux-tui-aarch64-unknown-linux-gnu ;;
-            *) echo "unsupported Linux architecture: $(uname -m)" >&2; exit 1 ;;
-          esac
-          read -r commit digest < <(python3 - "$manifest" "$artifact" <<'PY'
-          import json, re, sys
-          data = json.load(open(sys.argv[1], encoding="utf-8"))
-          commit = data.get("commit", "")
-          digest = (data.get("binaries") or {}).get(sys.argv[2], "")
-          if not re.fullmatch(r"[0-9a-f]{40}", commit) or not re.fullmatch(r"[0-9a-f]{64}", digest):
-              raise SystemExit("cmux-tui manifest has no valid commit or Linux binary digest")
-          print(commit, digest)
-          PY
-          )
-          git cat-file -e "$commit^{commit}"
-          git merge-base --is-ancestor "$commit" HEAD
-          gh attestation verify "$manifest" \
+          attestation="$RUNNER_TEMP/cmux-tui-attestation.json"
+          gh attestation verify "$public" \
             --repo manaflow-ai/cmux \
             --signer-workflow manaflow-ai/cmux/.github/workflows/cmux-tui-artifacts.yml \
-            --source-digest "$commit"
-          echo "$digest  $public" | sha256sum --check --strict
+            --source-ref refs/heads/main \
+            --format json > "$attestation"
+          commit="$(jq -er '[.[].verificationResult.signature.certificate.sourceRepositoryDigest] | unique | if length == 1 then .[0] else error("attestations disagree on source digest") end' "$attestation")"
+          workflow="$(jq -er '[.[].verificationResult.statement.predicate.buildDefinition.externalParameters.workflow.path] | unique | if length == 1 then .[0] else error("attestations disagree on workflow path") end' "$attestation")"
+          ref="$(jq -er '[.[].verificationResult.signature.certificate.sourceRepositoryRef] | unique | if length == 1 then .[0] else error("attestations disagree on source ref") end' "$attestation")"
+          [[ "$commit" =~ ^[0-9a-f]{40}$ ]]
+          [ "$workflow" = .github/workflows/cmux-tui-artifacts.yml ]
+          [ "$ref" = refs/heads/main ]
+          git cat-file -e "$commit^{commit}"
+          git merge-base --is-ancestor "$commit" HEAD
+          digest="$(sha256sum "$public" | awk '{print $1}')"
+          [[ "$digest" =~ ^[0-9a-f]{64}$ ]]
           install_ms="$(cat "$RUNNER_TEMP/public-cmux/install-ms")"
           [[ "$install_ms" =~ ^[0-9]+$ ]]
           out="$RUNNER_TEMP/trusted-cmux"
