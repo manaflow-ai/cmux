@@ -10,8 +10,19 @@ extension BrowserProfileService {
     /// The tab strip dot of `tab`, nil when its profile is the one its
     /// workspace gives new tabs. `room`: the room of the strip's window (`roomDefault`).
     func tabBadge(for tab: TabModel, workspaceID: String?, room: ProfileID?) -> TabProfileBadge? {
+        tabBadge(for: tab, workspaceEffective: effectiveProfile(forWorkspace: workspaceID, room: room))
+    }
+
+    /// `tabBadge` with the room's browser profile already resolved (`WindowState.roomBrowserProfileID`).
+    func tabBadge(for tab: TabModel, workspaceID: String?, roomBrowserProfile: String?) -> TabProfileBadge? {
+        let workspaceEffective = BrowserProfileCascade.resolve(explicit: nil, workspace: workspaceDefault(workspaceID), room: roomBrowserProfile,
+                                                               known: isKnown)
+        return tabBadge(for: tab, workspaceEffective: workspaceEffective)
+    }
+
+    private func tabBadge(for tab: TabModel, workspaceEffective: String) -> TabProfileBadge? {
         let id = profileID(ofTab: tab)
-        guard BrowserProfileCascade.showsTabBadge(tabProfile: id, workspaceEffective: effectiveProfile(forWorkspace: workspaceID, room: room))
+        guard BrowserProfileCascade.showsTabBadge(tabProfile: id, workspaceEffective: workspaceEffective)
         else {
             return nil
         }

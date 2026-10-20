@@ -121,10 +121,42 @@ fn per_surface_client_sizing_requires_protocol_10() {
 #[test]
 fn protocol_11_identity_is_rejected_before_workspace_loading() {
     let error = validate_remote_identity(&json!({"app": "cmux-tui", "protocol": 11})).unwrap_err();
-    assert_eq!(
-        error.to_string(),
-        "unsupported cmux-tui protocol 11; this client requires protocol 12; restart the cmux-tui server"
+    let text = error.to_string();
+    // An old server without `install`: every package command, then a restart.
+    assert!(
+        text.starts_with("the cmux-tui server (unknown, protocol 11) is older than this cmux"),
+        "{text}"
     );
+    assert!(text.contains("`npm install --global cmux@latest` (npm)"), "{text}");
+    assert!(text.contains("`uv tool upgrade cmux` (PyPI)"), "{text}");
+    assert!(text.ends_with("then restart the server"), "{text}");
+}
+
+#[test]
+fn an_old_server_refusal_names_the_servers_own_update_command() {
+    let error = validate_remote_identity(&json!({
+        "app": "cmux-tui", "protocol": 11, "version": "0.13.4",
+        "install": "pypi", "update_command": "uv tool upgrade cmux",
+    }))
+    .unwrap_err();
+    let text = error.to_string();
+    assert!(text.starts_with("the cmux-tui server (0.13.4, protocol 11)"), "{text}");
+    assert!(text.contains("run `uv tool upgrade cmux` on the server's machine"), "{text}");
+}
+
+#[test]
+fn a_too_old_client_is_told_to_update_itself() {
+    // A newer server protocol, or a server whose oldest translatable API
+    // revision is newer than ours: this binary is the old side.
+    for ident in [
+        json!({"app": "cmux-tui", "protocol": 13, "version": "2.0.0"}),
+        json!({"app": "cmux-tui", "protocol": 12, "version": "2.0.0", "min_api_revision": u32::MAX}),
+    ] {
+        let text = validate_remote_identity(&ident).unwrap_err().to_string();
+        assert!(text.starts_with("this cmux ("), "{text}");
+        assert!(text.contains("is too old for the cmux-tui server (2.0.0"), "{text}");
+        assert!(text.contains("To fix it, "), "{text}");
+    }
 }
 
 #[test]
