@@ -95,12 +95,48 @@ def ran_no_test(entry, output):
     return not any(int(n) for match in TEST_COUNTS.findall(output) for n in match if n)
 
 
+def descendants(pid):
+    """Every live process below pid, from one ps table (macOS and Linux)."""
+    try:
+        out = subprocess.run(["ps", "-A", "-o", "pid=,ppid=,pgid="], capture_output=True, text=True,
+                             timeout=10).stdout
+    except (OSError, subprocess.SubprocessError):
+        return []
+    rows = [tuple(int(x) for x in line.split()) for line in out.splitlines() if len(line.split()) == 3]
+    children = {}
+    for child, parent, pgid in rows:
+        children.setdefault(parent, []).append((child, pgid))
+    found, todo = [], [pid]
+    while todo:
+        for child, pgid in children.get(todo.pop(), []):
+            found.append((child, pgid))
+            todo.append(child)
+    return found
+
+
+def stop_tree(pid):
+    """SIGKILL the entry's process group and every process below it, in whatever
+    group it sits: SwiftPM starts xctest in a group of its own. Never our own group."""
+    mine = os.getpgrp()
+    targets = descendants(pid)
+    for group in {pid, *(pgid for _, pgid in targets)} - {mine}:
+        try:
+            os.killpg(group, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            pass
+    for child, _ in targets:
+        try:
+            os.kill(child, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            pass
+
+
 def run_once(root, entry, max_seconds):
     argv, cwd = command(entry)
     started = time.monotonic()
-    # Its own process group, so a timeout stops everything the entry started:
-    # swift test runs the tests in an xctest child that outlives it (cmux19, run
-    # 39360407187: six orphan xctest processes after three timed-out entries).
+    # Its own session, so a timeout stops everything the entry started: swift test
+    # runs the tests in an xctest child that outlives it (cmux19, run 39360407187:
+    # six orphan xctest processes after three timed-out entries).
     proc = subprocess.Popen(argv, cwd=root / cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                             text=True, start_new_session=True)
     try:
@@ -109,18 +145,17 @@ def run_once(root, entry, max_seconds):
         if ok and ran_no_test(entry, output):
             ok, output = False, output + "\nmatched no test: check the entry's filter"
     except subprocess.TimeoutExpired:
+        stop_tree(proc.pid)
         try:
-            os.killpg(proc.pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
-        output, _ = proc.communicate()
+            output, _ = proc.communicate(timeout=5)
+        except subprocess.TimeoutExpired:  # something outside the tree still holds the pipe
+            proc.stdout.close()
+            proc.wait()
+            output = "(output cut off: a process outside the entry still held it)"
         ok, output = False, (output or "") + f"\ntimed out after {max_seconds}s"
     finally:
-        # A child that left the group still dies with it on success too.
-        try:
-            os.killpg(proc.pid, signal.SIGKILL)
-        except (ProcessLookupError, PermissionError):
-            pass
+        # A child that outlived a finished entry dies with it too.
+        stop_tree(proc.pid)
     return ok, time.monotonic() - started, output
 
 
