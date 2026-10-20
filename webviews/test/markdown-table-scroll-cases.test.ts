@@ -90,7 +90,8 @@ await requireBrowserLane("markdown-table-scroll-cases.test.ts", async () => {
         const rect = box.getBoundingClientRect();
         const lastCell = box.querySelector("tr:first-child > :last-child")!.getBoundingClientRect();
         const style = getComputedStyle(box);
-        const mask = style.maskImage || style.webkitMaskImage || "none";
+        // WebKit can report the unprefixed property as "none" beside the prefixed value.
+        const masks = [style.maskImage, style.webkitMaskImage].filter((value) => value && value !== "none");
         return {
           left: box.scrollLeft,
           maxLeft: box.scrollWidth - box.clientWidth,
@@ -100,7 +101,7 @@ await requireBrowserLane("markdown-table-scroll-cases.test.ts", async () => {
           rectRight: rect.right,
           lastCellRight: lastCell.right,
           overflow: box.dataset.overflow ?? "",
-          fades: mask !== "none",
+          fades: masks.length > 0,
         };
       });
       return {
@@ -121,7 +122,11 @@ await requireBrowserLane("markdown-table-scroll-cases.test.ts", async () => {
     const box = page.locator(".md-prose .tableWrapper").nth(index);
     await box.scrollIntoViewIfNeeded();
     const rect = (await box.boundingBox())!;
-    return { x: rect.x + Math.min(rect.width / 2, 200), y: rect.y + Math.min(rect.height / 2, 30) };
+    // A table taller than the pane starts above it, under the toolbar: aim at the middle of the
+    // part that shows.
+    const top = Math.max(rect.y, 0);
+    const bottom = Math.min(rect.y + rect.height, page.viewportSize()!.height);
+    return { x: rect.x + Math.min(rect.width / 2, 200), y: (top + bottom) / 2 };
   };
 
   /** Wheels at `point` and waits for the scroll to land (two frames). */
