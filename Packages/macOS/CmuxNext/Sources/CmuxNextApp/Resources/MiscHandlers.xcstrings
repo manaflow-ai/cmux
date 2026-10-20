@@ -14604,6 +14604,402 @@
           }
         }
       }
+    },
+    "handlers.paneBackground.badBackground": {
+      "comment": "Refusal: the pane background value is not one cmux knows.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not a background. Use inherit, none, daily, desktop, a painting, or a system: or file: path."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ليست خلفية. استخدم inherit أو none أو daily أو desktop أو لوحة أو مسار system: أو file:."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nije pozadina. Koristite inherit, none, daily, desktop, sliku ili putanju system: ili file:."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ikke en baggrund. Brug inherit, none, daily, desktop, et maleri eller en system:- eller file:-sti."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kein Hintergrund. Verwende inherit, none, daily, desktop, ein Gemälde oder einen system:- oder file:-Pfad."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No es un fondo. Usa inherit, none, daily, desktop, una pintura o una ruta system: o file:."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce n'est pas un arrière-plan. Utilisez inherit, none, daily, desktop, un tableau ou un chemin system: ou file:."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non è uno sfondo. Usa inherit, none, daily, desktop, un dipinto o un percorso system: o file:."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "背景ではありません。inherit、none、daily、desktop、絵画、または system: か file: のパスを使ってください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនមែនជាផ្ទៃខាងក្រោយទេ។ ប្រើ inherit, none, daily, desktop, គំនូរ ឬផ្លូវ system: ឬ file:។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "배경이 아닙니다. inherit, none, daily, desktop, 그림 또는 system: 또는 file: 경로를 사용하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ikke en bakgrunn. Bruk inherit, none, daily, desktop, et maleri eller en system:- eller file:-bane."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "To nie jest tło. Użyj inherit, none, daily, desktop, obrazu lub ścieżki system: albo file:."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não é um fundo. Use inherit, none, daily, desktop, uma pintura ou um caminho system: ou file:."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Это не фон. Используйте inherit, none, daily, desktop, картину или путь system: или file:."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่ใช่พื้นหลัง ใช้ inherit, none, daily, desktop, ภาพวาด หรือพาธ system: หรือ file:"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arka plan değil. inherit, none, daily, desktop, bir tablo ya da system: veya file: yolu kullanın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Це не тло. Використовуйте inherit, none, daily, desktop, картину або шлях system: чи file:."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không phải hình nền. Dùng inherit, none, daily, desktop, một bức tranh, hoặc đường dẫn system: hay file:."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不是背景。请使用 inherit、none、daily、desktop、画作，或 system: 或 file: 路径。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不是背景。請使用 inherit、none、daily、desktop、畫作，或 system: 或 file: 路徑。"
+          }
+        }
+      }
+    },
+    "handlers.paneBackground.badTint": {
+      "comment": "Refusal: the pane tint value is not a known color.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not a tint. Use none, a color name, or #RRGGBB."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ليست صبغة. استخدم none أو اسم لون أو #RRGGBB."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nije nijansa. Koristite none, naziv boje ili #RRGGBB."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ikke en farvetone. Brug none, et farvenavn eller #RRGGBB."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keine Tönung. Verwende none, einen Farbnamen oder #RRGGBB."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No es un tinte. Usa none, un nombre de color o #RRGGBB."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce n'est pas une teinte. Utilisez none, un nom de couleur ou #RRGGBB."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non è una tinta. Usa none, un nome di colore o #RRGGBB."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "色合いではありません。none、色の名前、または #RRGGBB を使ってください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនមែនជាពណ៌ទេ។ ប្រើ none ឈ្មោះពណ៌ ឬ #RRGGBB។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "색조가 아닙니다. none, 색상 이름 또는 #RRGGBB를 사용하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ikke en fargetone. Bruk none, et fargenavn eller #RRGGBB."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "To nie jest odcień. Użyj none, nazwy koloru lub #RRGGBB."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não é uma tonalidade. Use none, um nome de cor ou #RRGGBB."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Это не оттенок. Используйте none, название цвета или #RRGGBB."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่ใช่โทนสี ใช้ none, ชื่อสี หรือ #RRGGBB"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ton değil. none, bir renk adı ya da #RRGGBB kullanın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Це не відтінок. Використовуйте none, назву кольору або #RRGGBB."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không phải sắc màu. Dùng none, tên màu, hoặc #RRGGBB."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不是色调。请使用 none、颜色名称或 #RRGGBB。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不是色調。請使用 none、顏色名稱或 #RRGGBB。"
+          }
+        }
+      }
+    },
+    "handlers.paneBackground.noDurablePane": {
+      "comment": "Refusal: the pane's session is too old to remember a per-pane background.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This pane cannot keep its own background: its session is too old. Update cmux on that machine."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يمكن لهذا الجزء الاحتفاظ بخلفيته: جلسته قديمة جدًا. حدّث cmux على ذلك الجهاز."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ovo okno ne može zadržati vlastitu pozadinu: sesija je prestara. Ažurirajte cmux na tom računaru."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne rude kan ikke beholde sin egen baggrund: sessionen er for gammel. Opdater cmux på den maskine."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Bereich kann keinen eigenen Hintergrund behalten: Seine Sitzung ist zu alt. Aktualisiere cmux auf diesem Rechner."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este panel no puede tener fondo propio: su sesión es demasiado antigua. Actualiza cmux en esa máquina."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce volet ne peut pas garder son propre arrière-plan : sa session est trop ancienne. Mettez à jour cmux sur cette machine."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questo riquadro non può avere uno sfondo proprio: la sua sessione è troppo vecchia. Aggiorna cmux su quella macchina."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このペインは固有の背景を保持できません。セッションが古すぎます。そのマシンの cmux をアップデートしてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ទាំងនេះមិនអាចរក្សាផ្ទៃខាងក្រោយផ្ទាល់ខ្លួនបានទេ៖ វគ្គរបស់វាចាស់ពេក។ ធ្វើបច្ចុប្បន្នភាព cmux នៅលើម៉ាស៊ីននោះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 창 영역은 자체 배경을 유지할 수 없습니다. 세션이 너무 오래되었습니다. 해당 기기의 cmux를 업데이트하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne ruten kan ikke beholde sin egen bakgrunn: økten er for gammel. Oppdater cmux på den maskinen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ten panel nie może mieć własnego tła: jego sesja jest za stara. Zaktualizuj cmux na tym komputerze."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este painel não pode ter fundo próprio: a sessão é antiga demais. Atualize o cmux nessa máquina."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Эта панель не может хранить собственный фон: её сеанс слишком старый. Обновите cmux на этом компьютере."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "บานหน้าต่างนี้เก็บพื้นหลังของตัวเองไม่ได้ เซสชันเก่าเกินไป อัปเดต cmux บนเครื่องนั้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu bölme kendi arka planını tutamaz: oturumu çok eski. O makinede cmux'u güncelleyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ця панель не може зберігати власне тло: її сеанс застарий. Оновіть cmux на тому комп'ютері."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Khung này không giữ được hình nền riêng: phiên của nó quá cũ. Hãy cập nhật cmux trên máy đó."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此窗格无法保留自己的背景：其会话太旧。请在那台电脑上更新 cmux。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此窗格無法保留自己的背景：其工作階段太舊。請在那台電腦上更新 cmux。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

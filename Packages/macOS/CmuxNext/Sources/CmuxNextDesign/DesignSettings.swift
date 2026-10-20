@@ -193,6 +193,8 @@ public final class DesignSettings {
     public var tabBarPosition: TabBarPosition = .top
     /// `tabs.barOrder` (R109).
     public var tabBarOrder: TabBarOrder = .aboveToolbar
+    /// `appearance.paneBackgrounds`: one background for the window or a copy per pane.
+    public var paneBackgrounds: PaneBackgroundMode = .shared
 
     public init() {}
 

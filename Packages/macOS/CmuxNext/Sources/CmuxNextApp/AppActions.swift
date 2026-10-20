@@ -54,6 +54,7 @@ enum AppActions {
         SidebarDensityActions.bind(into: registry, context: context)
         SettingsHandlers.bind(into: registry, context: context)
         AppearanceHandlers.bind(into: registry, context: context)
+        PaneBackgroundHandlers(context: context).bind(into: registry)
         FocusRingHandlers.bind(into: registry, context: context)
         HibernationHandlers.bind(into: registry, context: context)
         TabHandlers.bind(into: registry, context: context)
