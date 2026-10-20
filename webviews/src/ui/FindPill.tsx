@@ -99,7 +99,6 @@ export function FindPill(props: FindPillProps) {
             type="button"
             className="find-pill__button find-pill__button--text"
             aria-label={labels.matchCase}
-            title={labels.matchCase}
             aria-pressed={props.matchCase ? "true" : "false"}
             onClick={() => props.onMatchCaseChange?.(!props.matchCase)}
           >

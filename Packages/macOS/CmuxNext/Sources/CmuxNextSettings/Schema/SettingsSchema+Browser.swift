@@ -14,13 +14,21 @@ nonisolated enum BrowserSettingsSchema {
             BrowserToolbarButtonsSetting.descriptor(group: toolbar),
             SettingDescriptor(
                 BrowserDefaultEngine.configPath, section: .browser, group: engine,
-                title: SettingsText.keyed("settings.browser.defaultEngine", "Default Engine"),
-                help: SettingsText.keyed("settings.browser.defaultEngine.help", "New browser tabs open in this engine."),
+                title: SettingsText.keyed("settings.browser.defaultEngine", "Browser Engine"),
+                help: SettingsText.keyed("settings.browser.defaultEngine.help", "Browser tabs and cmux pages, such as History and Apps, open in this engine."),
                 kind: .choice([
                     SettingChoice(BrowserDefaultEngine.chromium.rawValue, "Chromium"),
                     SettingChoice(BrowserDefaultEngine.webkit.rawValue, "WebKit"),
                 ]),
                 default: .string(BrowserDefaultEngine.fallback.rawValue), keywords: ["chrome", "safari", "cef"]
+            ),
+            SettingDescriptor(
+                BrowserSiteEngines.configPath, section: .browser, group: engine,
+                title: SettingsText.keyed("settings.browser.siteEngines", "Site Engines"),
+                help: SettingsText.keyed("settings.browser.siteEngines.help",
+                                         "Sites that always open in one engine: a site, such as spotify.com, and chromium or webkit. Spotify, Netflix and other protected media sites open in WebKit, because their media does not play in Chromium."),
+                kind: .stringMap, default: BrowserSiteEngines.fallback.jsonValue,
+                keywords: ["drm", "widevine", "spotify", "netflix", "site", "webkit", "chromium"]
             ),
             SettingDescriptor(
                 BrowserNewTabPage.configPath, section: .browser, group: engine,
