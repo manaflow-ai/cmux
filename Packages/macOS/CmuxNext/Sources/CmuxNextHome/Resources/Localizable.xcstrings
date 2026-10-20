@@ -1578,138 +1578,6 @@
         }
       }
     },
-    "home.composer.attach.unsupported": {
-      "comment": "Home composer notice for a file type outside the allow list; %@ is the file name.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "“%@” can’t be attached. You can attach photos, videos, audio, PDFs, text files and ZIP archives."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "لا يمكن إرفاق ”%@“. يمكنك إرفاق الصور ومقاطع الفيديو والصوت وملفات PDF والملفات النصية وأرشيفات ZIP."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "„%@“ nije moguće priložiti. Možete priložiti fotografije, videozapise, audiozapise, PDF-ove, tekstualne datoteke i ZIP arhive."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "“%@” kan ikke vedhæftes. Du kan vedhæfte fotos, videoer, lyd, PDF'er, tekstfiler og ZIP-arkiver."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "„%@“ kann nicht angehängt werden. Du kannst Fotos, Videos, Audio, PDFs, Textdateien und ZIP-Archive anhängen."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "No se puede adjuntar “%@”. Puedes adjuntar fotos, vídeos, audio, PDF, archivos de texto y archivos ZIP."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Impossible de joindre « %@ ». Vous pouvez joindre des photos, des vidéos, de l’audio, des PDF, des fichiers texte et des archives ZIP."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Impossibile allegare “%@”. Puoi allegare foto, video, audio, PDF, file di testo e archivi ZIP."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "「%@」は添付できません。写真、ビデオ、オーディオ、PDF、テキストファイル、ZIPアーカイブを添付できます。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "មិនអាចភ្ជាប់ “%@” បានទេ។ អ្នកអាចភ្ជាប់រូបថត វីដេអូ សំឡេង PDF ឯកសារអត្ថបទ និងបណ្ណសារ ZIP។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "“%@”을(를) 첨부할 수 없습니다. 사진, 비디오, 오디오, PDF, 텍스트 파일 및 ZIP 압축 파일을 첨부할 수 있습니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "«%@» kan ikke legges ved. Du kan legge ved bilder, videoer, lyd, PDF-er, tekstfiler og ZIP-arkiver."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Nie można załączyć „%@”. Możesz załączać zdjęcia, wideo, audio, pliki PDF, pliki tekstowe i archiwa ZIP."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Não é possível anexar “%@”. Você pode anexar fotos, vídeos, áudio, PDFs, arquivos de texto e arquivos ZIP."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Невозможно прикрепить «%@». Можно прикреплять фото, видео, аудио, PDF, текстовые файлы и архивы ZIP."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ไม่สามารถแนบ “%@” ได้ คุณสามารถแนบรูปภาพ วิดีโอ เสียง PDF ไฟล์ข้อความ และไฟล์ ZIP ได้"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "“%@” eklenemez. Fotoğraf, video, ses, PDF, metin dosyası ve ZIP arşivi ekleyebilirsiniz."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Неможливо прикріпити «%@». Можна прикріплювати фото, відео, аудіо, PDF, текстові файли й архіви ZIP."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Không thể đính kèm “%@”. Bạn có thể đính kèm ảnh, video, âm thanh, PDF, tệp văn bản và tệp ZIP."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "无法附加“%@”。你可以附加照片、视频、音频、PDF、文本文件和 ZIP 归档。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "無法附加「%@」。你可以附加照片、影片、音訊、PDF、文字檔和 ZIP 封存檔。"
-          }
-        }
-      }
-    },
     "home.composer.attach.tooLarge": {
       "comment": "Home composer notice for a file over the 100 MB limit; %@ is the file name.",
       "extractionState": "manual",
@@ -21900,6 +21768,270 @@
           "stringUnit": {
             "state": "translated",
             "value": "加入 %@"
+          }
+        }
+      }
+    },
+    "home.composer.attach.refused": {
+      "comment": "Home composer notice for an attachment part whose type the owner does not take; %@ is the file name.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” can’t be attached."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يمكن إرفاق ”%@“."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "„%@“ se ne može priložiti."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“%@” kan ikke vedhæftes."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "„%@“ kann nicht angehängt werden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No se puede adjuntar «%@»."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Impossible de joindre « %@ »."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Impossibile allegare “%@”."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“%@”を添付できません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនអាចភ្ជាប់ “%@” បានទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“%@”을(를) 첨부할 수 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "«%@» kan ikke legges ved."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nie można załączyć „%@”."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Não é possível anexar “%@”."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Невозможно прикрепить «%@»."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่สามารถแนบ “%@” ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“%@” eklenemiyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не вдається прикріпити «%@»."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không thể đính kèm “%@”."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "无法附加“%@”。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "無法附加「%@」。"
+          }
+        }
+      }
+    },
+    "home.composer.attach.folder": {
+      "comment": "Home composer notice when a folder or package is dropped or picked; only files attach; %@ is the folder name.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” is a folder. Attach the files in it, or a ZIP of the folder."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "”%@“ مجلد. أرفق الملفات الموجودة فيه، أو ملف ZIP للمجلد."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "„%@“ je mapa. Priložite datoteke iz nje ili ZIP arhivu mape."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“%@” er en mappe. Vedhæft filerne i den eller en ZIP-fil af mappen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "„%@“ ist ein Ordner. Hänge die Dateien darin oder ein ZIP-Archiv des Ordners an."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "«%@» es una carpeta. Adjunta los archivos que contiene o un ZIP de la carpeta."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "« %@ » est un dossier. Joignez les fichiers qu’il contient ou une archive ZIP du dossier."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“%@” è una cartella. Allega i file che contiene o un archivio ZIP della cartella."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“%@”はフォルダです。中のファイルか、フォルダのZIPを添付してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“%@” គឺជាថត។ ភ្ជាប់ឯកសារនៅក្នុងវា ឬឯកសារ ZIP នៃថតនោះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“%@”은(는) 폴더입니다. 폴더 안의 파일이나 폴더의 ZIP 파일을 첨부하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "«%@» er en mappe. Legg ved filene i den, eller en ZIP-fil av mappen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "„%@” to folder. Załącz pliki z folderu lub jego archiwum ZIP."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“%@” é uma pasta. Anexe os arquivos dela ou um ZIP da pasta."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "«%@» — это папка. Прикрепите файлы из неё или ZIP-архив папки."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“%@” เป็นโฟลเดอร์ แนบไฟล์ในโฟลเดอร์ หรือไฟล์ ZIP ของโฟลเดอร์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“%@” bir klasör. İçindeki dosyaları veya klasörün ZIP arşivini ekleyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "«%@» — це папка. Прикріпіть файли з неї або ZIP-архів папки."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“%@” là một thư mục. Hãy đính kèm các tệp trong đó hoặc tệp ZIP của thư mục."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“%@”是文件夹。请附加其中的文件，或该文件夹的 ZIP 压缩包。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "「%@」是檔案夾。請附加其中的檔案，或該檔案夾的 ZIP 壓縮檔。"
           }
         }
       }
