@@ -10,12 +10,14 @@ import Testing
 /// corner, or the margin beside it. The row already hovered keeps it across
 /// the gap, so a sweep down or up the list never flickers (#20315).
 @MainActor @Suite(.serialized) struct SidebarRowHoverInsetTests {
-    private static func list() -> (SidebarListView, NSWindow, [SidebarRow]) {
+    private static func list(grouped: Bool = false) -> (SidebarListView, NSWindow, [SidebarRow]) {
         let titles = ["newtab", "workspace-2", "workspace-3", "Agent Activity"]
         let workspaces = titles.enumerated().map { SidebarWorkspace(id: WorkspaceID("ws-\($0.offset)"), title: $0.element) }
         let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
-        let model = SidebarModel(sections: [SidebarSection(kind: .machine(machine), nodes: workspaces.map { .workspace($0) })],
-                                 activeWorkspaceID: nil)
+        let nodes: [CmuxNextSidebar.SidebarNode] = grouped
+            ? [.group(SidebarGroup(id: GroupID("g1"), name: "Group", color: .green, workspaces: workspaces))]
+            : workspaces.map { .workspace($0) }
+        let model = SidebarModel(sections: [SidebarSection(kind: .machine(machine), nodes: nodes)], activeWorkspaceID: nil)
         let list = SidebarListView(model: model)
         let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 240, height: 600), styleMask: [.borderless],
                               backing: .buffered, defer: false)
@@ -88,5 +90,81 @@ import Testing
             y -= 0.5
         }
         #expect(visited == rows.reversed().map(\.key), "the hover visits each row once, bottom to top")
+    }
+
+    /// Review of #22294: a click acts on the row that shows the hover. The
+    /// hovered row keeps the hover in the bottom of the row above's frame
+    /// (outside that row's pill), so a click there must not act on the row above.
+    @Test func aClickActsOnTheHoveredRowNotTheTileUnderThePointer() throws {
+        let (list, window, rows) = Self.list()
+        defer { window.orderOut(nil) }
+        try #require(rows.count == 4)
+        let above = rows[1], below = rows[2]
+        let frameAbove = list.frame(for: above), frameBelow = list.frame(for: below)
+        #expect(Self.hover(list, x: frameBelow.midX, y: frameBelow.midY) == below.key)
+        let point = NSPoint(x: frameAbove.midX, y: frameAbove.maxY - 1)
+        #expect(Self.hover(list, x: point.x, y: point.y) == below.key, "the row below lost the hover")
+        let location = list.convert(point, to: nil)
+        func event(_ type: NSEvent.EventType) throws -> NSEvent {
+            try #require(NSEvent.mouseEvent(with: type, location: location, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                            windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1,
+                                            pressure: type == .leftMouseUp ? 0 : 1))
+        }
+        list.mouseDown(with: try event(.leftMouseDown))
+        list.mouseUp(with: try event(.leftMouseUp))
+        guard case let .workspace(id) = below.key else { Issue.record("not a workspace row"); return }
+        #expect(list.model.selection == [id], "the click selected \(list.model.selection), not the hovered row")
+    }
+
+    @Test func thePillRoundsItsCornersInsideTheInset() {
+        let rect = CGRect(x: 0, y: 0, width: 100, height: 30)
+        func pill(_ x: CGFloat, _ y: CGFloat, r: CGFloat = 10) -> Bool {
+            SidebarLayout.pill(rect, inset: 4, cornerRadius: r, contains: CGPoint(x: x, y: y))
+        }
+        #expect(pill(50, 15))
+        #expect(!pill(50, 3.5), "the inset above the pill")
+        #expect(!pill(50, 26.5), "the inset below the pill")
+        #expect(pill(50, 4) && pill(0.5, 15), "the pill's top edge and left side")
+        #expect(pill(4, 8), "inside the top-left corner's arc")
+        #expect(!pill(2, 6), "outside the top-left corner's arc")
+        #expect(!pill(2, 24), "outside the bottom-left corner's arc")
+        #expect(!pill(98, 6) && !pill(98, 24), "outside the right corners' arcs")
+        #expect(!pill(100, 15) && !pill(-0.5, 15), "beside the pill")
+    }
+
+    @Test func aRadiusPastHalfThePillsHeightClampsToACapsule() {
+        let rect = CGRect(x: 0, y: 0, width: 100, height: 10)
+        for r: CGFloat in [3, 1000] {
+            #expect(SidebarLayout.pill(rect, inset: 2, cornerRadius: r, contains: CGPoint(x: 0.5, y: 5)), "r=\(r)")
+            #expect(!SidebarLayout.pill(rect, inset: 2, cornerRadius: r, contains: CGPoint(x: 0.5, y: 2.5)), "r=\(r)")
+        }
+        #expect(!SidebarLayout.pill(rect, inset: 5, cornerRadius: 3, contains: CGPoint(x: 50, y: 5)), "an inset that eats the row")
+    }
+
+    @Test func theBottomLeftCornerOfTheRowAboveHoversNothingFromRest() throws {
+        let (list, window, rows) = Self.list()
+        defer { window.orderOut(nil) }
+        let frameAbove = list.frame(for: rows[1])
+        list.setHovered(nil)
+        #expect(Self.hover(list, x: frameAbove.minX + 1, y: frameAbove.maxY - Metrics.space1 - 1) == nil)
+    }
+
+    @Test func theFirstRowsTopEdgeHoversNothing() throws {
+        let (list, window, rows) = Self.list()
+        defer { window.orderOut(nil) }
+        let frame = list.frame(for: try #require(rows.first))
+        list.setHovered(nil)
+        #expect(Self.hover(list, x: frame.midX, y: frame.minY + Metrics.space1 / 2) == nil)
+    }
+
+    @Test func aGroupedRowsPillStartsAtItsGutter() throws {
+        let (list, window, rows) = Self.list(grouped: true)
+        defer { window.orderOut(nil) }
+        let row = try #require(rows.first(where: { $0.group != nil }), "no grouped row")
+        let frame = list.frame(for: row)
+        try #require(frame.minX >= 1)
+        list.setHovered(nil)
+        #expect(Self.hover(list, x: frame.minX - 0.5, y: frame.midY) == nil, "the gutter took the hover")
+        #expect(Self.hover(list, x: frame.midX, y: frame.midY) == row.key)
     }
 }

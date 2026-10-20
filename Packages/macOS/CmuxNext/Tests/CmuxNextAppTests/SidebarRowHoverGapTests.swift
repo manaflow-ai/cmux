@@ -9,7 +9,8 @@ import Testing
 /// between two rows belongs to them, so the hover moves from one row to the
 /// next in the same pointer step: the new fill shows at once as the old one clears.
 /// Since Leo 2026-10-19 the row hovered keeps the gap and the next row takes
-/// the hover at its pill (`SidebarLayout.hoverRow`); clicks still split the gap.
+/// the hover at its hover pill (`SidebarLayout.hoverRow`); a click acts on the
+/// hovered row, or splits the gap when no row is hovered.
 @MainActor @Suite(.serialized) struct SidebarRowHoverGapTests {
     /// Leo's list: four loose workspaces, in a window. None is active, so
     /// every row's fill is its hover fill.
@@ -68,7 +69,7 @@ import Testing
         views.forEach { $0.updateLayer() }
         var previous: SidebarRowKey?
         var switches = 0
-        // From the first row's middle to the last's: a row's pill starts inside its frame (SidebarRowHoverInsetTests).
+        // From the first row's middle to the last's: a row's hover pill (a hit shape, not drawn) starts inside its frame (SidebarRowHoverInsetTests).
         var y = try #require(rows.first).y + rows[0].height / 2
         let end = try #require(rows.last).maxY - rows[0].height / 2
         while y < end {
