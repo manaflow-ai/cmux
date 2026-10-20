@@ -29,6 +29,17 @@ pub type Fields = serde_json::Map<String, serde_json::Value>;
 /// Install a hook that appends each panic to `path`, then runs the previous
 /// hook. `is_test_thread` marks lines from a debug test trigger (`"test": true`).
 pub fn install(path: PathBuf, fields: Fields, is_test_thread: fn(&str) -> bool) {
+    install_with_opener(move || open_append(&path), fields, is_test_thread);
+}
+
+/// Install the hook with a caller-owned secure opener. A daemon whose state
+/// has an ownership/DACL policy can enforce it on the exact handle written by
+/// the panic hook instead of validating a pathname separately.
+pub fn install_with_opener(
+    opener: impl Fn() -> std::io::Result<std::fs::File> + Send + Sync + 'static,
+    fields: Fields,
+    is_test_thread: fn(&str) -> bool,
+) {
     let previous = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
         let thread = std::thread::current().name().unwrap_or("unnamed").to_string();
@@ -41,7 +52,7 @@ pub fn install(path: PathBuf, fields: Fields, is_test_thread: fn(&str) -> bool) 
         let location = info.location().map(ToString::to_string).unwrap_or_default();
         let backtrace = std::backtrace::Backtrace::force_capture().to_string();
         let test = is_test_thread(&thread);
-        append(&path, &record(&fields, &message, &location, &thread, test, backtrace));
+        append_opened(&opener, &record(&fields, &message, &location, &thread, test, backtrace));
         previous(info);
     }));
 }
@@ -78,9 +89,10 @@ pub fn record(
 
 /// Append `record` as one line, unless the log is full. Never panics.
 pub fn append(path: &Path, record: &serde_json::Value) {
-    if std::fs::metadata(path).is_ok_and(|meta| meta.len() >= MAX_LOG_BYTES) {
-        return;
-    }
+    append_opened(&|| open_append(path), record);
+}
+
+fn open_append(path: &Path) -> std::io::Result<std::fs::File> {
     let mut options = std::fs::OpenOptions::new();
     options.create(true).append(true);
     #[cfg(unix)]
@@ -89,7 +101,32 @@ pub fn append(path: &Path, record: &serde_json::Value) {
         // Backtraces and messages may hold paths: owner-only, never through a planted link.
         options.mode(0o600).custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW);
     }
-    if let Ok(mut file) = options.open(path) {
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
+        options.custom_flags(FILE_FLAG_OPEN_REPARSE_POINT);
+    }
+    let file = options.open(path)?;
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
+        if file.metadata()?.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "panic log is a reparse point",
+            ));
+        }
+    }
+    Ok(file)
+}
+
+fn append_opened(opener: &impl Fn() -> std::io::Result<std::fs::File>, record: &serde_json::Value) {
+    if let Ok(mut file) = opener() {
+        if file.metadata().is_ok_and(|meta| meta.len() >= MAX_LOG_BYTES) {
+            return;
+        }
         // One write per line, so concurrent panics never interleave a line.
         let _ = file.write_all(format!("{record}\n").as_bytes());
     }
