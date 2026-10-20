@@ -96,6 +96,10 @@ enum TabMoves {
         }
         let surface = tab.surface, paneHandle = pane.handle
         let echoes = daemon.supports(DaemonCapabilities.shared.tabDrag), emptied = respawn == nil ? services.locateTab(tab.id)?.1 : nil, sizing = services.splitSizing(for: pane, edge: edge, emptying: emptied?.tabs.count == 1 ? emptied : nil)
+        // The even sizing lands with the move's echo, in the same layout update as the new split, not a
+        // reply later (a visible resize after the drop, #22287); it runs only if the tab left its pane.
+        let from = services.locateTab(tab.id)?.1.handle
+        if echoes { daemon.store.whenApplied(transaction) { if services.locateTab(tab.id)?.1.handle != from { sizing() } } }
         services.registry.track(Task {
             let ok = await daemon.request("move-tab-to-split") { connection -> Void in
                 do {
@@ -109,7 +113,7 @@ enum TabMoves {
                     try await fallbackSplit(surface, target: paneHandle, edge: edge, connection: connection)
                 }
             } != nil
-            if ok { sizing() }
+            if ok, !echoes { sizing() }
             completion(ok)
             return ok ? nil : "move-tab-to-split failed (see the app log)"
         })
