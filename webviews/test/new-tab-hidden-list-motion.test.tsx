@@ -33,6 +33,8 @@ let visibility: DocumentVisibilityState = "visible";
 const started: string[] = [];
 /// The animations still running (not cancelled).
 const running = new Set<string>();
+/// What each started animation moves, as `title: properties` ("transform" is a slide, "opacity" a fade).
+const kinds: string[] = [];
 
 beforeAll(() => {
   window = new JSDOM("<!doctype html><div id=root></div>", { pretendToBeVisual: true }).window;
@@ -72,9 +74,10 @@ beforeAll(() => {
         y: index * 40,
       };
     },
-    animate(this: Element) {
+    animate(this: Element, keyframes: Keyframe[]) {
       const title = this.querySelector(".nt-card-title")?.textContent ?? this.className;
       started.push(title);
+      kinds.push(`${title}: ${Object.keys(keyframes[0] ?? {}).join(",")}`);
       running.add(title);
       const animation = {
         cancel() {
@@ -112,6 +115,7 @@ afterEach(async () => {
   root = undefined;
   visibility = "visible";
   started.length = 0;
+  kinds.length = 0;
   running.clear();
 });
 
@@ -160,7 +164,8 @@ test("a chat that starts while the page is hidden moves nothing, then or when it
   // A later change while it shows still moves: its places were kept while hidden.
   await render([card("m", "A chat started here"), card("n", "A chat another tab started"), chats[0]]);
   expect(started).toContain("A chat started here");
-  expect(started).toContain("A chat another tab started");
+  // It slides from the place it was drawn at while hidden; a lost place would make it fade in.
+  expect(kinds).toContain("A chat another tab started: transform");
 });
 
 test("a motion in flight when the page hides ends there, instead of finishing when it shows", async () => {
