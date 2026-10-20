@@ -14,6 +14,17 @@ use super::*;
 struct GoodToken;
 
 impl TokenVerifier for GoodToken {
+    fn begin_handshake(
+        &self,
+        _host: &str,
+        _epoch: u64,
+        _peer_key: &[u8; 32],
+    ) -> Result<cmux_link::stream_lease::StreamLease, TokenRefused> {
+        Ok(cmux_link::stream_lease::StreamLease::fixed_until(
+            std::time::Instant::now() + std::time::Duration::from_secs(30),
+        ))
+    }
+
     fn verify(&self, token: &str, expected: &Expected<'_>) -> Result<VerifiedToken, TokenRefused> {
         if token != "good" || expected.host != "host_vm1" || expected.epoch != 4 {
             return Err(TokenRefused::Invalid);

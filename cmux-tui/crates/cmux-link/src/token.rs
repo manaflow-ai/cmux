@@ -54,6 +54,18 @@ pub enum TokenRefused {
 /// Checks one token for one stream. A verifier must refuse a token used
 /// twice (single use).
 pub trait TokenVerifier: Send + Sync + 'static {
+    /// Bound a connection before its hello arrives. This proves only that the
+    /// authenticated transport peer is current; it grants no service and does
+    /// not spend a token. Missing authority refuses before reading caller data.
+    fn begin_handshake(
+        &self,
+        _host: &str,
+        _epoch: u64,
+        _peer_key: &[u8; 32],
+    ) -> Result<crate::stream_lease::StreamLease, TokenRefused> {
+        Err(TokenRefused::NoVerifier)
+    }
+
     /// The peer and signed issue time, or why the token was refused.
     /// Never substitute the verification or stream-delivery time for `iat`.
     fn verify(&self, token: &str, expected: &Expected<'_>) -> Result<VerifiedToken, TokenRefused>;

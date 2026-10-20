@@ -14,6 +14,7 @@ use std::path::Path;
 use cmux_link::dial::{MAX_LINE_BYTES, Service, ServiceHello, parse_line};
 use cmux_link::overlay_addr::overlay_address;
 use cmux_link::stamp::StampCheck;
+use cmux_link::stream_lease::StreamLease;
 use cmux_link::token::{Expected, TokenVerifier};
 use tokio::io::{AsyncRead, AsyncWrite};
 
@@ -58,11 +59,22 @@ pub(super) async fn serve_host_inbound<S>(
 where
     S: AsyncRead + AsyncWrite + Unpin,
 {
-    let line = read_line(&mut stream, MAX_LINE_BYTES)
-        .await
-        .map_err(|_| HostRefused::Inbound(InboundRefused::BadHello))?;
-    let hello =
-        parse_line::<ServiceHello>(&line).ok_or(HostRefused::Inbound(InboundRefused::BadHello))?;
+    let mut handshake =
+        verifier.begin_handshake(me.host, me.epoch, &peer_key).map_err(|_| HostRefused::Token)?;
+    let read_hello = async {
+        let line = read_line(&mut stream, MAX_LINE_BYTES)
+            .await
+            .map_err(|_| HostRefused::Inbound(InboundRefused::BadHello))?;
+        parse_line::<ServiceHello>(&line).ok_or(HostRefused::Inbound(InboundRefused::BadHello))
+    };
+    let hello = tokio::select! {
+        biased;
+        ()=authority_ended(&mut handshake)=>return Err(HostRefused::Authority),
+        hello=read_hello=>hello?,
+    };
+    // Release the pre-auth slot before JWT admission. The verifier atomically
+    // rechecks current authority and acquires the authenticated service lease.
+    drop(handshake);
     let token = hello.link_token.as_deref().ok_or(HostRefused::Token)?;
     // The hello, the token and this host must name the same epoch: a
     // restored or re-bound VM refuses older links, and a stale clone
@@ -78,20 +90,6 @@ where
         return Err(HostRefused::AddressMismatch);
     }
     let mut lease = verified.lease.ok_or(HostRefused::Authority)?;
-    let authority_ended = async {
-        loop {
-            let Some(deadline) = lease.deadline() else { return };
-            let deadline = tokio::time::Instant::from_std(deadline);
-            if deadline <= tokio::time::Instant::now() {
-                return;
-            }
-            tokio::select! {
-                biased;
-                ()=lease.changed()=>{},
-                ()=tokio::time::sleep_until(deadline)=>return,
-            }
-        }
-    };
     // Authority is checked before the first poll of the connect/handoff and
     // throughout the byte copy. Dropping that future closes both endpoints;
     // an accepted JWT cannot leave an independently authorized tunnel behind.
@@ -123,8 +121,23 @@ where
     };
     tokio::select! {
         biased;
-        ()=authority_ended=>Err(HostRefused::Authority),
+        ()=authority_ended(&mut lease)=>Err(HostRefused::Authority),
         result=work=>result,
+    }
+}
+
+async fn authority_ended(lease: &mut StreamLease) {
+    loop {
+        let Some(deadline) = lease.deadline() else { return };
+        let deadline = tokio::time::Instant::from_std(deadline);
+        if deadline <= tokio::time::Instant::now() {
+            return;
+        }
+        tokio::select! {
+            biased;
+            ()=lease.changed()=>{},
+            ()=tokio::time::sleep_until(deadline)=>return,
+        }
     }
 }
 

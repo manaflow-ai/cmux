@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 use crate::dial::Service;
 use crate::keyset::Keyset;
 use crate::stamp::LinkPeer;
-use crate::stream_lease::{LeaseControl, StreamLease};
+use crate::stream_lease::StreamLease;
 use crate::token::{Expected, TokenRefused, TokenVerifier, VerifiedToken};
 
 #[path = "native_policy.rs"]
@@ -25,7 +25,10 @@ mod policy;
 
 #[path = "native_streams.rs"]
 mod streams;
-use streams::{reconcile_streams, stream_deadline, wake_streams};
+use streams::{StreamAuthority, StreamProof, reconcile_streams, stream_deadline, wake_streams};
+
+#[path = "native_handshake.rs"]
+mod handshake;
 
 #[path = "receiver_owner.rs"]
 pub mod receiver;
@@ -98,22 +101,6 @@ struct State {
     spent: BTreeMap<String, u64>,
     streams: Vec<StreamAuthority>,
     receiver: Option<receiver::ReceiverState>,
-}
-
-/// Captured under the same lock as signature, current-policy and replay checks.
-/// Matching only install/user after verification would let a replacement grant
-/// adopt an older stream during the admission-to-handoff race.
-struct StreamAuthority {
-    issuer: String,
-    host: String,
-    epoch: u64,
-    team: String,
-    authority_version: String,
-    peer: NativePeer,
-    service: Service,
-    kid: String,
-    signing_key: [u8; 32],
-    lease: LeaseControl,
 }
 
 /// Signature, current-authority and atomic single-use checks for one owned host.
@@ -278,6 +265,15 @@ impl NativeTokenVerifier {
 }
 
 impl TokenVerifier for NativeTokenVerifier {
+    fn begin_handshake(
+        &self,
+        host: &str,
+        epoch: u64,
+        peer_key: &[u8; 32],
+    ) -> Result<StreamLease, TokenRefused> {
+        handshake::begin(self, host, epoch, peer_key)
+    }
+
     fn verify(&self, token: &str, expected: &Expected<'_>) -> Result<VerifiedToken, TokenRefused> {
         if token.is_empty() || token.len() > MAX_TOKEN_BYTES {
             return Err(TokenRefused::Invalid);
@@ -367,9 +363,11 @@ impl TokenVerifier for NativeTokenVerifier {
             team: policy.team.clone(),
             authority_version: policy.authority_version.clone(),
             peer: peer.clone(),
-            service: expected.service,
-            kid: header.kid,
-            signing_key: *key,
+            proof: StreamProof::Token {
+                service: expected.service,
+                kid: header.kid,
+                signing_key: *key,
+            },
             lease: control,
         };
         let verified = VerifiedToken {

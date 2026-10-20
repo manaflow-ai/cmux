@@ -237,3 +237,155 @@ fn receiver_owner_invalid_current_snapshot_closes_then_recovers_without_replay_r
         .unwrap();
     assert_eq!(verifier.verify(&token, &expected()), Err(TokenRefused::Replayed));
 }
+
+#[test]
+fn receiver_handshake_does_not_spend_a_token_or_replace_service_authority() {
+    let (owner, _) = owner();
+    let first = owner.begin().unwrap();
+    let start = first.started();
+    owner
+        .install(first, keys(), policy(start, NOW), ReceiverTime { unix_ms: NOW, monotonic: start })
+        .unwrap();
+    let verifier = owner.verifier();
+    let handshake = verifier.begin_handshake(expected().host, 4, expected().peer_key).unwrap();
+    let token = fixture()["token"].as_str().unwrap().to_owned();
+    let verified = verifier.verify(&token, &expected()).unwrap();
+    drop(handshake);
+    assert!(verified.lease.unwrap().deadline().is_some());
+    assert_eq!(verifier.verify(&token, &expected()), Err(TokenRefused::Replayed));
+}
+
+#[test]
+fn receiver_handshake_renewal_cannot_extend_or_revive_a_partial_hello() {
+    let (owner, clock) = owner();
+    let first = owner.begin().unwrap();
+    let start = first.started();
+    owner
+        .install(first, keys(), policy(start, NOW), ReceiverTime { unix_ms: NOW, monotonic: start })
+        .unwrap();
+    let verifier = owner.verifier();
+    let handshake = verifier.begin_handshake(expected().host, 4, expected().peer_key).unwrap();
+    let token = verifier.verify(fixture()["token"].as_str().unwrap(), &expected()).unwrap();
+    let initial = handshake.deadline().unwrap();
+    for elapsed in [1000, 30_000] {
+        *clock.lock().unwrap() = start + Duration::from_millis(elapsed);
+        let fresh = owner.begin().unwrap();
+        let began = fresh.started();
+        owner
+            .install(
+                fresh,
+                keys(),
+                policy(began, NOW + elapsed),
+                ReceiverTime { unix_ms: NOW + elapsed, monotonic: began },
+            )
+            .unwrap();
+        if elapsed == 1000 {
+            assert_eq!(handshake.deadline(), Some(initial));
+        } else {
+            assert!(handshake.deadline().is_none());
+            assert!(verifier.begin_handshake(expected().host, 4, expected().peer_key).is_ok());
+            assert!(handshake.deadline().is_none(), "a new read revived an old partial hello");
+        }
+        assert!(token.lease.as_ref().unwrap().deadline().unwrap() > initial);
+    }
+}
+
+#[test]
+fn receiver_handshake_fences_every_authority_incarnation_and_service_change() {
+    for change in ["generation", "peer", "services", "team", "epoch", "host"] {
+        let (owner, _) = owner();
+        let first = owner.begin().unwrap();
+        let start = first.started();
+        owner
+            .install(
+                first,
+                keys(),
+                policy(start, NOW),
+                ReceiverTime { unix_ms: NOW, monotonic: start },
+            )
+            .unwrap();
+        let handshake =
+            owner.verifier().begin_handshake(expected().host, 4, expected().peer_key).unwrap();
+        let next = owner.begin().unwrap();
+        let start = next.started();
+        let mut fresh = policy(start, NOW + 1);
+        match change {
+            "generation" => fresh.authority_version = "d".repeat(64),
+            "peer" => fresh.peers[0].binding.authority_version = "d".repeat(64),
+            "services" => fresh.peers[0].services = vec![Service::Ssh],
+            "team" => fresh.team = "team_00000000000000000002".into(),
+            "epoch" => fresh.epoch += 1,
+            "host" => fresh.host = "host_00000000000000000003".into(),
+            _ => unreachable!(),
+        }
+        owner
+            .install(next, keys(), fresh, ReceiverTime { unix_ms: NOW + 1, monotonic: start })
+            .unwrap();
+        assert!(handshake.deadline().is_none(), "{change}");
+    }
+}
+
+#[test]
+fn receiver_handshake_pins_keys_while_ignoring_keyset_version_metadata() {
+    let (owner, _) = owner();
+    let first = owner.begin().unwrap();
+    let start = first.started();
+    owner
+        .install(first, keys(), policy(start, NOW), ReceiverTime { unix_ms: NOW, monotonic: start })
+        .unwrap();
+    let handshake =
+        owner.verifier().begin_handshake(expected().host, 4, expected().peer_key).unwrap();
+    for changed in [false, true] {
+        let next = owner.begin().unwrap();
+        let start = next.started();
+        let mut updated = keys();
+        updated.version = "0000000000000002".into();
+        if changed {
+            updated.keys = [("replacement".into(), [7; 32])].into();
+        }
+        let checked = NOW + if changed { 2 } else { 1 };
+        owner
+            .install(
+                next,
+                updated,
+                policy(start, checked),
+                ReceiverTime { unix_ms: checked, monotonic: start },
+            )
+            .unwrap();
+        assert_eq!(handshake.deadline().is_none(), changed);
+    }
+}
+
+#[test]
+fn receiver_handshake_rejects_another_host_epoch_or_transport_key() {
+    let (owner, _) = owner();
+    let first = owner.begin().unwrap();
+    let start = first.started();
+    owner
+        .install(first, keys(), policy(start, NOW), ReceiverTime { unix_ms: NOW, monotonic: start })
+        .unwrap();
+    let verifier = owner.verifier();
+    assert!(verifier.begin_handshake("host_00000000000000000003", 4, expected().peer_key).is_err());
+    assert!(verifier.begin_handshake(expected().host, 5, expected().peer_key).is_err());
+    assert!(verifier.begin_handshake(expected().host, 4, &[7; 32]).is_err());
+    assert!(verifier.begin_handshake(expected().host, 4, expected().peer_key).is_ok());
+}
+
+#[test]
+fn receiver_handshake_storage_is_bounded_and_dropped_slots_are_reusable() {
+    let (owner, _) = owner();
+    let first = owner.begin().unwrap();
+    let start = first.started();
+    owner
+        .install(first, keys(), policy(start, NOW), ReceiverTime { unix_ms: NOW, monotonic: start })
+        .unwrap();
+    let verifier = owner.verifier();
+    let mut held: Vec<_> = (0..4096)
+        .map(|_| verifier.begin_handshake(expected().host, 4, expected().peer_key).unwrap())
+        .collect();
+    assert!(verifier.begin_handshake(expected().host, 4, expected().peer_key).is_err());
+    held.pop();
+    assert!(verifier.begin_handshake(expected().host, 4, expected().peer_key).is_ok());
+    drop(held);
+    assert!(verifier.verify(fixture()["token"].as_str().unwrap(), &expected()).is_ok());
+}
