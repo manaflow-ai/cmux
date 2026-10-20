@@ -60,6 +60,13 @@ public final class TabSelectionMemory {
         return pick
     }
 
+    /// `resolve` with the daemon's default named by tab id.
+    public func resolve(pane: String, tabs: [String], defaultTab: String?, hidden: Set<String> = [],
+                        openers: () -> [String: String] = { [:] }) -> String? {
+        resolve(pane: pane, tabs: tabs, defaultIndex: defaultTab.flatMap(tabs.firstIndex(of:)) ?? 0,
+                hidden: hidden, openers: openers)
+    }
+
     /// Drops panes that no longer exist.
     public func prune(livePanes: Set<String>) {
         for pane in selected.keys where !livePanes.contains(pane) { set(nil, in: pane) }

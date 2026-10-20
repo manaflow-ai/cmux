@@ -24,6 +24,7 @@ mod layout_undo_commit;
 mod lone_dock;
 mod matrix;
 mod notifications;
+mod pane_active_tab_fuzz;
 mod pane_close;
 mod resource_effects;
 mod resource_restore;
