@@ -36,7 +36,7 @@ afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
-type Machine = { root: string; home: string; bin: string; calls: string; launchers: Record<Agent, string> };
+type Machine = { root: string; home: string; bin: string; calls: string; auth: string; kind: string; launchers: Record<Agent, string> };
 
 /**
  * A HOME; for each agent a fake executable that prints the env and arguments
@@ -52,6 +52,10 @@ function machine(): Machine {
   mkdirSync(home, { recursive: true });
   mkdirSync(bin, { recursive: true });
   const calls = path.join(root, "curl.calls");
+  const kind = path.join(root, "vm-kind");
+  writeFileSync(kind, "owner\n");
+  const auth = path.join(root, "agent-auth.sh");
+  writeFileSync(auth, readFileSync(path.join(templateDir, "agent-auth.sh"), "utf8").replaceAll("/etc/cmux/vm-kind", kind));
   writeFileSync(
     path.join(bin, "curl"),
     [
@@ -85,14 +89,14 @@ function machine(): Machine {
       launcher,
       readFileSync(path.join(templateDir, `cmux-${agent}`), "utf8")
         .replaceAll("/etc/cmux/agent-config.sh", path.join(templateDir, "agent-config.sh"))
-        .replaceAll("/etc/cmux/agent-auth.sh", path.join(templateDir, "agent-auth.sh"))
+        .replaceAll("/etc/cmux/agent-auth.sh", auth)
         .replaceAll(`/usr/local/libexec/cmux-${agent}-real`, real),
     );
     chmodSync(real, 0o755);
     chmodSync(launcher, 0o755);
     launchers[agent] = launcher;
   }
-  return { root, home, bin, calls, launchers };
+  return { root, home, bin, calls, auth, kind, launchers };
 }
 
 /** The env a login shell on the machine starts from: the baked model plane. */
@@ -541,7 +545,7 @@ describe("cr use", () => {
         HOME: m.home,
         LANG: "en_US.UTF-8",
         CMUX_TUI_BIN: "/usr/bin/true",
-        CMUX_AGENT_AUTH_LIB: path.join(templateDir, "agent-auth.sh"),
+        CMUX_AGENT_AUTH_LIB: m.auth,
         // What a machine shell exports after agent-config.sh set Claude's pair aside.
         CMUX_CODEROUTER_URL: ORIGIN,
         OPENAI_BASE_URL: `${ORIGIN}/v1`,
@@ -581,6 +585,39 @@ describe("cr use", () => {
     expect(team.stdout).toContain("The team has no Codex account yet. Add one with cr add codex, or switch with cr use own codex.");
     expect(team.stdout).not.toContain("no Claude Code account");
     expect((await launch(m, "codex")).args).toBe("--resume x");
+  });
+
+  test("a shared-team machine never selects a personal agent login", async () => {
+    const m = machine();
+    writeFileSync(m.kind, "team\n");
+    cmuxCodexConfig(m);
+    for (const agent of AGENTS) {
+      choose(m, "own", agent);
+      signIn(m, agent);
+    }
+
+    const claude = await launch(m, "claude", { FAKE_ACCESS: ALL });
+    expect(claude.ANTHROPIC_BASE_URL).toBe(ORIGIN);
+    expect(claude.ANTHROPIC_API_KEY).toBe(PLACEHOLDER);
+    const codex = await launch(m, "codex", { FAKE_ACCESS: ALL });
+    expect(codex.args).toBe("--resume x");
+    expect(codex.OPENAI_API_KEY).toBe(PLACEHOLDER);
+    const opencode = await launch(m, "opencode", { FAKE_ACCESS: ALL });
+    expect(opencode.OPENCODE_CONFIG).toBe(path.join(m.home, ".config/cmux/opencode-team.json"));
+    expect(opencode.OPENAI_API_KEY).toBe(PLACEHOLDER);
+
+    expect((await launch(m, "claude", { ANTHROPIC_API_KEY: "personal-claude", FAKE_ACCESS: ALL })).ANTHROPIC_API_KEY).toBe(PLACEHOLDER);
+    expect((await launch(m, "codex", { OPENAI_API_KEY: "personal-codex", FAKE_ACCESS: ALL })).OPENAI_API_KEY).toBe(PLACEHOLDER);
+    const forcedOpenCode = await launch(m, "opencode", { OPENAI_API_KEY: "personal-opencode", ANTHROPIC_API_KEY: "personal-anthropic", FAKE_ACCESS: ALL });
+    expect(forcedOpenCode.OPENAI_API_KEY).toBe(PLACEHOLDER);
+    expect(forcedOpenCode.ANTHROPIC_API_KEY).toBe("<unset>");
+
+    const status = await cr(m, ["--json"], { FAKE_ACCESS: ALL });
+    expect(status.stdout).toBe(
+      '{"agents":[{"agent":"claude","mode":"team","reason":"shared-machine","chosen":false},'
+      + '{"agent":"codex","mode":"team","reason":"shared-machine","chosen":false},'
+      + '{"agent":"opencode","mode":"team","reason":"shared-machine","chosen":false}]}\n',
+    );
   });
 
   test("an agent argument limits the change to that agent", async () => {
