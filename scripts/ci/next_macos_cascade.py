@@ -14,8 +14,8 @@ gives us. Meanwhile the minis' side label queued at p90 29 minutes.
 
 The cascade places the jobs that idle minis did not take, in the placement's
 priority order, while each Blacksmith label has a free slot now:
-blacksmith-12vcpu-macos-26 (CAPACITY 5) first, then blacksmith-6vcpu-macos-26
-(CAPACITY 10), at most MAX_PER_RUN on each label. The rest stay queued on the
+blacksmith-12vcpu-macos-26 first (CAPACITY 0 since 2026-10-20: it takes
+nothing), then blacksmith-6vcpu-macos-26 (CAPACITY 10), at most MAX_PER_RUN on each label. The rest stay queued on the
 owned label as before, where the rescue still watches them.
 
 Only CASCADE_JOBS take part, and only those the workflow says run on this route
@@ -100,7 +100,10 @@ STALL_MINUTES = 25
 IDLE_STALL_MINUTES = 5
 # simple_pool_picker.CAPACITY's figures for these labels. 12 vCPU: at most six
 # at once, five whenever it had a queue (2026-10-19); 6 vCPU: ten online at 21:40Z.
-CAPACITY = {LARGE: 5, SMALL: 10}
+# 12 vCPU gets no cmux-next job (Leo, 2026-10-20): its ~5 runners are held by
+# other workflows' long jobs, with 5+ hour waits and about 318 runs queued
+# behind it. Capacity 0 means the cascade and retry_label never pick it.
+CAPACITY = {LARGE: 0, SMALL: 10}
 # Headless compile and test jobs. A job missing here never leaves the minis on attempt 1.
 CASCADE_JOBS = ("fast-tier", "swift-canary", "cmux-scheme-compile")
 MAX_PER_RUN = 2
@@ -252,7 +255,8 @@ def place(env: Mapping[str, str], owned: Sequence[str], live: Mapping[str, int] 
     if live is None:
         return Placement(empty, "", "Blacksmith's runner groups could not be read; no job leaves the minis' queue")
     stall = stalled(live, waiting or {}, seen.waits, seen.age) if seen is not None else ()
-    moving = [label for label in LABELS if label not in stall]
+    # A label with no capacity is never the overflow, stalled or not.
+    moving = [label for label in LABELS if label not in stall and CAPACITY[label] > 0]
     retry = retry_label(live, waiting or {})
     if stall and moving:
         retry = moving[0] if len(moving) == 1 else retry
