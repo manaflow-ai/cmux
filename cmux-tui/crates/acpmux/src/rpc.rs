@@ -269,6 +269,8 @@ pub mod method {
     /// cheap model, sent the question; answers with its session id at once.
     pub const MUX_BTW: &str = "_acpmux/btw";
     pub const MUX_SCHEMA: &str = "_acpmux/schema";
+    /// The protocol IR this daemon was built with (`protocol::ir()`).
+    pub const MUX_PROTOCOL: &str = "_acpmux/protocol";
     pub const MUX_EXPORT: &str = "_acpmux/export";
     pub const MUX_IMPORT: &str = "_acpmux/import";
     pub const MUX_SHUTDOWN: &str = "_acpmux/shutdown";
