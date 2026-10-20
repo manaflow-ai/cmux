@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextAccounts
+import CmuxNextCloud
 import CmuxNextCodeRouter
 import CmuxNextDaemon
 import Foundation
@@ -22,7 +23,7 @@ final class AccountsService: AccountsServices {
     let fixtureHome: URL?
     /// The showcase profile uses the package's deterministic account fixture;
     /// it must never read or mutate a user's real credentials.
-    let showcaseMock: MockAccountsServices?
+    private let showcaseMock: MockAccountsServices?
     private var loginEnvironment: [String: String]?
     /// False once the Keychain salt failed: `acct_…` handles then last for
     /// this launch only (`accounts.list` says `handles_stable: false`).
@@ -94,9 +95,12 @@ final class AccountsService: AccountsServices {
         return await Task.detached { await ProviderDetector(environment: environment).detectAll() }.value
     }
 
-    var isSignedInToCmux: Bool { showcaseMock?.isSignedInToCmux ?? services.cloud.isSignedIn }
+    var cmuxAccount: CmuxAccountState { showcaseMock?.cmuxAccount ?? CmuxAccountState(services.cloud.auth) }
 
-    func signInToCmux() { runCmuxAccount(.signIn) }
+    func runCmuxAccount(_ action: CmuxAccountAction) {
+        if let showcaseMock { showcaseMock.runCmuxAccount(action); model.refresh(); return }
+        services.cloud.auth.run(action, signOut: { [services] in await services.cloud.signOut() }, refresh: { [weak self] in self?.model.refresh() })
+    }
 
     func linkedAccounts() async throws -> [LinkedAccount] {
         if let showcaseMock { return try await showcaseMock.linkedAccounts() }
@@ -157,6 +161,9 @@ final class AccountsService: AccountsServices {
         pane.newTerminalTab(typing: line + "\r")
     }
 }
+
+/// Settings > Accounts drives the same Cloud sign-in as every other entry point.
+extension CloudAuth: @retroactive CmuxAccountSource {}
 
 /// Fixture mode: no Keychain item exists.
 private struct NoKeychain: KeychainProbing {

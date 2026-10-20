@@ -41,3 +41,8 @@ public protocol AccountsServices: AnyObject {
     func saveKey(_ key: String, for provider: AIProvider) throws
     func deleteSavedKey(for provider: AIProvider) throws
 }
+
+extension AccountsServices {
+    public var isSignedInToCmux: Bool { cmuxAccount.signedIn }
+    public func signInToCmux() { runCmuxAccount(.signIn) }
+}

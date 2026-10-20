@@ -67,4 +67,56 @@ import Testing
         #expect(!CloudSignInWindow.popup.opensDefaultBrowser(defaultBrowser: "com.microsoft.edgemac"))
         #expect(CloudSignInWindow.defaultBrowser.opensDefaultBrowser(defaultBrowser: "com.apple.Safari"))
     }
+
+    /// The Debug Settings choice maps onto Cloud's window by raw value.
+    @Test func everySignInWindowChoiceNamesACloudWindow() {
+        #expect(SignInWindowChoice.allCases.map(\.rawValue) == CloudSignInWindow.allCases.map(\.rawValue))
+        #expect(AccountTunables.signInWindow.value == .automatic)
+    }
+
+    @Test func theRowReadsCloudAuthThroughItsSource() {
+        let source = FakeCmuxAccountSource()
+        source.isSigningIn = true
+        source.signInWaitsInBrowser = true
+        #expect(CmuxAccountState(source) == CmuxAccountState(signedIn: false, signingIn: true, waitingForBrowser: true))
+        source.isSignedIn = true
+        source.accountEmail = "leo@example.com"
+        #expect(CmuxAccountState(source) == CmuxAccountState(signedIn: true, label: "l…@e…"))
+    }
+
+    @Test func gesturesRunTheSourcesSignInAndTheAppsSignOut() async {
+        let source = FakeCmuxAccountSource()
+        var signedOut = false, refreshes = 0
+        for action in [CmuxAccountAction.switchAccount, .cancelSignIn, .continueInBrowser, .signOut] {
+            source.run(action, signOut: { signedOut = true }, refresh: { refreshes += 1 })
+        }
+        for _ in 0..<200 where refreshes < 2 { await Task.yield() }
+        #expect(source.calls == ["begin:true", "cancel", "continue"])
+        #expect(signedOut)
+        #expect(refreshes == 2)
+    }
+}
+
+/// Cloud auth's account surface, recorded.
+@MainActor
+private final class FakeCmuxAccountSource: CmuxAccountSource {
+    var isSignedIn = false
+    var accountEmail: String?
+    var accountName: String?
+    var isSigningIn = false
+    var signInWaitsInBrowser = false
+    var signInFailure: String?
+    var calls: [String] = []
+
+    func beginSignIn(selectAccount: Bool) -> Task<Bool, Never> {
+        calls.append("begin:\(selectAccount)")
+        return Task { true }
+    }
+
+    func cancelSignIn() { calls.append("cancel") }
+
+    func continueSignInInBrowser() -> Bool {
+        calls.append("continue")
+        return true
+    }
 }
