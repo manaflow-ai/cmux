@@ -103,7 +103,7 @@ package actor CloudTeamScope {
             return try await self.call(selected, context, team: found.id, authority: authority, version: version, path: path, body: body)
         }, wireLeases: { try await leases.leases() }, refreshAuthority: { [weak self] in
             guard let self else { throw Failure.changed }
-            return try await self.snapshot()
+            return try await self.snapshot(selected, context: context)
         })
     }
 
