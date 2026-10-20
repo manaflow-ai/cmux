@@ -515,8 +515,18 @@ class TV:
         since = time.time()
         r.update(self.set_mode(name))
         self.sim.shot(f"{name}-status")
-        r["mac_path"] = self.j.mac_path(since)
-        r["mac_path_lines"] = self.hostd_lines(since - 2, r"link up|link path changed")[-6:]
+        # Our phone's own link only: other phones on the dev account dial this Mac too.
+        mine = self.state.get("phone_id")
+        lines = self.hostd_lines(since - 2, r"link up|link path changed")
+        if not mine:
+            ups = [l for l in lines if "link up" in l and "phone=" in l]
+            mine = re.search(r'phone="([^"]+)"', ups[-1]).group(1) if ups else None
+        sessions = {m.group(1) for l in lines if mine and mine in l for m in [re.search(r'session_id="([^"]+)"', l)] if m}
+        own = [l for l in lines if any(sid in l for sid in sessions)]
+        m = re.search(r"path=(\w+)", own[-1]) if own else None
+        r["mac_path"] = m.group(1) if m else None
+        r["phone_id"] = mine
+        r["mac_path_lines"] = own[-4:]
         r["rtt_ms"] = self.rtt_samples()
         self.log(f"{name}: status {r['status']!r} in {r['connect_s']} s, Mac path {r['mac_path']}, rtt {r['rtt_ms']['median']}")
         if only == "browser" and "terminal" in prev:

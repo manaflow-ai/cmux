@@ -105,3 +105,33 @@ maps only `Signal::Text` and `Signal::Ping`), and the reader ignores binary.
    switch (`dial/webrtc.rs` never reads `block_udp`, PROTOCOL.md "Transport
    switch"). Severity: low (DEBUG-only label). Live behavior still to
    confirm (the row above was lost to load).
+
+### Found after the restart (20:14 onward)
+
+5. **The dev Worker moved to API 0.10.0 mid-run (per-user hub, deployed
+   03:17:33 UTC from another session), and the rig Mac stayed on its retired
+   team hub.** `/v1/health` reported `0.9.0` at 19:39 PDT and `0.10.0` at
+   20:20. After the deploy, the phone (90375ce5) showed "cmux's Mac mini is
+   offline" (`/v1/me/macs` polled every 4.5 s, all 200) while cnx-hostd
+   (90375ce5) kept its signaling socket `ESTABLISHED` and logged nothing for
+   5 min: no `signaling ended`, no reconnect. PROTOCOL on
+   `feat-cnx-ios-userhub` (388f0f9b) says the Worker retires a team hub the
+   first time `GET /v1/me/macs` serves that team and closes its sockets with
+   1012; that did not happen here within 5 min of continuous `/v1/me/macs`
+   polling. Killing cnx-hostd (`kill -9`, the app restarted it) brought the
+   Mac back in 1 s. Severity: high for the 0.10.0 rollout (every
+   connected Mac looks offline to its phones until something drops its
+   socket). Repro: Mac and phone of build 90375ce5 connected on dev 0.9.0,
+   deploy 0.10.0, watch the phone's Workspaces header and cnx-hostd's log.
+   Consequence for this report: the task's premise "Worker is API 0.9.0 on
+   dev" no longer holds for rows recorded after 20:17 PDT.
+6. **Other agents' phones dial this rig Mac.** With every rig signed in to the
+   shared dev account (DEBUG "42" credential), after the restart cnx-hostd
+   took links from three more phones (`8f5a4013…` WebRTC, `f4ad4f2f…`
+   WireGuard TURN, and earlier `ff8d711c…`), and browser channels were
+   refused `replaced: another viewer opened this tab`. This is how the
+   0.10.0 per-user hub is designed (one user, all their Macs and phones), so
+   it is a rig problem, not a product defect: concurrent rigs on one account
+   disturb each other. The script now reads cnx-hostd's path only for its own
+   phone's sessions (the 20:24 WebRTC-direct row logged `Turn` from another
+   phone's WireGuard link).
