@@ -90,7 +90,6 @@ export function useSyncListMotion<R extends SyncRow>(
 
   // The plan is pure: what is drawn now against the new rows (rows off screen are filtered in
   // the layout pass, where they can be measured).
-  // oxlint-disable-next-line react-hooks/exhaustive-deps -- `rows` is represented by its signature.
   const plan = useMemo(
     () =>
       planSyncChange({
@@ -101,6 +100,7 @@ export function useSyncListMotion<R extends SyncRow>(
         reduced,
         motionOff,
       }),
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- `rows` is represented by its signature.
     [signature, options.snapshot, options.direct, reduced, motionOff],
   );
 

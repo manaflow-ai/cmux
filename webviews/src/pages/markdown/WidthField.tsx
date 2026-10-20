@@ -148,6 +148,7 @@ export function WidthField({ width, fullWidth, strings, setWidth, setFullWidth, 
   return (
     <div className="md-reading-row md-width">
       <label
+        id={`${id}-label`}
         className="md-reading-label md-width-scrub"
         htmlFor={id}
         title={t(L.readingWidthHint)}
@@ -168,7 +169,11 @@ export function WidthField({ width, fullWidth, strings, setWidth, setFullWidth, 
             inputMode="decimal"
             spellCheck={false}
             autoComplete="off"
+            // A text field (any typed width, then clamped) that reads as a spin button. oxlint takes
+            // spinbutton for this input's implicit role, but a type="text" input is a textbox.
+            // oxlint-disable-next-line jsx-a11y/no-redundant-roles
             role="spinbutton"
+            aria-labelledby={`${id}-label`}
             aria-valuemin={range.min}
             aria-valuemax={range.max}
             aria-valuenow={width}
