@@ -64,7 +64,8 @@ export function NumberEditor({ row, value, disabled, labelId }: EditorProps) {
         max={range.max}
         step={range.step}
         value={current}
-        disabled={disabled}
+        // A range with no travel (Opacity over a picture whose legibility floor reaches its cap).
+        disabled={disabled || range.min >= range.max}
         aria-labelledby={labelId}
         onChange={(event) => {
           const next = Number(event.currentTarget.value);
