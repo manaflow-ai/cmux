@@ -52,7 +52,14 @@ import {
 } from "./sourceMap";
 import { imageSize, obsidianSyntaxPlugin } from "./obsidian";
 import { isPointerSelecting, pointerChanged, pointerSelectPlugin } from "./pointerSelect";
-import { ResizableTableView, tableClipboard, tableDragOutPlugin, tableKeyDown, type TableWidths } from "./tables";
+import {
+  ResizableTableView,
+  tableClipboard,
+  tableDragOutPlugin,
+  tableKeyDown,
+  tableViewAt,
+  type TableWidths,
+} from "./tables";
 
 /** What the editor needs from its page: links, images, code colors, diagrams and labels. */
 export interface MarkdownEditorHost {
@@ -76,7 +83,10 @@ export interface MarkdownEditorHost {
   githubRepository?: string;
   /** Link checks, the link bubble's strings, path completion and copying. */
   links?: LinkHost;
-  /** Column widths the user dragged, kept per file (a view setting, never written to the file). */
+  /**
+   * Column widths the user dragged, kept per file (a view setting, never written to the file: the
+   * host keeps them in the file's extended attribute, MARKDOWN-TABLE-WIDTHS-DESIGN.md).
+   */
   tableWidths?: TableWidths;
 }
 
@@ -441,6 +451,29 @@ export class MarkdownEditor {
   openLinkPopover(): void {
     if (!this.view || !this.options.host.links || this.readOnly) return;
     this.bubble.current?.editAtSelection();
+  }
+
+  /** Forgets every table's column widths in the file (the `resetTableWidths` page command). */
+  resetTableWidths(): void {
+    this.options.host.tableWidths?.clear();
+  }
+
+  /**
+   * Forgets the column widths of the table around `target` (the table's right-click Reset Column
+   * Widths); false when `target` is in no table.
+   */
+  resetTableWidthsAt(target: Element | null): boolean {
+    const view = tableViewAt(target);
+    view?.resetWidths();
+    return !!view;
+  }
+
+  /** The index among the document's tables of the table around `target`, or null. */
+  tableIndexAt(target: Element | null): number | null {
+    const wrapper = target?.closest?.(".tableWrapper");
+    if (!wrapper || !this.view?.dom.contains(wrapper)) return null;
+    const index = [...this.view.dom.querySelectorAll(".tableWrapper")].indexOf(wrapper);
+    return index >= 0 ? index : null;
   }
 
   /** A click on a task item's box (left of its text) checks or unchecks it. */

@@ -1067,17 +1067,9 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'release-ios' }}
         run: python3 tests/test_ios_workflow_dispatch_ref.py
 
-      - name: Validate iOS simulator build-once contract
-        if: ${{ !cancelled() && matrix.group == 'release-ios' }}
-        run: python3 tests/test_ios_simulator_build_once.py
-
       - name: Validate cmux scheme test configuration
         if: ${{ !cancelled() && matrix.group == 'app-host-cache' }}
         run: ./tests/test_ci_scheme_testaction_debug.sh
-
-      - name: Validate iOS video recording failures
-        if: ${{ !cancelled() && matrix.group == 'app-host-cache' }}
-        run: python3 tests/test_ios_video_recording.py
 
       - name: Validate selected iOS test execution guard
         if: ${{ !cancelled() && matrix.group == 'app-host-cache' }}

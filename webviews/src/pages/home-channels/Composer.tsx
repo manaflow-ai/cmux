@@ -118,7 +118,7 @@ export function Composer({
       const refused = refusal(file);
       const item: PendingAttachment = { id, file, progress: { sent: 0, total: file.size } };
       if (refused) {
-        added.push({ ...item, error: t(refused === "type" ? "attach.typeRefused" : "attach.tooLarge") });
+        added.push({ ...item, error: t("attach.tooLarge") });
         continue;
       }
       added.push(item);
