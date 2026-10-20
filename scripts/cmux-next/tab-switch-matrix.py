@@ -290,13 +290,13 @@ def time_switches(label, step, count, profile=None):
         for stage in STAGES + ["e2e"]:
             values = [r[stage + "_ms"] for r in rows if stage + "_ms" in r]
             if values:
-                line[stage] = {"p50": round(pct(values, 0.5), 3), "p90": round(pct(values, 0.9), 3), "max": round(max(values), 3)}
+                line[stage] = {"p50": round(pct(values, 0.5), 3), "p90": round(pct(values, 0.9), 3), "p95": round(pct(values, 0.95), 3), "max": round(max(values), 3)}
         late = [r.get("late_vsyncs", 0) for r in rows]
         line["late_switches"] = sum(1 for v in late if v > 0)
         line["late_max"] = max(late) if late else 0
         table[kind] = line
-        cells = " ".join(f"{st}={line[st]['p50']}/{line[st]['p90']}" for st in ("input", "apply", "commit", "e2e") if st in line)
-        print(f"  {label:<14} {kind:<10} n={len(rows):<3} p50/p90 ms: {cells} late={line['late_switches']}/{len(rows)} max={line['late_max']}", flush=True)
+        cells = " ".join(f"{st}={line[st]['p50']}/{line[st]['p90']}/{line[st]['p95']}" for st in ("input", "apply", "commit", "e2e") if st in line)
+        print(f"  {label:<14} {kind:<10} n={len(rows):<3} p50/p90/p95 ms: {cells} late={line['late_switches']}/{len(rows)} max={line['late_max']}", flush=True)
     stalls = {"count": hangs.get("count"), "max_ms": hangs.get("max_ms")}
     for record in (hangs.get("records") or [])[-3:]:
         frames = [f for f in record.get("frames", []) if "CmuxNext" in f or "Ghostty" in f][:8]
@@ -305,7 +305,7 @@ def time_switches(label, step, count, profile=None):
     got = [f for f in frames if f is not None]
     content = None
     if frames:
-        content = {"switches": len(frames), "framed": len(got), "p50": pct(got, 0.5), "p90": pct(got, 0.9), "max": max(got) if got else None}
+        content = {"switches": len(frames), "framed": len(got), "p50": pct(got, 0.5), "p90": pct(got, 0.9), "p95": pct(got, 0.95), "max": max(got) if got else None}
         print(f"  {label:<14} page content frame: {content}", flush=True)
     return {"table": table, "switches": switches, "stalls": stalls, "cpu_percent_during": round(cpu, 1), "content_frame_ms": content,
             "timed": len(switches), "asked": count, "profile": profiled}
