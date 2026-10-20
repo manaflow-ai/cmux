@@ -46,12 +46,22 @@ extension SidebarListViewComponents {
         let active = selectionRevealKey
         let previous = revealedActive
         revealedActive = active
-        guard let clip = enclosingScrollView?.contentView, case let height = clip.bounds.height, height > 0 else {
+        guard (enclosingScrollView?.contentView.bounds.height ?? 0) > 0 else {
             // No viewport yet: the first reload with one reveals (as `applyKeepingViewport`).
             revealedActive = nil
             return
         }
-        guard let active, active != previous, let item = selectionReveal(in: displayed, height: height) else { return }
+        guard let active, active != previous else { return }
+        revealSelectionNow()
+    }
+
+    /// Scrolls the selection's reveal (`selectionReveal`) into view now when
+    /// it is not wholly in view, whether or not the selection changed: the
+    /// one reveal a selection change uses, and Cmd-`n` pressed again on the
+    /// item it already selected (`SidebarView.revealSelection`).
+    func revealSelectionNow() {
+        guard drag == nil, let clip = enclosingScrollView?.contentView, case let height = clip.bounds.height, height > 0,
+              let item = selectionReveal(in: displayed, height: height) else { return }
         let viewport = ListViewport(items: [item], viewport: height, content: max(displayed.totalHeight, height))
         let offset = clip.bounds.minY
         guard !viewport.isFullyVisible(item, at: offset, padding: 0) else { return }

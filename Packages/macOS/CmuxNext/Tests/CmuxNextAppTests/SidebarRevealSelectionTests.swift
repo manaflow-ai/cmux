@@ -152,6 +152,32 @@ struct SidebarRevealSelectionTests {
         }
     }
 
+    /// Cmd-1 or Cmd-2 pressed again on the workspace it already selected, after the user scrolled the
+    /// list away (Lawrence 2026-10-19: "the second time nothing is highlighted"): the row stays selected
+    /// and scrolls back into view (`SidebarView.revealSelection`, what `SidebarNavigation` runs on a
+    /// repeat press), ungrouped and as a group's member.
+    @Test(arguments: [(false, 1), (false, 2), (true, 1), (true, 2)])
+    func pressingTheSameNumberTwiceKeepsTheRowSelectedAndRevealsIt(_ grouped: Bool, _ n: Int) throws {
+        defer { Motion.reduceMotionOverride = nil }
+        let nodes: [SidebarNode] = grouped
+            ? [.group(SidebarGroup(id: GroupID("grp-twice"), name: "Twice", workspaces: (1...3).map(Self.ws)))] + Self.loose(4...40)
+            : Self.loose(1...40)
+        let h = Harness(sections: Self.sections(nodes), active: Self.id(40))
+        defer { h.window.orderOut(nil) }
+        try #require(h.clip.bounds.height > 0)
+        let key = SidebarRowKey.workspace(Self.id(n))
+        h.select(Self.id(n))
+        #expect(h.list.selectedRowKey == key, "the first press drew \(String(describing: h.list.selectedRowKey)) selected")
+        h.scroll(to: h.maxOffset)
+        // The second press: the same selection again, then the shared reveal.
+        h.model.apply(.select(Self.id(n)))
+        h.sidebar.revealSelection()
+        #expect(h.model.selectedItem == .workspace(Self.id(n)), "the second press changed the selection to \(String(describing: h.model.selectedItem))")
+        #expect(h.list.selectedRowKey == key, "the second press drew \(String(describing: h.list.selectedRowKey)) selected")
+        #expect(try h.shows(key), "the second press left workspace \(n) out of view")
+        if grouped { #expect(try h.shows(.group(GroupID("grp-twice"))), "the second press left the group header out of view") }
+    }
+
     /// Cmd-1 / Cmd-2 pick the top items first (SidebarItemOrder); on the sidebar document they draw in a block at the
     /// list's top. Selecting one scrolls the list up to it, as a workspace does.
     @Test func cmd1OnATopItemInTheListsBlockScrollsToTheTop() throws {
