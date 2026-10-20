@@ -1590,7 +1590,7 @@
     },
     "deviceHub.url" : {
       "default" : "",
-      "description" : "The device hub this build signs its devices in to, for Mac Screen sharing between your devices. Empty turns it off.",
+      "description" : "Overrides the device hub this build signs its devices in to, for Mac Screen sharing between your devices. Leave it empty to use the built-in hub.",
       "title" : "Device Hub Address",
       "type" : "string"
     },

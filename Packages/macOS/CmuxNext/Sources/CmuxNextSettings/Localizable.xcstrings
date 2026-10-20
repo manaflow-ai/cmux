@@ -400,127 +400,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The device hub this build signs its devices in to, for Mac Screen sharing between your devices. Empty turns it off."
+            "value": "Overrides the device hub this build signs its devices in to, for Mac Screen sharing between your devices. Leave it empty to use the built-in hub."
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "مركز الأجهزة الذي يسجّل فيه هذا الإصدار أجهزتك، لمشاركة شاشة Mac بين أجهزتك. اتركه فارغًا لإيقافه."
+            "state": "translated",
+            "value": "يتجاوز مركز الأجهزة الذي يسجّل فيه هذا الإصدار أجهزتك، لمشاركة شاشة Mac بين أجهزتك. اتركه فارغًا لاستخدام المركز المدمج."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Centar uređaja u koji ova verzija prijavljuje vaše uređaje, za dijeljenje ekrana Maca između vaših uređaja. Prazno ga isključuje."
+            "state": "translated",
+            "value": "Zamjenjuje centar uređaja u koji ova verzija prijavljuje vaše uređaje, za dijeljenje ekrana Maca između vaših uređaja. Ostavite prazno za ugrađeni centar."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Den enhedshub, som denne version logger dine enheder ind på, til deling af Mac-skærm mellem dine enheder. Tom slår den fra."
+            "state": "translated",
+            "value": "Tilsidesætter den enhedshub, som denne version logger dine enheder ind på, til deling af Mac-skærm mellem dine enheder. Lad den være tom for at bruge den indbyggede hub."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Der Geräte-Hub, bei dem dieser Build deine Geräte anmeldet, um den Mac-Bildschirm zwischen deinen Geräten zu teilen. Leer schaltet ihn aus."
+            "state": "translated",
+            "value": "Ersetzt den Geräte-Hub, bei dem dieser Build deine Geräte anmeldet, um den Mac-Bildschirm zwischen deinen Geräten zu teilen. Leer lassen, um den eingebauten Hub zu verwenden."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "El centro de dispositivos en el que esta compilación registra tus dispositivos, para compartir la pantalla del Mac entre ellos. Vacío lo desactiva."
+            "state": "translated",
+            "value": "Reemplaza el centro de dispositivos en el que esta compilación registra tus dispositivos, para compartir la pantalla del Mac entre ellos. Déjalo vacío para usar el centro integrado."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Le hub d’appareils auprès duquel cette version inscrit vos appareils, pour partager l’écran du Mac entre eux. Vide le désactive."
+            "state": "translated",
+            "value": "Remplace le hub d’appareils auprès duquel cette version inscrit vos appareils, pour partager l’écran du Mac entre eux. Laissez vide pour utiliser le hub intégré."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "L’hub dispositivi a cui questa build registra i tuoi dispositivi, per condividere lo schermo del Mac tra di essi. Vuoto lo disattiva."
+            "state": "translated",
+            "value": "Sostituisce l’hub dispositivi a cui questa build registra i tuoi dispositivi, per condividere lo schermo del Mac tra di essi. Lascialo vuoto per usare l’hub integrato."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "このビルドがデバイスを登録するデバイスハブ。デバイス間で Mac の画面を共有するために使います。空にするとオフになります。"
+            "state": "translated",
+            "value": "このビルドがデバイスを登録するデバイスハブを上書きします。デバイス間で Mac の画面を共有するために使います。空にすると内蔵のハブを使います。"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "មជ្ឈមណ្ឌលឧបករណ៍ដែលកំណែនេះចុះឈ្មោះឧបករណ៍របស់អ្នក សម្រាប់ចែករំលែកអេក្រង់ Mac រវាងឧបករណ៍របស់អ្នក។ ទុកទទេដើម្បីបិទ។"
+            "state": "translated",
+            "value": "ជំនួសមជ្ឈមណ្ឌលឧបករណ៍ដែលកំណែនេះចុះឈ្មោះឧបករណ៍របស់អ្នក សម្រាប់ចែករំលែកអេក្រង់ Mac រវាងឧបករណ៍របស់អ្នក។ ទុកទទេដើម្បីប្រើមជ្ឈមណ្ឌលដែលភ្ជាប់មកជាមួយ។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "이 빌드가 기기를 등록하는 기기 허브로, 기기 간 Mac 화면 공유에 쓰입니다. 비워 두면 꺼집니다."
+            "state": "translated",
+            "value": "이 빌드가 기기를 등록하는 기기 허브를 대신 지정합니다. 기기 간 Mac 화면 공유에 쓰입니다. 비워 두면 내장 허브를 사용합니다."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Enhetshuben denne versjonen logger enhetene dine inn på, for deling av Mac-skjermen mellom enhetene dine. Tom slår den av."
+            "state": "translated",
+            "value": "Overstyrer enhetshuben denne versjonen logger enhetene dine inn på, for deling av Mac-skjermen mellom enhetene dine. La den stå tom for å bruke den innebygde huben."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Centrum urządzeń, w którym ta wersja rejestruje Twoje urządzenia, do udostępniania ekranu Maca między nimi. Puste wyłącza."
+            "state": "translated",
+            "value": "Zastępuje centrum urządzeń, w którym ta wersja rejestruje Twoje urządzenia, do udostępniania ekranu Maca między nimi. Pozostaw puste, aby używać wbudowanego centrum."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "A central de dispositivos em que esta versão registra seus dispositivos, para compartilhar a tela do Mac entre eles. Vazio desativa."
+            "state": "translated",
+            "value": "Substitui a central de dispositivos em que esta versão registra seus dispositivos, para compartilhar a tela do Mac entre eles. Deixe vazio para usar a central integrada."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Центр устройств, в котором эта сборка регистрирует ваши устройства для общего доступа к экрану Mac между ними. Пусто — выключено."
+            "state": "translated",
+            "value": "Заменяет центр устройств, в котором эта сборка регистрирует ваши устройства для общего доступа к экрану Mac между ними. Оставьте пустым, чтобы использовать встроенный центр."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ฮับอุปกรณ์ที่บิลด์นี้ลงทะเบียนอุปกรณ์ของคุณ เพื่อแชร์หน้าจอ Mac ระหว่างอุปกรณ์ของคุณ เว้นว่างเพื่อปิด"
+            "state": "translated",
+            "value": "แทนที่ฮับอุปกรณ์ที่บิลด์นี้ลงทะเบียนอุปกรณ์ของคุณ เพื่อแชร์หน้าจอ Mac ระหว่างอุปกรณ์ของคุณ เว้นว่างไว้เพื่อใช้ฮับในตัว"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Bu derlemenin cihazlarınızı kaydettiği cihaz merkezi; Mac ekranını cihazlarınız arasında paylaşmak için. Boş bırakmak kapatır."
+            "state": "translated",
+            "value": "Bu derlemenin cihazlarınızı kaydettiği cihaz merkezini geçersiz kılar; Mac ekranını cihazlarınız arasında paylaşmak için. Yerleşik merkezi kullanmak için boş bırakın."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Центр пристроїв, у якому ця збірка реєструє ваші пристрої, щоб ділитися екраном Mac між ними. Порожнє значення вимикає його."
+            "state": "translated",
+            "value": "Замінює центр пристроїв, у якому ця збірка реєструє ваші пристрої, щоб ділитися екраном Mac між ними. Залиште порожнім, щоб використовувати вбудований центр."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Trung tâm thiết bị mà bản dựng này đăng ký các thiết bị của bạn, để chia sẻ màn hình Mac giữa các thiết bị. Để trống để tắt."
+            "state": "translated",
+            "value": "Thay thế trung tâm thiết bị mà bản dựng này đăng ký các thiết bị của bạn, để chia sẻ màn hình Mac giữa các thiết bị. Để trống để dùng trung tâm tích hợp sẵn."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "此版本用来登记你的设备的设备中心，用于在你的设备之间共享 Mac 屏幕。留空则关闭。"
+            "state": "translated",
+            "value": "覆盖此版本用来登记你的设备的设备中心，用于在你的设备之间共享 Mac 屏幕。留空则使用内置的设备中心。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "此版本用來登記你的裝置的裝置中心，用於在你的裝置之間共享 Mac 螢幕。留空則關閉。"
+            "state": "translated",
+            "value": "覆寫此版本用來登記你的裝置的裝置中心，用於在你的裝置之間共享 Mac 螢幕。留空則使用內建的裝置中心。"
           }
         }
       }

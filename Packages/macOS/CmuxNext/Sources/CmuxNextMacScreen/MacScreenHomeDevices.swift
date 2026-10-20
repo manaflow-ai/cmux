@@ -46,16 +46,12 @@ struct MacScreenHomeDeviceSections: View {
         }
     }
 
-    /// What the home page says while Mac Screen cannot work: it needs the
-    /// device hub (DEV builds: its address in Settings › Development) and a
-    /// signed-in cmux account.
+    /// What the home page says while Mac Screen cannot work: it needs a
+    /// signed-in cmux account, and a DEV build's Device Hub Address override
+    /// (Settings › Development) must be valid when set.
     static func setupNote(configured: Bool) -> String {
         guard configured else {
-            #if DEBUG
-            return L.t("macScreen.home.setupHubDev", "Mac Screen works through the device hub. Set Device Hub Address in Settings › Development, then sign in to cmux.")
-            #else
-            return L.t("macScreen.home.setupHub", "Mac Screen works through the device hub, which this build doesn’t have yet.")
-            #endif
+            return L.t("macScreen.home.invalidHubAddress", "Mac Screen works through the device hub. The Device Hub Address in Settings › Development is not a valid web address; fix it, or clear it to use the built-in hub.")
         }
         return L.t("macScreen.home.devicesSignIn", "Sign in to cmux to see your other Macs here.")
     }

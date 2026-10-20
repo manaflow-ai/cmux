@@ -55,8 +55,9 @@ public final class MacScreenPages {
             hubChanged(from: oldValue)
         }
     }
-    /// Whether this build has a device hub address (`deviceHub.url`): the
-    /// home page says "sign in" rather than "not set up" when it does.
+    /// Whether this build has a usable device hub address: always, unless a
+    /// DEV build's `deviceHub.url` override is not valid. The home page says
+    /// "sign in" when it does and asks to fix the address when it does not.
     public var hubConfigured: Bool {
         get { hubBox.configured }
         set { hubBox.configured = newValue }

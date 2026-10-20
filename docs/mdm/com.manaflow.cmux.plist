@@ -6835,7 +6835,7 @@
 			<key>pfm_default</key>
 			<string></string>
 			<key>pfm_description</key>
-			<string>The device hub this build signs its devices in to, for Mac Screen sharing between your devices. Empty turns it off.</string>
+			<string>Overrides the device hub this build signs its devices in to, for Mac Screen sharing between your devices. Leave it empty to use the built-in hub.</string>
 			<key>pfm_name</key>
 			<string>deviceHub.url</string>
 			<key>pfm_title</key>
