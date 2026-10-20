@@ -442,7 +442,7 @@ impl Host {
             let ticket = role.ticket.clone();
             match reader.read(&mut byte) {
                 Ok(1) if byte == [2] && !ready => {
-                    state.role.as_mut().ok_or_else(refused)?.ready = true
+                    state.role.as_mut().ok_or_else(refused)?.ready = true;
                 }
                 Ok(1) if byte == [1] => {
                     role.completed.store(true, Ordering::Release);

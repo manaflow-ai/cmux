@@ -11,7 +11,7 @@
 use std::net::{IpAddr, SocketAddr};
 use std::path::Path;
 
-use cmux_link::dial::{MAX_LINE_BYTES, Service, ServiceHello, parse_line};
+use cmux_link::dial::{MAX_HELLO_BYTES, Service, ServiceHello};
 use cmux_link::overlay_addr::overlay_address;
 use cmux_link::stamp::StampCheck;
 use cmux_link::stream_lease::StreamLease;
@@ -62,10 +62,10 @@ where
     let mut handshake =
         verifier.begin_handshake(me.host, me.epoch, &peer_key).map_err(|_| HostRefused::Token)?;
     let read_hello = async {
-        let line = read_line(&mut stream, MAX_LINE_BYTES)
+        let line = read_line(&mut stream, MAX_HELLO_BYTES)
             .await
             .map_err(|_| HostRefused::Inbound(InboundRefused::BadHello))?;
-        parse_line::<ServiceHello>(&line).ok_or(HostRefused::Inbound(InboundRefused::BadHello))
+        ServiceHello::parse(&line).ok_or(HostRefused::Inbound(InboundRefused::BadHello))
     };
     let hello = tokio::select! {
         biased;

@@ -33,7 +33,7 @@ mod handshake;
 #[path = "receiver_owner.rs"]
 pub mod receiver;
 
-const MAX_TOKEN_BYTES: usize = 8192;
+const MAX_TOKEN_BYTES: usize = crate::dial::MAX_LINK_TOKEN_BYTES;
 const MAX_PEERS: usize = 128;
 const MAX_REPLAY: usize = 4096;
 const MAX_STREAMS: usize = 4096;

@@ -26,10 +26,10 @@ impl Worker {
 
 impl Drop for Worker {
     fn drop(&mut self) {
-        if let (Some(bridge), Some(live)) = (self.bootstrap.as_mut(), self.live.as_mut()) {
-            if bridge.retire(&mut live.client, wall_ms()).is_err() {
-                log("Native receiving retirement unavailable");
-            }
+        if let (Some(bridge), Some(live)) = (self.bootstrap.as_mut(), self.live.as_mut())
+            && bridge.retire(&mut live.client, wall_ms()).is_err()
+        {
+            log("Native receiving retirement unavailable");
         }
     }
 }

@@ -103,7 +103,7 @@ where
     };
     // A paired peer carries no token. It reaches the daemon entry, and its
     // owner (decided here, from the key's pairing record) the owner session.
-    let (served, owner_requested) = match parse_line::<ServiceHello>(&hello) {
+    let (served, owner_requested) = match ServiceHello::parse(&hello) {
         Some(ServiceHello { service: Service::Daemon, link_token: None, epoch: None }) => {
             // A paired peer's stream carries no control-plane check.
             (
