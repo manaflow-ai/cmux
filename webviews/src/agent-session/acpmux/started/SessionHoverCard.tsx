@@ -1,6 +1,7 @@
 // The hover card of a session reference (a name chip or session id in a reply), as a row of Claude
 // Code desktop's PR list reads: the title, then the status line (the status's glyph and word in its
-// colour, then `· repo #N`; StartedSessionCard.tsx `SessionStatusLine`), and nothing more. A running
+// colour, then `· repo #N`; StartedSessionCard.tsx `SessionStatusLine`), then the meta line (its
+// folder and branch, muted), as Claude desktop's session card ends (Leo, 2026-10-20). A running
 // session's status draws the pane's working spinner bare (Leo, 2026-10-19). The card's left edge
 // meets the chip's, 6px off it: below the chip, or above it when more of the reply runs under the
 // chip, so it never covers the next line (``hoverCardSide``). It waits for a short rest of the
@@ -226,6 +227,7 @@ export function SessionHoverContent({
     >
       <span className="acpmux-session-hover-title">{info.title}</span>
       <SessionStatusLine status={info.status} pullRequests={info.pullRequests} />
+      {info.meta && <span className="acpmux-session-hover-meta">{info.meta.join(" · ")}</span>}
     </button>
   );
 }

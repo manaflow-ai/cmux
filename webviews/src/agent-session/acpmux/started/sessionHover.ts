@@ -1,9 +1,10 @@
 // What a session reference's hover card says (SessionHoverCard.tsx), the way a row of Claude Code
-// desktop's PR list does: the title, then the status line (the status, then `· repo #N`).
+// desktop's PR list does: the title, then the status line (the status, then `· repo #N`), then where
+// it runs (its folder, then its cloud machine, worktree or branch), as Claude desktop's card ends.
 // The pane keeps it in one small store fed from the session list, so a chip in a reply reads the
 // session's current state when its card opens, and a reply never redraws because a session changed.
 import { useSyncExternalStore } from "react";
-import { type AcpmuxSessionEntry, listed } from "../sessionList";
+import { type AcpmuxSessionEntry, listed, projectLabel, sessionPlace } from "../sessionList";
 import {
   MIN_TITLE_MENTION,
   type SessionMention,
@@ -21,15 +22,21 @@ export type SessionHoverInfo = {
   status: SessionStatus;
   /// Its pull requests, as its row names them (``startedPullRequests``).
   pullRequests?: StartedPullRequests;
+  /// Where it runs, for the meta line: its folder, then its cloud machine, worktree or branch
+  /// (``sessionPlace``). Absent without a folder.
+  meta?: string[];
 };
 
 export function hoverInfo(entry: AcpmuxSessionEntry): SessionHoverInfo {
   const pullRequests = startedPullRequests(entry);
+  const place = sessionPlace(entry)?.label;
+  const meta = entry.cwd ? [projectLabel(entry.cwd), ...(place ? [place] : [])] : undefined;
   return {
     sessionId: entry.sessionId,
     title: entry.displayTitle || entry.title || entry.sessionId,
     status: sessionStatus(startedState(entry), entry.unread, pullRequests),
     ...(pullRequests ? { pullRequests } : {}),
+    ...(meta ? { meta } : {}),
   };
 }
 

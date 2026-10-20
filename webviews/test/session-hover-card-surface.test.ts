@@ -141,7 +141,8 @@ await requireBrowserLane("session-hover-card-surface.test.ts", async () => {
       const probe = document.createElement("div");
       probe.id = "popup-probe";
       probe.className = "ui-positioner";
-      probe.style.cssText = "position:fixed;left:680px;top:360px;width:30px;height:30px;background:var(--surface-popup)";
+      probe.style.cssText =
+        "position:fixed;left:680px;top:360px;width:30px;height:30px;background:var(--surface-popup)";
       document.querySelector(".acpmux-shell")!.append(probe);
     });
     const pixel = await pixels(page);

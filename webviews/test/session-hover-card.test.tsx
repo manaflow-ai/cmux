@@ -130,7 +130,9 @@ describe("the card", () => {
   });
 
   test("without a folder there is no meta line", () => {
-    const html = renderToStaticMarkup(<SessionHoverContent info={{ ...info, status: "done" }} onOpen={() => undefined} />);
+    const html = renderToStaticMarkup(
+      <SessionHoverContent info={{ ...info, status: "done" }} onOpen={() => undefined} />,
+    );
     expect(html).not.toContain("acpmux-session-hover-meta");
   });
 
@@ -255,7 +257,7 @@ test("a name chip's card waits for the pointer, shows at once for focus, takes A
   await act(async () => wait(SESSION_HOVER_DELAY));
   expect(card()?.getAttribute("role")).toBe("dialog");
   expect(card()?.getAttribute("aria-label")).toBe("Switch gh-merge-green to merge-freeze issues");
-  expect(card()?.textContent).toBe("Switch gh-merge-green to merge-freeze issuesRunning");
+  expect(card()?.textContent).toBe("Switch gh-merge-green to merge-freeze issuesRunningcmux");
   expect(chip.getAttribute("aria-describedby")).toBe(card()?.id ?? "missing");
 
   // Pointer away: the card goes after its grace.

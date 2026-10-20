@@ -60,7 +60,10 @@ function GallerySessionHover({ mode }: Props) {
           <div className="acpmux-user" style={{ marginBottom: 12 }}>
             <div className="acpmux-user-bubble">Run the merge-freeze switch as a background chat.</div>
           </div>
-          <div className="ui-tooltip ui-card acpmux-session-hover-card" style={{ position: "static", width: "fit-content" }}>
+          <div
+            className="ui-tooltip ui-card acpmux-session-hover-card"
+            style={{ position: "static", width: "fit-content" }}
+          >
             <SessionHoverContent info={hoverInfo(chipEntry)} onOpen={() => undefined} />
           </div>
         </div>
