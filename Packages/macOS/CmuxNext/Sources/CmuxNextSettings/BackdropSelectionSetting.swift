@@ -28,6 +28,15 @@ public struct BackdropSelectionSetting: Sendable {
         return folderPath(raw).map { BackdropShuffle(source: .folder($0), rotation: rotation) }
     }
 
+    /// Whether a stored background value turns on its own (`daily` or `folder:`).
+    public static func shuffles(_ raw: String) -> Bool { raw == dailyID || folderPath(raw) != nil }
+
+    /// A workspace's own background value as a shuffle, which turns daily; nil for a fixed one.
+    public static func workspaceShuffle(_ raw: String) -> BackdropShuffle? {
+        if raw == dailyID { return BackdropShuffle(source: .paintings, rotation: .daily) }
+        return folderPath(raw).map { BackdropShuffle(source: .folder($0), rotation: .daily) }
+    }
+
     /// The absolute path of a `folder:` value; nil for any other value or a relative path.
     static func folderPath(_ raw: String) -> String? {
         guard raw.hasPrefix(folderPrefix) else { return nil }

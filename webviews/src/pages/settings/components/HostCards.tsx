@@ -106,7 +106,8 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
   const { host, rows } = state;
   const [browsing, setBrowsing] = useState(false);
   const [linking, setLinking] = useState(false);
-  const [usage, setUsage] = useState<number | null>(null);
+  // What the person's own images take, and their folder (Shuffle Your Images is `folder:` it).
+  const [usage, setUsage] = useState<{ bytes: number; folder: string | null } | null>(null);
   const dwell = useRef<ReturnType<typeof setTimeout> | null>(null);
   // How to end the running preview: the app's, or a workspace's.
   const previewing = useRef<(() => void) | null>(null);
@@ -165,8 +166,8 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
   const opacity = rowsByKey.get(BACKGROUND_OPACITY_KEY);
   const material = rowsByKey.get(MATERIAL_KEY);
   const rotation = rowsByKey.get(ROTATION_KEY);
-  // Shuffle Your Images: the folder the person's own images are in.
-  const yours = host?.backdrop_folder ? FOLDER_PREFIX + host.backdrop_folder : null;
+  // Shuffle Your Images: the folder the person's own images are in, once there are some.
+  const yours = usage?.folder ? FOLDER_PREFIX + usage.folder : null;
   // A folder shuffled that is not Your Images: its own tile, chosen, by the folder's name.
   const otherFolder = !own && current.startsWith(FOLDER_PREFIX) && current !== yours ? current : null;
   const shuffles = current === DAILY_ID || current.startsWith(FOLDER_PREFIX);
@@ -370,7 +371,7 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
             <div className="backdrop-own-bar">
               {usage !== null && (
                 <span className="row-help">
-                  {t("settingsWindow.backdropPicker.usage", formatBytes(usage, locale()))}
+                  {t("settingsWindow.backdropPicker.usage", formatBytes(usage.bytes, locale()))}
                 </span>
               )}
               <button type="button" className="button" onClick={() => store.revealBackdropImage()}>

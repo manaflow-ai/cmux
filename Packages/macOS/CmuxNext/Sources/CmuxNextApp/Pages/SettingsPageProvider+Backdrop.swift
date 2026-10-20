@@ -13,22 +13,6 @@ extension SettingsPageProvider {
         return ["id": .string(try await useBackdropImage(url))]
     }
 
-    /// `cmux.settings.backdrop.choose_folder`: the person picks a folder in the cmux picker and the
-    /// background shuffles its pictures (`folder:<absolute path>`); nil id when they left it. The
-    /// person chose it, so the write is theirs.
-    func chooseBackdropFolder() async throws -> JSONValue {
-        guard let pickFolders else { throw PageError(code: "cmux.page.unavailable", message: "no folder picker") }
-        guard let descriptor = SettingsSchema.descriptor(for: BackdropSelectionSetting().configPath) else {
-            throw PageError(code: "cmux.page.unavailable", message: "no background setting")
-        }
-        guard let chosen = await pickFolders()?.first else { return ["id": .null] }
-        // The picker names folders in home as `~/…`; the value is absolute.
-        let id = BackdropSelectionSetting.folderPrefix + (chosen as NSString).expandingTildeInPath
-        // concurrency-allow: the settings owner writes through its CmuxConfigFile actor, off the main actor
-        try await write(descriptor, .string(id), by: .user)
-        return ["id": .string(id)]
-    }
-
     /// `cmux.settings.art.search` (the works matching `query`) and `cmux.settings.art.use` (download
     /// the work `key`, copy it into the backgrounds folder and set it).
     func museumArt(_ op: String, params: JSONValue) async throws -> JSONValue {

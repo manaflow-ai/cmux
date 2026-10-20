@@ -103,8 +103,6 @@ export type HostLists = {
   computer_use?: ComputerUseState | null;
   /** Settings > Mobile: the iPhone host's status, space and connected phones; every text localized by the host. */
   iphone?: IPhoneHostState | null;
-  /** The folder the person's own images are in: Shuffle Your Images is `folder:` it. */
-  backdrop_folder?: string | null;
   /**
    * Wallpaper choices; thumbnails at `backdrop/<id>` on the page's own origin. Each carries its
    * picker collection (`darkArt`, `museumIcons`, `calm`, `dore`, `yours`, `apple`, `video`) and
@@ -424,7 +422,6 @@ export type SettingsOps = {
   "cmux.settings.folders.add": [{ key: string }, { added: string[] }];
   /** The cmux picker for an image; the host copies it to the backgrounds folder and sets it. */
   "cmux.settings.backdrop.choose_image": [Record<string, never>, { id: string | null }];
-  "cmux.settings.backdrop.choose_folder": [Record<string, never>, { id: string | null }];
   /** Native: download an https image or movie and set it as a picked file is; errors carry the
    * cmux.settings.backdrop.* refusal codes the picker words. */
   "cmux.settings.backdrop.image.link": [{ url: string }, { id: string }];
@@ -433,7 +430,8 @@ export type SettingsOps = {
   /** Native: show one of the person's images, or the backgrounds folder, in Finder. */
   "cmux.settings.backdrop.image.reveal": [{ id?: string }, Record<string, never>];
   /** Native: the bytes the person's own background images take. */
-  "cmux.settings.backdrop.image.usage": [Record<string, never>, { bytes: number }];
+  "cmux.settings.backdrop.image.usage": [Record<string, never>, { bytes: number; folder?: string }];
+  "cmux.settings.backdrop.image.folder": [Record<string, never>, { id: string | null }];
   /** Native: opens the Wallpaper pane of System Settings, where macOS downloads its wallpapers. */
   "cmux.settings.backdrop.wallpaper_settings": [Record<string, never>, Record<string, never>];
   /** Native: a workspace's own background (cx-t2x.5); `value` null follows appearance.background. */

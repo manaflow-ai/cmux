@@ -25,7 +25,6 @@ async function picker(path = "/settings/appearance", background = "none") {
   await act(async () =>
     page.provider.setHost({
       ...page.provider.host,
-      backdrop_folder: FOLDER,
       backdrops: [
         ...(page.provider.host.backdrops ?? []),
         { id: `file:${FOLDER}/Harbor.png`, title: "Harbor", attribution: "", collection: "yours", collection_title: "Your images" },
@@ -61,7 +60,7 @@ test("Shuffle a Folder… asks the app for a folder", async () => {
   )!;
   await act(async () => button.click());
   await settle();
-  expect(runs(page, "cmux.settings.backdrop.choose_folder").length).toBe(1);
+  expect(runs(page, "cmux.settings.backdrop.image.folder").length).toBe(1);
   page.unmount();
 });
 

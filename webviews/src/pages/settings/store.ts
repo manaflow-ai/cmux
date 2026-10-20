@@ -341,7 +341,7 @@ export class SettingsStore {
   /** Shuffle a Folder…: the app asks for a folder and shuffles its pictures (`folder:<path>`). */
   async chooseBackdropFolder(): Promise<void> {
     await this.trackAppearance([BACKGROUND], async () => {
-      const reply = await this.request("cmux.settings.backdrop.choose_folder", {});
+      const reply = await this.request("cmux.settings.backdrop.image.folder", {});
       if (!reply.ok) this.setError(BACKGROUND, rowError(reply.error));
       else await Promise.all([this.refresh(), this.refreshHost()]);
     });
@@ -371,10 +371,10 @@ export class SettingsStore {
     void this.request("cmux.settings.backdrop.image.reveal", id ? { id } : {});
   }
 
-  /** The bytes the person's own images take; null when the host cannot say. */
-  async backdropUsage(): Promise<number | null> {
+  /** The bytes the person's own images take and their folder; null when the host cannot say. */
+  async backdropUsage(): Promise<{ bytes: number; folder: string | null } | null> {
     const reply = await this.request("cmux.settings.backdrop.image.usage", {});
-    return reply.ok ? reply.value.bytes : null;
+    return reply.ok ? { bytes: reply.value.bytes, folder: reply.value.folder ?? null } : null;
   }
 
   /** Opens the Wallpaper pane of System Settings, where macOS downloads a wallpaper the picker
