@@ -188,6 +188,8 @@ public final class ChiefPetController {
         made.pet.onDragEnded = { [weak self, weak made] in
             made?.saveOrigin()
             self?.render(animated: false)
+            // A drop past the screen's edge pulled the pet back on: the reply box follows it too.
+            self?.followPet()
         }
         panel = made
         return made

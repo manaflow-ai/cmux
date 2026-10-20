@@ -182,7 +182,8 @@ final class ChiefPetView: NSView {
         let point = pointer()
         if !dragging, !ChiefPetPlacement.isDrag(from: press.start, to: point) { return }
         dragging = true
-        window.setFrameOrigin(CGPoint(x: press.origin.x + point.x - press.start.x, y: press.origin.y + point.y - press.start.y))
+        // Whole points, as the saved spot is: the drop then rounds nothing and the notices stay put.
+        window.setFrameOrigin(CGPoint(x: (press.origin.x + point.x - press.start.x).rounded(), y: (press.origin.y + point.y - press.start.y).rounded()))
         onDragMoved?()
     }
 
