@@ -28,6 +28,8 @@ import Testing
         /// The owner answers this family's start with a coded failure (`failCode`).
         var fail: Set<AgentCLIFamily> = []
         var failCode = "operation.failed"
+        /// When set, the owner answers a journal read (`resolve`) with this for every key.
+        var resolution: AgentCLIJobResolution?
         var claudeChannel = "native"
         /// A reconnect advances the epoch; routes captured before it retire.
         var epoch = 0
@@ -41,6 +43,8 @@ import Testing
 
         func route() -> AgentCLIUpdateActions.Route {
             captures += 1
+            var resolve: (@MainActor (AgentCLIFamily, String) async throws -> AgentCLIJobResolution)?
+            if let answer = resolution { resolve = { _, _ in answer } }
             let epoch = self.epoch
             return .init(machine: machine, session: session, isCurrent: { self.current && self.epoch == epoch }, inventory: {
                 self.reads += 1
@@ -76,7 +80,7 @@ import Testing
                 var value = try JSONValue.parse(Data(result.utf8)).objectValue ?? [:]
                 value["terminal_id"] = .string(receipt.path.terminalID.rawValue)
                 return try JSONDecoder().decode(AgentCLIJobStatus.self, from: Data(JSONValue.object(value).compactText.utf8))
-            })
+            }, resolve: resolve)
         }
 
         func receipt(_ cli: AgentCLIFamily) throws -> AgentCLIJobReceipt {
@@ -372,21 +376,24 @@ import Testing
         #expect(updates.state.arrayValue?.first?["terminal"]?.stringValue != nil)
     }
 
-    /// A first start sends a fresh key, so an owner answer of any code means nothing runs for
-    /// it (a failed creation, or a request the owner turned away, such as during a handoff):
-    /// the job settles instead of staying unknown, blocking the CLI, and being replayed.
-    @Test(arguments: ["operation.failed", "daemon_shutdown_pending"])
-    func aFirstStartTheOwnerAnswersWithAFailureLeavesNoBlockingJob(code: String) async throws {
+    /// A coded failure other than an `agent_cli_job.*` refusal can follow a durable creation
+    /// (a launch activation failing after the commit), so a first start keeps its ledger row
+    /// instead of deleting it. The next recovery reads the owner's journal: a failed creation
+    /// settles, so the CLI is not blocked for good, and the key is never replayed.
+    @Test func aFirstStartTheOwnerAnswersWithAFailureSettlesThroughTheJournal() async throws {
         let (owner, updates, registry) = make()
         owner.fail = [.codex]
-        owner.failCode = code
+        owner.failCode = "operation.failed"
+        owner.resolution = .failed(code: "operation.failed")
         do {
             _ = try await updates.runSettings(id: "work-profile", context: page("failed-start"), registry: registry)
             Issue.record("a failed start reported success")
         } catch let error as PageError { #expect(error.message.contains("codex")) }
-        #expect(updates.state.arrayValue?.isEmpty == true)
+        #expect(updates.state.arrayValue?.first?["state"] == "unknown")
         await updates.refresh()
+        #expect(updates.state.arrayValue?.isEmpty == true)
         #expect(owner.starts.count == 1)
+        owner.resolution = nil
         owner.fail = []
         _ = try await updates.runSettings(id: "work-profile", context: page("after-failed-start"), registry: registry)
         #expect(owner.starts.count == 2 && owner.starts.last?.1 == "after-failed-start")
