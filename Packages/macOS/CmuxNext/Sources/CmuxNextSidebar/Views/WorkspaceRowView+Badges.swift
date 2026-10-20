@@ -6,8 +6,8 @@ import Foundation
 /// It always draws in the trailing slot, with or without an icon: nothing but the favicon or the
 /// user's icon draws in the leading slot (Lawrence 2026-10-19, "There should only ever be a single
 /// unread indicator for the right side"), so a row with a favicon and a text-only row
-/// (WORKSPACE-ROWS-NO-DEFAULT-ICON) put it in the same place. The right side shows the dim time
-/// since the last change.
+/// (WORKSPACE-ROWS-NO-DEFAULT-ICON) put it in the same place. With `sidebar.showTimestamps`
+/// on (off by default), the right side shows the dim time since the last change.
 extension WorkspaceRowView {
     /// Applies `style` after the rest of `configure`: the row badge and the trailing time. `trailing` leaves the row as it was.
     func configureBadges(_ ws: SidebarWorkspace, shown: WorkspaceRowContent, style: SidebarRowBadgeStyle,

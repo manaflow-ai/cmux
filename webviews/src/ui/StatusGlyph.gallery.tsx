@@ -117,7 +117,7 @@ export default componentEntry<{ onWallpaper?: boolean; set?: "static" | "codex" 
       props: { onWallpaper: true },
     },
     codex: {
-      note: "The Codex-like set (Leo's team, 2026-10-14): a neutral grey spinner (its still ring here), Codex's blue done dot, muted line bubble and shield, and a red line i for an error.",
+      note: "The Codex-like set (Leo's team, 2026-10-14): a neutral grey spinner (its still ring here), Codex's blue done dot, an attention dot for a wait (no talk bubble), a muted line shield for permission, and a red line i for an error.",
       props: { set: "codex" },
     },
     "codex-wallpaper": {

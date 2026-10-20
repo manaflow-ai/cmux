@@ -188,6 +188,81 @@ pub struct TurnOutcome {
     pub done_draft: Option<crate::draft::Draft>,
 }
 
+/// The error of a turn whose acpmux connection was lost while it ran.
+pub const CONNECTION_LOST: &str = "the acpmux connection was lost during the turn";
+
+/// The waits before each new try of a turn's `session/new` that failed for
+/// a passing reason: about 7 s in all, inside the turn's limit.
+const NEW_SESSION_BACKOFF: [Duration; 3] = [
+    Duration::from_millis(500),
+    Duration::from_secs(2),
+    Duration::from_secs(4),
+];
+
+/// Errors of a turn's `session/new` that a new try can cure: the harness
+/// process closed as it started (`sr2 claude` exits while the sr2 gateway
+/// answers 502 or refuses), the agent host missed its hello, the acpmux link
+/// was between daemons (an update relaunch hands the daemon off), or the
+/// upstream answered a passing error. A setup error (a refused env key, a
+/// login) fails at once.
+const TRANSIENT_SESSION_FAILURES: [&str; 13] = [
+    "agent process closed",
+    "agent host did not answer hello",
+    "agent host exited before it was ready",
+    "connection closed",
+    "not connected",
+    "is shutting down",
+    "Connection refused",
+    "ECONNREFUSED",
+    "ECONNRESET",
+    "502",
+    "503",
+    "504",
+    "the CLI exited",
+];
+
+/// Whether a turn's `session/new` error is worth a new try.
+pub fn is_transient_session_failure(error: &str) -> bool {
+    TRANSIENT_SESSION_FAILURES.iter().any(|t| error.contains(t))
+}
+
+/// `session/new`, tried again after each [`NEW_SESSION_BACKOFF`] wait while
+/// it fails for a passing reason. A stop request, the turn's deadline or a
+/// setup error ends the tries with the last error.
+fn new_session_with_retry(
+    agents: &dyn AgentPort,
+    spec: &SessionSpec,
+    interrupt: &Interrupt,
+    deadline: Option<Instant>,
+    note: &dyn Fn(&str, Duration),
+) -> Result<String, String> {
+    let mut waits = NEW_SESSION_BACKOFF.iter();
+    loop {
+        let error = match agents.new_session(spec) {
+            Ok(id) => return Ok(id),
+            Err(e) => e,
+        };
+        let Some(&wait) = waits.next() else {
+            return Err(error);
+        };
+        if !is_transient_session_failure(&error)
+            || interrupt.is_set()
+            || deadline.is_some_and(|d| Instant::now() + wait >= d)
+        {
+            return Err(error);
+        }
+        note(&error, wait);
+        // A bounded wait that a stop request ends early (never a poll).
+        if interrupt.wait(wait) {
+            return Err(error);
+        }
+        // A start that failed halfway can leave its name taken.
+        if let Ok(Some(old)) = agents.find(&spec.name) {
+            let _ = agents.end_session(&old);
+        }
+    }
+}
+
 /// A turn the harness gate refused: traced, and posted as its error.
 fn refused(trace: &Trace, start: &TurnStart, reason: &str) -> TurnOutcome {
     crate::harness_gate::trace_refusal(trace, "turn", &start.session.harness, reason);
@@ -282,7 +357,13 @@ pub fn run_with_drafts(
             };
         }
     }
-    let session = match agents.new_session(&spec) {
+    let session = match new_session_with_retry(agents, &spec, interrupt, deadline, &|e, wait| {
+        log(&format!(
+            "turn {}: {e}; the session starts again in {} ms",
+            start.key,
+            wait.as_millis()
+        ))
+    }) {
         Ok(id) => id,
         Err(e) => {
             return TurnOutcome {
@@ -568,12 +649,7 @@ pub fn run_with_drafts(
                     after: fold.seq(),
                 });
                 let seq = fold.seq();
-                append_at(
-                    fold.finish(Some(
-                        "the acpmux connection was lost during the turn".into(),
-                    )),
-                    seq,
-                );
+                append_at(fold.finish(Some(CONNECTION_LOST.into())), seq);
                 break;
             }
         }

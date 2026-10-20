@@ -25,7 +25,14 @@ import QuartzCore
     /// switch built every row view, its buttons and their constraints, from scratch).
     private var sparePage: SpacePageView?
 
-    init(host: SidebarView) { self.host = host }
+    /// The host as a weak reference: an animation completion runs after the host may be gone
+    /// (a window closed mid-slide), and reading the unowned `host` then traps.
+    private weak var liveHost: SidebarView?
+
+    init(host: SidebarView) {
+        self.host = host
+        liveHost = host
+    }
 
     private var page: NSView { host.scrollView }
     private var width: CGFloat { max(1, page.frame.width) }
@@ -135,7 +142,7 @@ import QuartzCore
 
     private func place(offset: CGFloat, animated spring: MotionSpring?, completion: (() -> Void)? = nil) {
         CATransaction.begin()
-        CATransaction.setCompletionBlock { MainActor.assumeIsolated { completion?() } } // main-proof: CATransaction.h: the completion block is called on the main thread
+        CATransaction.setCompletionBlock { MainActor.assumeIsolated { [weak self] in if self?.liveHost != nil { completion?() } } } // main-proof: CATransaction.h: the completion block is called on the main thread
         translate(page, -offset * width, animated: spring)
         if let neighbor, let current = pager?.index ?? profiles.firstIndex(where: { $0 == host.model.activeProfileID }) {
             let side: CGFloat = neighbor.index > current ? 1 : -1
@@ -212,6 +219,7 @@ import QuartzCore
         (model.workspaceRow, model.rowBadgeStyle) = (host.model.workspaceRow, host.model.rowBadgeStyle)
         (model.minimal, model.expanded) = (host.model.minimal, host.model.expanded)
         model.detailedStatus = host.model.detailedStatus
+        model.showsTimestamps = host.model.showsTimestamps
         model.activeWorkspaceID = host.model.activeWorkspaceID
         container.frame = page.frame
         container.wantsLayer = true
@@ -260,6 +268,11 @@ import QuartzCore
 
     private func finishSlide() {
         guard let snapshot else { return }
+        guard liveHost != nil else {
+            snapshot.removeFromSuperview()
+            self.snapshot = nil
+            return
+        }
         retire(snapshot)
         self.snapshot = nil
         if pager == nil, pendingTarget == nil {

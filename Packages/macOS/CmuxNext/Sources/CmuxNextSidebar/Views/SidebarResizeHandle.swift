@@ -56,6 +56,7 @@ final class SidebarResizeHandle: NSView {
         setAccessibilityElement(true)
         setAccessibilityRole(.splitter)
         setAccessibilityLabel(Strings.resize)
+        setAccessibilityIdentifier("cmux.sidebar.resize")
         pointerHover = PointerHover(self) { [weak self] hovering in self?.setHovered(hovering) }
     }
 

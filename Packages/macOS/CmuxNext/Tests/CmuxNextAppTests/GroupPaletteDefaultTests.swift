@@ -156,10 +156,36 @@ import Testing
         #expect(sidebar.list.groupEditor.shownGroup == ids[0], "the more button did not open the group editor")
         let content = try #require(sidebar.list.groupEditor.bubble?.contentView)
         let rows = Self.views(SidebarGroupEditorRow.self, in: content).map(\.item)
+        // No More Group Actions row (Lawrence 2026-10-20): a right-click shows the flat menu, and
+        // the editor offers Pin and Move to Top itself.
         #expect(rows.map(\.id) == ["workspaceGroup.newWorkspace", "workspaceGroup.moveToNewWindow", "workspaceGroup.closeWorkspaces",
-                                   "workspaceGroup.ungroup", "workspaceGroup.delete", "sidebar.group.moreActions"])
+                                   "workspaceGroup.togglePin", "workspaceGroup.moveToTop",
+                                   "workspaceGroup.ungroup", "workspaceGroup.delete"])
         #expect(rows.map(\.title) == ["New Workspace in Group", "Move to New Window", "Close Group",
-                                      "Ungroup", "Delete Group", "More Group Actions…"])
+                                      "Pin Group", "Move to Top", "Ungroup", "Delete Group"])
+    }
+
+    /// A right-click on a group header shows the group's flat menu at once (Lawrence 2026-10-20:
+    /// "right now I need to right-click and then go do more group actions"), not the editor.
+    @Test func aRightClickOnAGroupHeaderShowsItsMenuNotTheEditor() throws {
+        let (sidebar, ids) = try Self.sidebar([.red])
+        let menu = NSMenu(title: "group")
+        var asked: [SidebarContextTarget] = []
+        sidebar.contextMenuProvider = { target in asked.append(target); return menu }
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 240, height: 600), styleMask: [.borderless], backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        defer { sidebar.list.groupEditor.hide(); window.orderOut(nil) }
+        window.contentView?.addSubview(sidebar)
+        sidebar.list.reload(animated: false)
+        sidebar.layoutSubtreeIfNeeded()
+        let header = try #require(sidebar.list.rowViews[.group(ids[0])] as? GroupHeaderRowView)
+        let point = sidebar.list.convert(NSPoint(x: header.frame.midX, y: header.frame.midY), from: header.superview)
+        let event = try #require(NSEvent.mouseEvent(with: .rightMouseDown, location: sidebar.list.convert(point, to: nil),
+                                                    modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil,
+                                                    eventNumber: 0, clickCount: 1, pressure: 1))
+        #expect(sidebar.list.menu(for: event) === menu, "a right-click on the header did not show the group's menu")
+        #expect(asked == [.group(ids[0])])
+        #expect(sidebar.list.groupEditor.shownGroup == nil, "a right-click opened the group editor")
     }
 
     // MARK: Fixtures

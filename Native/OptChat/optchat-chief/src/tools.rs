@@ -70,6 +70,17 @@ pub trait Orchestrator: Send + Sync {
     /// Subagent `id`'s whole chat (`zoom("a<N>")`), one page from
     /// character `at`.
     fn agent_chat(&self, id: &str, at: u64) -> Result<String, String>;
+    /// `react(id, reaction)`: a tapback on the user message of view line `id`.
+    fn react(&self, id: u64, reaction: &str) -> Result<String, String> {
+        let _ = (id, reaction);
+        Err("this Chief host cannot react".into())
+    }
+    /// `reply(id, text)`: `text` now, in the thread of the user message of
+    /// view line `id`.
+    fn reply(&self, id: u64, text: &str) -> Result<String, String> {
+        let _ = (id, text);
+        Err("this Chief host cannot reply in a thread".into())
+    }
 }
 
 /// What `chief zoom|date|spawn|tell WORDS` asks: the tool call, its usage
@@ -100,6 +111,14 @@ pub fn command(tool: &str, args: &[&str]) -> Result<Command, String> {
         ("spawn", tasks) if !tasks.is_empty() && tasks[0] != "--cwd" => {
             Call::parse("spawn", &serde_json::json!({"tasks": tasks}))
         }
+        ("react", [id, reaction]) => Call::parse(
+            "react",
+            &serde_json::json!({"id": id, "reaction": reaction}),
+        ),
+        ("reply", [id, text @ ..]) if !text.is_empty() => Call::parse(
+            "reply",
+            &serde_json::json!({"id": id, "text": text.join(" ")}),
+        ),
         ("profile", []) => Call::parse("profile", &serde_json::json!({})),
         ("profile", [args]) => match serde_json::from_str::<Value>(args) {
             Ok(v @ Value::Object(_)) => Call::parse("profile", &v),
@@ -146,6 +165,8 @@ pub fn usage(tool: &str) -> String {
         match tool {
             "zoom" => "ID N | SUBAGENT [AT]",
             "date" => "ID",
+            "react" => "ID like|love|laugh|emphasize|question|dislike|ack",
+            "reply" => "ID \"text\"",
             "spawn" => "[--cwd DIR] \"task\" [\"task\" ...]",
             "profile" => "['{\"role\": \"...\", \"avatar_path\": \"/path/pic.png\"}']",
             "chiefs" =>
@@ -279,6 +300,18 @@ pub enum Call {
         /// Idempotency key: a repeat is not sent again.
         key: Option<String>,
     },
+    /// `react` (brain/replies.rs): a tapback on the user message of view
+    /// line `id`.
+    React {
+        id: u64,
+        reaction: String,
+    },
+    /// `reply` (brain/replies.rs): `text` now, in the thread of the user
+    /// message of view line `id`.
+    Reply {
+        id: u64,
+        text: String,
+    },
     /// `control` (brain/control.rs): subagent control.
     Control(ControlCall),
     /// `profile` (chief_profile.rs): read or change the Chief's own record.
@@ -372,6 +405,31 @@ impl Call {
                     key: text("key").ok(),
                 })
             }
+            "react" => {
+                let reaction = args
+                    .get("reaction")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|t| !t.is_empty())
+                    .ok_or("react: `reaction` must be one of like, love, laugh, emphasize, question, dislike, ack")?;
+                crate::brain::tapback(reaction)?;
+                Ok(Call::React {
+                    id: num("id")?,
+                    reaction: reaction.to_owned(),
+                })
+            }
+            "reply" => {
+                let text = args
+                    .get("text")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|t| !t.is_empty())
+                    .ok_or("reply: `text` must be a non-empty text")?;
+                Ok(Call::Reply {
+                    id: num("id")?,
+                    text: text.to_owned(),
+                })
+            }
             "control" => ControlCall::parse(args).map(Call::Control),
             "profile" => {
                 let mut args = args.as_object().cloned().unwrap_or_default();
@@ -405,6 +463,8 @@ impl Call {
             Call::Date { id } => memory.date(id),
             Call::Spawn { .. }
             | Call::Tell { .. }
+            | Call::React { .. }
+            | Call::Reply { .. }
             | Call::Control(_)
             | Call::ZoomAgent { .. }
             | Call::Profile { .. }
@@ -437,6 +497,10 @@ impl Call {
                 }
                 v
             }
+            Call::React { id, reaction } => {
+                json!({"tool": "react", "id": id, "reaction": reaction})
+            }
+            Call::Reply { id, text } => json!({"tool": "reply", "id": id, "text": text}),
             Call::Control(c) => c.to_json(),
             Call::Profile { args } => {
                 let mut v = args.clone();
@@ -566,6 +630,31 @@ fn connection(conn: UnixStream, served: &Served) {
         let answer = match serde_json::from_str::<Value>(&line) {
             Ok(req) => {
                 let tool = req.get("tool").and_then(Value::as_str).unwrap_or("");
+                // These are owner/host controls, not model tools. A caller
+                // bound to one of this Chief's subagent sessions never gets
+                // them, even if it clears the advisory `from` marker.
+                if matches!(
+                    tool,
+                    "settings"
+                        | "spawn_policy"
+                        | "engine"
+                        | "stop"
+                        | "inspect"
+                        | "grant"
+                        | "browse"
+                ) && role() == crate::turn_caller::Role::Subagent
+                {
+                    if writeln!(
+                        out,
+                        "{}",
+                        json!({"error": "subagents have no owner controls"})
+                    )
+                    .is_err()
+                    {
+                        return;
+                    }
+                    continue;
+                }
                 // Not a model tool: the `browse` command asks the live host.
                 if tool == "settings" || tool == "spawn_policy" {
                     let ask = match req.get("key").and_then(Value::as_str) {
@@ -679,12 +768,15 @@ fn connection(conn: UnixStream, served: &Served) {
                     Ok(
                         Call::Spawn { .. }
                         | Call::Tell { .. }
+                        | Call::React { .. }
+                        | Call::Reply { .. }
                         | Call::Control(_)
                         | Call::Profile { .. }
                         | Call::Chiefs { .. },
-                    ) if subagent => {
-                        Err("subagents have no spawn, tell, control, profile or chiefs".to_owned())
-                    }
+                    ) if subagent => Err(
+                        "subagents have no spawn, tell, react, reply, control, profile or chiefs"
+                            .to_owned(),
+                    ),
                     // `chiefs` only for this host's own turn: the turn key the
                     // host gave its turn sessions alone, from a caller that
                     // runs under one of them (rule C: a subagent, any other
@@ -720,6 +812,14 @@ fn connection(conn: UnixStream, served: &Served) {
                     Ok(Call::Tell { id, message, key }) => match &served.orchestrator {
                         Some(o) => o.tell_keyed(&id, &message, key.as_deref()),
                         None => Err("this Chief host runs no subagents".to_owned()),
+                    },
+                    Ok(Call::React { id, reaction }) => match &served.orchestrator {
+                        Some(o) => o.react(id, &reaction),
+                        None => Err("this Chief host has no conversation to react in".to_owned()),
+                    },
+                    Ok(Call::Reply { id, text }) => match &served.orchestrator {
+                        Some(o) => o.reply(id, &text),
+                        None => Err("this Chief host has no conversation to reply in".to_owned()),
                     },
                     Ok(Call::Control(request)) => match &served.orchestrator {
                         Some(o) => o.control(request),

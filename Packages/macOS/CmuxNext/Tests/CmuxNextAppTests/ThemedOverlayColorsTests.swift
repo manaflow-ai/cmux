@@ -58,11 +58,13 @@ import Testing
 
     @Test func homeSheetNotesDrawInTheTheme() throws {
         let scope = try Self.purpleRoom()
-        let compose = HomeComposeSheet(contacts: [])
         let invite = HomeInviteSheet(pending: ["ada@example.com"])
-        for sheet in [compose, invite] as [HomeSheetController] {
-            scope.root(sheet.view)
-            for label in Self.labels(in: sheet.view) {
+        // New Message is a page now: its To: field's label and its suggestions' note.
+        let to = HomeRecipientField(frame: NSRect(x: 0, y: 0, width: 480, height: 44))
+        to.suggestions.show([], empty: "No teammates yet.")
+        for root in [invite.view, to, to.suggestions] {
+            scope.root(root)
+            for label in Self.labels(in: root) {
                 #expect(Self.isThemeInk(label.textColor, scope), "\(label.stringValue)")
             }
         }
@@ -76,16 +78,16 @@ import Testing
         let dialog = CmuxDialogView(spec: CmuxDialogSpec(title: "Move Tab", fields: [
             .choice(id: "window", label: nil, options: [.init(label: "Window A", value: "a")], selected: "a"),
         ], buttons: [.ok()]))
-        let compose = HomeComposeSheet(contacts: [])
-        let views: [NSView] = [settings, restart, placeholder, dialog, compose.view]
+        let invite = HomeInviteSheet(pending: [])
+        let views: [NSView] = [settings, restart, placeholder, dialog, invite.view]
         for view in views { scope.root(view) }
 
         // The sheets' factory-made buttons keep the system's automatic style, so they are named.
         let found = views.flatMap(Self.pushButtons(in:))
         // The Chief settings' Harness, Model and Effort pickers; its other buttons are links.
         #expect(Self.pushButtons(in: settings).count == 3)
-        #expect(found.count >= 5)
-        let buttons = found + [compose.cancelButton, compose.inviteButton]
+        #expect(found.count >= 4)
+        let buttons = found + [invite.cancelButton]
         let fill = scope.perform { Palette.selectionFill }
         for button in buttons {
             let bezel = try #require(button.bezelColor, "\(button.title)")
