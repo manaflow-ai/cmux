@@ -6352,6 +6352,13 @@ jobs:
             cp release-notes/next/announcements.json notes/announcements.json
             signed+=(notes/announcements.json)
           fi
+          # Invite-wave flags for cmux-tui testers (tui-tester-rollout #10): the reviewed
+          # release-notes/next/flags.json, signed with the same content-signing key.
+          if [ -f release-notes/next/flags.json ]; then
+            python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d.get("version")==1 and isinstance(d.get("default",{}),dict) and isinstance(d.get("cohorts",{}),dict)' release-notes/next/flags.json
+            cp release-notes/next/flags.json notes/flags.json
+            signed+=(notes/flags.json)
+          fi
           key="$(mktemp)"
           trap 'rm -f "$key"' EXIT
           printf '%s\n' "$CONTENT_SIGNING_ED25519_PEM" > "$key"
@@ -6438,7 +6445,7 @@ jobs:
             name="$(basename "$file")"
             key="${NIGHTLY_NEXT_R2_PREFIX}notes/$name"
             python3 scripts/ci/nightly-next-guard.py r2-key "$NIGHTLY_NEXT_R2_BUCKET" "$key"
-            case "$name" in index.json|index.json.sig|announcements.json|announcements.json.sig) cache="no-cache, no-store, must-revalidate" ;; *) cache="public, max-age=3600" ;; esac
+            case "$name" in index.json|index.json.sig|announcements.json|announcements.json.sig|flags.json|flags.json.sig) cache="no-cache, no-store, must-revalidate" ;; *) cache="public, max-age=3600" ;; esac
             case "$name" in *.json) type="application/json" ;; *) type="text/plain" ;; esac
             python3 scripts/ci/upload-r2-object.py --file "$file" --endpoint-url "$R2_ENDPOINT" \
               --bucket "$NIGHTLY_NEXT_R2_BUCKET" --key "$key" --content-type "$type" --cache-control "$cache"

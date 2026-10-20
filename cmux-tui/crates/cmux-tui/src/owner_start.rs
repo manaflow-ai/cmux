@@ -1,5 +1,6 @@
 //! Process setup that only the terminal owner (the mux server) needs.
 
+mod background_checks;
 mod crash_forward;
 mod memory_guard;
 mod owner_panic;
@@ -12,7 +13,8 @@ mod owner_panic;
 ///
 /// The headless owner also records every panic (`owner_panic`, cx-urd.59)
 /// and sends the ones not sent yet to Sentry (`crash_forward`), and watches
-/// its own memory (`memory_guard`).
+/// its own memory (`memory_guard`), and fetches the signed invite-wave flags
+/// and the daily update answer (`background_checks`).
 pub(crate) fn prepare(args: &crate::Args) -> anyhow::Result<()> {
     if args.headless {
         owner_panic::install(&args.session);
@@ -25,6 +27,7 @@ pub(crate) fn prepare(args: &crate::Args) -> anyhow::Result<()> {
             .collect();
         let forwarder = crash_forward::start(logs);
         memory_guard::spawn(panic_log, forwarder);
+        background_checks::spawn();
     }
     if args.ephemeral && args.state.is_some() {
         anyhow::bail!("--ephemeral and --state are mutually exclusive");
