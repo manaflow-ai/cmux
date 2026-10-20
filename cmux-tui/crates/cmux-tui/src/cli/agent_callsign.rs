@@ -139,7 +139,7 @@ mod tests {
     /// Expected values are what agent_identity.py's `callsign_slug` and
     /// `callsign_state_slug` print for the same input.
     #[test]
-    fn slugs_match_agent_identity() {
+    fn provenance_callsign_slugs_match_agent_identity() {
         assert_eq!(slug("0f3c2a91-7d4e-4b8a"), "0f3c2a91_7d4e_4b8a");
         assert_eq!(slug("  Other Session!! "), "other_session");
         assert_eq!(slug("---"), "session");
@@ -149,7 +149,7 @@ mod tests {
     }
 
     #[test]
-    fn iso_times_read_like_fromisoformat() {
+    fn provenance_lease_times_read_like_fromisoformat() {
         assert_eq!(unix_seconds("1970-01-01T00:00:00Z"), Some(0.0));
         assert_eq!(unix_seconds("2026-10-20T04:00:00.500Z"), Some(1_792_468_800.5));
         assert_eq!(unix_seconds("2026-10-20T06:00:00+02:00"), Some(1_792_468_800.0));
