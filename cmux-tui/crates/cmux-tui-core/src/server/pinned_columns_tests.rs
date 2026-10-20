@@ -248,3 +248,104 @@ fn pinned_flags_are_stored_only_when_set() {
     let old: ColumnDock = serde_json::from_str(r#"{"edge":"left","mode":"docked"}"#).unwrap();
     assert!(!old.pinned && !old.allow_tabs, "an old record reads as not pinned");
 }
+
+/// `pinned-dock-alone-v1` (Leo 2026-10-19: "i cant even close the terminal on
+/// the right of chief"): closing the last column beside the Home dock is no
+/// longer refused. The pinned column stays, alone, at its own width, with its
+/// pin and its tab.
+#[test]
+fn closing_the_last_column_beside_a_pinned_dock_leaves_the_dock_alone() {
+    let (mut wire, panes) = Wire::home();
+    let identity = wire.ok(json!({"cmd": "identify"}));
+    let capabilities = identity["capabilities"].as_array().unwrap();
+    assert!(capabilities.contains(&json!("pinned-dock-alone-v1")), "{identity}");
+    let home = wire.tabs(panes[0])[0];
+    let width = wire.mux.with_state(|state| state.workspaces[0].screens[0].layout_columns[0].width);
+    let right = wire.tabs(panes[1])[0];
+    wire.ok(json!({"cmd": "close-surface", "surface": right}));
+    let (columns, dock, kept) = wire.mux.with_state(|state| {
+        let screen = &state.workspaces[0].screens[0];
+        let columns = screen
+            .layout_columns
+            .iter()
+            .map(|c| (c.width, c.root.pane_ids_vec()))
+            .collect::<Vec<_>>();
+        (
+            columns,
+            screen.layout_columns.first().and_then(|c| c.dock),
+            state.panes.contains_key(&panes[1]),
+        )
+    });
+    assert_eq!(columns, vec![(width, vec![panes[0]])], "the dock is the screen's only column");
+    let dock = dock.expect("still docked");
+    assert!(dock.pinned && dock.edge == crate::model::DockEdge::Left, "{dock:?}");
+    assert!(!kept, "the closed column's pane is gone");
+    assert_eq!(wire.tabs(panes[0]), vec![home]);
+    // The pinned tab still never closes.
+    refused(&wire.send(json!({"cmd": "close-surface", "surface": home})));
+}
+
+/// `pinned-dock-alone-v1` (Leo 2026-10-19: "did we disable the initial thing
+/// auto opening a random terminal pane on the right yet?"): a screen's only
+/// tab moves into a new pinned dock without a `respawn`, so Home's dock needs
+/// no placeholder terminal on its right. An unpinned dock still needs one.
+#[test]
+fn a_screens_only_tab_becomes_a_lone_pinned_dock_without_a_respawn() {
+    let mut wire = Wire::home().0;
+    let lone = wire.mux.new_workspace(None, Some((80, 22))).unwrap().id;
+    let pane = wire.mux.with_state(|state| state.pane_of(lone).unwrap());
+    let unpinned = json!({"edge": "left", "mode": "docked", "role": "agent_chat"});
+    let response = wire.send(json!({
+        "cmd": "move-tab-to-column", "surface": lone, "pane": pane, "width": 0.4, "dock": unpinned,
+    }));
+    assert_eq!(response["ok"], false, "an unpinned dock alone is refused: {response}");
+    let pinned = json!({"edge": "left", "mode": "docked", "role": "agent_chat", "pinned": true});
+    let data = wire.ok(json!({
+        "cmd": "move-tab-to-column", "surface": lone, "pane": pane, "width": 0.4, "dock": pinned,
+        "transaction": "home-dock-1",
+    }));
+    let new_pane: PaneId = serde_json::from_value(data["pane"].clone()).unwrap();
+    assert_eq!(wire.tabs(new_pane), vec![lone]);
+    let (columns, panes) = wire.mux.with_state(|state| {
+        let (workspace, screen) = state.screen_of(new_pane).unwrap();
+        let screen = &state.workspaces[workspace].screens[screen];
+        let columns = screen.layout_columns.iter().map(|c| (c.width, c.dock)).collect::<Vec<_>>();
+        (columns, screen.root.pane_ids_vec())
+    });
+    assert_eq!(panes, vec![new_pane], "no terminal was left behind");
+    let [(width, Some(dock))] = columns.as_slice() else {
+        panic!("one docked column: {columns:?}")
+    };
+    assert!((width - 0.4).abs() < 1e-6 && dock.pinned, "{columns:?}");
+    assert_eq!(dock.role, Some(crate::model::DockRole::AgentChat));
+}
+
+/// `pinned-dock-alone-v1`: with nothing beside it, the pinned dock takes a
+/// new tab (an agent's tab beside its chat is made there, unselected) and the
+/// tab then moves out into a new column right of the dock. With a column
+/// beside it again, the dock takes no tab.
+#[test]
+fn a_lone_pinned_dock_takes_a_tab_that_then_moves_out_beside_it() {
+    let (mut wire, panes) = Wire::home();
+    let home = wire.tabs(panes[0])[0];
+    let right = wire.tabs(panes[1])[0];
+    wire.ok(json!({"cmd": "close-surface", "surface": right}));
+    let params =
+        json!({"machine": "current", "session": "current", "pane": wire.pane_id(panes[0])});
+    resource_ok(&resource(&wire.mux, "tab.create_terminal", params.clone(), Some("lone-new")));
+    let tabs = wire.tabs(panes[0]);
+    assert_eq!(tabs.len(), 2, "the lone dock took the tab: {tabs:?}");
+    assert_eq!(tabs[0], home, "the pinned tab keeps the first place");
+    let data = wire.ok(json!({
+        "cmd": "move-tab-to-column", "surface": tabs[1], "pane": panes[0], "width": 0.5,
+    }));
+    let moved: PaneId = serde_json::from_value(data["pane"].clone()).unwrap();
+    assert_eq!(wire.tabs(panes[0]), vec![home], "the tab left the dock");
+    assert_eq!(wire.tabs(moved), vec![tabs[1]]);
+    let docks = wire.mux.with_state(|state| {
+        let screen = &state.workspaces[0].screens[0];
+        screen.layout_columns.iter().map(|c| c.dock.is_some_and(|d| d.pinned)).collect::<Vec<_>>()
+    });
+    assert_eq!(docks, vec![true, false], "the dock, then the new column right of it");
+    refused(&resource(&wire.mux, "tab.create_terminal", params, Some("beside-new")));
+}

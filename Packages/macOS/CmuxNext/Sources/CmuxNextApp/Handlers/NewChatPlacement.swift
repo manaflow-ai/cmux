@@ -15,6 +15,9 @@ enum NewChatPlacement: Equatable {
     case dock(LayoutPaneID)
     /// A new left chat dock, made from the chat once it exists.
     case newDock
+    /// A new column right of the chat dock: Home's pinned dock alone on its screen
+    /// (`pinned-dock-alone-v1`) takes no chat and has no scrolling pane beside it.
+    case besideDock
 
     /// `columns` are the pane's screen's; `isLoneChat` says the pane's column
     /// is one pane holding one agent chat, the only scrolling column. A lone
@@ -27,7 +30,7 @@ enum NewChatPlacement: Equatable {
             // `pinned-dock-v1`: a pinned chat dock (Home's) takes no new chat. It opens where it
             // was asked for, or in the first scrolling pane when that was the dock itself.
             guard dock.root.contains(pane) else { return .here }
-            return columns.first(where: { $0.dock == nil }).map { NewChatPlacement.dock($0.root.panes[0]) } ?? .here
+            return columns.first(where: { $0.dock == nil }).map { NewChatPlacement.dock($0.root.panes[0]) } ?? .besideDock
         }
         return isLoneChat ? .here : .newDock
     }
@@ -52,6 +55,8 @@ extension NewChatPlacement {
         var target: PaneController
         var select: Bool
         var hidden = false
+        /// The chat opens in a new pane on this side of `target` (a new column beside Home's lone dock).
+        var split: SplitDirection?
         var then: (@MainActor (String) -> Void)?
     }
 
@@ -66,6 +71,12 @@ extension NewChatPlacement {
             guard let content = controller.workspace, let dock = content.panes[pane] else { break }
             opening.target = dock
             if select { PaneHandlers.focus(pane, in: content) }
+        case .besideDock:
+            // One daemon commit: the conversation tab in a split right of the pinned dock, which the
+            // daemon makes a column beside it (`conversation-tab-split-v1`). Without that the chat
+            // opens in the dock, which takes tabs while it is alone (`pinned-dock-alone-v1`).
+            guard controller.daemon.supports(DaemonCapabilities.shared.conversationTabSplit) else { break }
+            opening.split = .right
         case .newDock:
             opening.hidden = true
             opening.select = false
