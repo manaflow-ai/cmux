@@ -50,7 +50,7 @@ extension SidebarItemRowView {
             let textX = pad + d + Metrics.space2
             let textWidth = chevronX - Metrics.space1 - textX
             // The avatar and chevron alone where the name has no room (#14893).
-            title.frame = textWidth < font.pointSize ? .zero
+            title.frame = textWidth < font.pointSize * 3 ? .zero
                 : NSRect(x: textX, y: (bounds.height - th) / 2, width: textWidth, height: th)
         } else {
             avatarView.frame = bounds
