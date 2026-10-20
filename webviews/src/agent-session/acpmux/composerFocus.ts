@@ -1,4 +1,7 @@
 import { useEffect, useRef } from "react";
+import type { PageClient } from "../../pages/shared/pageClient";
+import { FOCUS_CONTENT_COMMAND, nothingFocused } from "../../pages/shared/pageFocus";
+import { subscribePageStreams } from "../../pages/shared/pageStreams";
 
 // The composer takes the keyboard inside the agent pane: it is focused when the pane opens
 // or becomes active with nothing else focused in it, and a printed key typed while focus sits
@@ -50,15 +53,24 @@ export function focusedArea(element: Element | null): string {
   return `${element.tagName.toLowerCase()}${id}${className}`;
 }
 
+/// Whether the page's keyboard is free for the composer: nothing in it has focus, and no text is
+/// selected (a selection in the transcript, kept while the pane was away, stays to be copied).
+export function idleForComposer(doc: Document): boolean {
+  if (!nothingFocused(doc)) return false;
+  const selection = doc.getSelection();
+  return !selection || selection.isCollapsed;
+}
+
 /// Installs the composer's claim on the keyboard. `focusComposer` focuses the prompt and
-/// returns false when no composer is shown.
-export function useComposerKeyboard(focusComposer: () => boolean) {
+/// returns false when no composer is shown. `page` is the shared page host's client (null on the
+/// old host): its `focusContent` command, sent each time the page's web view becomes first
+/// responder, claims an idle keyboard too (pane-focus-DESIGN.md P18).
+export function useComposerKeyboard(focusComposer: () => boolean, page: PageClient | null = null) {
   const latest = useRef(focusComposer);
   latest.current = focusComposer;
   useEffect(() => {
     const claimIfIdle = () => {
-      const active = document.activeElement;
-      if (!active || active === document.body) latest.current();
+      if (idleForComposer(document)) latest.current();
     };
     const onKey = (event: KeyboardEvent) => {
       if (!routesToComposer(event, document.activeElement)) return;
@@ -72,11 +84,26 @@ export function useComposerKeyboard(focusComposer: () => boolean) {
     window.addEventListener("focus", claimIfIdle);
     window.addEventListener(COMPOSER_READY_EVENT, claimIfIdle);
     document.addEventListener("keydown", onKey);
+    let stopCommands: (() => void) | undefined;
+    let ended = false;
+    if (page)
+      void subscribePageStreams(page, {
+        onCommand: (command) => {
+          if (command.command === FOCUS_CONTENT_COMMAND) claimIfIdle();
+        },
+      })
+        .then((stop) => {
+          if (ended) stop();
+          else stopCommands = stop;
+        })
+        .catch(() => undefined);
     return () => {
+      ended = true;
+      stopCommands?.();
       cancelAnimationFrame(first);
       window.removeEventListener("focus", claimIfIdle);
       window.removeEventListener(COMPOSER_READY_EVENT, claimIfIdle);
       document.removeEventListener("keydown", onKey);
     };
-  }, []);
+  }, [page]);
 }
