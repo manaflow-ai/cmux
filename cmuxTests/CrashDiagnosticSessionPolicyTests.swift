@@ -465,6 +465,80 @@ struct CrashDiagnosticSessionPolicyTests {
     }
 
     @Test
+    func sessionSnapshotMergesExactAgentFingerprintAndRetainsIdentitylessWorkspaces() {
+        let checkpointID = "01a149a7-fbec-7240-9c88-ed6faec559ca"
+
+        func workspace(_ directory: String, checkpoint: String? = nil) -> SessionWorkspaceSnapshot {
+            let panelID = UUID()
+            let terminal = SessionTerminalPanelSnapshot(
+                workingDirectory: directory,
+                agent: checkpoint.map {
+                    SessionRestorableAgentSnapshot(
+                        kind: .codex,
+                        sessionId: $0,
+                        workingDirectory: directory
+                    )
+                },
+                wasAgentRunning: checkpoint != nil
+            )
+            return SessionWorkspaceSnapshot(
+                workspaceId: nil,
+                processTitle: "Terminal",
+                customTitle: nil,
+                customColor: nil,
+                isPinned: false,
+                currentDirectory: directory,
+                focusedPanelId: panelID,
+                layout: .pane(SessionPaneLayoutSnapshot(panelIds: [panelID], selectedPanelId: panelID)),
+                panels: [terminalPanelSnapshot(id: panelID, directory: directory, terminal: terminal)],
+                statusEntries: [],
+                logEntries: [],
+                progress: nil,
+                gitBranch: nil
+            )
+        }
+        func window(_ workspaces: [SessionWorkspaceSnapshot]) -> SessionWindowSnapshot {
+            SessionWindowSnapshot(
+                frame: nil,
+                display: nil,
+                tabManager: SessionTabManagerSnapshot(selectedWorkspaceIndex: 0, workspaces: workspaces),
+                sidebar: SessionSidebarSnapshot(isVisible: true, selection: .tabs, width: nil)
+            )
+        }
+
+        let snapshot = AppSessionSnapshot(
+            version: SessionSnapshotSchema.currentVersion,
+            createdAt: 10,
+            windows: [
+                window([
+                    workspace("/work/project", checkpoint: checkpointID),
+                    workspace("/work/first"),
+                    workspace("/work/auxiliary"),
+                ]),
+                window([
+                    workspace("/work/project", checkpoint: checkpointID),
+                    workspace("/work/second"),
+                    workspace("/work/third"),
+                ]),
+            ]
+        )
+
+        let pruned = SessionPersistencePolicy.pruningCmuxCrashDiagnosticWindows(from: snapshot)
+
+        #expect(pruned.removedAny)
+        #expect(pruned.snapshot?.windows.count == 1)
+        #expect(
+            Set(pruned.snapshot?.windows.first?.tabManager.workspaces.map(\.currentDirectory) ?? []) == [
+                "/work/project",
+                "/work/first",
+                "/work/auxiliary",
+                "/work/second",
+                "/work/third",
+            ]
+        )
+    }
+
+    @Test
     func sessionSnapshotMergesReorderedTitledCrashWindowsWithoutDroppingUniqueWorkspaces() {
         func workspace(_ title: String, _ directory: String, _ checkpoint: String?) -> SessionWorkspaceSnapshot {
             let panelID = UUID()
