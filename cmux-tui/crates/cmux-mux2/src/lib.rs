@@ -4,9 +4,18 @@
 //! `u32 little-endian length` (of what follows), `u8 kind`, payload.
 //! Terminal output travels as raw bytes in [`OUTPUT`] frames: no base64,
 //! no JSON, no copy beyond the socket write.
+//!
+//! The same frames may run over TCP for measurements across a network:
+//! `mux2d` listens on `MUX2_LISTEN=ADDR:PORT` as well as its Unix socket,
+//! and every client connects there when `MUX2_CONNECT=ADDR:PORT` is set.
+//! That listener is unauthenticated (any peer that reaches the port can run
+//! programs as the server's user): it is a development and benchmark tool,
+//! never a production transport. See [`net`].
 
 use std::io::{self, Read, Write};
 use std::path::PathBuf;
+
+pub mod net;
 
 // Client to server.
 pub const CREATE: u8 = 1;
