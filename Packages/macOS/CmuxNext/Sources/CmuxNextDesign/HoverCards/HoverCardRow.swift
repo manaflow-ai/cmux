@@ -355,11 +355,15 @@ public final class HoverCardGalleryHost: NSView, ThemeResponsive {
 
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        // A theme switch that keeps light or dark changes no appearance: hear the theme itself,
-        // from the window's scope when it has one, else the app's.
+        // A theme switch that keeps light or dark changes no appearance: hear the nearest scope's
+        // theme itself (the app's when the page has none of its own).
         observedScope?.removeResponder(self)
-        observedScope = window.flatMap { ThemeScopeRegistry.scope(of: $0) }
-        if let observedScope { observedScope.addResponder(self) } else { ThemeStore.shared.addResponder(self) }
+        observedScope = nil
+        if window != nil {
+            let scope = ThemeScopeRegistry.resolve(self)
+            scope.addResponder(self)
+            observedScope = scope
+        }
         recolor()
     }
 
