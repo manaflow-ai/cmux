@@ -174,6 +174,14 @@ public final class HomeSidebarSource {
         store.save(unreadMarks: unreadMarks, account: account())
     }
 
+    /// Hide Alerts or Show Alerts for `id`, with the owner that lists it (Cloud conversations only).
+    public func setMuted(_ on: Bool, _ id: ConversationID) {
+        owner(of: id)?.setMuted(on, id.rawValue)
+    }
+
+    /// Whether `id` can be muted (a Cloud DM or group listed by its owner).
+    public func canMute(_ id: ConversationID) -> Bool { owner(of: id)?.canMute(id.rawValue) == true }
+
     /// The signed-in account changed: its own pins and unread marks.
     public func reloadPins() {
         pins = store.pins(account: account())

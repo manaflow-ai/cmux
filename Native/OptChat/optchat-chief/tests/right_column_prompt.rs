@@ -74,7 +74,10 @@ fn every_agent_prompt_counts_work_as_done_only_when_it_landed() {
                 || flat.contains("a scratch, work or red branch is not landed"),
             "{name}: no landing rule"
         );
-        assert!(flat.contains("sha range"), "{name}: report has no landed sha range");
+        assert!(
+            flat.contains("sha range"),
+            "{name}: report has no landed sha range"
+        );
     }
 }
 
