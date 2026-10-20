@@ -307,3 +307,22 @@ test("a host without a devices provider draws nothing", async () => {
   expect(card(page.container).childElementCount).toBe(0);
   page.unmount();
 });
+
+test("a fingerprint shows the whole key on hover and Copy writes it", async () => {
+  const page = await open();
+  const self = card(page.container).querySelector<HTMLElement>('[data-devices-group="this"] [data-device="dev-mac-studio"]')!;
+  const full = "1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809";
+  expect(self.querySelector("[data-device-fingerprint] code")!.getAttribute("title")).toBe(full);
+  await click(self.querySelector("[data-device-copy-fingerprint]")!);
+  expect(page.provider.clipboard).toBe(full);
+  page.unmount();
+});
+
+test("history cells wrap instead of widening the table", async () => {
+  const page = await open();
+  const table = card(page.container).querySelector<HTMLElement>(".devices-history")!;
+  const first = table.querySelector("tbody tr")!;
+  expect(first.querySelectorAll("td.devices-wrap").length).toBe(3);
+  expect(first.querySelector("td.devices-time")).not.toBeNull();
+  page.unmount();
+});

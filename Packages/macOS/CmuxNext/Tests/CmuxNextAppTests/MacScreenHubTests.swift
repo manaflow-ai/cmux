@@ -26,6 +26,12 @@ nonisolated private struct TestDeviceKeys: DeviceKeyMaterial {
     }
 }
 
+/// Calls in order (a class: actor-isolated closures cannot capture a mutable local).
+@MainActor
+private final class CallLog {
+    var items: [String] = []
+}
+
 private let hostID = "0b6c1a2e-3d4f-4a5b-8c9d-aabbccddeeff"
 
 @MainActor
@@ -88,7 +94,7 @@ struct MacScreenHubCardTests {
         #expect(MacScreenPaneModel.hubCard(.streaming(sessionID: "s", scope: .full)) == nil)
         #expect(MacScreenPaneModel.hubCard(.declined(.view)) == .hubDeclined(.view))
         #expect(MacScreenPaneModel.hubCard(.refused(.hostOffline, requested: .full)) == .hubRefused(.hostOffline, requested: .full))
-        #expect(MacScreenPaneModel.hubCard(.revoked(reason: "permission_changed")) == .hubRevoked(.permissionChanged))
+        #expect(MacScreenPaneModel.hubCard(.revoked(reason: "permission_revoked")) == .hubRevoked(.permissionRevoked))
         #expect(MacScreenPaneModel.hubCard(.ended(reason: "sharing_off")) == .hubEnded(.sharingOff))
     }
 
@@ -106,16 +112,49 @@ struct MacScreenHubCardTests {
         #expect(MacScreenHubRefusal(.transport("offline")) == .other)
     }
 
-    @Test func endReasonsReadTheProtocolsAndThisAppsReasons() {
-        #expect(MacScreenEndReason("permission_changed") == .permissionChanged)
+    @Test func endReasonsReadTheProtocolsAuthoritativeReasons() {
+        #expect(MacScreenEndReason("permission_revoked") == .permissionRevoked)
+        #expect(MacScreenEndReason("permission_changed") == .permissionRevoked)
+        #expect(MacScreenEndReason("device_removed:viewer") == .viewerRemoved)
+        #expect(MacScreenEndReason("device_removed:host") == .hostRemoved)
         #expect(MacScreenEndReason("device_removed") == .deviceRemoved)
         #expect(MacScreenEndReason("sharing_off") == .sharingOff)
-        #expect(MacScreenEndReason(MacScreenHubReason.hostStopped.rawValue) == .hostStopped)
-        #expect(MacScreenEndReason(MacScreenHubReason.revoked.rawValue) == .hostStopped)
-        #expect(MacScreenEndReason(MacScreenHubReason.viewerDisconnected.rawValue) == .viewerDisconnected)
-        #expect(MacScreenEndReason(MacScreenHubReason.signedOut.rawValue) == .signedOut)
+        #expect(MacScreenEndReason("host_stopped") == .hostStopped)
+        #expect(MacScreenEndReason("viewer_disconnected") == .viewerDisconnected)
+        #expect(MacScreenEndReason("signed_out") == .signedOut)
+        #expect(MacScreenEndReason("peer_offline") == .peerOffline)
+        #expect(MacScreenEndReason("failed") == .failed)
         #expect(MacScreenEndReason("bye") == .other)
         #expect(MacScreenEndReason(nil) == .other)
+        #expect(MacScreenHubReason.hostStopped.rawValue == "host_stopped")
+        #expect(MacScreenHubReason.viewerDisconnected.rawValue == "viewer_disconnected")
+        #expect(MacScreenHubReason.signedOut.rawValue == "signed_out")
+    }
+
+    /// The viewer's card names the host device; "This Mac" is only ever the viewer itself.
+    @Test func endTextsNameTheHost() {
+        for reason: MacScreenEndReason in [.permissionRevoked, .hostRemoved, .sharingOff, .hostStopped, .peerOffline] {
+            #expect(reason.text(host: "Mac mini 2").contains("Mac mini 2"))
+        }
+        #expect(MacScreenEndReason.hostStopped.text(host: "Mac mini 2") != MacScreenEndReason.other.text(host: "Mac mini 2"))
+        #expect(MacScreenEndReason.permissionRevoked.removesAccess && MacScreenEndReason.viewerRemoved.removesAccess)
+        #expect(!MacScreenEndReason.hostStopped.removesAccess && !MacScreenEndReason.sharingOff.removesAccess)
+    }
+
+    /// A failed stream says why: a relay's refusal or unreachability, a relay-only path, or the host by name.
+    @Test func failedCardsSayWhy() {
+        let refused = ICECandidateError(code: 401, url: "turn:relay.example:3478", text: "Unauthorized")
+        let unreachable = ICECandidateError(code: 701, url: "turns:relay.example:5349", text: "")
+        let generic = MacScreenPaneModel.failedDetail(relayErrors: [], relayOnly: false, hubTab: true, name: "Mac mini 2")
+        #expect(generic.contains("Mac mini 2"))
+        let refusedText = MacScreenPaneModel.failedDetail(relayErrors: [unreachable, refused], relayOnly: false, hubTab: true, name: "M")
+        let unreachableText = MacScreenPaneModel.failedDetail(relayErrors: [unreachable], relayOnly: true, hubTab: true, name: "M")
+        let relayOnly = MacScreenPaneModel.failedDetail(relayErrors: [], relayOnly: true, hubTab: true, name: "M")
+        #expect(Set([generic, refusedText, unreachableText, relayOnly]).count == 4)
+        #expect(ICERelayCheck.outcome([refused, unreachable]) == .refusedCredentials)
+        #expect(ICERelayCheck.outcome([unreachable]) == .unreachable)
+        #expect(ICERelayCheck.outcome([]) == .noRelayCandidate)
+        #expect(!ICECandidateError(code: 701, url: "stun:stun.example:3478", text: "").isTURN)
     }
 
     /// A device tab shows the stream's controls only while a session streams.
@@ -253,18 +292,44 @@ struct MacScreenHubViewerTests {
         viewer.denied()
         #expect(viewer.phase == .declined(.full))
         viewer.phase = .streaming(sessionID: "s2", scope: .full)
-        viewer.revoked(reason: "permission_changed")
-        #expect(viewer.phase == .revoked(reason: "permission_changed"))
+        viewer.revoked(reason: "permission_revoked")
+        #expect(viewer.phase == .revoked(reason: "permission_revoked"))
         #expect(stopped == 1)
         // The end that follows a revocation keeps the revocation's reason.
         viewer.ended(reason: "closed")
-        #expect(viewer.phase == .revoked(reason: "permission_changed"))
+        #expect(viewer.phase == .revoked(reason: "permission_revoked"))
         viewer.phase = .streaming(sessionID: "s3", scope: .view)
         viewer.ended(reason: "bye")
         #expect(viewer.phase == .ended(reason: "bye"))
         viewer.phase = .streaming(sessionID: "s4", scope: .view)
         viewer.hubGone()
         #expect(viewer.phase == .ended(reason: MacScreenHubReason.signedOut.rawValue))
+    }
+
+    /// Disconnect tells the hub why (`/end viewer_disconnected`) before the stream stops.
+    @Test func disconnectEndsOnTheHubBeforeTheStreamStops() async {
+        let hub = testHub()
+        let viewer = MacScreenHubViewer(deviceID: hostID) { hub }
+        let order = CallLog()
+        viewer.endSession = { _, id, reason in order.items.append("end \(id) \(reason)") }
+        viewer.stopStream = { order.items.append("stop") }
+        viewer.phase = .streaming(sessionID: "s1", scope: .full)
+        await withCheckedContinuation { done in
+            viewer.disconnect(reason: .viewerDisconnected) { done.resume() }
+            #expect(viewer.phase == .ended(reason: "viewer_disconnected"))
+        }
+        #expect(order.items == ["end s1 viewer_disconnected", "stop"])
+    }
+
+    /// A stream that failed keeps its card (which says why) when the hub's end for it arrives.
+    @Test func aFailedStreamKeepsItsCard() {
+        let hub = testHub()
+        let viewer = MacScreenHubViewer(deviceID: hostID) { hub }
+        viewer.endSession = { _, _, _ in }
+        viewer.phase = .streaming(sessionID: "s1", scope: .full)
+        viewer.streamFailed()
+        viewer.revoked(reason: "failed")
+        #expect(viewer.phase == .streaming(sessionID: "s1", scope: .full))
     }
 
     @Test func withoutAHubARequestIsRefusedAsSignedOut() {
@@ -306,6 +371,23 @@ struct MacScreenHubPushTests {
         pages.tabClosed("b")
     }
 
+    /// A restored device tab is titled with the device's last known name before the hub answers.
+    @Test func restoredDeviceTabsTakeTheirSavedName() async {
+        let pages = makePages()
+        await pages.store.load()
+        pages.store.rememberDeviceNames([hostID: "Mac mini 2"])
+        pages.restore("device:\(hostID)", for: "restored")
+        #expect(pages.title(for: "restored") == "Mac mini 2")
+        pages.restore("device:11111111-2222-3333-4444-555555555555", for: "unknown")
+        #expect(pages.title(for: "unknown") == "Mac")
+    }
+
+    /// With a device hub, the DEV home page drops link pairing and Share This Mac's link.
+    @Test func linkPairingOnlyWithoutAHub() {
+        #expect(MacScreenHomeView.showsLinks(hubConfigured: false) == MacScreenHomeView.showsLinkPairing)
+        #expect(!MacScreenHomeView.showsLinks(hubConfigured: true))
+    }
+
     @Test func signingOutEndsEveryDeviceSession() throws {
         let pages = makePages()
         pages.prepare("a", record: MacScreenRecord(deviceID: hostID), byPerson: false)
@@ -335,6 +417,13 @@ struct MacScreenDevicesSettingsTests {
         #expect(changedRow.detail == "\(MacScreenAccess(.ask).title) → \(MacScreenAccess(.full).title)")
         #expect(changedRow.device == MacScreenDevicesSettings.historyRow(changed, names: [:], me: hostID).device)
         #expect(changedRow.duration.isEmpty && changedRow.time == "—")
+        // End reasons name the devices.
+        let stopped = AuditEntry(id: "e3", event: "ended", viewerId: "v1", hostId: hostID, detail: "host_stopped")
+        #expect(MacScreenDevicesSettings.historyRow(stopped, names: names, me: hostID).detail.contains("Studio"))
+        let removed = AuditEntry(id: "e4", event: "ended", viewerId: "v1", hostId: hostID, detail: "device_removed:viewer")
+        #expect(MacScreenDevicesSettings.historyRow(removed, names: names, me: hostID).detail.contains("Laptop"))
+        let disconnected = AuditEntry(id: "e5", event: "ended", viewerId: "v1", hostId: hostID, detail: "viewer_disconnected")
+        #expect(MacScreenDevicesSettings.historyRow(disconnected, names: names, me: hostID).detail.contains("Laptop"))
         #expect(MacScreenDevicesSettings.durationText(8) == "8s")
         #expect(MacScreenDevicesSettings.durationText(3840) == "1h 4m")
     }
@@ -358,6 +447,10 @@ struct MacScreenDevicesSettingsTests {
         #expect(MacScreenDevicesSettings.checkResult(.relayed).tone == "success")
         #expect(MacScreenDevicesSettings.checkResult(.noRelayCandidate).tone == "danger")
         #expect(MacScreenDevicesSettings.checkResult(.failed("x")).tone == "danger")
+        let refused = MacScreenDevicesSettings.checkResult(.refusedCredentials).text
+        let unreachable = MacScreenDevicesSettings.checkResult(.unreachable).text
+        let none = MacScreenDevicesSettings.checkResult(.noRelayCandidate).text
+        #expect(Set([refused, unreachable, none]).count == 3)
         #expect(ICERelayCheck.isRelayCandidate("candidate:1 1 udp 2 203.0.113.9 3478 typ relay raddr 0.0.0.0 rport 0"))
         #expect(!ICERelayCheck.isRelayCandidate("candidate:1 1 udp 2 192.168.1.2 5000 typ host"))
     }
@@ -377,5 +470,59 @@ struct MacScreenDevicesSettingsTests {
         pages.hubConfigured = false
         #expect(!settings.state.available)
         pages.hub = nil
+    }
+}
+
+/// The host's controls tell the hub the cause before anything closes here.
+@MainActor
+struct MacScreenHubHostOrderTests {
+    /// A signaling that stays open until closed (the host serves it meanwhile).
+    nonisolated final class OpenSignaling: ScreenSignaling, @unchecked Sendable {
+        private let lock = NSLock()
+        private var continuation: AsyncThrowingStream<ScreenSignal, any Error>.Continuation?
+        func messages() -> AsyncThrowingStream<ScreenSignal, any Error> {
+            let (stream, continuation) = AsyncThrowingStream.makeStream(of: ScreenSignal.self, throwing: (any Error).self)
+            lock.withLock { self.continuation = continuation }
+            return stream
+        }
+        func send(_ signal: ScreenSignal) async throws {}
+        func iceServers() async throws -> [ICEServerConfig] { [] }
+        func close() { lock.withLock { continuation }?.finish() }
+        var endsSessionOnClose: Bool { true }
+    }
+
+    private func serving() -> (MacScreenHubHost, DeviceHub) {
+        let file = FileManager.default.temporaryDirectory.appending(path: "mac-screen-\(UUID().uuidString)/mac-screen.json")
+        let pages = MacScreenPages(store: MacScreenStore(file: file, secrets: MemoryMacScreenSecrets()))
+        let hub = testHub()
+        let host = pages.hubHost
+        host.hub = { hub }
+        host.makeSignaling = { _, _ in OpenSignaling() }
+        host.serve(ticket("s1", role: .host, scope: .full, peer: "v1"))
+        return (host, hub)
+    }
+
+    @Test func revokeSetsNoneAndWaitsForTheHubsRevocation() async {
+        let (host, _) = serving()
+        let revoked = CallLog()
+        host.revokePermission = { _, viewer in revoked.items.append(viewer) }
+        await host.revokeViewer()?.value
+        #expect(revoked.items == ["v1"])
+        // Still serving: the hub's session.revoked push closes it, with the reason.
+        #expect(host.session?.id == "s1")
+        host.sessionOver("s1")
+        #expect(host.session == nil)
+    }
+
+    @Test func stopSharingEndsOnTheHubThenCloses() async {
+        let (host, _) = serving()
+        let calls = CallLog()
+        host.endSession = { _, id, reason in
+            // Still serving while the hub hears why.
+            calls.items.append("\(id) \(reason) \(host.session?.id ?? "closed")")
+        }
+        await host.stopSession()?.value
+        #expect(calls.items == ["s1 host_stopped s1"])
+        #expect(host.session == nil)
     }
 }
