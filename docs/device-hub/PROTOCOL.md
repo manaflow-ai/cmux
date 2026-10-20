@@ -107,7 +107,7 @@ end reason, the decision, or `old->new` for a permission change).
 | `POST /v1/devices` | `{id, name, platform, signingKey, agreementKey}` | `{device}` | Registers or updates this device. Signed by `signingKey`. The first registration sets `name`; once `PATCH` renamed the device, registration keeps that name. |
 | `GET /v1/devices` | | `{devices:[…]}` | Not removed devices, with `online` from open sockets. |
 | `PATCH /v1/devices/:id` | `{name}` | `{device}` | Any of the user's devices. |
-| `DELETE /v1/devices/:id` | | `{}` | Removes the device; ends its sessions; pushes revocations. |
+| `DELETE /v1/devices/:id` | | `{}` | Removes the device; ends its sessions; pushes revocations. Deletes every permission that names it, as host or as viewer, and pushes `permissions.changed` for each host that listed it. |
 | `PUT /v1/devices/:id/mac-screen` | `{shared}` | `{device}` | Only device `:id` itself may change its own sharing. |
 | `POST /v1/devices/:id/sign-out` | | `{}` | Only device `:id` itself (403 `not_host` otherwise). Ends its sessions at once with reason `signed_out`, closes its User DO socket (code 4003), lists it offline at once and pushes `devices.changed` to the other devices. The device stays registered. Call it before dropping the account session. |
 | `GET /v1/permissions?host=:id` | | `{permissions:[{viewerId, scope}]}` | One entry per other device; absent rows read `ask`. |
@@ -125,7 +125,8 @@ Errors: `{error:{code, message}}` with HTTP 400/401/403/404/409/429.
 Codes: `bad_request`, `unauthorized` (missing/expired hub session),
 `not_found`, `bad_signature`, `stale_timestamp`, `replay`, `device_removed`,
 `device_key_mismatch`, `not_shared`, `permission_none`,
-`scope_exceeds_permission`, `host_offline`, `not_host`, `session_not_pending`,
+`scope_exceeds_permission` (no longer sent: hubs before 2026-10-20 refused a
+scope above `view` with it; apps still read it as View Only), `host_offline`, `not_host`, `session_not_pending`,
 `session_not_active`, `ticket_invalid`, `role_taken`, `rate_limited` (reserved;
 v1 does not rate-limit yet), `internal` (500).
 
@@ -155,16 +156,21 @@ auto-response matches bytes exactly: send the text frame `{"type":"ping"}`, no
 spaces; the reply is `{"type":"pong"}`. Other device frames are ignored.
 `viewerKeyFingerprint` is the lowercase hex SHA-256 of the viewer's 65-byte
 signing key. Pushes reach only connected devices; there is no backlog, so a
-device refetches state after it reconnects.
+device refetches state after it reconnects: its devices, relays, its own
+permission list, and every other device's permission list it shows (its access
+to each host), so a change made while it was away never leaves an old value.
 
 ## Session flow
 
 1. Viewer `POST /v1/sessions {hostId, scope}`. Server checks: host not removed,
    host `mac_screen_shared`, permission(host, viewer):
-   - `none` → 403 `permission_none`;
-   - `view` and scope `full` → 403 `scope_exceeds_permission`;
+   - `none` → 403 `permission_none`, with no prompt;
    - `view`/`full` (covering the scope) → approved at once;
-   - `ask` or absent → `pending`; push `session.request` to the host device.
+   - `ask` or absent, or a scope above the permission (`view` asking for
+     `full`: the app's Ask for Access) → `pending`; push `session.request` to
+     the host device, whose prompt names the requested scope. Its decision
+     works as under `ask`: `once` grants the session only, `always` stores the
+     chosen scope, `deny` leaves the permission as it was.
    Host not connected → 409 `host_offline`. Audit `requested`.
 2. Host answers with `/decision`. `deny` → audit `denied`, push
    `session.denied` to the viewer. `once`/`always` → audit `approved`
