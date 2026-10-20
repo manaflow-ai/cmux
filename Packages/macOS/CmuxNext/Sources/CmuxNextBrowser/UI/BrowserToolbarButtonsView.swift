@@ -23,6 +23,8 @@ public final class BrowserToolbarButtonsView: NSStackView {
     /// The pinned buttons' ids (`browser.toolbarButtons`), read the same way,
     /// so a pin from any window or from cmux.json reaches every toolbar.
     public var pins: (() -> [String])? { didSet { rebind() } }
+    /// The media hub's cards, kept between opens.
+    public let mediaRows = BrowserMediaRows()
     /// Design mode and color scheme of the bound tab.
     public let modes = BrowserPageModes()
     /// 0 shows every button; 1 hides design mode and DevTools; 2 also

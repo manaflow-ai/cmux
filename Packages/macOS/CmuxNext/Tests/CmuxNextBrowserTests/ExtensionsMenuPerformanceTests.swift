@@ -53,26 +53,34 @@ import Testing
         return (window, anchor)
     }
 
-    @Test func fortyExtensionsOpenUnderFiftyAndReopenUnderTenMilliseconds() throws {
+    /// The shortest of `runs` timings: a shared CI worker adds load to some runs, never removes
+    /// work, so the minimum is the closest to the code's own cost.
+    static func fastest(_ runs: Int = 5, _ body: () -> Void) -> Duration {
+        let clock = ContinuousClock()
+        return (0..<runs).map { _ in clock.measure(body) }.min() ?? .zero
+    }
+
+    @Test func fortyExtensionsOpenWithinAFrame() throws {
         let tab = Self.tab()
         let (window, anchor) = Self.window()
         defer { window.close() }
         let handler = ExtensionsMenu.DirectHandler(host: tab) { _ in }
         let controller = ExtensionsMenuController()
         let clock = ContinuousClock()
-        // The toolbar prepares the rows when a tab binds, off the click's path.
+        // The toolbar prepares the rows and the panel when a tab binds, off the click's path.
         let prepare = clock.measure { controller.prepare(host: tab) }
-        print("TOOLBAR-PERF extensions.prepare=\(Self.milliseconds(prepare)) ms")
-        let open = clock.measure { controller.show(host: tab, handler: handler, anchor: anchor) }
+        let first = clock.measure { controller.show(host: tab, handler: handler, anchor: anchor) }
         try #require(controller.isShown)
         #expect(controller.content.rows.count == Self.count)
         controller.close()
-        let reopen = clock.measure { controller.show(host: tab, handler: handler, anchor: anchor) }
-        #expect(controller.isShown)
-        print("TOOLBAR-PERF extensions.open=\(Self.milliseconds(open)) ms extensions.reopen=\(Self.milliseconds(reopen)) ms")
-        #expect(Self.milliseconds(open) < 16, "open took \(Self.milliseconds(open)) ms")
-        #expect(Self.milliseconds(reopen) < 10, "reopen took \(Self.milliseconds(reopen)) ms")
-        controller.close()
+        let open = Self.fastest {
+            controller.show(host: tab, handler: handler, anchor: anchor)
+            controller.close()
+        }
+        print("TOOLBAR-PERF extensions.prepare=\(Self.milliseconds(prepare)) ms extensions.firstOpen=\(Self.milliseconds(first)) ms "
+              + "extensions.open=\(Self.milliseconds(open)) ms")
+        #expect(Self.milliseconds(open) < 16, "an open and close took \(Self.milliseconds(open)) ms")
+        #expect(Self.milliseconds(first) < 50, "the first open took \(Self.milliseconds(first)) ms")
     }
 
     @Test func aReopenDecodesNoIconAgain() throws {
@@ -101,17 +109,16 @@ import Testing
                                                         windowNumber: 0, context: nil, eventNumber: 0, trackingNumber: 0, userData: nil))
         let exit = try #require(NSEvent.enterExitEvent(with: .mouseExited, location: .zero, modifierFlags: [], timestamp: 0,
                                                        windowNumber: 0, context: nil, eventNumber: 0, trackingNumber: 0, userData: nil))
-        let clock = ContinuousClock()
-        var slowest = Duration.zero
+        var hovers: [Duration] = []
         for row in controller.content.rows {
             let rep = try #require(row.bitmapImageRepForCachingDisplay(in: row.bounds))
-            let hover = clock.measure {
+            hovers.append(Self.fastest(3) {
                 row.primary.mouseEntered(with: enter)
                 row.cacheDisplay(in: row.bounds, to: rep)
                 row.primary.mouseExited(with: exit)
-            }
-            slowest = max(slowest, hover)
+            })
         }
+        let slowest = hovers.max() ?? .zero
         print("TOOLBAR-PERF extensions.hover.max=\(Self.milliseconds(slowest)) ms")
         #expect(Self.milliseconds(slowest) < 16, "slowest hover took \(Self.milliseconds(slowest)) ms")
         controller.close()

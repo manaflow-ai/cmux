@@ -122,6 +122,25 @@ final class ExtensionsMenuController {
         render()
         content.layoutSubtreeIfNeeded()
         card.layoutSubtreeIfNeeded()
+        warmPanel()
+    }
+
+    /// Whether the panel has been on screen once.
+    private var panelWarm = false
+
+    /// Orders the panel in once, invisible and without the keys, so the window server builds its
+    /// backing store and the glass before the first click; that first order-in was most of a
+    /// cold open.
+    private func warmPanel() {
+        guard !panelWarm, !panel.isVisible else { return }
+        panelWarm = true
+        let alpha = panel.alphaValue
+        panel.alphaValue = 0
+        panel.setFrame(NSRect(origin: NSPoint(x: -10_000, y: -10_000), size: content.frame.size), display: false)
+        panel.orderFront(nil)
+        panel.displayIfNeeded()
+        panel.orderOut(nil)
+        panel.alphaValue = alpha
     }
 
     /// Rebuilds the rows that changed and resizes an open bubble in place.

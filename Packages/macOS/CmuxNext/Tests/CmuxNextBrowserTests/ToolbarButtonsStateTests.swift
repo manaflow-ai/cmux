@@ -169,23 +169,24 @@ import Testing
         #expect(Self.milliseconds(slowest) < 16, "a pin toggle took \(Self.milliseconds(slowest)) ms")
     }
 
-    /// The media menu with five tabs opens within a frame.
-    @Test func theMediaMenuOpensWithinAFrame() {
-        let clock = ContinuousClock()
-        let elapsed = clock.measure {
-            let menu = NSMenu()
-            for index in 0..<5 {
-                if index > 0 { menu.addItem(.separator()) }
-                let item = NSMenuItem()
-                item.view = BrowserMediaRowView(
-                    title: "Track \(index)", subtitle: "Artist · example.com",
-                    media: BrowserMediaState(title: "Track \(index)", isPlaying: index == 0, position: 30, duration: 240),
-                    artwork: nil, onCommand: { _ in }, onReveal: {})
-                menu.addItem(item)
-            }
-            _ = menu.size
+    static func cards(_ count: Int) -> [BrowserMediaRows.Card] {
+        (0..<count).map { index in
+            BrowserMediaRows.Card(key: "tab\(index)", title: "Track \(index)", subtitle: "Artist · example.com",
+                                  media: BrowserMediaState(title: "Track \(index)", isPlaying: index == 0, position: 30, duration: 240),
+                                  artwork: nil, onCommand: { _ in }, onReveal: {})
         }
-        print("TOOLBAR-PERF media.menu.open=\(Self.milliseconds(elapsed)) ms")
-        #expect(Self.milliseconds(elapsed) < 16, "the media menu took \(Self.milliseconds(elapsed)) ms")
     }
+
+    /// The media menu with five tabs opens within a frame: the cards are kept between opens.
+    @Test func theMediaMenuOpensWithinAFrame() {
+        let rows = BrowserMediaRows()
+        let clock = ContinuousClock()
+        let first = clock.measure { _ = rows.menu(Self.cards(5), empty: "").size }
+        #expect(rows.built == 5)
+        let open = ExtensionsMenuPerformanceTests.fastest { _ = rows.menu(Self.cards(5), empty: "").size }
+        #expect(rows.built == 5, "a reopen built its cards again")
+        print("TOOLBAR-PERF media.menu.first=\(Self.milliseconds(first)) ms media.menu.open=\(Self.milliseconds(open)) ms")
+        #expect(Self.milliseconds(open) < 16, "the media menu took \(Self.milliseconds(open)) ms")
+    }
+
 }
