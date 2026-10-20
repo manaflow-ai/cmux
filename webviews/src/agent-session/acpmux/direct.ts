@@ -230,14 +230,11 @@ export function permissionFromMessage(message: any, selectedSessionId: string): 
     groupId: typeof envelope.groupId === "string" ? envelope.groupId : undefined,
     turnId: typeof envelope.turnId === "string" ? envelope.turnId : undefined,
     title: raw.toolCall?.title,
+    // A string, or an argv array read the way the transcript's Shell block reads it (`sh -lc` unwrapped).
     command:
       typeof raw.toolCall?.command === "string"
         ? raw.toolCall.command
-        : typeof raw.toolCall?.rawInput?.command === "string"
-          ? raw.toolCall.rawInput.command
-          : typeof raw.command === "string"
-            ? raw.command
-            : undefined,
+        : (shellCommand(raw.toolCall?.rawInput) ?? (typeof raw.command === "string" ? raw.command : undefined)),
     description:
       typeof claudeMeta?.description === "string"
         ? claudeMeta.description
