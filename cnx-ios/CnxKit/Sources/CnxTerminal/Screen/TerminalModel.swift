@@ -57,6 +57,10 @@ public final class TerminalModel {
     public internal(set) var isUploading = false
     /// Why the last send with attachments failed (shown over the composer).
     public internal(set) var attachmentError: String?
+    /// The composer's text was not sent (the Mac is unreachable), or keys
+    /// typed meanwhile were dropped: shown over the composer until the
+    /// person sends again or edits (termfix-r13 D5, T-INPUT-17).
+    public internal(set) var composerNotice: String?
     @ObservationIgnored private var uploadTask: Task<Void, Never>?
 
     // Artifacts
@@ -77,8 +81,25 @@ public final class TerminalModel {
     public internal(set) var snapshot: UIImage?
 
     /// The Mac's screen as plain text (`read-screen`), fetched for the grid
-    /// card of a tab not opened in this launch (D5).
-    public var cardScreenText: String?
+    /// card of a tab not opened in this launch (D5), or of a started tab whose
+    /// page is off screen while the grid shows (D6).
+    public var cardScreenText: String? {
+        didSet { cardScreenTextAt = CACurrentMediaTime() }
+    }
+    @ObservationIgnored private var cardScreenTextAt: CFTimeInterval = 0
+    /// The Mac's screen still reads `cardScreenText`: date it now without a redraw.
+    public func confirmCardScreenText() { cardScreenTextAt = CACurrentMediaTime() }
+    /// When `snapshot` was last taken from the live page.
+    @ObservationIgnored private var cardSnapshotAt: CFTimeInterval = 0
+
+    /// The Mac's screen text arrived after the page's last snapshot.
+    public var cardScreenTextIsNewer: Bool { cardScreenText != nil && cardScreenTextAt > cardSnapshotAt }
+
+    /// The page drew output since its card snapshot (`TerminalCardLiveRefresh`).
+    public var cardIsBehind: Bool { lastDrawnOutput > cardSnapshotAt }
+
+    /// The page is in a window, so its presented frame can be copied for the card.
+    public var canCaptureCard: Bool { controller?.viewIfLoaded?.window != nil }
 
     /// The page was laid out and its session started in this launch.
     public var pageStarted: Bool { controller?.started == true }
@@ -172,6 +193,8 @@ public final class TerminalModel {
             break
         case .connection:
             break
+        case .inputNotSent:
+            composerNotice = TerminalConnectionState.inputNotSentNotice
         }
     }
 
@@ -259,6 +282,8 @@ public final class TerminalModel {
     /// Refreshes `snapshot` from the live page (the grid is about to show it).
     public func captureSnapshot() {
         if let image = controller?.snapshot() {
+            cardRenders += 1
+            cardSnapshotAt = CACurrentMediaTime()
             snapshot = image
             #if DEBUG
             if CommandLine.arguments.contains("-CnxDumpCard"), let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
@@ -267,6 +292,24 @@ public final class TerminalModel {
             #endif
         }
     }
+
+    /// The grid is open and the page drew output (D6): its card is taken
+    /// again, the frame copied here and composed off the main thread (the
+    /// main-thread render was 150-370 ms under load, V8 claim 7). A capture
+    /// with no presented frame keeps the card as it is.
+    public func refreshCardSnapshot() {
+        guard let capture = controller?.capture(hidingCursor: false), capture.surface != nil || capture.fallback != nil else { return }
+        cardRenders += 1
+        let serial = cardRenders
+        cardSnapshotAt = CACurrentMediaTime()
+        Task { @MainActor [weak self] in
+            let image = await Task.detached(priority: .userInitiated) { capture.render() }.value
+            // A newer card (another refresh, the grid opening) wins.
+            guard let self, let image, serial == self.cardRenders else { return }
+            self.snapshot = image
+        }
+    }
+    @ObservationIgnored private var cardRenders = 0
 
     public func focusComposer() {
         directTyping = false
@@ -282,6 +325,7 @@ public final class TerminalModel {
     /// there was text (a prompt to run), not for paths alone, which the
     /// person finishes (`ComposerSubmit`).
     public func send() {
+        guard composerMaySend() else { return }
         guard attachments.isEmpty else {
             sendAttachments(pressReturn: true)
             return
@@ -291,12 +335,30 @@ public final class TerminalModel {
     }
 
     public func sendWithoutReturn() {
+        guard composerMaySend() else { return }
         guard attachments.isEmpty else {
             sendAttachments(pressReturn: false)
             return
         }
         controller?.surface.sendText(composerText, pressReturn: false)
         composerText = ""
+    }
+
+    /// The Mac's terminal can take a command now. Otherwise the text stays in
+    /// the composer, marked not sent: it is never queued to run whenever the
+    /// Mac comes back (termfix-r13 D5: a command ran 15.4 minutes later).
+    private func composerMaySend() -> Bool {
+        if let notice = connectionState.composerNotSentNotice {
+            composerNotice = notice
+            return false
+        }
+        composerNotice = nil
+        return true
+    }
+
+    /// The person edited the draft: an old "not sent" note no longer applies to it.
+    func composerEdited() {
+        if composerNotice != nil { composerNotice = nil }
     }
 
     private func sendAttachments(pressReturn: Bool) {

@@ -156,6 +156,10 @@ pub struct DialOptions {
     pub stock_ice_waits: bool,
     /// Bound on the whole dial or answer.
     pub timeout: Duration,
+    /// Dial side, WebRTC: how long an offer waits for the Mac's answer. An
+    /// offer sent while the Mac's host was down or restarting is never
+    /// answered; this ends that dial long before `timeout` (termfix r13 D2b).
+    pub answer_timeout: Duration,
     /// Where the dial or answer records its steps (`offer_sent`,
     /// `ice_connected`, `dtls_connected`, `channel_open`, ...).
     pub timeline: crate::Timeline,
@@ -182,6 +186,7 @@ impl Default for DialOptions {
             video_blackout: None,
             stock_ice_waits: false,
             timeout: Duration::from_secs(25),
+            answer_timeout: Duration::from_secs(8),
             timeline: crate::Timeline::new(),
         }
     }

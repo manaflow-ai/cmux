@@ -33,6 +33,14 @@ struct TerminalComposer: View {
                 .accessibilityLabel("Scroll to bottom")
                 .transition(.opacity)
             }
+            if let notice = model.composerNotice {
+                Label(notice, systemImage: "exclamationmark.arrow.circlepath")
+                    .font(.footnote)
+                    .foregroundStyle(.orange)
+                    .padding(.horizontal, 10)
+                    .padding(.top, 4)
+                    .accessibilityIdentifier("terminal.composer.notSent")
+            }
             if let error = model.attachmentError {
                 Label(error, systemImage: "exclamationmark.circle")
                     .font(.footnote)
@@ -65,6 +73,7 @@ struct TerminalComposer: View {
             model.controller?.composerCardHeightChanged(height)
         }
         .animation(.smooth(duration: 0.3), value: model.attachments.count)
+        .onChange(of: model.composerText) { _, _ in model.composerEdited() }
         // Shown with a fade; gone at once when following starts (a Jump to
         // bottom tap: qa11 wt-fling-c, the row still drawn after the page
         // reached the bottom, and the card shrinking over 0.2 s moved the

@@ -138,6 +138,16 @@ final class ComposerUITextView: UITextView {
         didSet { updatePlaceholder() }
     }
 
+    /// A tap on the focused composer shows the edit menu; on an empty field
+    /// its only item was AutoFill, a pill over the last terminal rows that
+    /// stayed until dismissed (r13 D3, verifier 2026-10-19: 67 of 67 s with
+    /// the keyboard up). A shell line has nothing to AutoFill (SPEC M2).
+    /// Proof: `verify/termqa/afprobe/run.sh`.
+    override func buildMenu(with builder: any UIMenuBuilder) {
+        builder.remove(menu: .autoFill)
+        super.buildMenu(with: builder)
+    }
+
     init() {
         super.init(frame: .zero, textContainer: nil)
         placeholderLabel.font = .preferredFont(forTextStyle: .body)

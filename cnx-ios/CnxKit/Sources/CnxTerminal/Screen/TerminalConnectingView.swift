@@ -68,7 +68,7 @@ public struct TerminalConnectingView: View {
             }
             if showsLabel, let label = state.label {
                 HStack(spacing: 8) {
-                    ProgressView().controlSize(.small)
+                    if state.showsProgress { ProgressView().controlSize(.small) }
                     Text(verbatim: label)
                 }
                 .font(theme.type.meta.weight(.semibold))

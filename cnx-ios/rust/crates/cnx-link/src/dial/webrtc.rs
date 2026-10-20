@@ -500,9 +500,19 @@ impl Dialer for WebRtcDialer {
                 pending: Vec::new(),
             };
             let mut signaling_up = true;
+            // An offer sent while the Mac's host was down or restarting is never
+            // answered: give up at the answer deadline (termfix r13 D2b).
+            let answer_deadline = tokio::time::sleep(options.answer_timeout);
+            tokio::pin!(answer_deadline);
+            let mut answered = false;
             let opened = loop {
                 tokio::select! {
                     opened = &mut open_rx => break opened.map_err(|_| DialError::Transport("data channel never opened".into()))?,
+                    () = &mut answer_deadline, if !answered => {
+                        timeline.mark("answer_timeout");
+                        let _ = pc.close().await;
+                        return Err(DialError::Timeout);
+                    }
                     event = events.next(), if signaling_up => {
                         let Some(event) = signaling_outage(event, timeline, remote.ready)? else {
                             signaling_up = false;
@@ -513,6 +523,7 @@ impl Dialer for WebRtcDialer {
                             SignalPayload::WebrtcAnswer { sdp, lanes } => {
                                 agreed = super::input_lane_agreed(options, &lanes);
                                 video_agreed = super::video_lane_listed(&lanes);
+                                answered = true;
                                 timeline.mark("answer_received");
                                 let answer = RTCSessionDescription::answer(sdp).map_err(transport_error)?;
                                 pc.set_remote_description(answer).await.map_err(transport_error)?;
