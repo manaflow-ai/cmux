@@ -2606,6 +2606,65 @@ pre.cv-math-source {
   }
 }
 
+/* The running turn's activity line under its todo list (ActivityLine.tsx, agent.sessionStatus,
+   cx-ncc.102): three dots, what the agent is doing now and the turn's time. */
+.cv-activity {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 24px;
+  margin: 4px 0 8px;
+  padding-inline-start: 2px;
+  font-size: var(--text-body);
+  color: var(--cv-text-muted);
+}
+.cv-activity__label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cv-activity__time {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+.cv-activity__dots {
+  flex: none;
+  display: inline-flex;
+  gap: 2px;
+}
+.cv-activity__dots > span {
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: var(--agent-accent, currentColor);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .cv-activity__dots > span {
+    animation: cv-activity-dot 1.2s ease-in-out infinite;
+  }
+  .cv-activity__dots > span:nth-child(2) {
+    animation-delay: 0.15s;
+  }
+  .cv-activity__dots > span:nth-child(3) {
+    animation-delay: 0.3s;
+  }
+}
+/* Static status indicators (or Reduce Motion, above): the dots hold still. */
+:root[data-status-indicators="static"] .cv-activity__dots > span {
+  animation: none;
+}
+@keyframes cv-activity-dot {
+  0%,
+  60%,
+  100% {
+    opacity: 0.35;
+  }
+  30% {
+    opacity: 1;
+  }
+}
+
 /* ---------- A background shell's end (BackgroundTaskNote.tsx, cx-ncc.84) ---------- */
 .cv-bgtask[data-state="failed"] .cv-tool__icon {
   color: var(--agent-danger);

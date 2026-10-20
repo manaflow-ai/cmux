@@ -28013,7 +28013,7 @@
       },
       "help" : {
         "key" : "settings.home.chiefPetEnabled.help",
-        "text" : "A small Chief floats over every app and shows agent events above it. Drag it anywhere; click it to message the Chief or reply to a session."
+        "text" : "A small Chief floats over every app and shows agent events above it. Drag it anywhere; click it to message the Chief or reply to a session. While it shows, ⌃⌥⌘C opens its reply box from any app."
       },
       "kept_on_reset_all" : false,
       "key" : "home.chiefPetEnabled",
