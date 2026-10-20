@@ -409,19 +409,19 @@ impl Brain {
         self.stop_wanted = false;
         let items_sources: Vec<&'static str> =
             items.iter().map(|i| source_name(&i.source)).collect();
-        // Per-turn ambient state is read before choosing the policy: terminal
-        // screen text is untrusted even in a turn the owner started.
+        // Per-turn ambient state is read before choosing the policy. The whole
+        // Home view is untrusted: terminal/browser titles and URLs are just as
+        // attacker-controlled as terminal screen text. Asking whenever Home is
+        // available also covers a later `chief workspace` refresh in this turn.
         let home = self
             .settings
             .home_view
             .as_ref()
             .and_then(crate::home_view::HomeView::read);
-        let ambient_requires_approval = home
-            .as_deref()
-            .is_some_and(crate::home_view::contains_terminal_text);
+        let ambient_requires_approval = home.is_some();
         // The strictest origin wins. Paired-device work asks unless the owner
         // explicitly opted into auto-approval; another participant and
-        // ambient terminal text always ask.
+        // ambient Home text always ask.
         self.turn_remote = std::mem::take(&mut self.remote_taint)
             || items.iter().any(|i| {
                 matches!(
@@ -1481,6 +1481,7 @@ impl Brain {
                 text: super::recover::RESUMED.to_owned(),
                 source: Source::Resume {
                     remote: resume.remote,
+                    requires_approval: resume.requires_approval,
                     cut: resume.messages,
                 },
                 images: Vec::new(),
