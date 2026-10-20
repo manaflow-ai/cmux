@@ -3204,6 +3204,73 @@ jobs:
             "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/statuses/$STATUS_SHA" -d "$body" \
             || echo "::warning::could not post the $CONTEXT status"
 
+  # GITHUB_TOKEN workflow_dispatch does not emit workflow_run, so hand the
+  # exact successful DEV artifact to the publisher here instead of waiting for
+  # the cron dispatcher. The dispatcher remains the retry/backstop for a lost
+  # or failed handoff.
+  request-cmux-next-dev-publish:
+    needs: cmux-scheme-compile
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.dev_daily == true && needs.cmux-scheme-compile.result == 'success' && github.ref == 'refs/heads/feat-cmux-next' && github.repository == 'manaflow-ai/cmux' }}
+    name: Request cmux NEXT DEV publication
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - name: Record source queue and handoff receipt
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          SOURCE_SHA: ${{ inputs.dev_daily_sha }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/cmux-next-dev-handoff"
+          gh api "repos/$GH_REPO/actions/runs/$RUN_ID/jobs?filter=latest&per_page=100" > "$RUNNER_TEMP/cmux-next-dev-handoff/jobs.json"
+          gh api "repos/$GH_REPO/actions/runs/$RUN_ID" > "$RUNNER_TEMP/cmux-next-dev-handoff/run.json"
+          python3 - "$RUNNER_TEMP/cmux-next-dev-handoff/jobs.json" "$RUNNER_TEMP/cmux-next-dev-handoff/run.json" "$RUN_ID" "$SOURCE_SHA" "$GITHUB_STEP_SUMMARY" "$RUNNER_TEMP/cmux-next-dev-handoff/receipt.json" <<'PY'
+          import datetime as dt, json, pathlib, sys
+          jobs = json.loads(pathlib.Path(sys.argv[1]).read_text())["jobs"]
+          run = json.loads(pathlib.Path(sys.argv[2]).read_text())
+          run_id, source_sha, summary, receipt_path = sys.argv[3:]
+          candidates = [j for j in jobs if j.get("name") == "cmux NEXT DEV Release compile"]
+          if len(candidates) != 1 or candidates[0].get("conclusion") != "success":
+              raise SystemExit(f"DEV Release compile receipt invalid: {candidates}")
+          job = candidates[0]
+          parse = lambda value: dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
+          run_started, compile_started, completed = map(parse, (run["created_at"], job["started_at"], job["completed_at"]))
+          receipt = {
+              "schema": "cmux-next-dev-handoff-v1", "source_run_id": int(run_id), "source_sha": source_sha,
+              "source_run_started_at": run_started.isoformat(), "compile_started_at": compile_started.isoformat(),
+              "compile_completed_at": completed.isoformat(), "handoff_requested_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+              "queue_ms": max(0, int((compile_started - run_started).total_seconds() * 1000)),
+              "compile_ms": max(0, int((completed - compile_started).total_seconds() * 1000)),
+              "runner_name": job.get("runner_name"), "runner_labels": job.get("labels", []),
+          }
+          out = pathlib.Path(receipt_path)
+          out.write_text(json.dumps(receipt, indent=2) + "\n")
+          pathlib.Path(summary).write_text("## cmux NEXT DEV handoff\n" + "\n".join(f"- {k}: `{receipt[k]}`" for k in ("source_run_id", "source_sha", "queue_ms", "compile_ms", "runner_name")) + "\n")
+          print(json.dumps(receipt, sort_keys=True))
+          PY
+      - name: Upload queue-delay receipt
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-next-dev-handoff-${{ inputs.dev_daily_sha }}
+          path: ${{ runner.temp }}/cmux-next-dev-handoff/receipt.json
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+      - name: Dispatch the exact source run to the publisher
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          SOURCE_RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          gh workflow run cmux-next-dev-daily.yml --repo "$GH_REPO" --ref main -f "source_run_id=$SOURCE_RUN_ID"
+          echo "Requested cmux NEXT DEV publication for source run $SOURCE_RUN_ID"
+
   # The checks job's red sub-checks join the PR's red-checks line (pr-red-checks-comment.yml), each
   # compared with the base's run: ci.yml and cmux-next-guards.yml call it after their own checks.
   pr-red-checks:

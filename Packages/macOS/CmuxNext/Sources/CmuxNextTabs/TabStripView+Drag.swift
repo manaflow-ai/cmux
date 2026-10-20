@@ -7,12 +7,15 @@ extension TabStripView {
     // MARK: - Drag reorder
 
     func beginDrag(_ press: TabStripPress) {
-        guard let index = displayed.firstIndex(where: { $0.id == press.id }), placed[press.id] != nil else { return }
+        guard let start = displayed.first(where: { $0.id == press.id }), placed[press.id] != nil else { return }
         // The tab is lifted where it shows now (a move may be in flight), then follows the pointer from there.
         let shown = shownX(press.id) ?? placed[press.id]?.x ?? 0
-        placed[press.id]?.x = shown
         let local = convert(press.start, to: tabsClip)
-        let contentX = scrollMapping.contentX(local.x, isPinned: displayed[index].isPinned)
+        let contentX = scrollMapping.contentX(local.x, isPinned: start.isPinned)
+        guard let index = displayed.firstIndex(where: { $0.id == press.id }) else { return }
+        // Dragging one of several selected tabs takes them all (Chrome): the others hide under it.
+        hideDragCompanions(of: press.id)
+        placed[press.id]?.x = shown
         drag = TabStripDrag(
             id: press.id,
             grabOffset: contentX - shown,
@@ -59,7 +62,8 @@ extension TabStripView {
                 hysteresis: width * Self.groupJoinHysteresis
             )
             index = displayed.count(where: \.isPinned) + resolution.index
-            group = resolution.groupID
+            // A multi-tab drag moves the tabs only; their groups stay.
+            group = dragCompanions.isEmpty ? resolution.groupID : drag.targetGroup
         }
         placed[drag.id]?.x = x
         // Chrome: a reorder waits until the pointer moved 16 x width / maxWidth pt (the density's max,
@@ -127,6 +131,7 @@ extension TabStripView {
         self.drag = nil
         escapeMonitor.remove()
         cells[drag.id]?.isLifted = false
+        if !dragCompanions.isEmpty { return endMultiDrag(drag) }
         // The release settles into the slot on a 200 ms ease-out from where it is (Chrome): `relayout`'s tabMove.
         let regrouped = drag.targetGroup != drag.originalGroup
         // The model may have changed during the drag (tabs closed by the
@@ -162,6 +167,7 @@ extension TabStripView {
         guard var drag else { return }
         drag.currentIndex = drag.originalIndex
         drag.targetGroup = drag.originalGroup
+        drag.cancelled = true
         self.drag = drag
         endDrag()
     }
@@ -194,6 +200,9 @@ extension TabStripView {
         escapeMonitor.remove()
         cell.isLifted = false
         detachedID = drag.id
+        // Only the dragged tab leaves the strip; the other selected tabs show again (multi-tab moves
+        // between strips, windows and the sidebar are a follow-up).
+        dragCompanions = []
         sync(fromModel: false)
         model.send(.dragBegan(start))
     }
@@ -221,7 +230,7 @@ extension TabStripView {
     /// not change.
     public func discardPendingReorder() {
         guard orderOverride != nil || !groups.membershipOverride.isEmpty else { return }
-        orderOverride = nil
+        (orderOverride, multiReorderTarget) = (nil, nil)
         groups.membershipOverride = [:]
         sync(fromModel: false)
     }
@@ -245,7 +254,7 @@ extension TabStripView {
             // Each part ends on its own: a sync can end the order alone (a tab torn out meanwhile).
             guard let self else { return }
             var changed = false
-            if pending.order != nil, self.orderOverride == pending.order { self.orderOverride = nil; changed = true }
+            if pending.order != nil, self.orderOverride == pending.order { (self.orderOverride, self.multiReorderTarget) = (nil, nil); changed = true }
             if !pending.groups.isEmpty, self.groups.membershipOverride == pending.groups { self.groups.membershipOverride = [:]; changed = true }
             if changed { self.sync(fromModel: false) }
         }
