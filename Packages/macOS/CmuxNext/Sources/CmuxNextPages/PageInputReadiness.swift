@@ -49,12 +49,17 @@ public final class PageInputReadiness {
         isEditableFocused = focused
     }
 
+    func reportSideways(_ over: Bool) {
+        isPointerOverSidewaysScroller = over
+    }
+
     func report(_ ready: Bool) {
         let turnedReady = ready && !isReady
         isReady = ready
         if !ready {
             isListFocused = false
             isEditableFocused = false
+            isPointerOverSidewaysScroller = false
         }
         if turnedReady { onReady?() }
     }
@@ -93,7 +98,39 @@ public final class PageInputReadiness {
           document.addEventListener('focusin', report, true);
           document.addEventListener('focusout', () => setTimeout(report, 0), true);
           document.addEventListener('DOMContentLoaded', report);
+          \(sidewaysScript)
         })();
+        """
+
+    /// Reports `{ sideways: Bool }` when the pointer moves onto or off an element that scrolls
+    /// sideways itself: an `overflow-x: auto | scroll` box whose content is wider than it. Checked
+    /// on each pointer move, wheel and scroll (content can move under a still pointer; the engine
+    /// already coalesces these to one a frame), and posted only on a change. The page's root never
+    /// counts: it is not a box inside the pane.
+    static let sidewaysScript = """
+          let pointer = null;
+          let sideways = false;
+          const scrollsSideways = (el) => {
+            for (; el && el !== document.documentElement && el !== document.body; el = el.parentElement) {
+              if (el.scrollWidth > el.clientWidth + 1) {
+                const x = getComputedStyle(el).overflowX;
+                if (x === 'auto' || x === 'scroll') return true;
+              }
+            }
+            return false;
+          };
+          const check = () => {
+            const now = !!pointer && scrollsSideways(document.elementFromPoint(pointer[0], pointer[1]));
+            if (now !== sideways) { sideways = now; post({ sideways: now }); }
+          };
+          const track = (event) => { pointer = [event.clientX, event.clientY]; check(); };
+          const options = { capture: true, passive: true };
+          document.addEventListener('pointermove', track, options);
+          document.addEventListener('wheel', track, options);
+          document.addEventListener('scroll', check, options);
+          // The pointer left the page: no element is under it.
+          document.addEventListener('pointerout', (event) => { if (!event.relatedTarget) { pointer = null; check(); } }, options);
+          window.addEventListener('blur', () => { pointer = null; check(); });
         """
 
     static let insertScript = """
@@ -116,6 +153,7 @@ public final class PageInputReadiness {
             if let body = message.body as? [String: Any] {
                 if let list = body["list"] as? Bool { owner?.reportList(list) }
                 if let editing = body["editing"] as? Bool { owner?.reportEditing(editing) }
+                if let sideways = body["sideways"] as? Bool { owner?.reportSideways(sideways) }
                 return
             }
             let ready = message.body as? Bool == true
