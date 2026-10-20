@@ -700,6 +700,10 @@ struct ProjectionCore {
 
     /// The actions from the shown snapshot to this one.
     mutating func step(items: [TranscriptItem], summary new: ConversationSummary?) -> HomeDiff {
+        // The shown snapshot again (a streamed token, typing, the activity line): nothing to diff.
+        // Mapping every row again cost 3.5 ms per token at 60 rows on the main thread, which a
+        // drag over the field waits for (DragWhileStreamingTests).
+        if items == shown, new == summary { return HomeDiff() }
         let d = HomeDiff.plan(old: shown, new: items, oldSummary: summary, newSummary: new, aliases: aliases, me: me, media: media, links: links,
                               handOff: streamingTurn)
         shown = items
