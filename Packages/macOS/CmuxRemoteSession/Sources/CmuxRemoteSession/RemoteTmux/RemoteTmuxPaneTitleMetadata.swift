@@ -2,7 +2,7 @@ import Foundation
 
 /// The raw tmux pane title and host values used to recognize its default title.
 public struct RemoteTmuxPaneTitleMetadata: Equatable, Sendable {
-    /// A control character that tmux leaves untouched in format expansions.
+    /// A field delimiter preserved by UTF-8 tmux control clients.
     public static let fieldSeparator: Character = "\u{1f}"
     /// The stable suffix marker separating a pane-rect label from its metadata.
     public static let paneRectMetadataMarker = "cmux_title_metadata_v1"
@@ -45,8 +45,8 @@ public struct RemoteTmuxPaneTitleMetadata: Equatable, Sendable {
 
     /// Splits a pane-rect label into its visible header and decoded title metadata.
     ///
-    /// tmux quotes format fields with backslash-octal escapes. The marker is
-    /// explicit because a title may itself contain the serialized separator.
+    /// tmux quotes format fields with backslashes; the separators themselves
+    /// are raw unit-separator bytes in UTF-8 control-mode command replies.
     /// - Parameter value: The label field emitted by the `list-panes` format.
     /// - Returns: The visible header and title metadata, or `nil` if no valid
     ///   metadata suffix is present.
@@ -54,7 +54,7 @@ public struct RemoteTmuxPaneTitleMetadata: Equatable, Sendable {
         from value: String
     ) -> (header: String, metadata: RemoteTmuxPaneTitleMetadata)? {
         let bytes = Array(value.utf8)
-        let marker = Array((Self.paneRectMetadataMarker + "\\037").utf8)
+        let marker = Array((Self.paneRectMetadataMarker + String(Self.fieldSeparator)).utf8)
         let markerStarts = bytes.indices.filter { start in
             start + marker.count <= bytes.count
                 && bytes[start..<(start + marker.count)].elementsEqual(marker)
@@ -85,38 +85,18 @@ public struct RemoteTmuxPaneTitleMetadata: Equatable, Sendable {
 
         for markerStart in markerStarts.reversed() {
             let metadataStart = markerStart + marker.count
-            var separators: [Int] = []
-            var index = metadataStart
-            while index + 3 < bytes.count, separators.count < 2 {
-                guard bytes[index] == 0x5c,
-                      bytes[index + 1] == 0x30,
-                      bytes[index + 2] == 0x33,
-                      bytes[index + 3] == 0x37 else {
-                    index += 1
-                    continue
-                }
-                var precedingBackslashes = 0
-                var preceding = index
-                while preceding > metadataStart, bytes[preceding - 1] == 0x5c {
-                    precedingBackslashes += 1
-                    preceding -= 1
-                }
-                if precedingBackslashes.isMultiple(of: 2) {
-                    separators.append(index)
-                    index += 4
-                } else {
-                    index += 1
-                }
-            }
+            // `q:` does not escape a unit separator inside a field. Reject
+            // extra separators rather than silently assigning a malformed
+            // title to the host fields.
+            let separators = (metadataStart..<bytes.count).filter { bytes[$0] == 0x1f }
             guard separators.count == 2 else { continue }
             let first = separators[0]
             let second = separators[1]
-            let wireValue = [
-                unquote(field(metadataStart, first)),
-                unquote(field(first + 4, second)),
-                unquote(field(second + 4, bytes.count)),
-            ].joined(separator: String(Self.fieldSeparator))
-            guard let metadata = Self(wireValue: wireValue) else { continue }
+            let metadata = Self(
+                title: unquote(field(metadataStart, first)),
+                host: unquote(field(first + 1, second)),
+                hostShort: unquote(field(second + 1, bytes.count))
+            )
             return (header: field(0, markerStart), metadata: metadata)
         }
         return nil

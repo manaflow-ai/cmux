@@ -214,7 +214,12 @@ extension RemoteTmuxControlConnection {
                 labels[paneId] = Self.strippingStyleTokens(metadataFields.header)
                 titleMetadata[paneId] = metadataFields.metadata
             } else {
-                labels[paneId] = Self.strippingStyleTokens(fields)
+                // Some control clients sanitize the metadata delimiters. Do
+                // not publish the undecodable suffix as a pane header; retain
+                // the previous label until the header subscription updates it.
+                if !fields.contains(RemoteTmuxPaneTitleMetadata.paneRectMetadataMarker) {
+                    labels[paneId] = Self.strippingStyleTokens(fields)
+                }
                 panesWithoutTitleMetadata.insert(paneId)
             }
         }

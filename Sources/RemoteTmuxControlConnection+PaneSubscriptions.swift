@@ -3,8 +3,7 @@ import Foundation
 
 extension RemoteTmuxControlConnection {
     /// The fields appended to pane-rect replies.
-    // `q:` preserves literal backslashes in the command-result transport, so
-    // the escaped unit-separator protocol sentinels remain unambiguous.
+    // `q:` quotes field contents; separators remain raw bytes in UTF-8 clients.
     nonisolated static let paneTitleMetadataFormat = "#{q:pane_title}\(RemoteTmuxPaneTitleMetadata.fieldSeparator)"
         + "#{q:host}\(RemoteTmuxPaneTitleMetadata.fieldSeparator)#{q:host_short}"
 
@@ -43,11 +42,11 @@ extension RemoteTmuxControlConnection {
     /// connected lifecycle transition can safely retry it. Restored panes can
     /// skip seeding, so attach drain, verified topology, and rebuild all ensure it.
     func subscribePaneTitlesIfNeeded() {
-        guard !paneTitleSubscriptionActive else { return }
+        guard !paneTitleSubscriptionActive, !paneTitleSubscriptionRejected else { return }
         // Keep the flag set while the command is in flight, otherwise every
-        // pane seed can enqueue another session-wide watcher. A `%error` or
-        // stream reset settles `sendPaneTitleSubscription` as false, allowing the next
-        // topology publication to retry.
+        // pane seed can enqueue another session-wide watcher. A server `%error`
+        // suppresses further attempts on this stream; a new stream may retry.
+        // Admission failure and stream reset remain retryable.
         paneTitleSubscriptionActive = true
         guard sendPaneTitleSubscription(Self.paneTitleSubscriptionCommand(), completion: { [weak self] accepted in
             if !accepted { self?.paneTitleSubscriptionActive = false }

@@ -816,7 +816,7 @@ struct RemoteTmuxMirrorTargetingTests {
         #expect(connection.paneTitleSubscriptionActive)
     }
 
-    @Test func rejectedPaneTitleWatcherIsNotRetriedUntilReconnect() throws {
+    @Test func rejectedPaneTitleWatcherIsNotRetriedOnSameStream() throws {
         let connection = RemoteTmuxControlConnection(
             host: RemoteTmuxHost(destination: "watcher-retry@host"),
             sessionName: "title-watcher"
@@ -873,7 +873,7 @@ struct RemoteTmuxMirrorTargetingTests {
             commandNumber: 2, lines: ["unknown option"], isError: true
         ))
         connection.subscribePaneTitlesIfNeeded()
-        #expect(connection.paneTitleSubscriptionActive)
+        #expect(!connection.paneTitleSubscriptionActive)
         #expect(!connection.pendingCommandKindsForTesting.contains { kind in
             if case .paneTitleSubscription = kind { return true }
             return false
