@@ -94,7 +94,9 @@ import {
   cmuxTuiHooksReadyCommand,
   cmuxTuiInstallCommand,
   cmuxTuiPinCheckCommand,
+  cmuxTuiManifestUrl,
   cmuxTuiRunCommand,
+  requireCmuxTuiAcpmux,
   resolveCmuxTuiSource,
 } from "../services/vms/drivers/cmuxTuiDaemon";
 import {
@@ -176,6 +178,10 @@ const replaceSlug = hasFlag("--replace-slug");
 const preflight = bakePreflight({ desktop: withDesktop });
 // Resolved before the builder exists so a manifest outage fails the bake for free.
 const cmuxTuiSource = await resolveCmuxTuiSource("freestyle");
+// Every Cloud machine ships acpmux (cloud-subagents-DESIGN.md B9): refuse the bake before it
+// creates a VM when the pinned manifest has no acpmux build.
+requireCmuxTuiAcpmux(cmuxTuiSource, cmuxTuiManifestUrl("freestyle"));
+console.log(`acpmux pin: sha256 ${cmuxTuiSource.acpmuxSha256!.slice(0, 12)}…`);
 
 // The exec API caps timeoutMs at 300000 (5 minutes per step).
 const STEP_TIMEOUT_MS = 300_000;
@@ -362,6 +368,7 @@ try {
   // echo-fed seed shells and test -s guards; see ../services/vms/images/devbox/Dockerfile).
   // Cache seeds cover root and the work user (uid 1000).
   await step("cmux-etc", "mkdir -p /etc/cmux /etc/skel");
+  await step("vm-kind-default", "printf 'team\\n' > /etc/cmux/vm-kind && chmod 0644 /etc/cmux/vm-kind");
   await put("cmux-bashrc", "/etc/cmux/bashrc");
   await put("cmux-prompt.bash", "/etc/cmux/prompt.bash");
   await step("python-completion-dir", "mkdir -p /usr/local/share/bash-completion/completions");
@@ -553,6 +560,7 @@ try {
   // The cmux-tui daemon supervisor + its systemd unit (see the header).
   const service = devboxDaemonUnit();
   await put("cmux-devbox-boot", "/usr/local/bin/cmux-devbox-boot", 0o755);
+  await put("cmux-vm-kind-sync", "/usr/local/bin/cmux-vm-kind-sync", 0o755);
   await put("cmux-tui-state-mount", "/usr/local/bin/cmux-tui-state-mount", 0o755);
   await put("cmux-prompt-sync", "/usr/local/bin/cmux-prompt-sync", 0o755);
   await vm.fs.writeFile("/etc/systemd/system/cmux-tui-daemon.service", `${service}\n`, { mode: 0o644 });

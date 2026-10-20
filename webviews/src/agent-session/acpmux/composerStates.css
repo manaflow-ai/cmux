@@ -90,10 +90,12 @@
 /* Composer chips: Plan, the mode, model and effort pickers, +, the mic and Steer. A press keeps the
    hover's pill, with no brighter or tinted tone, and no shrink or dip (Leo 2026-10-19: no mousedown
    and mouseup click feedback). The press shows at once (cg-composer click polish, as Codex's
-   chips): the hover's ease below never delays the button going down. */
+   chips): the hover's ease below never delays the button going down. The Plan toggle's rules name
+   the button: the transcript's todo list row is `.acpmux-plan` too (App.tsx's
+   `acpmux-row acpmux-${kind}`). */
 .acpmux-picker-button:active,
 .acpmux-picker-button[data-press-active],
-.acpmux-plan:active,
+:where(button).acpmux-plan:active,
 .acpmux-steer:active,
 .acpmux-mic:active,
 .acpmux-fast:active,
@@ -130,8 +132,9 @@
   outline-offset: 2px;
 }
 
-/* Send is the one filled control, iMessage's blue (styles.css --acpmux-send-fill, never the ANSI
-   blue); Stop is the same disc in the text color (composerLocation.css). Each steps toward the
+/* Send is the one filled control, in the theme's own ink as Claude Code's (Leo 2026-10-19: no
+   system or iMessage blue anywhere): the text color's disc with the composer's surface for its
+   arrow (styles.css --acpmux-send-fill); Stop is the same disc (composerLocation.css). Each steps toward the
    base on hover and further on press. */
 .acpmux-send.acpmux-send-ready:hover {
   background: color-mix(in srgb, var(--acpmux-send-fill) 88%, var(--acpmux-base));
@@ -144,6 +147,20 @@
 }
 .acpmux-composer-bar .acpmux-send.acpmux-cancel:active {
   background: color-mix(in srgb, var(--agent-text) 76%, var(--acpmux-base));
+}
+/* The first Esc of the double press (escapeStop.ts): Stop's disc widens into a pill that names the
+   key, "Esc", until a second Esc stops the turn or anything else puts Stop back. */
+.acpmux-composer-bar .acpmux-send.acpmux-cancel[data-escape-armed] {
+  width: auto;
+  min-width: 28px;
+  padding: 0 9px;
+  border-radius: 14px;
+}
+.acpmux-escape-key {
+  font-size: var(--text-detail);
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
 }
 
 /* Send off (the folder's trust question is open, useFolderTrustAsk.ts): the empty draft's off disc
@@ -194,7 +211,7 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
 /* Hover and press colors ease, and the picker and slash menus fade in; with Reduce Motion they apply at once. */
 @media (prefers-reduced-motion: no-preference) {
   .acpmux-picker-button,
-  .acpmux-plan,
+  :where(button).acpmux-plan,
   .acpmux-steer {
     transition:
       background-color var(--agent-motion-hover) var(--agent-ease-out),

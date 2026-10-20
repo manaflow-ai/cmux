@@ -1,3 +1,5 @@
+import type { PendingVmCreation, CancellingVmCreation } from "../proofs/vm-creation.ts";
+import type { VmCreationProbe } from "../domain/vm-creation.ts";
 /**
  * The upstream VM provider, as handlers see it: the service tag, its
  * proof-demanding interface and the provider shapes handlers read. The
@@ -64,11 +66,12 @@ export const resourceFloorsReached = (vm: UpstreamVm, size: SizeRequest): boolea
 export interface CreateVmSpec {
   readonly createdBy?: string;
   /** Private effect journal: persist only the opaque request/context digest before provider I/O. */
-  readonly journal?: {
+  readonly journal: {
     readonly context: string | null;
-    readonly beforeSend: (context: string) => Effect.Effect<void, UpstreamError>;
-    /** The provider definitely made nothing (a 4xx create answer, then no VM at the exact slug): drop the intent and its slot. */
-    readonly rejected: () => Effect.Effect<void>;
+    readonly beforeSend: (context: string, probe: VmCreationProbe) => Effect.Effect<void, UpstreamError>;
+    readonly beginSend: () => Effect.Effect<string, UpstreamError>;
+    readonly rejected: (token: string) => Effect.Effect<void, UpstreamError>;
+    readonly active: Effect.Effect<void, UpstreamError>;
   };
   readonly cmuxId: VmId;
   readonly idleTimeoutSeconds: number;
@@ -144,6 +147,9 @@ export interface UpstreamClientService {
    * carry the tenant id and the cmux id. With `source`, it boots from that
    * snapshot of the tenant's.
    */
+  readonly inspectCancellingCreation: <C, V>(caller: Named<C, Principal>, vm: Named<V, VmId>, proofs: { readonly scope: Write<C>; readonly cancelling: CancellingVmCreation<C, V> }) => Effect.Effect<{ readonly upstreamId: UpstreamId } | null, UpstreamError>;
+  readonly deleteCancellingCreation: <C, V>(caller: Named<C, Principal>, vm: Named<V, VmId>, proofs: { readonly scope: Write<C>; readonly cancelling: CancellingVmCreation<C, V>; readonly owns: Owns<C, V> }) => Effect.Effect<void, UpstreamError>;
+  readonly recoverCreation: <C, V>(caller: Named<C, Principal>, vm: Named<V, VmId>, proofs: { readonly scope: Write<C>; readonly pending: PendingVmCreation<C, V> }) => Effect.Effect<{ readonly upstreamId: UpstreamId } | null, UpstreamError>;
   readonly createVm: <C, S = never>(
     caller: Named<C, Principal>,
     spec: CreateVmSpec,
@@ -171,13 +177,6 @@ export interface UpstreamClientService {
     vm: Named<R, VmId>,
     proofs: { readonly owns: Owns<C, R>; readonly scope: Write<C> },
   ) => Effect.Effect<"deleted" | "gone", UpstreamError>;
-  /** Snapshots a VM for a fork. The snapshot's upstream name carries the tenant id and its cmux id. */
-  readonly snapshotForFork: <C, R>(
-    caller: Named<C, Principal>,
-    vm: Named<R, VmId>,
-    spec: { readonly cmuxId: SnapshotId },
-    proofs: { readonly owns: Owns<C, R>; readonly scope: Write<C>; readonly mayCreate: TenantMayCreate<C, "vm"> },
-  ) => Effect.Effect<CreatedResource, UpstreamError>;
   /** Deletes a snapshot; "gone" when the provider no longer had it. */
   readonly deleteSnapshot: <C, S>(
     snapshot: Named<S, SnapshotId>,

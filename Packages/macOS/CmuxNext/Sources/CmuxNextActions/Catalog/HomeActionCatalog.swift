@@ -11,10 +11,13 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
         // 40 s result deadline for: a group with invites takes several requests.
         let waits: Set<ActionID> = ["home.newMessage", "home.invite", "home.newChief", "home.archiveChief",
                                     "home.renameConversation", "home.addMembers", "home.removeMember", "home.leaveConversation",
-                                    "home.muteConversation", "home.unmuteConversation", "home.sendMessage"]
+                                    "home.muteConversation", "home.unmuteConversation", "home.sendMessage",
+                                    "home.createGroup", "home.setChiefReplies"]
         return all.map { descriptor in
             var descriptor = descriptor
             descriptor.waitsForResult = waits.contains(descriptor.id)
+            // `home.chiefPetEnabled` is a user-only setting: only a person turns the pet on.
+            descriptor.isPersonOnly = ["home.toggleChiefPet", "home.messageChiefPet", "home.messageChiefFromAnyApp"].contains(descriptor.id)
             return descriptor
         }
     }
@@ -79,6 +82,43 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
                 category: .window, symbol: "number", surfaces: [.palette], cliName: "home disable-channels",
                 surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
             ),
+            // The Chief pet (`home.chiefPetEnabled`, off by default): Leo 2026-10-19, the toggle "ought to be a
+            // hell of a lot more obvious" than Settings > Home. View > Show Chief Pet and the palette row read as
+            // the change they make (Hide Chief Pet while it shows); the empty Chief conversation offers it too.
+            ActionDescriptor(
+                id: "home.toggleChiefPet", title: t("action.home.toggleChiefPet", "Show Chief Pet"),
+                keywords: ["chief", "pet", "mascot", "floating", "companion", "show", "hide", "toggle", "buddy", "notifications"],
+                category: .window, symbol: "pawprint", surfaces: [.palette, .menu],
+                mainMenu: .view,
+                // No CLI verb: the setting is user-only, so a script or agent run would be refused.
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
+            ),
+            // The pet with its reply box open, turning the pet on first if it is off (Leo 2026-10-20: grow the
+            // pet toward Codex's mini chat). Bindable in Settings > Keyboard Shortcuts, unbound by default.
+            ActionDescriptor(
+                id: "home.messageChiefPet", title: t("action.home.messageChiefPet", "Message the Chief"),
+                keywords: ["chief", "pet", "message", "reply", "ask", "chat", "mini", "floating", "summon", "quick"],
+                category: .window, symbol: "bubble.left", surfaces: [.palette, .keyboard],
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
+            ),
+            {
+                // Message the Chief's system-wide key, its own action so it has its own recorder (like Start Agent
+                // from Any App). GlobalHotKeyService registers it only while the pet is on: the person already chose
+                // to have the Chief over every app, and with the pet off the key stays with other apps.
+                var anyApp = ActionDescriptor(
+                    id: "home.messageChiefFromAnyApp",
+                    title: t("action.home.messageChiefFromAnyApp", "Message the Chief from Any App"),
+                    keywords: ["chief", "pet", "message", "reply", "ask", "chat", "global", "hotkey", "hot key", "summon"],
+                    // Ctrl-Opt-Cmd-C: free in cmux's defaults, Ghostty's reserved keys and macOS's; C for Chief.
+                    defaultShortcut: Shortcut("c", modifiers: [.control, .option, .command]),
+                    category: .window, symbol: "bubble.left", surfaces: [.keyboard],
+                    // Message the Chief is the palette row.
+                    surfacePlan: ActionSurfacePlan(palette: .exempt(.familyMember), cli: .exempt(.familyMember),
+                                                   contextMenuExemption: .noObject)
+                )
+                anyApp.isGlobalHotKey = true
+                return anyApp
+            }(),
             ActionDescriptor(
                 id: "home.attachFiles", title: t("action.home.attachFiles", "Attach Files…"),
                 keywords: ["home", "attach", "file", "photo", "video", "image", "upload", "message", "conversation"],
@@ -87,6 +127,14 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
                                            isRequired: false)],
                 cliName: "home attach",
                 surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
+            ),
+            // Reply to Selection (plans/cmux-next/reply-to-selection-DESIGN.md): the text selected in one
+            // message of the shown Home conversation is the reply's quote. Cmd-Shift-R on Home (KeyBindingDefaults).
+            ActionDescriptor(
+                id: "home.replyToSelection", title: t("action.home.replyToSelection", "Reply to Selection"),
+                keywords: ["home", "reply", "quote", "selection", "selected", "highlight", "message", "thread"],
+                category: .window, symbol: "text.quote", surfaces: [.palette, .keyboard],
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.liveInput), contextMenuExemption: .liveInput)
             ),
             // The Home page's conversation list (plans/cmux-next/home-messaging.md):
             // New Message (a DM or a group), Invite, New Chief and Archive Chief.
@@ -211,6 +259,40 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
                 cliName: "home unmute",
                 surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noTargetSurface)
             ),
+            // Group chats with Chiefs (plans/cmux-next/chief-group-chats-DESIGN.md): `cmux chat create
+            // --members "Chief, Unii, aziz@manaflow.com" [--title T] [--replies auto|mentions|all]`
+            // makes the group New Message makes; `cmux chat replies` sets when its Chiefs answer.
+            ActionDescriptor(
+                id: "home.createGroup", title: t("action.home.createGroup", "New Group Chat…"),
+                keywords: ["home", "group", "chat", "chief", "chiefs", "agents", "people", "new", "create", "imessage", "conversation"],
+                category: .window, symbol: "person.3", surfaces: [.palette, .keyboard],
+                arguments: [ActionArgument(name: "members", title: t("argument.home.members", "Members (comma-separated)"), kind: .string),
+                            ActionArgument(name: "title", title: t("argument.home.message.title", "Group Name"), kind: .string,
+                                           isRequired: false),
+                            Self.replies(isRequired: false)],
+                cliName: "chat create",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
+            ),
+            ActionDescriptor(
+                id: "home.setChiefReplies", title: t("action.home.setChiefReplies", "Set When Chiefs Reply…"),
+                keywords: ["home", "group", "chief", "chiefs", "reply", "replies", "wake", "mention", "every message", "conversation"],
+                category: .window, symbol: "bubble.left.and.text.bubble.right", surfaces: [.palette, .keyboard],
+                arguments: [Self.conversation, Self.replies(isRequired: true)],
+                cliName: "chat replies",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noTargetSurface)
+            ),
+            // Pin or unpin a conversation in the Home sidebar's pinned grid (pinning-DESIGN.md): the
+            // row's Pin/Unpin, a tile dragged out of the grid, the palette, `cmux home pin-unpin` and
+            // MCP run it. `pinned` sets the state; without it the action toggles.
+            ActionDescriptor(
+                id: "home.togglePin", title: t("action.home.togglePin", "Pin/Unpin Conversation"),
+                keywords: ["home", "pin", "unpin", "pinned", "favorite", "top", "conversation", "chief", "dm", "group"],
+                category: .window, symbol: "pin", surfaces: [.palette, .keyboard],
+                arguments: [Self.conversation,
+                            ActionArgument(name: "pinned", title: t("argument.home.pinned", "Pinned"), kind: .bool, isRequired: false)],
+                cliName: "home pin-unpin",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noTargetSurface)
+            ),
             // `cmux home send --conversation <id> --text "…"`: a message as me, in a DM or group.
             ActionDescriptor(
                 id: "home.sendMessage", title: t("action.home.sendMessage", "Send Message…"),
@@ -230,6 +312,15 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
             ),
         ]
+    }
+
+    /// When a group's Chiefs answer: `auto` (the default), `mentions` or `all`.
+    private static func replies(isRequired: Bool) -> ActionArgument {
+        ActionArgument(name: "replies", title: t("argument.home.replies", "Chiefs Reply"),
+                       kind: .enumeration([ActionEnumCase(value: "auto", title: t("argument.home.replies.auto", "Automatically")),
+                                           ActionEnumCase(value: "mentions", title: t("argument.home.replies.mentions", "Only When @Mentioned")),
+                                           ActionEnumCase(value: "all", title: t("argument.home.replies.all", "To Every Message"))]),
+                       isRequired: isRequired)
     }
 
     /// The conversation a group action acts on (an id); without it, the one Home shows.

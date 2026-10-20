@@ -1,3 +1,6 @@
+// cmux-web-test-timeout: 300
+// Each width is a gallery page load plus a geometry play: the file took about 195 s on an idle
+// Linux box, and the default 120 s killed it on the CI runner after six of its seven tests.
 // Narrow panes (Leo 2026-10-14, "squashed composers"): the agent pane at the widths a split leaves
 // it, 280, 360 and 480 px, and at interface scale 0.8 and 1.25. Each variant of the
 // agent-pane.narrow gallery entry plays its geometry check in Chromium: no sideways page scroll, the
@@ -17,6 +20,8 @@ await requireBrowserLane("narrow-layouts.test.ts", async () => {
     "pull-requests",
     "new-tab",
     "new-tab-wide-type",
+    "new-tab-default",
+    "controls-single-row",
     "code",
     "permission",
     "model-menu",
