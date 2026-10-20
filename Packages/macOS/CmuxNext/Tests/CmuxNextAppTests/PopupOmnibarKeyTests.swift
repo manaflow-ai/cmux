@@ -28,6 +28,8 @@ import Testing
     private static func harness() throws -> Harness {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
+        // The app's action handlers: the key table resolves only runnable actions.
+        AppActions.bind(services)
         services.popups.ordersWindowsIn = false
         let opener = NSWindow(contentRect: CGRect(x: 200, y: 100, width: 900, height: 700), styleMask: [.titled], backing: .buffered, defer: false)
         opener.isReleasedWhenClosed = false
