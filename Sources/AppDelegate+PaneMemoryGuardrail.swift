@@ -46,6 +46,11 @@ extension AppDelegate {
             )
         )
         monitor.registry.register(
+            RunawayPaneTreeMemoryPressureResponder { [weak self] in
+                self?.paneMemoryGuardrailDescriptors() ?? []
+            }
+        )
+        monitor.registry.register(
             AgentHibernationMemoryPressureResponder(
                 controller: AgentHibernationController.shared,
                 isPressureCritical: { [weak monitor] in

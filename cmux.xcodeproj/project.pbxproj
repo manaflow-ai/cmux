@@ -3296,7 +3296,9 @@
 		F5300000A1B2C3D4E5F60718 /* RovoDevSessionIndexTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5300001A1B2C3D4E5F60718 /* RovoDevSessionIndexTests.swift */; };
 		FE003107 /* RovoDevTranscriptPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE003007 /* RovoDevTranscriptPreview.swift */; };
 		F5300002A1B2C3D4E5F60718 /* RovoDevTranscriptPreviewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5300003A1B2C3D4E5F60718 /* RovoDevTranscriptPreviewTests.swift */; };
+		B22273000000000000000003 /* RunawayPaneTreeMemoryPressureResponder.swift in Sources */ = {isa = PBXBuildFile; fileRef = B22273000000000000000004 /* RunawayPaneTreeMemoryPressureResponder.swift */; };
 		F0D5F6AB013F89B0FAF4A91C /* RunawayPaneTreeMemoryPressureResponderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 30F5443EBD5F6684ECFA01A9 /* RunawayPaneTreeMemoryPressureResponderTests.swift */; };
+		B22273000000000000000001 /* RunawayPaneTreeSelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = B22273000000000000000002 /* RunawayPaneTreeSelection.swift */; };
 		C0DE1A080000000000000001 /* SavedLayoutDefinitionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE1A080000000000000002 /* SavedLayoutDefinitionTests.swift */; };
 		C0DE1A020000000000000001 /* SavedLayoutStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE1A020000000000000002 /* SavedLayoutStore.swift */; };
 		C0DE1A070000000000000001 /* SavedLayoutStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE1A070000000000000002 /* SavedLayoutStoreTests.swift */; };
@@ -7959,7 +7961,9 @@
 		F5300001A1B2C3D4E5F60718 /* RovoDevSessionIndexTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RovoDevSessionIndexTests.swift; sourceTree = "<group>"; };
 		FE003007 /* RovoDevTranscriptPreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RovoDevTranscriptPreview.swift; sourceTree = "<group>"; };
 		F5300003A1B2C3D4E5F60718 /* RovoDevTranscriptPreviewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RovoDevTranscriptPreviewTests.swift; sourceTree = "<group>"; };
+		B22273000000000000000004 /* RunawayPaneTreeMemoryPressureResponder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/RunawayPaneTreeMemoryPressureResponder.swift; sourceTree = "<group>"; };
 		30F5443EBD5F6684ECFA01A9 /* RunawayPaneTreeMemoryPressureResponderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RunawayPaneTreeMemoryPressureResponderTests.swift"; sourceTree = "<group>"; };
+		B22273000000000000000002 /* RunawayPaneTreeSelection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/RunawayPaneTreeSelection.swift; sourceTree = "<group>"; };
 		C0DE1A080000000000000002 /* SavedLayoutDefinitionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedLayoutDefinitionTests.swift; sourceTree = "<group>"; };
 		C0DE1A020000000000000002 /* SavedLayoutStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedLayoutStore.swift; sourceTree = "<group>"; };
 		C0DE1A070000000000000002 /* SavedLayoutStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedLayoutStoreTests.swift; sourceTree = "<group>"; };
@@ -10559,6 +10563,8 @@
 				8997D0018997D0018997D001 /* AgentHibernationController+MemoryPressure.swift */,
 				8997D0028997D0028997D002 /* AgentHibernationMemoryPressureResponder.swift */,
 				A42100010000000000000002 /* AggregateMemoryPressureResponder.swift */,
+				B22273000000000000000002 /* RunawayPaneTreeSelection.swift */,
+				B22273000000000000000004 /* RunawayPaneTreeMemoryPressureResponder.swift */,
 				D36A00010000000000000002 /* AgentHibernationController.swift */,
 				A12123000000000000000004 /* AgentHibernationSessionEndResolution.swift */,
 				F65760160000000000000002 /* AgentHibernationPlanner.swift */,
@@ -16857,6 +16863,8 @@
 				C46790000000000000000005 /* RosettaNativeRelaunch.swift in Sources */,
 				FE003105 /* RovoDevIndex.swift in Sources */,
 				FE003107 /* RovoDevTranscriptPreview.swift in Sources */,
+				B22273000000000000000003 /* RunawayPaneTreeMemoryPressureResponder.swift in Sources */,
+				B22273000000000000000001 /* RunawayPaneTreeSelection.swift in Sources */,
 				C0DE1A020000000000000001 /* SavedLayoutStore.swift in Sources */,
 				F12748000000000000000003 /* SavingTextView+WordWrapShortcut.swift in Sources */,
 				E8BA79E246754A8B99A0B823 /* ScreenIdentity.swift in Sources */,
