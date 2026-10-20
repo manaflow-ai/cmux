@@ -19021,12 +19021,7 @@
 
       ],
       "default_chord" : null,
-      "default_shortcut" : {
-        "key" : "p",
-        "modifiers" : [
-          "cmd"
-        ]
-      },
+      "default_shortcut" : null,
       "id" : "agentPane.searchFiles",
       "main_menu" : null,
       "mcp" : "guiOnly",

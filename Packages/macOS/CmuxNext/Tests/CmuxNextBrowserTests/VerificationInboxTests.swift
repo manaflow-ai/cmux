@@ -112,3 +112,23 @@ import Testing
         #expect(inbox.receive(Self.email(), enabled: false, now: now).isEmpty)
     }
 }
+
+extension VerificationInboxTests {
+    /// The bar showed an older email's code; a newer email replaced the offer. A click on the
+    /// old row must not hand out the new code.
+    @Test func aClickOnAReplacedOfferTakesNothing() {
+        inbox.pageStartedWaiting(Self.signal(Self.tabA))
+        _ = inbox.receive(Self.email(id: "m1", code: "111111"), enabled: true, now: now)
+        _ = inbox.receive(Self.email(id: "m2", code: "222222"), enabled: true, now: now)
+        #expect(inbox.take(for: Self.tabA, emailID: "m1", currentURL: page, now: now) == nil)
+        inbox.decline(for: Self.tabA, emailID: "m1")
+        #expect(inbox.take(for: Self.tabA, emailID: "m2", currentURL: page, now: now)?.code == "222222")
+    }
+
+    @Test func reportsWhetherAnyPageWaits() {
+        #expect(!inbox.hasWaitingPages)
+        inbox.pageStartedWaiting(Self.signal(Self.tabA))
+        #expect(inbox.hasWaitingPages)
+        #expect(inbox.earliestWaitStart == Self.start)
+    }
+}

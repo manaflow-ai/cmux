@@ -4,7 +4,8 @@ public import AppKit
 /// (Debug Settings `notifications.attention.look`, cx-epgo). Lawrence on the
 /// Leo call of 2026-10-09: the highlight must be subtler by default. Every
 /// look keeps the user's `notifications.attention.*` style, width and color;
-/// it sets only the ring's strength. No look is blue. Lawrence 2026-10-10
+/// it sets only the ring's strength. Lawrence 2026-10-19 (u2414): the ring is
+/// the notification blue by default, as the unread dot is. Lawrence 2026-10-10
 /// dropped the `foreground` look. A stored `foreground` override is not
 /// in the choice list, so TunableStore drops it at load and the look is the
 /// `subtle` default.
@@ -43,7 +44,7 @@ public nonisolated enum AttentionHighlightLook: String, Sendable, CaseIterable, 
     }
 
     /// The ring color when neither the source nor `notifications.attention.color` sets one.
-    @MainActor public var defaultColor: NSColor { Palette.attention }
+    @MainActor public var defaultColor: NSColor { Palette.notificationBlue }
 
     public static let tunable = Tunable<AttentionHighlightLook>.choice(
         "notifications.attention.look", .status, "Notification highlight",

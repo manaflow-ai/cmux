@@ -87,8 +87,8 @@ Group Selected acted on the whole selection.
   Up/Down, so neither is free for a global default. While the sidebar has focus, Cmd-Opt-Up/Down
   already moves the selected rows (`KeyboardReorder`).
 - Move Workspace Up/Down keep Ctrl-Opt-Cmd-[ / ].
-- Every new group verb and Move Workspace to Top are now `.keyboard` actions: no default, but
-  bindable in Settings ▸ Keyboard and `cmux.json`.
+- Move Group to Top / Up / Down / to Bottom, Collapse Other Groups and Move Workspace to Top are
+  now `.keyboard` actions: no default, but bindable in Settings ▸ Keyboard and `cmux.json`.
 
 ## Persistence and undo
 

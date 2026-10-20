@@ -71,7 +71,7 @@ Follows Ardia's `docs/perf/vs-browsers.md` so the numbers compare:
   scroll tab 30 s → video tab 30 s → hide, 60 s (power-idle-hidden) → close to 1
   tab, 30 s → memory-closed → quit.
 - **Machine state**: browsers interleave and rotate each round; each item waits
-  (≤ 5 min) for the 1-minute load to fall under 4; `caffeinate -dimsu` holds the
+  (≤ 2 min) for the 1-minute load to fall under 4; `caffeinate -dimsu` holds the
   display awake. The step runs `--class exclusive`, alone on its worker.
 
 ## Files

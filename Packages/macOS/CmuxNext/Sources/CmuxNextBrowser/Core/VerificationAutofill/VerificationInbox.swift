@@ -28,6 +28,12 @@ public final class VerificationInbox {
         waiting[signal.tab] = signal
     }
 
+    /// True while some tab waits for an email: a source is read only then.
+    public var hasWaitingPages: Bool { !waiting.isEmpty }
+
+    /// When the earliest current wait started, or nil when none waits.
+    public var earliestWaitStart: Date? { waiting.values.map(\.startedAt).min() }
+
     /// The tab's top frame navigated. Another site ends its wait and drops its offer.
     /// - Parameters:
     ///   - tab: The tab.
@@ -89,9 +95,12 @@ public final class VerificationInbox {
     /// the email up everywhere. Nil otherwise (and the offer is dropped).
     /// - Parameters:
     ///   - tab: The tab.
+    ///   - emailID: The email of the offer the person saw; another (a newer email replaced
+    ///     it) gives nil and keeps the newer offer. Nil takes whichever offer the tab has.
     ///   - currentURL: The tab's top-frame URL at the click.
     ///   - now: The current time.
-    public func take(for tab: BrowserTabID, currentURL: URL, now: Date) -> VerificationOffer? {
+    public func take(for tab: BrowserTabID, emailID: String? = nil, currentURL: URL, now: Date) -> VerificationOffer? {
+        guard let current = offers[tab], emailID == nil || current.emailID == emailID else { return nil }
         guard let offer = offers.removeValue(forKey: tab) else { return nil }
         guard now <= offer.expiresAt, policy.site(of: currentURL) == offer.senderSite else { return nil }
         use(offer.emailID)
@@ -100,8 +109,11 @@ public final class VerificationInbox {
     }
 
     /// The person clicked Not Now: the email is used up everywhere.
-    /// - Parameter tab: The tab.
-    public func decline(for tab: BrowserTabID) {
+    /// - Parameters:
+    ///   - tab: The tab.
+    ///   - emailID: The email of the offer the person saw; another gives no change.
+    public func decline(for tab: BrowserTabID, emailID: String? = nil) {
+        guard let current = offers[tab], emailID == nil || current.emailID == emailID else { return }
         guard let offer = offers.removeValue(forKey: tab) else { return }
         use(offer.emailID)
     }

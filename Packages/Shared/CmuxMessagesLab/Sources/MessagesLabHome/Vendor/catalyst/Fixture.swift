@@ -11,7 +11,7 @@ enum Fixture {
     /// cells, its bitmap jobs) the view's scale (MessagesWindowView.renderScale), else `fallbackRenderScale`.
     /// Setting it sets the fallback. Test renders (capture, live grab) set 2, the reference's scale.
     static var renderScale: CGFloat {
-        get { RenderScaleScope.scoped ?? fallbackRenderScale }
+        get { RenderScaleScope.current ?? fallbackRenderScale } // cmux: no task local on main outside a task
         set { fallbackRenderScale = newValue }
     }
     /// The process value for code with no view: set from the first window's screen at launch and by every

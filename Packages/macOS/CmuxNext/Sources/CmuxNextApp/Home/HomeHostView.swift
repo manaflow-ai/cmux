@@ -63,6 +63,8 @@ final class HomeHostView: NSView {
             // The tile avatar is the default Chief's: a named Chief's panel never sets it (cx-327wl).
             if self?.control.named == nil { service?.refreshChiefAvatar() }
         }
+        // A new engine of this Chief: the Home list's badge follows it.
+        sidebar.onEngineChanged = { [weak service] in service?.refreshChiefHarnesses() }
         sidebar.onShowMemory = { [weak services] in
             _ = services?.registry.perform(ChiefInspectorHandlers.actionID, invocation: ActionInvocation(origin: .user))
         }

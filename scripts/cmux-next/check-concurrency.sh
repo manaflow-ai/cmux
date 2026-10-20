@@ -261,6 +261,33 @@ for dirpath, _, files in os.walk(sources):
                 print(f"    {line.strip()}")
                 failures += 1
 
+# Shared packages linked into the app run on the same main thread from AppKit callbacks
+# (Home's vendored MessagesLab draws there with no task): a task local bound there sits in the
+# thread's fallback storage, the cx-bpcj / cx-t7hu trap (CMUXTERM-MACOS-44XN, macOS 15.8.1, Cmd-1
+# leaving Home). A binding there needs a reviewed `// concurrency-allow:` saying why it runs inside
+# a task or off the main thread.
+ASYNC_BINDING = re.compile(r"\bawait\b.*\.withValue\s*\(")
+shared_root = os.path.normpath(os.path.join(root, "..", "..", "Shared"))
+for dirpath, _, files in (os.walk(shared_root) if ONLY != "synchronization" and os.path.isdir(shared_root) else []):
+    if os.sep + "Sources" + os.sep not in dirpath + os.sep:
+        continue
+    for filename in sorted(files):
+        if not filename.endswith(".swift"):
+            continue
+        path = os.path.join(dirpath, filename)
+        with open(path, encoding="utf-8") as handle:
+            lines = handle.read().split("\n")
+        for index, line in enumerate(lines):
+            # `await $local.withValue(...)` is the async overload: it always binds inside a task.
+            if (COMMENT_ONLY.match(line) or not TASK_LOCAL_BINDING.search(line) or ASYNC_BINDING.search(line)
+                    or allowed(lines, index)):
+                continue
+            print(f"concurrency: {os.path.relpath(path, os.path.dirname(shared_root))}:{index + 1}: task local bound with "
+                  "withValue in a shared package (where no task is current the runtime frees a marker with free() "
+                  "that its task allocator made, cx-bpcj); bind it inside a task and say so with // concurrency-allow:")
+            print(f"    {line.strip()}")
+            failures += 1
+
 # Model checks run off the main actor (see the header).
 SUITE_DECL = re.compile(r"^\s*(@\w+(\([^)]*\))?\s+)*((public|internal|package|fileprivate|private|final)\s+)*(struct|final class|class|enum)\s+\w+ModelCheckTests\b")
 tests = os.path.join(root, "Tests")

@@ -37,8 +37,8 @@ class SidebarItemRowView: NSView {
     /// Option override. Plain activations continue through `onPress`.
     var onPressWithModifiers: ((NSEvent.ModifierFlags) -> Void)?
     var onContextMenu: ((NSEvent, NSView) -> Void)?
-    /// True: the item acts on mouse-down, as workspace rows do (Home, the App
-    /// Store, pinned workspace, tab and space tiles: `LayoutItemRef.activatesOnPress`); false: on release.
+    /// True: the item acts on mouse-down, as workspace rows do (every item but a new-tab
+    /// launcher: `LayoutItemRef.activatesOnPress`); false: on release.
     var activatesOnPress = false
     /// The current press already ran the action on mouse-down; its release does not run it again.
     private var activatedOnPress = false
@@ -374,7 +374,11 @@ class SidebarItemRowView: NSView {
         pressModifiers = event.modifierFlags
         didDrag = false
         activatedOnPress = activatesOnPress
-        if activatesOnPress { activate(with: pressModifiers) }
+        guard activatesOnPress else { return }
+        activate(with: pressModifiers)
+        // The profile control's menu runs its own tracking loop and takes the release: no mouseUp
+        // follows, so the pressed fill must not stay.
+        if NSEvent.pressedMouseButtons & 1 == 0 { isPressed = false }
     }
 
     /// Past the drag threshold the region reorders in place (R77).
@@ -384,10 +388,9 @@ class SidebarItemRowView: NSView {
         isPressed = false
     }
 
-    /// An item that does not switch on press acts on release, like a button:
-    /// a press that became a drag (or left the item first) never opens it.
-    /// Acting on the press opened launchers or a new workspace under a tile
-    /// the user only meant to move.
+    /// An item that does not open on press (a new-tab launcher) acts on release, like a
+    /// button: a press that became a drag (or left the item first) never runs it. Acting
+    /// on the press made a tab under a launcher the user only meant to move.
     override func mouseUp(with event: NSEvent) {
         let dragged = didDrag
         let activated = activatedOnPress
