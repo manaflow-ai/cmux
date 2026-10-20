@@ -36,6 +36,17 @@ jobs:
       - name: API typecheck
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: bun run typecheck
+      - name: Generate Native receiver signature fixture
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        working-directory: backend
+        run: bun packages/protocol/scripts/export-native-link-token-vector.ts
+      - name: Upload Native receiver signature fixture
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-native-link-token-vector
+          path: schemas/link-token/native.json
+          retention-days: 7
       - name: Protocol catalog and generated client drift
         id: catalog
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
