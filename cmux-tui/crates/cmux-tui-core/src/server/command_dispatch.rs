@@ -58,7 +58,9 @@ pub(super) fn handle_command_with_cancellation(
         | Command::DeleteTerminalCommands(_)) => command_history::handle(mux, client, command),
         Command::ServerStats { include } => cmd_server::server_stats(mux, client, include),
         Command::BrowserHostProvider => cmd_browser::browser_host_provider(mux, client),
-        Command::Identify { machine_metadata } => cmd_server::identify(mux, machine_metadata),
+        Command::Identify { machine_metadata, revisions } => {
+            cmd_server::identify(mux, machine_metadata, revisions)
+        }
         Command::ShutdownDaemon { pid, generation, force, end_terminals, keep_layout } => {
             cmd_server::shutdown_daemon(
                 mux,
@@ -81,6 +83,8 @@ pub(super) fn handle_command_with_cancellation(
             device_name,
             device_id,
             api_revision,
+            version,
+            install,
         } => cmd_server::set_client_info(
             mux,
             client,
@@ -93,6 +97,8 @@ pub(super) fn handle_command_with_cancellation(
             device_name,
             device_id,
             api_revision,
+            version,
+            install,
         ),
         Command::ListClients => cmd_server::list_clients(mux, client),
         Command::MachineUsage => cmd_server::machine_usage(mux),
@@ -246,6 +252,9 @@ pub(super) fn handle_command_with_cancellation(
         }
         Command::SetTerminalKeep { surface, terminal_id, keep } => {
             cmd_terminals::set_terminal_keep(mux, surface, terminal_id, keep)
+        }
+        Command::TerminalResumeCommand { surface, terminal_id, command } => {
+            cmd_terminals::terminal_resume_command(mux, surface, terminal_id, command)
         }
         Command::NewTab { pane, cwd, env, cols, rows, keep, terminal_id, shell_args } => {
             cmd_tabs::new_tab(
@@ -455,6 +464,7 @@ pub(super) fn handle_command_with_cancellation(
         Command::MoveTabToColumn(params) => cmd_tabs::move_tab_to_column(mux, client, params),
         Command::NewRow(params) => cmd_panes::new_row(mux, client, params),
         Command::SetRowHeights(params) => cmd_panes::set_row_heights(mux, client, params),
+        Command::MoveColumn(params) => column_move::move_column(mux, client, params),
         Command::MoveTabToNewWorkspace { surface, group, index, name, transaction } => {
             cmd_tabs::move_tab_to_new_workspace(
                 mux,

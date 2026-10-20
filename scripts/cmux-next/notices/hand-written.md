@@ -523,10 +523,10 @@ viewer has no runtime CDN dependency.
 
 ### Mermaid
 
-- **Version:** 11.4.1
+- **Version:** 11.17.2
 - **License:** MIT License
-- **Copyright:** Copyright (c) 2014-2024 Knut Sveidqvist and Mermaid contributors
-- **Source:** https://github.com/mermaid-js/mermaid/releases/tag/mermaid%4011.4.1
+- **Copyright:** Copyright (c) 2014-2026 Knut Sveidqvist and Mermaid contributors
+- **Source:** https://github.com/mermaid-js/mermaid/releases/tag/mermaid%4011.17.2
 
 ### Ondine
 
@@ -1055,7 +1055,8 @@ with each release as `COPYRIGHT-library.html`. This app ships that file,
 unchanged, for each rustc that built one of its binaries:
 
 - `Contents/Resources/toolchain-licenses/rust-1.95.0/COPYRIGHT-library.html`:
-  `bin/cmux`, `bin/cmux-tui-ssh/*`, `bin/cmux-app-host` and `bin/cmux-cloud`
+  `bin/cmux`, `bin/cmux-tui-ssh/*`, `bin/cmux-app-host`, `bin/cmux-cloud`,
+  `bin/cnx-hostd` and `Helpers/cmux-remote-browser-host.app`
 - `Contents/Resources/toolchain-licenses/rust-1.91.0/COPYRIGHT-library.html`:
   iroh-ffi (`Iroh.framework`; Release builds merge its code into the app binary)
 - `Contents/Resources/toolchain-licenses/rust-1.98.1/COPYRIGHT-library.html`:

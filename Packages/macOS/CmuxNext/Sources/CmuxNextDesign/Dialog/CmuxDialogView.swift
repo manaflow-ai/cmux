@@ -190,7 +190,7 @@ public final class CmuxDialogView: NSView {
         row.spacing = Metrics.space2
         row.addArrangedSubview(NSView())
         for button in spec.buttons {
-            let view = CmuxDialogButtonView(button, target: self, action: #selector(pressed(_:)))
+            let view = CmuxDialogButtonView(button, hint: CmuxDialogKeys.hint(for: button, in: spec), target: self, action: #selector(pressed(_:)))
             buttonViews.append(view)
             row.addArrangedSubview(view)
         }
@@ -202,7 +202,7 @@ public final class CmuxDialogView: NSView {
 
         let content = NSView()
         content.addSubview(stack)
-        let surface = Glass.makeOverlayPanel(content: content)
+        let surface = Glass.makeOverlayPanel(content: content, tone: .neutralGlass(.dialog))
         addSubview(surface)
         self.surface = surface
         NSLayoutConstraint.activate([
@@ -256,11 +256,15 @@ public final class CmuxDialogView: NSView {
             return captioned(caption, box, width: width)
         case .choice(let id, let caption, let options, let selected):
             let popup = ThemedPopUpButton(frame: .zero, pullsDown: false)
+            // A disabled option lists greyed out and is never the selection.
+            popup.autoenablesItems = false
             for option in options {
                 popup.addItem(withTitle: option.label)
                 popup.lastItem?.representedObject = option.value
-                if option.value == selected { popup.select(popup.lastItem) }
+                popup.lastItem?.isEnabled = option.isEnabled
+                if option.value == selected, option.isEnabled { popup.select(popup.lastItem) }
             }
+            if popup.selectedItem?.isEnabled != true, let first = popup.itemArray.first(where: \.isEnabled) { popup.select(first) }
             popup.identifier = NSUserInterfaceItemIdentifier("cmux.dialog.field.\(id)")
             popup.setAccessibilityLabel(caption ?? spec.title)
             popup.translatesAutoresizingMaskIntoConstraints = false

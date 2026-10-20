@@ -45,8 +45,14 @@ def answer(connection):
             out.write(json.dumps({"method": method, "params": params}) + "\n")
         if method == "debug.layers":
             result = {"windows": [{"frame": [100, 100, 800, 600]}]}
+        elif method == "debug.fixture":
+            result = {"rows": params.get("count", 0)}
+        elif method == "debug.fixture_error":
+            result = {"error": "no Home page in the active window"}
         elif method == "debug.window_snapshot" and os.environ.get("FAKE_SNAPSHOT_ERROR"):
             result = {"error": os.environ["FAKE_SNAPSHOT_ERROR"]}
+        elif method == "debug.fixture_page":
+            result = {"ok": params.get("set") != "missing", "set": params.get("set")}
         elif method == "debug.window_snapshot":
             with open(params["path"], "wb") as image:
                 image.write(b"\x89PNG\r\n\x1a\n" + b"0" * 32)
@@ -292,6 +298,50 @@ class AppWindowCaptureTests(unittest.TestCase):
         self.assertNotIn("shot_error", menu)
         self.assertEqual((out / menu["shot"]).read_bytes(), b"SCREEN")
 
+    def test_an_rpc_step_sends_its_request_before_the_shot(self) -> None:
+        self.tour.write_text(json.dumps({"title": "Demo", "steps": [
+            {"title": "Fixture rows", "rpc": {"method": "debug.fixture", "params": {"count": 3}}, "wait": 0},
+        ]}), encoding="utf-8")
+        done, manifest = self.run_tour()
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertEqual(manifest["result"], "pass")
+        step = manifest["steps"][0]
+        self.assertEqual(step["status"], "ok")
+        self.assertEqual(step["rpc"], "debug.fixture")
+        self.assertIn('"rows": 3', step["output"])
+        methods = [json.loads(line) for line in self.log.read_text(encoding="utf-8").splitlines()]
+        sent = [m for m in methods if m["method"] == "debug.fixture"]
+        self.assertEqual(sent, [{"method": "debug.fixture", "params": {"count": 3}}])
+        self.assertLess(methods.index(sent[0]),
+                        max(i for i, m in enumerate(methods) if m["method"] == "debug.window_snapshot"))
+
+    def test_an_rpc_error_fails_a_required_step_and_degrades_an_optional_one(self) -> None:
+        self.tour.write_text(json.dumps({"title": "Demo", "steps": [
+            {"title": "Required", "rpc": {"method": "debug.fixture_error"}, "wait": 0},
+        ]}), encoding="utf-8")
+        done, manifest = self.run_tour()
+        self.assertEqual(done.returncode, 1)
+        self.assertEqual(manifest["steps"][0]["status"], "failed")
+        self.assertIn("no Home page", manifest["steps"][0]["detail"])
+
+        self.tour.write_text(json.dumps({"title": "Demo", "steps": [
+            {"title": "Optional", "rpc": {"method": "debug.unknown"}, "optional": "not in this build", "wait": 0},
+        ]}), encoding="utf-8")
+        done, manifest = self.run_tour()
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertEqual(manifest["result"], "degraded")
+        self.assertEqual(manifest["steps"][0]["status"], "unavailable")
+        self.assertIn("not in this build", manifest["steps"][0]["detail"])
+
+    def test_rpc_needs_a_method_and_object_params(self) -> None:
+        sys.path.insert(0, str(SCRIPT.parent))
+        import tour
+        for rpc in ({"params": {}}, {"method": "debug.x", "params": []}, {"method": "debug.x", "extra": 1}, "debug.x"):
+            with self.subTest(rpc=rpc):
+                self.tour.write_text(json.dumps({"title": "Demo", "steps": [{"title": "Bad", "rpc": rpc}]}), encoding="utf-8")
+                with self.assertRaisesRegex(tour.TourError, "`rpc` must be"):
+                    tour.load_tour(self.tour)
+
     def test_display_must_be_true_or_false(self) -> None:
         self.tour.write_text(json.dumps({"title": "Demo", "steps": [
             {"title": "Launch", "display": "yes"},
@@ -300,6 +350,27 @@ class AppWindowCaptureTests(unittest.TestCase):
         import tour
         with self.assertRaisesRegex(tour.TourError, "`display` must be true or false"):
             tour.load_tour(self.tour)
+
+    def test_an_rpc_step_sends_its_method_and_params_to_the_app(self) -> None:
+        self.tour.write_text(json.dumps({"title": "Demo", "steps": [
+            {"title": "Launch", "wait": 1.2},
+            {"title": "Fixture page", "rpc": {"method": "debug.fixture_page", "params": {"set": "tabs"}}, "wait": 0.5},
+        ]}), encoding="utf-8")
+        _, manifest = self.run_tour()
+        step = manifest["steps"][1]
+        self.assertEqual(step["status"], "ok", step)
+        requests = [json.loads(line) for line in self.log.read_text(encoding="utf-8").splitlines()]
+        self.assertIn({"method": "debug.fixture_page", "params": {"set": "tabs"}}, requests)
+
+    def test_an_rpc_step_that_answers_ok_false_fails(self) -> None:
+        self.tour.write_text(json.dumps({"title": "Demo", "steps": [
+            {"title": "Launch", "wait": 1.2},
+            {"title": "Fixture page", "rpc": {"method": "debug.fixture_page", "params": {"set": "missing"}}, "wait": 0.5},
+        ]}), encoding="utf-8")
+        _, manifest = self.run_tour()
+        step = manifest["steps"][1]
+        self.assertEqual(step["status"], "failed", step)
+        self.assertIn("ok: false", step["detail"])
 
 
 if __name__ == "__main__":

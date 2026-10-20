@@ -234,6 +234,16 @@ pub mod method {
     /// The person proof for this connection's challenge (`hub/person.rs`).
     pub const MUX_PERSON_PROVE: &str = "_acpmux/person_prove";
     pub const MUX_PERSON_HOLDS: &str = "_acpmux/person_holds";
+    /// The person's phones that may sign an allow (`hub/approvers.rs`).
+    pub const MUX_APPROVERS_SET: &str = "_acpmux/approvers_set";
+    /// The person's app: the folders of the workspaces its daemon lists now,
+    /// which a remote (Web) connection may also start sessions in.
+    pub const MUX_WORKSPACE_ROOTS_SET: &str = "_acpmux/workspace_roots_set";
+    /// The person's app: the agent and model its New Tab page picked last,
+    /// anywhere and per folder (`newTab.lastPicks`), which `_acpmux/harnesses`
+    /// shows a remote device so its New Agent Chat starts where the app's does.
+    pub const MUX_NEW_CHAT_PICKS_SET: &str = "_acpmux/new_chat_picks_set";
+    pub const MUX_APPROVERS: &str = "_acpmux/approvers";
     pub const MUX_PERMISSION_GROUPS: &str = "_acpmux/permission_groups";
     pub const MUX_PERMISSION_GROUP_RESPOND: &str = "_acpmux/permission_group_respond";
     pub const MUX_PERMISSION_CHAT_REVOKE: &str = "_acpmux/permission_chat_revoke";
@@ -289,6 +299,10 @@ pub mod method {
     pub const MUX_HARNESS_REMOVE: &str = "_acpmux/harness/remove";
     pub const MUX_HARNESS_RESTORE: &str = "_acpmux/harness/restore";
     pub const MUX_HARNESS_DOCTOR: &str = "_acpmux/harness/doctor";
+    /// Store a harness env key's secret in the system secret store and point
+    /// the profile at it (`{id, key, value}`; the value is never echoed).
+    /// The unix socket only.
+    pub const MUX_HARNESS_SECRET_SET: &str = "_acpmux/harness/secret/set";
     /// The ACP Registry's agents and how each can start here.
     pub const MUX_REGISTRY: &str = "_acpmux/registry";
     /// Agent CLI health (hq #1875; `hub/health_view.rs`): the unix socket

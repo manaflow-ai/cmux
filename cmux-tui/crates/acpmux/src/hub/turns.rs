@@ -84,6 +84,9 @@ impl Hub {
         steer: bool,
         mut opts: PromptOptions,
     ) -> Result<Value, RpcError> {
+        // A deferred start reads the queues after its ready line: a new prompt waits, so it
+        // never runs ahead of a prompt queued under the previous daemon.
+        self.wait_logs().await;
         let Some(prompt_id) = opts.prompt_id.clone() else {
             return self.run_prompt(session, blocks, client, steer, opts).await;
         };
@@ -555,6 +558,7 @@ impl Hub {
         // preview) are applied before the turn settles, so every record below
         // and the chat activity it sends see them.
         Self::drain_inbound(session).await;
+        let git = super::turn_git::turn_git(session).await;
         match &result {
             Ok(v) => {
                 self.note_reply_refusal(session);
@@ -576,8 +580,7 @@ impl Hub {
                     }
                     o.extend(super::turn_usage::turn_usage(session, v));
                 }
-                self.record_last_turn(session, &msg);
-                self.append(session, "mux", "turn_result", msg);
+                self.write_turn_result(session, msg, git);
             }
             Err(e) => {
                 self.append(
@@ -599,8 +602,7 @@ impl Hub {
                         o.extend(info.clone());
                     }
                 }
-                self.record_last_turn(session, &msg);
-                self.append(session, "mux", "turn_result", msg);
+                self.write_turn_result(session, msg, git);
             }
         }
         self.reset_stream(session);

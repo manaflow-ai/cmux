@@ -129,6 +129,19 @@ pub fn clear_stopping(lock: &Path) {
     let _ = std::fs::remove_file(stopping_file(lock));
 }
 
+/// The file next to the host lock `lock` that names the host (its pid) that
+/// takes SIGUSR1 as "hand off when idle" (an update: the app waits for the
+/// Chief's turn to end before it hands acpmux off). An older host has no
+/// such file, and SIGUSR1 would end it at once, so the app does not send it.
+pub fn handoff_file(lock: &Path) -> std::path::PathBuf {
+    lock.with_file_name("host.handoff")
+}
+
+/// Says that this host (holding `lock`) takes SIGUSR1 as a handoff request.
+pub fn mark_handoff_when_idle(lock: &Path) {
+    let _ = std::fs::write(handoff_file(lock), format!("{}\n", std::process::id()));
+}
+
 /// Whether a host runs on `lock` and is not stopping.
 pub fn in_use(lock: &Path) -> bool {
     held(lock) && !stopping_file(lock).exists()
