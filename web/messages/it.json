@@ -33,7 +33,7 @@
     "guestUnresponsive": {
       "title": "La macchina non risponde",
       "message": "Questa macchina non ha risposto in tempo, quindi la richiesta non è stata completata.",
-      "action": "Metti in pausa la macchina, poi riprendila e riprova. Nell'app per Mac, scegli Metti in pausa la macchina, poi Riprendi la macchina. In un terminale, esegui cmux vm pause '<machine>', poi cmux vm resume '<machine>'."
+      "action": "Contatta l'assistenza con l'ID di traccia prima di creare un'altra macchina."
     },
     "inProgress": {
       "title": "Ancora in corso",
@@ -113,6 +113,16 @@
       "hoursAction": "cmux billing checkout --plan pro",
       "shapeMessage": "Go supporta 2 vCPU, 4 GiB di RAM e 16 GiB di disco.",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
+    },
+    "planBudget": {
+      "computeTitle": "Quota di calcolo {plan} esaurita",
+      "computeMessage": "Il tuo piano {plan} ha usato le sue {included} ore di calcolo per questo periodo di fatturazione. Un'ora di calcolo corrisponde a 1 vCPU con 2 GB di memoria per un'ora. Le tue macchine potranno ripartire il {resetDate}.",
+      "computeAction": "Le macchine in pausa conservano i loro file. Contatta il supporto se ti serve più calcolo prima del {resetDate}.",
+      "computeActionUpgrade": "cmux billing checkout --plan max",
+      "storageTitle": "Quota disco {plan} esaurita",
+      "storageMessage": "Il tuo piano {plan} include {included} GB di disco per tutte le macchine salvate. Le macchine salvate usano {used} GB e questa richiesta ne richiede {requested}.",
+      "storageAction": "cmux vm ls\ncmux vm rm <id>",
+      "storageActionUpgrade": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan max"
     },
     "resourcePool": {
       "title": "Risorse Cloud VM insufficienti",
@@ -514,6 +524,9 @@
         "unavailable": {
           "cancelScheduled": "Riprendi il piano per modificarlo.",
           "granted": "Concesso da cmux. Non c'è nulla da modificare.",
+          "grantedNoCancel": "Concesso da cmux, quindi non c'è nulla da annullare.",
+          "paymentFailed": "Aggiorna il metodo di pagamento prima di cambiare piano.",
+          "foundersLifetime": "Founder's Edition include Pro a vita.",
           "adminOnly": "Solo gli amministratori del team possono modificare il piano."
         },
         "names": {
@@ -556,6 +569,7 @@
       "change": {
         "title": "Passare a {plan}?",
         "upgradeBody": "{plan} inizia ora. Oggi paghi {amount} per il resto di questo periodo di fatturazione. Dal {date} paghi {price} al mese.",
+        "upgradeBodyYearly": "{plan} inizia ora. Oggi paghi {amount} per il resto di questo periodo di fatturazione. Dal {date} paghi {price} all'anno.",
         "downgradeBody": "{plan} inizia ora. La parte non utilizzata del piano attuale, {credit}, viene accreditata sulle prossime fatture. La prossima fattura, il {date}, è di {amount}.",
         "confirm": "Passa a {plan}",
         "keep": "Mantieni il piano attuale",
@@ -568,6 +582,8 @@
         "title": "Annullare {plan}?",
         "body": "Mantieni {plan} fino al {date}. Dopo perderai:",
         "bodyNoDate": "Mantieni {plan} fino alla fine di questo periodo di fatturazione. Dopo perderai:",
+        "foundersBody": "Il tuo abbonamento {plan} termina il {date}. Dopo avrai Pro, che Founder's Edition include a vita.",
+        "foundersBodyNoDate": "Il tuo abbonamento {plan} termina alla fine di questo periodo di fatturazione. Dopo avrai Pro, che Founder's Edition include a vita.",
         "reasonLabel": "Perché annulli? (facoltativo)",
         "otherPlaceholder": "Raccontaci di più (facoltativo)",
         "confirm": "Annulla piano",
@@ -2242,6 +2258,7 @@
           "currentLineHighlight": "Colora la riga che contiene il cursore di testo quando non è selezionato nulla.",
           "tabWidth": "Quante colonne occupa una tabulazione. Le guide di rientro usano la stessa spaziatura."
         },
+        "actions": "Azioni riutilizzabili per la tavolozza dei comandi, le scorciatoie, i pulsanti della barra delle schede e il menu del pulsante più. Supporta builtin, command, agent, workspaceCommand, workspace, setting, settingPreset e text. Le azioni di testo incollano nel terminale attivo mantenendo le interruzioni di riga; submit: true preme Enter. Le azioni delle impostazioni richiedono una configurazione globale.",
         "remoteTmux": {
           "beta": {
             "newWorkspaceOnHost": {
@@ -3450,6 +3467,16 @@
       "title": "Apri le regole in cmux",
       "intro": "Questa pagina apre le regole nell'area di lavoro cmux corrente.",
       "fallback": "cmux mostra prima le regole e chiede prima di incollarle nell'area di lavoro corrente. Se cmux non si apre, installa cmux e fai nuovamente clic su Apri in cmux."
+    },
+    "agent": {
+      "metaTitle": "Apri sessione agente in cmux",
+      "metaDescription": "Apri dal web un deeplink cmux a una sessione agente, con installazione alternativa se cmux non è disponibile.",
+      "title": "Apri sessione agente",
+      "intro": "Questo link apre la sessione dell'agente in cmux se questo Mac può già raggiungerla. Il link di per sé non concede alcun accesso.",
+      "fallback": "Se cmux non si apre, installa cmux e fai di nuovo clic su Apri in cmux. cmux apre la sessione solo se questo Mac può già raggiungerla.",
+      "nameLabel": "Nome: {value}",
+      "hostLabel": "Host: {value}",
+      "harnessLabel": "Harness: {value}"
     }
   },
   "download": {

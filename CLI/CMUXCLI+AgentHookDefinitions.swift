@@ -63,6 +63,7 @@ extension CMUXCLI {
             case nested(timeoutMs: Int)  // Nested type/command/timeout hooks; timeout unit is agent-specific.
             case kiroAgentJSON(timeoutMs: Int) // ~/.kiro/agents/*.json flat command entries with timeout_ms
             case antigravityJSON(timeoutSeconds: Int) // ~/.gemini/config/hooks.json named hook groups
+            case copilotHooksJSON(timeoutSeconds: Int) // ~/.copilot/hooks/cmux.json: version 1, camelCase events, bash/timeoutSec entries
             case rovoDevYAML
             case hermesAgentYAML
             case tomlArrayTable // Kimi config.toml [[hooks]] array-of-tables
@@ -103,6 +104,16 @@ extension CMUXCLI {
 
         enum PostInstallAction {
             case codexConfigToml // write hooks = true to config.toml on install, remove on uninstall
+        }
+
+        /// Whether `resolvedConfigDir()` comes from a non-empty env override.
+        var resolvesConfigDirFromEnvOverride: Bool {
+            guard configDirResolver == nil,
+                  let envKey = configDirEnvOverride,
+                  let value = ProcessInfo.processInfo.environment[envKey] else {
+                return false
+            }
+            return !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         }
 
         /// Resolves the config directory, respecting env override if set.

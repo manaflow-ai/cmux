@@ -51,7 +51,11 @@ A machine can instead keep its agents current: with `agentUpdates: "latest"`
 (New Machine's "Keep coding agents up to date", checked by default in the
 sheet, `cmux vm agent-updates <vm> latest`, or `PUT /api/vm/{id}/agent-updates`),
 create and each attach start a detached updater
-(`web/services/vms/guestAgentUpdates.ts`). It never uses npm: for every agent
+(`web/services/vms/guestAgentUpdates.ts`). On a clone that resumed less than
+10 minutes ago (the boot supervisor's `HOUSEKEEPING_DELAY`) it waits out that
+window so it never competes with the daemon's start. It runs at `nice 19`,
+plus the idle I/O class when `ionice` is present (only the BFQ scheduler
+honors that class). It never uses npm: for every agent
 it reads the tool's GitHub releases (`web/services/vms/images/agents.ts`) and
 installs the newest x.y.z release that has been public for 3 days and is not
 above the latest release, after checking the download's sha256, at most once a
@@ -232,9 +236,28 @@ screen, whatever kind a client names (`VM_IMAGE_DEFAULT_KIND` in
 `services/vms/images/resolver.ts` is desktop for a request that names none).
 `devbox:bake:freestyle --no-desktop` can still bake a shell-only image for
 experiments; it is not promoted, and the verifier reads `/etc/cmux/image-stamp`
-and rejects a desktop snapshot passed as a base image. A daemon change (the
-cmux-tui pin) reaches machines only through a rebake: the driver's
-attach-time heal never upgrades a healthy baked daemon.
+and rejects a desktop snapshot passed as a base image.
+
+### Which image a new machine gets
+
+The `defaultForKind` rows in `manifest.json` are the one source of truth, read
+only through `resolveVmImage` (`services/vms/images/resolver.ts`). Every
+default create goes through it: the Mac and iOS New Machine sheets and
+`cmux vm new` send a kind and size, never an image id; `POST /api/vm` and
+`vm base open/reset` resolve the kind and the plan's memory to a ladder row.
+There is no env, team, plan or user image pin, so merging a promotion (and
+the deploy it starts) moves every default create to the new bake. An image id
+reaches a create only from a person (`cmux vm new --image`), and in a
+deployed environment it must be a manifest row.
+
+Fork, restore and templates (`vm promote-template` is a named snapshot that a
+restore boots) are the exceptions: they boot the user's own machine or
+snapshot and keep the guest software it had, including its cmux-tui. Like
+every running machine, they move to a new cmux-tui only through
+`bun scripts/upgrade-fleet-cmux-tui.ts`, which defaults to the build the
+default image bakes (docs/cloud-guest-upgrades.md). Neither create nor attach
+installs or upgrades cmux-tui, so a daemon change (the cmux-tui pin) reaches
+new machines only through a rebake and promotion.
 
 The Freestyle base slug is only the input to the cmux bake. The ids recorded in
 `manifest.json` are cmux-derived snapshots, created by baking cmux-tui and its
@@ -520,7 +543,10 @@ and of `codex` as root and as `cmux` reaching the ready composer with no
 first-run gate on screen (onboarding, folder trust, the bypass confirmation,
 the custom API key consent, the root gate, codex's update picker and
 bubblewrap warning; readiness is the composer text itself, polled and
-bounded), and (when `/etc/cmux/image-stamp` says `desktop`) the desktop
+bounded), codex's own verdict that every hook a daemon pane's codex starts
+with is trusted (the cmux-tui codex wrapper's exact argv, then `codex
+app-server` `hooks/list`; a screen probe cannot see "Hooks need review",
+which codex shows after its composer), and (when `/etc/cmux/image-stamp` says `desktop`) the desktop
 contract (both ports,
 RFB loopback-only, the session processes, the wallpaper on the root window,
 one supervisor, `DISPLAY` in root's and the work user's login shells,

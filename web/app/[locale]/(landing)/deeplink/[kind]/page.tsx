@@ -4,11 +4,20 @@ import { buildAlternates, seoDescription } from "@/i18n/seo";
 import { Link } from "@/i18n/navigation";
 import { SiteHeader } from "@/app/[locale]/components/site-header";
 import { DOWNLOAD_CONFIRMATION_HREF } from "@/app/lib/download";
+import {
+  AGENT_ALLOWED_PARAMS,
+  AGENT_REQUIRED_PARAMS,
+  agentLinkModel,
+  agentNativeHref,
+  invalidAgentParams,
+} from "./deeplink-agent";
 
 type SearchValue = string | string[] | undefined;
 type SearchParams = Record<string, SearchValue>;
 
-type LinkKind = "ssh" | "prompt" | "rules";
+type LinkKind = "ssh" | "prompt" | "rules" | "agent";
+
+const LINK_KINDS: readonly LinkKind[] = ["ssh", "prompt", "rules", "agent"];
 
 const definitions: Record<
   LinkKind,
@@ -46,14 +55,17 @@ const definitions: Record<
     exampleHref:
       "/deeplink/rules?name=freestyle&text=Prefer%20small%20PRs",
   },
+  agent: {
+    allowedParams: AGENT_ALLOWED_PARAMS,
+    requiredParams: AGENT_REQUIRED_PARAMS,
+    exampleHref:
+      "/deeplink/agent?harness=claude&session=example-session&host=devbox&name=Rivetmoss",
+  },
 };
 
 function canonicalKind(rawKind: string): LinkKind | null {
   if (rawKind === "rule") return "rules";
-  if (rawKind === "ssh" || rawKind === "prompt" || rawKind === "rules") {
-    return rawKind;
-  }
-  return null;
+  return LINK_KINDS.find((kind) => kind === rawKind) ?? null;
 }
 
 function firstString(value: SearchValue): string | null {
@@ -239,6 +251,8 @@ function nativeQueryValue(name: string, value: string) {
 }
 
 function nativeHref(kind: LinkKind, params: SearchParams) {
+  // cmux NEXT parses the agent kind in path form; never echo invalid input.
+  if (kind === "agent") return agentNativeHref(params) ?? "cmux://agent";
   const definition = definitions[kind];
   const query = new URLSearchParams();
   for (const name of definition.allowedParams) {
@@ -254,12 +268,31 @@ function nativeHref(kind: LinkKind, params: SearchParams) {
   return `cmux://${kind}${queryString ? `?${queryString}` : ""}`;
 }
 
+async function AgentDetails({ params }: { params: SearchParams }) {
+  // Shows only fields of a fully validated link (agentLinkModel), as text.
+  const model = agentLinkModel(params);
+  if (!model) return null;
+  const t = await getTranslations("deeplink.agent");
+  const rows = (["name", "host", "harness"] as const).flatMap((field) => {
+    const value = model[field];
+    return value ? [{ field, value }] : [];
+  });
+  return (
+    <ul className="mt-2 text-[14px] text-muted">
+      {rows.map(({ field, value }) => (
+        <li key={field}>{t(`${field}Label`, { value })}</li>
+      ))}
+    </ul>
+  );
+}
+
 export function generateStaticParams() {
   return [
     { kind: "ssh" },
     { kind: "prompt" },
     { kind: "rules" },
     { kind: "rule" },
+    { kind: "agent" },
   ];
 }
 
@@ -300,7 +333,11 @@ export default async function DeeplinkPage({
   );
   const duplicates = duplicatedParams(resolvedSearchParams, definition.allowedParams);
   const conflicts = conflictingParams(kind, resolvedSearchParams);
-  const invalid = uniqueParamNames(invalidParams(kind, resolvedSearchParams));
+  const invalid = uniqueParamNames(
+    kind === "agent"
+      ? invalidAgentParams(resolvedSearchParams)
+      : invalidParams(kind, resolvedSearchParams),
+  );
   const missing = missingParams(resolvedSearchParams, definition.requiredParams);
   const href = nativeHref(kind, resolvedSearchParams);
   const canOpen =
@@ -344,6 +381,9 @@ export default async function DeeplinkPage({
             <p className="mt-1 text-[15px] text-muted">
               {t(`${kind}.intro`)}
             </p>
+            {kind === "agent" ? (
+              <AgentDetails params={resolvedSearchParams} />
+            ) : null}
           </div>
         </div>
 
