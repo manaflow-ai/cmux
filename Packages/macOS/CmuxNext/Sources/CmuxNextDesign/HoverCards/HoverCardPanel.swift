@@ -12,7 +12,8 @@ public enum HoverCardPlacement: Sendable {
 
 /// The one hover card window of the app: a borderless, non-activating,
 /// click-through child window holding a glass card (opaque under Reduce
-/// Transparency, `OverlaySurfaceView`) in the popup style (`PopupStyle`). The coordinator owns
+/// Transparency, `OverlaySurfaceView`) in the popup style (`PopupStyle`), shaped like the other
+/// floating glass panels (`cornerRadius`). The coordinator owns
 /// the only instance and swaps the card's body (a tab card or a workspace
 /// card view, each reused) into it.
 ///
@@ -39,6 +40,9 @@ final class HoverCardPanel: NSPanel {
     static var entryOffset: CGFloat { motion.entryOffset }
     /// The entrance and exit every hover card plays (the update card's too).
     static let motion = HoverCardMotion.standard
+    /// The card's continuous radius: the floating glass panels' (the palette, dialogs), not a
+    /// menu's 8 pt (Leo 2026-10-20: the hover card in iOS's glass style). The shadow follows it.
+    static var cornerRadius: CGFloat { Metrics.panelCornerRadius }
     /// The window's clear band around the card: the shadow band plus the slide's room.
     private static var windowMargin: CGFloat { PopupStyle.standard.shadowMargin + travel }
     private weak var body: NSView?
@@ -53,10 +57,15 @@ final class HoverCardPanel: NSPanel {
     private weak var adoptedScope: ThemeScope?
 
     init() {
-        glass = Glass.makeOverlayPanel(cornerRadius: PopupStyle.standard.cornerRadius)
+        glass = Glass.makeOverlayPanel(cornerRadius: Self.cornerRadius)
+        // The card is its clear window's whole content: before macOS 26 its blur samples what is
+        // behind the window (the sidebar, a terminal), as its Liquid Glass refracts it.
+        glass.samplesBehindWindow = true
         super.init(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
         Self.liveInstances += 1
-        adoptPopupStyle(card: glass).travelMargin = Self.travel
+        let host = adoptPopupStyle(card: glass)
+        host.travelMargin = Self.travel
+        host.cornerRadius = Self.cornerRadius
         ignoresMouseEvents = true
         isReleasedWhenClosed = false
         // A no-activate test run is never active; its cards must still show.
@@ -139,6 +148,8 @@ final class HoverCardPanel: NSPanel {
         }
         self.anchor = anchor
         self.placement = placement
+        // The density setting may have changed the floating panels' radius since the last card.
+        host?.cornerRadius = Self.cornerRadius
         place()
         if let previous {
             // A visible card: it slides from where it is drawn to its new place (a quick return

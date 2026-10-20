@@ -45,9 +45,14 @@ final class SidebarUpdateNotesPanel: NSPanel {
     init(width: CGFloat) {
         self.width = width
         host = SidebarPopoverIslandHost(width: width)
-        glass = Glass.makeOverlayPanel(content: host, cornerRadius: PopupStyle.standard.cornerRadius)
+        // The same glass as the workspace hover card (HoverCardPanel): the floating panels'
+        // radius, and before macOS 26 a blur of what is behind its clear window.
+        glass = Glass.makeOverlayPanel(content: host, cornerRadius: Metrics.panelCornerRadius)
+        glass.samplesBehindWindow = true
         super.init(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
-        adoptPopupStyle(card: glass).travelMargin = Self.motion.entryOffset
+        let popup = adoptPopupStyle(card: glass)
+        popup.travelMargin = Self.motion.entryOffset
+        popup.cornerRadius = Metrics.panelCornerRadius
         isReleasedWhenClosed = false
         // Closed on deactivation instead (below): a hidden panel AppKit shows again on
         // reactivation would stay open with no pointer exit to close it.
