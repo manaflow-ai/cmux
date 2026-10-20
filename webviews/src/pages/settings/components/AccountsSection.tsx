@@ -20,11 +20,18 @@ export function AccountsSection() {
     [store],
   );
   // A login or logout runs in a terminal tab of the main window, so the app never goes inactive:
-  // coming back to Settings frees the rows it left busy (the host ignores it when none are).
+  // coming back to Settings (its window, or its tab) frees the rows it left busy (the host
+  // ignores it when none are).
   useEffect(() => {
-    const focused = () => void store.runAccounts({ action: "focus" });
+    const focused = () => {
+      if (document.visibilityState === "visible") void store.runAccounts({ action: "focus" });
+    };
     window.addEventListener("focus", focused);
-    return () => window.removeEventListener("focus", focused);
+    document.addEventListener("visibilitychange", focused);
+    return () => {
+      window.removeEventListener("focus", focused);
+      document.removeEventListener("visibilitychange", focused);
+    };
   }, [store]);
   return (
     <div className="accounts" data-card="accounts" ref={mounted}>

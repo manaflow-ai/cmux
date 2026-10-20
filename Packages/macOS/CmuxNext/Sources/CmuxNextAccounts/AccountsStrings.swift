@@ -46,8 +46,9 @@ enum AccountsStrings {
     static var signIn: String { text("accounts.action.signIn", "Sign In") }
     static var getKey: String { text("accounts.action.getKey", "Get Key") }
     static var signOut: String { text("accounts.action.signOut", "Sign Out") }
-    static func shellVariableWins(_ variable: String) -> String {
-        String(format: text("accounts.hint.shellVariable", "Your shell sets %@, which wins over a sign-in made here. Unset it for Re-authenticate or Sign Out to take effect."), variable)
+    /// No variable name: recovery copy names no environment variables (review-bot rules).
+    static var shellSignInWins: String {
+        text("accounts.hint.shellSignIn", "Your shell provides this sign-in, and it wins over a sign-in made here. Remove it from your shell setup for Re-authenticate or Sign Out to take effect.")
     }
     static var addKey: String { text("accounts.action.addKey", "Add Key…") }
     static var deleteSavedKey: String { text("accounts.action.deleteSavedKey", "Delete Saved Key") }

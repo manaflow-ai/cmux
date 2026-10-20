@@ -6027,133 +6027,133 @@
         }
       }
     },
-    "accounts.hint.shellVariable": {
+    "accounts.hint.shellSignIn": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Your shell sets %@, which wins over a sign-in made here. Unset it for Re-authenticate or Sign Out to take effect."
+            "value": "Your shell provides this sign-in, and it wins over a sign-in made here. Remove it from your shell setup for Re-authenticate or Sign Out to take effect."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "シェルで %@ が設定されており、ここでのサインインより優先されます。再認証やサインアウトを反映させるには、この変数を解除してください。"
+            "value": "このサインインはシェルから提供されており、ここでのサインインより優先されます。再認証やサインアウトを反映させるには、シェルの設定から削除してください。"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يعيّن الـ shell المتغير %@، وهو يتقدّم على أي تسجيل دخول يتم هنا. ألغِ تعيينه لكي تسري إعادة المصادقة أو تسجيل الخروج."
+            "value": "يوفّر الـ shell تسجيل الدخول هذا، وهو يتقدّم على أي تسجيل دخول يتم هنا. أزله من إعداد الـ shell لكي تسري إعادة المصادقة أو تسجيل الخروج."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vaš shell postavlja %@, koji ima prednost nad prijavom napravljenom ovdje. Uklonite ga da bi ponovna prijava ili odjava imale efekta."
+            "value": "Vaš shell daje ovu prijavu, koja ima prednost nad prijavom napravljenom ovdje. Uklonite je iz postavki shella da bi ponovna prijava ili odjava imale efekta."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Din shell sætter %@, som vinder over et login foretaget her. Fjern den, så Godkend igen eller Log ud får virkning."
+            "value": "Din shell leverer dette login, og det vinder over et login foretaget her. Fjern det fra din shell-opsætning, så Godkend igen eller Log ud får virkning."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Deine Shell setzt %@, und das hat Vorrang vor einer Anmeldung hier. Entferne die Variable, damit „Erneut authentifizieren“ oder „Abmelden“ wirkt."
+            "value": "Diese Anmeldung kommt aus deiner Shell und hat Vorrang vor einer Anmeldung hier. Entferne sie aus deiner Shell-Konfiguration, damit „Erneut authentifizieren“ oder „Abmelden“ wirkt."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tu shell define %@, que tiene prioridad sobre un inicio de sesión hecho aquí. Elimínala para que Volver a autenticar o Cerrar sesión surtan efecto."
+            "value": "Tu shell proporciona este inicio de sesión, que tiene prioridad sobre uno hecho aquí. Quítalo de la configuración de tu shell para que Volver a autenticar o Cerrar sesión surtan efecto."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Votre shell définit %@, qui l’emporte sur une connexion faite ici. Supprimez-la pour que Réauthentifier ou Se déconnecter prenne effet."
+            "value": "Cette connexion vient de votre shell et l’emporte sur une connexion faite ici. Retirez-la de la configuration de votre shell pour que Réauthentifier ou Se déconnecter prenne effet."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "La tua shell imposta %@, che prevale su un accesso fatto qui. Rimuovila perché Riautentica o Esci abbiano effetto."
+            "value": "Questo accesso arriva dalla tua shell e prevale su un accesso fatto qui. Rimuovilo dalla configurazione della shell perché Riautentica o Esci abbiano effetto."
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shell របស់អ្នកកំណត់ %@ ដែលមានអាទិភាពលើការចូលដែលធ្វើនៅទីនេះ។ សូមលុបវាចេញ ដើម្បីឱ្យការផ្ទៀងផ្ទាត់ម្ដងទៀត ឬការចេញមានប្រសិទ្ធភាព។"
+            "value": "Shell របស់អ្នកផ្ដល់ការចូលនេះ ដែលមានអាទិភាពលើការចូលដែលធ្វើនៅទីនេះ។ សូមលុបវាចេញពីការកំណត់ shell របស់អ្នក ដើម្បីឱ្យការផ្ទៀងផ្ទាត់ម្ដងទៀត ឬការចេញមានប្រសិទ្ធភាព។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "셸에서 %@을(를) 설정하고 있어 여기서 한 로그인보다 우선합니다. 다시 인증이나 로그아웃이 적용되려면 이 변수를 해제하세요."
+            "value": "이 로그인은 셸에서 제공되어 여기서 한 로그인보다 우선합니다. 다시 인증이나 로그아웃이 적용되려면 셸 설정에서 제거하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Skallet ditt setter %@, som går foran en innlogging gjort her. Fjern den for at Autentiser på nytt eller Logg ut skal virke."
+            "value": "Skallet ditt gir denne innloggingen, og den går foran en innlogging gjort her. Fjern den fra skalloppsettet for at Autentiser på nytt eller Logg ut skal virke."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Twoja powłoka ustawia %@, która ma pierwszeństwo przed logowaniem wykonanym tutaj. Usuń ją, aby Uwierzytelnij ponownie lub Wyloguj zadziałały."
+            "value": "To logowanie pochodzi z Twojej powłoki i ma pierwszeństwo przed logowaniem wykonanym tutaj. Usuń je z konfiguracji powłoki, aby Uwierzytelnij ponownie lub Wyloguj zadziałały."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Seu shell define %@, que tem prioridade sobre um login feito aqui. Remova essa variável para que Autenticar novamente ou Sair tenham efeito."
+            "value": "Este login vem do seu shell e tem prioridade sobre um login feito aqui. Remova-o da configuração do seu shell para que Autenticar novamente ou Sair tenham efeito."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ваша оболочка задаёт %@, и она важнее входа, выполненного здесь. Удалите её, чтобы повторная аутентификация или выход вступили в силу."
+            "value": "Этот вход задаёт ваша оболочка, и он важнее входа, выполненного здесь. Удалите его из настроек оболочки, чтобы повторная аутентификация или выход вступили в силу."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "เชลล์ของคุณตั้งค่า %@ ซึ่งมีผลเหนือการลงชื่อเข้าใช้ที่ทำที่นี่ ยกเลิกการตั้งค่าเพื่อให้การยืนยันตัวตนอีกครั้งหรือการออกจากระบบมีผล"
+            "value": "เชลล์ของคุณให้การลงชื่อเข้าใช้นี้ ซึ่งมีผลเหนือการลงชื่อเข้าใช้ที่ทำที่นี่ ลบออกจากการตั้งค่าเชลล์เพื่อให้การยืนยันตัวตนอีกครั้งหรือการออกจากระบบมีผล"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kabuğunuz %@ değişkenini ayarlıyor ve bu, burada yapılan bir girişten önce gelir. Yeniden Kimlik Doğrula veya Oturumu Kapat'ın etkili olması için onu kaldırın."
+            "value": "Bu giriş kabuğunuzdan geliyor ve burada yapılan bir girişten önce gelir. Yeniden Kimlik Doğrula veya Oturumu Kapat'ın etkili olması için onu kabuk ayarlarınızdan kaldırın."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ваша оболонка задає %@, і вона має перевагу над входом, виконаним тут. Видаліть її, щоб повторна автентифікація або вихід набули чинності."
+            "value": "Цей вхід задає ваша оболонка, і він має перевагу над входом, виконаним тут. Видаліть його з налаштувань оболонки, щоб повторна автентифікація або вихід набули чинності."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shell của bạn đặt %@, biến này được ưu tiên hơn lần đăng nhập ở đây. Hãy bỏ đặt nó để Xác thực lại hoặc Đăng xuất có hiệu lực."
+            "value": "Lần đăng nhập này đến từ shell của bạn và được ưu tiên hơn lần đăng nhập ở đây. Hãy xóa nó khỏi cấu hình shell để Xác thực lại hoặc Đăng xuất có hiệu lực."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "你的 shell 设置了 %@，它优先于在这里完成的登录。取消设置它，重新验证或退出登录才会生效。"
+            "value": "这个登录来自你的 shell，它优先于在这里完成的登录。从 shell 配置中移除它，重新验证或退出登录才会生效。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "你的 shell 設定了 %@，它優先於在這裡完成的登入。取消設定它，重新驗證或登出才會生效。"
+            "value": "這個登入來自你的 shell，它優先於在這裡完成的登入。從 shell 設定中移除它，重新驗證或登出才會生效。"
           }
         }
       }

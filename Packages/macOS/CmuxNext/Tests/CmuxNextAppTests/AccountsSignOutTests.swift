@@ -20,7 +20,8 @@ import Testing
     @Test func theLogoutCommandsAreTheCLIsOwn() {
         #expect(AIProvider.codex.signOutPlan.shellLine == "codex logout")
         #expect(AIProvider.claude.signOutPlan.shellLine == "claude auth logout")
-        #expect(AIProvider.copilot.signOutPlan.shellLine == "gh auth logout --hostname github.com")
+        // Copilot's sign-in is the editor's, not the GitHub CLI's: nothing here signs it out.
+        #expect(AIProvider.copilot.signOutPlan == .none)
         #expect(AIProvider.openAI.signOutPlan == .none)
     }
 
@@ -65,7 +66,7 @@ import Testing
         let model = await refreshed(services)
         let claude = row(model, .claude)
         #expect(claude?.buttons.map(\.id).contains("signOut") == false)
-        #expect(claude?.note?.contains("$CLAUDE_CODE_OAUTH_TOKEN") == true)
+        #expect(claude?.note?.hasPrefix("Your shell provides this sign-in") == true)
 
         model.signOut(.claude)
         #expect(!services.calls.contains("signOut:claude"))

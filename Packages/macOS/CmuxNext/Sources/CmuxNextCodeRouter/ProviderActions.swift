@@ -75,8 +75,6 @@ extension AIProvider {
         switch self {
         case .codex: .command(["codex", "logout"])
         case .claude: .command(["claude", "auth", "logout"])
-        // github.com only: gh keeps other hosts (GitHub Enterprise) signed in.
-        case .copilot: .command(["gh", "auth", "logout", "--hostname", "github.com"])
         default: .none
         }
     }

@@ -195,7 +195,7 @@ extension AccountsModel {
     }
 
     static func note(_ row: AccountRowState, cmuxSignedIn: Bool) -> String? {
-        if let variable = row.shellVariableInUse { return AccountsStrings.shellVariableWins(variable) }
+        if row.shellVariableInUse != nil { return AccountsStrings.shellSignInWins }
         if row.provider.codeRouterLink == .bedrockKeys, cmuxSignedIn, !row.hasBedrockKeys { return AccountsStrings.bedrockNeedsKeys }
         return nil
     }
