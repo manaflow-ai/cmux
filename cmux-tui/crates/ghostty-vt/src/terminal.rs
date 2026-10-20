@@ -1314,11 +1314,6 @@ impl Terminal {
         }
     }
 
-    /// Whether OSC 133 metadata identifies the cursor as an active shell
-    /// prompt. libghostty-vt exposes persisted row/cell semantics but not the
-    /// live cursor semantic, so the wrapper also retains OSC 133's current
-    /// prompt phase across cursor movement and soft wrapping. Terminals without
-    /// shell integration conservatively return false.
     /// Whether shell integration itself marked the primary screen as at a
     /// prompt (OSC 133 prompt or input), with no guess from cell contents.
     pub fn prompt_is_marked(&self) -> bool {
@@ -1331,6 +1326,11 @@ impl Terminal {
             )
     }
 
+    /// Whether OSC 133 metadata identifies the cursor as an active shell
+    /// prompt. libghostty-vt exposes persisted row/cell semantics but not the
+    /// live cursor semantic, so the wrapper also retains OSC 133's current
+    /// prompt phase across cursor movement and soft wrapping. Terminals without
+    /// shell integration conservatively return false.
     pub fn cursor_is_at_prompt(&self) -> bool {
         if self.active_screen() == Screen::Alternate {
             return false;

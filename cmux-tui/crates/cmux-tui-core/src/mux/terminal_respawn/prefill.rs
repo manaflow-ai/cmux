@@ -3,18 +3,20 @@
 //! - the agent session it last ran, when its harness is known, started as
 //!   it was (its flags and account directory, `relaunch_store::agent_launch`):
 //!   `CLAUDE_CONFIG_DIR=<dir> claude --resume <id> <flags>` or
-//!   `CODEX_HOME=<dir> codex resume <id> <flags>`. It runs (Return after
-//!   it), as classic cmux resumes its agents after a relaunch, only when all
-//!   of these hold, and is typed for the person to confirm otherwise:
-//!   - the daemon is not configured to only type it (`agents.resume:
-//!     "type"` in cmux-tui.json);
+//!   `CODEX_HOME=<dir> codex resume <id> <flags>`. It is typed for the
+//!   person to confirm, and runs (Return after it), as classic cmux resumes
+//!   its agents after a relaunch, only when all of these hold:
+//!   - the daemon is configured to run it (`agents.resume: "run"` in
+//!     cmux-tui.json; off by default);
 //!   - its flags do not turn off the CLI's approvals
 //!     (`--dangerously-skip-permissions`, ...): rerunning those is the
 //!     person's call;
 //!   - the new shell is a POSIX shell (sh, bash, zsh, dash, ksh), the
 //!     quoting it is written in;
-//!   - shell integration itself marked the prompt (OSC 133), so the Return
-//!     reaches the shell and not a question from a startup file;
+//!   - when it is written, shell integration itself marks the prompt (OSC
+//!     133), the shell holds the terminal's foreground (no program its
+//!     startup files started, such as tmux or ssh) and nothing was typed on
+//!     the prompt: the Return reaches the shell, with only this command;
 //! - else, for a command terminal, its argv, shell-quoted, typed without a
 //!   newline so the user decides whether to run it: the full argv
 //!   when this daemon process launched it, else the relaunch record's argv
@@ -44,8 +46,8 @@ const QUIET: Duration = Duration::from_millis(400);
 pub(in crate::mux) struct Prefill {
     pub(in crate::mux) kind: Prefilled,
     text: String,
-    /// Run the text (Return after it) when the prompt is marked, instead of
-    /// only typing it.
+    /// Run the text (Return after it) at the shell's own empty prompt,
+    /// instead of only typing it.
     run: bool,
 }
 
@@ -77,8 +79,11 @@ impl Prefill {
                 Err(_) => return,
             }
         }
-        let marked = surface.try_with_terminal(|term| term.prompt_is_marked()).unwrap_or(false);
-        let text = self.input(marked);
+        let shell_foreground =
+            surface.process_id().is_some_and(crate::platform::shell_holds_foreground);
+        let Ok(text) = surface.try_with_terminal(|term| self.input(term, shell_foreground)) else {
+            return;
+        };
         if !surface.is_dead()
             && let Err(error) = surface.write_bytes(text.as_bytes())
         {
@@ -88,10 +93,20 @@ impl Prefill {
 }
 
 impl Prefill {
-    /// The bytes to write: the text, with Return only when it is to run and
-    /// shell integration marked the prompt.
-    fn input(&self, marked: bool) -> String {
-        if self.run && marked { format!("{}\r", self.text) } else { self.text.clone() }
+    /// The bytes to write on screen `term`: the text, with Return only when
+    /// it is to run at the shell's own empty prompt: marked by shell
+    /// integration, the shell in the foreground (`shell_foreground`), and no
+    /// input on it (the person typed during the shell's startup).
+    fn input(&self, term: &mut ghostty_vt::Terminal, shell_foreground: bool) -> String {
+        let at_empty_prompt = || {
+            term.prompt_is_marked()
+                && term.latest_input_text(0).is_none_or(|input| input.trim().is_empty())
+        };
+        if self.run && shell_foreground && at_empty_prompt() {
+            format!("{}\r", self.text)
+        } else {
+            self.text.clone()
+        }
     }
 }
 

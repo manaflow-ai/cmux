@@ -39,13 +39,13 @@ pub struct Sidebar {
 pub struct Agents {
     pub plugin: Option<cmux_tui_core::JournalPluginOptions>,
     /// `agents.resume`: a terminal respawned after its host died runs its
-    /// agent's resume (true) or only types it (`"type"`).
+    /// agent's resume (`"run"`) or only types it (false, the default).
     pub resume_runs: bool,
 }
 
 impl Default for Agents {
     fn default() -> Self {
-        Self { plugin: None, resume_runs: true }
+        Self { plugin: None, resume_runs: false }
     }
 }
 

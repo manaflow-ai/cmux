@@ -23,7 +23,8 @@ pub struct SurfaceOptions {
     /// The `claude` shim directory, kept first on every child's PATH.
     pub claude_shim_dir: Option<String>,
     /// A terminal respawned after its host died runs the resume of the
-    /// agent session it ran (true, the default) instead of only typing it.
+    /// agent session it ran (true, `agents.resume: "run"`) instead of only
+    /// typing it (false, the default).
     pub agent_resume_runs: bool,
     /// The app's bundled CLI (`CMUX_BUNDLED_CLI_PATH` in the daemon's own
     /// environment): its dir stays first on every child's PATH after the
@@ -96,7 +97,7 @@ impl Default for SurfaceOptions {
             scrollback: DEFAULT_SCROLLBACK_LIMIT_BYTES,
             extra_env: Vec::new(),
             claude_shim_dir: None,
-            agent_resume_runs: true,
+            agent_resume_runs: false,
             bundled_cli: None,
             cdp_url: None,
             browser_max_capture_megapixels: crate::browser::TRANSPORT_SAFE_CAPTURE_MEGAPIXELS,

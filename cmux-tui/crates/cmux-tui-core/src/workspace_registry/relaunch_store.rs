@@ -46,7 +46,7 @@ use super::WorkspaceRegistry;
 mod agent_launch;
 pub(crate) use agent_launch::{
     AGENT_JOB_ENV_KEYS, AgentLaunch, account_env_key, agent_launch_from_job, bypasses_approvals,
-    kept_agent_args,
+    job_is_non_interactive, kept_agent_args,
 };
 
 /// The environment keys a relaunch record keeps, by exact name.
@@ -400,7 +400,9 @@ impl WorkspaceRegistry {
             .filter(|(key, _)| keeps_env_key(key))
             .filter_map(|(key, value)| value.as_str().map(|value| (key.clone(), value.into())))
             .collect();
-        let agent = agent.and_then(|agent| serde_json::from_str::<Value>(&agent).ok());
+        let agent = agent
+            .and_then(|agent| serde_json::from_str::<Value>(&agent).ok())
+            .filter(|agent| agent[NON_INTERACTIVE] != true);
         let agent_launch = agent.as_ref().and_then(stored_agent_launch);
         let agent = agent.and_then(|agent| {
             let harness = agent["harness"].as_str()?.to_string();
@@ -418,27 +420,36 @@ impl WorkspaceRegistry {
 
     /// Record (`Some`) or forget (`None`) the agent session terminal
     /// `terminal_public_id` runs, from its agent hooks, with how its CLI was
-    /// started when `launch` was read (its session start). Without one, a
-    /// launch already stored for the same session is kept. An id that is not
-    /// resumable is never stored.
+    /// started (`launch`) when that was read: at its session start. Without
+    /// one, what is already stored for the same session is kept: its launch,
+    /// or that it is a non-interactive run (`AgentStart::NonInteractive`),
+    /// which no respawn resumes. An id that is not resumable is never stored.
     pub(crate) fn record_terminal_relaunch_agent(
         &mut self,
         terminal_public_id: &str,
         agent: Option<(&str, &str)>,
-        launch: Option<&AgentLaunch>,
+        start: AgentStart<'_>,
     ) -> anyhow::Result<()> {
         let agent = match agent {
             Some((harness, session_id)) if resumable_session_id(session_id) => {
-                let kept = match launch {
-                    Some(launch) => Some(launch.clone()),
-                    // A failed lookup costs only the stored launch, never the agent record.
-                    None => self
-                        .stored_agent_launch_of(terminal_public_id, harness, session_id)
+                // A failed lookup costs only what was stored, never the agent record.
+                let stored = match start {
+                    AgentStart::Unknown => self
+                        .stored_agent_of(terminal_public_id, harness, session_id)
                         .ok()
                         .flatten(),
+                    _ => None,
+                };
+                let non_interactive = matches!(start, AgentStart::NonInteractive)
+                    || stored.as_ref().is_some_and(|agent| agent[NON_INTERACTIVE] == true);
+                let kept = match start {
+                    AgentStart::Launch(launch) => Some(launch.clone()),
+                    _ => stored.as_ref().and_then(stored_agent_launch),
                 };
                 let mut record = json!({"harness": harness, "session_id": session_id});
-                if let Some(launch) = kept {
+                if non_interactive {
+                    record[NON_INTERACTIVE] = json!(true);
+                } else if let Some(launch) = kept {
                     record["args"] = json!(launch.args);
                     record["env"] = Value::Object(
                         launch.env.into_iter().map(|(key, value)| (key, json!(value))).collect(),
@@ -461,15 +472,29 @@ impl WorkspaceRegistry {
     }
 }
 
+/// What a session-start hook read of how the agent's CLI was started.
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum AgentStart<'a> {
+    /// Not read (a later hook, or the process could not be read).
+    Unknown,
+    /// An interactive session, started like this.
+    Launch(&'a AgentLaunch),
+    /// A non-interactive run (`claude -p`, `codex exec`): nothing to resume.
+    NonInteractive,
+}
+
+/// The agent record field that marks a non-interactive run's session.
+const NON_INTERACTIVE: &str = "non_interactive";
+
 impl WorkspaceRegistry {
-    /// The launch stored with `harness` session `session_id` of terminal
+    /// The agent record stored for `harness` session `session_id` of terminal
     /// `terminal_public_id`, if that is the session its record names.
-    fn stored_agent_launch_of(
+    fn stored_agent_of(
         &self,
         terminal_public_id: &str,
         harness: &str,
         session_id: &str,
-    ) -> anyhow::Result<Option<AgentLaunch>> {
+    ) -> anyhow::Result<Option<Value>> {
         let stored = self
             .connection
             .get()
@@ -483,10 +508,7 @@ impl WorkspaceRegistry {
             .optional()?
             .flatten()
             .and_then(|agent| serde_json::from_str::<Value>(&agent).ok());
-        Ok(stored
-            .filter(|agent| agent["harness"] == harness && agent["session_id"] == session_id)
-            .as_ref()
-            .and_then(stored_agent_launch))
+        Ok(stored.filter(|agent| agent["harness"] == harness && agent["session_id"] == session_id))
     }
 }
 

@@ -52,20 +52,40 @@ pub(crate) fn agent_launch_from_job(
     env: &[(String, String)],
 ) -> Option<AgentLaunch> {
     let account_key = account_env_key(harness)?;
-    // The process must be the harness's CLI in both cases: the shim's
-    // variable is inherited by everything the CLI starts.
-    let at = argv.iter().position(|argument| is_program(harness, argument))?;
-    let value = |key: &str| env.iter().find(|(name, _)| name == key).map(|(_, value)| value);
-    let given =
-        value(SHIM_ARGS_ENV).and_then(|json| serde_json::from_str::<Vec<String>>(json).ok());
-    let args = given.unwrap_or_else(|| argv[at + 1..].to_vec());
-    let args = session_free(harness, &args)?;
+    let args = session_free(harness, &harness_args(harness, argv, env)?)?;
     let args = stored_args(harness, args);
+    let value = |key: &str| env.iter().find(|(name, _)| name == key).map(|(_, value)| value);
     let env = value(account_key)
         .filter(|dir| Path::new(dir.as_str()).is_absolute() && !dir.chars().any(char::is_control))
         .map(|dir| vec![(account_key.to_string(), dir.clone())])
         .unwrap_or_default();
     Some(AgentLaunch { args, env })
+}
+
+/// Whether the process is `harness`'s CLI run without an interactive session
+/// (`claude -p`, `codex exec`, a subcommand): a session it reports cannot be
+/// resumed. False for an interactive run, another program, or another harness.
+pub(crate) fn job_is_non_interactive(
+    harness: &str,
+    argv: &[String],
+    env: &[(String, String)],
+) -> bool {
+    account_env_key(harness).is_some()
+        && harness_args(harness, argv, env)
+            .is_some_and(|args| session_free(harness, &args).is_none())
+}
+
+/// The arguments the harness's CLI got: the shim's (`CMUX_TUI_AGENT_ARGS`),
+/// else its argv after the program word. `None` when the process is not that
+/// CLI: it must be in both cases, as the shim's variable is inherited by
+/// everything the CLI starts.
+fn harness_args(harness: &str, argv: &[String], env: &[(String, String)]) -> Option<Vec<String>> {
+    let at = argv.iter().position(|argument| is_program(harness, argument))?;
+    let given = env
+        .iter()
+        .find(|(name, _)| name == SHIM_ARGS_ENV)
+        .and_then(|(_, json)| serde_json::from_str::<Vec<String>>(json).ok());
+    Some(given.unwrap_or_else(|| argv[at + 1..].to_vec()))
 }
 
 /// The arguments of a stored launch as read back: filtered again as on write.
