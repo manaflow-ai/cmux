@@ -65,8 +65,13 @@ extension ChatController {
             })
             menu.addItem(.separator())
         }
-        // cmux: lane 16's Cancel Upload, only while the send can be cancelled.
-        if intents?.canCancelSend(ref.messageId) == true {
+        // cmux: my "Not Delivered" message: Try Again and Delete (Messages' pair); else lane 16's
+        // Cancel Upload, only while the send can be cancelled.
+        if intents?.canRetrySend(ref.messageId) == true {
+            menu.addItem(MenuAction(title: CmuxStrings.tryAgain, symbol: "arrow.clockwise") { [weak self] in self?.intents?.retrySend(ref.messageId) })
+            menu.addItem(MenuAction(title: CmuxStrings.deleteFailed, symbol: "trash") { [weak self] in self?.intents?.deleteFailedSend(ref.messageId) })
+            menu.addItem(.separator())
+        } else if intents?.canCancelSend(ref.messageId) == true {
             menu.addItem(MenuAction(title: CmuxStrings.cancelUpload, symbol: "xmark.circle") { [weak self] in self?.intents?.cancelSend(ref.messageId) })
             menu.addItem(.separator())
         }

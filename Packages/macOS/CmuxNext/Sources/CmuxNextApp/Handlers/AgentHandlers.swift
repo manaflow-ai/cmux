@@ -16,8 +16,8 @@ import Observation
 /// (CmuxNextAgentPane), and Toggle Dictation drives its composer's mic.
 /// Start Agent toggles the floating `QuickComposerController` panel.
 /// Computer Use Setup and its two grants run `ComputerUseSetup`.
-/// Terminal-as-chat, Teams, and Computer Use focus/stop are
-/// typed-unavailable.
+/// Launch Claude/Codex Teams run `AgentTeamsLaunch`. Computer Use
+/// focus/stop are typed-unavailable.
 enum AgentHandlers {
     enum Placement {
         case right, left, above, below, newTab, newWorkspace
@@ -189,8 +189,8 @@ enum AgentHandlers {
                 view.runGitAction(action)
             })
         }
-        registry.bindUnavailable(["palette.openTerminalChatView"], ActionFailure(message: MiscHandlerStrings.agentChat))
-        registry.bindUnavailable(["palette.launchClaudeTeams", "palette.launchCodexTeams"], ActionFailure(message: MiscHandlerStrings.agentTeams))
+        TerminalChatHandler.bind(into: registry, context: context)
+        AgentTeamsLaunch.bind(into: registry, context: context)
         registry.bindUnavailable(
             ["computerUseFocus", "computerUseFocusCallingTerminal", "computerUseStop"],
             ActionFailure(message: MiscHandlerStrings.computerUse)

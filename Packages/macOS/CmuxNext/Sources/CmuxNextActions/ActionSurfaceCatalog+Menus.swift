@@ -89,6 +89,7 @@ nonisolated extension ActionSurfaceCatalog {
         "workspace.copyPath": [p(.workspaceRow, .inspect, 404, folder: .copy)],
         "workspace.mergeInto": [p(.workspaceRow, .move, 211, folder: .move)],
         "pane.moveToNewWorkspace": [p(.pane, .move, 300, folder: .move)],
+        "pane.moveToNewWindow": [p(.pane, .move, 305, folder: .move)],
         "newWorkspaceGroup": [p(.sidebarBackground, .create, 5)],
         "groupSelectedWorkspaces": [p(.workspaceRow, .organize, 205, folder: .group)],
         "toggleFocusedWorkspaceGroupCollapsed": [p(.workspaceGroup, .organize, 4, label: ObjectMenuLabels.toggleGroupCollapsed)],

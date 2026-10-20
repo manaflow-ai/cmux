@@ -27,6 +27,10 @@ enum CmuxStrings {
     }
 
     /// The message menu's permalink item (tree threads, cx-och3h).
+    /// The remove button on an attachment in the message box (its help and accessibility label).
+    static var removeAttachment: String {
+        String(localized: "home.compose.removeAttachment", defaultValue: "Remove Attachment", table: "CmuxHome", bundle: .module)
+    }
     static var copyLink: String {
         String(localized: "home.message.copyLink", defaultValue: "Copy Link", table: "CmuxHome", bundle: .module)
     }
@@ -62,6 +66,16 @@ enum CmuxStrings {
     /// The context menu item that cancels my send while it uploads or after it failed.
     static var cancelUpload: String {
         String(localized: "home.menu.cancelUpload", defaultValue: "Cancel Upload", table: "CmuxHome", bundle: .module)
+    }
+
+    /// The context menu item on my "Not Delivered" message that sends it again.
+    static var tryAgain: String {
+        String(localized: "home.menu.tryAgain", defaultValue: "Try Again", table: "CmuxHome", bundle: .module)
+    }
+
+    /// The context menu item on my "Not Delivered" message that drops it.
+    static var deleteFailed: String {
+        String(localized: "home.menu.deleteFailed", defaultValue: "Delete", table: "CmuxHome", bundle: .module)
     }
 
     static var playVideo: String { String(localized: "home.video.play", defaultValue: "Play Video", table: "CmuxHome", bundle: .module) }

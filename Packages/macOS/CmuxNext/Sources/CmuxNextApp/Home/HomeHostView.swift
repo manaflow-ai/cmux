@@ -31,11 +31,8 @@ final class HomeHostView: NSView {
     private var toggleObserver: (any NSObjectProtocol)?
     /// `home.toggleChiefSettings` (palette, `cmux action run`, preflight).
     static let toggleSettings = Notification.Name("HomeHostView.toggleChiefSettings")
-    /// The Chief's avatar when its profile sets none: the bundled cat
-    /// (160 px, sharp on the 40 pt header disc up to 4x).
-    static let defaultAvatar = Bundle.module.image(forResource: "ChiefAvatar")
-    /// The same cat for the Chief's tile in the conversation list.
-    static let defaultTileAvatar = Bundle.module.url(forResource: "ChiefAvatar", withExtension: "png").map(HomeChiefAvatar.picture)
+    /// The Chief's tile avatar when its profile sets none: 🫡.
+    static let defaultTileAvatar = HomeChiefAvatar.chiefDefault
     private var firstPage: Task<Void, Never>?
     /// Which brain answers this conversation (this Mac's or a paired server's).
     private var control: HomeChiefControl
@@ -43,8 +40,8 @@ final class HomeHostView: NSView {
     /// The settings panel shows a paired server's brain (a cloud Chief).
     private var showsCloud = false
     private var isWorking = false
-    /// "Chief" or "Chief (Mac mini)": shown while both cloud Chiefs exist.
-    private let chiefSwitch: HomeChiefSwitch
+    /// Where this Chief runs and its other host, for the settings card (no floating switch over the chat).
+    private var hostWatch: Task<Void, Never>?
 
     init(services: AppServices, conversation: String) {
         let service = services.home
@@ -53,12 +50,16 @@ final class HomeHostView: NSView {
                                               diagrams: service.diagrams)
         control = HomeChiefControl(services: services, conversation: id, muxHome: HomeBrainHost.muxHome(tag: services.environment.tag))
         settings = HomeChiefSettingsPopover(content: HomeChiefSettingsView(muxHome: control.brainHome, source: control.engineSource()))
-        chiefSwitch = HomeChiefSwitch(conversation: conversation, state: { [weak service] in (service?.tabChiefs ?? HomeCloudChiefs(), service?.cloudChief?.mainConversation) },
-                                      pick: { [weak service] in service?.hostedChief.pick($0) })
         super.init(frame: .zero)
         transcript.linkScheme = services.linkScheme  // "Copy Link" names messages in this build's scheme
         transcript.setNamePillHelp(HomeEngineStrings.pillHelp)
-        transcript.onNamePill = { [weak self] in self?.toggleChiefSettings() }
+        // The header's name: the Chief's settings over a Chief; a DM's or group's info otherwise.
+        transcript.onNamePill = { [weak self, weak services] in
+            guard let self else { return }
+            if isChief || settings.isShown { return toggleChiefSettings() }
+            _ = services?.registry.perform("home.conversationInfo",
+                                           invocation: ActionInvocation(arguments: ["conversation": .string(conversation)], origin: .user))
+        }
         loadAvatar()
         settingsView.onAvatar = { [weak self, weak service] in
             self?.loadAvatar()
@@ -67,6 +68,17 @@ final class HomeHostView: NSView {
         }
         // A new engine of this Chief: the Home list's badge follows it.
         settingsView.onEngineChanged = { [weak service] in service?.refreshChiefHarnesses() }
+        // The card's "Switch to …": the same Chief on its other host takes the Chief tab.
+        settingsView.onSwitchHost = { [weak service] in
+            guard let service, let other = service.tabChiefs.otherHost(of: conversation) else { return }
+            service.hostedChief.pick(other)
+        }
+        // task-owner: lives as long as this view; event-driven (Observation)
+        hostWatch = Task { [weak self, weak service] in
+            for await host in ObservationStream({ service?.chiefHost(of: conversation) ?? HomeChiefHostLine() }) {
+                self?.settingsView.setHost(place: host.place, switchTo: host.switchTo)
+            }
+        }
         settingsView.onShowMemory = { [weak services] in
             _ = services?.registry.perform(ChiefInspectorHandlers.actionID, invocation: ActionInvocation(origin: .user))
         }
@@ -88,6 +100,8 @@ final class HomeHostView: NSView {
         transcript.onStop = { _ = registry.perform(HomeChiefControl.stopAction, invocation: ActionInvocation(origin: .user)) }
         // A cmux app link (a workspace, pane, tab, chat or Chief subagent): opened here, through link.open.
         transcript.onAppLink = { [weak services] url in if let services { CmuxAppLinks.open(url, services: services) } }
+        // A link chip's hover card: the app's one coordinator, the target's live facts.
+        transcript.enableLinkPreviews(coordinator: services.hoverCards, previewer: HomeLinkPreviewProvider(services: services))
         transcript.onOpenLink = { LinkRouter.shared.open($0, otherTarget: $1) }
         stopObserver = NotificationCenter.default.addObserver(forName: HomeChiefControl.stopNotification, object: nil, queue: .main) { [weak self] _ in
             // task-owner: one hop to the main actor for the stop
@@ -191,7 +205,6 @@ final class HomeHostView: NSView {
         message.stringValue = HomeStrings.unavailable
         addSubview(transcript)
         addSubview(message)
-        addSubview(chiefSwitch)
         // task-owner: lives as long as this view; event-driven (Observation)
         availability = Task { [weak self] in
             // Usable when its own owner answers: a cloud conversation (a Chief
@@ -223,6 +236,7 @@ final class HomeHostView: NSView {
         MainActor.assumeIsolated {
             availability?.cancel()
             engineWatch?.cancel()
+            hostWatch?.cancel()
             agentsWatch?.cancel()
             shortcutsWatch?.cancel()
             settings.close()
@@ -251,7 +265,6 @@ final class HomeHostView: NSView {
         message.preferredMaxLayoutWidth = width
         let height = ceil(message.size(forWidth: width).height)
         message.frame = NSRect(x: inset, y: (bounds.height - height) / 2, width: width, height: height)
-        chiefSwitch.place(column: transcript.frame, header: transcript.headerHeight)
     }
 
     /// The name pill's click (or `home.toggleChiefSettings`): the Chief's
@@ -296,10 +309,11 @@ final class HomeHostView: NSView {
             let avatar = await Task.detached { files.headerAvatar() }.value
             // A read for the Chief shown before (the conversation's Chief came in since) is dropped.
             guard let self, control.brainHome == home else { return }
-            let picture = avatar.picture.flatMap(NSImage.init(data:)) ?? (avatar.text == nil ? Self.defaultAvatar : nil)
+            let picture = avatar.picture.flatMap(NSImage.init(data:))
+            let text = HomeChiefAvatar.headerText(avatar.text, hasPicture: picture != nil)
             transcript.avatarPicture = picture
-            transcript.avatarText = avatar.text
-            settingsView.setAvatar(picture: picture, text: avatar.text)
+            transcript.avatarText = text
+            settingsView.setAvatar(picture: picture, text: text)
         }
     }
 
@@ -309,6 +323,9 @@ final class HomeHostView: NSView {
     /// `debug.home.drive` chief_control: the named Chief this view's controls name (nil: the default).
     var debugNamedChief: String? { control.named }
     #endif
+
+    /// The transcript header's height (New Message's To: field covers it).
+    var headerHeight: CGFloat { transcript.headerHeight }
 
     /// The view that takes the keyboard when the tab's pane is focused.
     /// Home's primary input: the message box itself. Focusing the transcript

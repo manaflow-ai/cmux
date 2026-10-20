@@ -59,6 +59,9 @@ final class TitlebarToolbarBand: NSView {
         backButton.menuProvider = { [weak self] in self?.historyMenu?(.back) }
         forwardButton.menuProvider = { [weak self] in self?.historyMenu?(.forward) }
         [sidebarToggle, backButton, forwardButton].forEach(addSubview)
+        sidebarToggle.setAccessibilityIdentifier("cmux.titlebar.toggleSidebar")
+        backButton.setAccessibilityIdentifier("cmux.titlebar.back")
+        forwardButton.setAccessibilityIdentifier("cmux.titlebar.forward")
         followIcon()
     }
 

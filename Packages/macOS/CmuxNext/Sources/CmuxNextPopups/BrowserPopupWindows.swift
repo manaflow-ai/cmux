@@ -16,6 +16,10 @@ public final class BrowserPopupWindows {
     /// opener's tab (`BrowserPageRequests.hitItems`).
     public var hitItems: ((BrowserContextMenuTarget, String) -> [NSMenuItem])?
 
+    /// The omnibar suggestion engine for a popup page (its profile's, as a
+    /// tab's omnibar has); nil gives the popup a fresh engine.
+    public var suggestionEngine: ((any BrowserTab) -> OmniboxSuggestionEngine?)?
+
     public init(contextMenus: BrowserContextMenuBuilder = .shared) {
         self.contextMenus = contextMenus
     }
@@ -73,7 +77,7 @@ public final class BrowserPopupWindows {
         let frame = BrowserPopupWindowGeometry.frame(for: request, opener: opener.frame, fallbackContent: opener.frame.size,
                                                      visibleFrame: visible, primaryHeight: primaryHeight,
                                                      chromeHeight: BrowserPopupWindow.chromeHeight)
-        let window = BrowserPopupWindow(page: page, frame: frame)
+        let window = BrowserPopupWindow(page: page, frame: frame, suggestionEngine: suggestionEngine?(page) ?? OmniboxSuggestionEngine())
         let id = ObjectIdentifier(page)
         // A popup's own popups keep the cmux window of the first opener.
         let cmuxOpener = (opener as? BrowserPopupWindow).flatMap { entries[ObjectIdentifier($0.page)]?.opener } ?? opener

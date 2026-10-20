@@ -1,6 +1,6 @@
 // The Cards New Tab template (u2851, a scrawl of Aside's New Tab page: "make our new tab page look
-// like this. Have an option for this version of it"). One rounded field holding the Search | Ask
-// switch and its "Tab to switch" hint; under the field, one row with the project, the agent's chips
+// like this. Have an option for this version of it"). One rounded field, the Search | Ask switch and
+// its "Tab to switch" hint just above its right end (Lawrence 2026-10-20); under the field, one row with the project, the agent's chips
 // and the mic (no Send disc: Return sends); the row steps aside while Search is on; then "Chats"
 // with "All Chats >" and three tall chat cards. It is the page an unset `tabs.newTabTemplate`
 // shows; Default and the others stay one pick away.
@@ -107,9 +107,10 @@ test("the Cards page: one field with Search | Ask, a chip row under it, three ch
     const box = host.querySelector<HTMLElement>(".nt-box")!;
     const toolbar = host.querySelector<HTMLElement>(".nt-toolbar");
     expect(screen.dataset.template).toBe("cards");
-    // The field and its switch are the pill; the project, chips and mic are a row under it.
+    // The field is the pill, its switch just above it; the project, chips and mic are a row under it.
     expect(box.querySelector(".nt-field")).not.toBeNull();
-    expect(box.querySelector(".nt-mode")).not.toBeNull();
+    expect(box.querySelector(".nt-mode")).toBeNull();
+    expect(host.querySelector(".nt-above .nt-mode")).not.toBeNull();
     expect(toolbar).not.toBeNull();
     expect(box.contains(toolbar)).toBe(false);
     expect(toolbar!.querySelector(".nt-location")).not.toBeNull();
