@@ -54,6 +54,8 @@ enum Strings {
     static func statusMore(_ value: Int) -> String { String(localized: "sidebar.status.more", defaultValue: "\(value) more", bundle: .module) }
     static var unreadDot: String { String(localized: "sidebar.a11y.unreadDot", defaultValue: "Unread", bundle: .module) }
     static var muted: String { String(localized: "sidebar.a11y.muted", defaultValue: "Muted", bundle: .module) }
+    static var muteTabs: String { String(localized: "sidebar.audio.muteTabs", defaultValue: "Mute Tabs in Workspace", bundle: .module) }
+    static var unmuteTabs: String { String(localized: "sidebar.audio.unmuteTabs", defaultValue: "Unmute Tabs in Workspace", bundle: .module) }
     static var activityRunning: String { String(localized: "sidebar.a11y.running", defaultValue: "Agent running", bundle: .module) }
     static var activityNeedsInput: String { String(localized: "sidebar.a11y.needsInput", defaultValue: "Needs input", bundle: .module) }
     static var activityError: String { String(localized: "sidebar.a11y.error", defaultValue: "Error", bundle: .module) }
