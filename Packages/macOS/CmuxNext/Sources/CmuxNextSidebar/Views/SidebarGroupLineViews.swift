@@ -12,6 +12,11 @@ final class SidebarGroupLineViews {
     /// Lines of closed or gone groups while they shrink and fade out.
     private var leavingViews: [NSView] = []
 
+    /// Each shown line (not one fading out) by group: its frame and opacity.
+    var shown: [GroupID: (frame: CGRect, alpha: CGFloat)] {
+        views.compactMapValues { $0.superview == nil ? nil : ($0.frame, $0.alphaValue) }
+    }
+
     /// The changes that move the lines to `new`, to run inside the rows'
     /// animation block, and the views to remove when it ends. A kept line
     /// moves to its new frame, a new one starts at `start` (the line over
@@ -56,6 +61,22 @@ final class SidebarGroupLineViews {
             }
         }
         return (changes, leaving.map(\.0))
+    }
+
+    /// Shows at once, at its frame, the line of each group in `lines` that has
+    /// none (a group whose rows a drag hid: the last apply left its line out),
+    /// and leaves every other line, moving or not, as it is.
+    func showMissing(_ lines: [SidebarGroupLine], in list: NSView, above decorations: NSView) {
+        for line in lines where views[line.group] == nil {
+            let view = GroupLineView()
+            list.addSubview(view, positioned: .above, relativeTo: decorations)
+            views[line.group] = view
+            Motion.withoutAnimation {
+                view.frame = line.frame
+                view.alphaValue = 1
+            }
+            view.color = line.color
+        }
     }
 
     /// Moves every line by `dy` at once, with the rows and the scroll offset.

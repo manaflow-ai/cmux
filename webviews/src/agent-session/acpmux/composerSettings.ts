@@ -6,19 +6,29 @@
 // (`pane.showContextUsage`, `pane.showDictation`), which pushes it back, also on the next launch.
 // The same event carries `reasoningSlider`, the Debug Settings toggle `agent.reasoningSlider`
 // (DEV and NIGHTLY, off by default; not a cmux.json key): the reasoning menu draws a stepped
-// slider instead of its list of levels. Only Debug Settings changes it.
+// slider instead of its list of levels. Only Debug Settings changes it. `modelMenu` is the Debug
+// Settings choice `agent.modelMenu` (compact by default in the app): what the model chip opens.
 // `plainFooter` is no cmux.json key either: Debug Settings' "Agent composer: plain footer" (Swift
 // AgentPaneTunables.composerPlainFooter, DEV and NIGHTLY builds) rides the same event and draws the
 // footer's chips as plain text at rest (composerLocation.css, [data-footer-look="plain"]).
+// `harnessSwitch` is Debug Settings' "Allow switching harness in a started chat" (Swift
+// AgentPaneTunables.harnessSwitchInStartedChat, off by default; no cmux.json key): off, a chat with
+// a message keeps its harness and its model menu lists that harness's models alone (ComposerPickers).
 import { useSyncExternalStore } from "react";
 
 export type ReasoningSliderStyle = "accent" | "minimal";
+/// What the model chip opens (the Debug Settings choice `agent.modelMenu`): the compact Claude Code
+/// style menu (the app's default) or the full picker. A page with no host (a gallery, a test) opens
+/// the full picker, as before the choice existed.
+export type ModelMenuStyle = "compact" | "full";
 export type ComposerSettings = {
   showContextUsage: boolean;
   showDictation: boolean;
   reasoningSlider: boolean;
   reasoningSliderStyle: ReasoningSliderStyle;
+  modelMenu: ModelMenuStyle;
   plainFooter: boolean;
+  harnessSwitch: boolean;
 };
 
 export const DEFAULT_COMPOSER: ComposerSettings = {
@@ -26,10 +36,12 @@ export const DEFAULT_COMPOSER: ComposerSettings = {
   showDictation: true,
   reasoningSlider: false,
   reasoningSliderStyle: "accent",
+  modelMenu: "full",
   plainFooter: true,
+  harnessSwitch: false,
 };
 const KEYS = Object.keys(DEFAULT_COMPOSER) as (keyof ComposerSettings)[];
-type ComposerFlag = "showContextUsage" | "showDictation" | "reasoningSlider" | "plainFooter";
+type ComposerFlag = "showContextUsage" | "showDictation" | "reasoningSlider" | "plainFooter" | "harnessSwitch";
 
 /// The host's value; anything it does not know keeps the default.
 export function readComposerSettings(value: unknown): ComposerSettings {
@@ -41,7 +53,9 @@ export function readComposerSettings(value: unknown): ComposerSettings {
     showDictation: flag("showDictation"),
     reasoningSlider: flag("reasoningSlider"),
     reasoningSliderStyle,
+    modelMenu: raw.modelMenu === "compact" ? "compact" : "full",
     plainFooter: flag("plainFooter"),
+    harnessSwitch: flag("harnessSwitch"),
   };
 }
 
