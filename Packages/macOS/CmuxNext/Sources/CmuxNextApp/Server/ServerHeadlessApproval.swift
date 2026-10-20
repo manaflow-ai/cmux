@@ -2,14 +2,14 @@ import CmuxNextActions
 import CmuxNextServer
 import Foundation
 
-/// Add Server… without a window (`cmux servers add --code CODE --words "W1 W2 W3 W4"`,
-/// the `app_servers_add` MCP tool): the same intents the approver sheet sends, in
-/// the same order: look the code up, check the words, then approve it into the
-/// candidate's team. The words are the check a person makes in the sheet: the
-/// server prints them from its key and the app derives them from the key the
-/// code names, so a swapped code never matches. Without matching words nothing
-/// is approved. Event driven: it waits for the source's answers, never on a
-/// timer (each cloud call has its own timeout).
+/// Add Server… from an in-process person action with explicit code and words:
+/// the same intents the approver sheet sends, in the same order. The words are
+/// the check a person makes in the sheet: the server prints them from its key
+/// and the app derives them from the key the code names, so a swapped code never
+/// matches. Without matching words nothing is approved. Socket-originated CLI,
+/// MCP, script, page and remote runs are refused before this path. Event driven:
+/// it waits for the source's answers, never on a timer (each cloud call has its
+/// own timeout).
 @MainActor
 enum ServerHeadlessApproval {
     /// Approves `code` when `words` match the server's fingerprint words; nil on

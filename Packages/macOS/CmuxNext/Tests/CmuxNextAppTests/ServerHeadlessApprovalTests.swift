@@ -3,10 +3,11 @@
 import CmuxNextServer
 import Testing
 
-/// Add Server… without a window (`cmux servers add --code CODE --words "…"`, the
-/// `app_servers_add` MCP tool) approves only when the four fingerprint words the
-/// server printed match the words the app derives from the server's key, the
-/// same check a person makes in the approver sheet.
+/// An in-process Add Server… action approves only when the four fingerprint
+/// words the server printed match the words the app derives from the server's
+/// key, the same check a person makes in the approver sheet. Separate origin
+/// tests prove that socket-originated CLI/MCP/script/page/remote runs cannot
+/// reach this path.
 @MainActor
 struct ServerHeadlessApprovalTests {
     private let code = MockServerScenario.offerCode
