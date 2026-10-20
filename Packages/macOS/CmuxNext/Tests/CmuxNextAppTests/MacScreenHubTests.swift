@@ -335,8 +335,12 @@ struct MacScreenHubViewerTests {
         viewer.endSession = { _, _, _ in }
         viewer.phase = .streaming(sessionID: "s1", scope: .full)
         viewer.streamFailed()
+        // The tab's ended state shows in the hub state too (debug.device_hub), not "streaming".
+        #expect(viewer.phase == .streamFailed(sessionID: "s1", scope: .full))
+        #expect(viewer.phase.streamingScope == nil && viewer.phase.sessionID == "s1")
+        #expect(MacScreenPaneModel.hubCard(viewer.phase) == nil)
         viewer.revoked(reason: "failed")
-        #expect(viewer.phase == .streaming(sessionID: "s1", scope: .full))
+        #expect(viewer.phase == .streamFailed(sessionID: "s1", scope: .full))
     }
 
     /// A dropped stream waits before telling the hub "failed", so a host's

@@ -216,6 +216,13 @@ struct TicketSignalingTests {
         #expect(try await messages.next() == nil)
     }
 
+    /// A viewer that leaves says bye on the data channel: the host ends at once (view-only too).
+    @Test func aByeEndsTheHostsSession() {
+        #expect(ScreenStreamHost.endsSession(ScreenInput(t: "bye")))
+        #expect(!ScreenStreamHost.endsSession(ScreenInput(t: "move", x: 0, y: 0)))
+        #expect(ScreenStreamViewer.byeMessage == #"{"t":"bye"}"#)
+    }
+
     @Test func roomMessagesMapToSignals() {
         #expect(RoomSignaling.signal(SignalMessage(type: "hello", peer: true)) == .hello(peerPresent: true))
         #expect(RoomSignaling.signal(SignalMessage(type: "hello")) == .hello(peerPresent: false))

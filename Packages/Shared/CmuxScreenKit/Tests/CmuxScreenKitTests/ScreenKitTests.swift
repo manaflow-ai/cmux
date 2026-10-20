@@ -36,6 +36,10 @@ struct ScreenKitTests {
         #expect(!ScreenSession.givesUp(attempts: 1, limit: 5, elapsed: 3))
         #expect(ScreenSession.givesUp(attempts: 5, limit: 5, elapsed: 3))
         #expect(ScreenSession.givesUp(attempts: 2, limit: 5, elapsed: 46))
+        // A try never runs past the deadline: the last one gets only what is left.
+        #expect(ScreenSession.attemptTimeout(elapsed: 0) == 30)
+        #expect(ScreenSession.attemptTimeout(elapsed: 40) == 5)
+        #expect(ScreenSession.attemptTimeout(elapsed: 44.5) == 1)
     }
 
     @MainActor @Test func sessionsKnowTheirKind() throws {
