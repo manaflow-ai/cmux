@@ -385,6 +385,46 @@ class GroupCycle(unittest.TestCase):
         self.assertEqual(ran, [])
         self.assertIn("#2 red check ci-status", skipped[1])
 
+    def test_a_failed_run_a_later_run_of_the_same_check_passed_does_not_hold_the_group(self):
+        """The hold reads each check's newest run: a rerun that passed, or a cancelled
+        run another run of the same check on the head passed, holds nothing."""
+        def run(name, status, conclusion, started, completed=""):
+            return {"__typename": "CheckRun", "name": name, "status": status, "conclusion": conclusion,
+                    "startedAt": started, "completedAt": completed or started}
+
+        rollup = [
+            run("ci-status", "COMPLETED", "FAILURE", "2026-10-06T01:00:00Z"),
+            run("ci-status", "COMPLETED", "SUCCESS", "2026-10-06T02:00:00Z"),  # the rerun passed
+            run("build / release-compile", "COMPLETED", "SUCCESS", "2026-10-06T01:00:00Z", "2026-10-06T01:30:00Z"),
+            # A newer run of the same check, cancelled after the pass started (a superseded run).
+            run("build / release-compile", "COMPLETED", "CANCELLED", "2026-10-06T01:10:00Z", "2026-10-06T01:31:00Z"),
+            run("lint", "COMPLETED", "SUCCESS", "2026-10-06T01:00:00Z"),
+            run("lint", "COMPLETED", "FAILURE", "2026-10-06T03:00:00Z"),  # the newest run failed: still red
+            run("docs", "COMPLETED", "CANCELLED", "2026-10-06T01:00:00Z"),  # cancelled with no pass: still red
+        ]
+        checks = nb.newest_checks(nb.parse_contexts(rollup))
+        self.assertEqual(sorted(checks), [("build / release-compile", "completed", "success"),
+                                          ("ci-status", "completed", "success"),
+                                          ("docs", "completed", "cancelled"),
+                                          ("lint", "completed", "failure")])
+        self.assertEqual(nb.group_hold(pr(1, checks=checks)), "red check docs, lint")
+        clean = [item for item in rollup if item["name"] in {"ci-status", "build / release-compile"}]
+        self.assertIsNone(nb.group_hold(pr(1, checks=nb.newest_checks(nb.parse_contexts(clean)))))
+
+    def test_open_prs_keep_only_each_checks_newest_run(self):
+        """End to end through the details query: a superseded red never reaches a PR's checks."""
+        def run(conclusion, started):
+            return {"__typename": "CheckRun", "name": "ci-status", "status": "COMPLETED", "conclusion": conclusion,
+                    "startedAt": started, "completedAt": started}
+
+        gh = mock.Mock()
+        gh.graphql.return_value = {"p0": {"commits": {"nodes": [{"commit": {"statusCheckRollup": {"contexts": {
+            "pageInfo": {"hasNextPage": False},
+            "nodes": [run("SUCCESS", "2026-10-06T02:00:00Z"), run("CANCELLED", "2026-10-06T01:00:00Z")]}}}}]}}}
+        found = nb.fetch_details(gh, [("PR_1", False, True)])
+        self.assertEqual(found["PR_1"][1], [("ci-status", "completed", "success")])
+        self.assertIn("startedAt", gh.graphql.call_args.args[0])
+
     def test_lanes_use_each_members_full_diff(self):
         item = controller()
         item.git = mock.Mock(return_value="\n".join(f"webviews/src/f{index}.ts" for index in range(150)))
