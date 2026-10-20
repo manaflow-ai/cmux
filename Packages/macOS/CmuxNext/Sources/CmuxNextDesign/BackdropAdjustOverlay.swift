@@ -82,7 +82,7 @@ public final class BackdropAdjustOverlay: NSView {
         let hint = ThemedLabel(labelWithString: Self.hint)
         let reset = ThemedBezelButton(title: Self.resetTitle, target: self, action: #selector(reset))
         let done = ThemedBezelButton(title: Self.doneTitle, target: self, action: #selector(done))
-        done.keyEquivalent = "\r"
+        done.keyHint = .return
         let row = NSStackView(views: [hint, reset, done])
         row.spacing = 12
         row.edgeInsets = NSEdgeInsets(top: 10, left: 16, bottom: 10, right: 12)
