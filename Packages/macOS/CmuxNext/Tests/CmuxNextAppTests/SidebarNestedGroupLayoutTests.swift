@@ -62,4 +62,37 @@ import Testing
         }
         #expect(!rows.contains { $0.key == .workspace(WorkspaceID("a2")) })
     }
+
+    /// The fast fold (`SidebarLayout.folding`, a group's own rows spliced) gives the same rows as a
+    /// full layout, nested groups too: folding a project hides its branch and leaf, and opening it
+    /// shows them again at their depth.
+    @Test func foldingAParentGivesTheSameRowsAsAFullLayout() {
+        let open = SidebarLayout.make(sections: sections(), metrics: .standard)
+        let closed = SidebarLayout.make(sections: sections(collapsed: [project]), metrics: .standard)
+        guard case let .group(projectGroup)? = sections(collapsed: [project]).first?.nodes.first,
+              let section = sections().first else {
+            Issue.record("fixture")
+            return
+        }
+        let folded = open.folding(projectGroup, collapsed: true, in: section, metrics: .standard, options: SidebarLayoutOptions()) ?? closed
+        #expect(folded.rows == closed.rows)
+        var opened = projectGroup
+        opened.isCollapsed = false
+        let unfolded = closed.folding(opened, collapsed: false, in: section, metrics: .standard, options: SidebarLayoutOptions()) ?? open
+        #expect(unfolded.rows == open.rows)
+    }
+
+    /// A flat group's members carry depth 1 on both paths.
+    @Test func aFlatGroupsMembersAreOneLevelInOnBothPaths() {
+        let machine = SidebarMachine(id: MachineID("mini"), name: "mini", kind: .server)
+        let group = SidebarGroup(id: GroupID("flat"), name: "flat", workspaces: [SidebarWorkspace(id: WorkspaceID("w"), title: "w")])
+        var collapsed = group
+        collapsed.isCollapsed = true
+        let section = SidebarSection(kind: .machine(machine), nodes: [.group(group)])
+        let closed = SidebarLayout.make(sections: [SidebarSection(kind: .machine(machine), nodes: [.group(collapsed)])], metrics: .standard)
+        let open = SidebarLayout.make(sections: [section], metrics: .standard)
+        let unfolded = closed.folding(group, collapsed: false, in: section, metrics: .standard, options: SidebarLayoutOptions()) ?? open
+        #expect(unfolded.rows == open.rows)
+        #expect(open.rows.first { $0.key == .workspace(WorkspaceID("w")) }?.depth == 1)
+    }
 }
