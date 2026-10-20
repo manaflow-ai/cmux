@@ -463,6 +463,74 @@ fn owner_only(path: &Path) -> bool {
         .unwrap_or_else(|e| panic!("read the access list of {}: {e}", path.display()))
 }
 
+fn grant_everyone_full(path: &Path) {
+    let granted = Command::new("icacls")
+        .arg(path)
+        .args(["/grant", "*S-1-1-0:(OI)(CI)F"])
+        .output()
+        .expect("run icacls");
+    assert!(granted.status.success(), "icacls failed: {}", text(&granted));
+}
+
+fn protect_for_current_user(path: &Path) {
+    let sid = cmux::local_socket::win::current_identity().unwrap().user_sid;
+    let grant = format!("*{sid}:(OI)(CI)F");
+    let protected = Command::new("icacls")
+        .arg(path)
+        .args(["/inheritance:r", "/grant:r", &grant])
+        .output()
+        .expect("run icacls");
+    assert!(protected.status.success(), "icacls failed: {}", text(&protected));
+}
+
+#[test]
+fn a_safe_direct_parent_below_a_writable_grandparent_is_refused() {
+    let _spawns = spawns();
+    let exe = exe();
+    let grand = scratch("wide-ancestor");
+    let parent = grand.join("private");
+    let home = parent.join("home");
+    std::fs::create_dir_all(&parent).unwrap();
+    grant_everyone_full(&grand);
+    protect_for_current_user(&parent);
+    assert!(owner_only(&parent), "the direct parent control is not private");
+    let out = acpmux(&exe, &home).args(["daemon", "start"]).output().unwrap();
+    if out.status.success() {
+        let _ = acpmux(&exe, &home).arg("shutdown").output();
+    }
+    assert!(!out.status.success(), "daemon trusted a replaceable state path: {}", text(&out));
+    let _ = std::fs::remove_dir_all(&grand);
+}
+
+#[test]
+fn a_linked_panic_log_never_changes_its_target() {
+    use std::os::windows::fs::symlink_file;
+
+    let _spawns = spawns();
+    let exe = exe();
+    let home = scratch("panic-link");
+    std::fs::create_dir_all(&home).unwrap();
+    let target = home.join("target.jsonl");
+    std::fs::write(&target, "unchanged\n").unwrap();
+    symlink_file(&target, home.join("panics.jsonl")).unwrap();
+    let log = std::env::temp_dir().join(format!("amxw-panic-link-{}.log", std::process::id()));
+    let out = std::fs::File::create(&log).unwrap();
+    let err = out.try_clone().unwrap();
+    let child = acpmux(&exe, &home)
+        .env("ACPMUX_TEST_PANIC", "thread")
+        .args(["daemon", "run", "--memory", "--listen", "127.0.0.1:0"])
+        .stdout(out)
+        .stderr(err)
+        .spawn()
+        .expect("start daemon");
+    let mut daemon = Daemon { child, log };
+    wait_ready(&exe, &home, &mut daemon);
+    assert_eq!(std::fs::read_to_string(&target).unwrap(), "unchanged\n");
+    let out = acpmux(&exe, &home).arg("shutdown").output().unwrap();
+    assert!(out.status.success(), "shutdown: {}", text(&out));
+    let _ = std::fs::remove_dir_all(&home);
+}
+
 /// What the daemon writes (mode 0600 / 0700 on Unix) is owner-only on
 /// Windows: config.json with its token, the per-launch LocalApp and peer
 /// token files and their run folder, and daemon.log of a started daemon.
