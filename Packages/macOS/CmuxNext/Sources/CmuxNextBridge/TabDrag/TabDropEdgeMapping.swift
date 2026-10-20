@@ -30,6 +30,18 @@ nonisolated extension TabDropEdge {
 }
 
 nonisolated extension PaneEdge {
+    /// The keyboard split that opens a new pane on the far side of this
+    /// edge, leaving the pane itself at this edge (`TabMoves.splitBehind`):
+    /// the daemon splits right or down, then swaps toward `swapTowards`.
+    public var splitBehind: (direction: SplitDirection, swapTowards: PaneDirection?) {
+        switch self {
+        case .left: (.right, nil)
+        case .top: (.down, nil)
+        case .right: (.right, .right)
+        case .bottom: (.down, .down)
+        }
+    }
+
     /// The axis a split at this edge divides.
     public var splitAxis: SplitAxis {
         switch self {

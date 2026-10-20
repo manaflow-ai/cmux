@@ -2,7 +2,9 @@ import AppKit
 @testable import CmuxNextApp
 import CmuxNextBridge
 import CmuxNextDesign
-import enum CmuxNextDaemon.TabKind
+import enum CmuxNextDaemon.PaneDirection
+import enum CmuxNextDaemon.PaneEdge
+import enum CmuxNextDaemon.SplitDirection
 @testable import CmuxNextLayout
 import CmuxNextTabs
 import Testing
@@ -119,14 +121,43 @@ struct BonsplitDropParityTests {
 
     // MARK: Last tab
 
-    /// Splitting a pane with its only tab leaves a fresh tab there, as classic cmux replaces
-    /// bonsplit's placeholder with a terminal; only conversation tabs refuse.
-    @Test func everyKindButAConversationSplitsItsOnlyPane() {
-        #expect(SplitLeftover(kind: .pty) == .sameKind)
-        #expect(SplitLeftover(kind: .browser) == .sameKind)
-        #expect(SplitLeftover(kind: .remoteTerminal) == .terminal)
-        #expect(SplitLeftover(kind: .other("diff")) == .terminal)
-        #expect(SplitLeftover(kind: .conversation) == .nothing)
+    /// A pane's only tab dropped on its own edge is never refused (classic shows the zone and leaves
+    /// a terminal): the owner respawns the same kind when it can, else a terminal opens behind it.
+    @Test func aLoneTabOnItsOwnEdgeIsAlwaysATarget() {
+        var context = TabDragContext(sourcePaneID: "p1", sourcePaneTabCount: 1, sourceWorkspaceID: "w", sourceWorkspaceTabCount: 2,
+                                     draggedTabCount: 1)
+        #expect(TabDragResolver.verdict(.newSplit(paneID: "p1", edge: .left), context: context) == .accept)
+        #expect(context.splitsBehind(pane: "p1") && !context.splitRespawns(pane: "p1"))
+        #expect(!context.splitsBehind(pane: "p2"))
+        context.respawnsOnSplit = true
+        #expect(context.splitRespawns(pane: "p1") && !context.splitsBehind(pane: "p1"))
+    }
+
+    /// The split behind the tabs opens the new pane on the far side of the drop edge.
+    @Test func theSplitBehindOpensOnTheFarSide() {
+        #expect(PaneEdge.left.splitBehind.direction == .right && PaneEdge.left.splitBehind.swapTowards == nil)
+        #expect(PaneEdge.top.splitBehind.direction == .down && PaneEdge.top.splitBehind.swapTowards == nil)
+        #expect(PaneEdge.right.splitBehind.direction == .right && PaneEdge.right.splitBehind.swapTowards == .right)
+        #expect(PaneEdge.bottom.splitBehind.direction == .down && PaneEdge.bottom.splitBehind.swapTowards == .down)
+    }
+
+    /// A target the App refuses stays hidden while the pointer stays on it, instead of drawing and
+    /// hiding again on every move (the reported flicker), and the next target draws.
+    @Test func aRefusedTargetStaysHiddenUntilTheTargetChanges() throws {
+        let window = Window()
+        defer { window.window.orderOut(nil) }
+        let p2 = try #require(window.root.frame(of: "p2"))
+        let nearLeft = window.root.convert(CGPoint(x: p2.minX + 40, y: p2.midY), to: nil)
+        #expect(window.root.updateTabDrag("t", locationInWindow: nearLeft) == .pane("p2", .left))
+        #expect(window.root.tabDragHighlightOnScreen != nil)
+        window.root.hideTabDragHighlight()
+        let nudged = CGPoint(x: nearLeft.x + 2, y: nearLeft.y + 2)
+        #expect(window.root.updateTabDrag("t", locationInWindow: nudged) == .pane("p2", .left))
+        #expect(window.root.tabDragHighlightOnScreen == nil)
+        let center = window.root.convert(CGPoint(x: p2.midX, y: p2.midY), to: nil)
+        #expect(window.root.updateTabDrag("t", locationInWindow: center) == .pane("p2", .center))
+        #expect(window.root.tabDragHighlightOnScreen != nil)
+        window.root.cancelTabDrag()
     }
 
     // MARK: Even splits

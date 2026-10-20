@@ -52,6 +52,10 @@ public final class LayoutRootView: NSView {
     /// The pane a terminal tab is dragged from: the facing edge of the pane next to it joins
     /// (`DropZoneGeometry.joiningSharedEdge`).
     var tabDragJoinsFrom: PaneID?
+    /// The target the drag shows now, and the one the App refused (`hideTabDragHighlight`): a refused
+    /// target stays hidden until the target changes, instead of drawing and hiding on every move (#22287).
+    var tabDragShownTarget: DropTarget?
+    var tabDragRefusedTarget: DropTarget?
     #if DEBUG
     /// The last overlay state `probeTabDrop` logged (#22287 dogfood probe).
     var tabDropProbeLast = ""

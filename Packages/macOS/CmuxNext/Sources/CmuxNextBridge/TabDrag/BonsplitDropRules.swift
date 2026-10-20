@@ -1,4 +1,3 @@
-public import CmuxNextDaemon
 public import CmuxNextDesign
 public import CmuxNextTabs
 
@@ -17,26 +16,5 @@ extension TabDragPayload {
         guard let index = tabs.firstIndex(where: { $0.id.rawValue == first }) else { return nil }
         guard case .tab = self else { return (index, nil) }
         return (index, tabs[index].groupID?.rawValue)
-    }
-}
-
-/// What a split of a pane with its only tab leaves in that pane
-/// (`TabMoves.respawn`). bonsplit splits it and leaves a placeholder that
-/// classic cmux fills with a terminal.
-public nonisolated enum SplitLeftover: Hashable, Sendable {
-    /// A fresh tab of the same kind (a browser falls back to a terminal).
-    case sameKind
-    /// A fresh terminal.
-    case terminal
-    /// Nothing: the split is refused. Conversation tabs (Home and agent
-    /// chats) show one conversation or session, which has no fresh copy.
-    case nothing
-
-    public init(kind: CmuxNextDaemon.TabKind) {
-        switch kind {
-        case .pty, .browser: self = .sameKind
-        case .conversation: self = .nothing
-        case .remoteTerminal, .other: self = .terminal
-        }
     }
 }

@@ -26,8 +26,7 @@ extension AppServices {
     /// does (#22287). The changes are computed now, without `emptied` (the pane the move closes).
     func splitSizing(for pane: PaneModel, edge: PaneEdge, emptying emptied: PaneModel?) -> @MainActor () -> Void {
         guard let controller = paneController(for: pane), let content = controller.workspace else { return {} }
-        let changes = content.layoutModel.splitSizingChanges(splitting: controller.layoutPaneID, axis: edge.splitAxis,
-                                                             removing: emptied.flatMap { $0 === pane ? nil : content.handles.paneIDs[$0.handle] })
+        let changes = content.layoutModel.splitSizingChanges(splitting: controller.layoutPaneID, axis: edge.splitAxis, removing: emptied.flatMap { $0 === pane ? nil : content.handles.paneIDs[$0.handle] })
         return { [weak content] in content?.layoutModel.applySplitSizing(changes) }
     }
 

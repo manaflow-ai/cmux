@@ -38,27 +38,41 @@ enum TabMoves {
     }
 
     /// The new tab a split of `tab`'s own pane spawns there when `tab` is
-    /// its only tab. A terminal gets a new shell in the dragged terminal's
-    /// directory; a frontend browser tab gets the New Tab page with the
-    /// dragged tab's engine and profile. Every other kind leaves a fresh
-    /// terminal behind, as classic cmux does for bonsplit's placeholder
-    /// (#22287): remote-terminal references, daemon-rendered and incognito
-    /// browser tabs (no URL reaches the daemon), and other daemon kinds. Nil
-    /// for conversation tabs (Home and agent chats, whose source is one
-    /// conversation or session); app-local tabs are not daemon tabs.
+    /// its only tab: the same kind, fresh. A terminal gets a new shell in
+    /// the dragged terminal's directory; a frontend browser tab gets the New
+    /// Tab page with the dragged tab's engine and profile. Nil when the
+    /// kind cannot respawn: remote-terminal references, daemon-rendered
+    /// browser tabs, incognito tabs (their URL must stay out of the daemon),
+    /// conversation tabs (Home and agent chats, whose source is one
+    /// conversation or session), and app-local tabs, which are not daemon tabs.
     @MainActor
     static func respawn(for tab: TabModel, in pane: PaneModel, services: AppServices) -> SplitRespawn? {
-        // Only a terminal's own directory is a path on this machine.
-        let terminal = SplitRespawn.terminal(SpawnOptions(cwd: tab.kind == .pty ? tab.cwd : nil, workspace: services.workspaceKey(of: pane)))
-        switch SplitLeftover(kind: tab.kind) {
-        case .sameKind where tab.kind == .browser:
+        switch tab.kind {
+        case .pty:
+            return .terminal(SpawnOptions(cwd: tab.cwd, workspace: services.workspaceKey(of: pane)))
+        case .browser:
             guard tab.isFrontendOwned, case let browserTabs = services.cache.browserTabs, !browserTabs.isIncognitoTab(tab.id),
                   case .open(let choice) = browserTabs.resolve(requested: nil, inherited: tab.browserEngine)
-            else { return terminal }
+            else { return nil }
             return .browser(url: services.newTabAddress(for: choice), engine: choice.engine, profileID: tab.browserProfileID)
-        case .sameKind, .terminal: return terminal
-        case .nothing: return nil
+        default:
+            return nil
         }
+    }
+
+    /// Every tab of `pane` dropped on its own `edge` (#22287): they stay, and a fresh terminal opens on
+    /// the far side, so they end at `edge` beside it, as classic cmux fills bonsplit's placeholder.
+    static func splitBehind(_ pane: PaneModel, edge: PaneEdge, services: AppServices, completion: @escaping Completion) {
+        if ChatDockRules.isChatDock(pane, services: services) { services.registry.refuse(RefusalStrings.chatDockCannotSplit); return completion(false) }
+        let split = edge.splitBehind, sizing = services.splitSizing(for: pane, edge: edge, emptying: nil)
+        let options = SpawnOptions(cwd: pane.tabs.first { $0.kind == .pty }?.cwd, workspace: services.workspaceKey(of: pane))
+        let command = PaneSplitCommand(pane: pane.handle, direction: split.direction, options: options, swapTowards: split.swapTowards)
+        services.registry.track(Task {
+            let ok = (try? await command.send(on: services.daemon(for: pane))) != nil
+            if ok { sizing() }
+            completion(ok)
+            return ok ? nil : "split failed (see the app log)"
+        })
     }
 
     /// New pane on `edge` of `pane` holding the tab. `roomDecided`: the
@@ -86,8 +100,7 @@ enum TabMoves {
             return completion(false)
         }
         let surface = tab.surface, paneHandle = pane.handle
-        let echoes = daemon.supports(DaemonCapabilities.shared.tabDrag), emptied = respawn == nil ? services.locateTab(tab.id)?.1 : nil
-        let sizing = services.splitSizing(for: pane, edge: edge, emptying: emptied?.tabs.count == 1 ? emptied : nil)
+        let echoes = daemon.supports(DaemonCapabilities.shared.tabDrag), emptied = respawn == nil ? services.locateTab(tab.id)?.1 : nil, sizing = services.splitSizing(for: pane, edge: edge, emptying: emptied?.tabs.count == 1 ? emptied : nil)
         services.registry.track(Task {
             let ok = await daemon.request("move-tab-to-split") { connection -> Void in
                 do {

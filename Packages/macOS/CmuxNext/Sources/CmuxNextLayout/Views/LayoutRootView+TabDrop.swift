@@ -45,6 +45,10 @@ extension LayoutRootView {
         #if DEBUG
         probeTabDrop("target \(hit.target) hit \(hit.hit)", at: local)
         #endif
+        tabDragShownTarget = hit.target
+        // The App refused this target at the last move: it stays hidden, nothing redraws (a flicker).
+        guard hit.target != tabDragRefusedTarget else { return hit.target }
+        tabDragRefusedTarget = nil
         let rect = convert(hit.highlight, from: view)
         let region = convert(hit.region, from: view)
         tabDragHighlightOnScreen = window.map { $0.convertToScreen(convert(rect, to: nil)) }
@@ -78,6 +82,8 @@ extension LayoutRootView {
         #endif
         tabDragHighlightOnScreen = screenRect
         tabDropHit = nil
+        tabDragShownTarget = nil
+        tabDragRefusedTarget = nil
         let height = min(20, slot.height)
         let caret = CGRect(x: slot.minX - 2, y: slot.midY - height / 2, width: 2, height: height)
         if highlight.show(caret, region: caret, zone: .center, text: "", inset: 0, cornerRadius: 1,
@@ -91,6 +97,7 @@ extension LayoutRootView {
         #if DEBUG
         probeTabDrop("hidden (refused zone)")
         #endif
+        tabDragRefusedTarget = tabDragShownTarget
         tabDragHighlightOnScreen = nil
         if highlight.hide(animated: false) { driver.start() }
     }
@@ -129,6 +136,8 @@ extension LayoutRootView {
         #endif
         tabDragHighlightOnScreen = nil
         tabDropHit = nil
+        tabDragShownTarget = nil
+        tabDragRefusedTarget = nil
         tabDragEdge = nil
         tabDragDwellDeadline = nil
         // Classic hides the overlay at once on a drop, a cancel or an exit.
