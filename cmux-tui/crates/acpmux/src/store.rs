@@ -455,6 +455,32 @@ pub trait Store: Send + Sync {
         }
         Ok(())
     }
+    /// How many records follow `after`, and the last one's `seq` (`after` when none): the
+    /// catch-up of a log that ran ahead of its saved meta. A file store reads only the tail
+    /// past `after`, never the whole log (daemon start, 2026-10-20).
+    fn tail_after(&self, id: &str, after: u64) -> Result<(u64, u64)> {
+        let mut count = 0;
+        let mut last = after;
+        self.scan(id, after, &mut |rec| {
+            count += 1;
+            last = last.max(rec.seq);
+            true
+        })?;
+        Ok((count, last))
+    }
+    /// `scan` from the start, visiting only records whose `kind` is in `kinds`. A file store
+    /// parses no other line (the queue restore at daemon start reads its few kinds out of
+    /// logs that are mostly agent output).
+    fn scan_kinds(
+        &self,
+        id: &str,
+        kinds: &[&str],
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        self.scan(id, 0, &mut |rec| {
+            if kinds.contains(&rec.kind.as_str()) { visit(rec) } else { true }
+        })
+    }
     /// Make every appended record durable (called on shutdown).
     fn flush(&self) -> Result<()> {
         Ok(())
@@ -586,6 +612,51 @@ impl LocalStore {
 }
 
 /// The seq of a segment's first readable record.
+/// The `kind` of one serialized record, read without parsing it: records are written
+/// `{"seq":..,"at":..,"dir":"..","kind":"..","msg":..}`, so the first `"kind":"` is the
+/// record's own (its fields before `msg` hold numbers and a fixed word). None for a line
+/// that does not start that way; the caller then parses it.
+fn record_kind(line: &[u8]) -> Option<&[u8]> {
+    const KEY: &[u8] = b"\"kind\":\"";
+    let head = &line[..line.len().min(160)];
+    let msg = head.windows(6).position(|w| w == b"\"msg\":").unwrap_or(head.len());
+    let start = head[..msg].windows(KEY.len()).position(|w| w == KEY)? + KEY.len();
+    let len = line[start..].iter().position(|&b| b == b'"')?;
+    Some(&line[start..start + len])
+}
+
+/// Visits `path`'s lines newest first, reading 64 KiB blocks from the end, until `visit`
+/// returns false: a tail costs its own bytes, not the segment's.
+fn for_each_line_rev(path: &Path, visit: &mut dyn FnMut(&[u8]) -> bool) -> Result<()> {
+    use std::io::{Seek, SeekFrom};
+    const BLOCK: u64 = 64 * 1024;
+    let mut file = crate::config::private_state_file(path)?;
+    let mut end = file.seek(SeekFrom::End(0))?;
+    // Bytes of a line whose start is in an earlier block, in file order.
+    let mut carry: Vec<u8> = Vec::new();
+    while end > 0 {
+        let start = end.saturating_sub(BLOCK);
+        let mut block = vec![0u8; (end - start) as usize];
+        file.seek(SeekFrom::Start(start))?;
+        file.read_exact(&mut block)?;
+        block.extend_from_slice(&carry);
+        let mut cut = block.len();
+        while let Some(newline) = block[..cut].iter().rposition(|&b| b == b'\n') {
+            let line = &block[newline + 1..cut];
+            if !line.iter().all(u8::is_ascii_whitespace) && !visit(line) {
+                return Ok(());
+            }
+            cut = newline;
+        }
+        carry = block[..cut].to_vec();
+        end = start;
+    }
+    if !carry.iter().all(u8::is_ascii_whitespace) {
+        visit(&carry);
+    }
+    Ok(())
+}
+
 fn first_seq(path: &Path) -> Result<Option<u64>> {
     for line in BufReader::new(crate::config::private_state_file(path)?).lines() {
         let line = line?;
@@ -677,6 +748,60 @@ impl Store for LocalStore {
                 }
                 let Ok(rec) = serde_json::from_str::<EventRecord>(&line) else { continue };
                 if rec.seq > after && !visit(rec) {
+                    return Ok(());
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn tail_after(&self, id: &str, after: u64) -> Result<(u64, u64)> {
+        let mut count = 0;
+        let mut last = after;
+        let mut done = false;
+        for (_, path) in self.segments(id)?.into_iter().rev() {
+            for_each_line_rev(&path, &mut |line| {
+                let Ok(rec) = serde_json::from_slice::<EventRecord>(line) else { return true };
+                if rec.seq <= after {
+                    done = true;
+                    return false;
+                }
+                count += 1;
+                last = last.max(rec.seq);
+                true
+            })?;
+            if done {
+                break;
+            }
+        }
+        Ok((count, last))
+    }
+
+    fn scan_kinds(
+        &self,
+        id: &str,
+        kinds: &[&str],
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        let mut line = Vec::new();
+        for (_, path) in self.segments(id)? {
+            let mut reader =
+                BufReader::with_capacity(256 * 1024, crate::config::private_state_file(&path)?);
+            loop {
+                line.clear();
+                if reader.read_until(b'\n', &mut line)? == 0 {
+                    break;
+                }
+                if line.iter().all(u8::is_ascii_whitespace) {
+                    continue;
+                }
+                if record_kind(&line)
+                    .is_some_and(|kind| !kinds.iter().any(|k| k.as_bytes() == kind))
+                {
+                    continue;
+                }
+                let Ok(rec) = serde_json::from_slice::<EventRecord>(&line) else { continue };
+                if kinds.contains(&rec.kind.as_str()) && !visit(rec) {
                     return Ok(());
                 }
             }

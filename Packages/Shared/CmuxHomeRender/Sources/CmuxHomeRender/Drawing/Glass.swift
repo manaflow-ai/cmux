@@ -3,7 +3,7 @@ import CoreGraphics
 /// The compose field's glass as measured: a flat fill, a bright rim fading
 /// inward at the top and bottom, and a thin dark side edge.
 enum Glass {
-    static func draw(_ ctx: CGContext, rect: CGRect, radius: CGFloat, fill: HomeColor) {
+    static func draw(_ ctx: CGContext, rect: CGRect, radius: CGFloat, fill: HomeColor, stroke: HomeColor = .gray255(0, alpha: 0.6)) {
         let shape = RoundedRect.path(rect, radius: radius)
         Canvas.fill(ctx, shape, fill.cgColor)
         ctx.saveGState()
@@ -23,7 +23,7 @@ enum Glass {
         ctx.restoreGState()
         ctx.saveGState()
         ctx.clip(to: rect.insetBy(dx: -1, dy: min(radius, rect.height / 2) * 0.5))
-        ctx.setStrokeColor(HomeColor.gray255(0, alpha: 0.6).cgColor)
+        ctx.setStrokeColor(stroke.cgColor)
         ctx.setLineWidth(0.5)
         ctx.addPath(RoundedRect.path(rect.insetBy(dx: -0.25, dy: -0.25), radius: radius + 0.25))
         ctx.strokePath()

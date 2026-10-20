@@ -1,4 +1,5 @@
 import CmuxNextDictation
+public import CmuxNextSettings
 public import Foundation
 
 /// A request the page posts to `window.webkit.messageHandlers.agentSession`:
@@ -125,6 +126,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `chat.subagentPane {subagent, focus}`: this chat's subagent in an agent pane of its own,
     /// right of the chat (``AgentSubagentPanes``); `focus` moves keyboard focus to it.
     case subagentPane(String, focus: Bool)
+    /// `chat.processTerminal {toolCallId}`: the background process this chat's tool call started,
+    /// in a read-only terminal tab beside the chat (``AgentPaneProcessViewer``).
+    case processTerminal(toolCall: String)
     /// A started chat's New Chat Here: a new chat in that folder, in a tab of its own.
     case newChatHere(String)
     /// The page reports whether repository checkpoint actions are available so
@@ -215,6 +219,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// Context Usage, or the mic's Hide dictation button, which the host writes to cmux.json at `path`
     /// (`agentPane.showContextUsage`, `agentPane.showDictation`).
     case composerSetting(path: [String], show: Bool)
+    /// `pane.setDisplay {key, value}`: the ··· menu's Text & Width popover writes one `agentPane.display.*`
+    /// key (``AgentPaneDisplaySetting/writablePath(_:)``); a null value removes it.
+    case displaySetting(path: [String], value: JSONValue?)
     /// `chat.toolCard.respond {id, action, value?}`: a click on a button of a tool card (``AgentPaneToolCard``),
     /// with what the person typed in its field.
     case toolCard(card: String, action: String, value: AgentPaneToolCard.Entered?)

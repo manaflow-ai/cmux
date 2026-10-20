@@ -1,7 +1,9 @@
 import { env, exports } from "cloudflare:workers"
+import { runInDurableObject } from "cloudflare:test"
 import { importJWK, SignJWT, type JWK } from "jose"
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest"
 import { fireAlarm } from "./setup/alarm.ts"
+import { memberUpsert } from "../src/domains/team-members.ts"
 
 /**
  * The Claude Code route of a Cloud Chief (chief-brain-cc/): for an owner on the paid-model list, each turn
@@ -12,9 +14,10 @@ import { fireAlarm } from "./setup/alarm.ts"
  * their HTTP boundary; the fake VM plays the turn machine (backend/chief-cc/image/run.mjs) by posting notes
  * to the Worker. One file on purpose: it replaces globalThis.fetch and the route's settings.
  */
-type TestEnv = Record<string, string | undefined> & { STACK_PROJECT_ID: string; STACK_TEST_PRIVATE_JWK: string; USER_DO: DurableObjectNamespace }
+type TestEnv = Record<string, string | undefined> & { STACK_PROJECT_ID: string; STACK_TEST_PRIVATE_JWK: string; USER_DO: DurableObjectNamespace; TEAM_DO: DurableObjectNamespace }
 const testEnv = env as unknown as TestEnv
 const worker = (exports as unknown as { default: Fetcher }).default
+const inDO = runInDurableObject as unknown as <T>(stub: unknown, fn: (instance: any, state: DurableObjectState) => Promise<T>) => Promise<T>
 const sessionToken = async (sub: string) =>
   new SignJWT({ email: `${sub}@example.com`, email_verified: true, name: sub })
     .setProtectedHeader({ alg: "ES256", kid: "stack-test" })
@@ -108,7 +111,8 @@ const machine = async (s: Started, reply: string) => {
 const enabledChief = async (sub: string, lists: "cc" | "paid" | false) => {
   const listed = lists !== false
   const token = await sessionToken(sub)
-  const user = (await op(token, "user.ensure", {})).value.id as string
+  const ensured = (await op(token, "user.ensure", {})).value
+  const user = ensured.id as string
   if (listed) testEnv.CHIEF_BRAIN_CLAUDE_OWNERS_EXTRA = `${testEnv.CHIEF_BRAIN_CLAUDE_OWNERS_EXTRA ?? ""},${user}`
   if (lists === "cc") testEnv.CHIEF_CC_OWNERS = `${testEnv.CHIEF_CC_OWNERS ?? ""},${user}`
   const chief = (await op(token, "chief.create", { display_name: "Route Chief" }, `chief-${sub}`)).value as { id: string; main_conversation: string }
@@ -119,7 +123,7 @@ const enabledChief = async (sub: string, lists: "cc" | "paid" | false) => {
     on = await http("PUT", `/v1/chiefs/${chief.id}/brain`, token, listed ? { enabled: true, model: "claude-opus-5-5" } : { enabled: true })
   }
   expect(on.status, on.text).toBe(200)
-  return { token, chief }
+  return { token, user, team: ensured.personal_team as string, chief }
 }
 const replies = async (token: string, conversation: string, chief: string, n: number) => {
   for (let i = 0; i < 300; i++) {
@@ -132,6 +136,36 @@ const replies = async (token: string, conversation: string, chief: string, n: nu
 const send = (token: string, conversation: string, key: string, text: string) => op(token, "message.send", { conversation, client_msg_id: key, parts: [{ type: "text", text }] }, key)
 
 describe("Cloud Chief on the Claude Code route", { timeout: 120_000 }, () => {
+  it("keeps a teammate-authored turn out of the bypass-permissions VM route", async () => {
+    const cloud = fakeCloud(() => "the VM should not run")
+    const { token, user, team, chief } = await enabledChief("chief-cc-teammate", "cc")
+    const teammate = await sessionToken("chief-cc-teammate-other")
+    const teammateUser = (await op(teammate, "user.ensure", {})).value.id as string
+    await inDO(testEnv.TEAM_DO.get(testEnv.TEAM_DO.idFromName(team)), async (instance) => {
+      instance.boundEngine.rows.apply([memberUpsert({ user: teammateUser, role: "member", display_name: "Teammate" })])
+    })
+    const created = await op(token, "conversation.create", {
+      title: "Claude Code authorization",
+      participants: [
+        { id: user, kind: "human", display_name: "Owner" },
+        { id: teammateUser, kind: "human", display_name: "Teammate" },
+        { id: chief.id, kind: "agent", agent_class: "mux", owner_user: user, display_name: "Route Chief" }
+      ]
+    })
+    expect(created.ok, JSON.stringify(created)).toBe(true)
+    const conversation = created.value.conversation.id as string
+    const text = "@chief change files on the machine"
+    expect((await op(teammate, "message.send", {
+      conversation,
+      client_msg_id: "cc-teammate-effect",
+      parts: [{ type: "text", text, runs: [{ start: 0, length: 6, mention: chief.id }] }]
+    }, "cc-teammate-effect")).ok).toBe(true)
+    await replies(token, conversation, chief.id, 1)
+    expect(cloud.made).toHaveLength(0)
+    expect(cloud.keys).toHaveLength(0)
+    expect(cloud.started).toHaveLength(0)
+  })
+
   it("runs each turn in its own VM on the tailnet, posts the streamed reply with no Cloud credits, deletes the VM, and gives the next turn the earlier reply", async () => {
     const cloud = fakeCloud((prompt, n) => (n === 1 ? "The launch code word is TANGERINE." : prompt.includes("TANGERINE") ? "You told me before: TANGERINE." : "I do not remember."))
     // No credits granted: this route is not charged to them.

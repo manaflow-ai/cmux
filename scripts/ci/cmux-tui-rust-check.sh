@@ -11,6 +11,9 @@
 # rd-host: clippy and tests of cmux-tui/crates/cmux-rd-host (its own workspace, so the
 # modes above never build it) on macOS, including its VideoToolbox path, without x264
 # (no libx264 on the fleet) and with the bench feature (OpenH264 from source).
+# rd-bench: a release build of cmux-rd-host's bench client (no x264, OpenH264 from source)
+# at .build/artifacts/cmux-rd (macOS arm64; fetch it with --artifact), so a developer
+# Mac can measure a remote host (the cloud browser VM) without building cargo locally.
 # rb-testhost: fmt, clippy and tests of cmux-tui/crates/cmux-remote-browser-testhost
 # (its own workspace), then its release binary at .build/artifacts/cmux-remote-browser-testhost
 # (macOS arm64; fetch it with --artifact) for the remote tab's GUI proofs.
@@ -30,6 +33,10 @@
 # path, reset to the exact commit except .build), so the target can hold the
 # last step's build; cargo's fingerprints decide what is rebuilt, and
 # warm_target_guard wipes it when the toolchain or its stamp changes.
+# terminal [FILTER]: the tests of the terminal stack's crates only (terminal_crates:
+# ghostty-vt with its VT, tmux regress, kitty graphics and corpus suites, ghostty-vt-sys,
+# the PTY, sizing, encode and client crates), no fmt, clippy or doc tests: the fast
+# gate for a terminal change (cmux-next-terminal.yml).
 set -euo pipefail
 if [[ -z "${CMUX_CI_STEP_KEY:-}" ]]; then
   cat >&2 <<'MSG'
@@ -40,7 +47,14 @@ MSG
 fi
 mode="${1:-}"
 filter="${2:-}"
-case "$mode" in fmt|clippy|test|all|rd-host|rb-testhost|optchat-chief|screen) ;; *) echo "usage: cmux-tui-rust-check.sh fmt|clippy|test|all|rd-host|rb-testhost|optchat-chief|screen [TEST_FILTER]" >&2; exit 2 ;; esac
+case "$mode" in fmt|clippy|test|all|terminal|rd-host|rd-bench|rb-testhost|optchat-chief|screen) ;; *) echo "usage: cmux-tui-rust-check.sh fmt|clippy|test|all|terminal|rd-host|rd-bench|rb-testhost|optchat-chief|screen [TEST_FILTER]" >&2; exit 2 ;; esac
+# The crates the terminal mode tests; every other mode's tests take the whole workspace.
+terminal_crates=(ghostty-vt ghostty-vt-sys cmux-pty cmux-terminal-sizing cmux-terminal-client cmux-encode)
+test_scope=(--workspace)
+if [[ "$mode" == terminal ]]; then
+  test_scope=()
+  for crate in "${terminal_crates[@]}"; do test_scope+=(-p "$crate"); done
+fi
 if [[ -n "$filter" && ! "$filter" =~ ^[A-Za-z0-9_:.-]{1,200}$ ]]; then
   echo "error: TEST_FILTER must be one Rust test-name substring (letters, digits, _ : . -)" >&2
   exit 2
@@ -56,7 +70,7 @@ if [[ -n "$shard" ]]; then
     exit 2
   fi
   shard_i="${BASH_REMATCH[1]}"
-  case "$mode" in test|all) ;; *) echo "error: CMUX_RUST_TEST_SHARD applies only to the test and all modes" >&2; exit 2 ;; esac
+  case "$mode" in test|all|terminal) ;; *) echo "error: CMUX_RUST_TEST_SHARD applies only to the test, all and terminal modes" >&2; exit 2 ;; esac
   # A partition of a filtered run can hold no test, which --no-tests=fail makes red.
   [[ -z "$filter" ]] || { echo "error: CMUX_RUST_TEST_SHARD does not take a TEST_FILTER" >&2; exit 2; }
   echo "gate-notice: shard $shard (nextest --partition count:$shard)"
@@ -182,10 +196,13 @@ step() { # NAME CMD...: runs CMD, records pass/fail/skipped and seconds
 # Base-red skip list (scripts/ci/cmux-tui-base-red.tsv): tests that are red on
 # the base for a known reason, skipped in the cmux-tui workspace tests (`test`
 # and `all`) with libtest `--skip` (a test-name substring; use the full path).
-# Columns, tab-separated: FILTER BEAD EXPIRES(YYYY-MM-DD, UTC, the last day the
-# skip applies) OS(any|macos|linux) REASON. An entry without a bead, with a bad
-# filter, date or OS, or past its expiry fails the step; an expired entry is
-# not skipped, so its test runs again.
+# Columns, tab-separated: FILTER BEAD EXPIRES(YYYY-MM-DD, UTC, the review date:
+# after it each run warns) OS(any|macos|linux) REASON. An entry without a bead, or with a
+# bad filter, date or OS, fails the step. An entry past its expiry only warns
+# (a gate-notice line naming its bead) and is still applied: a calendar date
+# must not turn every PR red (2026-10-20: cx-2ueez and cx-gz5dx expired and
+# failed the base-red step on every PR, as a lapsed feature flag reviewBy did
+# before #21967). Remove the entry in the push that fixes its test.
 base_red_file="$root/scripts/ci/cmux-tui-base-red.tsv"
 skip_args=()
 skip_notes=()
@@ -216,8 +233,7 @@ load_base_red() {
       echo "gate-notice: base-red ERROR: $filter (bead $bead) OS must be any, macos or linux: $line"; bad=1; continue ;;
     esac
     if [[ "$today" > "$expires" ]]; then
-      echo "gate-notice: base-red EXPIRED: $filter (bead $bead, expired $expires UTC); the test runs; fix it or remove the entry"
-      bad=1; continue
+      echo "gate-notice: base-red WARNING: $filter (bead $bead) expired $expires UTC and is still skipped; fix it and remove the entry"
     fi
     if [[ "$entry_os" != any && "$entry_os" != "$os" ]]; then
       echo "gate-notice: base-red not applied on $os: $filter (bead $bead, $entry_os only)"
@@ -548,7 +564,7 @@ PY
 workspace_tests() {
   # nextest's store is target/nextest under the workspace, not under CARGO_TARGET_DIR.
   local junit="$root/cmux-tui/target/nextest/ci/junit.xml" rc rrc vrc n expr verdict line
-  local args=(nextest run --workspace --locked --profile ci --no-tests=fail)
+  local args=(nextest run "${test_scope[@]}" --locked --profile ci --no-tests=fail)
   [[ "$fail_fast" != 1 ]] || args+=(--fail-fast)
   [[ -z "$shard" ]] || args+=(--partition "count:$shard")
   [[ -z "$filter" ]] || args+=("$filter")
@@ -581,7 +597,7 @@ workspace_tests() {
   expr="$(junit_tool expr "$junit_full")" || { echo "rerun: none (a failed test name does not fit a filterset)"; return "$rc"; }
   echo "=== rerun: the $n failed tests, each alone (--test-threads 1)"
   rm -f "$junit"
-  env "$run_marker" cargo nextest run --workspace --locked --profile ci --no-tests=fail --test-threads 1 -E "$expr" 2>&1 | tee -a "$test_log"
+  env "$run_marker" cargo nextest run "${test_scope[@]}" --locked --profile ci --no-tests=fail --test-threads 1 -E "$expr" 2>&1 | tee -a "$test_log"
   rrc="${PIPESTATUS[0]}"
   [[ ! -f "$junit" ]] || cp "$junit" "$junit_rerun"
   vrc=0
@@ -672,7 +688,7 @@ finish() {
     IFS=$'\t' read -r a b c <<<"$row"
     printf '%-28s %-22s %s\n' "$a" "$b" "$c"
   done
-  if [[ "$mode" == test || "$mode" == all ]] && [[ -f "$test_log" ]]; then
+  if [[ "$mode" == test || "$mode" == all || "$mode" == terminal ]] && [[ -f "$test_log" ]]; then
     echo
     crate_table
   fi
@@ -710,6 +726,19 @@ if [[ "$mode" == rd-host ]]; then
   step "rd-host fmt" cargo fmt --check
   step "rd-host clippy" cargo clippy --locked --all-targets --no-default-features --features bench -- -D warnings
   step "rd-host test" cargo test --locked ${no_fail_fast[@]+"${no_fail_fast[@]}"} --no-default-features --features bench ${filter:+"$filter"}
+  finish
+fi
+copy_rd_bench() {
+  mkdir -p "$root/.build/artifacts"
+  cp "$CARGO_TARGET_DIR/release/cmux-rd" "$root/.build/artifacts/cmux-rd" || return 1
+  ls -l "$root/.build/artifacts/cmux-rd"
+}
+if [[ "$mode" == rd-bench ]]; then
+  export CARGO_TARGET_DIR="$root/.build/cmux-rd-host-target"
+  cd "$root/cmux-tui/crates/cmux-rd-host"
+  warm_target_guard
+  step "rd-bench release build" cargo build --locked --release --no-default-features --features bench
+  step "rd-bench artifact" copy_rd_bench
   finish
 fi
 # Go for libtailscale (cmux-screen/crates/cmux-tailnet/build.rs): the host's go
@@ -787,5 +816,11 @@ if [[ "$mode" == test || "$mode" == all ]]; then
   reap_leaked "at the end of the step"
   # Only after a build that cargo finished: a failed build lists no artifacts.
   step "prune target" prune_target
+fi
+if [[ "$mode" == terminal ]]; then
+  step "base-red list" load_base_red
+  step "cargo-nextest" ensure_nextest
+  step "terminal tests" workspace_tests
+  reap_leaked "at the end of the step"
 fi
 finish

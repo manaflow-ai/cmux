@@ -45,6 +45,7 @@ final class ProfileBarView: NSView {
         setAccessibilityElement(true)
         setAccessibilityRole(.group)
         setAccessibilityLabel(Strings.profiles)
+        setAccessibilityIdentifier("cmux.sidebar.spaces")
         indicator.onDraw = { [weak self] _ in self?.drawIndicator() }
         marks.onDraw = { [weak self] _ in self?.drawMarks() }
         indicator.isHidden = true
@@ -187,7 +188,7 @@ final class ProfileBarView: NSView {
         }
         let from = Motion.presentationValue(layer, "position")
         indicator.frame = rect
-        Motion.set(layer, "position", to: layer.position, spring: .selection, from: from)
+        Motion.sidebar.set(layer, "position", to: layer.position, spring: .selection, from: from)
     }
 
     // theme-scoped: marks.draw runs inside the bar's theme scope
@@ -216,7 +217,7 @@ final class ProfileBarView: NSView {
             shownActive = model.activeProfileID
             if switched, let layer = marks.layer, let old = layer.contents {
                 marks.display()
-                if let new = layer.contents { _ = Motion.set(layer, "contents", to: new, fade: .crossfade, from: old) }
+                if let new = layer.contents { _ = Motion.sidebar.set(layer, "contents", to: new, fade: .crossfade, from: old) }
             }
         }
         needsDisplay = true
@@ -352,12 +353,15 @@ final class ProfileBarView: NSView {
             let active = profile.id == model.activeProfileID
             let element = ProfileDotElement(label: active ? Strings.profileCurrent(profile.name) : profile.name,
                                             frame: rects[offset], parent: self) { [weak self] in self?.activate(offset) }
+            element.setAccessibilityIdentifier("cmux.sidebar.space.\(profile.id.rawValue)")
             element.setAccessibilitySelected(active)
             return element
         }
-        children.append(ProfileDotElement(label: Strings.newProfile, frame: rects[model.profiles.count], parent: self) { [weak self] in
+        let plus = ProfileDotElement(label: Strings.newProfile, frame: rects[model.profiles.count], parent: self) { [weak self] in
             self?.activate(Self.plusIndex)
-        })
+        }
+        plus.setAccessibilityIdentifier("cmux.sidebar.space.new")
+        children.append(plus)
         setAccessibilityChildren(children)
     }
 }

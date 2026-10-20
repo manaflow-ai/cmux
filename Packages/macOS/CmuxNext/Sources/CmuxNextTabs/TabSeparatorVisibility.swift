@@ -18,11 +18,30 @@ struct TabSeparatorVisibility {
         return visible
     }
 
+    /// The same rule for the lines a change of `ids`' emphasis can flip (each tab's own line and the
+    /// one before it), so a tab switch costs O(1) at any tab count. The other lines keep what the
+    /// last full ``apply(to:)`` gave them: nothing else they depend on changed.
+    @MainActor static func apply(to strip: TabStripView, around ids: [TabID?]) {
+        let index = strip.slotIndex
+        let row = index.row
+        func at(_ id: TabID?) -> Int? { id.flatMap { index.rowIndex[$0] } }
+        var emphasized = Set([at(strip.model.selectedID), at(strip.hoveredID),
+                              at(strip.drag?.id) ?? at(TabStripView.placeholderID)].compactMap(\.self))
+        for id in strip.model.multiSelection.ids { if let i = at(id) { emphasized.insert(i) } }
+        var lines = Set<Int>()
+        for id in ids { if let i = at(id) { lines.formUnion([i - 1, i]) } }
+        for line in lines where line >= 0 && line < row.count {
+            let shows = strip.metrics.showsSeparators && !emphasized.contains(line) && !emphasized.contains(line + 1)
+            strip.cells[row[line]]?.showsSeparator = shows
+        }
+    }
+
     /// Chrome's rule over the strip's row: the selected, hovered and dragged tabs hide the lines on
     /// both sides, and the last tab's line is the one before +. A drop gap counts as the dragged
     /// tab. Members collapsed into a group chip are out of the row and draw none; a chip is a
     /// neutral neighbor. None while `tabs.separators` is off.
     @MainActor static func apply(to strip: TabStripView) {
+        strip.rowPasses.separators &+= 1
         let row = strip.result.slots.filter { !$0.isCollapsed }
         func index(of id: TabID?) -> Int? { id.flatMap { id in row.firstIndex { $0.id == id } } }
         let visible = visibleSeparators(

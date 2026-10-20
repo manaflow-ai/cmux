@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR a453986b67d167174f384a45b851ba6779b4ecfde280ba17c07ea656ab7e84b0.
+// cmux-tui mux protocol 12, IR 618580395ad650b750fb7be122cdc20524f93ba299cc62b7afebb68b22ff6b12.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -358,6 +358,15 @@ pub struct CloseTerminalResult {
     pub terminal_id: String,
     pub terminal_incarnation: Nullable<String>,
     pub terminal_revision: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ColumnMoveDirection {
+    #[serde(rename = "left")]
+    Left,
+    #[serde(rename = "right")]
+    Right,
 }
 
 #[rustfmt::skip]
@@ -2658,6 +2667,13 @@ pub struct TerminalResourcesResult {
     pub missing: Vec<Id>,
     pub sampled_at_ns: u64,
     pub terminals: Vec<TerminalResources>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TerminalResumeCommandResult {
+    pub command: Nullable<String>,
+    pub terminal_id: String,
 }
 
 #[rustfmt::skip]

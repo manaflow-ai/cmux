@@ -49,7 +49,34 @@ public final class TerminalHostView: NSView {
         let gridWidth = CGFloat(grid.columns) * model.cellPixelSize.width / scale
         let gridHeight = CGFloat(grid.rows) * model.cellPixelSize.height / scale
         let width = bounds.width - scroller.reservedWidth
-        return CGPoint(x: max(padding.leading, (width - gridWidth) / 2), y: max(padding.top, (bounds.height - gridHeight) / 2))
+        return CGPoint(x: max(padding.leading, (width - gridWidth) / 2), y: max(padding.top, (terminalBounds.height - gridHeight) / 2))
+    }
+
+    /// A view under the terminal (the App's TextBox composer): the full width at the bottom, at
+    /// its fitting height, and the surface, the scroller and the overlays take the rest. A hidden
+    /// accessory takes no room. Set the host's `needsLayout` when its height or visibility changes.
+    public var bottomAccessory: NSView? {
+        didSet {
+            guard oldValue !== bottomAccessory else { return }
+            oldValue?.removeFromSuperview()
+            if let bottomAccessory {
+                bottomAccessory.translatesAutoresizingMaskIntoConstraints = true // framed in layout()
+                addSubview(bottomAccessory, positioned: .above, relativeTo: scroller)
+            }
+            needsLayout = true
+        }
+    }
+
+    /// The accessory's height, 0 while there is none or it is hidden.
+    private var accessoryHeight: CGFloat {
+        guard let bottomAccessory, !bottomAccessory.isHidden else { return 0 }
+        return min(bounds.height, ceil(bottomAccessory.fittingSize.height))
+    }
+
+    /// The part of the host the terminal shows in: all of it, less the accessory's strip.
+    private var terminalBounds: CGRect {
+        let accessory = accessoryHeight
+        return CGRect(x: bounds.minX, y: bounds.minY + accessory, width: bounds.width, height: max(0, bounds.height - accessory))
     }
 
     private var configObserver: (any NSObjectProtocol)?
@@ -201,14 +228,19 @@ public final class TerminalHostView: NSView {
 
     /// The surface's frame: the host, less a legacy scroller's strip (none: the scroller is overlay).
     private var surfaceFrame: CGRect {
-        CGRect(x: bounds.minX, y: bounds.minY, width: max(0, bounds.width - scroller.reservedWidth), height: bounds.height)
+        let area = terminalBounds
+        return CGRect(x: area.minX, y: area.minY, width: max(0, area.width - scroller.reservedWidth), height: area.height)
     }
 
     public override func layout() {
         super.layout()
         if let current, current.frame != surfaceFrame { current.frame = surfaceFrame }
-        let strip = scroller.strip(in: bounds)
+        let strip = scroller.strip(in: terminalBounds)
         if scroller.frame != strip { scroller.frame = strip }
+        if let bottomAccessory, !bottomAccessory.isHidden {
+            let frame = CGRect(x: bounds.minX, y: bounds.minY, width: bounds.width, height: accessoryHeight)
+            if bottomAccessory.frame != frame { bottomAccessory.frame = frame }
+        }
         layoutOverlays()
     }
 
@@ -225,20 +257,22 @@ public final class TerminalHostView: NSView {
             // Bottom-trailing, clear of the scroller: where a padded grid leaves room.
             let trailing = bounds.width - scroller.reservedWidth - inset
             _ = place(sizedForChip, maxWidth: bounds.width - inset * 2) { size in
-                CGPoint(x: max(inset, trailing - size.width), y: inset)
+                CGPoint(x: max(inset, trailing - size.width), y: self.terminalBounds.minY + inset)
             }
         }
         // Framed hidden too: the bar shows itself when find opens.
+        // The shared find pill sits where every pane's does (FindPillMetrics.inset from top and trailing).
+        let findInset = FindPillMetrics.inset
         for case let bar as TerminalFindBarView in subviews {
-            _ = place(bar, maxWidth: bounds.width - inset * 2, evenHidden: true) { size in
-                CGPoint(x: self.bounds.width - inset - size.width, y: self.bounds.height - inset - size.height)
+            _ = place(bar, maxWidth: bounds.width - findInset * 2, evenHidden: true) { size in
+                CGPoint(x: self.bounds.width - findInset - size.width, y: self.bounds.height - findInset - size.height)
             }
         }
     }
 
     private func layoutStatus(buttons: [NSView]) {
         let banner = place(self.banner, maxWidth: bounds.width - 24) { size in
-            CGPoint(x: (self.bounds.width - size.width) / 2, y: 12)
+            CGPoint(x: (self.bounds.width - size.width) / 2, y: self.terminalBounds.minY + 12)
         }
         for button in buttons {
             _ = place(button, maxWidth: bounds.width) { size in
@@ -284,8 +318,7 @@ public final class TerminalHostView: NSView {
     /// (translucent, glass, or over art) the window root paints the one
     /// sheet and the host stays clear, as the panes around it do, unless the
     /// terminal's theme differs from theirs: its background then lies over
-    /// the glass at the window's tint, which over art keeps its own text
-    /// legible (`WindowBackdrop.legibleTintOpacity`). The user's terminal
+    /// the glass at the window's tint (`WindowBackdrop.tintOpacity`). The user's terminal
     /// background (`appearance.surfaces.terminal`) replaces all of these;
     /// the surfaces then draw a transparent default background.
     fileprivate func paintBackground() {

@@ -149,6 +149,9 @@ public final class AgentPaneModel {
     /// Diff Colors (`diff.colors`) as the page last got it: "theme", "muted" or "standard".
     @ObservationIgnored public internal(set) var diffColors = "theme"
     @ObservationIgnored public var onComposerSetting: (@MainActor ([String], Bool) async throws -> Void)?
+    /// The chat's look as the page last got it, and where its popover writes (AgentPaneView+Display.swift).
+    @ObservationIgnored public internal(set) var display = AgentPaneDisplaySetting.fallback
+    @ObservationIgnored public var onDisplaySetting: (@MainActor ([String], JSONValue?) async throws -> Void)?
     /// The chat's tool cards (``AgentPaneToolCard``), and the App's answer to a click on one: the card's id, the button's
     /// and what the person typed in the card's field, if the button sends it.
     @ObservationIgnored public internal(set) var toolCards: [AgentPaneToolCard] = []
@@ -309,7 +312,7 @@ public final class AgentPaneModel {
         case .openChat(let key): if let onOpenChat { onOpenChat(key); return AgentPaneReply.success() } else { return Self.unsupported("chats.open") }
         case .openChatInTerminal(let key): if let onOpenChatInTerminal { onOpenChatInTerminal(key); return AgentPaneReply.success() } else { return Self.unsupported("chats.openInTerminal") }
         case .chatsPage(let query): return await respondToChatsPage(query)
-        case .paneAction, .preview, .setQuickActions, .tabState, .tabRowTools, .sideChat, .subagentPane, .chatTab, .newChatHere: return await respondToHeader(request)
+        case .paneAction, .preview, .setQuickActions, .tabState, .tabRowTools, .sideChat, .subagentPane, .processTerminal, .chatTab, .newChatHere: return await respondToHeader(request)
         case .appAction(let id):
             guard newTab?.omnibar.actions.contains(where: { $0.id == id }) == true, let onAppAction else { return Self.unsupported("app.action") }
             onAppAction(id)
@@ -336,6 +339,7 @@ public final class AgentPaneModel {
         case .reply(let reply): return await respond(to: reply)
         case .saveFile(let save): return await saveFile(save)
         case .composerSetting(let path, let show): return await setComposer(path, show)
+        case .displaySetting(let path, let value): return await setDisplay(path, value)
         case .toolCard(let card, let action, let value): return AgentPaneToolCard.respond(card: card, action: action, value: value, in: self)
         case .upload(let files): return await AgentPaneUpload.respond(files, in: self)
         case .unsupported(let method): return Self.unsupported(method)

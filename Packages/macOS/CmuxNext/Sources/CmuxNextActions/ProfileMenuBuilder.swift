@@ -22,8 +22,11 @@ public nonisolated struct ProfileMenuProfile: Sendable, Hashable {
         self.registry = registry
     }
 
-    /// `avatar` is drawn in the current-profile row's image column.
-    public func make(profile: ProfileMenuProfile, avatar: NSImage? = nil, spec: ProfileMenuSpec = ProfileMenuSpec()) -> NSMenu {
+    /// `avatar` is drawn in the current-profile row's image column. `chiefPetShown` (the
+    /// `home.chiefPetEnabled` that applies now) adds Show Chief or Hide Chief above Settings; nil
+    /// leaves the row out.
+    public func make(profile: ProfileMenuProfile, avatar: NSImage? = nil, chiefPetShown: Bool? = nil,
+                     spec: ProfileMenuSpec = ProfileMenuSpec()) -> NSMenu {
         let menu = NSMenu()
         menu.autoenablesItems = true
         menu.addItem(profileRow(profile, avatar: avatar, actions: spec.profileActions))
@@ -40,6 +43,7 @@ public nonisolated struct ProfileMenuProfile: Sendable, Hashable {
             item.submenu = sub
             menu.addItem(item)
         }
+        if let chiefPetShown, let chief = chiefPetRow(shown: chiefPetShown) { menu.addItem(chief) }
         if let settings = row(spec.settings) { menu.addItem(settings) }
         let creation = spec.creation.compactMap(row)
         if !creation.isEmpty {
@@ -62,6 +66,23 @@ public nonisolated struct ProfileMenuProfile: Sendable, Hashable {
             options.forEach(sub.addItem)
             item.submenu = sub
         }
+        return item
+    }
+
+    /// Show Chief / Hide Chief (Leo 2026-10-20, as Codex's profile menu toggles its floating
+    /// window): flips `home.chiefPetEnabled` to the other value through the one setting path,
+    /// `palette.toggleSetting`, as the palette and `cmux settings toggle-setting` do.
+    private func chiefPetRow(shown: Bool) -> NSMenuItem? {
+        let toggle: ActionID = "palette.toggleSetting"
+        guard let item = boundMenuItem(toggle) else { return nil }
+        item.title = shown ? ProfileMenuSpec.text("menu.profile.hideChief", "Hide Chief")
+            : ProfileMenuSpec.text("menu.profile.showChief", "Show Chief")
+        item.keyEquivalent = ""
+        item.keyEquivalentModifierMask = []
+        item.image = Self.symbol(shown ? "eye.slash" : "eye", label: item.title)
+        item.identifier = NSUserInterfaceItemIdentifier("profileMenu.chiefPet")
+        item.representedObject = ActionMenuPayload(id: toggle, target: nil,
+                                                   arguments: ["setting": .string(ProfileMenuSpec.chiefPetSetting), "on": .bool(!shown)])
         return item
     }
 

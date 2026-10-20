@@ -67,6 +67,20 @@ public nonisolated enum MotionSpring: String, Sendable, CaseIterable {
     /// A new tab growing in at its final slot while the tabs right of it make room, on one
     /// spring (`ui.animations.newTab`, on by default). Structural.
     case tabOpen
+    /// A split (Cmd-D, Cmd-Shift-D): the new pane grows in from the split edge while every pane
+    /// of its chain gives up room, one spring from the key's frame to rest (Lawrence 2026-10-19:
+    /// "resize all of them while adding a new one"). Slightly under-damped (0.95): no visible
+    /// overshoot, a shorter tail than critical damping. Not structural: the bounce setting does
+    /// not change it. Swift-only for now (cmux-motion's `MotionSpring` ends at `tabOpen`; parity
+    /// compares the tokens both ports have).
+    case split
+    /// A popup (a popover, a menu, a group editor) growing out of the control it opened from:
+    /// scale and fade on the card's own layer (``NSWindow/openPopup(pivot:)``). Slightly
+    /// under-damped, like `NSPopover`. Swift-only, like `split`.
+    case popover
+    /// The same popup shrinking back toward its control as it fades out, faster than it opened.
+    /// Critically damped. Swift-only.
+    case popoverClose
 
     /// Values at `MotionSpeed.fast`: the code default (`MotionTunables`),
     /// or its Debug Settings override in DEV and NIGHTLY builds.
