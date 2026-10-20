@@ -68,6 +68,7 @@ jobs:
       ref: ${{ inputs.ref || 'feat-cmux-next' }}
 
   gate:
+    environment: ci-routing-agent
     needs: resolve-ref
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5

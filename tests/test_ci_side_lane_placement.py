@@ -48,9 +48,16 @@ PLACED_JOBS = (*JOBS, "fast-tier")
 RETRY_JOBS = ("cmux-scheme-compile", "release-compile", "swift-canary")
 
 
-def overflow(name: str) -> str:
-    """The label a bot attempt 3+ takes with no free Blacksmith slot."""
-    return SIDE if name in RETRY_JOBS else FALLBACK
+def overflow(name: str, placed: bool = True) -> str:
+    """The label a bot attempt 3+ takes with no free Blacksmith slot.
+
+    A GUI job whose placement ran keeps the 6 vCPU escape from its gui label (it also covers a gui
+    label with no online runner); with no placement result it waits on the fleet's gui label, never
+    vars.MACOS_RUNNER_26 (12 vCPU, 5+ hour waits on 2026-10-20).
+    """
+    if name in RETRY_JOBS:
+        return SIDE
+    return FALLBACK if placed else GUI
 
 sys.path.insert(0, str(ROOT / "tests"))
 from test_seed_derived_data import evaluate, github_context  # noqa: E402
@@ -290,9 +297,11 @@ class CmuxNextWiring(unittest.TestCase):
                 self.assertEqual(evaluate(runs_on, self.context("2", triggering_actor="github-actions[bot]")), on(name, SIDE))
                 self.assertEqual(evaluate(runs_on, self.context("3", triggering_actor="teamleaderleo")), on(name, SIDE))
                 # The rescue's third attempt: a free Blacksmith slot, else the owned side label.
-                self.assertEqual(evaluate(runs_on, self.context("3", triggering_actor="github-actions[bot]")), overflow(name))
+                self.assertEqual(evaluate(runs_on, self.context("3", triggering_actor="github-actions[bot]")),
+                                 overflow(name, placed=False))
                 self.assertEqual(evaluate(runs_on, self.context("3", fallback_jobs=f" {name} ",
-                                                                 triggering_actor="github-actions[bot]")), overflow(name))
+                                                                 triggering_actor="github-actions[bot]")),
+                                 overflow(name, placed=False))
                 self.assertEqual(evaluate(runs_on, self.context(fork=True)), FALLBACK)
 
     def test_missing_gui_label_uses_blacksmith_instead_of_a_dead_gui_queue(self):
@@ -339,8 +348,14 @@ class CmuxNextWiring(unittest.TestCase):
             runs_on = jobs[name]["runs-on"]
             with self.subTest(job=name):
                 self.assertEqual(evaluate(runs_on, self.context("3", runner=STD, triggering_actor=bot)), overflow(name))
-                self.assertEqual(evaluate(runs_on, self.context("4", runner=STD, triggering_actor=bot)), overflow(name))
-                self.assertEqual(evaluate(runs_on, self.context("5", runner=SIDE, triggering_actor=bot)), overflow(name))
+                # A bot attempt 4+ follows a refusal on attempt 3 (owned_pool_rescue
+                # REFUSAL_RESCUE_ATTEMPT): it leaves the fleet, which may have lost that runner.
+                self.assertEqual(evaluate(runs_on, self.context("4", runner=STD, triggering_actor=bot)), FALLBACK)
+                self.assertEqual(evaluate(runs_on, self.context("5", runner=SIDE, triggering_actor=bot)), FALLBACK)
+                for attempt in ("4", "5"):
+                    unplaced = self.context(attempt, triggering_actor=bot)
+                    unplaced["needs"] = {}
+                    self.assertFalse(str(evaluate(runs_on, unplaced)).startswith("glaeda-"), (name, attempt))
                 # A free Blacksmith slot the placement found takes the overflow.
                 free = self.context("3", runner=STD, triggering_actor=bot)
                 free["needs"][self.PLACEMENT]["outputs"]["retry_runner"] = FALLBACK
@@ -385,10 +400,9 @@ class CmuxNextWiring(unittest.TestCase):
         # every context above that skips it routes every Mac job to the fallback.
         for name in JOBS:
             runs_on = jobs[name]["runs-on"]
-            # A bot attempt 3 of a RETRY_JOBS job with no free Blacksmith slot does wait on the
-            # owned side label, unwatched: the rescue's watch ends at attempt 2.
-            bot_attempt_3 = {} if name in RETRY_JOBS else {"attempt 3": self.context("3", triggering_actor="github-actions[bot]")}
-            for why, context in {"fork": self.context(fork=True), **bot_attempt_3,
+            # A bot attempt 3 with no free Blacksmith slot (or, for a GUI job, no placement result)
+            # does wait on an owned label, unwatched: the rescue's watch ends at attempt 2.
+            for why, context in {"fork": self.context(fork=True),
                                  "another owner": other_owner, "owned pools off": owned_off}.items():
                 context["needs"] = {}  # the skipped placement has no outputs
                 self.assertFalse(str(evaluate(runs_on, context)).startswith("glaeda-"), (name, why))
