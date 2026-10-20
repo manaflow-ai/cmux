@@ -294,14 +294,24 @@ pub struct LastTurn {
     pub ended_at: u64,
 }
 
+/// `limit` pages the list; `cursor` is a page's `nextCursor`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 #[schemars(deny_unknown_fields)]
-pub struct SessionsParams {}
+pub struct SessionsParams {
+    /// A positive page size; absent returns every session.
+    pub limit: Option<u64>,
+    pub cursor: Option<String>,
+}
 
 #[derive(Debug, Clone, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct SessionsResult {
     /// Local and peer sessions, newest first.
     pub sessions: Vec<SessionSummary>,
+    /// With `limit`: the next page's cursor, or null on the last page.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "Option<String>")]
+    pub next_cursor: Option<Value>,
 }
 
 /// A purged session: only its id is left.
