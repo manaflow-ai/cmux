@@ -162,7 +162,7 @@
 /* New tab page (NewTabPage.tsx, #16620): one field with a Terminal | Browser | Agent switch
    that Tab cycles, each option with its shortcut, over the recent sessions. Same surfaces
    as the composer, so it takes every theme the same way. */
-.acpmux-newtab{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;align-items:center;padding:clamp(48px,16vh,168px) max(16px,calc((100% - 760px)/2)) 32px;box-sizing:border-box;font-family:system-ui;-webkit-font-smoothing:antialiased;container-type:inline-size}
+.acpmux-newtab{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;align-items:center;padding:clamp(48px,16vh,168px) max(16px,calc((100% - 760px / var(--cmux-ui-scale,1))/2)) 32px;box-sizing:border-box;font-family:system-ui;-webkit-font-smoothing:antialiased;container-type:inline-size}
 .acpmux-newtab>*{width:100%}
 .acpmux-newtab-box{border-radius:22px;background:color-mix(in srgb,var(--acpmux-composer-bg) 72%,transparent);-webkit-backdrop-filter:blur(18px) saturate(1.08);backdrop-filter:blur(18px) saturate(1.08);box-shadow:inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-composer-edge),var(--elevation-2)}
 .acpmux-newtab-row{display:flex;align-items:center;gap:10px;height:56px;padding:0 8px 0 18px;cursor:text}
@@ -337,7 +337,7 @@
 .acpmux-main[data-new-chat]:has(>.acpmux-home-area:not(:empty))>.acpmux-stage{min-height:128px}
 /* No lists to show: no wrapper either, so the hero centers exactly as without this feature. */
 .acpmux-home-area:empty{display:none}
-.acpmux-home-area{overflow:auto;padding:0 max(16px,calc((100% - 760px)/2)) 12px;font-family:system-ui,-apple-system,"Helvetica Neue",sans-serif;-webkit-font-smoothing:antialiased}
+.acpmux-home-area{overflow:auto;padding:0 max(16px,calc((100% - 760px / var(--cmux-ui-scale,1))/2)) 12px;font-family:system-ui,-apple-system,"Helvetica Neue",sans-serif;-webkit-font-smoothing:antialiased}
 .acpmux-home{display:flex;flex-direction:column;gap:12px;padding:12px 0 0}
 .acpmux-home-list{padding:6px;border-radius:18px;background:color-mix(in srgb,var(--acpmux-composer-bg) 72%,transparent)}
 .acpmux-home-list ul{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:2px}

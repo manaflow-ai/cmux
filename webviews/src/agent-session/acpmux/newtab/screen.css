@@ -1,5 +1,6 @@
 /* The new tab screen, variant B (plans/cmux-next/new-tab.md). Quiet: the theme's text tones over the shared page background, the composer's fill and edge (none under appearance.borders = none), the theme's red for a dropped chat; the theme accent only marks focus and the selected row. */
-.nt-screen{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;align-items:center;gap:12px;padding:clamp(40px,14vh,140px) max(var(--cv-edge,18px),calc((100% - 720px)/2)) 24px;box-sizing:border-box;font-family:system-ui;-webkit-font-smoothing:antialiased;container-type:inline-size}
+/* The column caps at 720px on screen at any interface scale: the page zoom grows CSS px with --cmux-ui-scale, so the cap divides by it (#22257). */
+.nt-screen{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;align-items:center;gap:12px;padding:clamp(40px,14vh,140px) max(var(--cv-edge,18px),calc((100% - 720px / var(--cmux-ui-scale,1))/2)) 24px;box-sizing:border-box;font-family:system-ui;-webkit-font-smoothing:antialiased;container-type:inline-size}
 /* A short pane gives the location strip over the card (26px) back from the space above the card, so the
    All chats list keeps its room and stays the page's only scroller (new-tab-scroll). */
 @media (max-height:480px){.nt-screen{padding-top:12px}}

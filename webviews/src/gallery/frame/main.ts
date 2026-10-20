@@ -109,6 +109,8 @@ bootstrap.remove();
 // Document scale and the chrome scale are separate. The app sets pageZoom for the former and
 // this token for the latter; gallery exposes both so each sheet is reproducible.
 if (env.scale !== 1) root.style.zoom = String(env.scale);
+// The app sets --cmux-ui-scale with the page zoom (DesignSettings.interfaceScaleScript).
+root.style.setProperty("--cmux-ui-scale", String(env.scale));
 root.style.setProperty("--cmux-interface-scale", String(env.interfaceScale));
 root.dataset.galleryEntry = entry.id;
 root.dataset.galleryVariant = variantName;
