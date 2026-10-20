@@ -117,8 +117,11 @@ extension AgentPaneGitPullRequest {
     /// The files whose working copy differs from `commit` (repository-relative), nil when it can't tell.
     private static func changedSince(_ commit: String?, in folder: String) async -> Set<String>? {
         guard let commit, commit.count == 40 || commit.count == 64, commit.allSatisfy(\.isHexDigit) else { return nil }
-        let diff = await AgentPaneGitProcess.output(["-C", folder, "diff", "--no-relative", "--name-only", "--no-renames", commit, "--"],
-                                                    timeout: localTimeout)
+        let diff = await AgentPaneGitProcess.output(
+            ["-C", folder, "diff", "--no-ext-diff", "--no-textconv", "--no-relative", "--name-only", "--no-renames",
+             "--ignore-submodules=all", commit, "--"],
+            timeout: localTimeout
+        )
         guard diff.status == 0 else { return nil }
         return Set(diff.text.split(separator: "\n").map(String.init))
     }
