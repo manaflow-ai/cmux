@@ -18,7 +18,7 @@ struct FirstWorkspaceLaunch {
     func create(leftover: [String]) async -> String? {
         let services = manager.services
         await services.home.awaitHomeEnsured()
-        guard FirstWorkspace.isNeeded(services.daemon.store.workspaces, leftover: leftover, home: services.home.homeWorkspaceID) else { return nil }
+        guard services.daemon.store.workspaces.needsFirstWorkspace(leftover: leftover, home: services.home.homeWorkspaceID) else { return nil }
         let landing = FirstWorkspaceLanding(launchIntoHome: HomeTunables.launchIntoHome.value, classic: services.home.dock.isClassic)
         if let home = await landing.home(ensured: services.home.homeWorkspaceID != nil, listed: { services.home.homeWorkspace?.id }) { return home }
         return await manager.createWorkspace(newTabPage: true)
