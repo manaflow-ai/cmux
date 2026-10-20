@@ -11,14 +11,18 @@
 
 use serde_json::Value;
 
-use super::{Layout, SourceScan, modified_ms, open_read_only, utc_ms};
+use super::{
+    Layout, MAX_SOURCE_ENTRIES, MAX_SOURCE_PATH_BYTES, MAX_SOURCE_TIMESTAMP_BYTES, SourceScan,
+    modified_ms, open_read_only, read_text_bounded, utc_ms,
+};
 use crate::state::projects::Observation;
 
 pub(crate) fn scan_codex_app(layout: &Layout) -> Option<SourceScan> {
     let file = layout.codex_global_state();
-    let state: Value = serde_json::from_str(&std::fs::read_to_string(&file).ok()?).ok()?;
+    let state: Value = serde_json::from_str(&read_text_bounded(&file)?).ok()?;
     let saved_at = modified_ms(&file).unwrap_or(0);
     let mut entries = Vec::new();
+    let mut seen = std::collections::BTreeSet::new();
     for project in state
         .get("local-projects")
         .and_then(Value::as_object)
@@ -27,19 +31,31 @@ pub(crate) fn scan_codex_app(layout: &Layout) -> Option<SourceScan> {
     {
         let used = project.get("updatedAt").and_then(Value::as_i64).unwrap_or(saved_at);
         for root in project.get("rootPaths").and_then(Value::as_array).into_iter().flatten() {
-            if let Some(path) = root.as_str() {
+            if let Some(path) = root.as_str()
+                && path.starts_with('/')
+                && path.len() <= MAX_SOURCE_PATH_BYTES
+                && seen.insert(path.to_owned())
+            {
                 entries.push(Observation { path: path.to_string(), last_used_ms: used });
+                if entries.len() > MAX_SOURCE_ENTRIES {
+                    return None;
+                }
             }
         }
     }
     // Folders opened without a project: no time of their own beyond the file's.
     let saved = state.get("electron-saved-workspace-roots").and_then(Value::as_array);
     for root in saved.into_iter().flatten().filter_map(Value::as_str) {
-        if !entries.iter().any(|entry| entry.path == root) {
+        if root.starts_with('/')
+            && root.len() <= MAX_SOURCE_PATH_BYTES
+            && seen.insert(root.to_owned())
+        {
             entries.push(Observation { path: root.to_string(), last_used_ms: 1 });
+            if entries.len() > MAX_SOURCE_ENTRIES {
+                return None;
+            }
         }
     }
-    entries.retain(|entry| entry.path.starts_with('/'));
     Some(SourceScan { source: "codex-app", entries })
 }
 
@@ -47,7 +63,9 @@ pub(crate) fn scan_t3code(layout: &Layout) -> Option<SourceScan> {
     let db = layout.t3code_dbs().into_iter().find(|db| db.is_file())?;
     let rows = query(
         &db,
-        "SELECT workspace_root, updated_at FROM projection_projects WHERE deleted_at IS NULL",
+        "SELECT substr(CAST(workspace_root AS TEXT), 1, ?1),
+                substr(CAST(updated_at AS TEXT), 1, ?2)
+         FROM projection_projects WHERE deleted_at IS NULL LIMIT ?3",
     )?;
     Some(SourceScan { source: "t3code", entries: rows })
 }
@@ -55,7 +73,9 @@ pub(crate) fn scan_t3code(layout: &Layout) -> Option<SourceScan> {
 pub(crate) fn scan_conductor(layout: &Layout) -> Option<SourceScan> {
     let rows = query(
         &layout.conductor_db(),
-        "SELECT root_path, updated_at FROM repos WHERE root_path IS NOT NULL AND coalesce(hidden, 0) = 0",
+        "SELECT substr(CAST(root_path AS TEXT), 1, ?1),
+                substr(CAST(updated_at AS TEXT), 1, ?2)
+         FROM repos WHERE root_path IS NOT NULL AND coalesce(hidden, 0) = 0 LIMIT ?3",
     )?;
     Some(SourceScan { source: "conductor", entries: rows })
 }
@@ -67,14 +87,28 @@ fn query(db: &std::path::Path, sql: &str) -> Option<Vec<Observation>> {
     let connection = open_read_only(db)?;
     let mut statement = connection.prepare(sql).ok()?;
     let rows = statement
-        .query_map([], |row| Ok((text(row.get_ref(0)?), text(row.get_ref(1)?))))
+        .query_map(
+            rusqlite::params![
+                i64::try_from(MAX_SOURCE_PATH_BYTES + 1).ok()?,
+                i64::try_from(MAX_SOURCE_TIMESTAMP_BYTES + 1).ok()?,
+                i64::try_from(MAX_SOURCE_ENTRIES + 1).ok()?
+            ],
+            |row| Ok((text(row.get_ref(0)?), text(row.get_ref(1)?))),
+        )
         .ok()?
         .collect::<Result<Vec<_>, _>>()
         .ok()?;
+    if rows.len() > MAX_SOURCE_ENTRIES {
+        return None;
+    }
     Some(
         rows.into_iter()
             .filter_map(|(path, time)| Some((path?, time)))
-            .filter(|(path, _)| path.starts_with('/'))
+            .filter(|(path, time)| {
+                path.starts_with('/')
+                    && path.len() <= MAX_SOURCE_PATH_BYTES
+                    && time.as_ref().is_none_or(|time| time.len() <= MAX_SOURCE_TIMESTAMP_BYTES)
+            })
             .map(|(path, time)| Observation {
                 last_used_ms: time.as_deref().and_then(utc_ms).unwrap_or(1),
                 path,
