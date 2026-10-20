@@ -199,9 +199,13 @@ describe("Run HTTP routes with a live database", () => {
       }
       const output = await postEvent("route-output-1", 1, "attempt.output", { stream: "stdout", text: "hello" });
       expect(output.status).toBe(200);
-      const duplicate = await postEvent("route-output-1", 1, "attempt.output", { stream: "stdout", text: "changed" });
+      // The writing lease's identical retry replays the stored event; the same id with other
+      // content is a conflict (#21634).
+      const duplicate = await postEvent("route-output-1", 1, "attempt.output", { stream: "stdout", text: "hello" });
       expect(duplicate.status).toBe(200);
       expect((await json<{ event: { payload: { text?: string } } }>(duplicate)).event.payload.text).toBe("hello");
+      const changed = await postEvent("route-output-1", 1, "attempt.output", { stream: "stdout", text: "changed" });
+      expect(changed.status).toBe(409);
       const started = await postEvent("route-started-1", 2, "attempt.started");
       expect(started.status).toBe(200);
 
