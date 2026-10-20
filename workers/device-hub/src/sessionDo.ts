@@ -119,8 +119,16 @@ export class SessionDO extends DurableObject<Env> {
     } catch {
       return;
     }
-    if (typeof type !== "string" || !RELAYED.has(type)) return;
     const role = this.ctx.getTags(ws)[0] as Role;
+    if (type === "path") {
+      // Not relayed: the device reports which path the media took.
+      const path = (JSON.parse(message) as { path?: unknown }).path;
+      if (path === "direct" || path === "relay") {
+        await this.userStub(m).fetch("https://user.do/internal/session-path", { method: "POST", body: JSON.stringify({ sid: m.sid, path }) });
+      }
+      return;
+    }
+    if (typeof type !== "string" || !RELAYED.has(type)) return;
     const peers = this.ctx.getWebSockets(other(role));
     if (peers.length > 0) {
       for (const p of peers) p.send(message);
@@ -131,18 +139,20 @@ export class SessionDO extends DurableObject<Env> {
     if (type === "bye") await this.end("bye");
   }
 
+  /**
+   * A closed signaling socket ends signaling for that side, not the session:
+   * the peer connection may still be up. The session ends on bye, /end,
+   * revocation or the User DO's offline grace, which close this DO.
+   */
   async webSocketClose(ws: WebSocket, code: number, reason: string): Promise<void> {
     try {
       ws.close(code === 1005 || code === 1006 ? 1000 : code, reason);
     } catch {
       // already closed
     }
-    await this.end("closed");
   }
 
-  async webSocketError(_ws: WebSocket): Promise<void> {
-    await this.end("error");
-  }
+  async webSocketError(_ws: WebSocket): Promise<void> {}
 
   /** Reports the end to the User DO, then closes both sockets and deletes storage. */
   private async end(reason: string) {
