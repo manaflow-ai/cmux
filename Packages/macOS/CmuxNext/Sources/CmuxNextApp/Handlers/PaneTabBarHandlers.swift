@@ -20,15 +20,16 @@ enum PaneTabBarHandlers {
         ActionTargetTitles.setPaletteTitle(toggle, in: registry) {
             ctx.services.windows.active?.focusedPane.flatMap { $0.view.hidesStrip ? nil : PaneTabBarStrings.hide }
         }
-        // An app workspace's one pane shows its app without a tab bar (`app-screens-v1`).
-        for id in [toggle, newTab] {
-            ActionTargetVisibility.hide(id, in: registry) { invocation in ctx.paneController(invocation)?.isAppPane ?? false }
-        }
         registry.bind(newTab, invoke: { invocation in
             guard let controller = ctx.paneController(invocation), !controller.isAppPane else { return }
             if controller.view.hidesStrip { controller.showTabBar(true) }
             TabLifecycle.newTabOfPaneKind(ctx, invocation, inStrip: true)
         })
+        // An app workspace's one pane shows its app without a tab bar (`app-screens-v1`).
+        // After both binds: `bind` registers a fresh action and drops an earlier hide rule.
+        for id in [toggle, newTab] {
+            ActionTargetVisibility.hide(id, in: registry) { invocation in ctx.paneController(invocation)?.isAppPane ?? false }
+        }
     }
 }
 

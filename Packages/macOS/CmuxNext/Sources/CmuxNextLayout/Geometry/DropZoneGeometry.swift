@@ -43,10 +43,10 @@ public nonisolated enum DropZoneGeometry {
         return candidates.min { $0.1 < $1.1 }?.0 ?? .center
     }
 
-    /// An edge band: a share of the extent between the style's floor and
-    /// cap (`dropEdgeFraction` 0.25 within 40...120 pt), and never more than
-    /// a third of it, so every pane keeps a center of at least a third of
-    /// each axis to join (DESIGN.md (c)2).
+    /// An edge band: a share of the extent above the style's floor
+    /// (`dropEdgeFraction` 0.25, at least 48 pt, no cap), and never more
+    /// than a third of it, so every pane keeps a center of at least a third
+    /// of each axis to join (plans/cmux-next/drop-zones/DESIGN.md).
     static func band(for extent: CGFloat, style: LayoutStyle) -> CGFloat {
         let raw = extent * style.dropEdgeFraction
         let clamped = min(max(raw, style.dropEdgeRange.lowerBound), style.dropEdgeRange.upperBound)

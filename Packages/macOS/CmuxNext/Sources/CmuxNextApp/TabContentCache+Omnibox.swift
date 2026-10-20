@@ -27,6 +27,12 @@ extension TabContentCache {
         return engine
     }
 
+    /// The omnibar engine of `page`'s profile: the incognito one for an
+    /// off-the-record page (a tab's omnibar and a popup window's share it).
+    func suggestionEngine(forPage page: any BrowserTab) -> OmniboxSuggestionEngine {
+        OffTheRecordProfiles.shared.isOffTheRecord(page.profileID) ? incognitoSuggestions(incognitoMemory) : suggestions(for: page.profileID)
+    }
+
     /// Every engine made so far (settings apply to each).
     var suggestionEngines: [OmniboxSuggestionEngine] {
         [suggestionEngine, incognitoMemory.suggestions] + profileHistories.values.map(\.suggestions)
