@@ -247,11 +247,12 @@ def ls_tree(repo: Path, rev: str, prefix: str) -> list[str]:
     return [p for p in out.split("\0") if p]
 
 
-def build_trees(repo: Path, base: str, head: str, changed: list[str], work: Path) -> tuple[Path, Path]:
+def build_trees(repo: Path, base: str, head: str, changed: list[str], work: Path,
+                trusted_scripts: Path | None = None) -> tuple[Path, Path]:
     # The check scripts and their data sit at the top of scripts/cmux-next (plus lint/); its test,
     # release and harness subfolders are not read by any check and would only slow the copy.
-    scripts = [p for p in ls_tree(repo, head, SCRIPTS + "/")
-               if "/" not in p[len(SCRIPTS) + 1:] or p.startswith(SCRIPTS + "/lint/")]
+    scripts = [] if trusted_scripts else [p for p in ls_tree(repo, head, SCRIPTS + "/")
+                                          if "/" not in p[len(SCRIPTS) + 1:] or p.startswith(SCRIPTS + "/lint/")]
     base_data = set(ls_tree(repo, base, SCRIPTS + "/"))
     trees = []
     for side, rev in (("base", base), ("head", head)):
@@ -265,6 +266,8 @@ def build_trees(repo: Path, base: str, head: str, changed: list[str], work: Path
             files[p] = rev
         dest = work / side
         write_tree(repo, dest, files)
+        if trusted_scripts:
+            shutil.copytree(trusted_scripts, dest / SCRIPTS, dirs_exist_ok=True)
         trees.append(dest)
     return trees[0], trees[1]
 
@@ -397,7 +400,8 @@ def swiftlint(binary: Path, config: Path, tree: Path, swift: list[str]) -> str:
 
 # ---------------------------------------------------------------- gate
 
-def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool) -> list[tuple[str, list[str]]]:
+def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
+         trusted_scripts: Path | None = None) -> list[tuple[str, list[str]]]:
     """[(check, new findings)] that head adds over base."""
     changed = changed_files(repo, base, head)
     if not changed:
@@ -407,7 +411,7 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool)
     started = time.monotonic()
     found: list[tuple[str, list[str]]] = []
     with tempfile.TemporaryDirectory(prefix="cmux-prepush-") as tmp:
-        base_tree, head_tree = build_trees(repo, base, head, changed, Path(tmp))
+        base_tree, head_tree = build_trees(repo, base, head, changed, Path(tmp), trusted_scripts)
         # The tool rules and pins come from the head; a commit older than the gate uses the checkout's.
         config_root = head_tree if (head_tree / SCRIPTS / "lint-tools.lock").is_file() else repo
         lint = config_root / SCRIPTS / "lint"
@@ -487,6 +491,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--base")
     parser.add_argument("--head", default="HEAD")
     parser.add_argument("--pre-push", action="store_true", help="read pre-push stdin (the hook)")
+    parser.add_argument("--trusted-scripts-dir", help="installed reviewed checker snapshot (required with --pre-push)")
     parser.add_argument("--commits", help="CI: check each non-merge commit of RANGE against its first parent")
     parser.add_argument("--only", help="comma list of layers: scanners,ast-grep,swiftformat,swiftlint")
     parser.add_argument("--timings", action="store_true")
@@ -494,6 +499,9 @@ def main(argv: list[str] | None = None) -> int:
     repo = Path(args.repo or git(Path.cwd(), "rev-parse", "--show-toplevel").decode().strip())
     only = set(args.only.split(",")) if args.only else None
     started = time.monotonic()
+    trusted_scripts = Path(args.trusted_scripts_dir).resolve() if args.trusted_scripts_dir else None
+    if args.pre_push and (trusted_scripts is None or not trusted_scripts.is_dir()):
+        raise SystemExit("prepush-gate: --pre-push requires the installed --trusted-scripts-dir snapshot")
 
     if args.commits:
         commits = git(repo, "rev-list", "--reverse", "--no-merges", args.commits).decode().split()
@@ -502,7 +510,7 @@ def main(argv: list[str] | None = None) -> int:
             parent = f"{sha}^"
             if not rev_ok(repo, parent):
                 continue
-            found = gate(repo, parent, sha, only, args.timings)
+            found = gate(repo, parent, sha, only, args.timings, trusted_scripts)
             if found:
                 bad += 1
                 subject = git(repo, "log", "-1", "--format=%h %an: %s", sha).decode().strip()
@@ -519,7 +527,7 @@ def main(argv: list[str] | None = None) -> int:
         ranges = [(args.base or default_base(repo, args.head), args.head)]
     found_any = []
     for base, head in ranges:
-        found_any += gate(repo, base, head, only, args.timings)
+        found_any += gate(repo, base, head, only, args.timings, trusted_scripts)
     elapsed = time.monotonic() - started
     if not found_any:
         print(f"prepush-gate: no new violations ({elapsed:.1f}s)")
