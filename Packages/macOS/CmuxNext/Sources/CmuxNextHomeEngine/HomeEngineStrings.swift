@@ -108,6 +108,10 @@ public nonisolated enum HomeEngineStrings {
     static var useDefaultPicture: String {
         String(localized: "home.engine.useDefaultPicture", defaultValue: "Use Default Picture", table: "Home", bundle: .module)
     }
+    static var renameRefused: String {
+        String(localized: "home.engine.renameRefused", defaultValue: "The Chief's name could not be changed. Try again in a moment.",
+               table: "Home", bundle: .module)
+    }
     static var pictureUnreadable: String {
         String(localized: "home.engine.pictureUnreadable", defaultValue: "That picture could not be used. Choose a PNG, JPEG, HEIC, WebP, or a GIF up to 1 MB.",
                table: "Home", bundle: .module)

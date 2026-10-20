@@ -72,8 +72,8 @@ public final class HomeChiefSettingsView: NSView {
     /// The note says why the person's own change did not take (a pick, a picture): it stays
     /// through refreshes until their next change or another Chief.
     var changeFailed = false
-    /// Renames the Chief conversation (the daemon's set-title op).
-    public var onRename: (String) -> Void = { _ in }
+    /// Renames the Chief conversation (the daemon's set-title op); false when it did not take.
+    public var onRename: @MainActor (String) async -> Bool = { _ in true }
     /// The Chief's avatar changed on disk (its picture): read it again.
     public var onAvatar: () -> Void = {}
     /// Show Memory: runs "Chief: Open Memory Inspector".
@@ -230,13 +230,28 @@ public final class HomeChiefSettingsView: NSView {
 
     /// Return, or the end of an edit: a new, non-empty name renames the Chief.
     @objc func renamed() {
+        commitName()
+    }
+
+    /// Renames the Chief to the field's new, non-empty name; nil when the name is no change. A
+    /// rename the daemon refuses (or with no daemon to send it to) shows the kept name again and
+    /// says so, unless a newer name came since.
+    @discardableResult
+    func commitName() -> Task<Void, Never>? {
         let name = nameField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         // A blank name renames nothing, so the field shows the name the Chief keeps; a kept
         // name shows as it is saved, without the spaces around it.
         nameField.stringValue = name.isEmpty ? shownName : name
-        guard !name.isEmpty, name != shownName else { return }
+        guard !name.isEmpty, name != shownName else { return nil }
+        let kept = shownName
         shownName = name
-        onRename(name)
+        // task-owner: one rename; ends with the daemon's answer
+        return Task { [weak self] in
+            guard let self, !(await onRename(name)), shownName == name else { return }
+            shownName = kept
+            if nameField.currentEditor() == nil { nameField.stringValue = kept }
+            note(HomeEngineStrings.renameRefused, kept: true)
+        }
     }
 
     // MARK: Picture
