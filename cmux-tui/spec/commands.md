@@ -2865,6 +2865,50 @@ Example:
 {"id":16,"ok":true,"data":{"screen":3,"column":14,"changed":true}}
 ```
 
+### move-column
+
+| Field | Value |
+| --- | --- |
+| name | `move-column` |
+| status | implemented |
+| since | protocol 12 additive capability `column-move-v1` |
+
+Moves the whole viewport column holding `pane` one place left or right: it trades places with its neighbor, keeping every pane, split, row, tab and width inside both columns. Focus does not change. A docked column never moves, and a column next to a docked column cannot move across it. A screen stored as one split tree is one implicit column and has no neighbor. A refused request changes nothing. A move is a structural layout change: it advances the screen's layout revision, records one `undo-layout` entry, persists, and emits `screen-changed` and then `layout-changed`.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `pane` | `Id` | required | Any pane of the column that moves |
+| `direction` | string | required | `left` or `right` |
+
+Result:
+
+```text
+object{screen:Id,column:Id,index:uint64,changed:true}
+```
+
+`column` is the moved column's id and `index` its place in `Screen.columns` after the move.
+
+Errors:
+
+| Error | `error_code` | Condition |
+| --- | --- | --- |
+| `unknown pane <id>` | `column-move-missing` | No screen has this pane |
+| `no scrolling column on that side` | `column-move-edge` | The column is first or last, its neighbor on that side is docked, or the screen has no viewport columns |
+| `a docked column does not move` | `column-move-docked` | The column holding `pane` is docked |
+| `direction must be left or right, not "<value>"` | `invalid-argument` | Any other direction |
+| `bad request: ...` | none | Missing fields or wrong JSON type |
+
+CLI mapping: none yet.
+
+Example:
+
+```json
+{"id":17,"cmd":"move-column","pane":15,"direction":"right"}
+{"id":17,"ok":true,"data":{"screen":3,"column":14,"index":2,"changed":true}}
+```
+
 ### undo-layout
 
 | Field | Value |

@@ -63,8 +63,9 @@ final class HomeHostView: NSView {
         loadAvatar()
         settingsView.onAvatar = { [weak self, weak service] in
             self?.loadAvatar()
-            // The tile avatar is the default Chief's: a named Chief's panel never sets it (cx-327wl).
-            if self?.control.named == nil { service?.refreshChiefAvatar() }
+            // Each Chief's tile reads its own brain home: this re-reads them, so only the
+            // Chief whose picture changed draws differently (cx-327wl).
+            service?.refreshChiefAvatars()
         }
         // A new engine of this Chief: the Home list's badge follows it.
         settingsView.onEngineChanged = { [weak service] in service?.refreshChiefHarnesses() }

@@ -136,6 +136,29 @@ export class MockSettingsProvider {
       "cmux.settings.sound.play": () => ({}),
       "cmux.settings.host.lists": () => this.host,
       "cmux.settings.accounts.state": () => this.accounts,
+      "cmux.settings.mobile.allow_again": () => {
+        const iphone = this.host.iphone;
+        if (iphone) this.setHost({ ...this.host, iphone: { ...iphone, phase: "connecting" } });
+        return {};
+      },
+      "cmux.settings.mobile.answer_pair": (params) => {
+        const iphone = this.host.iphone;
+        if (iphone)
+          this.setHost({
+            ...this.host,
+            iphone: { ...iphone, pending: (iphone.pending ?? []).filter((p) => p.id !== params.id) },
+          });
+        return {};
+      },
+      "cmux.settings.mobile.remove_phone": (params) => {
+        const iphone = this.host.iphone;
+        if (iphone)
+          this.setHost({
+            ...this.host,
+            iphone: { ...iphone, phones: iphone.phones.filter((p) => p.id !== params.id) },
+          });
+        return {};
+      },
       "cmux.settings.agents.state": () => this.agents.state,
       "cmux.settings.agents.run": (params) => this.agents.run(params as unknown as AgentsRun),
       // Agents > Chiefs (ChiefsCard): the host's page relay to the Chief owner and harness center.
