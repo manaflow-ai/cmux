@@ -133,13 +133,13 @@ extension TabStripView {
                 cells[id]?.isClosePressed = true
                 return
             }
-            if event.clickCount == 2, renamesOnDoubleClick {
+            if event.clickCount == 2, renamesOnDoubleClick, Self.selectionClick(event.modifierFlags) == .plain {
                 beginInlineRename(id)
                 return
             }
-            // Select on mouse down.
-            if model.selectedID != id { model.send(.select(id)) }
+            // Select on mouse down; Cmd and Shift add to the selection (`selectOnPress`).
             press = TabStripPress(id: id, start: point)
+            selectOnPress(id, modifiers: event.modifierFlags)
             return
         }
         // Between tabs or trailing buttons: the strip's, never the window's.
@@ -190,6 +190,7 @@ extension TabStripView {
         }
         if endNewTabPress(at: point, modifiers: event.modifierFlags) { return }
         if drag != nil { endDrag() }
+        if press?.collapsesSelection == true { model.clearMultiSelection() }
         press = nil
         if groups.drag != nil {
             endGroupDrag()
@@ -239,7 +240,7 @@ extension TabStripView {
             return nil
         }
         if let id = tabID(at: point) {
-            return contextMenuProvider?(.tab(id, selection: [id]))
+            return contextMenuProvider?(.tab(id, selection: model.contextSelection(for: id)))
         }
         return contextMenuProvider?(.emptyStrip)
     }
