@@ -120,9 +120,6 @@ export type HostLists = {
   }>;
   /** Where an unset number row's slider sits when the app resolves it (the theme's window opacity). */
   derived?: Record<string, number>;
-  /** Where a number row's slider starts when the app narrows its range (over a background
-   * picture, the window Opacity's legibility floor: a lower value paints the same tint). */
-  derived_min?: Record<string, number>;
 };
 
 /**
@@ -351,6 +348,10 @@ export type HarnessesState = {
     cli: string;
     profiles: string[];
     terminal?: string;
+    intent_key?: string;
+    can_resume?: boolean;
+    /** Nothing runs for it (or the owner cannot tell): Dismiss stops it blocking another update. */
+    can_dismiss?: boolean;
     state: "created" | "pending" | "exited" | "unknown";
     exit_code?: number;
     signal?: number;
@@ -362,8 +363,10 @@ export type HarnessesState = {
 /** One Harnesses gesture: Sign in and Check open a terminal tab with `harness login`; Update
  * (one `id`) and Update all start owner-bound native terminal jobs. */
 export type HarnessesRun = {
-  action: "refresh" | "signIn" | "check" | "registry" | "update" | "updateAll" | "autoUpdate";
+  action: "refresh" | "signIn" | "check" | "registry" | "update" | "updateAll" | "autoUpdate" | "resumeUpdate" | "dismissUpdate";
   id?: string;
+  /** With `resumeUpdate` and `dismissUpdate`: the retained intent key, not a new operation id. */
+  intent?: string;
   /** With `autoUpdate`: turn it on or off for `id`. */
   on?: boolean;
   /** With `refresh`: the daemon checks every harness again (after an update). */

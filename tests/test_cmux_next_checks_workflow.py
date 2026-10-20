@@ -456,7 +456,8 @@ class PathRoutingStructure(unittest.TestCase):
         jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
         runs = " ".join(step.get("run", "") for step in jobs["generated-files"]["steps"])
         self.assertIn("check-action-surfaces.sh", runs)
-        self.assertIn("ci-target-graph.py --check", runs)
+        # The CI target graph is bot-only (#21946): no event checks it.
+        self.assertNotIn("ci-target-graph.py --check", runs)
         self.assertNotIn("same-tree-cmux-tui", jobs["generated-files"]["needs"])
         swift_runs = " ".join(step.get("run", "") for step in jobs["swift-test"]["steps"])
         self.assertNotIn("check-action-surfaces.sh", swift_runs)
@@ -466,9 +467,9 @@ class PathRoutingStructure(unittest.TestCase):
         jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
         steps = jobs["generated-files"]["steps"]
         build = next(step for step in steps if step.get("name") == "Build the web bundles")
-        self.assertEqual(build["if"], "steps.web-bundle-cache.outputs.cache-hit != 'true'")
+        self.assertEqual(build["if"], "steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true'")
         install = next(step for step in steps if step.get("name") == "Install the restored web bundles")
-        self.assertEqual(install["if"], "steps.web-bundle-cache.outputs.cache-hit == 'true'")
+        self.assertEqual(install["if"], "steps.web-bundle-r2.outputs.cache-hit == 'true' || steps.web-bundle-cache.outputs.cache-hit == 'true'")
 
     def test_package_jobs_use_cached_web_bundles_without_rebuilding(self):
         """Swift and daemon jobs must take the same cache hit fast path."""
@@ -477,7 +478,7 @@ class PathRoutingStructure(unittest.TestCase):
             with self.subTest(job=job_id):
                 steps = jobs[job_id]["steps"]
                 build = next(step for step in steps if step.get("name") == "Build the web bundles")
-                self.assertEqual(build["if"], "steps.web-bundle-cache.outputs.cache-hit != 'true'")
+                self.assertEqual(build["if"], "steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true'")
 
     def test_package_jobs_wait_for_single_web_bundle_producer(self):
         jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
@@ -498,7 +499,7 @@ class PathRoutingStructure(unittest.TestCase):
         fail = next(step for step in jobs["generated-files"]["steps"]
                     if step.get("name") == "Fail on stale generated files")
         self.assertIn("scripts/cmux-next/regenerate-action-contracts.sh", fail["run"])
-        self.assertIn("scripts/cmux-next/ci-target-graph.py", fail["run"])
+        self.assertNotIn("scripts/cmux-next/ci-target-graph.py", fail["run"])
         self.assertIn("exit 1", fail["run"])
         self.assertNotIn("autofix", fail["run"])
 
@@ -1335,6 +1336,7 @@ FAST_TIER_RUNNER_WITHOUT_FAST_LANE = (
     "needs.macos-placement.outputs.retry_runner || "
     # No free Blacksmith slot: wait behind the fleet, never in a Blacksmith queue.
     "vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('[\"pull_request\",\"push\",\"workflow_dispatch\"]'), github.event_name) "
+    "&& (github.run_attempt <= 3 || github.triggering_actor != 'github-actions[bot]') "
     "&& vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}"
 )
 
