@@ -373,6 +373,16 @@ def test_surface_change_needs_a_non_lander_approval() -> None:
     assert not out["ack"]["ok"]  # nobody approved yet
 
 
+def test_first_promotion_refuses_when_commit_authors_cannot_be_bounded() -> None:
+    case = surface_change()
+    case["current"] = None
+    case["approvals"] = [{"state": "approved", "user": {"login": "teamleaderleo"},
+                          "environments": [{"name": "release-surface-ack"}]}]
+    out = run(case)
+    assert out["decision"]["action"] == "refuse", out["decision"]
+    assert "does not exist" in out["decision"]["reason"]
+
+
 def test_lander_cannot_approve_their_own_surface_change() -> None:
     case = surface_change()
     case["approvals"] = [{"state": "approved", "user": {"login": "teamleaderleo"},
