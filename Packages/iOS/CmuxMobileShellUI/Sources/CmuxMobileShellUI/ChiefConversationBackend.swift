@@ -362,7 +362,6 @@ final class ChiefConversationBackend: ConversationBackend, @unchecked Sendable {
             }
             throw error
         }
-        withState { state in mergeMessages(refreshed.messages, into: &state) }
         if let message = refreshed.messages.first(where: { $0.id == messageID }) {
             return publishUpdatedMessage(message)
         }

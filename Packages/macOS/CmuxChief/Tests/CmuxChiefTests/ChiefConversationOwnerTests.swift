@@ -18,6 +18,26 @@ import Testing
         #expect(summary.pinRank == nil)
     }
 
+    @Test func draftUpdatesDoNotInvalidateTheInboxCursor() async throws {
+        let owner = try ChiefFixture().owner(.replying(["hi"]))
+        let before = await owner.inboxChangeCursor
+        let draft = HomeDraftUpdate(
+            conversation: conversation,
+            participant: ChiefConversationOwner.chiefID,
+            turn: IdempotencyKey("turn-1"),
+            segment: 0,
+            seq: 1,
+            isTalk: true,
+            text: "hi",
+            fresh: true,
+            done: false
+        )
+
+        await owner.publish(.draft(draft))
+
+        #expect(await owner.inboxChangeCursor == before)
+    }
+
     /// The order Home expects: user message, Chief read receipt, typing on,
     /// drafts, the Chief's message under the draft's key, typing off.
     @Test func sendCommitsUserMessageThenChiefReplies() async throws {

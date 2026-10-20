@@ -201,8 +201,26 @@ struct ChiefHomeView: View {
     }
 
     private func waitForChanges() async {
-        guard changeCursor != nil else { return }
+        var consecutiveFailures = 0
         while !Task.isCancelled {
+            if changeCursor == nil {
+                // The initial snapshot can fail before it gives us a cursor.
+                // Retry that load here so Home does not remain permanently
+                // stale until the view is recreated.
+                await load()
+                guard !Task.isCancelled else { return }
+                if changeCursor == nil {
+                    consecutiveFailures = min(consecutiveFailures + 1, 10)
+                    let delay = Duration.seconds(consecutiveFailures == 1 ? 1 : min(consecutiveFailures * 2, 30))
+                    do {
+                        try await ContinuousClock().sleep(for: delay)
+                    } catch {
+                        return
+                    }
+                    continue
+                }
+                consecutiveFailures = 0
+            }
             do {
                 let snapshot = try await client.conversationsSnapshot(
                     afterCursor: changeCursor,
@@ -215,10 +233,17 @@ struct ChiefHomeView: View {
                     return $0.updatedAt > $1.updatedAt
                 }
                 errorMessage = nil
+                consecutiveFailures = 0
             } catch {
                 guard !Task.isCancelled else { return }
                 errorMessage = String(describing: error)
-                return
+                consecutiveFailures = min(consecutiveFailures + 1, 10)
+                let delay = Duration.seconds(consecutiveFailures == 1 ? 1 : min(consecutiveFailures * 2, 30))
+                do {
+                    try await ContinuousClock().sleep(for: delay)
+                } catch {
+                    return
+                }
             }
         }
     }

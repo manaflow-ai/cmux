@@ -76,6 +76,9 @@ public actor ChiefConversationOwner {
     /// an owner restart. Read it before taking a snapshot so a concurrent
     /// mutation can only cause an extra refresh, never a missed update.
     public private(set) var changeCursor = UUID().uuidString
+    /// Cursor for inbox rows. Draft deltas belong only to an open transcript
+    /// and must not cause Home to rebuild every conversation preview.
+    public private(set) var inboxChangeCursor = UUID().uuidString
     var running: [ConversationID: ChiefRunningTurn] = [:]
     var pending: [ConversationID: [ChiefPendingTurn]] = [:]
     /// A failed read-cursor write must not strand the FIFO queue. There is at
@@ -193,6 +196,11 @@ public actor ChiefConversationOwner {
 
     func publish(_ event: HomeEvent) {
         changeCursor = UUID().uuidString
+        if case .draft = event {
+            for continuation in subscribers.values { continuation.yield(event) }
+            return
+        }
+        inboxChangeCursor = UUID().uuidString
         for continuation in subscribers.values { continuation.yield(event) }
     }
 
@@ -204,6 +212,19 @@ public actor ChiefConversationOwner {
         let stream = events()
         for await _ in stream {
             if Task.isCancelled || changeCursor != cursor { return }
+        }
+    }
+
+    /// Waits for an inbox-visible change, excluding streamed draft deltas.
+    /// Home uses this cursor so a long reply does not trigger a full preview
+    /// rebuild for every token.
+    public func waitForInboxChange(after cursor: String) async {
+        guard inboxChangeCursor == cursor else { return }
+        let stream = events()
+        for await event in stream {
+            if Task.isCancelled { return }
+            if case .draft = event { continue }
+            if inboxChangeCursor != cursor { return }
         }
     }
 

@@ -166,14 +166,14 @@ extension TerminalController {
                 return .ok(Self.chiefPayload(status))
             case .conversations:
                 let owner = try await chiefOwner()
-                let cursor = await owner.changeCursor
+                let cursor = await owner.inboxChangeCursor
                 let rows = try await ChiefService.shared.controlConversations()
                 return .ok(["conversations": rows.map { Self.chiefPayload($0) }, "change_cursor": cursor] as [String: Any])
             case .conversationsAfter(let previousCursor):
                 let owner = try await chiefOwner()
-                await Self.waitForChiefCursor(owner: owner, after: previousCursor)
+                await Self.waitForChiefInboxCursor(owner: owner, after: previousCursor)
                 try Task.checkCancellation()
-                let cursor = await owner.changeCursor
+                let cursor = await owner.inboxChangeCursor
                 let rows = try await ChiefService.shared.controlConversations()
                 return .ok(["conversations": rows.map { Self.chiefPayload($0) }, "change_cursor": cursor] as [String: Any])
             case .read(let conversation, let beforeSeq, let limit):
@@ -417,6 +417,15 @@ extension TerminalController {
     private nonisolated static func waitForChiefCursor(owner: ChiefConversationOwner, after cursor: String) async {
         await withTaskGroup(of: Void.self) { group in
             group.addTask { await owner.waitForChange(after: cursor) }
+            group.addTask { try? await ContinuousClock().sleep(for: Self.chiefReadWaitDuration) }
+            _ = await group.next()
+            group.cancelAll()
+        }
+    }
+
+    private nonisolated static func waitForChiefInboxCursor(owner: ChiefConversationOwner, after cursor: String) async {
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask { await owner.waitForInboxChange(after: cursor) }
             group.addTask { try? await ContinuousClock().sleep(for: Self.chiefReadWaitDuration) }
             _ = await group.next()
             group.cancelAll()
