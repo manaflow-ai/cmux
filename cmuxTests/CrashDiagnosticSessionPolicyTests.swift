@@ -465,6 +465,69 @@ struct CrashDiagnosticSessionPolicyTests {
     }
 
     @Test
+    func sessionSnapshotMergesReorderedTitledCrashWindowsWithoutDroppingUniqueWorkspaces() {
+        func workspace(_ title: String, _ directory: String, _ checkpoint: String?) -> SessionWorkspaceSnapshot {
+            let panelID = UUID()
+            let terminal = SessionTerminalPanelSnapshot(
+                workingDirectory: directory,
+                agent: checkpoint.map {
+                    SessionRestorableAgentSnapshot(kind: .codex, sessionId: $0, workingDirectory: directory)
+                },
+                wasAgentRunning: checkpoint != nil
+            )
+            return SessionWorkspaceSnapshot(
+                workspaceId: nil,
+                processTitle: "Terminal",
+                customTitle: title,
+                customColor: nil,
+                isPinned: false,
+                currentDirectory: directory,
+                focusedPanelId: panelID,
+                layout: .pane(SessionPaneLayoutSnapshot(panelIds: [panelID], selectedPanelId: panelID)),
+                panels: [terminalPanelSnapshot(id: panelID, directory: directory, terminal: terminal)],
+                statusEntries: [],
+                logEntries: [],
+                progress: nil,
+                gitBranch: nil
+            )
+        }
+        func window(_ workspaces: [SessionWorkspaceSnapshot]) -> SessionWindowSnapshot {
+            SessionWindowSnapshot(
+                frame: nil,
+                display: nil,
+                tabManager: SessionTabManagerSnapshot(selectedWorkspaceIndex: 0, workspaces: workspaces),
+                sidebar: SessionSidebarSnapshot(isVisible: true, selection: .tabs, width: nil)
+            )
+        }
+
+        let first = window([
+            workspace("A", "/work/a", "a"),
+            workspace("B", "/work/b", "b"),
+            workspace("C", "/work/c", "c"),
+            workspace("D", "/work/d", "d"),
+            workspace("E", "/work/e", nil),
+        ])
+        let reordered = window([
+            workspace("C", "/work/c", "c"),
+            workspace("A", "/work/a", "a"),
+            workspace("E", "/work/e-new", "e"),
+            workspace("D", "/work/d", "d"),
+            workspace("B", "/work/b", "b"),
+        ])
+
+        let pruned = SessionPersistencePolicy.pruningCmuxCrashDiagnosticWindows(from: AppSessionSnapshot(
+            version: SessionSnapshotSchema.currentVersion,
+            createdAt: 10,
+            windows: [first, reordered]
+        ))
+
+        #expect(pruned.removedAny)
+        #expect(pruned.snapshot?.windows.count == 1)
+        #expect(Set(pruned.snapshot?.windows.first?.tabManager.workspaces.map(\.customTitle) ?? []) == ["A", "B", "C", "D", "E"])
+        #expect(pruned.snapshot?.windows.first?.tabManager.workspaces.contains { $0.currentDirectory == "/work/e-new" } == true)
+    }
+
+    @Test
     func sessionSnapshotKeepsWorkspacelessWindowWithEmptyPinnedGroup() {
         // TabManager persists an empty pinned group even when no workspace in
         // the window is restorable; that group is user state, not a phantom.

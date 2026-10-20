@@ -217,11 +217,34 @@ extension SessionPersistencePolicy {
         let lhsAgents = crashWindowCheckpointIDs(lhs)
         let rhsAgents = crashWindowCheckpointIDs(rhs)
         guard !lhsAgents.isEmpty, !rhsAgents.isEmpty else { return false }
-        // A partial overlap is insufficient evidence that two windows are
-        // generations of the same manifest: each can contain an unrelated
-        // worktree that must remain restorable. Exact checkpoint sets are the
-        // only safe match without stable workspace identities.
-        return lhsAgents == rhsAgents
+        let overlap = lhsAgents.intersection(rhsAgents)
+        if lhsAgents == rhsAgents {
+            return true
+        }
+
+        // Some crash generations reorder identity-less workspaces and add a
+        // small number of newer checkpoints. The workspace titles remain the
+        // stable window-level signature in that case. Require a near-complete
+        // title multiset and high checkpoint overlap before treating them as
+        // duplicate generations; unrelated windows remain separate.
+        let lhsTitles = lhs.tabManager.workspaces.compactMap { title -> String? in
+            let value = title.customTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return value.isEmpty ? nil : value
+        }
+        let rhsTitles = rhs.tabManager.workspaces.compactMap { title -> String? in
+            let value = title.customTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return value.isEmpty ? nil : value
+        }
+        guard lhsTitles.count >= max(3, lhs.tabManager.workspaces.count - 2),
+              lhsTitles.count == rhsTitles.count,
+              lhsTitles.sorted() == rhsTitles.sorted() else {
+            return false
+        }
+        let overlapRatio = Double(overlap.count) / Double(max(lhsAgents.count, rhsAgents.count))
+        // Keep the threshold high enough to reject a one-checkpoint coincidence
+        // while allowing one newly-added checkpoint in a reordered four-panel
+        // crash generation.
+        return overlapRatio >= 0.75
     }
 
     /// Merge two crash-window generations that share at least one checkpoint.
