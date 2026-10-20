@@ -167,6 +167,7 @@ final class HostView: NSView {
         let ph = CGRect(x: 0, y: 0, width: bounds.width, height: Fixture.headerHeight)
         if paneHeader.frame != ph { paneHeader.frame = ph }
         if headerZoneArea?.rect.width != bounds.width { updateHeaderZone() }
+        placeRowsUnderHeaderMask()
         fieldChrome.place(field: demo.compose.fieldRect, plus: demo.compose.plusRect,
                           emoji: CGRect(x: bounds.width - Fixture.windowWidth + 586.5, y: demo.compose.plusRect.minY, width: 31, height: 30))
     }
