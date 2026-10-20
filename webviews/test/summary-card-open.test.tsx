@@ -88,3 +88,149 @@ test("the summary card opens after being hidden without breaking the pane", asyn
   expect(rootElement.textContent).not.toBe("");
   await act(async () => root.unmount());
 });
+
+for (const column of [false, true]) {
+  for (const dismiss of ["button", "Escape"]) {
+    test(`Thread details ${column ? "column" : "popover"} closes with ${dismiss} and focuses its header button`, async () => {
+      const { act } = await import("react");
+      const { createRoot } = await import("react-dom/client");
+      const { UiProvider } = await import("../src/ui/UiProvider");
+      const { SummaryCard } = await import("../src/agent-session/acpmux/summary/SummaryCard");
+      const { SummaryButton } = await import("../src/agent-session/acpmux/summary/SummaryButton");
+      const { useSummaryCard, resetSummaryCards } = await import("../src/agent-session/acpmux/summary/cardState");
+      const { configureThreadTitle } = await import("../src/agent-session/acpmux/header/headerStyle");
+      const { translate } = await import("../src/agent-session/acpmux/i18n");
+      configureThreadTitle({ threadTitle: true });
+      resetSummaryCards();
+      const element = dom.window.document.getElementById("root")!;
+      const root = createRoot(element);
+      function Pane() {
+        const card = useSummaryCard(column, false);
+        const panel = (
+          <SummaryCard
+            card={card}
+            rows={[]}
+            subagents={{ views: undefined, current: undefined, asks: new Set(), onOpen() {} }}
+          />
+        );
+        return (
+          <div className="acpmux-shell">
+            <div className="acpmux-stage">
+              <SummaryButton card={card} />
+              {!column && panel}
+            </div>
+            {column && panel}
+          </div>
+        );
+      }
+      try {
+        await act(async () =>
+          root.render(
+            <UiProvider container={element}>
+              <Pane />
+            </UiProvider>,
+          ),
+        );
+        const opener = element.querySelector<HTMLButtonElement>(".acpmux-summary-button")!;
+        opener.focus();
+        await act(async () => opener.click());
+        const close = element.querySelector<HTMLButtonElement>(".acpmux-summary-card__close");
+        expect(close).not.toBeNull();
+        expect(close!.getAttribute("aria-label")).toBe(translate("image.close"));
+        expect(dom.window.document.activeElement).toBe(close!);
+        await act(async () => {
+          if (dismiss === "button") close!.click();
+          else
+            close!.dispatchEvent(
+              new dom.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }),
+            );
+        });
+        expect(element.querySelector(".acpmux-summary-card:not([aria-hidden])")).toBeNull();
+        expect(dom.window.document.activeElement).toBe(opener);
+      } finally {
+        await act(async () => root.unmount());
+        configureThreadTitle({ threadTitle: false });
+        resetSummaryCards();
+      }
+    });
+  }
+}
+
+test("opening Files after a fresh chat becomes a column clears its earlier popover choice", async () => {
+  const { act } = await import("react");
+  const { createRoot } = await import("react-dom/client");
+  const { useSummaryCard, resetSummaryCards } = await import("../src/agent-session/acpmux/summary/cardState");
+  const { openViewer } = await import("../src/agent-session/acpmux/chatViewerPanels");
+  type Card = ReturnType<typeof useSummaryCard>;
+  let card: Card;
+  function Pane({ column }: { column: boolean }) {
+    card = useSummaryCard(column, true);
+    return <output>{card.shown ? "shown" : "hidden"}</output>;
+  }
+  resetSummaryCards();
+  const root = createRoot(dom.window.document.getElementById("root")!);
+  try {
+    await act(async () => root.render(<Pane column={false} />));
+    await act(async () => card.show());
+    await act(async () => root.render(<Pane column />));
+    expect(card!.shown).toBe(true);
+    await act(async () => openViewer(card, () => root.render(<Pane column={false} />)));
+    expect(card!.shown).toBe(false);
+    await act(async () => root.render(<Pane column />));
+    expect(card!.shown).toBe(false);
+    // An explicit reopen in an empty/narrow view must also reopen the later column.
+    await act(async () => root.render(<Pane column={false} />));
+    await act(async () => card.show());
+    await act(async () => root.render(<Pane column />));
+    expect(card!.shown).toBe(true);
+  } finally {
+    await act(async () => root.unmount());
+    resetSummaryCards();
+  }
+});
+
+test("summary content arriving automatically leaves composer focus alone", async () => {
+  const { act } = await import("react");
+  const { createRoot } = await import("react-dom/client");
+  const { UiProvider } = await import("../src/ui/UiProvider");
+  const { SummaryCard } = await import("../src/agent-session/acpmux/summary/SummaryCard");
+  const { useSummaryCard, resetSummaryCards } = await import("../src/agent-session/acpmux/summary/cardState");
+  resetSummaryCards();
+  const element = dom.window.document.getElementById("root")!;
+  const composer = dom.window.document.createElement("button");
+  dom.window.document.body.append(composer);
+  composer.focus();
+  const root = createRoot(element);
+  function Pane({ hasContent }: { hasContent: boolean }) {
+    const card = useSummaryCard(true, hasContent);
+    return (
+      <SummaryCard
+        card={card}
+        rows={[]}
+        subagents={{ views: undefined, current: undefined, asks: new Set(), onOpen() {} }}
+      />
+    );
+  }
+  try {
+    await act(async () =>
+      root.render(
+        <UiProvider container={element}>
+          <Pane hasContent={false} />
+        </UiProvider>,
+      ),
+    );
+    await act(async () =>
+      root.render(
+        <UiProvider container={element}>
+          <Pane hasContent />
+        </UiProvider>,
+      ),
+    );
+    expect(element.querySelector(".acpmux-summary-card__close")).not.toBeNull();
+    expect(dom.window.document.activeElement).toBe(composer);
+  } finally {
+    await act(async () => root.unmount());
+    composer.remove();
+    resetSummaryCards();
+  }
+});
