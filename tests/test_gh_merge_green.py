@@ -2039,7 +2039,11 @@ FIXTURE_GH = "#!/usr/bin/env python3\n" + textwrap.dedent(r"""
     else:
         for needle, out in x['routes']:
             if needle in joined:
-                print(out if isinstance(out, str) else json.dumps(out))
+                if '--paginate' in a and '--slurp' not in a and isinstance(out, list) and all(isinstance(p, dict) for p in out):
+                    # Real gh without --slurp prints each recorded page object back to back.
+                    print(''.join(json.dumps(page) for page in out))
+                else:
+                    print(out if isinstance(out, str) else json.dumps(out))
                 sys.exit(0)
         if a[0] == 'api' and '/files' in joined:
             print('docs/README.md')
