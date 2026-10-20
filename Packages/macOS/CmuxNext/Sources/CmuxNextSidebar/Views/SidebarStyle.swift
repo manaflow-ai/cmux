@@ -74,7 +74,9 @@ enum SidebarStyle {
     }
     /// The members' line: thin, as Chrome's (Leo 2026-10-19); at the members' leading edge.
     static var groupBarWidth: CGFloat { Metrics.space1 }
-    static var groupBarX: CGFloat { (Metrics.sidebarRowHeight * 0.12).rounded() }
+    /// The line's left edge, from the bar's: its right edge meets the end of the bar's corner arc,
+    /// as Chrome's does (Leo's reference, 2026-10-19).
+    static var groupBarX: CGFloat { max(0, groupHeaderCornerRadius - groupBarWidth) }
     /// A member row starts right of its group's line (cx-q5jw, the Edge
     /// group line): its hover and selection fills never cover the line, so
     /// the line runs unbroken from the header to the last member.
