@@ -74,25 +74,15 @@ jobs:
 
       # Lints what the push brought (event.before..sha). An unknown or unfetchable
       # base (a new branch, a force push, a dispatch) lints every package.
-      # Lint and format are style guards: while CMUX_NEXT_STYLE_GUARDS is `warn`
-      # (Leo 2026-10-19) a finding is a warning; the `web` job's type checks and
-      # tests on the same push still fail. Set it to `fail` to block again.
       - name: Web lint on the pushed range
         env:
           PUSH_BASE: ${{ github.event_name == 'push' && github.event.before || '' }}
-          CMUX_NEXT_STYLE_GUARDS: warn
         run: |
           set -euo pipefail
-          rc=0
           if [ -n "$PUSH_BASE" ] && [ "$PUSH_BASE" != "0000000000000000000000000000000000000000" ] \
               && git fetch --no-tags --depth=1 origin "$PUSH_BASE"; then
-            python3 scripts/web_lint_prepush.py --base "$PUSH_BASE" --head "$GITHUB_SHA" --timings || rc=$?
+            python3 scripts/web_lint_prepush.py --base "$PUSH_BASE" --head "$GITHUB_SHA" --timings
           else
             echo "::notice title=web lint::push base unknown; linting every package"
-            python3 scripts/web_lint_prepush.py --all --base "$GITHUB_SHA" --head "$GITHUB_SHA" --timings || rc=$?
+            python3 scripts/web_lint_prepush.py --all --base "$GITHUB_SHA" --head "$GITHUB_SHA" --timings
           fi
-          if [ "$rc" != 0 ] && [ "$CMUX_NEXT_STYLE_GUARDS" = warn ]; then
-            echo "::warning title=web lint (warn-only)::web lint found issues; see this step's log"
-            exit 0
-          fi
-          exit "$rc"

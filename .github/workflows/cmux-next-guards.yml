@@ -21,10 +21,12 @@ on:
 permissions:
   contents: read
 
-# The CmuxNextApp size cap and the defaults snapshot freshness are structural
-# guards: while this is `warn` they print their findings as warnings and pass
-# (Leo, 2026-10-19). Set it to `fail` to make them block again. The crash
-# ratchet, the guard self-tests and the menu check still fail.
+# The CmuxNextApp size cap is a structural guard: while this is `warn` it
+# prints its findings as a warning and passes (Leo, 2026-10-19). Set it to
+# `fail` to make it block again. The crash ratchet, the defaults snapshot
+# freshness (cmux-next-defaults-guard.yml reads the committed exports to decide
+# whether a default change needs approval), the guard self-tests and the menu
+# check still fail.
 env:
   CMUX_NEXT_STYLE_GUARDS: warn
 
@@ -226,14 +228,7 @@ jobs:
         run: python3 tests/test_defaults_guard.py
 
       - name: The defaults snapshot matches the exports
-        run: |
-          rc=0
-          python3 scripts/ci/defaults_guard.py check-fresh || rc=$?
-          if (( rc != 0 )) && [[ "$CMUX_NEXT_STYLE_GUARDS" == warn ]]; then
-            echo "::warning title=defaults snapshot (warn-only)::schemas/defaults/cmux-next.json or the settings exports are stale; regenerate with python3 scripts/ci/defaults_guard.py snapshot"
-            exit 0
-          fi
-          exit "$rc"
+        run: python3 scripts/ci/defaults_guard.py check-fresh
 
       # PR #19754 moved the workspace and tab menus' group rows into More and
       # nothing failed (Lawrence 2026-10-14: "my groups UI is lost").

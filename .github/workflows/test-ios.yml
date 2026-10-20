@@ -101,7 +101,8 @@ env:
   # The package conventions lint (namespace types, free functions, singletons,
   # ...) is a style guard. For pull requests and merge groups into
   # feat-cmux-next it prints its findings as warnings and passes (Leo,
-  # 2026-10-19), and the iOS suites and the ios-tests gate never wait on it.
+  # 2026-10-19), and the iOS suites run whatever it reports. The lint's own
+  # tests still fail the job, and so the ios-tests gate.
   # Everywhere else it still fails. Change `warn` to `fail` to make it block
   # feat-cmux-next again.
   CMUX_NEXT_STYLE_GUARDS: ${{ (github.base_ref == 'feat-cmux-next' || github.event.merge_group.base_ref == 'refs/heads/feat-cmux-next') && 'warn' || 'fail' }}
@@ -1002,12 +1003,6 @@ jobs:
           import sys
 
           needs = json.loads(os.environ["IOS_NEEDS"])
-          # A warn-only conventions lint is a style finding, not an iOS
-          # result: it never fails this gate (its own job reports it).
-          if os.environ.get("CMUX_NEXT_STYLE_GUARDS") == "warn":
-              lint = needs.pop("package-conventions-lint", None)
-              if lint and lint["result"] not in ("success", "skipped"):
-                  print(f"::warning title=package conventions (warn-only)::package-conventions-lint: {lint['result']}")
 
           # A cancelled job reaches this gate as a `cancelled` result, and the
           # routing verdict below would report it as though the pull request had

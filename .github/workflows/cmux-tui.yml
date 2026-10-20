@@ -380,6 +380,8 @@ jobs:
         run: |
           cargo fmt
           git diff --binary -- . > "$RUNNER_TEMP/rustfmt.patch"
+          # The later lint and test steps check the commit as pushed, not the reformatted tree.
+          git checkout -- .
           test -s "$RUNNER_TEMP/rustfmt.patch"
 
       - name: Upload hosted rustfmt patch
@@ -401,7 +403,7 @@ jobs:
       - name: cmux-rd-ffi (own workspace)
         working-directory: cmux-tui/crates/cmux-rd-ffi
         run: |
-          cargo fmt --check || { echo "::warning title=cmux-rd-ffi rustfmt::not rustfmt-clean"; [[ "$CMUX_NEXT_STYLE_GUARDS" == warn ]]; }
+          cargo fmt --check || { echo "::warning title=cmux-rd-ffi rustfmt::not rustfmt-clean"; [[ "$CMUX_NEXT_STYLE_GUARDS" == warn ]] || exit 1; }
           cargo clippy --all-targets --locked -- -D warnings
           cargo test --locked
 
@@ -412,7 +414,7 @@ jobs:
       - name: cmux-layout-reducer-ffi (own workspace)
         working-directory: cmux-tui/crates/cmux-layout-reducer-ffi
         run: |
-          cargo fmt --check || { echo "::warning title=cmux-layout-reducer-ffi rustfmt::not rustfmt-clean"; [[ "$CMUX_NEXT_STYLE_GUARDS" == warn ]]; }
+          cargo fmt --check || { echo "::warning title=cmux-layout-reducer-ffi rustfmt::not rustfmt-clean"; [[ "$CMUX_NEXT_STYLE_GUARDS" == warn ]] || exit 1; }
           cargo clippy --all-targets -- -D warnings
           cargo test
           cd ../cmux-app-ffi

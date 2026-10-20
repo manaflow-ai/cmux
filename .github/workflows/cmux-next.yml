@@ -2663,14 +2663,6 @@ jobs:
             echo
             echo "The cmux-next-generated-patch artifact holds the regenerated files at their repository paths."
           } | tee -a "$GITHUB_STEP_SUMMARY"
-          # The action catalog and settings exports are generated docs and
-          # snapshots: drift is a warning while CMUX_NEXT_STYLE_GUARDS is
-          # `warn`. A stale CI target graph still fails, since it routes the
-          # package tests and a stale one can skip a changed target's tests.
-          if [[ "${CMUX_NEXT_STYLE_GUARDS:-}" == warn && "${{ steps.graph.outcome }}" != failure ]]; then
-            echo "::warning title=generated files (warn-only)::Generated cmux-next files are stale. Regenerate them as the step summary says."
-            exit 0
-          fi
           echo "::error::Generated cmux-next files are stale. Regenerate them as the step summary says."
           exit 1
 

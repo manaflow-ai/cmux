@@ -356,8 +356,9 @@ jobs:
         run: ./scripts/check-webviews-react-compiler.mjs
 
       # For feat-cmux-next (CMUX_NEXT_STYLE_GUARDS=warn, Leo 2026-10-19) the lint, format,
-      # layer, type-scale, glyph, system-blue, text-focus, dialog-key and protocol-codegen checks each
-      # run and only warn; the type check and the browser test-lane check still fail.
+      # layer, type-scale, glyph, system-blue, text-focus, and dialog-key checks each
+      # run and only warn; the type check, the browser test-lane check and the
+      # protocol codegen check still fail.
       # Elsewhere `bun run check` gates as before.
       - name: Check webviews (Oxlint, Oxfmt, type check)
         id: webviews-check
@@ -373,7 +374,9 @@ jobs:
           status=0
           bun run check:browser-lanes || status=1
           bun run typecheck || status=1
-          for check in check:layers check:type-scale check:status-glyphs check:system-blue check:text-focus check:dialog-keys acpmux-protocol:check; do
+          # The generated protocol must match the daemon's IR: a wire-format check, not style.
+          bun run acpmux-protocol:check || status=1
+          for check in check:layers check:type-scale check:status-glyphs check:system-blue check:text-focus check:dialog-keys; do
             bun run "$check" || echo "::warning title=webviews $check (warn-only)::see the step log"
           done
           # Lint, format and types together; a type error already failed `typecheck` above.
