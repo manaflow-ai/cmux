@@ -4033,6 +4033,174 @@
     },
     {
       "cli" : "offered",
+      "cli_name" : "workspace-group move-to-top",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "workspaceGroup"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "workspaceGroup.moveToTop",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.workspace",
+        "order" : 101,
+        "title" : "Workspace",
+        "title_key" : "category.workspace",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Move Workspace Group to Top",
+      "title_key" : "action.workspaceGroup.moveToTop",
+      "title_table" : "WorkspaceActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "workspace-group move-to-bottom",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "workspaceGroup"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "workspaceGroup.moveToBottom",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.workspace",
+        "order" : 101,
+        "title" : "Workspace",
+        "title_key" : "category.workspace",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Move Workspace Group to Bottom",
+      "title_key" : "action.workspaceGroup.moveToBottom",
+      "title_table" : "WorkspaceActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "workspace-group collapse-others",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "workspaceGroup"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "workspaceGroup.collapseOthers",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.workspace",
+        "order" : 101,
+        "title" : "Workspace",
+        "title_key" : "category.workspace",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Collapse Other Groups",
+      "title_key" : "action.workspaceGroup.collapseOthers",
+      "title_table" : "WorkspaceActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "workspace-group sort-by-name",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "workspaceGroup"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "workspaceGroup.sortByName",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.workspace",
+        "order" : 101,
+        "title" : "Workspace",
+        "title_key" : "category.workspace",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Sort Group by Name",
+      "title_key" : "action.workspaceGroup.sortByName",
+      "title_table" : "WorkspaceActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "workspace-group sort-by-last-used",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "workspaceGroup"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "workspaceGroup.sortByLastUsed",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.workspace",
+        "order" : 101,
+        "title" : "Workspace",
+        "title_key" : "category.workspace",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Sort Group by Last Used",
+      "title_key" : "action.workspaceGroup.sortByLastUsed",
+      "title_table" : "WorkspaceActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "workspace-group sort-by-directory",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "workspaceGroup"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "workspaceGroup.sortByDirectory",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.workspace",
+        "order" : 101,
+        "title" : "Workspace",
+        "title_key" : "category.workspace",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Sort Group by Directory",
+      "title_key" : "action.workspaceGroup.sortByDirectory",
+      "title_table" : "WorkspaceActions"
+    },
+    {
+      "cli" : "offered",
       "cli_name" : "workspace-group move-to-window",
       "context_menu" : "offered",
       "context_menus" : [
@@ -13210,9 +13378,9 @@
     {
       "cli" : "guiOnly",
       "cli_name" : "browser toggle-react-grab",
-      "context_menu" : "unimplemented",
+      "context_menu" : "offered",
       "context_menus" : [
-
+        "browserPage"
       ],
       "default_aliases" : [
 
@@ -21550,7 +21718,7 @@
       "title_table" : "ActionCatalog"
     },
     {
-      "cli" : "guiOnly",
+      "cli" : "offered",
       "cli_name" : "cloud open-mobile-pairing",
       "context_menu" : "noObject",
       "context_menus" : [
@@ -21562,8 +21730,8 @@
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "palette.mobileConnect",
-      "main_menu" : null,
-      "mcp" : "guiOnly",
+      "main_menu" : "window",
+      "mcp" : "offered",
       "palette" : "offered",
       "palette_section" : {
         "id" : "category.cloud",
@@ -30102,6 +30270,19 @@
                   "browserFocused"
                 ]
               }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "toggleReactGrab",
+              "kind" : "action",
+              "order" : 2,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+                  "browserFocused"
+                ]
+              }
             }
           ],
           "folder" : "options",
@@ -36702,6 +36883,66 @@
 
                 ]
               }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "workspaceGroup.collapseOthers",
+              "kind" : "action",
+              "label" : "Collapse Others",
+              "order" : 2,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "kind" : "separator",
+              "order" : 3
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "workspaceGroup.sortByName",
+              "kind" : "action",
+              "label" : "Sort by Name",
+              "order" : 4,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "workspaceGroup.sortByLastUsed",
+              "kind" : "action",
+              "label" : "Sort by Last Used",
+              "order" : 5,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "workspaceGroup.sortByDirectory",
+              "kind" : "action",
+              "label" : "Sort by Directory",
+              "order" : 6,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
             }
           ],
           "folder" : "group",
@@ -36719,10 +36960,24 @@
           "children" : [
             {
               "enabled_when" : "can_perform",
+              "id" : "workspaceGroup.moveToTop",
+              "kind" : "action",
+              "label" : "Move to Top",
+              "order" : 0,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
               "id" : "workspaceGroup.moveUp",
               "kind" : "action",
               "label" : "Move Up",
-              "order" : 0,
+              "order" : 1,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -36736,7 +36991,21 @@
               "id" : "workspaceGroup.moveDown",
               "kind" : "action",
               "label" : "Move Down",
-              "order" : 1,
+              "order" : 2,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "workspaceGroup.moveToBottom",
+              "kind" : "action",
+              "label" : "Move to Bottom",
+              "order" : 3,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -36750,7 +37019,7 @@
               "id" : "workspaceGroup.moveToNewWindow",
               "kind" : "action",
               "label" : "Move to New Window",
-              "order" : 2,
+              "order" : 4,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -36764,7 +37033,7 @@
               "id" : "workspaceGroup.moveToWindow",
               "kind" : "action",
               "label" : "Move to Window…",
-              "order" : 3,
+              "order" : 5,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -36778,7 +37047,7 @@
               "id" : "workspaceGroup.moveToSpace",
               "kind" : "action",
               "label" : "Move to Space…",
-              "order" : 4,
+              "order" : 6,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -36791,7 +37060,7 @@
               "enabled_when" : "can_perform",
               "id" : "workspaceGroup.addToSection",
               "kind" : "action",
-              "order" : 5,
+              "order" : 7,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -37026,8 +37295,148 @@
           }
         },
         {
+          "children" : [
+            {
+              "enabled_when" : "can_perform",
+              "id" : "palette.moveWorkspaceToTop",
+              "kind" : "action",
+              "order" : 0,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "moveWorkspaceUp",
+              "kind" : "action",
+              "order" : 1,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "moveWorkspaceDown",
+              "kind" : "action",
+              "order" : 2,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "workspace.moveToBottom",
+              "kind" : "action",
+              "order" : 3,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "moveWorkspaceToWindow",
+              "kind" : "action",
+              "order" : 4,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "moveWorkspaceToNewWindow",
+              "kind" : "action",
+              "order" : 5,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "workspace.toggleTop",
+              "kind" : "action",
+              "order" : 6,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "workspace.moveToSpace",
+              "kind" : "action",
+              "order" : 7,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "workspace.duplicateToSpace",
+              "kind" : "action",
+              "order" : 8,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "workspace.mergeInto",
+              "kind" : "action",
+              "order" : 9,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            }
+          ],
+          "folder" : "move",
+          "kind" : "folder",
+          "order" : 4,
+          "title" : "Move",
+          "title_key" : "menu.folder.move",
+          "title_table" : "Localizable"
+        },
+        {
           "kind" : "separator",
-          "order" : 4
+          "order" : 5
         },
         {
           "choices" : {
@@ -37041,7 +37450,7 @@
           "enabled_when" : "can_perform",
           "id" : "moveWorkspaceToGroup",
           "kind" : "choices",
-          "order" : 5,
+          "order" : 6,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -37054,7 +37463,7 @@
           "enabled_when" : "can_perform",
           "id" : "groupSelectedWorkspaces",
           "kind" : "action",
-          "order" : 6,
+          "order" : 7,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -37067,7 +37476,7 @@
           "enabled_when" : "can_perform",
           "id" : "removeWorkspaceFromGroup",
           "kind" : "action",
-          "order" : 7,
+          "order" : 8,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -37078,7 +37487,7 @@
         },
         {
           "kind" : "separator",
-          "order" : 8
+          "order" : 9
         },
         {
           "children" : [
@@ -37672,150 +38081,6 @@
               "children" : [
                 {
                   "enabled_when" : "can_perform",
-                  "id" : "moveWorkspaceUp",
-                  "kind" : "action",
-                  "order" : 0,
-                  "visible_when" : {
-                    "debug_only" : false,
-                    "feature" : null,
-                    "requires" : [
-
-                    ]
-                  }
-                },
-                {
-                  "enabled_when" : "can_perform",
-                  "id" : "moveWorkspaceDown",
-                  "kind" : "action",
-                  "order" : 1,
-                  "visible_when" : {
-                    "debug_only" : false,
-                    "feature" : null,
-                    "requires" : [
-
-                    ]
-                  }
-                },
-                {
-                  "enabled_when" : "can_perform",
-                  "id" : "palette.moveWorkspaceToTop",
-                  "kind" : "action",
-                  "order" : 2,
-                  "visible_when" : {
-                    "debug_only" : false,
-                    "feature" : null,
-                    "requires" : [
-
-                    ]
-                  }
-                },
-                {
-                  "enabled_when" : "can_perform",
-                  "id" : "workspace.moveToBottom",
-                  "kind" : "action",
-                  "order" : 3,
-                  "visible_when" : {
-                    "debug_only" : false,
-                    "feature" : null,
-                    "requires" : [
-
-                    ]
-                  }
-                },
-                {
-                  "enabled_when" : "can_perform",
-                  "id" : "moveWorkspaceToWindow",
-                  "kind" : "action",
-                  "order" : 4,
-                  "visible_when" : {
-                    "debug_only" : false,
-                    "feature" : null,
-                    "requires" : [
-
-                    ]
-                  }
-                },
-                {
-                  "enabled_when" : "can_perform",
-                  "id" : "moveWorkspaceToNewWindow",
-                  "kind" : "action",
-                  "order" : 5,
-                  "visible_when" : {
-                    "debug_only" : false,
-                    "feature" : null,
-                    "requires" : [
-
-                    ]
-                  }
-                },
-                {
-                  "enabled_when" : "can_perform",
-                  "id" : "workspace.toggleTop",
-                  "kind" : "action",
-                  "order" : 6,
-                  "visible_when" : {
-                    "debug_only" : false,
-                    "feature" : null,
-                    "requires" : [
-
-                    ]
-                  }
-                },
-                {
-                  "enabled_when" : "can_perform",
-                  "id" : "workspace.moveToSpace",
-                  "kind" : "action",
-                  "order" : 7,
-                  "visible_when" : {
-                    "debug_only" : false,
-                    "feature" : null,
-                    "requires" : [
-
-                    ]
-                  }
-                },
-                {
-                  "enabled_when" : "can_perform",
-                  "id" : "workspace.duplicateToSpace",
-                  "kind" : "action",
-                  "order" : 8,
-                  "visible_when" : {
-                    "debug_only" : false,
-                    "feature" : null,
-                    "requires" : [
-
-                    ]
-                  }
-                },
-                {
-                  "enabled_when" : "can_perform",
-                  "id" : "workspace.mergeInto",
-                  "kind" : "action",
-                  "order" : 9,
-                  "visible_when" : {
-                    "debug_only" : false,
-                    "feature" : null,
-                    "requires" : [
-
-                    ]
-                  }
-                }
-              ],
-              "folder" : "move",
-              "kind" : "folder",
-              "order" : 5,
-              "title" : "Move",
-              "title_key" : "menu.folder.move",
-              "title_table" : "Localizable"
-            },
-            {
-              "kind" : "separator",
-              "order" : 6
-            },
-            {
-              "children" : [
-                {
-                  "enabled_when" : "can_perform",
                   "id" : "workspace.copyPath",
                   "kind" : "action",
                   "order" : 0,
@@ -37895,7 +38160,7 @@
               ],
               "folder" : "copy",
               "kind" : "folder",
-              "order" : 7,
+              "order" : 5,
               "title" : "Copy",
               "title_key" : "menu.folder.copy",
               "title_table" : "Localizable"
@@ -37944,14 +38209,14 @@
               ],
               "folder" : "tools",
               "kind" : "folder",
-              "order" : 8,
+              "order" : 6,
               "title" : "Tools",
               "title_key" : "menu.folder.tools",
               "title_table" : "Localizable"
             },
             {
               "kind" : "separator",
-              "order" : 9
+              "order" : 7
             },
             {
               "children" : [
@@ -38023,7 +38288,7 @@
               ],
               "folder" : "close",
               "kind" : "folder",
-              "order" : 10,
+              "order" : 8,
               "title" : "Close",
               "title_key" : "menu.folder.close",
               "title_table" : "Localizable"
@@ -38031,20 +38296,20 @@
           ],
           "folder" : "more",
           "kind" : "folder",
-          "order" : 9,
+          "order" : 10,
           "title" : "More",
           "title_key" : "menu.folder.more",
           "title_table" : "Localizable"
         },
         {
           "kind" : "separator",
-          "order" : 10
+          "order" : 11
         },
         {
           "enabled_when" : "can_perform",
           "id" : "closeWorkspace",
           "kind" : "action",
-          "order" : 11,
+          "order" : 12,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,

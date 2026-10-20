@@ -230,12 +230,7 @@ enum WorkspaceVerbHandlers {
             if let model = context.services.workspace(id: id) { directories[id] = directory(of: model, context) }
         }
         for section in before where section.machine != nil {
-            var containers: [(GroupID?, [String])] = [(nil, section.nodes.compactMap { node in
-                if case let .workspace(workspace) = node { return workspace.id.rawValue }
-                return nil
-            })]
-            for case let .group(group) in section.nodes { containers.append((group.id, group.workspaces.map(\.id.rawValue))) }
-            for (group, ids) in containers where ids.count > 1 && (only == nil || group == only) {
+            for (group, ids) in WorkspaceSortKey.containers(of: section, only: only) where ids.count > 1 {
                 let sorted = key.sorted(ids, names: names, directories: directories, recency: window.state.workspaceRecency)
                 guard sorted != ids else { continue }
                 let moving = sorted.map(SidebarWorkspaceID.init)
