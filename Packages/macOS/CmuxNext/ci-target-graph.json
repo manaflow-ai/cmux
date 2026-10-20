@@ -269,6 +269,7 @@
         "CmuxNextDaemonService",
         "CmuxNextDesign",
         "CmuxNextDiff",
+        "CmuxNextFeed",
         "CmuxNextFileGrid",
         "CmuxNextFloating",
         "CmuxNextFocus",
