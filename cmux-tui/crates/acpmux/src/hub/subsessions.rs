@@ -638,7 +638,7 @@ impl Hub {
                 tracing::warn!(session = %probe.id, "sub-session start mode skipped: {}", e.message);
             }
         }
-        let accepted = self.send_family_prompt(parent, &probe, &req.prompt, None).await;
+        let accepted = self.send_family_prompt(parent, &probe, &req.prompt, None, false).await;
         let accepted = match accepted {
             Ok(v) => v,
             Err(e) => {
@@ -706,6 +706,7 @@ impl Hub {
         to: &Arc<Session>,
         text: &str,
         prompt_id: Option<String>,
+        interrupt: bool,
     ) -> Result<Value, RpcError> {
         let fm = from.meta();
         let provenance = json!({
@@ -721,6 +722,7 @@ impl Hub {
                 let _ = tx.send(v);
             })),
             provenance: Some(provenance),
+            interrupt,
             ..PromptOptions::default()
         };
         let blocks = vec![json!({"type": "text", "text": text})];
@@ -883,7 +885,7 @@ impl Hub {
         caller: &Arc<Session>,
         target: &Arc<Session>,
         text: &str,
-        interrupt: bool,
+        interrupt: Option<bool>,
         prompt_id: Option<String>,
     ) -> Result<Value, RpcError> {
         if text.trim().is_empty() {
@@ -899,15 +901,16 @@ impl Hub {
         // A child reports to its parent; it never stops the parent's turn.
         let to_parent =
             caller.meta().subsession.as_ref().is_some_and(|l| l.started_by == target.id);
+        // Unsaid: a message to a child stops its running turn (user 2026-10-20: interrupt, not
+        // queue, by default); one to the parent waits.
+        let interrupt = interrupt.unwrap_or(!to_parent);
         if interrupt && to_parent {
             return Err(RpcError::invalid_params(
                 "a sub-session never interrupts its parent: send without interrupt, and the message waits for the parent's turn to end",
             ));
         }
-        if interrupt && target.turn().is_some() {
-            self.cancel(target).await?;
-        }
-        let accepted = self.send_family_prompt(caller, target, text, prompt_id).await?;
+        // It goes next, after interrupts sent before it, and stops the running turn (`queue.rs`).
+        let accepted = self.send_family_prompt(caller, target, text, prompt_id, interrupt).await?;
         Ok(json!({
             "sessionId": target.id,
             "queued": accepted.get("queued").cloned().unwrap_or(json!(false)),

@@ -107,7 +107,11 @@ async fn handle(
                 .ok_or_else(|| RpcError::invalid_params("sessionId is required"))?;
             let target = hub.subsession_write_target(&caller, key, true)?;
             let text = str_param(params, "text").unwrap_or_default();
-            let interrupt = params.get("interrupt").and_then(Value::as_bool).unwrap_or(false);
+            // `interrupt` says it outright; `queue: true` waits; neither: the default (it stops a
+            // child's running turn; a message to the parent waits).
+            let interrupt = params.get("interrupt").and_then(Value::as_bool).or_else(|| {
+                (params.get("queue").and_then(Value::as_bool) == Some(true)).then_some(false)
+            });
             let prompt_id = str_param(params, "promptId").map(str::to_owned);
             hub.subsession_send(&caller, &target, text, interrupt, prompt_id).await
         }

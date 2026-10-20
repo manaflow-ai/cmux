@@ -248,6 +248,7 @@ impl Hub {
         // An automatic continuation runs only while its chat still ends on the cut turn: no await
         // from here to `queue_slot`'s choice, so it never joins the queue (`auto_resume.rs`).
         let after_turn = opts.after_turn.clone();
+        let interrupting = opts.interrupt;
         super::auto_resume::check_cut(session, after_turn.as_deref(), false)?;
         // Queued behind the running turn (and the queue) it waits for its turn (`queue.rs`).
         let slot = super::queue::Slot {
@@ -269,6 +270,27 @@ impl Hub {
         if let Err(e) = super::auto_resume::check_cut(session, after_turn.as_deref(), waiting) {
             drop(guard);
             return Err(e);
+        }
+        // An interrupt overtaken by a later one before its turn started goes to the agent with
+        // that one (`queue.rs` `carry_into_next`): no turn that is stopped as it starts.
+        if waiting
+            && interrupting
+            && let Some(into) = self.carry_into_next(session, &prompt_id, &run)
+        {
+            let msg = json!({"text": prompt_text(&run.blocks), "client": client, "promptId": prompt_id, "turnId": turn_id});
+            let msg = crate::prompt_provenance::marked(msg, run.provenance.as_ref());
+            self.append_prompt(session, msg, &run.blocks);
+            self.append(
+                session,
+                "mux",
+                "turn_result",
+                json!({"status": "carried", "stopReason": "cancelled", "carriedInto": into, "turnSeq": 0, "turnId": turn_id, "promptId": prompt_id}),
+            );
+            drop(guard);
+            return Ok(json!({
+                "stopReason": "cancelled",
+                "_meta": {"acpmux": {"promptId": prompt_id, "turnId": turn_id, "carriedInto": into}},
+            }));
         }
         // What its queue entry holds now (`queue_edit.rs` may edit a prompt that waited).
         let (mut blocks, control, trust_gate) = (run.blocks.clone(), run.control, run.trust_gate);
@@ -332,6 +354,13 @@ impl Hub {
             drop(guard);
             return Err(e);
         }
+        // Prompts this one carries go to the agent first, in the order they were sent; the
+        // transcript shows each as its own message (recorded when it was carried).
+        let carried =
+            (!run.carried.is_empty()).then(|| short_text(&prompt_text(&run.carried), 400));
+        if !run.carried.is_empty() {
+            blocks.splice(0..0, run.carried.iter().cloned());
+        }
         if session.rehydrate.swap(false, Ordering::SeqCst)
             && let Some(transcript) = self.transcript(session, 24_000)
         {
@@ -341,14 +370,11 @@ impl Hub {
                 );
         }
         session.stderr_tail.lock().unwrap().clear();
-        let turn_seq = self
-            .append(
-                session,
-                "mux",
-                "turn_started",
-                json!({"prompt": short_text(&text, 200), "client": client, "promptId": prompt_id, "turnId": turn_id, "control": control.as_str()}),
-            )
-            .seq;
+        let mut started = json!({"prompt": short_text(&text, 200), "client": client, "promptId": prompt_id, "turnId": turn_id, "control": control.as_str()});
+        if let Some(carried) = carried {
+            started["carried"] = json!(carried);
+        }
+        let turn_seq = self.append(session, "mux", "turn_started", started).seq;
         let control = {
             let mut turn = session.turn.lock().unwrap_or_else(|e| e.into_inner());
             if let Some(t) = turn.as_mut() {

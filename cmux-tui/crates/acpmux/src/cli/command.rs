@@ -135,9 +135,14 @@ pub enum Command {
         session: String,
         /// Prompt text. Reads stdin when omitted or "-".
         prompt: Vec<String>,
-        /// Interrupt the running turn with this message when the agent supports steering.
-        #[arg(long)]
+        /// Send this message into the running turn when the agent supports steering (the turn
+        /// goes on); otherwise it stops the turn and runs next.
+        #[arg(long, conflicts_with = "queue")]
         steer: bool,
+        /// Wait for the running turn to end instead of stopping it. Without it a prompt sent
+        /// while a turn runs stops that turn and runs next (daemon setting `busyPrompt`).
+        #[arg(long)]
+        queue: bool,
         /// Return as soon as the prompt is queued.
         #[arg(long)]
         no_wait: bool,

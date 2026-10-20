@@ -388,6 +388,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             session,
             prompt,
             steer,
+            queue,
             no_wait,
             quiet,
             timeout,
@@ -395,7 +396,8 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             stall,
             prompt_id,
         } => {
-            let prompt_id = PromptId::new(prompt_id);
+            let mut prompt_id = PromptId::new(prompt_id);
+            prompt_id.queue = queue;
             let client = connect(true).await?;
             let text = arg_or_stdin(&prompt)?;
             let id = resolve_id(&client, &session).await?;
@@ -416,14 +418,19 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                         if pending == 1 { "" } else { "s" }
                     ));
                 }
-                if running {
+                if running && !queue {
+                    // The daemon stops the running turn (unless it is set to queue).
+                    eprintln!("interrupting the running turn (--queue waits for it instead)");
+                } else if running {
                     parts.push(format!(
                         "{} running turn{}",
                         1 + queued,
                         if queued == 0 { "" } else { "s" }
                     ));
                 }
-                eprintln!("queued behind {}", parts.join(" and "));
+                if !parts.is_empty() {
+                    eprintln!("queued behind {}", parts.join(" and "));
+                }
             }
             if no_wait {
                 // Return once the daemon recorded the prompt, not after a guess.
