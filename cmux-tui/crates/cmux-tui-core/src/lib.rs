@@ -57,6 +57,7 @@ mod mux;
 use cmux_tui_remote_access::pairing;
 mod program_status;
 mod prompt_mode_reset;
+mod pty_input_room;
 pub mod provider_management;
 #[cfg(unix)]
 mod pty_write;
