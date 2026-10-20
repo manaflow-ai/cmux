@@ -63,8 +63,8 @@ pub(crate) fn scan_t3code(layout: &Layout) -> Option<SourceScan> {
     let db = layout.t3code_dbs().into_iter().find(|db| db.is_file())?;
     let rows = query(
         &db,
-        "SELECT substr(CAST(workspace_root AS TEXT), 1, ?1),
-                substr(CAST(updated_at AS TEXT), 1, ?2)
+        "SELECT CAST(substr(CAST(workspace_root AS BLOB), 1, ?1) AS TEXT),
+                CAST(substr(CAST(updated_at AS BLOB), 1, ?2) AS TEXT)
          FROM projection_projects WHERE deleted_at IS NULL LIMIT ?3",
     )?;
     Some(SourceScan { source: "t3code", entries: rows })
@@ -73,8 +73,8 @@ pub(crate) fn scan_t3code(layout: &Layout) -> Option<SourceScan> {
 pub(crate) fn scan_conductor(layout: &Layout) -> Option<SourceScan> {
     let rows = query(
         &layout.conductor_db(),
-        "SELECT substr(CAST(root_path AS TEXT), 1, ?1),
-                substr(CAST(updated_at AS TEXT), 1, ?2)
+        "SELECT CAST(substr(CAST(root_path AS BLOB), 1, ?1) AS TEXT),
+                CAST(substr(CAST(updated_at AS BLOB), 1, ?2) AS TEXT)
          FROM repos WHERE root_path IS NOT NULL AND coalesce(hidden, 0) = 0 LIMIT ?3",
     )?;
     Some(SourceScan { source: "conductor", entries: rows })

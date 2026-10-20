@@ -21,8 +21,8 @@ pub(crate) fn scan_zed(layout: &Layout) -> Option<SourceScan> {
     let connection = open_read_only(&layout.zed_db())?;
     let mut statement = connection
         .prepare(
-            "SELECT substr(CAST(paths AS TEXT), 1, ?1),
-                    substr(CAST(timestamp AS TEXT), 1, ?2)
+            "SELECT CAST(substr(CAST(paths AS BLOB), 1, ?1) AS TEXT),
+                    CAST(substr(CAST(timestamp AS BLOB), 1, ?2) AS TEXT)
              FROM (
                SELECT paths, timestamp FROM workspaces
                WHERE remote_connection_id IS NULL AND paths IS NOT NULL LIMIT ?3

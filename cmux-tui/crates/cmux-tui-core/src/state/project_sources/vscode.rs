@@ -66,7 +66,7 @@ fn recent_list(db: &Path) -> Option<Vec<Observation>> {
     let connection = open_read_only(db)?;
     let raw: String = connection
         .query_row(
-            "SELECT substr(CAST(value AS TEXT), 1, ?1)
+            "SELECT CAST(substr(CAST(value AS BLOB), 1, ?1) AS TEXT)
              FROM ItemTable WHERE key = 'history.recentlyOpenedPathsList'",
             [i64::try_from(MAX_SOURCE_FILE_BYTES + 1).ok()?],
             |row| row.get(0),
