@@ -516,6 +516,7 @@
     "setting.picker.pinned": [],
     "setting.screenshots.findTools": true,
     "setting.screenshots.folders": [],
+    "setting.sessions.allowFullAccess": true,
     "setting.sessions.keepAwake": "pluggedIn",
     "setting.shortcuts.showModifierHoldHints": true,
     "setting.sidebar.border": false,
