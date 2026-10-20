@@ -1180,3 +1180,18 @@ final class Seen: @unchecked Sendable {
         #expect(names.contains("queue_order"))
     }
 }
+
+/// r13 live rig (D4, T-LIFE-13): with two Macs on the account, a quit Mac's
+/// terminal goes offline even though the link moved to the other Mac.
+@Suite struct TerminalOfflinePerMacTests {
+    @Test func aTerminalFollowsItsOwnMac() {
+        // Its Mac is linked: the link's phase decides.
+        #expect(!LinkMachine.terminalOffline(macID: "a", linkedMacID: "a", linkOffline: false))
+        #expect(LinkMachine.terminalOffline(macID: "a", linkedMacID: "a", linkOffline: true))
+        // The link serves another Mac: this terminal cannot reattach.
+        #expect(LinkMachine.terminalOffline(macID: "a", linkedMacID: "b", linkOffline: false))
+        #expect(LinkMachine.terminalOffline(macID: "a", linkedMacID: nil, linkOffline: false))
+        // Unknown Mac (no target when opened): the link's phase decides.
+        #expect(!LinkMachine.terminalOffline(macID: nil, linkedMacID: "b", linkOffline: false))
+    }
+}

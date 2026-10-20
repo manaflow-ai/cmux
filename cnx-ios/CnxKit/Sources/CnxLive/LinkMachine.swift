@@ -237,6 +237,18 @@ extension LinkMachine.Phase {
     }
 }
 
+extension LinkMachine {
+    /// A terminal is offline when its own Mac is: the linked Mac by the
+    /// link's phase, any other Mac at once (the link moved to another Mac on
+    /// the account, so this one cannot reattach; live rig r13: a quit Mac's
+    /// tab said "Reattaching…" for 60 s while the link served the account's
+    /// other Mac).
+    public static func terminalOffline(macID: String?, linkedMacID: String?, linkOffline: Bool) -> Bool {
+        guard let macID, macID != linkedMacID else { return linkOffline }
+        return true
+    }
+}
+
 extension LinkPathKind {
     public var displayName: String {
         switch self {

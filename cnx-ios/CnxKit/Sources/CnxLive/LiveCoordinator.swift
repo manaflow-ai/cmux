@@ -98,7 +98,11 @@ public final class LiveCoordinator {
     @ObservationIgnored public private(set) var removedFromMacsCount = 0
     /// Terminal tabs handed out, reattached on every new link.
     @ObservationIgnored private var terminals: [WeakTerminal] = []
-    private struct WeakTerminal { weak var session: DaemonTerminalSession? }
+    /// A terminal session and the Mac it belongs to.
+    private struct WeakTerminal {
+        weak var session: DaemonTerminalSession?
+        var macID: String?
+    }
     /// Whether terminal tabs say their Mac is offline (termfix-r13 D4).
     @ObservationIgnored private var terminalsOffline = false
     /// When the link last stopped being connected (nil: connected or idle).
@@ -1073,9 +1077,10 @@ public final class LiveCoordinator {
             return DaemonClient(channel: channel)
         })
         session.macName = link.target?.name
-        session.setMacOffline(terminalsOffline)
+        let macID = link.target?.macID
+        session.setMacOffline(LinkMachine.terminalOffline(macID: macID, linkedMacID: macID, linkOffline: terminalsOffline))
         terminals.removeAll { $0.session == nil }
-        terminals.append(WeakTerminal(session: session))
+        terminals.append(WeakTerminal(session: session, macID: macID))
         return session
     }
 
@@ -1279,10 +1284,11 @@ public final class LiveCoordinator {
         }
         let down = linkDownSince.map { now - $0 } ?? .zero
         let offline = phase.showsTerminalsOffline(notConnectedFor: down)
-        if offline != terminalsOffline {
-            terminalsOffline = offline
-            terminals.removeAll { $0.session == nil }
-            for terminal in terminals { terminal.session?.setMacOffline(offline) }
+        terminalsOffline = offline
+        terminals.removeAll { $0.session == nil }
+        let linked = link.target?.macID
+        for terminal in terminals {
+            terminal.session?.setMacOffline(LinkMachine.terminalOffline(macID: terminal.macID, linkedMacID: linked, linkOffline: offline))
         }
         offlineTask?.cancel()
         offlineTask = nil
