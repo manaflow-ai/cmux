@@ -10,6 +10,9 @@ pub(super) fn workspace_create(
     argv: Option<Vec<String>>,
 ) -> Result<CommandPlan, UsageError> {
     let mut params = Map::new();
+    // Creating a workspace never moves focus (socket focus policy); agents
+    // still pass `--no-focus`, so it is accepted and does nothing.
+    let _ = flags.boolean("no-focus");
     if let Some(name) = flags.take("name") {
         params.insert("name".into(), Value::String(name));
     }

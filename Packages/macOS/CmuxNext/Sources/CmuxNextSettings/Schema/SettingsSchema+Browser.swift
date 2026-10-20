@@ -14,13 +14,21 @@ nonisolated enum BrowserSettingsSchema {
             BrowserToolbarButtonsSetting.descriptor(group: toolbar),
             SettingDescriptor(
                 BrowserDefaultEngine.configPath, section: .browser, group: engine,
-                title: SettingsText.keyed("settings.browser.defaultEngine", "Default Engine"),
-                help: SettingsText.keyed("settings.browser.defaultEngine.help", "New browser tabs open in this engine."),
+                title: SettingsText.keyed("settings.browser.defaultEngine", "Browser Engine"),
+                help: SettingsText.keyed("settings.browser.defaultEngine.help", "Browser tabs and cmux pages, such as History and Apps, open in this engine."),
                 kind: .choice([
                     SettingChoice(BrowserDefaultEngine.chromium.rawValue, "Chromium"),
                     SettingChoice(BrowserDefaultEngine.webkit.rawValue, "WebKit"),
                 ]),
                 default: .string(BrowserDefaultEngine.fallback.rawValue), keywords: ["chrome", "safari", "cef"]
+            ),
+            SettingDescriptor(
+                BrowserSiteEngines.configPath, section: .browser, group: engine,
+                title: SettingsText.keyed("settings.browser.siteEngines", "Site Engines"),
+                help: SettingsText.keyed("settings.browser.siteEngines.help",
+                                         "Sites that always open in one engine: a site, such as spotify.com, and chromium or webkit. Spotify, Netflix and other protected media sites open in WebKit, because their media does not play in Chromium."),
+                kind: .stringMap, default: BrowserSiteEngines.fallback.jsonValue,
+                keywords: ["drm", "widevine", "spotify", "netflix", "site", "webkit", "chromium"]
             ),
             SettingDescriptor(
                 BrowserNewTabPage.configPath, section: .browser, group: engine,
@@ -84,6 +92,17 @@ nonisolated enum BrowserSettingsSchema {
                     SettingChoice("off", SettingsText.keyed("settings.choice.never", "Never")),
                 ], SettingNumber(5...3_600, step: 5, unit: .seconds, placeholder: BrowserHibernationSetting.defaultFreezeSeconds)),
                 default: .number(BrowserHibernationSetting.defaultFreezeSeconds), keywords: ["power", "battery", "energy", "sleep", "suspend"]
+            ),
+            SettingDescriptor(
+                BrowserHibernationSetting.neighborRadiusPath, section: .browser, group: memory,
+                title: SettingsText.keyed("settings.browser.keepNeighborTabsAwake", "Keep Neighbor Tabs Awake"),
+                help: SettingsText.keyed(
+                    "settings.browser.keepNeighborTabsAwake.help",
+                    "Tabs on each side of the shown tab stay loaded and running, so switching to them is instant. 0 turns it off. Memory pressure and Low Power Mode turn it off."
+                ),
+                kind: .number(SettingNumber(0...3, step: 1, unit: .count)),
+                default: .number(Double(BrowserHibernationSetting.defaultNeighborRadius)),
+                keywords: ["neighbor", "adjacent", "preload", "warm", "instant", "switch", "hibernation", "freeze"]
             ),
             SettingDescriptor(
                 ["browser", "remoteLocalhost"], section: .browser, group: remote,

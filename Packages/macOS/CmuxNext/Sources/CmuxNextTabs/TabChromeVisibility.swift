@@ -13,7 +13,7 @@ public import CoreGraphics
 ///   shows nothing.
 /// Differences: the x shows only on the hovered tab (nxdog9), and a hovered
 /// tab shows it from `TabStripMetrics.faviconCloseWidth`, where the favicon
-/// and the x both fit whole, not from Chromium's 68 pt of contents. The
+/// and the x both fit whole, not from Helium's 56 pt of contents. The
 /// selected tab also keeps it once its contents are narrower than Chromium's
 /// close-button threshold, where it costs no title text.
 public struct TabChromeVisibility: Hashable, Sendable {
@@ -45,7 +45,7 @@ public struct TabChromeVisibility: Hashable, Sendable {
         let wantsClose: Bool
         switch style {
         // A hovered inactive tab also shows its x once the favicon and the x both fit whole (Lawrence
-        // 2026-10-20: the default minimum width is that room), where Chromium waits for 68 of contents.
+        // 2026-10-20: the default minimum width is that room), where Helium waits for 56 of contents.
         case .chrome: wantsClose = isSelected ? (isHovered || !roomy) : (isHovered && (roomy || width + 0.5 >= metrics.faviconCloseWidth))
         case .compact: wantsClose = isHovered
         }
