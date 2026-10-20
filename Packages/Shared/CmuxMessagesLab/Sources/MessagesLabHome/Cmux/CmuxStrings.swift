@@ -77,6 +77,11 @@ enum CmuxStrings {
         String(localized: "home.menu.tryAgain", defaultValue: "Try Again", table: "CmuxHome", bundle: .module)
     }
 
+    /// The context menu item that sends a bubble's text to another chat or agent.
+    static var forward: String {
+        String(localized: "home.menu.forward", defaultValue: "Forward…", table: "CmuxHome", bundle: .module)
+    }
+
     /// The context menu item on my "Not Delivered" message that drops it.
     static var deleteFailed: String {
         String(localized: "home.menu.deleteFailed", defaultValue: "Delete", table: "CmuxHome", bundle: .module)

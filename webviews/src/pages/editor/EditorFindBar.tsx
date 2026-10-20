@@ -48,6 +48,20 @@ export function EditorFindBar({ find, strings }: { find: EditorFind; strings: St
           matchCase: t(L.findMatchCase),
         }}
         icon={(role) => <Icon name={ICONS[role]} />}
+        replace={{
+          open: state.replaceOpen,
+          value: state.replacement,
+          onChange: find.setReplacement,
+          onReplace: find.replace,
+          onReplaceAll: find.replaceAll,
+          onToggle: find.toggleReplace,
+          labels: {
+            field: t(L.findReplaceWith),
+            replace: t(L.findReplace),
+            replaceAll: t(L.findReplaceAll),
+            toggle: t(L.findToggleReplace),
+          },
+        }}
       />
     </div>
   );
