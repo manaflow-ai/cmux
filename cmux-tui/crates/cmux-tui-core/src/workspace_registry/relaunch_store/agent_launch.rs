@@ -62,17 +62,93 @@ pub(crate) fn agent_launch_from_job(
     Some(AgentLaunch { args, env })
 }
 
+/// Claude Code's subcommands: none starts a session.
+const CLAUDE_SUBCOMMANDS: &[&str] = &[
+    "mcp",
+    "config",
+    "doctor",
+    "update",
+    "install",
+    "migrate-installer",
+    "setup-token",
+    "plugin",
+    "plugins",
+];
+
+/// Codex's subcommands that run without an interactive session (`resume`
+/// and `fork` start one).
+const CODEX_NON_INTERACTIVE: &[&str] = &[
+    "exec",
+    "e",
+    "review",
+    "apply",
+    "a",
+    "mcp",
+    "mcp-server",
+    "app-server",
+    "login",
+    "logout",
+    "completion",
+    "debug",
+    "sandbox",
+    "cloud",
+    "features",
+    "help",
+];
+
 /// Whether the process is `harness`'s CLI run without an interactive session
-/// (`claude -p`, `codex exec`, a subcommand): a session it reports cannot be
-/// resumed. False for an interactive run, another program, or another harness.
+/// (`claude -p`, a Claude subcommand, `codex exec`, `--version`): a session it
+/// reports cannot be resumed. Only these known forms count: a run this does
+/// not recognize (`codex "fix the bug"`, a new subcommand) is interactive, as
+/// are another program and another harness.
 pub(crate) fn job_is_non_interactive(
     harness: &str,
     argv: &[String],
     env: &[(String, String)],
 ) -> bool {
-    account_env_key(harness).is_some()
-        && harness_args(harness, argv, env)
-            .is_some_and(|args| session_free(harness, &args).is_none())
+    if account_env_key(harness).is_none() {
+        return false;
+    }
+    let Some(args) = harness_args(harness, argv, env) else { return false };
+    let mut index = 0;
+    while index < args.len() {
+        let argument = args[index].as_str();
+        index += 1;
+        if argument == "--" {
+            return false; // Everything after `--` is a prompt.
+        }
+        if !argument.starts_with('-') || argument == "-" {
+            // The first word: a subcommand, or the prompt.
+            return match harness {
+                "claude" => CLAUDE_SUBCOMMANDS.contains(&argument),
+                _ => CODEX_NON_INTERACTIVE.contains(&argument),
+            };
+        }
+        let flag = argument.split_once('=').map_or(argument, |(flag, _)| flag);
+        match (harness, flag) {
+            ("claude", "-p" | "--print" | "-v" | "--version" | "-h" | "--help")
+            | ("codex", "-V" | "--version" | "-h" | "--help") => return true,
+            _ => {}
+        }
+        if argument.contains('=') {
+            continue;
+        }
+        // A flag's values are not the first word; an unknown flag may take one.
+        match takes(harness, flag) {
+            Some(Takes::Nothing) => {}
+            Some(Takes::One) | None => {
+                if args.get(index).is_some_and(|next| !next.starts_with('-')) {
+                    index += 1;
+                }
+            }
+            Some(Takes::Many) => {
+                while args.get(index).is_some_and(|next| !next.starts_with('-')) {
+                    index += 1;
+                }
+            }
+        }
+    }
+    false
 }
 
 /// The arguments the harness's CLI got: the shim's (`CMUX_TUI_AGENT_ARGS`),
@@ -252,11 +328,7 @@ fn session_free(harness: &str, args: &[String]) -> Option<Vec<String>> {
                     // Codex: no subcommand, or `resume`. A first word may be a
                     // subcommand this list does not know.
                     ("codex", _) => return None,
-                    (
-                        "claude",
-                        "mcp" | "config" | "doctor" | "update" | "install" | "migrate-installer"
-                        | "setup-token" | "plugin" | "plugins",
-                    ) => return None,
+                    ("claude", word) if CLAUDE_SUBCOMMANDS.contains(&word) => return None,
                     _ => {}
                 }
             }
@@ -420,7 +492,14 @@ mod tests {
         assert!(non_interactive("claude", &["/bin/sh", "/tmp/x/claude", "--print", "hi"]));
         assert!(non_interactive("codex", &["codex", "exec", "do it"]));
         assert!(non_interactive("claude", &["claude", "mcp", "list"]));
+        assert!(non_interactive("claude", &["claude", "--model", "opus", "-p", "hi"]));
+        assert!(non_interactive("codex", &["codex", "-m", "gpt-5.5", "exec", "do it"]));
+        assert!(non_interactive("codex", &["codex", "--version"]));
         assert!(!non_interactive("claude", &["claude", "--model", "opus"]));
+        assert!(!non_interactive("claude", &["claude", "fix the bug"]));
+        // An interactive Codex session started with its first prompt.
+        assert!(!non_interactive("codex", &["codex", "fix the bug"]));
+        assert!(!non_interactive("codex", &["codex", "-m", "gpt-5.5", "fix the bug"]));
         assert!(!non_interactive("codex", &["codex", "resume", "abc"]));
         assert!(!non_interactive("claude", &["zsh", "-l"]));
         assert!(!non_interactive("opencode", &["opencode", "run", "x"]));

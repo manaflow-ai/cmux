@@ -68,8 +68,22 @@ impl Prefill {
                 Err(_) => return,
             }
         }
-        let shell_foreground =
-            surface.process_id().is_some_and(crate::platform::shell_holds_foreground);
+        // What the person typed while the shell started is echoed only after
+        // the prompt is drawn: the prompt settles (one quiet interval) before
+        // it is checked for input.
+        let settle = Instant::now() + PROMPT_WAIT;
+        while let Ok(Some(revision)) = surface
+            .wait_for_terminal_stream_change(seen, Some((Instant::now() + QUIET).min(settle)))
+        {
+            seen = revision;
+        }
+        // The shell itself holds the terminal: not a job its startup files
+        // started, nor a program one of them `exec`ed in its place (`exec ssh`).
+        let shell_foreground = surface.process_id().is_some_and(|pid| {
+            crate::platform::shell_holds_foreground(pid)
+                && crate::platform::foreground_process_name(pid)
+                    .is_some_and(|name| posix_shell(&name))
+        });
         let Ok(Some(text)) = surface.try_with_terminal(|term| self.input(term, shell_foreground))
         else {
             return;
