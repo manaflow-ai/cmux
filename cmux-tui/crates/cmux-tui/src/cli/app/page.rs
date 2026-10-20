@@ -472,3 +472,7 @@ fn storage(args: &[String], params: &mut Map<String, Value>) -> Option<&'static 
         _ => None,
     }
 }
+
+#[cfg(test)]
+#[path = "page_browser_use_tests.rs"]
+mod browser_use_tests;
