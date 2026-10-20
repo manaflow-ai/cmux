@@ -490,11 +490,7 @@ fn the_chiefs_grant_reaches_only_records_whose_tools_the_person_never_set() {
     assert_eq!(chosen["self_edit"], full, "{chosen}");
     let actors = ledger(&server);
     let migrated = ("daemon via migration".to_owned(), "chief.profile.migrate".to_owned());
-    assert_eq!(
-        actors,
-        vec![migrated.clone(); 4],
-        "one audit row per record each migration changed"
-    );
+    assert_eq!(actors, vec![migrated; 4], "one audit row per record each migration changed");
     // The migrated state is a kept revision, so the person's next change undoes.
     let history = ok(&v2(
         &mut home,
