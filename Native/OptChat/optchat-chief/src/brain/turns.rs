@@ -363,7 +363,6 @@ impl Brain {
         let first_id = self.chat.status().messages;
         let session = format!("{}-{first_id}", self.settings.turn_prefix);
         let conversation = side.clone().or_else(|| self.state.conversation.clone());
-        let opening: Vec<Item> = items.iter().map(item).collect();
         // The engine of this turn, read now (engine.rs): a change applies
         // from this turn on and is logged as a note after its messages.
         let engine = self.turn_engine_choice();
@@ -372,6 +371,15 @@ impl Brain {
         // system prompt; else the view and the messages as blocks.
         let (cached, plain_preset) = self.session_presets(family);
         let participant_requires_approval = items.iter().any(Queued::requires_approval);
+        let resumed_scoped = items.iter().any(|item| {
+            matches!(
+                item.source,
+                Source::Resume {
+                    conversation_scoped: true,
+                    ..
+                }
+            )
+        });
         // A conversation with another participant is a separate disclosure
         // boundary from the Chief's private memory and harness context.
         let conversation_scoped = side.is_some()
@@ -380,6 +388,15 @@ impl Brain {
                 .as_ref()
                 .is_some_and(|summary| !self.settings.membership.is_private_conversation(summary))
             || participant_requires_approval;
+        let conversation_scoped = conversation_scoped || resumed_scoped;
+        let opening: Vec<Item> = items
+            .iter()
+            .map(|queued| {
+                let mut saved = item(queued);
+                saved.conversation_scoped |= conversation_scoped;
+                saved
+            })
+            .collect();
         let marker = self.marker_refused.take();
         let ttl = self.turn_cache_ttl();
         // Our marks (spec 5a.2): the `<chat>` header, the frozen view's end and
@@ -476,6 +493,11 @@ impl Brain {
         } else {
             self.settings.cli_system_text.clone()
         };
+        let turn_session_dir = if conversation_scoped {
+            self.settings.shared_session_dir.clone()
+        } else {
+            self.settings.session_dir.clone()
+        };
         if conversation_scoped {
             // Home includes terminal tails, browser URLs and titles from the
             // owner's private workspace. It is never context for a group or
@@ -534,7 +556,11 @@ impl Brain {
         let at_work = (!conversation_scoped)
             .then(|| self.at_work_line())
             .flatten();
-        let media_outbox = super::media::prepare_turn_outbox(&self.settings.session_dir, first)
+        super::media::cleanup_turn_outbox(self.media_outbox.take());
+        self.media_outbox = super::media::prepare_turn_outbox(&turn_session_dir);
+        let media_outbox = self
+            .media_outbox
+            .as_ref()
             .map(|path| format!("<cmux-media-outbox>{}</cmux-media-outbox>", path.display()));
         // The person's Home workspace as it is now: after the view, never logged.
         let tail: Vec<String> = at_work
@@ -560,7 +586,7 @@ impl Brain {
         self.note_engine(&engine);
         if family != crate::acpmux::Family::Claude
             && let Err(e) =
-                crate::session_dir::set_agents_md(&self.settings.session_dir, &turn_cli_system_text)
+                crate::session_dir::set_agents_md(&turn_session_dir, &turn_cli_system_text)
         {
             (self.log)(&format!("updating the session's AGENTS.md: {e}"));
         }
@@ -609,11 +635,9 @@ impl Brain {
                 // before a cache.ttl change still has the old one.
                 self.ttl_stale
                     .store(self.prewarm_ttl.is_some_and(|p| p != ttl), Ordering::SeqCst);
-                if let Err(e) = crate::session_dir::set_session_cache(
-                    &self.settings.session_dir,
-                    ttl,
-                    mark.is_some(),
-                ) {
+                if let Err(e) =
+                    crate::session_dir::set_session_cache(&turn_session_dir, ttl, mark.is_some())
+                {
                     (self.log)(&format!("updating the session's promptCacheTtl: {e}"));
                 }
                 let layout = input_layout(
@@ -676,7 +700,7 @@ impl Brain {
             // The system prompt carries the instructions in the cached
             // layout; the old layout reads them from CLAUDE.md.
             let text = system_prompt.is_none().then_some(turn_system_text.as_str());
-            if let Err(e) = crate::session_dir::set_claude_md(&self.settings.session_dir, text) {
+            if let Err(e) = crate::session_dir::set_claude_md(&turn_session_dir, text) {
                 (self.log)(&format!("updating the session directory's CLAUDE.md: {e}"));
             }
         }
@@ -743,7 +767,7 @@ impl Brain {
             prompt_id: format!("optchat:{first}"),
             session: SessionSpec {
                 name: format!("{}-{first}", self.settings.turn_prefix),
-                cwd: self.settings.session_dir.clone(),
+                cwd: turn_session_dir,
                 harness: engine.harness.clone(),
                 policy,
                 model: engine.model.clone(),
@@ -891,6 +915,14 @@ impl Brain {
             return Vec::new();
         }
         let items: Vec<Queued> = self.queue.drain(..take).collect();
+        if self.turn_shared_memory && items.iter().any(Queued::requires_approval) {
+            // The running native model already holds private context. Leave a
+            // newly non-owner batch for the next, conversation-scoped turn.
+            for item in items.into_iter().rev() {
+                self.queue.push_front(item);
+            }
+            return Vec::new();
+        }
         if !self.log_delivered(&items) {
             return Vec::new();
         }
@@ -1254,7 +1286,15 @@ impl Brain {
         let tool_stopped = std::mem::take(&mut self.tool_stopped);
         // A turn the owner stopped posts nothing, even one that ended
         // normally before it saw the interrupt (the stop was accepted).
-        let quiet = superseded || owner_stopped;
+        let scope_changed = self.turn_shared_memory
+            && self
+                .summary
+                .as_ref()
+                .is_none_or(|summary| !self.settings.membership.is_private_conversation(summary));
+        // A membership expansion while a private turn ran changes who sees
+        // its reply. Never post that already-private model context into the
+        // newly shared conversation; queued messages start a scoped turn.
+        let quiet = superseded || owner_stopped || scope_changed;
         // A failed turn also leaves a note in the memory log, after the
         // messages it did not answer: without it the next turn's delta shows
         // them as still open, and a later "hi" got the answer to a message
@@ -1278,6 +1318,11 @@ impl Brain {
         if tool_stopped {
             (self.log)(&format!(
                 "turn {key} ended by the Chief's stop: nothing more posted"
+            ));
+        }
+        if scope_changed {
+            (self.log)(&format!(
+                "turn {key}: conversation membership became shared; nothing posted"
             ));
         }
         let text = ended_turn_text(
@@ -1420,6 +1465,7 @@ impl Brain {
         };
         let main = self.turn_side().is_none();
         self.state.turn = None;
+        super::media::cleanup_turn_outbox(self.media_outbox.take());
         self.stop_wanted = false;
         self.save_with(extra);
         self.flush_outbox();
@@ -1562,6 +1608,7 @@ impl Brain {
         };
         self.trace_end(key, &outcome, false);
         self.turn_view = None;
+        super::media::cleanup_turn_outbox(self.media_outbox.take());
         let main = self.turn_side().is_none();
         let had: Vec<Option<String>> = self
             .state
@@ -1615,6 +1662,7 @@ impl Brain {
                 source: Source::Resume {
                     remote: resume.remote,
                     requires_approval: resume.requires_approval,
+                    conversation_scoped: resume.conversation_scoped,
                     cut: resume.messages,
                 },
                 images: Vec::new(),
@@ -1702,16 +1750,19 @@ fn item(queued: &Queued) -> Item {
             id: queued.conversation.as_ref().map(|_| id.clone()),
             remote: remote.is_some(),
             requires_approval: *requires_approval,
+            conversation_scoped: queued.conversation.is_some() || *requires_approval,
             ..Item::default()
         },
         Source::Resume {
             remote,
             requires_approval,
+            conversation_scoped,
             cut,
         } => Item {
             conversation: queued.conversation.clone(),
             remote: *remote,
             requires_approval: *requires_approval,
+            conversation_scoped: *conversation_scoped,
             resume: true,
             cut: cut.clone(),
             ..Item::default()

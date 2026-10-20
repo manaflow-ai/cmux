@@ -149,3 +149,27 @@ fn without_the_setting_each_turn_still_gets_a_fresh_session() {
     h.settle();
     assert_eq!(h.agents.inner.lock().unwrap().specs.len(), 2);
 }
+
+#[test]
+fn security_a_shared_conversation_never_reuses_the_private_kept_session() {
+    let mut h = harness();
+    h.connect();
+    h.say("user_local", "PRIVATE-KEPT-CONTEXT");
+    h.settle();
+
+    h.add_side("conv_team", "user_teammate");
+    let message = h.post_side("conv_team", "user_teammate", "@Chief hello");
+    h.wake(&[("conv_team", message.seq)]);
+    h.settle();
+
+    let inner = h.agents.inner.lock().unwrap();
+    assert_eq!(
+        inner.specs.len(),
+        2,
+        "the shared turn starts a fresh process"
+    );
+    assert_ne!(inner.prompt_sessions[0], inner.prompt_sessions[1]);
+    assert!(inner.ended.contains(&inner.prompt_sessions[0]));
+    let shared = texts(&inner.prompts[1]).join("\n");
+    assert!(!shared.contains("PRIVATE-KEPT-CONTEXT"), "{shared}");
+}

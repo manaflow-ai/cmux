@@ -1015,6 +1015,7 @@ pub struct Harness {
 pub fn settings(dir: &Path) -> Settings {
     Settings {
         session_dir: dir.join("session"),
+        shared_session_dir: dir.join("session-shared"),
         harness: "claude-sr".into(),
         policy: "approve-all".into(),
         model: None,
