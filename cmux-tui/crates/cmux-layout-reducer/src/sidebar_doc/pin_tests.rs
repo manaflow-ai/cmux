@@ -197,17 +197,33 @@ fn a_pinned_group_unpins_back_to_its_place() {
 }
 
 #[test]
-fn unpin_falls_back_to_the_end_when_the_old_neighbor_is_gone() {
+fn unpin_falls_back_to_the_top_when_the_old_neighbor_is_gone() {
     let mut doc = fixture();
     // w5 sat after g1; then g1 is pinned too, so w5's old neighbor is not in the list.
     run(&mut doc, vec![Op::Pin { items: vec![item_id("w5")] }]);
     run(&mut doc, vec![Op::Pin { items: vec!["g1".into()] }]);
     run(&mut doc, vec![Op::Unpin { items: vec![item_id("w5")] }]);
-    assert_eq!(list(&doc, &machine(), None), ["w4", "w5"]);
-    // w4 was first: it goes back first even with every neighbor gone.
-    run(&mut doc, vec![Op::Pin { items: vec![item_id("w4")] }]);
-    run(&mut doc, vec![Op::Unpin { items: vec![item_id("w4")] }]);
-    assert_eq!(list(&doc, &machine(), None), ["w4", "w5"]);
+    assert_eq!(
+        list(&doc, &machine(), None),
+        ["w5", "w4"],
+        "the top of its machine section, as Move to Top"
+    );
+    // g1 sat after w4, which is still there.
+    run(&mut doc, vec![Op::Unpin { items: vec!["g1".into()] }]);
+    assert_eq!(list(&doc, &machine(), None), ["w5", "w4", "g1"]);
+}
+
+#[test]
+fn an_old_pin_with_no_remembered_place_unpins_to_the_top() {
+    let mut doc = fixture();
+    run(&mut doc, vec![Op::Pin { items: vec!["g1".into()] }]);
+    // A pin made before the place was remembered (an older daemon).
+    let id: ItemId = "g1".into();
+    let mut item = doc.item(&id).unwrap().clone();
+    item.extra.remove(UNPIN_TO_KEY);
+    apply_rows(&mut doc, &[Op::ItemPut { item }]);
+    run(&mut doc, vec![Op::Unpin { items: vec![id] }]);
+    assert_eq!(list(&doc, &machine(), None), ["g1", "w4", "w5"]);
 }
 
 #[test]
