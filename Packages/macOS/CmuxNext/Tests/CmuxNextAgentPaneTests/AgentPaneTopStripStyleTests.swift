@@ -68,3 +68,15 @@ struct AgentPaneHarnessSwitchTunableTests {
         #expect(value?["harnessSwitch"]?.boolValue == AgentPaneTunables.harnessSwitchInStartedChat.value)
     }
 }
+
+/// Debug Settings' "Esc stops a turn on a double press": on by default, so one Esc on an empty
+/// composer only arms the stop; it rides the `composer` event as `escapeDoublePress`.
+struct AgentPaneEscapeStopTunableTests {
+    @Test func isOnByDefaultAndRidesTheComposerEvent() {
+        #expect(AgentPaneTunables.escapeStopDoublePress.descriptor.key == "agent.escapeStopDoublePress")
+        #expect(AgentPaneTunables.escapeStopDoublePress.value == true)
+        #expect(AgentPaneTunables.all.contains { $0.key == "agent.escapeStopDoublePress" })
+        let value = AgentPageEvent.composer(.fallback).value.objectValue
+        #expect(value?["escapeDoublePress"]?.boolValue == AgentPaneTunables.escapeStopDoublePress.value)
+    }
+}
