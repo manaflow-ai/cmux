@@ -164,6 +164,10 @@ public struct AuditEntry: Codable, Sendable, Equatable, Identifiable {
     public var hostId: String?
     /// The device a `device_added` / `device_removed` entry is about.
     public var deviceId: String?
+    /// The devices' names as the hub knew them, kept after a device is removed.
+    public var viewerName: String?
+    public var hostName: String?
+    public var deviceName: String?
     public var scope: String?
     public var sessionId: String?
     public var detail: String?
@@ -176,7 +180,7 @@ public struct AuditEntry: Codable, Sendable, Equatable, Identifiable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, ts, event, viewerId, hostId, deviceId, scope, sessionId, detail, durationS, duration_s
+        case id, ts, event, viewerId, hostId, deviceId, viewerName, hostName, deviceName, scope, sessionId, detail, durationS, duration_s
     }
 
     public init(from decoder: any Decoder) throws {
@@ -187,6 +191,9 @@ public struct AuditEntry: Codable, Sendable, Equatable, Identifiable {
         viewerId = c.lenient(String.self, .viewerId)
         hostId = c.lenient(String.self, .hostId)
         deviceId = c.lenient(String.self, .deviceId)
+        viewerName = c.lenient(String.self, .viewerName)
+        hostName = c.lenient(String.self, .hostName)
+        deviceName = c.lenient(String.self, .deviceName)
         scope = c.lenient(String.self, .scope)
         sessionId = c.lenient(String.self, .sessionId)
         detail = c.lenient(String.self, .detail)
@@ -201,6 +208,9 @@ public struct AuditEntry: Codable, Sendable, Equatable, Identifiable {
         try c.encodeIfPresent(viewerId, forKey: .viewerId)
         try c.encodeIfPresent(hostId, forKey: .hostId)
         try c.encodeIfPresent(deviceId, forKey: .deviceId)
+        try c.encodeIfPresent(viewerName, forKey: .viewerName)
+        try c.encodeIfPresent(hostName, forKey: .hostName)
+        try c.encodeIfPresent(deviceName, forKey: .deviceName)
         try c.encodeIfPresent(scope, forKey: .scope)
         try c.encodeIfPresent(sessionId, forKey: .sessionId)
         try c.encodeIfPresent(detail, forKey: .detail)

@@ -302,9 +302,10 @@ public final class MacScreenDevicesSettings {
 
     /// One audit entry as the History table shows it (metadata only, as the hub stores it).
     static func historyRow(_ entry: AuditEntry, names: [String: String], me: String) -> State.HistoryRow {
-        func name(_ id: String?) -> String {
+        // A listed device's current name, else the name the entry kept (a removed device), else unknown.
+        func name(_ id: String?, kept: String? = nil) -> String {
             guard let id else { return "—" }
-            return names[id] ?? L.t("devices.history.removedDevice", "Removed device")
+            return names[id] ?? kept.flatMap { $0.isEmpty ? nil : $0 } ?? L.t("devices.history.removedDevice", "Removed device")
         }
         let scope: String
         switch entry.scope {
@@ -316,9 +317,11 @@ public final class MacScreenDevicesSettings {
         return State.HistoryRow(id: entry.id, time: entry.ts.map(Self.timeText) ?? "—",
                                 event: entry.event, eventText: eventText(entry.event), tone: eventTone(entry.event),
                                 // A device_added/removed entry's device is in deviceId; it shows in the device column.
-                                device: entry.deviceId.map { name($0) } ?? name(entry.viewerId), host: name(entry.hostId), scope: scope,
-                                detail: detailText(entry, viewer: name(entry.viewerId), host: name(entry.hostId),
-                                                   subject: entry.deviceId.map { name($0) } ?? "—"),
+                                device: entry.deviceId.map { name($0, kept: entry.deviceName) } ?? name(entry.viewerId, kept: entry.viewerName),
+                                host: name(entry.hostId, kept: entry.hostName), scope: scope,
+                                detail: detailText(entry, viewer: name(entry.viewerId, kept: entry.viewerName),
+                                                   host: name(entry.hostId, kept: entry.hostName),
+                                                   subject: entry.deviceId.map { name($0, kept: entry.deviceName) } ?? "—"),
                                 duration: entry.durationS.map(durationText) ?? "")
     }
 
