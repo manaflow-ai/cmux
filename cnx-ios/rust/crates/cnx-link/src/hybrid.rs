@@ -146,7 +146,8 @@ impl MediaManager {
     /// the tunnel; the manager dials again as after any failure).
     #[doc(hidden)]
     pub fn kill(&self) {
-        self.kill.notify_one();
+        // Only a session up now; no permit is kept for a later one.
+        self.kill.notify_waiters();
     }
 }
 
@@ -310,8 +311,20 @@ async fn hold(
                 }
             }
             _ = ticker.tick() => {
-                rtt = session.rtt().await;
-                status.send_replace(MediaStatus::Up { path: *path.borrow(), rtt });
+                // A new round trip is news only when it moved (by 20 % and
+                // 2 ms): every status change redraws the app's line.
+                let now = session.rtt().await;
+                let moved = match (rtt, now) {
+                    (Some(old), Some(new)) => {
+                        let diff = old.abs_diff(new);
+                        diff >= Duration::from_millis(2) && diff * 5 >= old
+                    }
+                    (old, new) => old.is_some() != new.is_some(),
+                };
+                if moved {
+                    rtt = now;
+                    status.send_replace(MediaStatus::Up { path: *path.borrow(), rtt });
+                }
             }
             () = timer => {}
         }

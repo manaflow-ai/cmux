@@ -866,10 +866,18 @@ pub async fn dial_media(
 ) -> Result<MediaSession, DialError> {
     let session_id = uuid::Uuid::new_v4().to_string();
     let mut events = SessionEvents::subscribe(signaling, &session_id);
+    // Made before the bound, so every way out closes it: webrtc-rs does not
+    // close a dropped peer connection (its ICE agent and sockets would stay).
+    let (pc, mut state) = match new_peer_connection_for(options, true, true).await {
+        Ok(made) => made,
+        Err(error) => {
+            signaling.unsubscribe(&session_id);
+            return Err(error);
+        }
+    };
+    let timeline = &options.timeline;
     let result = tokio::time::timeout(options.timeout, async {
-        let (pc, mut state) = new_peer_connection_for(options, true, true).await?;
         let receiver = crate::media::track::add_receiver(&pc).await.map_err(transport_error)?;
-        let timeline = &options.timeline;
         trickle(&pc, signaling, mac, &session_id, timeline);
         let offer = pc.create_offer(None).await.map_err(transport_error)?;
         pc.set_local_description(offer.clone()).await.map_err(transport_error)?;
@@ -892,31 +900,22 @@ pub async fn dial_media(
             pending: Vec::new(),
         };
         let mut answered = None;
-        let connected = media_connect(&pc, &mut state, &mut events, &mut remote, Some(&mut answered)).await;
-        if let Err(error) = connected {
-            let _ = pc.close().await;
-            return Err(error);
-        }
+        media_connect(&pc, &mut state, &mut events, &mut remote, Some(&mut answered)).await?;
         if !answered.as_deref().is_some_and(super::video_lane_listed) {
-            let _ = pc.close().await;
             return Err(DialError::Transport("the Mac attached no video track".into()));
         }
         receiver.bind(Arc::clone(&pc)).await;
         timeline.mark("media_connected");
-        Ok((pc, state, receiver, remote))
+        Ok((receiver, remote))
     })
-    .await;
-    let (pc, state, receiver, remote) = match result {
-        Ok(Ok(parts)) => parts,
-        Ok(Err(error)) => {
-            signaling.unsubscribe(&session_id);
-            let _ = signaling.send_signal(mac, &session_id, SignalPayload::Bye { reason: error.to_string() });
+    .await
+    .unwrap_or(Err(DialError::Timeout));
+    let (receiver, remote) = match result {
+        Ok(parts) => parts,
+        Err(error) => {
+            let _ = pc.close().await;
+            media_refused(signaling, mac, &session_id, &error);
             return Err(error);
-        }
-        Err(_) => {
-            signaling.unsubscribe(&session_id);
-            let _ = signaling.send_signal(mac, &session_id, SignalPayload::Bye { reason: "timeout".into() });
-            return Err(DialError::Timeout);
         }
     };
     let path = selected_path(&pc).await;
@@ -932,6 +931,13 @@ pub async fn dial_media(
     })
 }
 
+/// A media session that did not come up: stop following it and tell the peer.
+fn media_refused(signaling: &SignalingClient, peer: &str, session_id: &str, error: &DialError) {
+    signaling.unsubscribe(session_id);
+    let reason = if *error == DialError::Timeout { "timeout".to_owned() } else { error.to_string() };
+    let _ = signaling.send_signal(peer, session_id, SignalPayload::Bye { reason });
+}
+
 /// Mac side: answers a media session's first signal (`webrtc-offer` with
 /// `mediaFor`) with a sending video track and returns it once its peer
 /// connection is connected. The caller checked that `mediaFor` names a live
@@ -944,16 +950,27 @@ pub async fn answer_media(
 ) -> Result<MediaSession, DialError> {
     let session_id = first.session_id.clone();
     let peer = first.from.clone();
-    let result = tokio::time::timeout(options.timeout, async {
-        let SignalPayload::WebrtcOffer { sdp, lanes, media_for: Some(_) } = first.payload else {
-            return Err(DialError::Unexpected("expected a media session's webrtc-offer".into()));
-        };
-        if !super::video_lane_listed(&lanes) || !sdp.contains("m=video") {
-            return Err(DialError::Unexpected("a media session without video".into()));
+    let SignalPayload::WebrtcOffer { sdp, lanes, media_for: Some(_) } = first.payload else {
+        let error = DialError::Unexpected("expected a media session's webrtc-offer".into());
+        media_refused(signaling, &peer, &session_id, &error);
+        return Err(error);
+    };
+    if !super::video_lane_listed(&lanes) || !sdp.contains("m=video") {
+        let error = DialError::Unexpected("a media session without video".into());
+        media_refused(signaling, &peer, &session_id, &error);
+        return Err(error);
+    }
+    // Made before the bound, so every way out closes it (see dial_media).
+    let (pc, mut state) = match new_peer_connection_for(options, true, true).await {
+        Ok(made) => made,
+        Err(error) => {
+            media_refused(signaling, &peer, &session_id, &error);
+            return Err(error);
         }
-        let (pc, mut state) = new_peer_connection_for(options, true, true).await?;
+    };
+    let timeline = &options.timeline;
+    let result = tokio::time::timeout(options.timeout, async {
         let (track, sender) = crate::media::track::add_sender(&pc).await.map_err(transport_error)?;
-        let timeline = &options.timeline;
         trickle(&pc, signaling, &peer, &session_id, timeline);
         let offer = RTCSessionDescription::offer(sdp).map_err(transport_error)?;
         pc.set_remote_description(offer).await.map_err(transport_error)?;
@@ -976,28 +993,19 @@ pub async fn answer_media(
             ready: true,
             pending: Vec::new(),
         };
-        if let Err(error) = media_connect(&pc, &mut state, &mut events, &mut remote, None).await {
-            let _ = pc.close().await;
-            return Err(error);
-        }
+        media_connect(&pc, &mut state, &mut events, &mut remote, None).await?;
         let carrier = crate::media::track::SendCarrier::new(track, sender).await;
         timeline.mark("media_connected");
-        Ok((pc, state, carrier, remote))
+        Ok((carrier, remote))
     })
-    .await;
-    let (pc, state, carrier, remote) = match result {
-        Ok(Ok(parts)) => parts,
-        Ok(Err(error)) => {
-            signaling.unsubscribe(&session_id);
-            let _ =
-                signaling.send_signal(&peer, &session_id, SignalPayload::Bye { reason: error.to_string() });
+    .await
+    .unwrap_or(Err(DialError::Timeout));
+    let (carrier, remote) = match result {
+        Ok(parts) => parts,
+        Err(error) => {
+            let _ = pc.close().await;
+            media_refused(signaling, &peer, &session_id, &error);
             return Err(error);
-        }
-        Err(_) => {
-            signaling.unsubscribe(&session_id);
-            let _ =
-                signaling.send_signal(&peer, &session_id, SignalPayload::Bye { reason: "timeout".into() });
-            return Err(DialError::Timeout);
         }
     };
     let path = selected_path(&pc).await;

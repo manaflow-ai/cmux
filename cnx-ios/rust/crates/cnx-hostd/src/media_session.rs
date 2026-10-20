@@ -33,8 +33,15 @@ struct Hybrid {
     auth: Arc<crate::pairing::LinkAuth>,
     pairing: bool,
     link_closed: watch::Receiver<Option<String>>,
-    /// The current media session's id; a newer one replaces it.
-    current: watch::Sender<Option<String>>,
+    /// The number of the newest media offer received for this link: an
+    /// answer that finishes after a newer offer arrived is dropped (the phone
+    /// gave up on it), so it never replaces the newer session.
+    offers: Arc<std::sync::atomic::AtomicU64>,
+    /// The offer number of the current media session (0: none); a newer one
+    /// replaces it.
+    current: watch::Sender<u64>,
+    /// Which registration this is (a stale registration's drop leaves a newer one).
+    token: u64,
 }
 
 fn links() -> &'static Mutex<HashMap<String, Hybrid>> {
@@ -45,11 +52,15 @@ fn links() -> &'static Mutex<HashMap<String, Hybrid>> {
 /// Removes the link from the registry when dropped (the link is down).
 pub struct Registration {
     session_id: String,
+    token: u64,
 }
 
 impl Drop for Registration {
     fn drop(&mut self) {
-        links().lock().unwrap_or_else(PoisonError::into_inner).remove(&self.session_id);
+        let mut links = links().lock().unwrap_or_else(PoisonError::into_inner);
+        if links.get(&self.session_id).is_some_and(|link| link.token == self.token) {
+            links.remove(&self.session_id);
+        }
     }
 }
 
@@ -63,6 +74,8 @@ pub fn register(
     pairing: bool,
     link_closed: watch::Receiver<Option<String>>,
 ) -> Registration {
+    static TOKENS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    let token = TOKENS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     links().lock().unwrap_or_else(PoisonError::into_inner).insert(
         session_id.to_owned(),
         Hybrid {
@@ -71,10 +84,12 @@ pub fn register(
             auth,
             pairing,
             link_closed,
-            current: watch::channel(None).0,
+            offers: Arc::default(),
+            current: watch::channel(0).0,
+            token,
         },
     );
-    Registration { session_id: session_id.to_owned() }
+    Registration { session_id: session_id.to_owned(), token }
 }
 
 /// Why a media offer is refused, if it is: the link must be live, belong to
@@ -114,11 +129,18 @@ pub async fn answer(
             Some(code) => Err(code),
             None => {
                 let link = link.expect("checked");
-                Ok((link.video.clone(), link.link_closed.clone(), link.current.clone()))
+                let offer = link.offers.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+                Ok((
+                    link.video.clone(),
+                    link.link_closed.clone(),
+                    link.current.clone(),
+                    Arc::clone(&link.offers),
+                    offer,
+                ))
             }
         }
     };
-    let (video, mut link_closed, current) = match checked {
+    let (video, mut link_closed, current, offers, offer) = match checked {
         Ok(parts) => parts,
         Err(code) => {
             tracing::warn!(session_id, link_session, code, "refusing a media session");
@@ -147,8 +169,14 @@ pub async fn answer(
             return;
         }
     };
+    // The phone opened a newer session while this one was coming up: it
+    // gave up on this one.
+    if offers.load(std::sync::atomic::Ordering::SeqCst) != offer {
+        tracing::info!(session_id, link_session, "media session superseded before it came up");
+        return;
+    }
     // A newer session for the same link replaces this one.
-    current.send_replace(Some(session_id.clone()));
+    current.send_replace(offer);
     let mut replaced = current.subscribe();
     let route = video.add_route(std::sync::Arc::clone(&session.carrier), session.up.clone());
     let mut path = session.path.clone();
@@ -169,7 +197,7 @@ pub async fn answer(
         tokio::select! {
             reason = session.wait_ended() => break reason,
             () = async { let _ = link_closed.wait_for(Option::is_some).await; } => break "link closed".to_owned(),
-            () = async { let _ = replaced.wait_for(|id| id.as_deref() != Some(session_id.as_str())).await; } => {
+            () = async { let _ = replaced.wait_for(|current| *current != offer).await; } => {
                 break "replaced".to_owned();
             }
             changed = path.changed() => {
@@ -197,8 +225,8 @@ pub async fn answer(
     drop(route);
     tracing::info!(session_id, link_session, reason, "media session down");
     // Only the current session reports the link's media gone.
-    if current.borrow().as_deref() == Some(session_id.as_str()) {
-        current.send_replace(None);
+    if *current.borrow() == offer {
+        current.send_replace(0);
         control::emit(&Event::PhoneMedia { session_id: link_session, media_path: "none".into() });
     }
 }
@@ -260,7 +288,9 @@ mod tests {
             auth: Arc::new(crate::pairing::LinkAuth::default()),
             pairing,
             link_closed,
-            current: watch::channel(None).0,
+            offers: Arc::default(),
+            current: watch::channel(0).0,
+            token: 0,
         };
         (hybrid, closed_tx)
     }

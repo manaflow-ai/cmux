@@ -522,8 +522,60 @@ pub(crate) struct InInner {
     subscribers: Mutex<Vec<mpsc::Sender<ReceivedFrame>>>,
     sources: std::sync::Mutex<Vec<Source>>,
     next_source: std::sync::atomic::AtomicU64,
-    /// The source whose frames pass now (None before the first keyframe).
-    current: std::sync::Mutex<Option<u64>>,
+    /// Which source's frames pass now.
+    gate: std::sync::Mutex<Gate>,
+    /// The final counters of sources that ended (added to [`VideoIn::stats`]).
+    retired: std::sync::Mutex<ReceiverStats>,
+}
+
+/// Which source's frames pass (see [`VideoIn`]).
+#[derive(Debug, Default)]
+pub(crate) struct Gate {
+    /// The current source (None before the first frame).
+    current: Option<u64>,
+    /// The RTP timestamp (the host's capture time) of the newest frame that
+    /// passed: a keyframe older than it never moves the gate back (a late
+    /// keyframe of the route the Mac just left).
+    newest_ts: Option<u32>,
+    /// When a frame last passed, and when the gate last asked for a keyframe
+    /// because only another source's frames were coming.
+    last_pass: Option<std::time::Instant>,
+    last_ask: Option<std::time::Instant>,
+}
+
+/// A source whose frames are the only ones coming waits this long for a
+/// keyframe of its own before the gate asks for one.
+const GATE_STUCK: std::time::Duration = std::time::Duration::from_millis(250);
+
+/// What the gate does with one frame.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Admit {
+    Pass,
+    Reject,
+    /// Rejected, and nothing has passed for a while: ask for a keyframe.
+    RejectAndAsk,
+}
+
+impl Gate {
+    pub(crate) fn admit(&mut self, id: u64, keyframe: bool, ts: u32, now: std::time::Instant) -> Admit {
+        let newer = self.newest_ts.is_none_or(|newest| (ts.wrapping_sub(newest) as i32) > 0);
+        let pass = self.current.is_none() || (self.current == Some(id)) || (keyframe && newer);
+        if pass {
+            self.current = Some(id);
+            if newer {
+                self.newest_ts = Some(ts);
+            }
+            self.last_pass = Some(now);
+            return Admit::Pass;
+        }
+        let stuck = self.last_pass.is_none_or(|at| now.duration_since(at) >= GATE_STUCK);
+        let due = self.last_ask.is_none_or(|at| now.duration_since(at) >= GATE_STUCK);
+        if stuck && due {
+            self.last_ask = Some(now);
+            return Admit::RejectAndAsk;
+        }
+        Admit::Reject
+    }
 }
 
 struct Source {
@@ -548,24 +600,25 @@ impl InInner {
         }
     }
 
-    /// Whether `frame` from source `id` passes, moving the current source
-    /// at a keyframe.
-    pub(crate) fn admit(&self, id: u64, keyframe: bool) -> bool {
-        let mut current = self.current.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        if *current == Some(id) {
-            return true;
+    /// Whether `frame` from source `id` passes: the current source's do, and
+    /// a newer keyframe from another source makes that one current. A source
+    /// stuck behind the gate (the current one went quiet) asks for a keyframe.
+    pub(crate) fn admit(&self, id: u64, frame: &ReceivedFrame) -> bool {
+        let verdict = self.gate.lock().unwrap_or_else(std::sync::PoisonError::into_inner).admit(
+            id,
+            frame.keyframe,
+            frame.rtp_timestamp,
+            std::time::Instant::now(),
+        );
+        if verdict == Admit::RejectAndAsk {
+            self.request_keyframe();
         }
-        if keyframe || current.is_none() {
-            *current = Some(id);
-            return true;
-        }
-        false
+        verdict == Admit::Pass
     }
 
     /// The carrier of the source whose frames pass now.
     fn current_kind(&self) -> Option<CarrierKind> {
-        let current = *self.current.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        let id = current?;
+        let id = self.gate.lock().unwrap_or_else(std::sync::PoisonError::into_inner).current?;
         self.sources().iter().find(|s| s.id == id).map(|s| s.kind)
     }
 
@@ -577,6 +630,13 @@ impl InInner {
         for source in sources.iter_mut().filter(|s| s.id == id) {
             source.running = false;
             primary = source.primary;
+        }
+        // An ended media session's source goes; its counters stay in the sum.
+        if !primary && let Some(at) = sources.iter().position(|s| s.id == id) {
+            let ended = sources.remove(at);
+            let s = *ended.stats.borrow();
+            let mut retired = self.retired.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            add_stats(&mut retired, &s);
         }
         primary || !sources.iter().any(|s| s.running)
     }
@@ -629,7 +689,8 @@ impl VideoIn {
             subscribers: Mutex::new(Vec::new()),
             sources: std::sync::Mutex::new(Vec::new()),
             next_source: std::sync::atomic::AtomicU64::new(1),
-            current: std::sync::Mutex::new(None),
+            gate: std::sync::Mutex::new(Gate::default()),
+            retired: std::sync::Mutex::new(ReceiverStats::default()),
         });
         let lane = Self { inner };
         lane.spawn_source(carrier, config, rtt, closed, true);
@@ -732,21 +793,24 @@ impl VideoIn {
         VideoFrames { frames: rx, inner: Arc::clone(&self.inner) }
     }
 
-    /// The counters of every source, summed.
+    /// The counters of every source, summed (ended ones included).
     pub fn stats(&self) -> ReceiverStats {
-        let sources = self.inner.sources();
-        sources.iter().fold(ReceiverStats::default(), |mut sum, source| {
-            let s = *source.stats.borrow();
-            sum.packets += s.packets;
-            sum.bytes += s.bytes;
-            sum.frames += s.frames;
-            sum.keyframes += s.keyframes;
-            sum.frames_dropped += s.frames_dropped;
-            sum.plis_sent += s.plis_sent;
-            sum.packets_recovered += s.packets_recovered;
-            sum
-        })
+        let mut sum = *self.inner.retired.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        for source in self.inner.sources().iter() {
+            add_stats(&mut sum, &source.stats.borrow());
+        }
+        sum
     }
+}
+
+fn add_stats(sum: &mut ReceiverStats, s: &ReceiverStats) {
+    sum.packets += s.packets;
+    sum.bytes += s.bytes;
+    sum.frames += s.frames;
+    sum.keyframes += s.keyframes;
+    sum.frames_dropped += s.frames_dropped;
+    sum.plis_sent += s.plis_sent;
+    sum.packets_recovered += s.packets_recovered;
 }
 
 /// The lane a dial produced: the Mac's sender or the phone's receiver.
@@ -770,6 +834,42 @@ pub(crate) async fn link_closed(closed: &mut Option<watch::Receiver<Option<Strin
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// verify/hybrid-link.md: the phone's gate between the tunnel and the
+    /// media session.
+    #[test]
+    fn a_late_older_keyframe_of_the_left_route_never_takes_the_gate_back() {
+        let t0 = std::time::Instant::now();
+        let ms = |n| t0 + std::time::Duration::from_millis(n);
+        let (tunnel, session) = (1, 2);
+        let mut gate = Gate::default();
+        assert_eq!(gate.admit(tunnel, true, 1000, ms(0)), Admit::Pass);
+        assert_eq!(gate.admit(tunnel, false, 2500, ms(16)), Admit::Pass);
+        // The Mac switches at keyframe K (ts 4000) on the session...
+        assert_eq!(gate.admit(session, true, 4000, ms(30)), Admit::Pass);
+        // ...and an older keyframe K' (ts 3000) it sent on the tunnel just
+        // before arrives late over TURN over TLS: it does not pass.
+        assert_eq!(gate.admit(tunnel, true, 3000, ms(40)), Admit::Reject);
+        assert_eq!(gate.admit(tunnel, false, 3500, ms(45)), Admit::Reject);
+        assert_eq!(gate.admit(session, false, 5500, ms(46)), Admit::Pass);
+        // Falling back: a newer keyframe from the tunnel takes it.
+        assert_eq!(gate.admit(tunnel, true, 9000, ms(300)), Admit::Pass);
+        assert_eq!(gate.admit(session, false, 8000, ms(301)), Admit::Reject);
+    }
+
+    #[test]
+    fn a_source_stuck_behind_the_gate_asks_for_a_keyframe() {
+        let t0 = std::time::Instant::now();
+        let ms = |n| t0 + std::time::Duration::from_millis(n);
+        let mut gate = Gate::default();
+        assert_eq!(gate.admit(2, true, 1000, ms(0)), Admit::Pass);
+        // The session went quiet; only the tunnel's P frames come.
+        assert_eq!(gate.admit(1, false, 2000, ms(100)), Admit::Reject);
+        assert_eq!(gate.admit(1, false, 3000, ms(260)), Admit::RejectAndAsk);
+        assert_eq!(gate.admit(1, false, 3500, ms(300)), Admit::Reject, "asked at most every 250 ms");
+        assert_eq!(gate.admit(1, false, 4000, ms(520)), Admit::RejectAndAsk);
+        assert_eq!(gate.admit(1, true, 4500, ms(540)), Admit::Pass);
+    }
 
     #[test]
     fn a_timestamp_slightly_ahead_of_the_clock_estimate_is_now() {

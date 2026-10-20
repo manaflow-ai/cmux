@@ -444,7 +444,7 @@ pub(crate) async fn run(
                 frame.carrier = Some(carrier.kind());
                 // Another source carries the video now (the Mac moves only
                 // at a keyframe): this source's late frames do not pass.
-                if !inner.admit(source, frame.keyframe) {
+                if !inner.admit(source, &frame) {
                     continue;
                 }
                 subscribers.retain(|tx| match tx.try_send(frame.clone()) {
