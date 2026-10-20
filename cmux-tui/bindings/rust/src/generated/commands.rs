@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 799b8337576dcd8bee3b1fe1fd6fd45ca0838886c6e828df95369ebbfa1dd913.
+// cmux-tui mux protocol 12, IR 5ef5e3bd466092fcd65c82de8cf841741ed50e0fad85a015af678348d3d770a2.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -3504,6 +3504,16 @@ pub struct SetTerminalKeepRequest {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SetTerminalResumeCommandRequest {
+    pub command: Nullable<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub surface: Optional<T::Id>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub terminal_id: Optional<String>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SetViewportPaneWidthRequest {
     pub pane: T::Id,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -5396,6 +5406,10 @@ impl CmuxClient {
 
     pub fn set_terminal_keep(&mut self, request: SetTerminalKeepRequest) -> Result<T::SetTerminalKeepResult> {
         self.execute(&SET_TERMINAL_KEEP_METADATA, &request)
+    }
+
+    pub fn set_terminal_resume_command(&mut self, request: SetTerminalResumeCommandRequest) -> Result<T::SetTerminalResumeCommandResult> {
+        self.execute(&SET_TERMINAL_RESUME_COMMAND_METADATA, &request)
     }
 
     pub fn set_viewport_pane_width(&mut self, request: SetViewportPaneWidthRequest) -> Result<SetViewportPaneWidthResult> {

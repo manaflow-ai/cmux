@@ -196,6 +196,44 @@ pub(super) fn set_terminal_keep(
     }))
 }
 
+pub(super) fn set_terminal_resume_command(
+    mux: &Arc<Mux>,
+    surface: Option<SurfaceId>,
+    terminal_id: Option<String>,
+    command: Option<String>,
+) -> anyhow::Result<Value> {
+    let terminal_id = hosted_terminal_id(mux, surface, terminal_id)?;
+    let stored = mux.set_terminal_resume_command(&terminal_id, command.as_deref())?;
+    Ok(json!({
+        "terminal_id": terminal_id,
+        "terminal_resource_id": mux.terminal_public_id_for_host(&terminal_id)?,
+        "resume_command": stored,
+    }))
+}
+
+/// The host id of the terminal named by exactly one of a PTY `surface` or
+/// a `terminal_id` (host or public id).
+fn hosted_terminal_id(
+    mux: &Arc<Mux>,
+    surface: Option<SurfaceId>,
+    terminal_id: Option<String>,
+) -> anyhow::Result<String> {
+    Ok(match (surface, terminal_id) {
+        (Some(surface), None) => {
+            let surface = get_surface(mux, surface)?;
+            require_pty(&surface)?;
+            let identity = mux.resource_terminal_host_identity(&surface);
+            identity.ok_or_else(|| anyhow::anyhow!("terminal_not_hosted"))?.terminal_id
+        }
+        (None, Some(terminal_id)) => {
+            let resolution = mux.resolve_terminal(&terminal_id)?;
+            let resolution = resolution.ok_or_else(|| anyhow::anyhow!("terminal_not_found"))?;
+            resolution.terminal.terminal_id
+        }
+        _ => anyhow::bail!("bad request: exactly one of surface or terminal_id"),
+    })
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(super) fn create_terminal(
     mux: &Arc<Mux>,

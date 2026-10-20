@@ -340,6 +340,9 @@ pub struct PresentationSnapshot {
     pub saved_screen_groups: Vec<super::SavedScreenGroupRecord>,
     /// Keep-layout records of live tabs by public tab id (`kept_tab_store`).
     pub kept_tabs: HashMap<String, super::KeptTabRecord>,
+    /// Resume commands of live terminals by public terminal id
+    /// (`terminal-resume-command-v1`, `terminal_resume_command_store`).
+    pub resume_commands: HashMap<String, String>,
 }
 
 /// The nine tab group colors. Frontends render them as muted tints.

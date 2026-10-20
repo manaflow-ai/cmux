@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 799b8337576dcd8bee3b1fe1fd6fd45ca0838886c6e828df95369ebbfa1dd913. */
+/* cmux-tui mux protocol 12, IR 5ef5e3bd466092fcd65c82de8cf841741ed50e0fad85a015af678348d3d770a2. */
 
 
 import type * as T from "./types.js";
@@ -2456,6 +2456,14 @@ export interface SetTerminalKeepRequest extends CmuxRequestBase {
   "terminal_id"?: (string) | null;
 }
 
+/** Protocol v12; authority: control. */
+export interface SetTerminalResumeCommandRequest extends CmuxRequestBase {
+  cmd: "set-terminal-resume-command";
+  "command": (string) | null;
+  "surface"?: (T.Id) | null;
+  "terminal_id"?: (string) | null;
+}
+
 /** Protocol v9; authority: control. */
 export interface SetViewportPaneWidthRequest extends CmuxRequestBase {
   cmd: "set-viewport-pane-width";
@@ -3070,6 +3078,7 @@ export type CmuxRequest =
   | SetTerminalCommandHistoryRequest
   | SetTerminalIdlePolicyRequest
   | SetTerminalKeepRequest
+  | SetTerminalResumeCommandRequest
   | SetViewportPaneWidthRequest
   | SetWindowTitleRequest
   | SetWorkspaceMetadataRequest
@@ -5023,6 +5032,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 12;
     capability: "terminal-reap-v1";
+    stream: null;
+  };
+  "set-terminal-resume-command": {
+    request: SetTerminalResumeCommandRequest;
+    result: T.SetTerminalResumeCommandResult;
+    authority: "control";
+    since: 12;
+    capability: "terminal-resume-command-v1";
     stream: null;
   };
   "set-viewport-pane-width": {

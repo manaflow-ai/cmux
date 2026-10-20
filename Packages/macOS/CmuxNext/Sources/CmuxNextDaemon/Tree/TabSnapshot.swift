@@ -51,6 +51,9 @@ public struct TabSnapshot: Sendable, Hashable, Decodable {
     public var end: TerminalTabEnd?
     /// The record version of an unadoptable host (`terminalState == .unadoptable`).
     public var hostRecordVersion: Int?
+    /// The command the terminal's new shell runs when it respawns or restarts
+    /// (`terminal-resume-command-v1`); nil when none is set and on older daemons.
+    public var resumeCommand: String?
 
     public init(
         surface: SurfaceID,
@@ -115,6 +118,7 @@ public struct TabSnapshot: Sendable, Hashable, Decodable {
         case surface, kind, name, title, size, dead, notification, url, pinned, cwd, remote, relaunch, conversation, end, app
         case terminalState = "terminal_state"
         case hostRecordVersion = "host_record_version"
+        case resumeCommand = "resume_command"
         case tabResourceID = "tab_resource_id"
         case contentResourceID = "content_resource_id"
         case terminalID = "terminal_id"
@@ -173,5 +177,6 @@ public struct TabSnapshot: Sendable, Hashable, Decodable {
         terminalState = try? c.decodeIfPresent(TerminalTabState.self, forKey: .terminalState)
         end = try? c.decodeIfPresent(TerminalTabEnd.self, forKey: .end)
         hostRecordVersion = try c.decodeIfPresent(Int.self, forKey: .hostRecordVersion)
+        resumeCommand = try c.decodeIfPresent(String.self, forKey: .resumeCommand)
     }
 }

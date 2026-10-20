@@ -139,21 +139,22 @@ nonisolated enum TerminalActionCatalog: ActionCatalogGroup {
                 id: "resumeCommandSet",
                 title: String(localized: "action.resumeCommandSet", defaultValue: "Set Resume Command…", bundle: .module),
                 keywords: ["resume", "fork"], category: .terminal, symbol: "play.circle", surfaces: [.contextMenu],
-                requires: [.terminalFocused], arguments: [CatalogArgument.commandString], targets: [.pane],
+                arguments: [CatalogArgument.commandString], targets: [.tab],
                 cliName: "terminal set-resume-command"
             ),
             ActionDescriptor(
                 id: "resumeCommandEdit",
                 title: String(localized: "action.resumeCommandEdit", defaultValue: "Edit Resume Command…", bundle: .module),
                 keywords: ["resume", "fork"], category: .terminal, symbol: "play.square", surfaces: [.contextMenu],
-                requires: [.terminalFocused], arguments: [CatalogArgument.commandString], targets: [.pane],
+                // Without a command it opens a prompt holding the current one.
+                arguments: [CatalogArgument.commandString.optional], targets: [.tab],
                 cliName: "terminal edit-resume-command"
             ),
             ActionDescriptor(
                 id: "resumeCommandClear",
                 title: String(localized: "action.resumeCommandClear", defaultValue: "Clear Resume Command", bundle: .module),
                 keywords: ["resume", "fork"], category: .terminal, symbol: "stop.circle", surfaces: [.contextMenu],
-                requires: [.terminalFocused], targets: [.pane], cliName: "terminal clear-resume-command"
+                targets: [.tab], cliName: "terminal clear-resume-command"
             ),
             ActionDescriptor(
                 id: "palette.terminalOpenDirectory",

@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "799b8337576dcd8bee3b1fe1fd6fd45ca0838886c6e828df95369ebbfa1dd913";
+pub const ir_sha256 = "5ef5e3bd466092fcd65c82de8cf841741ed50e0fad85a015af678348d3d770a2";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -1939,6 +1939,12 @@ pub const SetTerminalIdlePolicyResult = struct {
 
 pub const SetTerminalKeepResult = struct {
     keep: bool,
+    terminal_id: []const u8,
+    terminal_resource_id: wire.Field([]const u8) = .absent,
+};
+
+pub const SetTerminalResumeCommandResult = struct {
+    resume_command: wire.Nullable([]const u8),
     terminal_id: []const u8,
     terminal_resource_id: wire.Field([]const u8) = .absent,
 };
@@ -8812,6 +8818,25 @@ pub fn setTerminalKeep(client: anytype, request: SetTerminalKeepRequest) !wire.D
     );
 }
 
+pub const SetTerminalResumeCommandRequest = struct {
+    command: wire.Nullable([]const u8),
+    surface: wire.Field(Id) = .absent,
+    terminal_id: wire.Field([]const u8) = .absent,
+};
+
+pub fn setTerminalResumeCommand(client: anytype, request: SetTerminalResumeCommandRequest) !wire.Decoded(SetTerminalResumeCommandResult) {
+    return client.callTyped(
+        SetTerminalResumeCommandResult,
+        .{
+            .name = "set-terminal-resume-command",
+            .authority = "control",
+            .since = 12,
+            .capability = "terminal-resume-command-v1",
+        },
+        request,
+    );
+}
+
 pub const SetViewportPaneWidthRequest = struct {
     pane: Id,
     transaction: wire.Field(u64) = .absent,
@@ -11327,7 +11352,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 279;
+pub const command_count: usize = 280;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -11568,6 +11593,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "set-terminal-command-history", .authority = "local-admin", .since = 12, .capability = "terminal-command-history-v1", .stream = null },
     .{ .name = "set-terminal-idle-policy", .authority = "control", .since = 12, .capability = "terminal-idle-close-v1", .stream = null },
     .{ .name = "set-terminal-keep", .authority = "control", .since = 12, .capability = "terminal-reap-v1", .stream = null },
+    .{ .name = "set-terminal-resume-command", .authority = "control", .since = 12, .capability = "terminal-resume-command-v1", .stream = null },
     .{ .name = "set-viewport-pane-width", .authority = "control", .since = 9, .capability = "viewport-column-resize-v1", .stream = null },
     .{ .name = "set-window-title", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "set-workspace-metadata", .authority = "control", .since = 12, .capability = "workspace-metadata-v1", .stream = null },

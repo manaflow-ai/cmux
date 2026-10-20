@@ -729,6 +729,9 @@ class GeneratedClientMixin:
     def set_terminal_keep(self, keep: bool, *, surface: Union[Id, None, MissingType] = MISSING, terminal_id: Union[str, None, MissingType] = MISSING) -> SetTerminalKeepResult:
         return self._invoke_command('set-terminal-keep', SetTerminalKeepRequest(keep=keep, surface=surface, terminal_id=terminal_id))
 
+    def set_terminal_resume_command(self, command: Union[str, None], *, surface: Union[Id, None, MissingType] = MISSING, terminal_id: Union[str, None, MissingType] = MISSING) -> SetTerminalResumeCommandResult:
+        return self._invoke_command('set-terminal-resume-command', SetTerminalResumeCommandRequest(command=command, surface=surface, terminal_id=terminal_id))
+
     def set_viewport_pane_width(self, pane: Id, width: float, *, transaction: Union[int, None, MissingType] = MISSING) -> ViewportPaneWidthResult:
         return self._invoke_command('set-viewport-pane-width', SetViewportPaneWidthRequest(pane=pane, width=width, transaction=transaction))
 
@@ -1089,6 +1092,7 @@ GeneratedClientMixin.set_tab_pinned.__cmux_command__ = COMMANDS['set-tab-pinned'
 GeneratedClientMixin.set_terminal_command_history.__cmux_command__ = COMMANDS['set-terminal-command-history']
 GeneratedClientMixin.set_terminal_idle_policy.__cmux_command__ = COMMANDS['set-terminal-idle-policy']
 GeneratedClientMixin.set_terminal_keep.__cmux_command__ = COMMANDS['set-terminal-keep']
+GeneratedClientMixin.set_terminal_resume_command.__cmux_command__ = COMMANDS['set-terminal-resume-command']
 GeneratedClientMixin.set_viewport_pane_width.__cmux_command__ = COMMANDS['set-viewport-pane-width']
 GeneratedClientMixin.set_window_title.__cmux_command__ = COMMANDS['set-window-title']
 GeneratedClientMixin.set_workspace_metadata.__cmux_command__ = COMMANDS['set-workspace-metadata']

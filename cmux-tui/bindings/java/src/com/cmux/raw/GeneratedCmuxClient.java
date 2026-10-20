@@ -1212,6 +1212,11 @@ public abstract class GeneratedCmuxClient {
         return SetTerminalKeepResult.fromWire(result);
     }
 
+    public final SetTerminalResumeCommandResult setTerminalResumeCommand(SetTerminalResumeCommandRequest request) throws CmuxException {
+        Object result = execute(Commands.SET_TERMINAL_RESUME_COMMAND, request.toWire());
+        return SetTerminalResumeCommandResult.fromWire(result);
+    }
+
     public final ViewportPaneWidthResult setViewportPaneWidth(SetViewportPaneWidthRequest request) throws CmuxException {
         Object result = execute(Commands.SET_VIEWPORT_PANE_WIDTH, request.toWire());
         return ViewportPaneWidthResult.fromWire(result);

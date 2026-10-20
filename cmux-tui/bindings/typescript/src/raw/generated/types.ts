@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 799b8337576dcd8bee3b1fe1fd6fd45ca0838886c6e828df95369ebbfa1dd913. */
+/* cmux-tui mux protocol 12, IR 5ef5e3bd466092fcd65c82de8cf841741ed50e0fad85a015af678348d3d770a2. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -1101,6 +1101,12 @@ export type SetTerminalIdlePolicyResult = {
 
 export type SetTerminalKeepResult = {
   "keep": boolean;
+  "terminal_id": string;
+  "terminal_resource_id"?: (string) | null;
+};
+
+export type SetTerminalResumeCommandResult = {
+  "resume_command": (string) | null;
   "terminal_id": string;
   "terminal_resource_id"?: (string) | null;
 };
