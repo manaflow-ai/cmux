@@ -16,8 +16,11 @@ const ROW_ICON = rowIconSize(12);
 /// always show, in the Codex app's order, with "None" while empty; pull requests, background
 /// tasks and wakeups follow when there are any.
 /// Pull requests and sources are links, so they open, copy and open in a new tab as links do;
-/// an output opens the changes view at that file. A file the last turn changed is listed under
-/// Changes only. Following a link calls `onFollow`. A chat
+/// an output opens the changes view at that file. Outputs lists every file the chat changed, once
+/// (hq#2569 item 4, cx-0h4xq). A file the last turn changed, by a tool or as only its checkpoint
+/// knows (a shell command or formatter edited it), opens that turn's diff at the file; Changes is one row
+/// that opens the last turn's diff with its totals.
+/// Following a link calls `onFollow`. A chat
 /// with images or renders offers its gallery under Outputs (GalleryDialog.tsx). A chat whose
 /// subagents acpmux reports lists them with their live state (SubagentStatusList.tsx) in the
 /// Subagents place. The summary card (SummaryCard.tsx) draws it.
@@ -58,33 +61,60 @@ export function SummaryBody({
   subagents?: ReactNode;
 }) {
   const t = useT();
-  // A file the last turn changed shows once, under Changes (as in Codex); Outputs keeps the rest.
-  // A loaded checkpoint lists them under the repository root, outputs as the agent wrote them.
-  const changed = changes?.files ?? [];
-  const outputs =
-    changed.length > 0
-      ? summary.outputs.filter((output) => !changed.some((file) => changedByTools(file, [output])))
-      : summary.outputs;
+  // A loaded checkpoint lists its files under the repository root, outputs as the agent wrote them.
+  // A file the last turn changed opens that turn's diff, also when an earlier turn's edit tool made
+  // it an output: its last change is the one to show.
+  const lastTurn = changes?.files ?? [];
+  const named = new Set(summary.outputs.map((output) => output.path));
+  // The output a last-turn file is: the one with its path, else (a checkpoint file, under the repository
+  // root) the shortest output path ending in its path, so `index.ts` in one folder never takes another
+  // folder's `index.ts`, nor a root `package.json` a package's.
+  const outputOf = (file: (typeof lastTurn)[number]) =>
+    named.has(file.path)
+      ? file.path
+      : summary.outputs
+          .filter((output) => changedByTools(file, [output]))
+          .reduce<string | undefined>(
+            (best, output) => (!best || output.path.length < best.length ? output.path : best),
+            undefined,
+          );
+  const turnOf = new Map<string, (typeof lastTurn)[number]>();
+  const checkpointOnly: (typeof lastTurn)[number][] = [];
+  for (const file of lastTurn) {
+    const output = outputOf(file);
+    if (output === undefined) checkpointOnly.push(file);
+    else if (!turnOf.has(output)) turnOf.set(output, file);
+  }
+  const outputs = [
+    ...summary.outputs.map((output) => {
+      const turn = turnOf.get(output.path);
+      return turn ? { file: turn, inTurnDiff: true } : { file: output, inTurnDiff: false };
+    }),
+    ...checkpointOnly.map((file) => ({ file, inTurnDiff: true })),
+  ];
   return (
     <>
       <SummarySection
         title={t("summary.outputs")}
         fixed
         items={outputs}
-        row={(file) => (
-          <li key={file.path}>
-            <button
-              type="button"
-              className="acpmux-summary-row acpmux-summary-link"
-              disabled={!onOpenOutput}
-              onClick={() => onOpenOutput?.(file.path)}
-            >
-              <Icon name={file.created ? "file.new" : "file.text"} size={ROW_ICON} row />
-              <span className="acpmux-summary-text">{file.displayPath}</span>
-              <Counts additions={file.additions} deletions={file.deletions} />
-            </button>
-          </li>
-        )}
+        row={({ file, inTurnDiff }) => {
+          const open = inTurnDiff ? onOpenChanges : onOpenOutput;
+          return (
+            <li key={file.path}>
+              <button
+                type="button"
+                className="acpmux-summary-row acpmux-summary-link acpmux-summary-file"
+                disabled={!open}
+                onClick={() => open?.(file.path)}
+              >
+                <Icon name={file.created ? "file.new" : "file.text"} size={ROW_ICON} row />
+                <span className="acpmux-summary-text">{file.displayPath}</span>
+                <Counts additions={file.additions} deletions={file.deletions} />
+              </button>
+            </li>
+          );
+        }}
         footer={
           galleryCount > 0 &&
           onOpenGallery && (
@@ -133,10 +163,10 @@ export function SummaryBody({
         )}
       />
       {changes && (
-        // The last turn that edited files: its totals open its diff, each of its files that file's.
+        // The last turn that edited files: its totals open its diff (its files are under Outputs).
         <SummarySection
           title={t("header.changes")}
-          items={changes.files ?? []}
+          items={[]}
           lead={
             <li>
               <button
@@ -152,20 +182,7 @@ export function SummaryBody({
               </button>
             </li>
           }
-          row={(file) => (
-            <li key={file.path}>
-              <button
-                type="button"
-                className="acpmux-summary-row acpmux-summary-link acpmux-summary-file"
-                disabled={!onOpenChanges}
-                onClick={() => onOpenChanges?.(file.path)}
-              >
-                <Icon name={file.created ? "file.new" : "file.text"} size={ROW_ICON} row />
-                <span className="acpmux-summary-text">{file.displayPath}</span>
-                <Counts additions={file.additions} deletions={file.deletions} />
-              </button>
-            </li>
-          )}
+          row={() => null}
         />
       )}
       <SummarySection
