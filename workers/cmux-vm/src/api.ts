@@ -20,13 +20,16 @@ import {
   Unauthorized,
 } from "./errors.ts";
 import { SnapshotId, VmId } from "./lib/ids.ts";
+import { VmCreationsGroupDefinition } from "./api/creations.ts";
 import { SnapshotsGroupDefinition } from "./api/snapshots.ts";
 import { TerminalsGroupDefinition } from "./api/terminals.ts";
 import { ApiKeysGroupDefinition } from "./api/api-keys.ts";
 import { MeshDeviceGroupDefinition, MeshEnrollGroupDefinition, MeshGroupDefinition } from "./api/mesh.ts";
+import { OverlayServerDeviceGroupDefinition, OverlayServersGroupDefinition } from "./api/overlay-servers.ts";
 import { InitialVmNetwork, InitialVmNetworkReceipt } from "./api/initial-network.ts";
 import { ReplaceVmHttpsProxyRequest, VmHttpsProxyReceipt } from "./api/https-proxies.ts";
 import { VmImage, VmImageList, VmImageSelection } from "./api/images.ts";
+import { VmCreationKey } from "./lib/ids.ts";
 import { CreatedByCaller } from "./api/common.ts";
 import { VmInstanceIdentity, VmInstanceIdentityQuery } from "./api/instance-identity.ts";
 
@@ -93,9 +96,13 @@ export class Vm extends Schema.Class<Vm>("Vm")({
   }),
   createdAt: Schema.String,
   updatedAt: Schema.String,
+  creation: Schema.optional(Schema.Literal("pending")).annotations({
+    description: "Present while the create that made this VM has not finished: the VM could not be grown to the requested size. Retry that create with its Idempotency-Key or creationKey to finish it, or delete the VM.",
+  }),
 }) {}
 
 export class CreatedVm extends Vm.extend<CreatedVm>("CreatedVm")({
+  creationKey: Schema.optional(VmCreationKey),
   initialNetwork: Schema.optional(InitialVmNetworkReceipt),
   bootImage: Schema.optional(VmImage),
 }) {}
@@ -134,7 +141,7 @@ export const RequestedResources = Schema.Struct({
 }).annotations({
   identifier: "RequestedResources",
   description:
-    "Size of the new VM. Omitted axes keep the base image's size. The VM boots from the largest base size that fits within the request on every axis, then grows to the exact request. Growing is a second step after the create and is not atomic: if it fails, the new VM is deleted and the create answers 409. Sizes can only grow, so a VM booted from a snapshot cannot be made smaller than the snapshot.",
+    "Size of the new VM. Omitted axes keep the base image's size. The VM boots from the largest base size that fits within the request on every axis, then grows to the exact request. Growing is a second step after the create and is not atomic. A failed or unconfirmed grow retains the allocation and quota; inspect or retry the same creation intent, or cancel it. The error is 503, or 429 for capacity. Sizes can only grow, so a VM booted from a snapshot cannot be made smaller than the snapshot.",
 });
 
 /** Requested values are resource floors, so a retry never shrinks a VM. */
@@ -353,7 +360,7 @@ export class VmsGroup extends HttpApiGroup.make("vms")
         describe(
           "Create a VM",
           "vm:write",
-          "Refused with 402 when the tenant's plan does not include VMs and 429 at the tenant's VM quota. Dev/test tenants may not ask for an idle timeout over 300 seconds and default to 300; other tenants default to -1 (never pause for idleness). A retry with the same Idempotency-Key returns the first VM instead of creating another; the same key with a different body is 409. Keys with a resource allowlist cannot create. initialNetwork additionally requires vm:network; proxy destinations must be enabled by the deployment. When initialNetwork is requested, its receipt confirms the accepted policy. A missing receipt means the API does not support that request; do not assume the policy was applied.",
+          "Refused with 402 when the tenant's plan does not include VMs and 429 at the tenant's VM quota. Dev/test tenants may not ask for an idle timeout over 300 seconds and default to 300; other tenants default to -1 (never pause for idleness). When no Idempotency-Key is supplied, the API issues a public creationKey and journals the allocation. Save this handle and use it as Idempotency-Key for retries; a separate request without a key is a new intent. GET /v1/vm-creations can recover a lost server-issued handle. Unconfirmed allocations retain quota until reconciliation or verified cancellation. Server-issued handles never expire into permission to allocate again. A retry with the same Idempotency-Key returns the first VM instead of creating another; the same key with a different body is 409. Keys with a resource allowlist cannot create. initialNetwork additionally requires vm:network; proxy destinations must be enabled by the deployment. When initialNetwork is requested, its receipt confirms the accepted policy. A missing receipt means the API does not support that request; do not assume the policy was applied.",
         ),
       ),
   )
@@ -408,7 +415,7 @@ export class VmsGroup extends HttpApiGroup.make("vms")
       .setPath(VmPath)
       .setPayload(ForkVmRequest)
       .setHeaders(CreateHeaders)
-      .addSuccess(Vm, { status: 201 })
+      .addSuccess(CreatedVm, { status: 201 })
       .addError(BadRequest)
       .addError(Forbidden)
       .addError(NotFound)
@@ -420,7 +427,7 @@ export class VmsGroup extends HttpApiGroup.make("vms")
         describe(
           "Fork a VM into a new VM with the same memory and disk",
           "vm:write",
-          "Fork is a snapshot of the source followed by a create from that snapshot, so it costs more than a create and is not atomic. The source must be running or paused (409 otherwise). On success the intermediate snapshot is deleted. If the snapshot succeeds and the create fails, the answer is 503 ForkIncomplete with the kept snapshot's id, which belongs to the caller's tenant; a retry with the same Idempotency-Key creates from that snapshot without taking a second one. Billing, quota, idle-timeout and idempotency rules are those of create.",
+          "Fork is a snapshot of the source followed by a create from that snapshot, so it costs more than a create and is not atomic. A fresh source must be running or paused (409 otherwise); a retained snapshot or destination can be recovered after source deletion. On success the intermediate snapshot is deleted. If the snapshot succeeds and the create fails, the answer is 503 ForkIncomplete when allocation cannot be confirmed, with the kept snapshot's id and a server-issued creationKey when the caller omitted its key, which belongs to the caller's tenant; a retry with the same Idempotency-Key creates from that snapshot without taking a second one. Billing, quota, idle-timeout and idempotency rules are those of create.",
         ),
       ),
   )
@@ -518,6 +525,7 @@ export class FilesGroup extends HttpApiGroup.make("files")
 export class CmuxVmApi extends HttpApi.make("cmux-vm")
   .add(HealthGroup)
   .add(VmsGroup)
+  .add(VmCreationsGroupDefinition.middleware(Authentication))
   .add(ExecGroup)
   .add(FilesGroup)
   .add(SnapshotsGroupDefinition.middleware(Authentication))
@@ -528,6 +536,8 @@ export class CmuxVmApi extends HttpApi.make("cmux-vm")
   .add(MeshEnrollGroupDefinition)
   // No credential: the device's install-key signature authorizes its own reads and rotation (mesh M3, cx-0op.5).
   .add(MeshDeviceGroupDefinition)
+  .add(OverlayServersGroupDefinition.middleware(Authentication))
+  .add(OverlayServerDeviceGroupDefinition)
   .annotateContext(
     OpenApi.annotations({
       title: "cmux VM API",

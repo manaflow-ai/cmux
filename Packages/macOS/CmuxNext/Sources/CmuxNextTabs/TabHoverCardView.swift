@@ -282,7 +282,7 @@ final class TabHoverCardView: NSView {
             layer.backgroundColor = Palette.hoverFill.cgColor
         }
         layer.actions = landing ? ["contents": Motion.crossfadeAction] : nil
-        Motion.transaction(landing ? .crossfade : nil) { layer.contents = image }
+        Motion.hoverCards.transaction(landing ? .crossfade : nil) { layer.contents = image }
     }
 }
 

@@ -84,7 +84,7 @@ import Testing
                 // the row under the pointer); the old one clears with the hoverOut token, instant by default.
                 let old = try #require(list.rowViews[previous]), new = try #require(list.rowViews[key])
                 #expect(new.layer?.animation(forKey: "backgroundColor") == nil, "y=\(y): \(key)'s fill faded in late")
-                #expect((old.layer?.animation(forKey: "backgroundColor") != nil) == (Motion.duration(.hoverOut) > 0),
+                #expect((old.layer?.animation(forKey: "backgroundColor") != nil) == (Motion.feedback.duration(.hoverOut) > 0),
                         "y=\(y): \(previous)'s fill did not clear with the hoverOut token")
             }
             previous = list.hoveredKey ?? previous

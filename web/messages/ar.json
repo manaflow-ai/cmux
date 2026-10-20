@@ -1,4 +1,5 @@
 {
+  "guestCLI": { "useReasonSharedMachine": "مطلوب: هذه الآلة مشتركة مع الفريق" },
   "agentHarness": {
     "title": "تم اكتشاف إعداد harness",
     "selectionNotice": "لا يؤدي اختيار موفر إلى تشغيل هذه الـ harness أو تفعيلها.",

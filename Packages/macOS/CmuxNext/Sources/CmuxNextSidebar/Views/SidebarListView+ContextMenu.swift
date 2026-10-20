@@ -4,15 +4,8 @@ import AppKit
 extension SidebarListViewComponents {
     override func menu(for event: NSEvent) -> NSMenu? {
         let point = convert(event.locationInWindow, from: nil)
-        let hit = clickHit(at: point)
-        if case let .group(id)? = hit?.key {
-            // A right-click on a group opens its editor (cx-rcby, as Chrome's
-            // group bubble), like its more button; the editor's More Group
-            // Actions row shows the full menu (Lawrence 2026-10-14).
-            groupEditing.open(id)
-            return nil
-        }
         guard let contextMenuProvider else { return nil }
+        let hit = clickHit(at: point)
         let target: SidebarContextTarget
         switch hit?.key {
         case let .workspace(id)?:
@@ -21,8 +14,11 @@ extension SidebarListViewComponents {
                 reload(animated: true)
             }
             target = .workspaces(model.orderedSelection.isEmpty ? [id] : model.orderedSelection)
-        case .group?:
-            return nil
+        case let .group(id)?:
+            // A right-click on a group shows its one flat menu at once, as Finder and Safari
+            // do (Lawrence 2026-10-20: no second step through the editor's More row). A
+            // click on the name or the more button still opens the editor (cx-rcby).
+            target = .group(id)
         case let .section(id)?, let .emptySection(id)?, let .folder(id, _)?:
             target = .section(id)
         case let .tab(workspace, tab)?:

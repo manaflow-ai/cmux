@@ -53,8 +53,7 @@ extension SidebarListViewComponents {
         case let .group(group):
             // Arrow keys continue from this group; the ring is for keyboard focus only (cx-qno.17).
             SidebarGroupKeys(list: self).setFocus(group, ring: false)
-            // Every click toggles, also fast ones (cx-q5jw): the bar collapses or expands, and the
-            // chip opens its editor or, when this click's mouse-down closed it, leaves it closed.
+            // Every click toggles, also fast ones (cx-q5jw): the bar collapses or expands.
         case let .tab(workspace, tab):
             // Selected at once; the press stays so a drag can take the tab.
             model.send(.selectTab(workspace: workspace, tab: tab))
@@ -111,12 +110,14 @@ extension SidebarListViewComponents {
             // An empty saved group reopens; any other group toggles.
             if let g = model.group(group), g.isPinned, g.workspaces.isEmpty, g.items.isEmpty {
                 model.send(.openGroup(group))
-            } else if groupEditing.isOnChip(point, group: group) {
-                // The chip opens the group editor (cx-rcby); its chevron and
-                // the rest of the row toggle at once.
-                return groupEditing.open(group)
             } else {
+                // Lawrence 2026-10-20: a plain click anywhere on the header only collapses or
+                // expands it; the more button and a right-click open the editor and the menu.
+                // The fold draws itself (`foldGroup`, the group's rows only): no list reload after it. It is the
+                // user's own change, so it moves on the spring (calm-sidebar-movement).
+                model.noteUserIntent()
                 model.send(.toggleCollapse(.group(group)))
+                return
             }
         case let .section(section):
             model.send(.toggleCollapse(.section(section)))

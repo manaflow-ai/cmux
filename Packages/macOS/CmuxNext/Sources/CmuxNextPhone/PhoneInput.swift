@@ -10,9 +10,10 @@ public struct PhonePoint: Sendable, Hashable, Codable {
     }
 }
 
-/// A hardware button.
+/// A hardware button. `back` and `appSwitch` exist on Android only.
 public enum PhoneButton: String, Sendable, Hashable, Codable, CaseIterable {
     case home, lock, volumeUp = "volume-up", volumeDown = "volume-down", siri
+    case back, appSwitch = "app-switch"
 }
 
 /// One thing a person or agent does to the phone. Every input sent through
@@ -25,6 +26,16 @@ public enum PhoneInput: Sendable, Hashable {
     case openURL(URL)
     /// Puts text on the phone's clipboard (no typing).
     case pasteboard(String)
+    /// Switches the system between light and dark mode.
+    case appearance(PhoneAppearance)
+    /// Sets the simulated GPS position.
+    case location(latitude: Double, longitude: Double)
+    /// Sets the system language and region ("ja_JP"); apps see it on their next launch.
+    case locale(String)
+    /// Installs an app: a `.app` folder on iOS, an `.apk` on Android.
+    case install(URL)
+    /// Launches an installed app by its bundle id or package name.
+    case launch(String)
 
     /// The capability the backend needs for this input.
     public var requiredCapability: PhoneCapabilities {
@@ -34,6 +45,10 @@ public enum PhoneInput: Sendable, Hashable {
         case .button: .buttons
         case .openURL: .openURL
         case .pasteboard: .pasteboard
+        case .appearance: .appearance
+        case .location: .location
+        case .locale: .locale
+        case .install, .launch: .apps
         }
     }
 
@@ -46,6 +61,11 @@ public enum PhoneInput: Sendable, Hashable {
         case .button: "button"
         case .openURL: "open-url"
         case .pasteboard: "pasteboard"
+        case .appearance: "appearance"
+        case .location: "location"
+        case .locale: "locale"
+        case .install: "install"
+        case .launch: "launch"
         }
     }
 }

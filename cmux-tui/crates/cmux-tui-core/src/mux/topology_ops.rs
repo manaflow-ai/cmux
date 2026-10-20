@@ -87,6 +87,11 @@ impl Mux {
         size: Option<(u16, u16)>,
         extra_fields: Map<String, Value>,
     ) -> anyhow::Result<Arc<Surface>> {
+        if let Some(dock) = pane
+            && self.with_state(|state| lone_pinned_dock_taking_no_tabs(state, dock))
+        {
+            return self.new_browser_column_beside_lone_dock(actor, url, dock, size, extra_fields);
+        }
         let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
         let selectors = {
             let state = self.state.lock().unwrap();
@@ -115,6 +120,7 @@ impl Mux {
         let mut fields = Map::from_iter([("url".into(), Value::String(url))]);
         fields.extend(extra_fields);
         tab_strip::tab_slot::insert_field(&mut fields, pane);
+        tab_strip::reopen_identity::insert_field(&mut fields);
         if let Some((cols, rows)) = size {
             let (cell_width, cell_height) = self.cell_pixel_size();
             fields.insert("width_px".into(), Value::from(u64::from(cols) * u64::from(cell_width)));
@@ -299,6 +305,7 @@ impl Mux {
         Self::insert_cell_size(&mut fields, size);
         Self::insert_spawn_options(&mut fields, spawn);
         tab_strip::tab_slot::insert_field(&mut fields, pane);
+        tab_strip::reopen_identity::insert_field(&mut fields);
         let commit = self.commit_ordinary_topology_operation_by(
             actor,
             ResourceOperation::TabCreateTerminal,
@@ -672,5 +679,39 @@ impl Mux {
     ) -> anyhow::Result<ResourcePatchCommit> {
         let mutation = WorkspaceMutation::local("cmux-tui", actor.clone());
         self.commit_resource_topology_operation(operation, selectors, fields, None, &mutation)
+    }
+}
+
+impl Mux {
+    /// `pinned-dock-alone-v1`: a browser or conversation tab made in Home's
+    /// pinned dock alone (which takes no tab) opens in a new column right of
+    /// the dock, in one `pane.split` commit, as wide as a link Home opens
+    /// there. A background tab (`frontend-browser-activate-v1`) leaves the
+    /// focus where it was.
+    fn new_browser_column_beside_lone_dock(
+        self: &Arc<Self>,
+        actor: &Actor,
+        url: String,
+        dock: PaneId,
+        size: Option<(u16, u16)>,
+        mut fields: Map<String, Value>,
+    ) -> anyhow::Result<Arc<Surface>> {
+        let background =
+            fields.remove(browser_tab_create::ACTIVATE_FIELD) == Some(Value::Bool(false));
+        fields.remove(browser_tab_create::AFTER_FIELD);
+        fields.insert(PANE_BROWSER_URL_FIELD.into(), Value::String(url));
+        let focused = self.with_state(|state| state.active_pane());
+        let surface = self.split_browser_pane_with_fields_as(
+            actor,
+            dock,
+            "right",
+            Some(LONE_DOCK_NEIGHBOR_WIDTH),
+            fields,
+            size,
+        )?;
+        if background && let Some(focused) = focused {
+            self.focus_pane_as(actor, focused);
+        }
+        Ok(surface)
     }
 }

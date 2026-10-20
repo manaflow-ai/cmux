@@ -8,13 +8,15 @@
 //! render it in place.
 //!
 //! Invariant: a screen with columns always keeps at least one scrolling
-//! column. `set-column-dock` refuses a change that would break it, and
-//! `normalize_dock_columns` (model/layout_columns.rs) restores it after a removal.
+//! column, except a lone pinned column (`pinned-dock-alone-v1`: Home's dock
+//! with nothing beside it). `set-column-dock` refuses a change that would
+//! break it, and `normalize_dock_columns` (model/layout_columns.rs) restores
+//! it after a removal.
 
 use super::*;
 use crate::model::{
     ColumnDock, DockEdge, DockMode, DockRole, LayoutColumn, LayoutMutationKey, LayoutResizeOwner,
-    dock_columns_are_consistent, dock_flags_are_consistent,
+    dock_columns_are_consistent, dock_flags_are_consistent, flags_are_lone_pinned,
 };
 
 /// `reason_code` / `error_code` of every refusal that would undock, move,
@@ -214,7 +216,9 @@ pub(crate) fn reduce_column_dock(
         }
     }
     next[index] = dock;
-    if next.iter().all(Option::is_some) {
+    // `pinned-dock-alone-v1`: a lone pinned column (Home with nothing beside it) needs no
+    // scrolling column.
+    if next.iter().all(Option::is_some) && !flags_are_lone_pinned(&next) {
         return Err(ColumnDockError::LastScrollingColumn);
     }
     debug_assert!(dock_flags_are_consistent(&next));

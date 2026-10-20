@@ -1,6 +1,6 @@
 // l10n-allow-file: gallery fixtures, not shipped UI.
 import { settingsPageEntry, type PageFixtureStep, type SettingsPageVariant } from "../../gallery/format";
-import type { AccountsRow, AccountsState, HostLists } from "./ops";
+import type { AccountsCmux, AccountsRow, AccountsState, HostLists } from "./ops";
 import { categories, homes } from "./categories";
 import { mockThemeColors } from "./mockThemes";
 import { schema } from "./schema";
@@ -38,10 +38,40 @@ const account: AccountsRow = {
   confirm: null,
   paste: null,
 };
+const cmuxSignedIn: AccountsCmux = {
+  title: "cmux Account",
+  detail: "s…@e…",
+  status: "Signed in",
+  statusKind: "success",
+  busy: false,
+  buttons: [
+    button("cmux.switchAccount", "Switch Account…"),
+    { ...button("cmux.signOut", "Sign Out"), destructive: true },
+  ],
+  note: null,
+  error: null,
+};
+const cmuxSignedOut: AccountsCmux = {
+  ...cmuxSignedIn,
+  detail: null,
+  status: "Signed out",
+  statusKind: "attention",
+  buttons: [button("cmux.signIn", "Sign In to cmux")],
+  error: "Sign-in did not finish: Sign-in timed out. Check your connection and try again. (TIMED_OUT)",
+};
+const cmuxSigningIn: AccountsCmux = {
+  ...cmuxSignedIn,
+  detail: null,
+  status: "Signing in…",
+  statusKind: "neutral",
+  busy: true,
+  buttons: [button("cmux.continueInBrowser", "Open in Browser"), button("cmux.cancelSignIn", "Cancel")],
+  note: "Finish signing in in your browser. If no page opened, choose Open in Browser.",
+};
 const accounts = (patch: Partial<AccountsRow> = {}, state: Partial<AccountsState> = {}): AccountsState => ({
   refresh: "Refresh",
   refreshing: false,
-  signIn: null,
+  cmux: cmuxSignedIn,
   removeTitle: "Remove from CodeRouter",
   groups: [{ id: "sample", title: "Sample providers", rows: [{ ...account, ...patch }] }],
   ...state,
@@ -692,6 +722,15 @@ Object.assign(variants, {
     steps: [wait("[data-agent-harness]")],
     note: "Every harness acpmux knows: kind, source, a probe problem; Check and Remove on user profiles.",
   }),
+  // Settings > Agents > Chiefs (u2586): every Chief; a row opens the same editor as Home.
+  "agents-chiefs": variant("agents", {
+    steps: [wait('[data-card="chiefs"] [data-chief]')],
+    note: "Chiefs: picture, name, role, backend and a Locked badge; New Chief opens the editor.",
+  }),
+  "agents-chief-editor": variant("agents", {
+    steps: [click('[data-chief="agent_release"]'), wait('[data-card="chiefs"] section.chief-editor')],
+    note: "A Chief row opens its editor in the card: backend, lock and history, never a dialog.",
+  }),
   "agents-add-custom": variant("agents", {
     focus: "agents.add",
     steps: [wait("[data-agents-custom]")],
@@ -716,7 +755,11 @@ Object.assign(variants, {
     note: "An acpmux without the operations: the CLI commands, no Add, Check or Remove.",
   }),
   "agents-empty": variant("agents", { agents: { harnesses: [] }, note: "No harness: the empty line." }),
-  "accounts-empty": variant("accounts", { accounts: accounts({}, { groups: [], signIn: "Sign in to cmux" }) }),
+  "accounts-empty": variant("accounts", { accounts: accounts({}, { groups: [], cmux: cmuxSignedOut }) }),
+  "accounts-cmux-signing-in": variant("accounts", {
+    accounts: accounts({}, { cmux: cmuxSigningIn }),
+    note: "Sign In to cmux in progress: open it in the browser, or cancel.",
+  }),
   "accounts-refreshing": variant("accounts", {
     accounts: accounts(
       { busy: true, status: "Refreshing", statusKind: "neutral", buttons: [button("reauth", "Re-authenticate", true)] },
@@ -840,6 +883,7 @@ export default settingsPageEntry({
     "pages/settings/components/AccountsSection.tsx",
     "pages/settings/components/AgentHarnesses.tsx",
     "pages/settings/components/ComputerUseCard.tsx",
+    "pages/settings/components/ChiefsCard.tsx#ChiefsCard",
     "pages/settings/components/HarnessesCard.tsx",
     "pages/settings/components/AgentHarnesses.tsx#AgentHarnesses",
     "pages/settings/components/ActionRow.tsx",
