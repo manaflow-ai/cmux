@@ -267,7 +267,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         }
         self.summary = .cloud(summary)
         summaryGeneration &+= 1
-        if previousDesktopPort != summary.desktopPort {
+        if previousDesktopPort != summary.runtime?.desktopPort {
             portsCache = nil
             portDiscovery.invalidate()
         }
