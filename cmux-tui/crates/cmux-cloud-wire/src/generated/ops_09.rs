@@ -4,6 +4,84 @@
 #[allow(unused_imports)]
 use super::*;
 
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamIntegrationReleaseLockParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
+wire_enum! {
+    TeamIntegrationReleaseLockResultReleased {
+        Sso = "sso",
+        Mdm = "mdm",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamIntegrationReleaseLockResult {
+    pub released: TeamIntegrationReleaseLockResultReleased,
+}
+
+wire_errors! {
+    /// The error codes team.integration.release_lock declares.
+    TeamIntegrationReleaseLockError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        RevisionConflict = "revision.conflict",
+        SelectorNotFound = "selector.not_found",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Page a team's members by user id (keyset: pass next_cursor as cursor), optionally one role.
+    TeamMembersListOp {
+        name: "team.members.list",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:TeamDO",
+        risk: "read",
+        principals: [Session, Install],
+        params: TeamMembersListParams,
+        result: TeamMembersListResult,
+        error: TeamMembersListError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamMembersListParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub team: Option<TeamId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cursor: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limit: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub role: Option<TeamRole>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamMembersListResult {
+    pub team: TeamId,
+    pub members: Vec<TeamMember>,
+    pub member_count: WireNumber,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seat_count: Option<WireNumber>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub no_owner: Option<bool>,
+    pub next_cursor: Option<String>,
+    pub revision: String,
+}
+
+wire_errors! {
+    /// The error codes team.members.list declares.
+    TeamMembersListError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+    }
+}
+
 wire_op! {
     /// Remove a member from the team. Owners remove admins; admins remove members, guests and billing members; an owner must be demoted in Stack first. In a person's session only.
     TeamMembersRemoveOp {
@@ -818,72 +896,4 @@ pub struct TeamVmSshCertRevokeParams {
 pub struct TeamVmSshCertRevokeResult {
     pub revoked: Vec<i64>,
     pub krl_version: i64,
-}
-
-wire_errors! {
-    /// The error codes team_vm.ssh_cert.revoke declares.
-    TeamVmSshCertRevokeError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        OwnerUnreachable = "owner.unreachable",
-        RevisionConflict = "revision.conflict",
-        TeamVmSshCaNotConfigured = "team_vm.ssh_ca_not_configured",
-        TeamVmSshRevocationsFull = "team_vm.ssh_revocations_full",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Show the team VM: its state, epoch and active wake leases.
-    TeamVmStatusOp {
-        name: "team_vm.status",
-        class: Read,
-        idempotency: Forbidden,
-        owner: "cloud:TeamVmDO",
-        risk: "read",
-        principals: [Session, Install],
-        params: TeamVmStatusParams,
-        result: TeamVmView,
-        error: TeamVmStatusError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamVmStatusParams {}
-
-wire_errors! {
-    /// The error codes team_vm.status declares.
-    TeamVmStatusError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-    }
-}
-
-wire_op! {
-    /// Accept the risk of a team VM tainted by a member removal and keep using it: members get certificates again and the VM's install may bind. Owners and admins only, in a person's session; names the tainted epoch; audited.
-    TeamVmTaintAcceptOp {
-        name: "team_vm.taint.accept",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:TeamDO",
-        risk: "destructive",
-        principals: [Session],
-        params: TeamVmTaintAcceptParams,
-        result: TeamVmTaintAcceptResult,
-        error: TeamVmTaintAcceptError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamVmTaintAcceptParams {
-    pub epoch: i64,
-    pub users: Vec<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamVmTaintAcceptResult {
-    pub epoch: i64,
-    pub accepted_by: String,
-    pub accepted_at: i64,
 }

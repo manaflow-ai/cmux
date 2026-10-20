@@ -82,3 +82,13 @@ test("the working dots are the only running motion: Thinking has no shimmer", as
   expect(css).not.toContain("cv-thinking-sweep");
   expect(css).toMatch(/animation: cv-working-dot 2s /);
 });
+
+// Find counts and visits only transcript rows (findMatches skips the working row), so the status
+// line must not be painted either, or searching the running command highlights a match the count
+// never reaches (chatFind.ts paintFindHighlights skips [data-find-skip]).
+test("Find skips the status line: it is not a match the count can reach", () => {
+  const skipped = (html: string) => /^<div class="cv-worked[^"]*" data-find-skip="/.test(html);
+  expect(skipped(drawn(statusLine([call("bun test", "in_progress")])))).toBe(true);
+  expect(skipped(drawn(statusLine([call("git log", "completed")])))).toBe(true);
+  expect(skipped(renderToStaticMarkup(<Thinking />))).toBe(true);
+});

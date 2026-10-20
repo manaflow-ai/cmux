@@ -397,9 +397,10 @@ export type ConversationLayout = {
   totalHeight: number;
 };
 
-/// Metrics of conversation/conversation.css (`--cv-font-size`, `--cv-line-height`, `.cv-*`).
-const MEASURE_FONT = "14px system-ui";
-const MESSAGE_LINE_HEIGHT = 22.75;
+/// Metrics of conversation/conversation.css (`--cv-font-size`, `--cv-line-height`, `.cv-*`): the
+/// text font, its line and the code sizes follow the user's chat look (chatDisplay.ts), 14px
+/// system-ui on 22.75px lines and 12px code on 20px lines by default.
+const metrics = () => currentChatMetrics();
 /// Vertical padding of a user bubble (`.cv-user__bubble`).
 const USER_BUBBLE_PADDING = 16;
 /// The status line under a queued prompt (`.cv-user__status`: 4px above a 16px line).
@@ -414,12 +415,10 @@ const BLOCK_GAP = 14;
 const LIST_INDENT = 28;
 const QUOTE_INDENT = 21;
 /// Code cards: a 45.5px header over 12px monospace on 20px lines that never wraps, 13px inset.
-const CODE_LINE_HEIGHT = 20;
 const CODE_CHROME = 58.5;
 const CODE_PADDING = 13;
 /// Table rows: 23px lines with 17px of padding.
 const TABLE_ROW_HEIGHT = 40;
-const CODE_CHAR_WIDTH = 7.3;
 const SCROLLBAR_HEIGHT = 15;
 /// Where text can't be measured (no canvas), a generous character width.
 const FALLBACK_CHAR_WIDTH = 8;
@@ -538,7 +537,7 @@ function fallbackRowHeight(row: AcpmuxRow, width: number): number {
     row.kind === "typing"
   )
     return 37;
-  return 24 + chromeHeight(row) + textLines * MESSAGE_LINE_HEIGHT;
+  return 24 + chromeHeight(row) + textLines * metrics().lineHeight;
 }
 
 /// A link target the page opens: absolute http and https only (replyHref.ts).
@@ -561,20 +560,22 @@ export function measuredText(tokens: Token[] | undefined, fallback: string): str
 }
 
 function textHeight(text: string, width: number, prepared: Map<string, PreparedText | null>): number {
-  let measured = prepared.get(text);
+  const { measureFont, lineHeight } = metrics();
+  // Keyed by font too: a new chat font measures the text again.
+  const key = `${measureFont}\n${text}`;
+  let measured = prepared.get(key);
   if (measured === undefined) {
     try {
-      measured = prepare(text, MEASURE_FONT, { whiteSpace: "pre-wrap" });
+      measured = prepare(text, measureFont, { whiteSpace: "pre-wrap" });
     } catch {
       measured = null;
     }
-    prepared.set(text, measured);
+    prepared.set(key, measured);
   }
-  if (measured) return layout(measured, width, MESSAGE_LINE_HEIGHT).height;
+  if (measured) return layout(measured, width, lineHeight).height;
   const perLine = Math.max(24, Math.floor(width / FALLBACK_CHAR_WIDTH));
   return (
-    text.split("\n").reduce((lines, line) => lines + Math.max(1, Math.ceil(line.length / perLine)), 0) *
-    MESSAGE_LINE_HEIGHT
+    text.split("\n").reduce((lines, line) => lines + Math.max(1, Math.ceil(line.length / perLine)), 0) * lineHeight
   );
 }
 
@@ -592,7 +593,7 @@ function listHeight(list: Tokens.List, width: number, prepared: Map<string, Prep
     return (
       sum +
       Math.max(
-        MESSAGE_LINE_HEIGHT,
+        metrics().lineHeight,
         own + nested.reduce((total, child) => total + listHeight(child, inner, prepared), 0),
       )
     );
@@ -614,8 +615,9 @@ function blockHeight(block: Token, width: number, prepared: Map<string, Prepared
       return 2;
     case "code": {
       const lines = (block as Tokens.Code).text.split("\n");
-      const scrolls = lines.some((line) => line.length * CODE_CHAR_WIDTH > width - CODE_PADDING);
-      return CODE_CHROME + lines.length * CODE_LINE_HEIGHT + (scrolls ? SCROLLBAR_HEIGHT : 0);
+      const { codeCharWidth, codeLineHeight } = metrics();
+      const scrolls = lines.some((line) => line.length * codeCharWidth > width - CODE_PADDING);
+      return CODE_CHROME + lines.length * codeLineHeight + (scrolls ? SCROLLBAR_HEIGHT : 0);
     }
     case "table":
       return (1 + (block as Tokens.Table).rows.length) * TABLE_ROW_HEIGHT;
@@ -815,6 +817,7 @@ import { agentName } from "./agents";
 import { type Translate, translate } from "./i18n";
 import { lastBlockBoundary } from "./conversation/incrementalMarkdown";
 import { chatColumn, type ChatColumn } from "./chatWidth";
+import { currentChatMetrics } from "./chatDisplay";
 
 /// The pane's fallback accessible name and problem-only header status.
 export function paneHeader(

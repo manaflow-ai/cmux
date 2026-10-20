@@ -382,6 +382,14 @@ export async function scheduleAttemptRetention(input: {
  * stored a VM for this attempt: then nothing else owns the VM (the create is
  * idempotent per attempt), and a VM the reaper already destroyed and cleared
  * is never handed back to it. The fenced worker's other state is not written.
+ *
+ * A retention deadline alone does not mean a VM exists: a replacement lease
+ * that fails the attempt before creating one also sets it. Adoption therefore
+ * ignores the deadline and keys "nothing to reap" on the VM id and on the
+ * journal, and it journals the adopted id itself so that a VM it handed to the
+ * reaper, once destroyed and cleared, cannot be adopted a second time. A
+ * terminal status means no live lease owns the attempt, and a promoted VM is
+ * always recorded on the row or in the journal, so neither can be adopted.
  */
 async function adoptFencedAttemptVm(input: {
   readonly runId: string;
@@ -389,23 +397,38 @@ async function adoptFencedAttemptVm(input: {
   readonly leaseGeneration: number;
   readonly providerVmId: string;
 }): Promise<typeof runAttempts.$inferSelect | undefined> {
-  const nowAt = now();
-  return (await cloudDb().update(runAttempts).set({
-    providerVmId: input.providerVmId,
-    terminalRetainUntil: nowAt,
-    cleanupLeaseToken: null,
-    cleanupLeaseExpiresAt: null,
-    updatedAt: nowAt,
-  }).where(and(
-    eq(runAttempts.id, input.attemptId),
-    eq(runAttempts.runId, input.runId),
-    gt(runAttempts.leaseGeneration, input.leaseGeneration),
-    inArray(runAttempts.status, ["succeeded", "failed", "cancelled"]),
-    isNull(runAttempts.providerVmId),
-    isNull(runAttempts.terminalRetainUntil),
-    isNull(runAttempts.cleanupLeaseToken),
-    sql`not exists (select 1 from run_events where run_events.attempt_id = ${input.attemptId} and run_events.payload->>'providerVmId' is not null)`,
-  )).returning())[0];
+  return cloudDb().transaction(async (tx) => {
+    // Same lock order as ingestRunEvent, which allocates journal sequences.
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${input.runId}, 0))`);
+    await lockRun(tx, input.runId);
+    await lockAttempt(tx, input.runId, input.attemptId);
+    const nowAt = now();
+    const adopted = (await tx.update(runAttempts).set({
+      providerVmId: input.providerVmId,
+      terminalRetainUntil: nowAt,
+      cleanupLeaseToken: null,
+      cleanupLeaseExpiresAt: null,
+      updatedAt: nowAt,
+    }).where(and(
+      eq(runAttempts.id, input.attemptId),
+      eq(runAttempts.runId, input.runId),
+      gt(runAttempts.leaseGeneration, input.leaseGeneration),
+      inArray(runAttempts.status, ["succeeded", "failed", "cancelled"]),
+      isNull(runAttempts.providerVmId),
+      isNull(runAttempts.cleanupLeaseToken),
+      sql`not exists (select 1 from run_events where run_events.attempt_id = ${input.attemptId} and run_events.payload->>'providerVmId' is not null)`,
+    )).returning())[0];
+    if (!adopted) return undefined;
+    await tx.insert(runEvents).values({
+      runId: input.runId,
+      attemptId: input.attemptId,
+      sequence: await nextSequence(tx, input.runId),
+      externalId: `provider-vm-adopted:${input.leaseGeneration}`,
+      kind: "attempt.heartbeat",
+      payload: { providerVmId: input.providerVmId, adoptedFromLeaseGeneration: input.leaseGeneration },
+    });
+    return adopted;
+  });
 }
 
 type LeaseInput = { readonly runId: string; readonly attemptId: string; readonly leaseToken: string; readonly leaseGeneration: number };

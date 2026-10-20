@@ -19,7 +19,7 @@ export function Thinking({
   const timed = !status && since !== undefined;
   const time = useTicking(timed, now);
   return (
-    <div className="cv-worked">
+    <div className="cv-worked" data-find-skip>
       <WorkingMark />
       <output className="cv-thinking">{status ?? t("thinking")}</output>
       {timed && <span className="cv-worked__time">{formatDuration(Math.max(0, time - since))}</span>}

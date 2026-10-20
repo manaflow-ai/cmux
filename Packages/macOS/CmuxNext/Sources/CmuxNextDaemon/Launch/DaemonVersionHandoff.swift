@@ -158,6 +158,16 @@ extension DaemonLauncher {
         return await requestHandoff(identity: identity, using: connection)
     }
 
+    /// The person confirmed "Restart cmux-tui" (a server update, plans/cmux-next/server-updates-DESIGN.md):
+    /// hand the running daemon off so the next `ensure` starts the bundled build. Terminals keep
+    /// running, as in every handoff. Once per daemon process; false for an external binary (it
+    /// would start as itself again) and when the daemon refused.
+    public func handOffForUpdate(identity: DaemonIdentity, using connection: DaemonConnection) async -> Bool {
+        guard configuration.binaryIsBundled,
+              handoff.begin(bundled: "update:\(identity.pid)", pid: identity.pid) else { return false }
+        return await requestHandoff(identity: identity, using: connection)
+    }
+
     /// Sent with no request of `connection` in flight; requests made meanwhile go to the next
     /// daemon (`DaemonConnection.quietHandoff`), so a handoff never cuts a Home send.
     private func requestHandoff(identity: DaemonIdentity, using connection: DaemonConnection) async -> Bool {

@@ -6,8 +6,10 @@ import type { AcpmuxRow } from "./model";
  * a user message, an assistant answer of 1-5 sentences (a three-item list when
  * turn % 3 == 0, a code block when turn % 7 == 0) and a turn summary in place
  * of the native turn end, so the row mix and heights resemble a real session.
+ * `short`: one-line prompts answered "ok N", as the Codex reference chat the thread
+ * minimap's density is compared with (#20560).
  */
-export function syntheticRows(count: number): AcpmuxRow[] {
+export function syntheticRows(count: number, mix: "mixed" | "short" = "mixed"): AcpmuxRow[] {
   const rows: AcpmuxRow[] = [];
   let seq = 0;
   const next = (row: Omit<AcpmuxRow, "version" | "at">) => {
@@ -16,6 +18,12 @@ export function syntheticRows(count: number): AcpmuxRow[] {
   };
   const turns = Math.max(1, Math.floor(count / 3));
   for (let turn = 0; turn < turns; turn += 1) {
+    if (mix === "short") {
+      next({ id: `synthetic-user-${turn}`, kind: "user", text: `Reply with only the word ok and the number ${turn}.` });
+      next({ id: `synthetic-assistant-${turn}`, kind: "assistant", text: `ok ${turn}` });
+      next({ id: `synthetic-end-${turn}`, kind: "turnSummary", durationMs: 1_000, toolCount: 0, status: "completed" });
+      continue;
+    }
     next({
       id: `synthetic-user-${turn}`,
       kind: "user",

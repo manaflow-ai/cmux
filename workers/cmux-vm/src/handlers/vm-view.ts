@@ -12,7 +12,7 @@ const limitOf = (value: number | null | undefined): number | null => (value === 
 /** The public view: the cmux id, the ownership row's name and labels, and an allowlist of provider fields. */
 export const toVm = (
   id: VmId,
-  row: { readonly displayName: string | null; readonly labels: Readonly<Record<string, string>> },
+  row: { readonly displayName: string | null; readonly labels: Readonly<Record<string, string>>; readonly committed?: boolean },
   upstream: UpstreamVm,
 ): Vm =>
   new Vm({
@@ -30,4 +30,5 @@ export const toVm = (
     autoDeleteSeconds: limitOf(upstream.autoDeleteSeconds),
     createdAt: upstream.createdAt,
     updatedAt: upstream.updatedAt,
+    ...(row.committed === false ? { creation: "pending" as const } : {}),
   });
