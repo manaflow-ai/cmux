@@ -10,8 +10,8 @@ public import AppKit
 /// in the choice list, so TunableStore drops it at load and the look is the
 /// `subtle` default.
 public nonisolated enum AttentionHighlightLook: String, Sendable, CaseIterable, Hashable, TunableChoice {
-    /// The style's animation runs (a blink by default), then the ring rests
-    /// faint (the default). Steady and Reduce Motion fade in to the faint ring.
+    /// The default. A blink or pulse runs, then the ring rests faint; the steady
+    /// ring (opt-in; the default style is no ring) swells in once and rests clearly visible.
     case subtle
     /// The ring flashes and rests at full strength (the look before cx-epgo).
     case strong
@@ -30,6 +30,16 @@ public nonisolated enum AttentionHighlightLook: String, Sendable, CaseIterable, 
     public var restingOpacity: Float {
         switch self {
         case .subtle: 0.4
+        case .strong: 1
+        case .flash: 0
+        }
+    }
+
+    /// The steady ring's opacity (an opt-in style; the default is no ring): clearly visible,
+    /// since it has no blink to catch the eye (Leo, 2026-10-14).
+    public var steadyOpacity: Float {
+        switch self {
+        case .subtle: 0.75
         case .strong: 1
         case .flash: 0
         }
