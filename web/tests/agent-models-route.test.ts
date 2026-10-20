@@ -69,17 +69,32 @@ describe("agent models route", () => {
     });
 
     expect(agentModelCatalog.providers.minimax).toEqual({
-      defaultModel: "MiniMax-M3",
+      defaultModel: "MiniMax-M3.1-Flash",
       models: [
+        {
+          id: "MiniMax-M3.1-Flash",
+          label: "MiniMax M3.1 Flash",
+          contextWindow: 1000000,
+          supportsOneMillion: true,
+        },
         {
           id: "MiniMax-M3",
           label: "MiniMax M3",
           contextWindow: 1000000,
           supportsOneMillion: true,
         },
-        { id: "MiniMax-M2.7", label: "MiniMax M2.7", contextWindow: 204800 },
       ],
     });
+  });
+
+  test("serializes the current MiniMax choices with Flash first", async () => {
+    const response = await GET(new Request("https://cmux.test/api/agent-models"));
+    const catalog = await response.json();
+    expect(catalog.providers.minimax.defaultModel).toBe("MiniMax-M3.1-Flash");
+    expect(catalog.providers.minimax.models.map((model: { id: string }) => model.id)).toEqual([
+      "MiniMax-M3.1-Flash",
+      "MiniMax-M3",
+    ]);
   });
 
   test("rejects a catalog that drops a required provider", () => {
