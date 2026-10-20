@@ -424,7 +424,7 @@
   "name": "agent_pair_resume for the chat in scope passes",
   "frame": {
    "jsonrpc": "2.0",
-   "id": 5,
+   "id": 4,
    "method": "_acpmux/agent_pair_resume",
    "params": {
     "sessionId": "a",
@@ -440,7 +440,7 @@
   "name": "agent_pair_resume for another chat is refused, even naming the chat in scope as its peer",
   "frame": {
    "jsonrpc": "2.0",
-   "id": 5,
+   "id": 4,
    "method": "_acpmux/agent_pair_resume",
    "params": {
     "sessionId": "b",
