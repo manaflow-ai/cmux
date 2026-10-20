@@ -412,17 +412,15 @@ def swiftlint(binary: Path, config: Path, tree: Path, swift: list[str]) -> str:
 
 # ---------------------------------------------------------------- gate
 
-<<<<<<< HEAD
-def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
-         trusted_scripts: Path | None = None) -> list[tuple[str, list[str]]]:
-=======
-def reserved_keys(repo: Path, base: str, head: str) -> list[str]:
+def reserved_keys(repo: Path, base: str, head: str, trusted_scripts: Path | None = None) -> list[str]:
     """What head adds to the Ghostty-default keys check (RESERVED_CHECK) over base."""
     def blob(rev: str, path: str) -> bytes | None:
         result = subprocess.run(["git", "-C", str(repo), "show", f"{rev}:{path}"], capture_output=True)
         return result.stdout if result.returncode == 0 else None
 
-    script = blob(head, RESERVED_SCRIPT)
+    # The hook runs the installed reviewed checker (as for the scanners), else the head's.
+    trusted = trusted_scripts / Path(RESERVED_SCRIPT).name if trusted_scripts else None
+    script = trusted.read_bytes() if trusted and trusted.is_file() else blob(head, RESERVED_SCRIPT)
     if script is None:
         return []  # a commit older than this check
     with tempfile.TemporaryDirectory(prefix="cmux-reserved-") as tmp:
@@ -452,12 +450,12 @@ def reserved_keys(repo: Path, base: str, head: str) -> list[str]:
     return fresh
 
 
-def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool) -> list[tuple[str, list[str]]]:
->>>>>>> 7dd30cbfaa3 (fix(next): Cmd-Opt-arrows focus panes again (Ghostty goto_split); Ghostty split keys reserved)
+def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
+         trusted_scripts: Path | None = None) -> list[tuple[str, list[str]]]:
     """[(check, new findings)] that head adds over base."""
     reserved: list[tuple[str, list[str]]] = []
     if only is None or "reserved" in only:
-        fresh = reserved_keys(repo, base, head)
+        fresh = reserved_keys(repo, base, head, trusted_scripts)
         reserved = [(RESERVED_CHECK, fresh)] if fresh else []
     changed = changed_files(repo, base, head)
     if not changed:
