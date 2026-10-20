@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextBrowser
 import Foundation
@@ -7,10 +8,12 @@ import Foundation
 /// each a view over the app's one ``SessionVault``.
 @MainActor
 final class VaultPageService {
-    private unowned let services: AppServices
+    private let vault: SessionVault
+    private let registry: ActionRegistry
 
-    init(services: AppServices) {
-        self.services = services
+    init(vault: SessionVault, registry: ActionRegistry) {
+        self.vault = vault
+        self.registry = registry
     }
 
     /// Selects `pane`'s vault tab, else opens one beside its selected tab.
@@ -24,6 +27,6 @@ final class VaultPageService {
 
     func makePage(key: String, engine: BrowserEngineKind, profile: BrowserProfileID) -> VaultPageTab {
         VaultPageTab(id: BrowserTabID(rawValue: key), engine: engine, profile: profile,
-                     host: VaultHostView(vault: services.vault, registry: services.registry))
+                     host: VaultHostView(vault: vault, registry: registry))
     }
 }

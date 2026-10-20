@@ -49,6 +49,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// How long a Chromium page may take to reach the host before the view falls back to WebKit.
     var chromiumDeadline: Duration = .seconds(8)
     /// The deadline's clock (tests pass one that returns at once or never).
+    // wakeup-allow: one 8 s deadline while a Chromium page starts; chromiumStart cancels it on close or arrival, so an idle page never wakes.
     var chromiumSleep: @Sendable (Duration) async throws -> Void = { try await ContinuousClock().sleep(for: $0) }
     /// Makes Chromium pages; the app sets it once at startup (its composition root). Nil keeps every
     /// page on WebKit (tests, a build without Chromium).

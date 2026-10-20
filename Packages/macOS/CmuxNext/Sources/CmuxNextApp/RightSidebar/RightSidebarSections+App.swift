@@ -6,12 +6,19 @@ extension RightSidebarSections {
     /// screen's docked columns) and Cloud (the machines). Files and Find
     /// register from the file explorer.
     func registerAppSections(_ services: AppServices) {
-        register(.sessions) { [unowned services] _ in VaultHostView(vault: services.vault, registry: services.registry) }
-        register(.feed) { [unowned services] _ in
+        register(.sessions) { [weak services] _ in
+            guard let services else { return NSView() }
+            return VaultHostView(vault: services.vault, registry: services.registry)
+        }
+        register(.feed) { [weak services] _ in
+            guard let services else { return NSView() }
             services.feed.startIfSignedIn()
             return FeedHostView(model: services.feed.model)
         }
         register(.dock) { DockSectionHostView(controller: $0) }
-        register(.machines) { [unowned services] _ in MachineSectionHostView(services: services) }
+        register(.machines) { [weak services] _ in
+            guard let services else { return NSView() }
+            return MachineSectionHostView(services: services)
+        }
     }
 }

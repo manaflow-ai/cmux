@@ -7,7 +7,8 @@ import SwiftUI
 /// workspace on a machine through `workspace.newOnMachine`.
 final class MachineSectionHostView: NSView, RightSidebarRefreshing {
     let model = MachineSectionModel()
-    private unowned let services: AppServices
+    // Weak: AppServices owns this object (no unowned, crash-allowlist.json bans it).
+    private weak var services: AppServices?
     private var observation: Task<Void, Never>?
 
     init(services: AppServices) {
@@ -44,6 +45,7 @@ final class MachineSectionHostView: NSView, RightSidebarRefreshing {
     }
 
     func refresh() {
+        guard let services else { return }
         model.update(MachineSectionModel.rows(services.machines))
     }
 }

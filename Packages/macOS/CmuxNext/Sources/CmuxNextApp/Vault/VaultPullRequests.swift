@@ -55,6 +55,7 @@ nonisolated struct VaultPullRequests: Sendable {
         defer { try? handle.close() }
         let size = (try? handle.seekToEnd()) ?? 0
         let start = size > UInt64(tailBytes) ? size - UInt64(tailBytes) : 0
+        // concurrency-allow: runs only inside url(provider:sessionID:)'s detached task, never on the main actor.
         guard (try? handle.seek(toOffset: start)) != nil, let data = try? handle.readToEnd() else { return nil }
         let text = String(decoding: data, as: UTF8.self)
         for line in text.split(separator: "\n").reversed() where line.contains("pr-link") {

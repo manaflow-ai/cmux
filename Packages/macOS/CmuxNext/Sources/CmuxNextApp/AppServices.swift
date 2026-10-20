@@ -108,7 +108,7 @@ final class AppServices {
     /// The session vault (past agent sessions); tests may set one over a fixed source.
     lazy var vault: SessionVault = SessionVault(source: AgentHistorySource(services: self))
     /// `cmux://vault`: Open Vault as Pane.
-    private(set) lazy var vaultPages: VaultPageService = VaultPageService(services: self)
+    private(set) lazy var vaultPages: VaultPageService = VaultPageService(vault: vault, registry: registry)
     /// Where each window's right sidebar remembers its state (tests set a suite of their own).
     var rightSidebarDefaults: UserDefaults = .standard
     /// The right sidebar's sections by mode (the file explorer adds Files and Find).
