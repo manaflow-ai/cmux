@@ -44,6 +44,19 @@ Every instance selector is a public id (`ws_…`, `pane_…`, `tab_…`, `term_�
 
 Every action in the app's registry is also a verb: `cmux action list --noun workspace` lists them and `cmux action describe "<noun> <verb>"` shows arguments. Run one with `cmux <noun> <verb> [--target ID] [--<arg> VALUE]`, for example `cmux workspace set-color --target ws_… --color blue`. The daemon grammar is tried first; words it rejects run as an app action.
 
+## Screenshots of the app
+
+Agents without Screen Recording permission can still see cmux: these verbs write a PNG of cmux's own windows. They never focus, raise or activate anything, and they work while the window is in the background or covered.
+
+```bash
+cmux window screenshot --out window.png                 # the focused window
+cmux window screenshot --target win_… --out -           # PNG inline as base64
+cmux pane screenshot --target pane_… --out pane.png
+cmux tab screenshot --target tab_… --out tab.png
+```
+
+The reply's `result` holds `path` (or `png_base64` for `--out -`; a PNG over 4 MiB still goes to a file), `width` and `height` in pixels, `scale` (pixels per point) and `method` (`window`, or `page` for a browser tab that is not on screen, which its engine renders in the background). Without `--out` the PNG goes to the temporary directory. A pane or terminal tab that no window shows, or a minimized window, fails with `screenshot.unavailable` and the reason; read a terminal's text with `cmux terminal <id> screen read` instead.
+
 ## Settings
 
 cmux-next settings live in `~/.config/cmux/cmux-next.json`. With the app running, `cmux settings get [PATH]`, `cmux settings set PATH VALUE` and `cmux settings reset PATH` read and write it; `cmux settings validate` checks it without the app. Keys come from `schemas/settings/settings-schema.json`, not classic `cmux.json`; see [cmux-settings](../cmux-settings/SKILL.md) before editing.

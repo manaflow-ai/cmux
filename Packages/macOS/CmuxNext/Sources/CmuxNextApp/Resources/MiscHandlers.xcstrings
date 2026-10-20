@@ -11459,6 +11459,1447 @@
           }
         }
       }
+    },
+    "handlers.screenshot.outNeedsValue": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out (--out) needs a file path, or - for the image inline"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يحتاج out ‏(--out) إلى مسار ملف، أو - لإرجاع الصورة مضمّنة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out (--out) treba putanju datoteke ili - za sliku u odgovoru"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out (--out) kræver en filsti eller - for at få billedet direkte i svaret"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out (--out) braucht einen Dateipfad oder - für das Bild direkt in der Antwort"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out (--out) necesita una ruta de archivo, o - para devolver la imagen en línea"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out (--out) attend un chemin de fichier, ou - pour renvoyer l’image en ligne"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out (--out) richiede un percorso di file, oppure - per restituire l’immagine in linea"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out（--out）にはファイルパスを指定するか、画像をそのまま返す場合は - を指定してください"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out (--out) ត្រូវការផ្លូវឯកសារ ឬ - ដើម្បីបញ្ជូនរូបភាពក្នុងចម្លើយ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out(--out)에는 파일 경로가 필요하며, 이미지를 응답에 바로 담으려면 -를 지정하세요"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out (--out) trenger en filbane, eller - for å få bildet direkte i svaret"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out (--out) wymaga ścieżki pliku albo - aby zwrócić obraz bezpośrednio w odpowiedzi"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out (--out) precisa de um caminho de arquivo, ou - para retornar a imagem embutida"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Для out (--out) нужен путь к файлу или - для изображения прямо в ответе"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out (--out) ต้องระบุพาธไฟล์ หรือ - เพื่อส่งภาพกลับมาในคำตอบโดยตรง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out (--out) bir dosya yolu ya da görüntüyü yanıtın içinde almak için - bekler"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Для out (--out) потрібен шлях до файлу або - для зображення прямо у відповіді"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out (--out) cần đường dẫn tệp, hoặc - để trả ảnh ngay trong phản hồi"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out（--out）需要文件路径，或用 - 直接在结果中返回图像"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out（--out）需要檔案路徑，或用 - 直接在結果中傳回影像"
+          }
+        }
+      }
+    },
+    "handlers.screenshot.outRelative": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out (--out) needs an absolute path or -, not “%@”"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يحتاج out ‏(--out) إلى مسار مطلق أو -، وليس “%@”"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out (--out) treba apsolutnu putanju ili -, a ne “%@”"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out (--out) kræver en absolut sti eller -, ikke “%@”"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out (--out) braucht einen absoluten Pfad oder -, nicht „%@“"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out (--out) necesita una ruta absoluta o -, no “%@”"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out (--out) attend un chemin absolu ou -, pas « %@ »"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out (--out) richiede un percorso assoluto o -, non “%@”"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out（--out）には絶対パスか - を指定してください（「%@」は使えません）"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out (--out) ត្រូវការផ្លូវដាច់ខាត ឬ - មិនមែន “%@” ទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out(--out)에는 절대 경로나 -가 필요합니다. “%@”는 사용할 수 없습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out (--out) trenger en absolutt bane eller -, ikke «%@»"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out (--out) wymaga ścieżki bezwzględnej albo -, a nie „%@”"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out (--out) precisa de um caminho absoluto ou -, não “%@”"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Для out (--out) нужен абсолютный путь или -, а не «%@»"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out (--out) ต้องเป็นพาธแบบสัมบูรณ์หรือ - ไม่ใช่ “%@”"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out (--out) mutlak bir yol ya da - bekler, “%@” değil"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Для out (--out) потрібен абсолютний шлях або -, а не «%@»"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out (--out) cần đường dẫn tuyệt đối hoặc -, không phải “%@”"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out（--out）需要绝对路径或 -，而不是“%@”"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out（--out）需要絕對路徑或 -，而不是「%@」"
+          }
+        }
+      }
+    },
+    "handlers.screenshot.outIsFolder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out (--out) names a folder, not a file: “%@”"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يشير out ‏(--out) إلى مجلد وليس إلى ملف: “%@”"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out (--out) navodi folder, a ne datoteku: “%@”"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out (--out) angiver en mappe, ikke en fil: “%@”"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out (--out) nennt einen Ordner, keine Datei: „%@“"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out (--out) indica una carpeta, no un archivo: “%@”"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out (--out) désigne un dossier, pas un fichier : « %@ »"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out (--out) indica una cartella, non un file: “%@”"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out（--out）がファイルではなくフォルダを指しています：「%@」"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out (--out) ចង្អុលទៅថត មិនមែនឯកសារទេ៖ “%@”"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out(--out)이 파일이 아닌 폴더를 가리킵니다: “%@”"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out (--out) peker på en mappe, ikke en fil: «%@»"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out (--out) wskazuje folder, a nie plik: „%@”"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out (--out) indica uma pasta, não um arquivo: “%@”"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out (--out) указывает на папку, а не на файл: «%@»"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out (--out) ระบุโฟลเดอร์ ไม่ใช่ไฟล์: “%@”"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out (--out) bir dosyayı değil bir klasörü gösteriyor: “%@”"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out (--out) вказує на папку, а не на файл: «%@»"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out (--out) chỉ đến một thư mục, không phải tệp: “%@”"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out（--out）指向的是文件夹而不是文件：“%@”"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out（--out）指向的是資料夾而不是檔案：「%@」"
+          }
+        }
+      }
+    },
+    "handlers.screenshot.notOnScreen": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The window is not on screen (the app is hidden or the window is closed)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "النافذة ليست على الشاشة (التطبيق مخفي أو النافذة مغلقة)"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prozor nije na ekranu (aplikacija je sakrivena ili je prozor zatvoren)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vinduet er ikke på skærmen (appen er skjult, eller vinduet er lukket)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Fenster ist nicht auf dem Bildschirm (die App ist ausgeblendet oder das Fenster geschlossen)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La ventana no está en pantalla (la app está oculta o la ventana está cerrada)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La fenêtre n’est pas à l’écran (l’app est masquée ou la fenêtre est fermée)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La finestra non è sullo schermo (l’app è nascosta o la finestra è chiusa)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ウインドウが画面上にありません（アプリが非表示か、ウインドウが閉じています）"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្អួចមិននៅលើអេក្រង់ទេ (កម្មវិធីត្រូវបានលាក់ ឬបង្អួចត្រូវបានបិទ)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "윈도우가 화면에 없습니다(앱이 가려져 있거나 윈도우가 닫혔습니다)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vinduet er ikke på skjermen (appen er skjult, eller vinduet er lukket)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Okno nie jest na ekranie (aplikacja jest ukryta albo okno jest zamknięte)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A janela não está na tela (o app está oculto ou a janela está fechada)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Окна нет на экране (приложение скрыто или окно закрыто)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "หน้าต่างไม่อยู่บนหน้าจอ (แอปถูกซ่อนหรือหน้าต่างถูกปิด)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pencere ekranda değil (uygulama gizli ya da pencere kapalı)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вікна немає на екрані (програму приховано або вікно закрито)"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cửa sổ không có trên màn hình (ứng dụng đang ẩn hoặc cửa sổ đã đóng)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "窗口不在屏幕上（应用已隐藏或窗口已关闭）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "視窗不在螢幕上（App 已隱藏或視窗已關閉）"
+          }
+        }
+      }
+    },
+    "handlers.screenshot.minimized": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The window is minimized in the Dock; cmux does not restore it for a screenshot"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "النافذة مصغّرة في Dock؛ لا يستعيدها cmux من أجل لقطة شاشة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prozor je minimiziran u Dock; cmux ga ne vraća radi snimka ekrana"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vinduet er minimeret i Dock; cmux gendanner det ikke for at tage et skærmbillede"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Fenster ist im Dock minimiert; cmux stellt es für einen Screenshot nicht wieder her"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La ventana está minimizada en el Dock; cmux no la restaura para hacer una captura"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La fenêtre est réduite dans le Dock ; cmux ne la restaure pas pour une capture d’écran"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La finestra è ridotta nel Dock; cmux non la ripristina per uno screenshot"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ウインドウは Dock にしまわれています。cmux はスクリーンショットのために元に戻しません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្អួចត្រូវបានបង្រួមក្នុង Dock; cmux មិនស្ដារវាសម្រាប់ការថតអេក្រង់ទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "윈도우가 Dock으로 최소화되어 있습니다. cmux는 스크린샷을 위해 윈도우를 복원하지 않습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vinduet er minimert i Dock; cmux gjenoppretter det ikke for et skjermbilde"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Okno jest zminimalizowane w Docku; cmux nie przywraca go dla zrzutu ekranu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A janela está minimizada no Dock; o cmux não a restaura para uma captura de tela"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Окно свёрнуто в Dock; cmux не разворачивает его ради снимка"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "หน้าต่างถูกย่อไว้ใน Dock และ cmux จะไม่คืนหน้าต่างเพื่อถ่ายภาพหน้าจอ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pencere Dock’a küçültülmüş; cmux ekran görüntüsü için onu geri açmaz"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вікно згорнуто в Dock; cmux не розгортає його заради знімка"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cửa sổ đang thu nhỏ trong Dock; cmux không khôi phục nó để chụp ảnh màn hình"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "窗口已最小化到程序坞；cmux 不会为截图而恢复它"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "視窗已縮到 Dock；cmux 不會為了截圖而還原它"
+          }
+        }
+      }
+    },
+    "handlers.screenshot.blank": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The window server gave no image of the window"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يقدّم خادم النوافذ أي صورة للنافذة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Server prozora nije dao sliku prozora"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vinduesserveren gav intet billede af vinduet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Fensterserver lieferte kein Bild des Fensters"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El servidor de ventanas no devolvió ninguna imagen de la ventana"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le serveur de fenêtres n’a fourni aucune image de la fenêtre"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il window server non ha fornito alcuna immagine della finestra"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ウインドウサーバからウインドウの画像を取得できませんでした"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ម៉ាស៊ីនមេបង្អួចមិនបានផ្ដល់រូបភាពនៃបង្អួចទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "윈도우 서버가 윈도우 이미지를 제공하지 않았습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vindustjeneren ga ikke noe bilde av vinduet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Serwer okien nie zwrócił obrazu okna"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O servidor de janelas não forneceu nenhuma imagem da janela"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Оконный сервер не вернул изображение окна"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เซิร์ฟเวอร์หน้าต่างไม่ได้ให้ภาพของหน้าต่างนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pencere sunucusu pencerenin görüntüsünü vermedi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Віконний сервер не повернув зображення вікна"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Máy chủ cửa sổ không trả về ảnh nào của cửa sổ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "窗口服务器未提供该窗口的图像"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "視窗伺服器未提供該視窗的影像"
+          }
+        }
+      }
+    },
+    "handlers.screenshot.paneNotShown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The pane is not on screen: no window shows its workspace"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الجزء ليس على الشاشة: لا تعرض أي نافذة مساحة العمل الخاصة به"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Okno nije na ekranu: nijedan prozor ne prikazuje njegov radni prostor"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ruden er ikke på skærmen: intet vindue viser dens arbejdsområde"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Teilfenster ist nicht auf dem Bildschirm: Kein Fenster zeigt seinen Workspace"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El panel no está en pantalla: ninguna ventana muestra su espacio de trabajo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le panneau n’est pas à l’écran : aucune fenêtre n’affiche son espace de travail"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il riquadro non è sullo schermo: nessuna finestra mostra il suo workspace"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペインが画面上にありません。そのワークスペースを表示しているウインドウがありません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ទាំងមិននៅលើអេក្រង់ទេ៖ គ្មានបង្អួចណាបង្ហាញកន្លែងធ្វើការរបស់វាទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "분할 창이 화면에 없습니다. 해당 작업 공간을 표시하는 윈도우가 없습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ruten er ikke på skjermen: ingen vinduer viser arbeidsområdet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Panelu nie ma na ekranie: żadne okno nie pokazuje jego obszaru roboczego"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O painel não está na tela: nenhuma janela mostra o espaço de trabalho dele"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Панели нет на экране: ни одно окно не показывает её рабочее пространство"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "บานหน้าต่างไม่อยู่บนหน้าจอ: ไม่มีหน้าต่างใดแสดงพื้นที่ทำงานของบานหน้าต่างนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bölme ekranda değil: hiçbir pencere çalışma alanını göstermiyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Панелі немає на екрані: жодне вікно не показує її робочий простір"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Khung không có trên màn hình: không cửa sổ nào hiển thị không gian làm việc của nó"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "窗格不在屏幕上：没有窗口显示它的工作区"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "窗格不在螢幕上：沒有視窗顯示它的工作區"
+          }
+        }
+      }
+    },
+    "handlers.screenshot.outsideWindow": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The pane is outside the window's visible area"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الجزء خارج المنطقة المرئية من النافذة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Okno je izvan vidljivog dijela prozora"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ruden er uden for vinduets synlige område"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Teilfenster liegt außerhalb des sichtbaren Fensterbereichs"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El panel está fuera del área visible de la ventana"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le panneau est hors de la zone visible de la fenêtre"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il riquadro è fuori dall’area visibile della finestra"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペインがウインドウの表示範囲の外にあります"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ទាំងនៅក្រៅផ្ទៃដែលមើលឃើញរបស់បង្អួច"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "분할 창이 윈도우의 보이는 영역 밖에 있습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ruten er utenfor vinduets synlige område"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Panel jest poza widocznym obszarem okna"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O painel está fora da área visível da janela"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Панель находится за пределами видимой области окна"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "บานหน้าต่างอยู่นอกพื้นที่ที่มองเห็นได้ของหน้าต่าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bölme pencerenin görünür alanının dışında"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Панель поза видимою областю вікна"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Khung nằm ngoài vùng hiển thị của cửa sổ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "窗格位于窗口可见区域之外"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "窗格位於視窗可見區域之外"
+          }
+        }
+      }
+    },
+    "handlers.screenshot.terminalNotShown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The terminal tab is not on screen. Read its text with `cmux terminal <id> screen read`, or show its workspace and retry"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "علامة تبويب الطرفية ليست على الشاشة. اقرأ نصها باستخدام `cmux terminal <id> screen read`، أو اعرض مساحة العمل الخاصة بها وأعد المحاولة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kartica terminala nije na ekranu. Pročitajte njen tekst pomoću `cmux terminal <id> screen read` ili prikažite njen radni prostor i pokušajte ponovo"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminalfanen er ikke på skærmen. Læs dens tekst med `cmux terminal <id> screen read`, eller vis dens arbejdsområde og prøv igen"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Terminal-Tab ist nicht auf dem Bildschirm. Lies seinen Text mit `cmux terminal <id> screen read` oder zeige seinen Workspace und versuche es erneut"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La pestaña de terminal no está en pantalla. Lee su texto con `cmux terminal <id> screen read`, o muestra su espacio de trabajo y vuelve a intentarlo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’onglet de terminal n’est pas à l’écran. Lisez son texte avec `cmux terminal <id> screen read`, ou affichez son espace de travail et réessayez"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La scheda del terminale non è sullo schermo. Leggine il testo con `cmux terminal <id> screen read`, oppure mostra il suo workspace e riprova"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルタブが画面上にありません。`cmux terminal <id> screen read` でテキストを読むか、そのワークスペースを表示してからやり直してください"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ថេបទែមីណាល់មិននៅលើអេក្រង់ទេ។ អានអត្ថបទរបស់វាដោយ `cmux terminal <id> screen read` ឬបង្ហាញកន្លែងធ្វើការរបស់វា ហើយព្យាយាមម្ដងទៀត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널 탭이 화면에 없습니다. `cmux terminal <id> screen read`로 텍스트를 읽거나, 해당 작업 공간을 표시한 뒤 다시 시도하세요"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminalfanen er ikke på skjermen. Les teksten med `cmux terminal <id> screen read`, eller vis arbeidsområdet og prøv igjen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Karty terminala nie ma na ekranie. Odczytaj jej tekst za pomocą `cmux terminal <id> screen read` albo pokaż jej obszar roboczy i spróbuj ponownie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A aba do terminal não está na tela. Leia o texto dela com `cmux terminal <id> screen read`, ou mostre o espaço de trabalho dela e tente de novo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вкладки терминала нет на экране. Прочитайте её текст командой `cmux terminal <id> screen read` или покажите её рабочее пространство и повторите"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แท็บเทอร์มินัลไม่อยู่บนหน้าจอ อ่านข้อความด้วย `cmux terminal <id> screen read` หรือแสดงพื้นที่ทำงานของแท็บนี้แล้วลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal sekmesi ekranda değil. Metnini `cmux terminal <id> screen read` ile okuyun ya da çalışma alanını gösterip yeniden deneyin"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вкладки термінала немає на екрані. Прочитайте її текст командою `cmux terminal <id> screen read` або покажіть її робочий простір і повторіть"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tab terminal không có trên màn hình. Hãy đọc văn bản của nó bằng `cmux terminal <id> screen read`, hoặc hiển thị không gian làm việc của nó rồi thử lại"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "终端标签页不在屏幕上。可用 `cmux terminal <id> screen read` 读取其文本，或显示其工作区后重试"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "終端機標籤頁不在螢幕上。可用 `cmux terminal <id> screen read` 讀取其文字，或顯示其工作區後重試"
+          }
+        }
+      }
+    },
+    "handlers.screenshot.tabNotShown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The tab is not on screen. Show its workspace and select the tab, then retry"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "علامة التبويب ليست على الشاشة. اعرض مساحة العمل الخاصة بها وحدد علامة التبويب، ثم أعد المحاولة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kartica nije na ekranu. Prikažite njen radni prostor i odaberite karticu, pa pokušajte ponovo"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fanen er ikke på skærmen. Vis dens arbejdsområde, vælg fanen, og prøv igen"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Tab ist nicht auf dem Bildschirm. Zeige seinen Workspace, wähle den Tab aus und versuche es erneut"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La pestaña no está en pantalla. Muestra su espacio de trabajo, selecciona la pestaña y vuelve a intentarlo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’onglet n’est pas à l’écran. Affichez son espace de travail et sélectionnez l’onglet, puis réessayez"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La scheda non è sullo schermo. Mostra il suo workspace e seleziona la scheda, poi riprova"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブが画面上にありません。そのワークスペースを表示してタブを選択してから、やり直してください"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ថេបមិននៅលើអេក្រង់ទេ។ បង្ហាញកន្លែងធ្វើការរបស់វា ហើយជ្រើសថេបនោះ រួចព្យាយាមម្ដងទៀត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "탭이 화면에 없습니다. 해당 작업 공간을 표시하고 탭을 선택한 뒤 다시 시도하세요"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fanen er ikke på skjermen. Vis arbeidsområdet, velg fanen og prøv igjen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Karty nie ma na ekranie. Pokaż jej obszar roboczy i wybierz kartę, a potem spróbuj ponownie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A aba não está na tela. Mostre o espaço de trabalho dela e selecione a aba, depois tente de novo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вкладки нет на экране. Покажите её рабочее пространство, выберите вкладку и повторите"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แท็บไม่อยู่บนหน้าจอ แสดงพื้นที่ทำงานของแท็บและเลือกแท็บนั้น แล้วลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sekme ekranda değil. Çalışma alanını gösterip sekmeyi seçin, sonra yeniden deneyin"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вкладки немає на екрані. Покажіть її робочий простір, виберіть вкладку й повторіть"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tab không có trên màn hình. Hãy hiển thị không gian làm việc của nó và chọn tab, rồi thử lại"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "标签页不在屏幕上。请显示其工作区并选择该标签页，然后重试"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "標籤頁不在螢幕上。請顯示其工作區並選取該標籤頁，然後重試"
+          }
+        }
+      }
+    },
+    "handlers.screenshot.pageFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The page could not be captured off screen (%@)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر التقاط الصفحة وهي خارج الشاشة (%@)"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stranicu nije moguće snimiti izvan ekrana (%@)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Siden kunne ikke optages uden for skærmen (%@)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Seite konnte außerhalb des Bildschirms nicht aufgenommen werden (%@)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo capturar la página fuera de pantalla (%@)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de capturer la page hors écran (%@)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile catturare la pagina fuori dallo schermo (%@)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "画面外のページをキャプチャできませんでした（%@）"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនអាចថតទំព័រនៅក្រៅអេក្រង់បានទេ (%@)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "화면 밖의 페이지를 캡처할 수 없습니다(%@)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Siden kunne ikke fanges utenfor skjermen (%@)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie udało się przechwycić strony poza ekranem (%@)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível capturar a página fora da tela (%@)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось снять страницу вне экрана (%@)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่สามารถจับภาพหน้าเว็บที่อยู่นอกหน้าจอได้ (%@)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sayfa ekran dışındayken yakalanamadı (%@)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не вдалося зняти сторінку поза екраном (%@)"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không thể chụp trang khi nó ở ngoài màn hình (%@)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法在屏幕外截取该页面（%@）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法在螢幕外擷取該頁面（%@）"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

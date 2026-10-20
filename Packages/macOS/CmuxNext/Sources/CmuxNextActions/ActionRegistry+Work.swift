@@ -69,14 +69,36 @@ extension ActionRegistry {
         if capturedWork != nil { capturedWork?.append(task) }
     }
 
+    /// Reports a task that produces the action's value (a screenshot's
+    /// path and size): a capturing caller awaits it like ``track(_:)`` work
+    /// and answers its fields (`action.run` `result`). Ignored unless a
+    /// caller is capturing.
+    public func track(result task: ActionResultWork) {
+        guard capturedWork != nil else { return }
+        capturedWork?.append(Task {
+            if case .failure(let failure) = await task.value { return failure }
+            return nil
+        })
+        capturedResults?.append(task)
+    }
+
     /// Runs `body` (a synchronous `perform`) and returns the tasks its
     /// handlers reported.
     public func capturingWork(_ body: () -> Void) -> [ActionWork] {
-        let previous = capturedWork
+        capturingRun(body).work
+    }
+
+    /// Runs `body` (a synchronous `perform`) and returns the tasks its
+    /// handlers reported: all of their work, and the value-producing tasks
+    /// among them (``track(result:)``).
+    public func capturingRun(_ body: () -> Void) -> (work: [ActionWork], results: [ActionResultWork]) {
+        let previous = capturedWork, previousResults = capturedResults
         capturedWork = []
+        capturedResults = []
         body()
-        let work = capturedWork ?? []
+        let work = capturedWork ?? [], results = capturedResults ?? []
         capturedWork = previous.map { $0 + work }
-        return work
+        capturedResults = previousResults.map { $0 + results }
+        return (work, results)
     }
 }

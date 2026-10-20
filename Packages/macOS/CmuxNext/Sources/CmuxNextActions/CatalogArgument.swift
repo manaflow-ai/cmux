@@ -19,6 +19,14 @@ nonisolated enum CatalogArgument {
         ActionArgument(name: "window", title: String(localized: "argument.window", defaultValue: "Window", bundle: .module), kind: .target(.window))
     }
 
+    /// Where a screenshot goes: an absolute PNG path, `-` for the image
+    /// inline in the result (base64), or omitted for a file in the
+    /// temporary directory (ScreenshotHandlers).
+    static var screenshotOut: ActionArgument {
+        ActionArgument(name: "out", title: String(localized: "argument.out", defaultValue: "Output File", bundle: .module),
+                       kind: .string, isRequired: false)
+    }
+
     static var nameString: ActionArgument {
         ActionArgument(name: "name", title: String(localized: "argument.name", defaultValue: "Name", bundle: .module), kind: .string)
     }
