@@ -2467,7 +2467,9 @@ export class AcpmuxDirectClient {
         _meta: {
           acpmux: {
             promptId,
-            ...(steer ? { steer: true, interrupt: true } : {}),
+            // A prompt that waits behind the turn says so: acpmux stops a running turn for a
+            // prompt that does not ask to queue (its default since 2026-10-20).
+            ...(steer ? { steer: true, interrupt: true } : waits ? { queue: true } : {}),
             ...(context ? { context } : {}),
           },
           ...(ticket ? { cmuxGesture: ticket } : {}),
