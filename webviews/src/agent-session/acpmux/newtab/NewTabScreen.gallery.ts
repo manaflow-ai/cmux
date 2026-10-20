@@ -518,6 +518,41 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.document.querySelector('.nt-mode[data-mode="search"]'));
       },
     },
+    "typed-ask-mode": {
+      note: "Ask, the mode a tab opens in: the switch's thumb on Ask, and Ask Claude Code first (Return's) over the web search.",
+      ready: newTab({ projects: [CWD] }),
+      snapshot: noChat(manySessions(3)),
+      play: async (ctx) => {
+        await ctx.type("fix the flaky upload test", { selector: ".nt-field" });
+        await ctx.waitFor(
+          () => ctx.document.querySelector('.nt-mode[data-mode="ask"]') && ctx.document.querySelector(".nt-rows"),
+        );
+      },
+    },
+    "empty-search-mode": {
+      note: 'Search mode on an empty field: Tab moved the thumb to Search and the placeholder reads "Search the web or type a URL".',
+      ready: newTab({ projects: [CWD] }),
+      snapshot: noChat(manySessions(3)),
+      play: async (ctx) => {
+        await ctx.focus({ selector: ".nt-field" });
+        await ctx.press("Tab");
+        await ctx.waitFor(() => ctx.document.querySelector('.nt-mode[data-mode="search"]'));
+      },
+    },
+    "typed-url-search-mode": {
+      note: "An address in Search mode: it still opens first (highlighted), ahead of the web search, as in Ask.",
+      ready: newTab(),
+      snapshot: noChat(manySessions(3)),
+      play: async (ctx) => {
+        await ctx.type("localhost:3000", { selector: ".nt-field" });
+        await ctx.press("Tab");
+        await ctx.waitFor(
+          () =>
+            ctx.document.querySelector('.nt-mode[data-mode="search"]') &&
+            ctx.document.querySelector('.nt-row[data-type="open"]'),
+        );
+      },
+    },
     "typed-tab-match": {
       note: "Text that matches open tabs, workspaces and visited pages: Ask first (Return's), a web search, then those rows (with their favicons, a glyph while one loads) in the popover; Down to the last row scrolls to it (dogfood 2026-10-08).",
       ready: newTab({
