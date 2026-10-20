@@ -1,12 +1,7 @@
-//! Pictures and videos the Chief sends (the user, 2026-10-20: "are you able to send me
-//! screenshots and videos?"). In a reply, a Markdown image of a local file,
-//! `![shot](/Users/me/shot.png)` or `![clip](<~/demo clip.mp4>)`, and a link to one,
-//! `[run.mov](/tmp/run.mov)`, name a file to send. The preview thread (previews.rs) uploads
-//! each one as an attachment record of the conversation and the reply goes out with an
-//! `attachment` part per file after its text; the image syntax leaves the text (the picture
-//! shows instead), a link stays. Only an existing regular file of a type the owner takes as a
-//! picture or video (png, jpeg, gif, webp, heic, mp4, mov), at most [`MAX_MEDIA_BYTES`], is
-//! read; anything else stays text.
+//! Files the Chief sends through the explicit `send(attachments:)` tool. The
+//! preview thread uploads each one as an attachment record, then removes the
+//! generated Markdown image syntax from the posted text. Ordinary reply
+//! Markdown never opens a local path.
 
 use std::io::Read;
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
@@ -20,7 +15,7 @@ use crate::daemon::PreviewPort;
 /// The largest file the Chief sends (the owner's limit is 100 MB; one upload holds it in memory).
 pub const MAX_MEDIA_BYTES: u64 = 50_000_000;
 
-/// One local file a reply names.
+/// One local file an explicit `send` call names.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MediaRef {
     pub path: PathBuf,
@@ -69,85 +64,7 @@ pub fn attachment_type(path: &Path) -> &'static str {
     }
 }
 
-/// Makes a fresh, unguessable owner-only outbox for one turn. Existing names
-/// are never reused after a history rollback.
-pub fn prepare_turn_outbox(session_dir: &Path) -> Option<PathBuf> {
-    prepare_turn_outbox_result(session_dir).ok()
-}
-
-fn prepare_turn_outbox_result(session_dir: &Path) -> std::io::Result<PathBuf> {
-    use ring::rand::SecureRandom as _;
-    // Resolve trusted system aliases such as macOS `/var -> /private/var`
-    // once. Every attacker-controlled component below the session stays
-    // descriptor-relative and O_NOFOLLOW.
-    let session_dir = std::fs::canonicalize(session_dir)?;
-    let session = open_directory_chain(&session_dir)?;
-    let base_name = c".cmux-media";
-    // SAFETY: `session` and `base_name` are valid descriptors/strings. A
-    // pre-existing entry is opened below with O_NOFOLLOW before it is used.
-    let made = unsafe { libc::mkdirat(session.as_raw_fd(), base_name.as_ptr(), 0o700) };
-    if made < 0 {
-        let error = std::io::Error::last_os_error();
-        if error.kind() != std::io::ErrorKind::AlreadyExists {
-            return Err(error);
-        }
-    }
-    let base = open_child_directory(session.as_raw_fd(), base_name)?;
-    // SAFETY: `base` is the directory descriptor just opened without
-    // following a symlink. A failure leaves media disabled for this turn.
-    if unsafe { libc::fchmod(base.as_raw_fd(), 0o700) } < 0 {
-        return Err(std::io::Error::last_os_error());
-    }
-
-    let random = ring::rand::SystemRandom::new();
-    for _ in 0..4 {
-        let mut nonce = [0u8; 16];
-        random
-            .fill(&mut nonce)
-            .map_err(|_| std::io::Error::other("secure random generation failed"))?;
-        let name = nonce.iter().map(|b| format!("{b:02x}")).collect::<String>();
-        let c_name = std::ffi::CString::new(name.as_bytes())
-            .map_err(|_| std::io::Error::from(std::io::ErrorKind::InvalidInput))?;
-        // SAFETY: `base` and `c_name` are valid; mkdirat creates only a
-        // direct child of the verified outbox directory.
-        if unsafe { libc::mkdirat(base.as_raw_fd(), c_name.as_ptr(), 0o700) } == 0 {
-            return Ok(session_dir.join(".cmux-media").join(name));
-        }
-        let error = std::io::Error::last_os_error();
-        if error.kind() != std::io::ErrorKind::AlreadyExists {
-            return Err(error);
-        }
-    }
-    Err(std::io::Error::new(
-        std::io::ErrorKind::AlreadyExists,
-        "could not allocate a unique turn outbox",
-    ))
-}
-
-/// Removes one generated outbox without following any component. Best effort:
-/// attachment delivery must not fail on cleanup.
-pub fn cleanup_turn_outbox(path: Option<PathBuf>) {
-    let Some(path) = path else { return };
-    let Some(parent) = path.parent() else { return };
-    let Some(name) = path.file_name() else { return };
-    let Ok(parent) = open_directory_chain(parent) else {
-        return;
-    };
-    let Ok(name) = std::ffi::CString::new(name.as_bytes()) else {
-        return;
-    };
-    remove_child(parent.as_raw_fd(), &name, 0);
-}
-
-/// A stopped/crashed host owns no live turn outbox. Called only after taking
-/// the per-Chief host lock.
-pub fn cleanup_stale_outboxes(session_dir: &Path) {
-    if let Ok(session_dir) = std::fs::canonicalize(session_dir) {
-        cleanup_turn_outbox(Some(session_dir.join(".cmux-media")));
-    }
-}
-
-/// The local path an explicit attachment or Markdown target names:
+/// The local path an explicit attachment target names:
 /// `/abs`, `~/rel`, or `file:///abs`, in `<...>` or not.
 pub(super) fn local_path(target: &str, home: Option<&Path>) -> Option<PathBuf> {
     let target = target.trim();
@@ -160,62 +77,6 @@ pub(super) fn local_path(target: &str, home: Option<&Path>) -> Option<PathBuf> {
         return Some(home?.join(rest));
     }
     target.starts_with('/').then(|| PathBuf::from(target))
-}
-
-/// The files a reply names that can be sent: direct regular-file children of
-/// this turn's outbox, each once, in reply order.
-pub fn media_refs(reply: &str, outbox: Option<&Path>) -> Vec<MediaRef> {
-    let mut refs: Vec<MediaRef> = Vec::new();
-    let bytes = reply.as_bytes();
-    let mut at = 0;
-    while let Some(found) = reply[at..].find("](") {
-        let close_label = at + found;
-        let target_start = close_label + 2;
-        at = target_start;
-        let Some(open_label) = reply[..close_label].rfind('[') else {
-            continue;
-        };
-        if reply[open_label..close_label].contains('\n') {
-            continue;
-        }
-        let target_end = if reply[target_start..].starts_with('<') {
-            reply[target_start..]
-                .find(">)")
-                .map(|e| target_start + e + 1)
-        } else {
-            reply[target_start..]
-                .find([')', '\n'])
-                .map(|e| target_start + e)
-                .filter(|&e| bytes[e] == b')')
-        };
-        let Some(target_end) = target_end else {
-            continue;
-        };
-        at = target_end + 1;
-        let Some(path) = local_path(&reply[target_start..target_end], None) else {
-            continue;
-        };
-        let Some(outbox) = outbox else { continue };
-        if path.parent() != Some(outbox) {
-            continue;
-        }
-        let Some(mime_type) = media_type(&path) else {
-            continue;
-        };
-        let sendable = std::fs::symlink_metadata(&path).is_ok_and(|meta| {
-            meta.file_type().is_file() && meta.len() > 0 && meta.len() <= MAX_MEDIA_BYTES
-        });
-        if !sendable || refs.iter().any(|r| r.path == path) {
-            continue;
-        }
-        let image = open_label > 0 && bytes[open_label - 1] == b'!';
-        refs.push(MediaRef {
-            path,
-            mime_type,
-            image_syntax: image.then(|| (open_label - 1)..(target_end + 1)),
-        });
-    }
-    refs
 }
 
 /// The reply without the image syntax of `sent` files: a line left empty by it goes, the
@@ -330,8 +191,7 @@ pub fn upload(
 }
 
 /// Opens every directory component and then the file with `O_NOFOLLOW`, using
-/// descriptor-relative `openat` so swapping an outbox parent to a symlink
-/// cannot redirect the read between validation and open.
+/// descriptor-relative `openat` so a path swap cannot redirect the read.
 fn open_media_file(path: &Path) -> std::io::Result<std::fs::File> {
     let parent = path
         .parent()
@@ -356,61 +216,6 @@ fn open_media_file(path: &Path) -> std::io::Result<std::fs::File> {
     }
     // SAFETY: `openat` returned a new owned descriptor.
     Ok(std::fs::File::from(unsafe { OwnedFd::from_raw_fd(fd) }))
-}
-
-/// Deletes a direct child through an already-open parent. Directories are
-/// traversed through their descriptors, so a concurrent rename or symlink
-/// replacement can at worst leave an entry behind, never redirect deletion.
-fn remove_child(parent: RawFd, name: &std::ffi::CStr, depth: usize) {
-    match open_child_directory(parent, name) {
-        Ok(directory) => {
-            if depth < 32 {
-                remove_directory_contents(directory.as_raw_fd(), depth + 1);
-            }
-            drop(directory);
-            // SAFETY: this removes only `name` relative to the open parent.
-            let _ = unsafe { libc::unlinkat(parent, name.as_ptr(), libc::AT_REMOVEDIR) };
-        }
-        Err(_) => {
-            // SAFETY: unlinkat without AT_REMOVEDIR removes a file/symlink
-            // itself and never follows it.
-            let _ = unsafe { libc::unlinkat(parent, name.as_ptr(), 0) };
-        }
-    }
-}
-
-fn remove_directory_contents(directory: RawFd, depth: usize) {
-    // `fdopendir` takes ownership of its descriptor, so duplicate ours.
-    // SAFETY: `directory` is open for the duration of this function.
-    let duplicate = unsafe { libc::dup(directory) };
-    if duplicate < 0 {
-        return;
-    }
-    // SAFETY: `duplicate` is a newly owned directory descriptor.
-    let stream = unsafe { libc::fdopendir(duplicate) };
-    if stream.is_null() {
-        // SAFETY: fdopendir did not take ownership on failure.
-        let _ = unsafe { libc::close(duplicate) };
-        return;
-    }
-    // Cleanup is best effort and must not let an adversarial producer keep the
-    // host in an unbounded loop. Anything beyond this cap stays for startup.
-    for _ in 0..4096 {
-        // SAFETY: `stream` remains live until closed below. readdir's entry
-        // is valid until the next readdir call, and d_name is NUL-terminated.
-        let entry = unsafe { libc::readdir(stream) };
-        if entry.is_null() {
-            break;
-        }
-        // SAFETY: POSIX guarantees d_name is a NUL-terminated byte array.
-        let name = unsafe { std::ffi::CStr::from_ptr((*entry).d_name.as_ptr()) };
-        if matches!(name.to_bytes(), b"." | b"..") {
-            continue;
-        }
-        remove_child(directory, name, depth);
-    }
-    // SAFETY: `stream` is live and owns `duplicate`.
-    let _ = unsafe { libc::closedir(stream) };
 }
 
 fn open_child_directory(parent: RawFd, name: &std::ffi::CStr) -> std::io::Result<OwnedFd> {
@@ -492,17 +297,5 @@ mod tests {
         assert_eq!(media_type(Path::new("/a.mov")), Some("video/quicktime"));
         assert_eq!(media_type(Path::new("/a.svg")), None);
         assert_eq!(media_type(Path::new("/a.html")), None);
-    }
-
-    #[test]
-    fn security_a_turn_outbox_is_created_under_an_existing_session() {
-        let dir = tempfile::tempdir().unwrap();
-        let session = dir.path().join("session");
-        std::fs::create_dir(&session).unwrap();
-        let outbox = prepare_turn_outbox_result(&session).unwrap();
-        let session = std::fs::canonicalize(session).unwrap();
-        assert_eq!(outbox.parent(), Some(session.join(".cmux-media").as_path()));
-        assert!(outbox.is_dir());
-        cleanup_turn_outbox(Some(outbox));
     }
 }

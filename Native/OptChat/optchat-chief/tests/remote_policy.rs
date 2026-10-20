@@ -223,20 +223,22 @@ fn a_non_owner_turn_asks_and_only_the_owner_may_approve_it() {
         json!({"command": "rm -rf target"}),
     ));
     deliver_mention(&mut h, "user_teammate", "allow");
+    let responses = h.agents.inner.lock().unwrap().responses.clone();
     assert!(
-        !h.agents
-            .inner
-            .lock()
-            .unwrap()
-            .responses
+        responses
             .iter()
-            .any(|r| r.1 == "p-owner"),
-        "a teammate cannot approve effects on the owner's Mac"
+            .any(|r| r.1 == "p-owner" && r.2.as_deref() != Some("allow")),
+        "a teammate's newer message safely denies rather than approves: {responses:?}"
     );
+    h.brain.step(permission(
+        "p-owner-2",
+        "Bash",
+        json!({"command": "rm -rf target"}),
+    ));
     deliver_mention(&mut h, "user_local", "allow");
     assert!(h.agents.inner.lock().unwrap().responses.contains(&(
         "s1".into(),
-        "p-owner".into(),
+        "p-owner-2".into(),
         Some("allow".into())
     )));
     h.agents.hold(false);

@@ -30,12 +30,23 @@ impl Brain {
                 urls.push(item.clone());
                 continue;
             }
-            let path = media::local_path(item, home.as_deref()).ok_or_else(|| {
+            let requested = media::local_path(item, home.as_deref()).ok_or_else(|| {
                 format!("send: attachment {item:?} is not an absolute path, ~/path, file:// or http(s) URL")
             })?;
-            let meta = std::fs::metadata(&path)
-                .map_err(|e| format!("send: attachment {}: {e}", path.display()))?;
-            if !meta.is_file() {
+            let leaf = requested.file_name().ok_or_else(|| {
+                format!("send: attachment {} has no file name", requested.display())
+            })?;
+            // Resolve trusted/system parent aliases once (`/tmp` on macOS),
+            // but keep the leaf for the upload's descriptor-relative
+            // O_NOFOLLOW open. A file symlink is never an implicit read.
+            let parent = std::fs::canonicalize(requested.parent().ok_or_else(|| {
+                format!("send: attachment {} has no parent", requested.display())
+            })?)
+            .map_err(|e| format!("send: attachment {}: {e}", requested.display()))?;
+            let path = parent.join(leaf);
+            let meta = std::fs::symlink_metadata(&path)
+                .map_err(|e| format!("send: attachment {}: {e}", requested.display()))?;
+            if !meta.file_type().is_file() {
                 return Err(format!("send: attachment {} is not a file", path.display()));
             }
             if meta.len() == 0 {
