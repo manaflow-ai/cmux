@@ -7,6 +7,8 @@ import { EMPTY_OMNIBAR, type OmnibarContext } from "../omnibar";
 import { ComposerContext } from "../ComposerContext";
 import type { Project } from "../ProjectChooser";
 import { isAgentHome, mostRecentProject } from "../sessionList";
+import type { ComposerAttachment } from "../attachments";
+import { AttachmentStrip, useAttachmentIntake } from "../composer/attachmentIntake";
 import { AllChatsList, type LoadChatsPage } from "./AllChatsList";
 import { ChatCards } from "./ChatCards";
 import { ClosedList } from "./ClosedList";
@@ -52,7 +54,16 @@ export type NewTabScreenActions = {
   /// Enter on a prompt: a chat with `harness` in `cwd` (the project picked on the page).
   /// `model`: the one the chip names, so the chat starts on what the page showed.
   /// `noProject`: Do not work in a project was picked, so the chat starts in no project.
-  onAsk(harness: string, text: string, cwd?: string, model?: string, noProject?: boolean): void;
+  /// `attachments`: what was pasted or dropped on the page (composer/attachmentIntake.tsx), sent
+  /// with the chat's first prompt.
+  onAsk(
+    harness: string,
+    text: string,
+    cwd?: string,
+    model?: string,
+    noProject?: boolean,
+    attachments?: ComposerAttachment[],
+  ): void;
   onOpen(url: string): void;
   onSearch(text: string): void;
   /// Enter in shell mode (`!` first): the page becomes a chat in its folder that runs `command`.
@@ -198,6 +209,12 @@ export function NewTabScreen(props: Props) {
   const projectPending = pending && !reserveOver;
   const project = none ? undefined : (recent ?? seeded);
   const field = useRef<HTMLTextAreaElement>(null);
+  // A paste on the field (an image, a copied file, a screenshot) and a file drop anywhere on the
+  // page stage attachments, as a chat's composer does (composer/attachmentIntake.tsx).
+  const { attachments, setAttachments, attachError, dropping } = useAttachmentIntake({
+    allowImages: snapshot.summary?.promptCapabilities?.image !== false,
+    pasteTarget: (target) => (field.current?.contains(target) ? { uploads: false } : undefined),
+  });
   const wholeSelection = useRef(false);
   const inlineCaret = useRef<number | undefined>(undefined);
   const composing = useRef(false);
@@ -233,8 +250,11 @@ export function NewTabScreen(props: Props) {
       ? project
       : (props.startCwd ?? (props.startPending && !folderless && !homeOrAbove(props.cwd) ? props.cwd : undefined));
   // A prompt's chat, in no project when that was the pick.
-  const askChat = (agent: string, prompt: string, cwd?: string, model?: string) =>
-    none ? props.onAsk(agent, prompt, cwd, model, true) : props.onAsk(agent, prompt, cwd, model);
+  // The images and files pasted or dropped on the page go with the first prompt.
+  const askChat = (agent: string, prompt: string, cwd?: string, model?: string) => {
+    if (attachments.length > 0) return props.onAsk(agent, prompt, cwd, model, none || undefined, attachments);
+    return none ? props.onAsk(agent, prompt, cwd, model, true) : props.onAsk(agent, prompt, cwd, model);
+  };
   // The agent Enter asks and the chip's model (newTabStart): the chip's pick, else the last pick.
   const remembered = useLastPick(chatFolder);
   const { harness, snapshot: chipSnapshot } = useMemo(
@@ -455,7 +475,8 @@ export function NewTabScreen(props: Props) {
         : suggested[defaultSelection(suggested, mode)];
     if (row) return activate(row);
     const prompt = text.trim();
-    if (!prompt || isAddress(prompt, home)) return;
+    // Pasted or dropped attachments alone are a prompt, as in a chat's composer.
+    if (attachments.length === 0 && (!prompt || isAddress(prompt, home))) return;
     // No agent to ask: the composer's chip says Add harness (ComposerPickers), so Return adds no note.
     if (!harness) return;
     askChat(harness, prompt, project, chipModel);
@@ -695,6 +716,17 @@ export function NewTabScreen(props: Props) {
           />
         </div>
         <div ref={setBox} className="nt-box">
+          {/* What was pasted on the field or dropped on the page, as a chat's composer shows it. */}
+          <AttachmentStrip
+            attachments={attachments}
+            {...(attachError ? { error: attachError } : {})}
+            dropping={dropping}
+            codex={harness === "codex"}
+            onRemove={(id) => {
+              setAttachments((current) => current.filter((item) => item.id !== id));
+              field.current?.focus();
+            }}
+          />
           {/* A press anywhere on the field's row (its padding, the glyph) focuses the field, as a
             browser's address bar does; the text itself keeps its own press (caret, selection).
             Cursor rule (cx-d0d.80): the I-beam only over the text, the arrow elsewhere. */}
