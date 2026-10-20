@@ -20,6 +20,10 @@ public nonisolated enum MotionFade: String, Sendable, CaseIterable {
     case fadeOut
     /// Content swap in place (hover card image, reduced-motion replacement).
     case crossfade
+    /// A wash over a whole window easing in and out: the inactive-window
+    /// tint that darkens the window under the palette (Leo 2026-10-20: shown
+    /// in one frame it was too jarring). Reduce Motion caps it at `crossfade`.
+    case scrim
     /// Drag lift shadow.
     case lift
     /// A room, workspace or terminal theme switch recoloring in place.
