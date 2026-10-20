@@ -612,6 +612,68 @@ fn security_a_private_turn_stops_live_output_after_membership_expands() {
 }
 
 #[test]
+fn security_a_disconnected_private_turn_cannot_queue_output_for_shared_reconnect() {
+    const PRIVATE_SEND: &str = "PRIVATE-DISCONNECTED-SEND-6a1f";
+    let mut h = Harness::new(default_script());
+    h.agents.hold(true);
+    h.connect();
+    h.say("user_local", "work from private context");
+    h.step();
+    h.agents.wait_prompts(1);
+    h.brain.step(Input::from(DaemonEvent::Down));
+
+    let (reply, answer) = channel();
+    h.brain.step(Input::Send {
+        call: SendCall {
+            text: Some(PRIVATE_SEND.into()),
+            ..SendCall::default()
+        },
+        reply,
+    });
+    let result = answer.recv().unwrap();
+
+    let mut shared = h.owner.lock().unwrap().summary.clone().unwrap();
+    shared.participants.push(Participant {
+        id: "user_teammate".into(),
+        kind: ParticipantKind::Human,
+        display_name: "Teammate".into(),
+        agent_class: None,
+        acp_session: None,
+        person: None,
+    });
+    h.owner.lock().unwrap().summary = Some(shared);
+    h.connect();
+
+    assert!(
+        result
+            .as_ref()
+            .is_err_and(|e| e.contains("membership became shared")),
+        "a disconnected private turn queued output under a stale summary: {result:?}"
+    );
+    assert!(
+        sends(&h).iter().all(|text| !text.contains(PRIVATE_SEND)),
+        "private queued output flushed into the shared reconnect"
+    );
+}
+
+#[test]
+fn security_an_out_of_turn_spawn_is_private_by_default() {
+    let mut h = Harness::new(default_script());
+    let (reply, answer) = channel();
+    h.brain.step(Input::SpawnRegister {
+        tasks: vec!["owner CLI delegated work".into()],
+        peer: None,
+        place: None,
+        reply,
+    });
+    let plan = answer.recv().unwrap().unwrap();
+    assert!(
+        h.brain.state().spawns[&plan.spawn].private_context,
+        "an out-of-turn child still receives the full compact private view"
+    );
+}
+
+#[test]
 fn ambient_home_terminal_text_makes_the_turn_ask() {
     use std::collections::BTreeMap;
     use std::os::unix::fs::PermissionsExt;

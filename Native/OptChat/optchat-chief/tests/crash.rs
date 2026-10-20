@@ -393,7 +393,7 @@ fn security_a_wake_before_reconnect_uses_no_private_memory() {
     h.brain.step(Input::Sleep {
         call: SleepCall {
             seconds: 60,
-            note: Some("check again".into()),
+            note: Some(PRIVATE.into()),
             until: None,
         },
         reply,
