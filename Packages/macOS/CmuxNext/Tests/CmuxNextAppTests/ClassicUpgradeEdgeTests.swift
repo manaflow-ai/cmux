@@ -186,37 +186,4 @@ import Testing
         #expect(Set(names).count == 3)
         #expect(long.hasPrefix(names[0]) && names[2].allSatisfy { $0 == "🚀" })
     }
-
-    // MARK: Order
-
-    /// A run cut off midway remakes three workspaces: each goes right after
-    /// the classic workspace before it, so the sidebar has classic's order.
-    @Test func remadeWorkspacesGoBackToTheirClassicPlace() {
-        let planner = ClassicMigrationPlanner()
-        // Personal order now: the remade ones were added at the end.
-        let now = ["home", "a", "c", "e", "b", "d", "f"]
-        let moves = planner.placements(order: now, classic: ["a", "b", "c", "d", "e", "f"], made: ["b", "d", "f"])
-        var order = now
-        for (key, index) in moves {
-            order.removeAll { $0 == key }
-            order.insert(key, at: index)
-        }
-        #expect(order == ["home", "a", "b", "c", "d", "e", "f"], "\(moves)")
-    }
-
-    /// The person's own order of what came over earlier is kept: only the
-    /// workspaces this run made move, and a first run in order moves nothing.
-    @Test func onlyWhatThisRunMadeMoves() {
-        let planner = ClassicMigrationPlanner()
-        // The person moved "c" to the top after the first run; classic made "x" after "b" meanwhile.
-        let moves = planner.placements(order: ["c", "a", "x", "b"], classic: ["a", "b", "x", "c"], made: ["x"])
-        #expect(moves.map(\.0) == ["x"] && moves.first?.1 == 3, "\(moves)")
-        // Already after "b" among the window's rows: the person's own "mine" between them stays.
-        #expect(planner.placements(order: ["c", "a", "b", "mine", "x"], classic: ["a", "b", "x", "c"], made: ["x"]).isEmpty)
-        #expect(planner.placements(order: ["h", "a", "b", "c"], classic: ["a", "b", "c"], made: ["a", "b", "c"]).isEmpty)
-        // Two windows made side by side interleave; each window is in order: nothing moves.
-        #expect(planner.placements(order: ["h", "a1", "b1", "a2", "b2"], classic: ["a1", "a2"], made: ["a1", "a2"]).isEmpty)
-        // Nothing before it came over: it goes before the next one that did.
-        #expect(planner.placements(order: ["b", "a"], classic: ["a", "b"], made: ["a"]).map(\.1) == [0])
-    }
 }

@@ -184,6 +184,28 @@ final class ClassicUpgradeSimulator {
         return result
     }
 
+    /// `run`'s outcome once it finishes within `budget`, printing progress
+    /// every 10 s; nil when it is still running (it keeps running).
+    func wait(for run: Task<ClassicMigrationOutcome, any Error>, upTo budget: Duration) async -> ClassicMigrationOutcome? {
+        final class Box { var result: Result<ClassicMigrationOutcome, any Error>? }
+        let box = Box()
+        let waiter = Task { @MainActor in box.result = await run.result }
+        let clock = ContinuousClock()
+        let start = clock.now
+        var lastReport = clock.now
+        while box.result == nil, clock.now - start < budget {
+            try? await Task.sleep(for: .milliseconds(100))
+            if clock.now - lastReport >= .seconds(10) {
+                lastReport = clock.now
+                print("CLASSIC-SIM progress made=\(made().count)")
+            }
+        }
+        waiter.cancel()
+        guard case .success(let outcome)? = box.result else { return nil }
+        lastOutcome = outcome
+        return outcome
+    }
+
     /// A later launch's run on the same tree (what a relaunch restores).
     func relaunch() async throws -> ClassicMigrationOutcome {
         let outcome = try await AppOnboardingServices(owner: services.onboarding).migrateClassic(.automatic)

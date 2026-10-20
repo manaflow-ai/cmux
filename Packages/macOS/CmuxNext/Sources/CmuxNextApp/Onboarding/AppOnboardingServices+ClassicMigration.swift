@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDaemonService
@@ -172,20 +173,10 @@ extension AppOnboardingServices {
             ledger: ledger, outcome: outcome, plan: plan, groups: groups, hosts: hosts, repository: repository,
             targets: plan.windows.indices.map { $0 == 0 ? windows.targetWindow(preferring: firstWindow) : UUID().uuidString.lowercased() })
 
-        // Classic's windows come over side by side (each window's workspaces in
-        // order, one at a time: the window's creates queue anyway), so a session
-        // at classic's limits takes about as long as its largest window.
-        // Child tasks on the main actor, awaited in window order; a thrown
-        // ledger write ends the run, after every window stopped.
-        let windowRuns = plan.windows.indices.map { index in
-            Task { @MainActor in try await self.makeClassicWindow(index, run: run) }
-        }
+        // One window after another: creating windows side by side was five
+        // times slower on the fleet (0.6 against 3 workspaces a second at 512).
         var later: [ClassicWorkspaceTurn] = []
-        var firstFailure: (any Error)?
-        for windowRun in windowRuns {
-            do { later += try await windowRun.value } catch { firstFailure = firstFailure ?? error }
-        }
-        if let firstFailure { throw firstFailure }
+        for index in plan.windows.indices { later += try await makeClassicWindow(index, run: run) }
         if !later.isEmpty {
             // The hosts still connecting, waited for together (each within its connect limit).
             let waiting = Set(later.compactMap { $0.saved.remote?.sshDestination })
@@ -204,7 +195,7 @@ extension AppOnboardingServices {
             }
             for turn in later.sorted(by: { $0.index < $1.index }) { try await makeClassicWorkspace(turn.saved, window: turn.index, run: run) }
         }
-        await placeClassicWorkspaces(plan, made: run.made, ledger: run.ledger)
+        await placeClassicWorkspaces(plan, made: run.made, ledger: run.ledger, targets: run.targets)
         ledger = run.ledger
         outcome = run.outcome
         let lastError = run.lastError, reveal = run.reveal, openedInFirstWindow = run.openedInFirstWindow
@@ -246,7 +237,7 @@ extension AppOnboardingServices {
         run.ledger.workspaces[saved.key] = ClassicMigrationLedger.Entry(stage: .pending)
         try await save(run.ledger, to: repository)
         var made: String?
-        // This call's own copies: windows run side by side, so none holds the run's across a suspension.
+        // This call's own copies, merged after: nothing holds the run's state across a suspension.
         var summary = ClassicImportSummary()
         var unreachable = run.unreachable
         defer {
@@ -278,44 +269,49 @@ extension AppOnboardingServices {
     }
 
     /// Puts the workspaces this run made at their classic place in each
-    /// window's personal order (``ClassicMigrationPlanner/placements(order:classic:made:)``):
-    /// a resumed or merged run makes them last. A first run makes them in
-    /// order, so nothing moves; workspaces made earlier keep the person's order.
-    private func placeClassicWorkspaces(_ plan: ClassicMigrationPlan, made: [Int: Set<String>], ledger: ClassicMigrationLedger) async {
+    /// window's sidebar, through the row-drag path (`SidebarBridge.place`):
+    /// a resumed or merged run makes them last. Each goes right below the
+    /// nearest classic workspace before it in its classic container (its
+    /// group, or the loose rows) that is here, else right above the nearest
+    /// one after it. A workspace already there does not move, so a first run
+    /// moves nothing and the person's own order of earlier ones stays.
+    private func placeClassicWorkspaces(_ plan: ClassicMigrationPlan, made: [Int: Set<String>], ledger: ClassicMigrationLedger,
+                                        targets: [String]) async {
         let local = services.machines.local
-        let store = local.store
-        guard let connection = local.connection, local.store.servesStateResources, let session = store.registryID else { return }
-        // Rows are named `<session>/<key>`: the daemon's index counts every session's rows.
-        let rowKey: (String) -> String? = { id in store.workspace(id: id)?.key.map { "\(session)/\($0.rawValue)" } }
-        let rows: @MainActor @Sendable () -> [String] = {
-            store.personal.workspaces.sorted { $0.index < $1.index }.map { "\($0.sessionID)/\($0.workspaceKey.rawValue)" }
-        }
-        // The rows of what this run made, once the store has them (they arrive with the daemon's events).
-        let wanted = Set(made.values.joined().compactMap(rowKey))
-        guard await Self.awaitStore({ wanted.isSubset(of: rows()) }) else { return }
-        // Every window's moves worked out on one order, the order the daemon applies them to.
-        var order = rows()
-        var moves: [(String, Int)] = []
+        let section = SectionID.machine(MachineID(local.machineID))
         for (index, window) in plan.windows.enumerated() {
-            guard let fresh = made[index], !fresh.isEmpty else { continue }
-            // Classic's whole window, as it is here: what earlier runs made too.
-            let classic = window.workspaces.compactMap { ledger.workspaces[$0.key]?.nextWorkspace }.compactMap(rowKey)
-            for (row, position) in ClassicMigrationPlanner().placements(order: order, classic: classic, made: Set(fresh.compactMap(rowKey))) {
-                order.removeAll { $0 == row }
-                order.insert(row, at: position)
-                moves.append((row, position))
+            guard let fresh = made[index], !fresh.isEmpty,
+                  let bridge = services.windows.controller(for: targets[index])?.sidebar else { continue }
+            let shown: @MainActor @Sendable () -> [String] = {
+                SidebarRowSection.withoutPlaceholders(bridge.model.sections).flatMap(\.nodes).flatMap { node -> [String] in
+                    switch node {
+                    case .workspace(let workspace): [workspace.id.rawValue]
+                    case .group(let group): group.workspaces.map(\.id.rawValue)
+                    case .item: []
+                    }
+                }
             }
-        }
-        do {
-            for (row, position) in moves {
-                let workspaceKey = WorkspaceKey(rawValue: String(row.dropFirst(session.count + 1)))
-                try await connection.state.placePersonalWorkspace(session: session, key: workspaceKey,
-                                                                  resource: store.personalStateID(session: session, key: workspaceKey),
-                                                                  index: position)
+            // The rows of what this run made, once the sidebar lists them.
+            guard await Self.awaitStore({ fresh.isSubset(of: shown()) }) else { continue }
+            // Classic's window as it is here (what earlier runs made too), with each one's classic container.
+            let here = window.workspaces.compactMap { saved in
+                ledger.workspaces[saved.key]?.nextWorkspace.map { (id: $0, group: saved.groupID) }
             }
-        } catch {
-            // Later moves would land against a different order: stop; every workspace is still here.
-            services.daemon.logger.error("classic workspace not placed: \(String(describing: error), privacy: .public)")
+            for entry in here where fresh.contains(entry.id) {
+                let listed = Set(shown())
+                let mates = here.filter { $0.group == entry.group && listed.contains($0.id) }
+                guard let at = mates.firstIndex(where: { $0.id == entry.id }) else { continue }
+                let order = shown().filter { id in mates.contains { $0.id == id } }
+                let before = at > 0 ? mates[at - 1].id : nil
+                let after = at + 1 < mates.count ? mates[at + 1].id : nil
+                let current = order.firstIndex(of: entry.id)
+                let inPlace = before.map { order.firstIndex(of: $0).map { $0 + 1 } == current } ?? (after.map { order.firstIndex(of: $0).map { $0 - 1 } == current } ?? true)
+                guard !inPlace else { continue }
+                let slot: WorkspaceSlot? = before.map { .below($0) } ?? after.map { .above($0) }
+                let sections = SidebarRowSection.withoutPlaceholders(bridge.model.sections)
+                guard let slot, let drop = slot.position(moving: [entry.id], section: section, in: sections) else { continue }
+                bridge.place([SidebarWorkspaceID(entry.id)], at: drop, in: sections)
+            }
         }
     }
 
@@ -478,7 +474,7 @@ fileprivate struct ClassicWorkspaceTurn: Sendable {
     var saved: ClassicSessionWorkspace
 }
 
-/// One run's state that its windows, made side by side, all write.
+/// One run's state, which each workspace it makes writes.
 @MainActor
 fileprivate final class ClassicMigrationRunState {
     var ledger: ClassicMigrationLedger
