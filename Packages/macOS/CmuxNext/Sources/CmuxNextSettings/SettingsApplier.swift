@@ -21,7 +21,7 @@ public final class SettingsApplier {
         self.registry = registry
     }
 
-    public static var validDensities: Set<String> { Set(Density.allCases.map(\.rawValue)) }
+    public static var validDensities: Set<String> { Set(DensityPreset.allCases.map(\.rawValue)) }
     public static var validMetrics: Set<String> { Set(MetricKey.allCases.map(\.rawValue)) }
 
     /// Applies `snapshot` and returns every diagnostic: the parse
@@ -35,8 +35,9 @@ public final class SettingsApplier {
         }
 
         if design.showModifierHoldHints != snapshot.showModifierHoldHints { design.showModifierHoldHints = snapshot.showModifierHoldHints }
-        let density = snapshot.density.flatMap(Density.init(rawValue:)) ?? .compact
-        if design.density != density { design.density = density }
+        if design.customDensities != snapshot.customDensities { design.customDensities = snapshot.customDensities }
+        let density = snapshot.selectedDensity
+        if design.densityTokens != density { design.densityTokens = density }
         let uiScale = DesignSettings.clampedUIScale(CGFloat(snapshot.uiScale))
         if design.uiScale != uiScale { design.uiScale = uiScale }
         let interfaceScale = DesignSettings.clampedInterfaceScale(CGFloat(snapshot.interfaceScale))
