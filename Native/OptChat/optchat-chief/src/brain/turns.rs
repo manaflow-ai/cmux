@@ -1481,6 +1481,7 @@ impl Brain {
                 text: super::recover::RESUMED.to_owned(),
                 source: Source::Resume {
                     remote: resume.remote,
+                    requires_approval: resume.requires_approval,
                     cut: resume.messages,
                 },
                 images: Vec::new(),
