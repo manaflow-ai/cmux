@@ -14,7 +14,7 @@
     "check:system-blue": "python3 ../scripts/cmux-next/check-system-blue.py",
     "check:text-focus": "python3 ../scripts/cmux-next/check-text-focus-rings.py",
     "check:dialog-keys": "python3 -I ../scripts/cmux-next/check-dialog-key-hints.py ..",
-    "check:switch-fetches": "bash ../scripts/cmux-next/tests/check-switch-fetches.test.sh",
+    "check:switch-fetches": "python3 -I ../scripts/cmux-next/check-switch-fetches.py --root ..",
     "check:browser-lanes": "bun scripts/check-browser-test-lanes.ts",
     "check:fix": "vp check --fix",
     "dev": "vp dev",

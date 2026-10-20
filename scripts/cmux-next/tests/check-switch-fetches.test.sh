@@ -39,7 +39,10 @@ pass "$ACPMUX/direct.ts" "a listed listener" 'document.addEventListener("visibil
 pass "$VIEW" "a marked mount read" $'// mount-read: the spare\'s model is wired only now\nuseEffect(() => {\n  void callNative("project.list");\n}, []);'
 pass "$VIEW" "a read keyed by its data" $'useEffect(() => {\n  void callNative("chat.read", { id });\n}, [id]);'
 pass "$VIEW" "a read in a comment" $'useEffect(() => {\n  // callNative("x") was here\n}, []);'
-pass "webviews/src/pages/Fixture.tsx" "a page outside the views" 'window.addEventListener("focus", reread);'
+pass "$VIEW" "an element's own focus listener" 'input.addEventListener("focus", onFocus);'
+pass "$VIEW" "a read on each push" $'useEffect(() => subscribeDeviceChats(() => fetchPage("", undefined)), [fetchPage]);'
+pass "$VIEW" "a state flag dependency" $'useEffect(() => {\n  if (!isLoading) void callNative("x");\n}, [isLoading]);'
+pass "webviews/src/pages/Fixture.tsx" "a page outside the agent page" 'window.addEventListener("focus", reread);'
 
 python3 -I "$CHECK" --self-test >/dev/null
 # The real tree is clean.
