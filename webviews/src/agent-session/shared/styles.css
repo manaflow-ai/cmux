@@ -20,6 +20,11 @@
   --agent-muted: color-mix(in srgb, var(--agent-text) 58%, transparent);
   --agent-soft: color-mix(in srgb, var(--agent-text) 78%, transparent);
   --agent-accent: var(--agent-text);
+  /* Links are blue in every theme (Leo 2026-10-19: "links are blue, period", as Claude desktop
+     and Codex). A fixed blue for the page's light or dark scheme (theme.ts sets color-scheme), a
+     fifth of it the theme's own bright blue (ANSI 12), so a theme shifts it only mildly. */
+  --agent-link-base: light-dark(#0b63d6, #5aa2ff);
+  --agent-link: color-mix(in oklab, var(--agent-link-base) 80%, var(--agent-ansi-12, var(--agent-link-base)));
   --agent-accent-soft: color-mix(in srgb, var(--agent-text) 20%, transparent);
   --agent-danger: var(--cmux-app-danger, #ff8d7e);
   --agent-shadow: rgba(0, 0, 0, 0.2);
