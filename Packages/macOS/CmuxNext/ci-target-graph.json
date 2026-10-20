@@ -199,6 +199,7 @@
         "CmuxNextDiff",
         "CmuxNextErrorJournal",
         "CmuxNextFeed",
+        "CmuxNextFloating",
         "CmuxNextFocus",
         "CmuxNextFocusUI",
         "CmuxNextHistory",
@@ -213,6 +214,7 @@
         "CmuxNextOnboarding",
         "CmuxNextPages",
         "CmuxNextPalette",
+        "CmuxNextPhone",
         "CmuxNextPhoneAccess",
         "CmuxNextPopups",
         "CmuxNextProcessEnvironment",
@@ -277,6 +279,7 @@
         "CmuxNextDaemonRecovery",
         "CmuxNextDaemonService",
         "CmuxNextDiff",
+        "CmuxNextFloating",
         "CmuxNextFocus",
         "CmuxNextFocusUI",
         "CmuxNextHistory",
@@ -662,6 +665,26 @@
       ],
       "packages": []
     },
+    "CmuxNextFloating": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextFloating",
+      "targets": [
+        "CmuxNextCompat",
+        "CmuxNextDesign",
+        "CmuxNextIcons",
+        "CmuxNextWakeups"
+      ],
+      "packages": []
+    },
+    "CmuxNextFloatingTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextFloatingTests",
+      "targets": [
+        "CmuxNextFloating"
+      ],
+      "packages": [],
+      "reads": []
+    },
     "CmuxNextFocus": {
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextFocus",
@@ -802,6 +825,7 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextNowPlaying",
       "targets": [
+        "CmuxNextAgentPane",
         "CmuxNextBrowser",
         "CmuxNextCompat",
         "CmuxNextSidebar",
@@ -863,6 +887,15 @@
       "packages": [],
       "reads": []
     },
+    "CmuxNextPhone": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextPhone",
+      "targets": [
+        "CmuxNextCompat",
+        "CmuxNextWakeups"
+      ],
+      "packages": []
+    },
     "CmuxNextPhoneAccess": {
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextPhoneAccess",
@@ -882,6 +915,16 @@
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextPhoneAccessTests",
       "targets": [
         "CmuxNextPhoneAccess"
+      ],
+      "packages": [],
+      "reads": []
+    },
+    "CmuxNextPhoneTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextPhoneTests",
+      "targets": [
+        "CmuxNextCompat",
+        "CmuxNextPhone"
       ],
       "packages": [],
       "reads": []
