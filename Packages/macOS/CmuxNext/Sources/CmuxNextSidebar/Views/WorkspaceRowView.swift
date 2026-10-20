@@ -59,7 +59,14 @@ final class WorkspaceRowView: SidebarRowView {
     var grouped = false
     var iconKind: WorkspaceIcon?
     /// Selected but not active (the active row paints the selection fill).
-    var isSecondarySelected = false { didSet { if isSecondarySelected != oldValue { needsDisplay = true } } }
+    var isSecondarySelected = false {
+        didSet {
+            guard isSecondarySelected != oldValue else { return }
+            updateAccessibilitySelection()
+            needsDisplay = true
+        }
+    }
+    override var showsSelection: Bool { isSelected || isSecondarySelected }
     /// A tab dragged from a pane would move into this workspace.
     var isDropTarget = false { didSet { if isDropTarget != oldValue { needsDisplay = true } } }
     var onClose: (() -> Void)?
@@ -190,7 +197,7 @@ final class WorkspaceRowView: SidebarRowView {
         grouped = row.group != nil
         // A placeholder with a title (a connecting SSH machine, cx-gaq9) draws its text, not the bar.
         isShowingPlaceholder = ws.rowState == .placeholder && ws.title.isEmpty
-        isPlaceholderRow = ws.rowState == .placeholder
+        isPlaceholderRow = ws.rowState.isPending
         isClosable = ws.isClosable
         placeholderFraction = SidebarStyle.placeholderFractions[ws.id.rawValue.utf8.reduce(0) { $0 &+ Int($1) } % SidebarStyle.placeholderFractions.count]
         // SIDEBAR-ROWS-MINIMAL-AND-CUSTOMIZABLE: the row draws only what its

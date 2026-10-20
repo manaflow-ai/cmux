@@ -19,6 +19,18 @@ const PG_BIN: (&str, bool) = ("pg-bin", true);
 
 pub static VERBS: &[VerbSpec] = &[
     VerbSpec {
+        path: &["pair"],
+        positionals: &[],
+        flags: &[("api-origin", true), ("name", true)],
+        help: "server.pair.begin",
+    },
+    VerbSpec {
+        path: &["pair", "status"],
+        positionals: &[],
+        flags: &[],
+        help: "server.pair.status",
+    },
+    VerbSpec {
         path: &["install"],
         positionals: &[],
         flags: &[("version", true), ("system", false), ("channel", true), ("channel-url", true)],
@@ -184,7 +196,13 @@ pub fn parse(args: &[String]) -> Result<Args> {
         match name.as_str() {
             "json" => out.json = true,
             "help" | "h" => out.help = true,
-            "idempotency-key" => out.idempotency_key = value,
+            "idempotency-key" => {
+                out.idempotency_key = Some(
+                    value
+                        .filter(|value| !value.is_empty())
+                        .ok_or_else(|| Error::usage("server.idempotency_key.required"))?,
+                );
+            }
             _ => {
                 out.flags.insert(name, value);
             }
@@ -230,12 +248,18 @@ fn check_spec(spec: &VerbSpec, args: &Args) -> Result<()> {
 /// The help text.
 pub fn help() -> String {
     let mut out = String::from("cmux server: run this machine as a cmux server\n\n");
+    let pairing = crate::pairing::messages::current();
     for v in VERBS {
         let mut line = v.path.join(" ");
         for p in v.positionals {
             line.push_str(&format!(" <{}>", p.trim_end_matches('?')));
         }
-        out.push_str(&format!("  {line:28} {}\n", v.help));
+        let help = match v.help {
+            "server.pair.begin" => pairing.pair_help,
+            "server.pair.status" => pairing.status_help,
+            other => other,
+        };
+        out.push_str(&format!("  {line:28} {help}\n"));
     }
     out.push_str("\nGlobal flags: --json --idempotency-key K\n");
     out.push_str("Exit codes: 0 ok, 1 internal, 2 usage, 3 not found, 4 rejected, 5 unreachable or deadline, 6 idempotency conflict, 7 verification failed\n");

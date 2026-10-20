@@ -137,10 +137,10 @@ public struct ExtensionsMenu {
 
     private func symbol(for operation: ExtensionMenuOperation) -> String {
         switch operation {
-        case .manage: "gearshape"
+        case .manage: IconName.browserExtensionsManage.rawValue
         case .webStore: "bag"
         case .loadUnpacked: "folder.badge.plus"
-        default: "puzzlepiece.extension"
+        default: IconName.browserToolbarExtensions.rawValue
         }
     }
 
@@ -155,7 +155,7 @@ public struct ExtensionsMenu {
 
     /// The puzzle piece for an extension without an icon, named for VoiceOver.
     private static func fallbackImage(name: String) -> NSImage {
-        let image = NSImage.icon(.extension, size: 16)
+        let image = NSImage.icon(.browserToolbarExtensions, size: 16)
         image.accessibilityDescription = name
         return image
     }

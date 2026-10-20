@@ -51,18 +51,38 @@ export type Enforcement = {
   policy: string;
 } & Record<string, unknown>;
 
+export interface HarnessUpdatePlanParams {
+  cli: string;
+}
+
 export type Indicator = "input" | "working" | "failed" | "lost" | "done";
+
+export type InventoryRefreshParams = Record<string, never>;
+
+export interface InventoryWatchParams {
+  enabled: boolean;
+}
 
 /** acpmux never claims host isolation. */
 export type Isolation = "unverified";
 
 /** The session's lane (cx-v9k2f), decided once by the daemon (`views::lane`). */
 export type Lane = {
-  /** The failed or lost turn's error text. */
+  /** The failed or lost turn's error text, secrets masked (`secret_scan`). */
   error: (string | null);
   /** Unix ms the state began; null when the daemon does not know. */
   since: (number | null);
   state: LaneState;
+  /**
+   * What the session is doing now, one line: the running turn's prompt,
+   * else the agent's last reply line, secrets masked (`secret_scan`).
+   */
+  step: (string | null);
+  /**
+   * The session's title, else its latest prompt, one line, secrets masked
+   * (`secret_scan`).
+   */
+  title: (string | null);
 } & Record<string, unknown>;
 
 export type LaneState = "working" | "input" | "failed" | "lost" | "idle";
@@ -87,6 +107,18 @@ export type LastTurn = {
   status?: (string | null);
   stopReason?: (string | null);
   turnId?: (string | null);
+} & Record<string, unknown>;
+
+/**
+ * A durable lifecycle fact supplied by an explicit producer. This contract
+ * is intentionally optional and opaque to the session sidebar until a
+ * producer wires it to a real controller receipt.
+ */
+export type LifecycleReceipt = {
+  id: string;
+  sequence: number;
+  source: string;
+  state: string;
 } & Record<string, unknown>;
 
 export interface MailAckParams {
@@ -323,10 +355,14 @@ export type SessionSummary = {
   agentSessionId?: (string | null);
   /** Attached clients. */
   attached: number;
+  /** Its sub-sessions that are not closed. */
+  children: number;
   createdAt: number;
   currentModeId?: (string | null);
   /** Lossy when the path is not UTF-8. */
   cwd: string;
+  /** 0 for a root session, 1 for its sub-sessions, and so on. */
+  depth: number;
   enforcement: Enforcement;
   eventCount: number;
   family?: (string | null);
@@ -344,6 +380,12 @@ export type SessionSummary = {
   lastPrompt?: (string | null);
   lastSeq: number;
   lastTurn?: (LastTurn | null);
+  /**
+   * An optional controller/daemon lifecycle receipt. It is absent until a
+   * producer supplies a validated receipt; clients must not infer one from
+   * status or placement fields.
+   */
+  lifecycleReceipt?: (LifecycleReceipt | null);
   /**
    * The MCP servers the harness says it loaded, from its own report (Claude
    * Code's system/init); null when it reports none (every ACP harness).
@@ -366,6 +408,8 @@ export type SessionSummary = {
   /** The session has its own permission rules. */
   rules: boolean;
   sessionId: string;
+  /** Its name among its parent's sub-sessions; null for a root. */
+  shortName?: (string | null);
   /** Some attached client shows the chat. */
   shown: boolean;
   /**
@@ -373,6 +417,13 @@ export type SessionSummary = {
    * only while that parent is listed; one level.
    */
   spawnedBy?: (string | null);
+  /**
+   * The session whose agent started this one with its `start_session`
+   * tool (`hub/subsessions.rs`); null for a session a person or client
+   * started. Kept when the parent is closed or gone, so a client draws
+   * the tree from these links at any depth.
+   */
+  startedBy?: (string | null);
   stateSeq: number;
   /**
    * `idle`, `ready`, `running`, `waiting`, `disconnected` or `closed`;

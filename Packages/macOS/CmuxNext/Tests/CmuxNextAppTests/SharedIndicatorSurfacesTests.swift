@@ -30,7 +30,7 @@ struct SharedIndicatorSurfacesTests {
         store.apply(snapshot: DaemonTree(workspaces: [WorkspaceSnapshot(id: 1, key: nil, name: "w", screens: [screen])]))
         let line = #"{"type":"stream_item","item":{"kind":"snapshot","snapshot":{"terminals":[{"id":"term_7","extra":\#(extra)}],"extra":{"state":{}}}}}"#
         let item = try #require(SessionStreamItem.decode(Data(line.utf8)))
-        store.session.apply(item, to: store.workspaces)
+        store.session.apply(item, in: store)
         return store
     }
 

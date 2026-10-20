@@ -43,6 +43,13 @@ public final class LayoutModel {
     public var acceptsRowOps = false
     /// Pins `layout.rows` (tests, the demo); nil follows cmux.json.
     public var rowsEnabledOverride: Bool?
+    /// Pins `layout.focusPaneOnScroll` (tests, the demo); nil follows cmux.json.
+    public var focusPaneOnScrollOverride: Bool?
+    /// Scrolling over a pane focuses it (cmux.json `layout.focusPaneOnScroll`):
+    /// the override, else the live setting while `followsDesignMetrics` is on, else on.
+    public var focusesPaneOnScroll: Bool {
+        focusPaneOnScrollOverride ?? (followsDesignMetrics ? DesignSettings.shared.focusPaneOnScroll : true)
+    }
     /// Column centering mode: the override, else the live setting
     /// while `followsDesignMetrics` is on, else `.never`.
     public var centerFocusedColumn: CenterFocusedColumn {
@@ -58,12 +65,63 @@ public final class LayoutModel {
     /// (density and cmux.json overrides). Turn off to pin `baseStyle` exactly.
     public var followsDesignMetrics = true
     /// The resolved style the views lay out with. Observation-tracked on both
-    /// this model and `DesignSettings.shared`, so a density or metric override
-    /// change relayouts every screen live.
+    /// this model and the design settings it reads, so a density or metric
+    /// override change relayouts every screen live.
+    ///
+    /// Resolved once per settings change, not per read (I7): the views read
+    /// it many times per frame, and `applyingDesignMetrics` reads about 30
+    /// settings. The cache keys on this model's inputs; a change of any
+    /// design setting it read drops it (`designStyleDidChange`).
     public var style: LayoutStyle {
-        var style = followsDesignMetrics ? baseStyle.applyingDesignMetrics() : baseStyle
-        if let rowsEnabledOverride { style.rowsEnabled = rowsEnabledOverride }
-        return style
+        let key = StyleKey(base: baseStyle, follows: followsDesignMetrics, rows: rowsEnabledOverride)
+        guard followsDesignMetrics else { return key.resolved(design: baseStyle) }
+        _ = designStyleGeneration
+        if let cachedStyle, cachedStyle.key == key { return cachedStyle.value }
+        let design: LayoutStyle
+        if styleTrackingArmed {
+            // A tracking is live: it already watches every setting this reads.
+            design = baseStyle.applyingDesignMetrics()
+        } else {
+            styleTrackingArmed = true
+            design = withObservationTracking {
+                baseStyle.applyingDesignMetrics()
+            } onChange: { [weak self] in
+                // A will-set: the new value is not stored yet. Drop the cache
+                // at once (a read after the write resolves again), and once
+                // more after the write, with the bump that wakes the views (a
+                // read between the will-set and the write cached the old value).
+                if Thread.isMainThread { MainActor.assumeIsolated { self?.cachedStyle = nil } } // main-proof: checked on this line
+                Task { @MainActor in self?.designStyleDidChange() }
+            }
+        }
+        let value = key.resolved(design: design)
+        cachedStyle = (key, value)
+        return value
+    }
+
+    private struct StyleKey: Equatable {
+        var base: LayoutStyle
+        var follows: Bool
+        var rows: Bool?
+        func resolved(design: LayoutStyle) -> LayoutStyle {
+            var style = design
+            if let rows { style.rowsEnabled = rows }
+            return style
+        }
+    }
+
+    @ObservationIgnored private var cachedStyle: (key: StyleKey, value: LayoutStyle)?
+    /// Bumped when a design setting `style` read changed: readers of
+    /// `style` observe it.
+    private var designStyleGeneration = 0
+
+    /// One tracking of the design settings is live at a time.
+    @ObservationIgnored private var styleTrackingArmed = false
+
+    private func designStyleDidChange() {
+        styleTrackingArmed = false
+        cachedStyle = nil
+        designStyleGeneration &+= 1
     }
 
     /// Panes that need attention (an unread notification), with the mark
@@ -140,14 +198,18 @@ public final class LayoutModel {
         daemonScreens = newScreens
         splitOverrides = splitOverrides.filter { !$0.value.settled }
         widthOverrides = widthOverrides.filter { !$0.value.settled }
-        screens = overlaid(newScreens)
+        // Equal screens (the echo of this client's own gesture, a snapshot
+        // that changed another workspace) write nothing, so no observer runs.
+        let next = overlaid(newScreens)
+        if next != screens { screens = next }
         if activeScreenID == nil || !screens.contains(where: { $0.id == activeScreenID }) {
             activeScreenID = screens.first?.id
         }
         if let focusedPane, screens.contains(where: { $0.layout.contains(focusedPane) }) {
             return
         }
-        focusedPane = activeScreen?.layout.panes.first
+        let first = activeScreen?.layout.panes.first
+        if focusedPane != first { focusedPane = first }
     }
 
     /// The daemon accepted the command carrying `transaction`. An ended
@@ -283,7 +345,7 @@ public final class LayoutModel {
     /// frame by the view); `.ended` flushes immediately.
     public func setSplitRatio(_ split: SplitID, ratio: Double, transaction: LayoutTransactionID, phase: LayoutGesturePhase) {
         let ratio = min(max(ratio, SplitRatio.range.lowerBound), SplitRatio.range.upperBound)
-        updateScreens { $0.settingRatio(ratio, for: split) }
+        updateScreen(where: { $0.ratio(of: split) != nil }) { $0.settingRatio(ratio, for: split) }
         splitOverrides[split] = Override(value: ratio, transaction: transaction, ended: phase == .ended)
         let intent = LayoutIntent.setSplitRatio(split, ratio: ratio, transaction: transaction, phase: phase)
         record(intent, key: .split(split), phase: phase)
@@ -303,7 +365,7 @@ public final class LayoutModel {
     public func setColumnWidth(_ column: ColumnID, width: Double, transaction: LayoutTransactionID, phase: LayoutGesturePhase) {
         let width = min(max(width, ColumnWidthPreset.widthRange.lowerBound), ColumnWidthPreset.widthRange.upperBound)
         guard let anyPane = screens.lazy.compactMap({ $0.layout.columns.first { $0.id == column }?.root.panes.first }).first else { return }
-        updateScreens { $0.settingWidth(width, for: column) }
+        updateScreen(where: { layout in layout.columns.contains { $0.id == column } }) { $0.settingWidth(width, for: column) }
         widthOverrides[column] = Override(value: width, transaction: transaction, ended: phase == .ended)
         let intent = LayoutIntent.setColumnWidth(column, anyPane: anyPane, width: width, transaction: transaction, phase: phase)
         record(intent, key: .column(column), phase: phase)
@@ -353,12 +415,13 @@ public final class LayoutModel {
         }
     }
 
-    func updateScreens(_ transform: (ScreenLayout) -> ScreenLayout) {
-        var next = screens
-        for index in next.indices {
-            next[index].layout = transform(next[index].layout)
-        }
-        if next != screens { screens = next }
+    /// Rewrites the one screen whose layout matches `owns` (a split or a
+    /// column belongs to one screen): a drag frame touches only the screen
+    /// it drags, and writes nothing when the value is already in place.
+    func updateScreen(where owns: (ScreenLayout) -> Bool, _ transform: (ScreenLayout) -> ScreenLayout) {
+        guard let index = screens.firstIndex(where: { owns($0.layout) }) else { return }
+        let layout = transform(screens[index].layout)
+        if layout != screens[index].layout { screens[index].layout = layout }
     }
 
     // MARK: Structure

@@ -1,46 +1,13 @@
 import CCmuxLayoutReducerFFI
 import Foundation
 
-/// The focus transition function `(state, event) -> (state, effects)` and
-/// the key rules live in `cmux-focus-core` (cmux-tui/crates/cmux-focus-core;
-/// plans/cmux-next/focus.md section 4), shared with every platform shell.
-/// This is the app's synchronous call into it over the app FFI
-/// (`cmux_layout_reducer_json` operations `focus_*`): one in-process call
-/// per focus event or queued key, on the caller's thread, no daemon round
-/// trip. The coordinator applies the returned effects.
+/// The per-key focus rules that stay JSON calls into `cmux-focus-core`
+/// (`focus_type_ahead`, `focus_child_window_key`): one call per queued key or
+/// child-window key change, not per focus event.
 nonisolated enum FocusReducer {
-    static func reduce(_ state: FocusState, _ event: FocusEvent) -> (FocusState, [FocusEffect]) {
-        struct Request: Encodable {
-            var state: FocusState
-            var event: FocusEvent
-        }
-        struct Response: Decodable {
-            var state: FocusState
-            var effects: [FocusEffect]
-        }
-        guard let response = call("focus_reduce", Request(state: state, event: event), as: Response.self) else {
-            // The ABI refused or could not decode: a wire mismatch between the
-            // app and the linked FFI. Keep the state rather than lose focus.
-            assertionFailure("focus_reduce refused \(event)")
-            return (state, [])
-        }
-        return (response.state, response.effects)
-    }
-
-    /// `FocusEvent.changesView`.
-    static func changesView(_ event: FocusEvent) -> Bool {
-        struct Request: Encodable { var event: FocusEvent }
-        struct Response: Decodable { var changesView: Bool }
-        guard let response = call("focus_changes_view", Request(event: event), as: Response.self) else {
-            assertionFailure("focus_changes_view refused \(event)")
-            return false
-        }
-        return response.changesView
-    }
-
     /// The first output buffer: a reply that does not fit returns ERR_BUFFER
     /// with the needed length, and the call runs once more with that size.
-    private static let initialCapacity = 64 * 1024
+    private static let initialCapacity = 4 * 1024
 
     static func call<Request: Encodable, Response: Decodable>(_ operation: String, _ request: Request,
                                                              as: Response.Type) -> Response? {

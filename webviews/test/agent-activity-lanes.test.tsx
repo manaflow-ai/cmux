@@ -51,7 +51,7 @@ const lane = (id: string, state: Lane["state"], extra: Partial<Lane> = {}): Lane
 /** One lane per state, on this Mac and an acpmux peer, under a coordinator and on their own. */
 const lanes: Lane[] = [
   lane("chief", "working", { title: "Coordinator", since: hours(0.1) }),
-  lane("op-busy", "working", { parent: "chief", since: hours(0.5) }),
+  lane("op-busy", "working", { parent: "chief", since: hours(0.5), harness: "codex", step: "Run the guard tests" }),
   lane("op-idle-long", "idle", { parent: "chief", since: hours(5) }),
   lane("op-idle-short", "idle", { parent: "chief", since: hours(1) }),
   lane("op-broke", "failed", { parent: "chief", since: hours(3), error: "Credit balance too low" }),
@@ -108,6 +108,19 @@ describe("Agent Activity lanes", () => {
     expect(row("op-broke").textContent).toContain("Credit balance too low");
     expect(row("mini-1").textContent).toContain("Lost · 4h");
     expect(row("op-broke").dataset.state).toBe("failed");
+  });
+
+  test("shows each lane's harness and current step under its title; an error takes the step's place", async () => {
+    await render({ lanes: [...lanes.slice(0, 4), { ...lanes[4], step: "Retrying the build" }, ...lanes.slice(5)] });
+    expect(row("op-busy").querySelector(".lane-harness")?.textContent).toBe("codex");
+    expect(row("op-busy").querySelector(".lane-step")?.textContent).toBe("Run the guard tests");
+    expect(row("op-broke").querySelector(".lane-step")).toBeNull();
+    expect(row("op-idle-long").querySelector(".lane-detail")).toBeNull();
+  });
+
+  test("the filter finds a lane by its current step", async () => {
+    await render({ lanes, filter: "guard" });
+    expect(rows().map((r) => r.dataset.lane)).toEqual(["op-busy"]);
   });
 
   test("counts the sessions that need a person", async () => {

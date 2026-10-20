@@ -120,6 +120,7 @@ public final class GhosttyRuntime {
         guard let fresh = Self.loadConfig(diagnostics: &diagnostics, opacity: &opacity) else { return }
         configuredBackgroundOpacity = opacity
         adoptedDuringReload = false
+        applyColorTransitionToSurfaces()
         ghostty_app_update_config(app, fresh)
         // Ghostty answers with CONFIG_CHANGE on this thread: the config it
         // applied carries the light/dark variant, `fresh` does not (it
@@ -223,8 +224,9 @@ public final class GhosttyRuntime {
         var opacityCells = false
         _ = configGet(config, &opacityCells, key: "background-opacity-cells")
         opacity = min(max(configured, 0), 1)
+        seeThroughLoaded = seeThroughShown
         if let line = GhosttyRuntimeSurfacePolicy.override(configuredOpacity: opacity, opacityCells: opacityCells,
-                                                           ownerPaintsBackground: Self.terminalBackgroundOverridden) {
+                                                           ownerPaintsBackground: Self.terminalBackgroundOverridden || Self.seeThroughShown) {
             line.withCString { ghostty_config_load_string(config, $0, UInt(line.utf8.count), "cmux-next") }
         }
         ghostty_config_finalize(config)
@@ -402,7 +404,10 @@ nonisolated final class RuntimeCallbackContext: @unchecked Sendable {
 /// 0 would erase them, so the config stays as it is. A terminal background
 /// override (`appearance.surfaces.terminal`) makes the surfaces transparent
 /// in an opaque window too: the terminal host paints the override behind
-/// the cells (`ownerPaintsBackground`).
+/// the cells (`ownerPaintsBackground`). So does background art, which makes
+/// a window see-through at full opacity: the host then paints only where the
+/// panes do (`WindowBackdrop.panesPaintBackground`), and the art reads
+/// through the window's one legible tint behind the cells.
 nonisolated enum GhosttyRuntimeSurfacePolicy {
     static func override(configuredOpacity: Double, opacityCells: Bool, ownerPaintsBackground: Bool = false) -> String? {
         (configuredOpacity < 1 || ownerPaintsBackground) && !opacityCells ? "background-opacity = 0" : nil

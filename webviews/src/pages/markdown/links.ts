@@ -3,7 +3,7 @@
 import type { Node as ProseNode } from "@milkdown/kit/prose/model";
 
 /** What following a link does. */
-export type LinkKind = "anchor" | "markdown" | "file" | "external" | "mail" | "unsafe";
+export type LinkKind = "anchor" | "markdown" | "file" | "external" | "mail" | "app" | "unsafe";
 
 export interface ParsedLink {
   kind: LinkKind;
@@ -13,6 +13,10 @@ export interface ParsedLink {
   /** The `#fragment`, decoded, without `#`; "" when none. */
   anchor: string;
 }
+
+/** `cmux://workspace/ws_…`, `pane/…`, `tab/…`, `session/…`, `chief/…` in the `cmux` scheme or a build's
+ * `cmux-…` one; the host checks the ids again (DeepLink.parse) and opens nothing it does not know. */
+const APP_LINK = /^cmux(-[a-z0-9-]+)?:\/\/(workspace|pane|tab|session|chief)\/[A-Za-z0-9._~/-]+(#[A-Za-z0-9._~-]+)?$/i;
 
 const MARKDOWN_PATH = /\.(md|markdown|mdx|mdown|mkd)$/i;
 
@@ -32,6 +36,8 @@ export function parseLink(raw: string): ParsedLink {
   if (href.startsWith("#")) return { kind: "anchor", href, path: "", anchor };
   if (/^(mailto|tel):/i.test(href)) return { kind: "mail", href, path: "", anchor: "" };
   if (/^https?:\/\//i.test(href) || href.startsWith("//")) return { kind: "external", href, path: "", anchor: "" };
+  // A cmux app link (a workspace, pane, tab or chat): the host opens it inside cmux, never in another app.
+  if (APP_LINK.test(href)) return { kind: "app", href, path: "", anchor: "" };
   if (/^[a-z][a-z0-9+.-]*:/i.test(href) || !href) return { kind: "unsafe", href, path: "", anchor: "" };
   const path = decode(href.replace(/[?#].*$/, ""));
   return { kind: MARKDOWN_PATH.test(path) ? "markdown" : "file", href, path, anchor };
