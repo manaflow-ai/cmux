@@ -186,7 +186,7 @@ final class HoverCardPanel: NSPanel {
     func slide(from offset: CGVector) {
         guard let slideLayer else { return }
         let start = CATransform3DMakeTranslation(offset.dx, offset.dy, 0)
-        Motion.set(slideLayer, "sublayerTransform", to: NSValue(caTransform3D: CATransform3DIdentity), spring: .panel,
+        Motion.hoverCards.set(slideLayer, "sublayerTransform", to: NSValue(caTransform3D: CATransform3DIdentity), spring: .panel,
                    from: NSValue(caTransform3D: start))
     }
 
@@ -209,7 +209,7 @@ final class HoverCardPanel: NSPanel {
     /// its edge and its shadow stay one card that slides. Off at speed off; short under Reduce
     /// Motion.
     func crossfadeContent() {
-        let duration = Motion.duration(.crossfade)
+        let duration = Motion.hoverCards.duration(.crossfade)
         let content = glass.contentView
         content.wantsLayer = true
         guard duration > 0, Motion.canAnimate(in: glass), let layer = content.layer else { return }

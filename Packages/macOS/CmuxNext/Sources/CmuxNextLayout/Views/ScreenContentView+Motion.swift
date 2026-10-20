@@ -11,7 +11,7 @@ extension ScreenContentView {
     /// Advances springs by `dt` with the frame's motion `policy`. Returns
     /// true while anything still moves. A screen at rest (a drag frame that
     /// moved nothing, a still pointer) does no work.
-    func step(_ dt: Double, policy: MotionPolicy = Motion.policy) -> Bool {
+    func step(_ dt: Double, policy: MotionPolicy = Motion.panes.policy) -> Bool {
         guard hasMotion || reportScrollOnSettle else {
             scrollRidesFrames = false
             return false
@@ -63,7 +63,7 @@ extension ScreenContentView {
     /// each row column's, in the change that starts them, once `syncScroll` placed the camera: the
     /// frame that drops the closed pane already shows its neighbours covering some of its space,
     /// and the shift the close needs (the last column or row closed) already under way.
-    func leadIfPending(_ dt: Double = 1.0 / 120, policy: MotionPolicy = Motion.policy) {
+    func leadIfPending(_ dt: Double = 1.0 / 120, policy: MotionPolicy = Motion.panes.policy) {
         guard leadsFrame else { return }
         leadsFrame = false
         let frameSpring = policy.spring(motionState.frameSpring), appear = policy.spring(.appear)

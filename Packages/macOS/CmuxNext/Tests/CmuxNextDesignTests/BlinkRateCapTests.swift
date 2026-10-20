@@ -56,16 +56,16 @@ import Testing
         Motion.reduceMotionOverride = false
         defer { Motion.reduceMotionOverride = nil }
 
-        var flashes: [(String, CAAnimation?)] = [("flash verb", Motion.flashAnimation()),
-                                                  ("status pulse", Motion.pulseAnimation(low: 0))]
+        var flashes: [(String, CAAnimation?)] = [("flash verb", Motion.indicators.flashAnimation()),
+                                                  ("status pulse", Motion.indicators.pulseAnimation(low: 0))]
         var attention = AttentionSettings()
         for look in AttentionHighlightLook.allCases {
             attention.style = .pulse
-            flashes.append(("attention pulse \(look)", Motion.attentionAnimation(attention, look: look)))
+            flashes.append(("attention pulse \(look)", Motion.indicators.attentionAnimation(attention, look: look)))
             attention.style = .blink
             for count in [2, AttentionSettings.blinkRange.upperBound] {
                 attention.blinkCount = count
-                flashes.append(("attention \(count) blinks \(look)", Motion.attentionAnimation(attention, look: look)))
+                flashes.append(("attention \(count) blinks \(look)", Motion.indicators.attentionAnimation(attention, look: look)))
             }
         }
         for (name, animation) in flashes {

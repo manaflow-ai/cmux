@@ -11,19 +11,26 @@ public struct BrowserPageService: Sendable {
     let leases: BrowserTabLeases
     /// The passkey hand-off (`browser.page.passkey`); nil serves no such method.
     let passkeys: BrowserPasskeyRequests?
+    /// `browser.agentMouse.*` as it is now, read per click.
+    let agentMouse: @Sendable () async -> AgentMouseSetting.Value
 
     /// - Parameters:
     ///   - engine: runs page operations in the app's tabs.
     ///   - passkeys: the passkey hand-off the app's banners answer; nil (tests, hosts without
     ///     banners) leaves `browser.page.passkey` unserved.
-    public init(engine: any BrowserPageEngine, passkeys: BrowserPasskeyRequests? = nil) {
-        self.init(engine: engine, leases: BrowserTabLeases(), passkeys: passkeys)
+    ///   - agentMouse: the person's `browser.agentMouse.*` settings, read per click; nil
+    ///     (hosts without settings) uses the defaults, human motion with a 350 ms cap.
+    public init(engine: any BrowserPageEngine, passkeys: BrowserPasskeyRequests? = nil,
+                agentMouse: (@Sendable () async -> AgentMouseSetting.Value)? = nil) {
+        self.init(engine: engine, leases: BrowserTabLeases(), passkeys: passkeys, agentMouse: agentMouse)
     }
 
-    init(engine: any BrowserPageEngine, leases: BrowserTabLeases, passkeys: BrowserPasskeyRequests? = nil) {
+    init(engine: any BrowserPageEngine, leases: BrowserTabLeases, passkeys: BrowserPasskeyRequests? = nil,
+         agentMouse: (@Sendable () async -> AgentMouseSetting.Value)? = nil) {
         self.engine = engine
         self.leases = leases
         self.passkeys = passkeys
+        self.agentMouse = agentMouse ?? { AgentMouseSetting().fallback }
     }
 
     public func install(on router: ControlRouter) {
@@ -102,11 +109,18 @@ public struct BrowserPageService: Sendable {
 
     /// Selector or snapshot ref (`e3`, `@e3`) actions run as page scripts.
     private func element(_ name: String, _ make: @escaping @Sendable (String, String?) -> String, engine: any BrowserPageEngine) -> ControlMethod {
-        .async("browser.page.\(name)") { call in
+        let agentMouse = agentMouse
+        return .async("browser.page.\(name)") { call in
             let selector = try Self.string(call, "selector")
             let tab = try Self.tab(call)
             let text = call.request.params["text"]?.stringValue
-            let value = try await Self.run(engine, .evaluate(make(selector, text)), tab)["value"] ?? .null
+            let mouse = name == "click" ? await agentMouse() : nil
+            let value: JSONValue
+            if let mouse, mouse.motion == .human {
+                value = try await Self.humanClick(engine, selector: selector, path: HumanPointerPath(mouse), tab: tab)
+            } else {
+                value = try await Self.run(engine, .evaluate(make(selector, text)), tab)["value"] ?? .null
+            }
             if let error = value["error"]?.stringValue {
                 throw ControlError(code: "not_found", message: error, data: ["selector": .string(selector)])
             }
