@@ -279,6 +279,12 @@ impl Hub {
             drop(guard);
             return Err(e);
         }
+        // A family prompt that waited is checked again: the receiver may ask
+        // less than its sender now (`subsession_guard.rs`).
+        if let Err(e) = self.family_dispatch_check(session, run.provenance.as_ref()).await {
+            drop(guard);
+            return Err(e);
+        }
         // A continuation Stop overtook since it fired is refused here (`auto_resume.rs`).
         let turn = TurnInfo::prompted(client, &text, &turn_id, &prompt_id, control);
         if let Err(e) = self.start_turn(session, after_turn.as_deref(), turn) {
@@ -335,6 +341,11 @@ impl Hub {
         if let Err(e) =
             self.check_dispatch(session, control, trust_gate, &prompt_id, &turn_id, client).await
         {
+            self.refuse_started_turn(session, &prompt_id, &turn_id, &e);
+            drop(guard);
+            return Err(e);
+        }
+        if let Err(e) = self.family_dispatch_check(session, run.provenance.as_ref()).await {
             self.refuse_started_turn(session, &prompt_id, &turn_id, &e);
             drop(guard);
             return Err(e);

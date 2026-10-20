@@ -50,7 +50,8 @@
 //!   the parent's own harness).
 //! - Every refusal after the session exists closes it.
 //! - A message (`send`) never reaches a session that asks less than its
-//!   sender, child or parent.
+//!   sender, child or parent: checked when it is sent and again when it
+//!   runs (a queued one, `turns.rs`).
 //!
 //! A family lives on one daemon: there is no start on another host. What
 //! the tools read back of a family member (its title, last reply, capped

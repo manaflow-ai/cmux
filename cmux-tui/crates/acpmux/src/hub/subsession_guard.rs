@@ -234,6 +234,43 @@ impl Hub {
         })
     }
 
+    /// A family prompt (`provenance` of kind `subsession_message`) about to
+    /// run in `session`: refused when its sender is gone or the receiver now
+    /// asks less than the sender, by mode or policy (either changed while it
+    /// waited in the queue, or the agent's start changed the mode).
+    pub(super) async fn family_dispatch_check(
+        &self,
+        session: &Session,
+        provenance: Option<&Value>,
+    ) -> Result<(), RpcError> {
+        let kind = |p: &&Value| {
+            p.get("kind").and_then(Value::as_str) == Some(super::subsessions::PROVENANCE_KIND)
+        };
+        let Some(p) = provenance.filter(kind) else { return Ok(()) };
+        let from = p.get("from").and_then(Value::as_str).unwrap_or_default();
+        let sender = self.resolve(from).ok().filter(|s| s.id == from).ok_or_else(|| {
+            refusal(
+                "subsessions.sender_gone",
+                format!("the session that sent this message ({from}) is gone, so it does not run"),
+                json!({"from": from}),
+            )
+        })?;
+        let (sm, tm) = (sender.meta(), session.meta());
+        if self.receiver_access(&tm, &sm).await > self.caller_access(&sm)
+            || self.policy_laxer(&tm, &sm).await
+        {
+            return Err(refusal(
+                "subsessions.receiver_asks_less",
+                format!(
+                    "{} now asks less than {}, which sent this message, so it does not run. Ask the user to send it.",
+                    tm.name, sm.name
+                ),
+                json!({"sessionId": session.id, "from": from}),
+            ));
+        }
+        Ok(())
+    }
+
     /// Whether a sub-session may start in `folder` (resolved) for a caller
     /// with meta `pm` (module docs).
     pub(super) async fn subsession_folder_check(
