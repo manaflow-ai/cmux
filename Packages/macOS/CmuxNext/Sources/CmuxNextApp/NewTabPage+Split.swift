@@ -50,14 +50,22 @@ extension NewTabPage {
             : edge == .right ? .right : edge == .bottom ? .down : nil
         // Even split sizing, as a terminal split (PaneHandlers.split), once the store's pane is placed.
         let sizing = split.flatMap { source.workspace?.layoutModel.splitSizingChanges(splitting: source.layoutPaneID, axis: $0 == .right ? .horizontal : .vertical) } ?? []
+        // Shown with the split, in this frame (one spring for the whole chain); sent once the page is placed.
+        let layoutModel = source.workspace?.layoutModel
+        let shownSizing = split == nil ? nil : layoutModel?.showSplitSizing(sizing)
         let started = services.agentTabs.openTab(in: source, newTab: (page, handler), select: false, hidden: split == nil, split: split) { [weak source] key in
             opened.value = key
             guard let source else { return }
             guard split != nil else { return Self.moveToSplit(key, from: source, edge: edge, keys: keys) }
-            source.workspace?.layoutModel.applySplitSizing(sizing)
+            if let shownSizing { layoutModel?.commitSplitSizing(shownSizing) }
             input.flushAll() // the page shows in its pane: a field that reported ready may take the keys now
+        } failed: {
+            if let shownSizing { layoutModel?.cancelSplitSizing(shownSizing) }
         }
-        if !started { input.endIncoming(keys, pageMade: false) }
+        if !started {
+            if let shownSizing { layoutModel?.cancelSplitSizing(shownSizing) }
+            input.endIncoming(keys, pageMade: false)
+        }
         // The split's provisional pane is in the store: the window lays it out and mounts it in
         // this turn, so the page's pane draws in the key's frame (instant-new-surfaces).
         if started, split != nil { BenchSpans.measure("split.layout") { source.workspace?.applyCurrent() } }

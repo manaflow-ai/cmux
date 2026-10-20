@@ -30,4 +30,20 @@ extension LayoutModel {
             setSplitRatio(change.split, ratio: change.ratio, transaction: .make(), phase: .ended)
         }
     }
+
+    /// Starts the sizing of a split the caller is about to show (Cmd-D, Cmd-Shift-D).
+    ///
+    /// - Parameter changes: ``splitSizingChanges(splitting:axis:)``, computed before the split.
+    /// - Returns: The pending sizing, for ``commitSplitSizing(_:)`` or ``cancelSplitSizing(_:)``.
+    public func showSplitSizing(_ changes: [SplitRatioChange]) -> PendingSplitSizing {
+        PendingSplitSizing(changes: changes, transaction: .make())
+    }
+
+    /// The split landed: sends the sizing's ratio intents to the daemon.
+    public func commitSplitSizing(_ sizing: PendingSplitSizing) {
+        applySplitSizing(sizing.changes)
+    }
+
+    /// The split was refused: the sizing goes away with it.
+    public func cancelSplitSizing(_ sizing: PendingSplitSizing) {}
 }
