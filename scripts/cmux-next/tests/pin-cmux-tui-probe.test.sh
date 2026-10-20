@@ -265,10 +265,12 @@ expect "pull request, no cmux-tui change, nothing published" pull_request skippe
 mv "$TMP/unpublished" "$TMP/cdn/cmux-tui/tree/$published_key"
 unset CMUX_TUI_TREE_BASE_FALLBACK
 
-# A scheduled DEV snapshot owns its exact SHA after the source branch moves,
-# but the checked-out revision has no mutation authority (path routing is
-# read-only): a cold tree fails closed with no pin ref and no dispatch, and is
-# ready once a trusted publisher has published it.
+# A scheduled DEV snapshot owns its exact SHA after the source branch moves.
+# Since e93faa5f1fb0 path routing is read-only (CMUX_TUI_TREE_DISPATCH=""), so
+# the probe never writes a pin ref or a dispatch. Current behavior: a cold tree
+# reads failed, and ready once published. Failed is not the intended result
+# while a trusted publisher for the exact SHA is running; the probe skips that
+# read-only lookup too. Follow-up: ci-green/dev-tree-readonly-lookup.
 sha=$(git -C "$TMP/src" rev-parse HEAD)
 set_head "$newer"
 set_runs "$none"
