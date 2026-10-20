@@ -58,6 +58,7 @@ tests. Nothing in this matrix was tried in the running app.
 | Workspace in a pinned group | **broken**: Pin took it out of the group, to the band's top level | **broken** | **broken** | **broken** | as above | n/a | pinning left the group | pins inside that group; reads Pin until then |
 | Workspace group (`workspaceGroup.togglePin`) | works (a219) | **missing** before a219 → works (a219, 8414192fcf8) | `workspace-group toggle-pin` works | `app_workspace_group_toggle_pin` works | not bindable (unchanged) | drop on Pinned works | Unpin sent it to the end | back where it was, else first |
 | Workspace group, daemon without the sidebar document | works (keeps the group) | works (a219) | works | works | not bindable | n/a | **broken**: did not list first | lists first in its section |
+| Workspace in another session (the Chief's `cmux-chief-*` session, SSH, Cloud) | **broken**: the document pinned it, its daemon's `pinned` flag stayed false (a316) | **broken** | **broken** | **broken** | as above | **broken** | the TUI, iOS and `workspace list` did not show it pinned | its own daemon's flag follows each pin and unpin |
 | Workspace the document does not place yet | Pin works (adopt then pin) | works | works | works | n/a | works | **broken**: Move to Top could not lift it when its machine had no section here | adopt makes the section, then it moves |
 | Pane tab, terminal or agent (`palette.toggleTabPin`) | works | works | `tab pin-unpin` works | `app_tab_pin_unpin`, `tab_pin`, `tab_unpin` work | default Opt-Cmd-P | stays in the pinned run | works | unchanged |
 | Browser tab (same action, plus `browser.resetPinnedTab`) | works, plus Back to Pinned Page | works | `tab pin-unpin`, `browser back-to-pinned-page` work | works | default Opt-Cmd-P | stays in the pinned run | works | unchanged |
@@ -70,8 +71,9 @@ tests. Nothing in this matrix was tried in the running app.
 
 - A member pinned in its group shows its pin only on hover (the expanded row's pin button). There is
   no always-visible pin mark on a grouped row.
-- The TUI and iOS read the legacy `pinned` flag. A pin inside a group does not set it, so they do not
-  show that workspace as pinned. A legacy pin of a grouped workspace now pins inside the group.
+- The TUI and iOS read the legacy `pinned` flag. The app now sets it on the workspace's own daemon with
+  every pin (`WorkspacePinFlags`), so they show a pin made in the app; they do not know a pin inside a
+  group from one in the Pinned band. A legacy pin of a grouped workspace now pins inside the group.
 - Group, tab-group and screen pins cannot take a shortcut yet. They were left unchanged to keep this
   change small.
 - Pin/Unpin Workspace reads the confirmed document. Between a click and the daemon's echo (one round
