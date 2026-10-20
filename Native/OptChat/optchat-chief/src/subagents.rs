@@ -618,13 +618,24 @@ impl Spawner {
         match workspaces.open(&key, &session, &name, &group, &s.cwd) {
             Ok(key) => {
                 let place = workspaces.place();
+                // a313: the real ws_ id and its session, so the CLI can list, move and pin it.
+                let located = workspaces.locate(&key);
                 self.trace.emit(
                     "subagent.workspace",
-                    json!({"id": id, "spawn": spawn, "workspace": key, "name": name, "group": group, "place": place}),
+                    json!({"id": id, "spawn": spawn, "workspace": key, "name": name, "group": group, "place": place,
+                        "ws": located.as_ref().map(|r| r.id.clone()), "session": located.as_ref().map(|r| r.session.clone())}),
                 );
                 // No link here: the posted reply links every mention (link_subagents), so
                 // the memory keeps the plain id, not a 70-character URL per mention.
-                let note = format!("workspace \"{name}\" in group \"{group}\" in {place}");
+                let mut note = format!("workspace \"{name}\" in group \"{group}\" in {place}");
+                if let Some(r) = &located {
+                    note.push_str(&format!(
+                        " (id {}, cmux session \"{}\"; `{}` moves it to the top)",
+                        r.id,
+                        r.session,
+                        r.move_to_top()
+                    ));
+                }
                 let _ = self.send(Input::SubagentWorkspace {
                     id: id.to_owned(),
                     key,
