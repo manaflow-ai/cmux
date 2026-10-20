@@ -22,7 +22,11 @@ struct ProfileMenuBuilderTests {
     /// Show Chief / Hide Chief (Leo 2026-10-20; Codex's profile menu toggles its floating window):
     /// the row flips `home.chiefPetEnabled` through the one setting path, `palette.toggleSetting`.
     @Test func chiefRowShowsOrHidesThePetThroughTheSettingPath() throws {
-        let builder = ProfileMenuBuilder(registry: .standard())
+        // The App binds both; a row whose action is not bound is left out.
+        let registry = ActionRegistry.standard()
+        registry.bind("palette.toggleSetting") {}
+        registry.bind("openSettings") {}
+        let builder = ProfileMenuBuilder(registry: registry)
         let profile = ProfileMenuProfile(name: "Default")
 
         let hidden = builder.make(profile: profile, chiefPetShown: false)
