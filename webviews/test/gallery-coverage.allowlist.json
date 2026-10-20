@@ -1,7 +1,6 @@
 {
   "comment": "Components and pages with no gallery entry yet (test/gallery-coverage.test.ts). Shrink it: add an entry, then rerun with CMUX_GALLERY_UPDATE_ALLOWLIST=1. `owners` names the lane that writes the entries under a path prefix; do not write those yourself.",
   "owners": {
-    "agent-session/acpmux/ModelPicker": "Leo: composer pickers (entry agent-pane.model-picker)",
     "agent-session/acpmux/changes/": "Leo: Sources and Changes (entry agent-pane.sources)"
   },
   "components": [
@@ -22,11 +21,6 @@
     "agent-session/acpmux/ComposerPickers.tsx#SlashIcon",
     "agent-session/acpmux/ComposerPickers.tsx#StopIcon",
     "agent-session/acpmux/Keycap.tsx#Keycap",
-    "agent-session/acpmux/MenuLevel.tsx#MenuLevel",
-    "agent-session/acpmux/MenuRow.tsx#MenuRow",
-    "agent-session/acpmux/ModelPickerCascade.tsx#ModelPickerCascade",
-    "agent-session/acpmux/ModelPickerDrill.tsx#ModelPickerDrill",
-    "agent-session/acpmux/ModelPickerShell.tsx#ModelPickerShell",
     "agent-session/acpmux/ProjectBadge.tsx#ProjectBadge",
     "agent-session/acpmux/SwitchNotice.tsx#SwitchNotice",
     "agent-session/acpmux/changeIcons.tsx#AlertCircle",
@@ -92,6 +86,7 @@
     "agent-session/acpmux/icons/Icon.tsx#Icon",
     "agent-session/acpmux/icons/IconsContext.tsx#IconsProvider",
     "agent-session/acpmux/question/QuestionCard.tsx#QuestionCard",
+    "agent-session/acpmux/summary/SubagentsTab.tsx#SubagentsTab",
     "agent-session/shared/AgentMark.tsx#AgentMark",
     "comments/CommentComposer.tsx#CommentComposer",
     "comments/CommentsSection.tsx#CommentsSidebarSection",
@@ -107,9 +102,9 @@
     "optchat-inspector/TreeView.tsx#TreeView",
     "pages/changelog/surface.tsx#SurfaceOps",
     "pages/home-channels/DaemonGate.tsx#DaemonGate",
-    "pages/markdown/linkOverlays.tsx#LinkCardView",
+    "pages/markdown/linkOverlays.tsx#LinkBubbleView",
+    "pages/markdown/linkOverlays.tsx#LinkEditView",
     "pages/markdown/linkOverlays.tsx#LinkOverlayHost",
-    "pages/markdown/linkOverlays.tsx#LinkPopoverView",
     "pages/settings/editors/ChatRootsEditor.tsx#ChatRootsEditor",
     "pages/settings/editors/ChoiceSetEditor.tsx#ChoiceSetEditor",
     "pages/settings/editors/OrderedChoicesEditor.tsx#OrderedChoicesEditor",

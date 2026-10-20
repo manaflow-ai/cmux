@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "acpmux"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "base64",
@@ -915,6 +915,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-api-compat"
+version = "0.1.0"
+dependencies = [
+ "proptest",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-app-host"
 version = "0.1.0"
 dependencies = [
@@ -935,7 +944,7 @@ dependencies = [
 
 [[package]]
 name = "cmux-browser-host"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "chacha20poly1305",
  "getrandom 0.3.4",
@@ -1377,8 +1386,10 @@ dependencies = [
 name = "cmux-server"
 version = "0.1.0"
 dependencies = [
+ "base64",
  "cmux-server-core",
  "flate2",
+ "futures-util",
  "getrandom 0.3.4",
  "libc",
  "reqwest",
@@ -1389,6 +1400,11 @@ dependencies = [
  "sha2 0.10.9",
  "tar",
  "tempfile",
+ "tokio",
+ "tokio-tungstenite",
+ "url",
+ "x25519-dalek",
+ "zeroize",
 ]
 
 [[package]]
@@ -1487,7 +1503,7 @@ dependencies = [
 
 [[package]]
 name = "cmux-tui"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "acpmux",
  "anyhow",
@@ -1575,6 +1591,7 @@ dependencies = [
  "anyhow",
  "base64",
  "cmux-agent-pane-policy",
+ "cmux-api-compat",
  "cmux-app-host",
  "cmux-app-manifest",
  "cmux-config",
@@ -1614,6 +1631,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "socket2",
  "tokio",
  "tungstenite",
  "uds_windows",

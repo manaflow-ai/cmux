@@ -234,6 +234,11 @@ CMUX_SHIM_EXPORT int cmux_shim_fork_api_version(void);
 // Chromium disables unpacked (--load-extension) extensions without it.
 // Development and verification only; call before cmux_shim_initialize.
 CMUX_SHIM_EXPORT void cmux_shim_set_extension_developer_mode(int enabled);
+// Chromium's default search provider in every profile, incognito included,
+// now and for profiles made later: template_url_json is
+// default_search_provider_data.template_url_data as JSON (browser.searchEngine);
+// NULL or "" restores Chromium's own default. UI thread.
+CMUX_SHIM_EXPORT void cmux_shim_set_default_search(const char* template_url_json);
 // Page background before the first paint and for documents without one
 // (CefSettings.background_color and CefBrowserSettings.background_color),
 // as opaque 0xAARRGGBB; 0 keeps Chromium's default. Browsers created after
