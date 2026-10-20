@@ -80,6 +80,8 @@ public actor AcpmuxHost: AgentPaneHostProviding {
     /// Whether the daemon keeps the agent message runaway guard on now (`AcpmuxEnvironment.agentPairGuard`,
     /// the `agent.pairGuard` Debug Settings toggle), read at each daemon start like the offer tools.
     private let agentPairGuard: @Sendable () -> Bool
+    /// The guard's cap and window in seconds now (`agent.pairCap`, `agent.pairWindow`), read with it.
+    private let agentPairCap: @Sendable () -> (messages: Int, windowSeconds: Int)
     /// Called with the daemon socket after each successful find or start, so
     /// the Computer Use helper v2 can register this daemon.
     private let daemonReady: @Sendable (String) async -> Void
@@ -98,6 +100,7 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         self.computerUse = { [:] }
         self.offersSessionTools = { environment?.offersSessionTools ?? false }
         self.agentPairGuard = { environment?.agentPairGuard ?? true }
+        self.agentPairCap = { (environment?.agentPairCap ?? 20, environment?.agentPairWindowSeconds ?? 600) }
         self.daemonReady = { _ in }
         self.startsDaemons = startsDaemons
     }
@@ -108,11 +111,15 @@ public actor AcpmuxHost: AgentPaneHostProviding {
                 computerUse: @escaping @Sendable () -> [String: String] = { [:] },
                 offersSessionTools: @escaping @Sendable () -> Bool = { AgentPaneTunables.suggestedTasks.value },
                 agentPairGuard: @escaping @Sendable () -> Bool = { AgentPaneTunables.agentPairGuard.value },
+                agentPairCap: @escaping @Sendable () -> (messages: Int, windowSeconds: Int) = {
+                    (Int(AgentPaneTunables.agentPairCap.value), Int(AgentPaneTunables.agentPairWindow.value))
+                },
                 daemonReady: (@Sendable (String) async -> Void)? = nil) {
         self.resolveEnvironment = resolve
         self.computerUse = computerUse
         self.offersSessionTools = offersSessionTools
         self.agentPairGuard = agentPairGuard
+        self.agentPairCap = agentPairCap
         self.daemonReady = daemonReady ?? { _ in }
         self.startsDaemons = true
     }
@@ -156,6 +163,7 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         environment.computerUse = computerUse()
         environment.offersSessionTools = offersSessionTools()
         environment.agentPairGuard = agentPairGuard()
+        (environment.agentPairCap, environment.agentPairWindowSeconds) = agentPairCap()
         let daemonSocket = environment.socketPath
         Self.logger.info("acpmux environment resolved executable=\(environment.executable.path, privacy: .public) home=\(environment.home.path, privacy: .public) socket=\(environment.socketPath, privacy: .public) startsDaemon=\(startsDaemon, privacy: .public)")
         // task-owner: stored in inFlight and cleared when it settles; callers await its value

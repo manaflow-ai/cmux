@@ -34,6 +34,10 @@ fn settings_come_from_the_environment() {
     ]));
     assert_eq!((tuned.alternations, tuned.repeats), (10, 3));
     assert!((tuned.similarity - 0.8).abs() < f64::EPSILON);
+    assert_eq!((tuned.max_messages, tuned.window.as_secs()), (20, 600));
+    let uncapped = PairGuard::from_env(env(&[(MAX_MESSAGES_ENV, "0"), (WINDOW_ENV, "60")]));
+    assert_eq!((uncapped.max_messages, uncapped.window.as_secs()), (0, 60));
+    assert!(!uncapped.capped());
 }
 
 #[test]
@@ -117,23 +121,25 @@ fn a_restart_holds_only_what_never_reached_the_session() {
         held("h3"),
         held("h4"),
         rec("agent_pair_dropped", json!({"peer": "a", "promptId": "h2"})),
+        held("h5"),
+        rec("agent_pair_released", json!({"peer": "a", "promptId": "h5"})),
     ];
     let recorded: HashSet<String> = ["h1".to_owned()].into();
     let owed = still_held("b", records, &recorded);
-    let ids: Vec<&str> = owed["a"].held.iter().map(|h| h.prompt_id.as_str()).collect();
+    let ids: Vec<&str> = owed.held.iter().map(|h| h.prompt_id.as_str()).collect();
     assert_eq!(ids, ["h3", "h4"]);
-    assert!(owed["a"].held[0].interrupt, "the flags come back as sent");
-    assert!(!owed["a"].resumed, "never resumed: still paused");
-    assert!(still_held("b", vec![held("h1")], &recorded).is_empty());
+    assert!(owed.held[0].interrupt, "the flags come back as sent");
+    assert!(owed.resumed.is_empty(), "never resumed: still paused");
+    assert!(still_held("b", vec![held("h1")], &recorded).held.is_empty());
     // A resume, then a hold while it delivered: still the resume's to deliver. A new pause
-    // after it is paused again.
+    // after it (a release that failed, or the pair tripping again) is paused again.
     let resumed = rec("agent_pair_resumed", json!({"peer": "a", "by": "request"}));
-    let paused = rec("agent_pair_paused", json!({"peer": "a", "reason": "repeating"}));
+    let paused = rec("agent_pair_paused", json!({"peer": "a", "reason": "release_failed"}));
     let owed = still_held("b", vec![held("h3"), resumed.clone(), held("h4")], &recorded);
-    assert!(owed["a"].resumed);
-    assert_eq!(owed["a"].held.len(), 2);
+    assert!(owed.resumed.contains("a"));
+    assert_eq!(owed.held.len(), 2);
     let owed = still_held("b", vec![held("h3"), resumed, paused, held("h4")], &recorded);
-    assert!(!owed["a"].resumed);
+    assert!(owed.resumed.is_empty());
 }
 
 #[test]
@@ -153,4 +159,19 @@ fn only_a_whole_messaging_call_is_not_progress() {
         "rawInput": {"command": "cargo test && cmux agent message acp:b done"}}))));
     assert!(progress_record(&rec(json!({"title": "Bash",
         "rawInput": {"command": "grep -r 'cmux agent message' docs"}}))));
+    // Punctuation inside the quoted message is the message's.
+    for quoted in [
+        "cmux agent message acp:b 'ready; waiting'",
+        "cmux agent message acp:b \"done && green | ok\"",
+        "cmux agent message acp:b ready\\;\\ waiting",
+    ] {
+        assert!(
+            !progress_record(&rec(json!({"title": "Bash", "rawInput": {"command": quoted}}))),
+            "{quoted}"
+        );
+    }
+    assert!(progress_record(&rec(json!({"title": "Bash",
+        "rawInput": {"command": "cmux agent message acp:b \"$(make deploy)\""}}))));
+    assert!(progress_record(&rec(json!({"title": "Bash",
+        "rawInput": {"command": "cmux agent message acp:b 'a' ; make"}}))));
 }

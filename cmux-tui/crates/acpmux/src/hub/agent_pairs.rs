@@ -1,6 +1,6 @@
 //! The runaway guard for agent-to-agent messages: two sessions that keep messaging each other
-//! without progress are paused as a pair until the person resumes them. There is no cap on how
-//! many messages a turn may send; only a loop is stopped.
+//! without progress, or that exchange too many messages with no input from the person, are
+//! paused as a pair until the person resumes them.
 //!
 //! Every agent message reaches a session here, checked in `Hub::prompt_with` before the prompt
 //! is recorded: a `session/prompt` whose provenance is `agent_message` (`prompt_provenance.rs`):
@@ -23,30 +23,43 @@
 //!   same words once case, digits and punctuation are dropped, token Jaccard at least
 //!   `similarity` (default 0.9).
 //!
+//! Progress or not, the pair also trips (`cap`) once it exchanges more than `max_messages`
+//! messages within `window` (default 20 in 10 minutes) with no prompt from the person into either
+//! session in between. `0` for either turns the cap off.
+//!
 //! The message that trips the pair, and every later one between the two, is held, not delivered
 //! (at most [`MAX_HELD`] a pair; more are refused): the sender's `session/prompt` is refused
 //! with `agent_pair.paused` (data `held: true`), whose text tells the agent the user resumes the
 //! pair, so it stops retrying. Both transcripts record `agent_pair_paused`; the receiver's
-//! records each `agent_pair_held`, with all the prompt needs to run, so a restarted daemon
-//! rebuilds the pause from the log (`queue.rs` `restore_queue`): every held message that never
-//! reached the receiver. A pair a resume was still delivering when the daemon stopped goes on
-//! delivering once the daemon starts (`resume_queues`), so it never sits held behind a transcript
-//! that reads resumed.
-//! Both chats are marked unread and the daemon's `notify_command` fires.
+//! records each `agent_pair_held`, with all the prompt needs to run and its pair-wide `order`, so
+//! a restarted daemon rebuilds the pause, in arrival order, from both logs (`queue.rs`
+//! `restore_queue`): every held message that never reached the receiver and no release settled. Both chats are marked unread and the daemon's `notify_command` fires.
 //!
 //! Only the person resumes: `_acpmux/agent_pair_resume` from a connection that proved the person
 //! key (`hub/person.rs`), or a prompt such a connection sends into either session. Both record
-//! `agent_pair_resumed` (`by: request | person`) and deliver the held messages in order, flags
-//! (steer, interrupt) as sent; until the last is recorded, a new message in the pair waits
-//! behind them. One the receiver refuses then is dropped and recorded `agent_pair_dropped`.
-//! A cmux-subsessions `send_message` with `interrupt` stops the receiver's turn only once the
-//! message is accepted, so a held one stops nothing (`subsessions.rs`).
+//! `agent_pair_resumed` (`by: request | person`) and deliver the held messages in order, each
+//! accepted (queued or started) before the next is sent; until the last is, a new message in the
+//! pair waits behind them. Each accepted one is logged `agent_pair_released` in its receiver; a
+//! restart mid-release goes on delivering the rest once the daemon starts (`resume_queues`), as
+//! the pair's last `agent_pair_resumed` record says, rather than holding them again behind a
+//! transcript that reads resumed. One that fails before acceptance stays held and
+//! pauses the pair again (`release_failed`); failing a second time it is dropped
+//! (`agent_pair_dropped`, in both logs).
+//! A released message neither steers into nor interrupts the receiver's turn, whatever it was
+//! sent with: it waits its turn. A cmux-subsessions `send_message` with `interrupt` stops the
+//! receiver's turn only once the message is accepted, so a held one stops nothing
+//! (`subsessions.rs`).
 //!
 //! The guard and its thresholds are read at daemon start (`PairGuard::from_env`); the app's
-//! Debug Settings toggle `agent.pairGuard` turns it off (`ACPMUX_AGENT_PAIR_GUARD=0`).
+//! Debug Settings toggle `agent.pairGuard` turns it off (`ACPMUX_AGENT_PAIR_GUARD=0`), and
+//! `agent.pairCap` / `agent.pairWindow` set the cap.
 
 use super::*;
 use std::collections::{BTreeSet, HashSet, VecDeque};
+
+#[path = "agent_pair_progress.rs"]
+mod progress;
+pub(super) use progress::progress_record;
 
 /// `0` turns the guard off.
 pub const GUARD_ENV: &str = "ACPMUX_AGENT_PAIR_GUARD";
@@ -56,6 +69,10 @@ pub const ALTERNATIONS_ENV: &str = "ACPMUX_AGENT_PAIR_ALTERNATIONS";
 pub const REPEATS_ENV: &str = "ACPMUX_AGENT_PAIR_REPEATS";
 /// How alike two messages must be to count as the same, in percent.
 pub const SIMILARITY_ENV: &str = "ACPMUX_AGENT_PAIR_SIMILARITY";
+/// Messages a pair may exchange within the window with no input from the person; `0`: no cap.
+pub const MAX_MESSAGES_ENV: &str = "ACPMUX_AGENT_PAIR_MAX_MESSAGES";
+/// The cap's window, in seconds; `0`: no cap.
+pub const WINDOW_ENV: &str = "ACPMUX_AGENT_PAIR_WINDOW_SECS";
 
 /// The refusal reason of a held message.
 pub const PAUSED_REASON: &str = "agent_pair.paused";
@@ -69,22 +86,8 @@ pub const MAX_HELD: usize = 50;
 /// The person's own sender address on the cmux daemon (`agent_message_store.rs` `CLI_SENDER`).
 const PERSON_SENDER: &str = "cli";
 
-/// The cmux-subsessions tools (`subsession_mcp.rs`) that only message, read, wait on or stop
-/// another session of the family: never progress. `start_session` is not one: it hands work off.
-const SUBSESSION_TOOLS: &[&str] = &[
-    "send_message",
-    "list_sessions",
-    "get_session",
-    "wait_for_sessions",
-    "stop_session",
-    "set_session_limits",
-];
-/// The cmux MCP tools that message or read another chat (`cmux-tui` `cli/mcp/agent_tools.rs`):
-/// never progress, whatever the server is named.
-const CHAT_TOOLS: &[&str] = &["agents_chat_send", "agents_chat_read"];
-
-/// How long a release waits for each held message to be recorded before it sends the next.
-const RELEASE_WAIT: std::time::Duration = std::time::Duration::from_secs(10);
+/// Releases of one held message that may fail before it is dropped.
+const RELEASE_TRIES: u32 = 2;
 
 /// The guard's settings.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -94,17 +97,35 @@ pub struct PairGuard {
     pub repeats: u32,
     /// 0.0 to 1.0.
     pub similarity: f64,
+    /// Messages the pair may exchange within `window` with no prompt from the person; `0`: no cap.
+    pub max_messages: u32,
+    /// The cap's window; zero: no cap.
+    pub window: std::time::Duration,
 }
 
 impl Default for PairGuard {
     fn default() -> Self {
-        Self { enabled: true, alternations: 10, repeats: 3, similarity: 0.9 }
+        Self {
+            enabled: true,
+            alternations: 10,
+            repeats: 3,
+            similarity: 0.9,
+            max_messages: 20,
+            window: std::time::Duration::from_secs(600),
+        }
+    }
+}
+
+impl PairGuard {
+    fn capped(&self) -> bool {
+        self.max_messages > 0 && !self.window.is_zero()
     }
 }
 
 impl PairGuard {
     /// The settings `var` names (the process environment at daemon start): unset or unreadable
-    /// values keep their defaults; a threshold under 2 does too (one message is no loop).
+    /// values keep their defaults; a loop threshold under 2 does too (one message is no loop).
+    /// The cap and its window take any number, `0` turning the cap off.
     pub fn from_env(var: impl Fn(&str) -> Option<String>) -> Self {
         let d = Self::default();
         let count = |key: &str, default: u32| {
@@ -117,11 +138,15 @@ impl PairGuard {
             .and_then(|v| v.trim().parse::<u32>().ok())
             .filter(|p| (1..=100).contains(p))
             .map_or(d.similarity, |p| f64::from(p) / 100.0);
+        let number = |key: &str| var(key).and_then(|v| v.trim().parse::<u64>().ok());
         Self {
             enabled: var(GUARD_ENV).is_none_or(|v| v.trim() != "0"),
             alternations: count(ALTERNATIONS_ENV, d.alternations),
             repeats: count(REPEATS_ENV, d.repeats),
             similarity,
+            max_messages: number(MAX_MESSAGES_ENV)
+                .map_or(d.max_messages, |n| u32::try_from(n).unwrap_or(u32::MAX)),
+            window: number(WINDOW_ENV).map_or(d.window, std::time::Duration::from_secs),
         }
     }
 }
@@ -131,6 +156,9 @@ impl PairGuard {
 pub(crate) struct AgentPairs {
     guard: StdMutex<PairGuard>,
     state: StdMutex<PairsState>,
+    /// The last held message's pair-wide order (Unix microseconds, made unique): restored
+    /// pauses merge both receivers' held messages by it.
+    order: AtomicU64,
 }
 
 type PairKey = (String, String);
@@ -152,6 +180,9 @@ struct Pair {
     last: Option<Exchange>,
     /// By sender: near-identical messages in a row to the other, and the last one's words.
     repeats: HashMap<String, (u32, BTreeSet<String>)>,
+    /// When each exchange since the person last prompted either session was accepted, within
+    /// the cap's window.
+    recent: VecDeque<std::time::Instant>,
     paused: Option<Paused>,
 }
 
@@ -185,6 +216,10 @@ struct Held {
     provenance: Value,
     control: Control,
     trust_gate: bool,
+    /// Its place among the pair's held messages, both ways (`AgentPairs::order`).
+    order: u64,
+    /// Releases that failed before the receiver accepted it.
+    failures: u32,
 }
 
 impl Held {
@@ -195,7 +230,7 @@ impl Held {
             "text": short_text(message_body(&text), 200), "provenance": self.provenance,
             "prompt": self.blocks, "client": self.client, "steer": self.steer,
             "steerOnly": self.steer_only, "interrupt": self.interrupt,
-            "control": self.control.as_str(), "trustGate": self.trust_gate,
+            "control": self.control.as_str(), "trustGate": self.trust_gate, "order": self.order,
         })
     }
 
@@ -214,6 +249,8 @@ impl Held {
             provenance: msg.get("provenance").filter(|p| p.is_object())?.clone(),
             control: Control::from_recorded(msg.get("control").and_then(Value::as_str)),
             trust_gate: b("trustGate"),
+            order: msg.get("order").and_then(Value::as_u64).unwrap_or(0),
+            failures: 0,
         })
     }
 }
@@ -223,6 +260,8 @@ impl Held {
 enum Trip {
     Alternating(u32),
     Repeating(u32),
+    /// More than the cap within its window.
+    Capped(u32),
 }
 
 impl Trip {
@@ -230,12 +269,13 @@ impl Trip {
         match self {
             Trip::Alternating(_) => "alternating",
             Trip::Repeating(_) => "repeating",
+            Trip::Capped(_) => "cap",
         }
     }
 
     fn count(self) -> u32 {
         match self {
-            Trip::Alternating(n) | Trip::Repeating(n) => n,
+            Trip::Alternating(n) | Trip::Repeating(n) | Trip::Capped(n) => n,
         }
     }
 }
@@ -293,124 +333,49 @@ pub(super) fn similarity(a: &BTreeSet<String>, b: &BTreeSet<String>) -> f64 {
     a.intersection(b).count() as f64 / union as f64
 }
 
-/// A shell command that is one `cmux agent message` or `cmux agent inbox` call and nothing else.
-fn messaging_command(command: &str) -> bool {
-    let command = command.trim();
-    if ["&&", "||", ";", "|", "\n", "`", "$(", ">", "<", "&"].iter().any(|op| command.contains(op))
-    {
-        return false;
-    }
-    let mut words = command.split_whitespace();
-    let program = words.next().unwrap_or("");
-    let program = program.rsplit('/').next().unwrap_or(program);
-    program == "cmux"
-        && words.next() == Some("agent")
-        && matches!(words.next(), Some("message" | "inbox"))
-}
-
-/// The command a tool call runs: a string, or an argv whose shell `-c` script is its last word.
-fn tool_command(update: &Value) -> Option<String> {
-    match update.pointer("/rawInput/command")? {
-        Value::String(command) => Some(command.clone()),
-        Value::Array(argv) => {
-            let argv: Vec<&str> = argv.iter().filter_map(Value::as_str).collect();
-            let shell = argv
-                .first()
-                .is_some_and(|p| matches!(p.rsplit('/').next(), Some("sh" | "bash" | "zsh")))
-                && argv.get(1).is_some_and(|f| f.starts_with('-') && f.ends_with('c'));
-            Some(if shell { argv.last().copied().unwrap_or("").to_owned() } else { argv.join(" ") })
-        }
-        _ => None,
-    }
-}
-
-/// Whether a tool call only messages or reads another session.
-fn messaging_call(update: &Value) -> bool {
-    if let Some(command) = tool_command(update) {
-        return messaging_command(&command);
-    }
-    let title = update.get("title").and_then(Value::as_str).unwrap_or("").trim();
-    // Codex titles an MCP call `Tool: <server>/<tool>`.
-    let title = title.strip_prefix("Tool: ").map_or(title, str::trim);
-    if title.contains(char::is_whitespace) {
-        return messaging_command(title);
-    }
-    messaging_tool(title)
-}
-
-/// Whether an MCP tool call's title (`mcp__cmux-subsessions__send_message`,
-/// `cmux-subsessions.send_message`, `cmux-subsessions/send_message`, or the bare name) names a
-/// messaging tool. A sub-session tool name another server also uses is that server's work.
-fn messaging_tool(title: &str) -> bool {
-    let title = title.strip_prefix("mcp__").unwrap_or(title);
-    let (server, name) =
-        match title.rsplit_once("__").or_else(|| title.rsplit_once(['.', '/', ':'])) {
-            Some((server, name)) => (Some(server), name),
-            None => (None, title),
-        };
-    CHAT_TOOLS.contains(&name)
-        || (SUBSESSION_TOOLS.contains(&name)
-            && server.is_none_or(|s| s == crate::subsession_mcp::SERVER_NAME))
-}
-
-/// What a receiver's log shows one sender's pair still owes it.
+/// What a receiver's log shows its pairs still owe it.
 #[derive(Default)]
 struct Owed {
-    /// Oldest first.
+    /// In the order they were held.
     held: Vec<Held>,
-    /// The pair's last pause or resume record is a resume: a resume was delivering these.
-    resumed: bool,
+    /// The peers whose pair's last `agent_pair_paused` or `agent_pair_resumed` record here is a
+    /// resume: a resume was delivering what they held when the daemon stopped.
+    resumed: HashSet<String>,
 }
 
-/// The messages a receiver's log shows held and still owed, by sender: an `agent_pair_held`
-/// whose prompt id never reached the session (`recorded`) and has no `agent_pair_dropped` after
-/// it, and whether the person had resumed the pair (its last `agent_pair_paused` or
-/// `agent_pair_resumed`, whose `peer` is the sender).
-fn still_held(
-    session: &str,
-    records: Vec<EventRecord>,
-    recorded: &HashSet<String>,
-) -> HashMap<String, Owed> {
-    let mut owed: HashMap<String, Owed> = HashMap::new();
+/// The messages a receiver's log shows held and still owed, in the order they were held: an
+/// `agent_pair_held` whose prompt id never reached the session (`recorded`) and that no
+/// `agent_pair_released` or `agent_pair_dropped` settled. A resend of a message held already
+/// keeps its first place.
+fn still_held(session: &str, records: Vec<EventRecord>, recorded: &HashSet<String>) -> Owed {
+    let mut owed = Owed::default();
+    let held = &mut owed.held;
     for rec in records {
-        let peer = rec.msg.get("peer").and_then(Value::as_str);
-        match (rec.kind.as_str(), peer) {
-            ("agent_pair_held", _) => {
+        let peer = rec.msg.get("peer").and_then(Value::as_str).map(str::to_owned);
+        match rec.kind.as_str() {
+            "agent_pair_paused" => {
+                owed.resumed.remove(&peer.unwrap_or_default());
+            }
+            "agent_pair_resumed" => {
+                owed.resumed.extend(peer);
+            }
+            "agent_pair_held" => {
                 if let Some(h) = Held::from_record(session, &rec.msg)
                     && !recorded.contains(&h.prompt_id)
+                    && !held.iter().any(|x| x.prompt_id == h.prompt_id)
                 {
-                    let list = &mut owed.entry(h.from.clone()).or_default().held;
-                    if !list.iter().any(|x| x.prompt_id == h.prompt_id) {
-                        list.push(h);
-                    }
+                    held.push(h);
                 }
             }
-            ("agent_pair_dropped", _) => {
+            "agent_pair_released" | "agent_pair_dropped" => {
                 if let Some(id) = rec.msg.get("promptId").and_then(Value::as_str) {
-                    owed.values_mut().for_each(|o| o.held.retain(|h| h.prompt_id != id));
+                    held.retain(|h| h.prompt_id != id);
                 }
-            }
-            ("agent_pair_paused", Some(peer)) => {
-                owed.entry(peer.to_owned()).or_default().resumed = false
-            }
-            ("agent_pair_resumed", Some(peer)) => {
-                owed.entry(peer.to_owned()).or_default().resumed = true
             }
             _ => {}
         }
     }
-    owed.retain(|_, o| !o.held.is_empty());
     owed
-}
-
-/// Whether a log record shows the session doing work: a tool call that is not a messaging
-/// call, or a file the agent wrote.
-fn progress_record(rec: &EventRecord) -> bool {
-    match rec.kind.as_str() {
-        "fs/write_text_file" => rec.dir == "in",
-        "tool_call" => !messaging_call(rec.msg.pointer("/params/update").unwrap_or(&rec.msg)),
-        _ => false,
-    }
 }
 
 impl Hub {
@@ -449,14 +414,30 @@ impl Hub {
         self.resolve(from).ok().filter(|s| s.id == from)
     }
 
-    /// Whether `session` did work after log sequence `mark`.
+    /// Whether `session` did work after log sequence `mark`: its last progress record
+    /// (`Session::last_progress`, kept as records are appended) came after it.
     fn progressed_since(&self, session: &str, mark: u64) -> bool {
-        let mut progressed = false;
-        let _ = self.store.scan(session, mark, &mut |rec| {
-            progressed = progress_record(&rec);
-            !progressed
-        });
-        progressed
+        self.resolve(session).is_ok_and(|s| s.last_progress.load(Ordering::SeqCst) > mark)
+    }
+
+    /// A pair-wide order for a held message: Unix microseconds, after every earlier one.
+    fn next_held_order(&self) -> u64 {
+        let now = u64::try_from(
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_micros(),
+        )
+        .unwrap_or(u64::MAX);
+        let order = &self.agent_pairs.order;
+        let mut last = order.load(Ordering::SeqCst);
+        loop {
+            let next = now.max(last + 1);
+            match order.compare_exchange(last, next, Ordering::SeqCst, Ordering::SeqCst) {
+                Ok(_) => return next,
+                Err(seen) => last = seen,
+            }
+        }
     }
 
     /// The guard for one prompt into `session`: Ok to deliver it (its exchange counts once the
@@ -485,17 +466,23 @@ impl Hub {
         {
             return Ok(());
         }
+        // A steer-only message the receiver cannot take now is refused unrecorded by
+        // `run_prompt` (`steer.unavailable`): it is no exchange, and never holds or pauses.
+        let can_steer = session.steering.load(Ordering::SeqCst) && session.turn().is_some();
+        if steer && opts.steer_only && !can_steer {
+            return Ok(());
+        }
         let prompt_id =
             opts.prompt_id.get_or_insert_with(|| uuid::Uuid::now_v7().to_string()).clone();
         let text = prompt_text(blocks);
         let said = words(message_body(&text));
         let key = pair_key(&from, &to);
         let last = self.pairs_state().pairs.get(&key).and_then(|p| p.last.clone());
-        // Read outside the lock: store scans. Work in either session since the last exchange.
+        // Work in either session since the last exchange.
         let progressed = last.as_ref().is_some_and(|l| {
             self.progressed_since(&l.to, l.to_mark) || self.progressed_since(&l.from, l.from_mark)
         });
-        let held = Held {
+        let mut held = Held {
             from: from.clone(),
             to: to.clone(),
             blocks: blocks.to_vec(),
@@ -507,16 +494,20 @@ impl Hub {
             provenance: opts.provenance.clone().unwrap_or(Value::Null),
             control: opts.control,
             trust_gate: opts.trust_gate,
+            order: 0,
+            failures: 0,
         };
-        let hold =
-            {
-                let mut state = self.pairs_state();
-                let pair = state.pairs.entry(key.clone()).or_default();
-                if let Some(paused) = pair.paused.as_mut() {
-                    if paused.held.iter().any(|h| h.prompt_id == prompt_id) {
-                        // A resend of a message held already.
-                    } else if paused.held.len() >= MAX_HELD {
-                        return Err(RpcError::new(
+        let now = std::time::Instant::now();
+        let hold = {
+            let mut state = self.pairs_state();
+            // Under the lock, so the order held here is the order a restart restores.
+            held.order = self.next_held_order();
+            let pair = state.pairs.entry(key.clone()).or_default();
+            if let Some(paused) = pair.paused.as_mut() {
+                if paused.held.iter().any(|h| h.prompt_id == prompt_id) {
+                    // A resend of a message held already.
+                } else if paused.held.len() >= MAX_HELD {
+                    return Err(RpcError::new(
                         -32000,
                         format!(
                             "{FULL_REASON}: this message to session {to} was NOT delivered and is \
@@ -524,65 +515,75 @@ impl Hub {
                              messaging {to}; tell the user what you need."
                         ),
                     )
-                    .with_data(json!({"reason": FULL_REASON, "held": false, "promptId": prompt_id,
-                                      "sessions": [from, to], "limit": MAX_HELD})));
-                    } else {
-                        paused.held.push_back(held.clone());
-                    }
-                    if paused.draining { Hold::Draining } else { Hold::Paused }
+                    .with_data(
+                        json!({"reason": FULL_REASON, "held": false, "promptId": prompt_id,
+                                      "sessions": [from, to], "limit": MAX_HELD}),
+                    ));
                 } else {
-                    let alternating = if progressed { 0 } else { pair.alternating };
-                    let back = pair.last.as_ref().is_some_and(|l| l.from == to && l.to == from);
-                    let alternating = if back { alternating + 1 } else { 1 };
-                    let repeats = match pair.repeats.get(&from) {
-                        Some((n, before))
-                            if !progressed && similarity(before, &said) >= guard.similarity =>
-                        {
-                            n + 1
-                        }
-                        _ => 1,
-                    };
-                    let trip = if alternating >= guard.alternations {
-                        Some(Trip::Alternating(alternating))
-                    } else if repeats >= guard.repeats {
-                        Some(Trip::Repeating(repeats))
-                    } else {
-                        None
-                    };
-                    let Some(trip) = trip else {
-                        drop(state);
-                        let pending = Pending {
-                            key,
-                            from: sender,
-                            to: session.clone(),
-                            alternating,
-                            repeats,
-                            said,
-                            progressed,
-                        };
-                        let hub = self.clone();
-                        let next = opts.on_accepted.take();
-                        opts.on_accepted = Some(Box::new(move |accepted: Value| {
-                            if accepted.get("duplicate") != Some(&json!(true)) {
-                                hub.count_exchange(pending);
-                            }
-                            if let Some(next) = next {
-                                next(accepted);
-                            }
-                        }));
-                        return Ok(());
-                    };
-                    pair.paused =
-                        Some(Paused { held: VecDeque::from([held.clone()]), draining: false });
-                    Hold::Tripped(trip)
+                    paused.held.push_back(held.clone());
                 }
-            };
+                if paused.draining { Hold::Draining } else { Hold::Paused }
+            } else {
+                let alternating = if progressed { 0 } else { pair.alternating };
+                let back = pair.last.as_ref().is_some_and(|l| l.from == to && l.to == from);
+                let alternating = if back { alternating + 1 } else { 1 };
+                let repeats = match pair.repeats.get(&from) {
+                    Some((n, before))
+                        if !progressed && similarity(before, &said) >= guard.similarity =>
+                    {
+                        n + 1
+                    }
+                    _ => 1,
+                };
+                while pair.recent.front().is_some_and(|at| now.duration_since(*at) >= guard.window)
+                {
+                    pair.recent.pop_front();
+                }
+                let in_window = u32::try_from(pair.recent.len()).unwrap_or(u32::MAX) + 1;
+                let trip = if alternating >= guard.alternations {
+                    Some(Trip::Alternating(alternating))
+                } else if repeats >= guard.repeats {
+                    Some(Trip::Repeating(repeats))
+                } else if guard.capped() && in_window > guard.max_messages {
+                    Some(Trip::Capped(in_window))
+                } else {
+                    None
+                };
+                let Some(trip) = trip else {
+                    drop(state);
+                    let pending = Pending {
+                        key,
+                        from: sender,
+                        to: session.clone(),
+                        alternating,
+                        repeats,
+                        said,
+                        progressed,
+                    };
+                    let hub = self.clone();
+                    let next = opts.on_accepted.take();
+                    opts.on_accepted = Some(Box::new(move |accepted: Value| {
+                        if accepted.get("duplicate") != Some(&json!(true)) {
+                            hub.count_exchange(pending);
+                        }
+                        if let Some(next) = next {
+                            next(accepted);
+                        }
+                    }));
+                    return Ok(());
+                };
+                pair.paused =
+                    Some(Paused { held: VecDeque::from([held.clone()]), draining: false });
+                Hold::Tripped(trip)
+            }
+        };
         let sender_name = sender.meta().name;
         if let Hold::Tripped(trip) = hold {
             let receiver_name = session.meta().name;
             let note = |peer: &str, peer_name: &str| {
                 json!({"peer": peer, "peerName": peer_name, "reason": trip.reason(),
                        "count": trip.count(), "promptId": prompt_id,
+                       "windowSecs": guard.window.as_secs(),
                        "resume": method::MUX_AGENT_PAIR_RESUME})
             };
             self.append(session, "mux", "agent_pair_paused", note(&from, &sender_name));
@@ -591,22 +592,28 @@ impl Hub {
             self.mark_unread(&sender);
         }
         self.append(session, "mux", "agent_pair_held", held.record(&sender_name));
+        const RESUMES: &str =
+            "The user resumes the pair; held messages are then delivered in order.";
         let (why, then) = match hold {
-            Hold::Tripped(Trip::Repeating(n)) => (
-                format!("it sent {n} near-identical messages in a row"),
-                "The user resumes the pair; held messages are then delivered in order.",
-            ),
+            Hold::Tripped(Trip::Repeating(n)) => {
+                (format!("it sent {n} near-identical messages in a row"), RESUMES)
+            }
             Hold::Tripped(Trip::Alternating(n)) => (
                 format!(
                     "the two sessions exchanged {n} messages with no tool call or file change \
                      in between"
                 ),
-                "The user resumes the pair; held messages are then delivered in order.",
+                RESUMES,
             ),
-            Hold::Paused => (
-                "the pair is paused".to_owned(),
-                "The user resumes the pair; held messages are then delivered in order.",
+            Hold::Tripped(Trip::Capped(n)) => (
+                format!(
+                    "the two sessions exchanged {n} messages within {} minutes with no input \
+                     from the user",
+                    guard.window.as_secs().div_ceil(60)
+                ),
+                RESUMES,
             ),
+            Hold::Paused => ("the pair is paused".to_owned(), RESUMES),
             Hold::Draining => (
                 "the user resumed the pair and its held messages are being delivered".to_owned(),
                 "It is delivered after them, in order.",
@@ -682,6 +689,7 @@ impl Hub {
         }
         pair.alternating = p.alternating;
         pair.repeats.insert(p.from.id.clone(), (p.repeats, p.said));
+        pair.recent.push_back(std::time::Instant::now());
         pair.last = Some(Exchange {
             from: p.from.id.clone(),
             to: p.to.id.clone(),
@@ -691,31 +699,35 @@ impl Hub {
     }
 
     /// Rebuilds the pauses `session`'s log shows (`queue.rs` `restore_queue`, at load and for a
-    /// chat moved here): every message held for it that never reached it (`recorded`: the prompt
-    /// ids of its `queued` and `user_message` records) and was not dropped. A pair a resume was
-    /// delivering when the daemon stopped goes on draining once `resume_queues` runs: the person
-    /// resumed it, and its transcript says so.
+    /// chat moved here): messages held for it that never reached it (`recorded`: the prompt ids
+    /// of its `queued` and `user_message` records) and no release accepted or dropped, merged
+    /// with what the peer's log held by their pair-wide order. A pair a resume was delivering
+    /// when the daemon stopped goes on draining once `resume_queues` runs: the person resumed it,
+    /// and its transcript says so.
     pub(super) fn restore_agent_pairs(
         &self,
         session: &str,
         records: Vec<EventRecord>,
         recorded: &HashSet<String>,
     ) {
-        let owed = still_held(session, records, recorded);
+        let Owed { held, resumed } = still_held(session, records, recorded);
+        if let Some(last) = held.iter().map(|h| h.order).max() {
+            self.agent_pairs.order.fetch_max(last, Ordering::SeqCst);
+        }
         let mut state = self.pairs_state();
         let mut drains = Vec::new();
-        for (from, o) in owed {
-            let key = pair_key(&from, session);
+        for h in held {
+            let key = pair_key(&h.from, session);
+            let drain = resumed.contains(&h.from);
             let pair = state.pairs.entry(key.clone()).or_default();
             let paused = pair
                 .paused
                 .get_or_insert_with(|| Paused { held: VecDeque::new(), draining: false });
-            for h in o.held {
-                if !paused.held.iter().any(|x| x.prompt_id == h.prompt_id) {
-                    paused.held.push_back(h);
-                }
+            if !paused.held.iter().any(|x| x.prompt_id == h.prompt_id) {
+                paused.held.push_back(h);
             }
-            if o.resumed && !paused.draining {
+            paused.held.make_contiguous().sort_by_key(|h| h.order);
+            if drain && !paused.draining {
                 paused.draining = true;
                 drains.push(key);
             }
@@ -803,17 +815,20 @@ impl Hub {
         (pairs, delivered)
     }
 
-    /// Delivers what a resumed pair holds, oldest first, each recorded (queued or started)
-    /// before the next; messages held meanwhile follow. Once it is empty the pair starts over.
+    /// Delivers what a resumed pair holds, oldest first; each stays held until its receiver
+    /// accepts it (queued or started), however long that takes, and only then is the next sent.
+    /// Messages held meanwhile follow. Once it is empty the pair starts over. A message that
+    /// fails before acceptance stays held and pauses the pair again; one that fails
+    /// [`RELEASE_TRIES`] times is dropped, in both logs.
     async fn drain_pair(self: Arc<Self>, key: PairKey) {
         loop {
             let next = {
                 let mut state = self.pairs_state();
                 let next = state
                     .pairs
-                    .get_mut(&key)
-                    .and_then(|p| p.paused.as_mut())
-                    .and_then(|p| p.held.pop_front());
+                    .get(&key)
+                    .and_then(|p| p.paused.as_ref())
+                    .and_then(|p| p.held.front().cloned());
                 match &next {
                     Some(h) => {
                         state.releasing.insert(h.prompt_id.clone());
@@ -826,48 +841,106 @@ impl Hub {
             };
             let Some(h) = next else { return };
             let Ok(session) = self.resolve(&h.to) else {
+                // Its receiver is gone: nothing can take it.
                 self.pairs_state().releasing.remove(&h.prompt_id);
+                self.settle_held(&key, &h.prompt_id);
                 continue;
             };
-            let (tx, rx) = oneshot::channel::<()>();
-            let accepted = Arc::new(AtomicBool::new(false));
-            let accept = accepted.clone();
+            let (tx, mut rx) = mpsc::unbounded_channel::<Result<(), RpcError>>();
+            let accepted = tx.clone();
             let opts = PromptOptions {
                 prompt_id: Some(h.prompt_id.clone()),
                 on_accepted: Some(Box::new(move |_| {
-                    accept.store(true, Ordering::SeqCst);
-                    let _ = tx.send(());
+                    let _ = accepted.send(Ok(()));
                 })),
                 // A message a restart rebuilt may have run before: the log answers it.
                 resend: true,
                 control: h.control,
                 trust_gate: h.trust_gate,
-                steer_only: h.steer_only,
-                interrupt: h.interrupt,
-                provenance: Some(h.provenance),
+                // The moment to steer has passed: a released message waits its turn, and
+                // stops nothing (the turn running now may be the person's own prompt).
+                steer_only: false,
+                interrupt: false,
+                provenance: Some(h.provenance.clone()),
                 ..PromptOptions::default()
             };
             let hub = self.clone();
-            let (blocks, client, steer) = (h.blocks, h.client, h.steer);
-            let prompt_id = h.prompt_id;
-            let from = h.from;
+            let (blocks, client, steer) = (h.blocks.clone(), h.client.clone(), false);
+            let target = session.clone();
             tokio::spawn(async move {
-                // A refusal before the session recorded it (no live agent, a steer with no turn
-                // to steer): it is dropped, and a restart does not hold it again.
-                if let Err(e) = hub.prompt_with(&session, blocks, &client, steer, opts).await
-                    && !accepted.load(Ordering::SeqCst)
-                {
-                    hub.pairs_state().releasing.remove(&prompt_id);
-                    tracing::warn!(session = %session.id, "held agent message: {}", e.message);
-                    hub.append(
+                let done = hub.prompt_with(&target, blocks, &client, steer, opts).await;
+                let _ = tx.send(done.map(|_| ()));
+            });
+            // Both ends gone with no word (the delivery task died): not accepted.
+            let outcome = rx
+                .recv()
+                .await
+                .unwrap_or_else(|| Err(RpcError::internal("the release ended unanswered")));
+            self.pairs_state().releasing.remove(&h.prompt_id);
+            match outcome {
+                Ok(()) => {
+                    self.append(
                         &session,
                         "mux",
-                        "agent_pair_dropped",
-                        json!({"peer": from, "promptId": prompt_id, "error": e.message}),
+                        "agent_pair_released",
+                        json!({"promptId": h.prompt_id, "peer": h.from}),
                     );
+                    self.settle_held(&key, &h.prompt_id);
                 }
-            });
-            let _ = tokio::time::timeout(RELEASE_WAIT, rx).await;
+                Err(e) if h.failures + 1 >= RELEASE_TRIES => {
+                    tracing::warn!(session = %session.id, "held agent message dropped: {}", e.message);
+                    let note = |peer: &str| json!({"promptId": h.prompt_id, "peer": peer, "error": e.message});
+                    self.append(&session, "mux", "agent_pair_dropped", note(&h.from));
+                    if let Ok(sender) = self.resolve(&h.from) {
+                        self.append(&sender, "mux", "agent_pair_dropped", note(&h.to));
+                    }
+                    self.settle_held(&key, &h.prompt_id);
+                }
+                Err(e) => {
+                    tracing::warn!(session = %session.id, "held agent message not released: {}", e.message);
+                    {
+                        let mut state = self.pairs_state();
+                        if let Some(paused) =
+                            state.pairs.get_mut(&key).and_then(|p| p.paused.as_mut())
+                        {
+                            paused.draining = false;
+                            if let Some(front) =
+                                paused.held.iter_mut().find(|x| x.prompt_id == h.prompt_id)
+                            {
+                                front.failures += 1;
+                            }
+                        }
+                    }
+                    let note = |peer: &str, peer_name: &str| {
+                        json!({"peer": peer, "peerName": peer_name, "reason": "release_failed",
+                               "promptId": h.prompt_id, "error": e.message,
+                               "resume": method::MUX_AGENT_PAIR_RESUME})
+                    };
+                    let sender = self.resolve(&h.from).ok();
+                    let sender_name = sender.as_ref().map(|s| s.meta().name).unwrap_or_default();
+                    self.append(&session, "mux", "agent_pair_paused", note(&h.from, &sender_name));
+                    self.mark_unread(&session);
+                    if let Some(sender) = sender {
+                        let receiver_name = session.meta().name;
+                        self.append(
+                            &sender,
+                            "mux",
+                            "agent_pair_paused",
+                            note(&h.to, &receiver_name),
+                        );
+                        self.mark_unread(&sender);
+                    }
+                    return;
+                }
+            }
+        }
+    }
+
+    /// Takes a released (or dropped) message off its pair's held queue.
+    fn settle_held(&self, key: &PairKey, prompt_id: &str) {
+        let mut state = self.pairs_state();
+        if let Some(paused) = state.pairs.get_mut(key).and_then(|p| p.paused.as_mut()) {
+            paused.held.retain(|h| h.prompt_id != prompt_id);
         }
     }
 }

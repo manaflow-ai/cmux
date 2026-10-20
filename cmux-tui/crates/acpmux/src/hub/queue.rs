@@ -487,8 +487,8 @@ impl Hub {
         // A move that began and neither committed nor aborted (`transfer_out.rs`); a chat
         // moved here was the source's until its `imported` record.
         let mut moving: Option<String> = None;
-        // What a paused agent pair held here, its pauses and resumes, and the prompt ids that
-        // reached the session (`agent_pairs.rs`).
+        // What a paused agent pair held here, what its releases took, its pauses and resumes,
+        // and the prompt ids that reached the session (`agent_pairs.rs`).
         let mut pair_records: Vec<EventRecord> = Vec::new();
         let mut recorded: std::collections::HashSet<String> = Default::default();
         let scanned = self.store.scan(&session.id, 0, &mut |e: EventRecord| {
@@ -500,7 +500,10 @@ impl Hub {
             let turn_id = e.msg.get("turnId");
             match e.kind.as_str() {
                 "queued" => waiting.push(e),
-                "agent_pair_held" | "agent_pair_dropped" | "agent_pair_paused"
+                "agent_pair_held"
+                | "agent_pair_released"
+                | "agent_pair_dropped"
+                | "agent_pair_paused"
                 | "agent_pair_resumed" => pair_records.push(e),
                 "transfer_out" => moving = e.msg["transferId"].as_str().map(str::to_owned),
                 "transfer_aborted" | "imported" => moving = None,

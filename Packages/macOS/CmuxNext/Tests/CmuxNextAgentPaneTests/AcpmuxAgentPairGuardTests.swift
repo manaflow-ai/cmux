@@ -29,8 +29,14 @@ struct AcpmuxAgentPairGuardTests {
         #expect(environment.agentPairGuard)
         let on = AcpmuxDaemonLauncher.spawnEnvironment(environment, inherited: [:])
         #expect(on[AcpmuxEnvironment.agentPairGuardKey] == nil)
+        #expect(on[AcpmuxEnvironment.agentPairCapKey] == "20")
+        #expect(on[AcpmuxEnvironment.agentPairWindowKey] == "600")
+        environment.agentPairCap = 0
+        let uncapped = AcpmuxDaemonLauncher.spawnEnvironment(environment, inherited: [:])
+        #expect(uncapped[AcpmuxEnvironment.agentPairCapKey] == "0")
         environment.agentPairGuard = false
         let off = AcpmuxDaemonLauncher.spawnEnvironment(environment, inherited: [:])
         #expect(off[AcpmuxEnvironment.agentPairGuardKey] == "0")
+        #expect(off[AcpmuxEnvironment.agentPairCapKey] == nil)
     }
 }

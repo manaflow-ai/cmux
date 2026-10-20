@@ -574,6 +574,7 @@ impl Hub {
             stderr_tail: StdMutex::new(std::collections::VecDeque::new()),
             prompts: StdMutex::new(std::collections::VecDeque::new()),
             append_errors: AtomicU64::new(0),
+            last_progress: AtomicU64::new(0),
             last_active: AtomicU64::new(self.clock_now()),
             web_control_ended: AtomicBool::new(false),
             floor: Default::default(),
@@ -679,6 +680,10 @@ impl Hub {
         let seq = session.seq.fetch_add(1, Ordering::SeqCst) + 1;
         let at = at.unwrap_or_else(now_ms);
         let record = EventRecord { seq, at, dir: dir.into(), kind: kind.into(), msg, host_seq };
+        // The agent message runaway guard reads progress from here, not the store.
+        if agent_pairs::progress_record(&record) {
+            session.last_progress.store(seq, Ordering::SeqCst);
+        }
         if session.purged.load(Ordering::SeqCst) {
             return (record, true);
         }
