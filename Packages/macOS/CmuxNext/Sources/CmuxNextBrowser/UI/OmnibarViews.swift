@@ -10,13 +10,19 @@ import QuartzCore
 final class OmnibarPillView: NSView {
     enum State { case idle, editing, card }
 
-    var state: State = .idle { didSet { if oldValue != state { refresh(animated: true) } } }
+    /// Focus, blur and the card switch the look at once, on the frame of the
+    /// press, as Chrome's omnibox does; only the pointer's hover eases. A
+    /// fade here kept the focusing click's editing fill from showing for
+    /// several frames after the press (omnibar mouse-down latency).
+    var state: State = .idle { didSet { if oldValue != state { refresh(animated: false) } } }
     /// Where the pointer is now (`OmnibarPointer`): a hide, a tab switch or
     /// a window change under a still pointer clears it.
     private var hover: PointerHover?
     private var isHovering: Bool { hover?.isHovering ?? false }
     /// Whether the pointer is over the bar (`debug.omnibar`).
     var debugHovering: Bool { isHovering }
+    /// A fill, ring or shadow animation is still running on the bar's layer.
+    var debugIsFading: Bool { !(layer?.animationKeys() ?? []).isEmpty }
     /// The look in effect; follows cmux.json live.
     private(set) var look = OmnibarGlassLook.current { didSet { if oldValue != look { rebuildMaterial() } } }
     /// The glass under the bar, built while the look has a material.
@@ -185,9 +191,9 @@ final class OmnibarPillView: NSView {
     }
 }
 
-/// The part of the suggestion card that surrounds the bar: 3 pt above and
-/// 6 pt past each side, rounded at the top only. The dropdown panel continues
-/// it below the bar, so bar and rows read as one card.
+/// The part of the suggestion card behind the bar: the bar's own frame and
+/// corners, rounded at the top only. The dropdown panel continues it below
+/// the bar, so bar and rows read as one card.
 final class OmnibarCardTopView: NSView {
     let card = CALayer()
 
@@ -195,7 +201,6 @@ final class OmnibarCardTopView: NSView {
         super.init(frame: frame)
         wantsLayer = true
         layer?.masksToBounds = false
-        card.cornerRadius = OmnibarStyle.cardCornerRadius
         card.cornerCurve = .continuous
         card.maskedCorners = [.layerMinXMaxYCorner, .layerMaxXMaxYCorner]
         // The one popup shadow (PopupStyle), as the panel of rows below.
@@ -217,6 +222,7 @@ final class OmnibarCardTopView: NSView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         card.frame = bounds
+        card.cornerRadius = OmnibarStyle.cardCornerRadius
         // Extend the shadow shape down past the seam, so no line shows
         // between the two halves (the panel of rows casts no shadow of its own).
         let shape = CGRect(x: 0, y: -40, width: bounds.width, height: bounds.height + 40)

@@ -1,8 +1,8 @@
-import overlayServerCodes from "../../migrations/0014_cmux_vm_overlay_server_codes.sql?raw";
-import overlayServers from "../../migrations/0013_cmux_vm_overlay_servers.sql?raw";
+import overlayServerCodes from "../../migrations/0015_cmux_vm_overlay_server_codes.sql?raw";
+import overlayServers from "../../migrations/0014_cmux_vm_overlay_servers.sql?raw";
 import creationReceipts from "../../migrations/0010_cmux_vm_creation_receipts.sql?raw";
 import creationReceiptIndex from "../../migrations/0011_cmux_vm_creation_receipt_index.sql?raw";
-import overlayPolicy from "../../migrations/0012_cmux_vm_device_overlay_policy.sql?raw";
+import overlayPolicy from "../../migrations/0013_cmux_vm_device_overlay_policy.sql?raw";
 /**
  * The device address store (bead cx-wb5.45) against migrations 0001-0009 on
  * an in-process Postgres (PGlite): a live device's published public IPv6
@@ -21,13 +21,14 @@ import meshM3 from "../../migrations/0006_cmux_vm_mesh_m3.sql?raw";
 import meshM4 from "../../migrations/0007_cmux_vm_mesh_m4.sql?raw";
 import meshM4Retries from "../../migrations/0008_cmux_vm_mesh_m4_retries.sql?raw";
 import deviceAddress from "../../migrations/0009_cmux_vm_mesh_device_address.sql?raw";
+import uncommittedCreations from "../../migrations/0012_cmux_vm_uncommitted_creations.sql?raw";
 import { MeshStore, sqlMeshStoreLayer } from "../../src/db/mesh.ts";
 import { checkSchema } from "../../src/db/schema-check.ts";
 import { SqlClient, StoreError } from "../../src/db/sql.ts";
 import { newDeviceId, newMeshId, newTunnelId, TenantId } from "../../src/lib/ids.ts";
 
 const BEFORE = [ownership, s2, snapshots, mesh, meshM2, meshM3, meshM4, meshM4Retries];
-const ALL = [...BEFORE, deviceAddress, creationReceipts, creationReceiptIndex, overlayPolicy, overlayServers, overlayServerCodes];
+const ALL = [...BEFORE, deviceAddress, creationReceipts, creationReceiptIndex, uncommittedCreations, overlayPolicy, overlayServers, overlayServerCodes];
 
 const sqlOver = (db: PGlite) =>
   Layer.succeed(SqlClient, {
@@ -75,7 +76,7 @@ describe("migration 0009", () => {
 
   it("the schema gate names the column when 0009 was not applied", async () => {
     const old = new PGlite();
-    for (const migration of [...BEFORE, creationReceipts, creationReceiptIndex, overlayPolicy, overlayServers, overlayServerCodes]) await old.exec(migration);
+    for (const migration of [...BEFORE, creationReceipts, creationReceiptIndex, uncommittedCreations, overlayPolicy, overlayServers, overlayServerCodes]) await old.exec(migration);
     expect(await Effect.runPromise(Effect.provide(checkSchema, sqlOver(old)))).toEqual(["cmux_vm.mesh_devices.public_ipv6: missing"]);
   });
 

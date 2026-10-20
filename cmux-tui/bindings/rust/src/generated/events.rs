@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 0ffdc025bee91f84dac1a77976dae2216281abe7f3c20aee0d88b7ddcf108cdc.
+// cmux-tui mux protocol 12, IR 799b8337576dcd8bee3b1fe1fd6fd45ca0838886c6e828df95369ebbfa1dd913.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -32,6 +32,22 @@ pub struct AgentChangedEvent {
     pub state: T::AgentState,
     pub surface: T::Id,
     pub updated_at_ms: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentInventoryChangedEvent {
+    pub machine: String,
+    pub revision: u64,
+    pub watch_id: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentInventoryWatchEndedEvent {
+    pub machine: String,
+    pub reason: String,
+    pub watch_id: String,
 }
 
 #[rustfmt::skip]
@@ -190,6 +206,24 @@ pub struct CloudConversationRunChangedEvent {
     pub conversation: String,
     pub run: Nullable<T::JsonValue>,
     pub steps: Vec<T::JsonValue>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CloudConversationTypingEvent {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub account: Option<String>,
+    pub conversation: String,
+    pub on: bool,
+    pub participant: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CloudHostReplicaNeededEvent {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub expires_at: Optional<u64>,
+    pub reason: String,
 }
 
 #[rustfmt::skip]
@@ -937,6 +971,8 @@ pub struct UnknownEvent {
 pub enum Event {
     ActivityChanged(ActivityChangedEvent),
     AgentChanged(AgentChangedEvent),
+    AgentInventoryChanged(AgentInventoryChangedEvent),
+    AgentInventoryWatchEnded(AgentInventoryWatchEndedEvent),
     AgentPresenceChanged(AgentPresenceChangedEvent),
     Bell(BellEvent),
     BookmarksChanged(BookmarksChangedEvent),
@@ -950,6 +986,8 @@ pub enum Event {
     CloudConversationLive(CloudConversationLiveEvent),
     CloudConversationResynced(CloudConversationResyncedEvent),
     CloudConversationRunChanged(CloudConversationRunChangedEvent),
+    CloudConversationTyping(CloudConversationTypingEvent),
+    CloudHostReplicaNeeded(CloudHostReplicaNeededEvent),
     CloudInboxChanged(CloudInboxChangedEvent),
     CloudInboxReset(CloudInboxResetEvent),
     CloudMuxResynced(CloudMuxResyncedEvent),
@@ -1027,6 +1065,8 @@ impl Event {
         match self {
             Self::ActivityChanged(_) => Some("activity-changed"),
             Self::AgentChanged(_) => Some("agent-changed"),
+            Self::AgentInventoryChanged(_) => Some("agent-inventory-changed"),
+            Self::AgentInventoryWatchEnded(_) => Some("agent-inventory-watch-ended"),
             Self::AgentPresenceChanged(_) => Some("agent-presence-changed"),
             Self::Bell(_) => Some("bell"),
             Self::BookmarksChanged(_) => Some("bookmarks-changed"),
@@ -1040,6 +1080,8 @@ impl Event {
             Self::CloudConversationLive(_) => Some("cloud-conversation-live"),
             Self::CloudConversationResynced(_) => Some("cloud-conversation-resynced"),
             Self::CloudConversationRunChanged(_) => Some("cloud-conversation-run-changed"),
+            Self::CloudConversationTyping(_) => Some("cloud-conversation-typing"),
+            Self::CloudHostReplicaNeeded(_) => Some("cloud-host-replica-needed"),
             Self::CloudInboxChanged(_) => Some("cloud-inbox-changed"),
             Self::CloudInboxReset(_) => Some("cloud-inbox-reset"),
             Self::CloudMuxResynced(_) => Some("cloud-mux-resynced"),
@@ -1116,6 +1158,8 @@ impl Event {
         match self {
             Self::ActivityChanged(_) => Some(&ACTIVITY_CHANGED_EVENT_METADATA),
             Self::AgentChanged(_) => Some(&AGENT_CHANGED_EVENT_METADATA),
+            Self::AgentInventoryChanged(_) => Some(&AGENT_INVENTORY_CHANGED_EVENT_METADATA),
+            Self::AgentInventoryWatchEnded(_) => Some(&AGENT_INVENTORY_WATCH_ENDED_EVENT_METADATA),
             Self::AgentPresenceChanged(_) => Some(&AGENT_PRESENCE_CHANGED_EVENT_METADATA),
             Self::Bell(_) => Some(&BELL_EVENT_METADATA),
             Self::BookmarksChanged(_) => Some(&BOOKMARKS_CHANGED_EVENT_METADATA),
@@ -1129,6 +1173,8 @@ impl Event {
             Self::CloudConversationLive(_) => Some(&CLOUD_CONVERSATION_LIVE_EVENT_METADATA),
             Self::CloudConversationResynced(_) => Some(&CLOUD_CONVERSATION_RESYNCED_EVENT_METADATA),
             Self::CloudConversationRunChanged(_) => Some(&CLOUD_CONVERSATION_RUN_CHANGED_EVENT_METADATA),
+            Self::CloudConversationTyping(_) => Some(&CLOUD_CONVERSATION_TYPING_EVENT_METADATA),
+            Self::CloudHostReplicaNeeded(_) => Some(&CLOUD_HOST_REPLICA_NEEDED_EVENT_METADATA),
             Self::CloudInboxChanged(_) => Some(&CLOUD_INBOX_CHANGED_EVENT_METADATA),
             Self::CloudInboxReset(_) => Some(&CLOUD_INBOX_RESET_EVENT_METADATA),
             Self::CloudMuxResynced(_) => Some(&CLOUD_MUX_RESYNCED_EVENT_METADATA),
@@ -1216,6 +1262,22 @@ pub fn decode_event(raw: Value) -> Event {
         },
         Some("agent-changed") => match serde_json::from_value::<AgentChangedEvent>(raw.clone()) {
             Ok(event) => Event::AgentChanged(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("agent-inventory-changed") => match serde_json::from_value::<AgentInventoryChangedEvent>(raw.clone()) {
+            Ok(event) => Event::AgentInventoryChanged(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("agent-inventory-watch-ended") => match serde_json::from_value::<AgentInventoryWatchEndedEvent>(raw.clone()) {
+            Ok(event) => Event::AgentInventoryWatchEnded(event),
             Err(error) => Event::Unknown(UnknownEvent {
                 name,
                 raw,
@@ -1320,6 +1382,22 @@ pub fn decode_event(raw: Value) -> Event {
         },
         Some("cloud-conversation-run-changed") => match serde_json::from_value::<CloudConversationRunChangedEvent>(raw.clone()) {
             Ok(event) => Event::CloudConversationRunChanged(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("cloud-conversation-typing") => match serde_json::from_value::<CloudConversationTypingEvent>(raw.clone()) {
+            Ok(event) => Event::CloudConversationTyping(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("cloud-host-replica-needed") => match serde_json::from_value::<CloudHostReplicaNeededEvent>(raw.clone()) {
+            Ok(event) => Event::CloudHostReplicaNeeded(event),
             Err(error) => Event::Unknown(UnknownEvent {
                 name,
                 raw,

@@ -486,6 +486,8 @@ pub struct Agents {
     pub released: usize,
     /// The next turn loses its acpmux connection instead of answering.
     pub lose: bool,
+    /// Every turn loses its acpmux connection instead of answering.
+    pub lose_always: bool,
     /// `events` fails with this error while set.
     pub events_error: Option<String>,
     /// Sessions whose turn was cancelled, in order.
@@ -511,6 +513,8 @@ pub struct Agents {
     pub slow_session: Option<(String, Duration)>,
     /// `new_session` on this harness profile fails with the text.
     pub session_errors: BTreeMap<String, String>,
+    /// The next `new_session` calls fail with these texts, one each, in order.
+    pub session_errors_once: std::collections::VecDeque<String>,
     /// Each session's turn signals, for `push_events`.
     pub signals: BTreeMap<String, Sender<TurnSignal>>,
     /// The `_acpmux/harnesses` answer; None: `catalog()` (claude-sr and
@@ -679,6 +683,9 @@ impl AgentPort for FakeAgents {
         if let Some(e) = self.inner.lock().unwrap().session_errors.get(&spec.harness) {
             return Err(e.clone());
         }
+        if let Some(e) = self.inner.lock().unwrap().session_errors_once.pop_front() {
+            return Err(e);
+        }
         let slow = self.inner.lock().unwrap().slow_session.clone();
         if let Some((part, delay)) = slow
             && spec.name.contains(&part)
@@ -739,7 +746,7 @@ impl AgentPort for FakeAgents {
             let (lose, answer, error, delay) = {
                 let mut inner = me.inner.lock().unwrap();
                 (
-                    std::mem::take(&mut inner.lose),
+                    std::mem::take(&mut inner.lose) || inner.lose_always,
                     inner.answer.take(),
                     inner.answer_error.take(),
                     inner.answer_delay,

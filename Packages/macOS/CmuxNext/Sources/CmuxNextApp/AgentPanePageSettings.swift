@@ -1,6 +1,7 @@
 import CmuxNextAgentPane
 import CmuxNextCompat
 import CmuxNextDesign
+import CmuxNextDiff
 import CmuxNextSettings
 import Observation
 
@@ -16,6 +17,9 @@ final class AgentPanePageSettings {
     private(set) var sidebarPreviewVariant = AgentPaneSidebarPreviewVariant.card
     /// Diff Colors (`diff.colors`), for the Changes view's added and removed lines.
     private(set) var diffColors = "theme"
+    /// The chat's look (`agentPane.display.*` and the Markdown viewer keys it follows).
+    private(set) var display = AgentPaneDisplaySetting.fallback
+    private var displayObservation: Task<Void, Never>?
     private var previewObservation: Task<Void, Never>?
     private var editedFilesObservation: Task<Void, Never>?
     private var zoomObservation: Task<Void, Never>?
@@ -28,7 +32,7 @@ final class AgentPanePageSettings {
 
     /// Follows both keys in `settings`; `push` runs after each change, to reach the open views.
     func follow(_ settings: SettingsController, push: @escaping () -> Void) {
-        for task in [previewObservation, editedFilesObservation, zoomObservation, composerObservation, reasoningSliderObservation, sidebarPreviewVariantObservation, diffColorsObservation] { task?.cancel() }  // a new controller replaces, never adds
+        for task in [previewObservation, editedFilesObservation, zoomObservation, composerObservation, reasoningSliderObservation, sidebarPreviewVariantObservation, diffColorsObservation, displayObservation] { task?.cancel() }  // a new controller replaces, never adds
         self.settings = settings
         // task-owner: lives as long as the tabs; event-driven (Observation)
         previewObservation = Task { [weak self] in
@@ -58,11 +62,7 @@ final class AgentPanePageSettings {
             for await value in ObservationStream({ settings.snapshot.agentPaneComposer }) {
                 guard let self else { return }
                 // The reasoning slider is the Debug Settings toggle's, not cmux.json's.
-                let reasoningSlider = composer.reasoningSlider
-                let reasoningSliderStyle = composer.reasoningSliderStyle
-                composer = value
-                composer.reasoningSlider = reasoningSlider
-                composer.reasoningSliderStyle = reasoningSliderStyle
+                composer = value.keepingDebugToggles(of: composer)
                 push()
             }
         }
@@ -83,6 +83,7 @@ final class AgentPanePageSettings {
                 push()
             }
         }
+        AgentPaneComposerSetting.followLook(push) // Debug Settings' plain footer look
         // task-owner: lives as long as the tabs; event-driven (Observation)
         diffColorsObservation = Task { [weak self] in
             for await value in ObservationStream({ settings.fileRoot[DiffPrefKey.section]?["colors"] }) {
@@ -91,6 +92,25 @@ final class AgentPanePageSettings {
                 push()
             }
         }
+        followDisplay(settings, push: push)
+    }
+
+    /// Follows the chat's look; split from ``follow(_:push:)``, which is at its size limit.
+    private func followDisplay(_ settings: SettingsController, push: @escaping () -> Void) {
+        // task-owner: lives as long as the tabs; event-driven (Observation)
+        displayObservation = Task { [weak self] in
+            for await value in ObservationStream({ AgentPaneDisplaySetting(fileRoot: settings.fileRoot) }) {
+                guard let self, value != display else { continue }
+                display = value
+                push()
+            }
+        }
+    }
+
+    /// The Text & Width popover's write: one `agentPane.display.*` key at `path`, nil removes it.
+    /// The observation above then pushes the new look to every page.
+    func setDisplay(_ path: [String], _ value: JSONValue?) async throws {
+        try await settings?.setSetting(at: path, to: value, by: .caller("page"))
     }
 
     /// The composer's Hide or Show Context Usage and Hide dictation button: writes the flag at
@@ -98,7 +118,6 @@ final class AgentPanePageSettings {
     /// above then pushes to every page.
     func setComposer(_ path: [String], _ show: Bool) async throws {
         try await settings?.set(.bool(show), at: path)
-
     }
 
     /// Gives `view` the current values (the view pushes only a change).
@@ -109,5 +128,6 @@ final class AgentPanePageSettings {
         sidebarPreviewVariant.push(to: view)
         composer.push(to: view)
         view.pushDiffColors(diffColors)
+        view.pushDisplay(display)
     }
 }

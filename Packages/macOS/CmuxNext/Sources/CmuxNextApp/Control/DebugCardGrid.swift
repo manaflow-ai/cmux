@@ -13,8 +13,10 @@ enum DebugCardGrid {
         guard let panel = NSApp.windows.first(where: { String(describing: type(of: $0)) == "HoverCardPanel" && $0.isVisible }),
               let root = panel.contentView
         else { return .null }
-        // The card less the panel's shadow band, in window coordinates.
-        let card = PopupStyle.standard.cardFrame(inWindow: panel.frame).offsetBy(dx: -panel.frame.minX, dy: -panel.frame.minY)
+        // The card in window coordinates (the host fills the window; the card sits inside its
+        // shadow band and the slide's room).
+        let card = (root as? PopupHostView)?.card.frame
+            ?? PopupStyle.standard.cardFrame(inWindow: panel.frame).offsetBy(dx: -panel.frame.minX, dy: -panel.frame.minY)
         var glyphs: [JSONValue] = []
         var labels: [JSONValue] = []
         func frame(_ view: NSView) -> JSONValue {
@@ -33,7 +35,7 @@ enum DebugCardGrid {
                 glyphs.append(.object(["kind": .string("image"), "frame": frame(image)]))
                 return
             }
-            if let label = view as? NSTextField, !label.stringValue.isEmpty {
+            if let label = view as? any ShownText, !label.stringValue.isEmpty {
                 labels.append(.object(["text": .string(label.stringValue), "frame": frame(label)]))
                 return
             }

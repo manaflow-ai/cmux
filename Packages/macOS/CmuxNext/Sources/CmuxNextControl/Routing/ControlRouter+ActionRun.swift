@@ -26,9 +26,13 @@ extension ControlRouter {
         let action = try Self.resolveAction(call.params, in: catalog)
         var given = try Self.validatedRequest(for: action, params: call.params, knownKinds: catalog.targetKinds,
                                               connection: call.connection)
+        given.callerApp = call.request.callerApp
         // The caller is part of the fingerprint; where it places is resolved
         // per run (`execute`), so a retry with the key replays, never conflicts.
-        given.callerAgentSession = try ControlCaller(call.params)?.agentSession
+        let caller = try ControlCaller(call.params)
+        given.callerAgentSession = caller?.agentSession
+        given.callerTerminal = caller?.terminalID
+        given.callerHomeChat = caller?.homeChat ?? false
         let key = try Self.idempotencyKey(call.params)
         guard let key else { return try await execute(action, given, key: nil, call: call) }
         switch idempotency.claim(key, fingerprint: given) {
@@ -93,11 +97,11 @@ extension ControlRouter {
         let executor = self.executor
         let progress = call.progress
         let wait = call.params["wait"]?.boolValue ?? true
-        let scope = ControlCommandScope(idempotencyKey: key)
+        let scope = progress.track(ControlCommandScope(idempotencyKey: key))
         let expired = ControlError.timeout(call.method, after: max(call.deadline - .now, .zero))
         let run = try await workQueue.run(connection: call.connection, method: call.method, deadline: call.deadline, countingFrom: call.engineStartMark) {
             // The request may have answered `not_run` already: then never run.
-            guard progress.begin() else { throw expired }
+            guard progress.begin(), scope.noting("handler") else { throw expired }
             if action.id == "tab.focus" { tabSwitchMark("run") }
             // The queue runs this from a run-loop block, where no task is current (cx-bpcj).
             return ControlCommandScope.$current.withValueInTask(scope) { executor.performActionTracked(request) }
@@ -123,11 +127,14 @@ extension ControlRouter {
         // pending until settlement records the final reply for a retry.
         let settling = Task { [self] () -> ControlIdempotencyCache.Outcome in
             let settled = await settle(run, scope: scope, action: action.id, method: call.method, deadline: settleDeadline, replyBy: { call.movedDeadline })
+            // Settled: every result task already finished with the work that awaited it.
+            let value = await Self.resultValue(of: run.results)
             let result = settled.map { snapshot -> JSONValue in
                 var reply = reply
                 if let target = request.target { reply["resolved"] = resolvedJSON(target, in: snapshot.topology) }
                 reply["created"] = .array(scope.created.compactMap { PublicIDTargetResolver.publicID(of: $0, in: snapshot.topology) }.map(JSONValue.string))
                 reply["sequence"] = JSONValue.number(Double(snapshot.topology.daemonSequence))
+                if let value { reply["result"] = value }
                 return .object(reply)
             }
             if let key { idempotency.finish(key, with: result) }
@@ -144,6 +151,26 @@ extension ControlRouter {
         return try await settling.value.get()
     }
 
+    /// The fields the run's value-producing work returned (`ActionRegistry.track(result:)`),
+    /// merged in order, as the reply's `result`; nil when it produced none.
+    static func resultValue(of results: [ActionResultWork]) async -> JSONValue? {
+        var fields: [String: JSONValue] = [:]
+        for task in results {
+            guard case .success(let value) = await task.value else { continue }
+            for (key, field) in value { fields[key] = json(field) }
+        }
+        return results.isEmpty ? nil : .object(fields)
+    }
+
+    static func json(_ value: ActionResultValue) -> JSONValue {
+        switch value {
+        case .string(let text): .string(text)
+        case .int(let number): JSONValue(number)
+        case .double(let number): .number(number)
+        case .bool(let flag): .bool(flag)
+        }
+    }
+
     /// `target` resolved to the object's public id, with the model key the handler got.
     func resolvedJSON(_ target: ControlTargetRef, in topology: ControlTopology) -> JSONValue {
         ["kind": .string(target.kind), "id": .string(PublicIDTargetResolver.publicID(of: target, in: topology)), "key": .string(target.id)]
@@ -157,8 +184,8 @@ extension ControlRouter {
         let failure: ActionWorkFailure?
         do {
             failure = try await ControlDeadline.shared.run(method: method, deadline: deadline) {
-                let tracked = await Self.firstFailure(of: run.work)
-                await Self.awaitIdle(scope)
+                let tracked = await scope.stage("work") { await Self.firstFailure(of: run.work) }
+                await scope.stage("daemon") { await Self.awaitIdle(scope) }
                 return tracked
             }
         } catch {
@@ -168,7 +195,7 @@ extension ControlRouter {
         if let failure = scope.failures.first { return .failure(Self.scopeError(failure, action: action, method: method)) }
         // No daemon command: the work queue's frame already published the
         // app-local change (selection, focus, settings).
-        let barriers = scope.barriers
+        let barriers = scope.snapshotBarriers()
         guard !barriers.isEmpty else { return .success(await snapshots.showing(scope.created, after: snapshots.current, replyBy: replyBy())) }
         guard let snapshot = await snapshots.snapshot(reflecting: Self.sequenceBarrier(barriers, in: snapshots.current.topology),
                                                       deadline: deadline) else {

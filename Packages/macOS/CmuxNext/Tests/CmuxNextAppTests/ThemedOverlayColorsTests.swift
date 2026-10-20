@@ -22,12 +22,11 @@ import Testing
 
     @Test func homeChiefSettingsDrawInTheTheme() throws {
         let scope = try Self.purpleRoom()
-        let sidebar = HomeChiefSidebar(muxHome: FileManager.default.temporaryDirectory, source: UnreachableEngine())
-        scope.root(sidebar)
+        let settings = HomeChiefSettingsView(muxHome: FileManager.default.temporaryDirectory, source: UnreachableEngine())
+        scope.root(settings)
 
-        let fill = try #require(sidebar.layer?.backgroundColor.flatMap(NSColor.init(cgColor:)))
-        #expect(Self.same(fill, scope.perform { Palette.fill(for: .sidebar, default: Palette.sidebarStep) }))
-        let labels = Self.labels(in: sidebar)
+        // The popover's glass card is the surface (HomeChiefSettingsPopover); the content's text draws the theme.
+        let labels = Self.labels(in: settings)
         #expect(labels.count > 4)
         for label in labels {
             #expect(Self.isThemeInk(label.textColor, scope), "\(label.stringValue)")
@@ -59,11 +58,13 @@ import Testing
 
     @Test func homeSheetNotesDrawInTheTheme() throws {
         let scope = try Self.purpleRoom()
-        let compose = HomeComposeSheet(contacts: [])
         let invite = HomeInviteSheet(pending: ["ada@example.com"])
-        for sheet in [compose, invite] as [HomeSheetController] {
-            scope.root(sheet.view)
-            for label in Self.labels(in: sheet.view) {
+        // New Message is a page now: its To: field's label and its suggestions' note.
+        let to = HomeRecipientField(frame: NSRect(x: 0, y: 0, width: 480, height: 44))
+        to.suggestions.show([], empty: "No teammates yet.")
+        for root in [invite.view, to, to.suggestions] {
+            scope.root(root)
+            for label in Self.labels(in: root) {
                 #expect(Self.isThemeInk(label.textColor, scope), "\(label.stringValue)")
             }
         }
@@ -71,20 +72,22 @@ import Testing
 
     @Test func buttonsAndPickersDrawTheThemeBezel() throws {
         let scope = try Self.purpleRoom()
-        let sidebar = HomeChiefSidebar(muxHome: FileManager.default.temporaryDirectory, source: UnreachableEngine())
+        let settings = HomeChiefSettingsView(muxHome: FileManager.default.temporaryDirectory, source: UnreachableEngine())
         let restart = TerminalRestartButton()
         let placeholder = RemoteTerminalPlaceholderView(frame: .zero)
         let dialog = CmuxDialogView(spec: CmuxDialogSpec(title: "Move Tab", fields: [
             .choice(id: "window", label: nil, options: [.init(label: "Window A", value: "a")], selected: "a"),
         ], buttons: [.ok()]))
-        let compose = HomeComposeSheet(contacts: [])
-        let views: [NSView] = [sidebar, restart, placeholder, dialog, compose.view]
+        let invite = HomeInviteSheet(pending: [])
+        let views: [NSView] = [settings, restart, placeholder, dialog, invite.view]
         for view in views { scope.root(view) }
 
         // The sheets' factory-made buttons keep the system's automatic style, so they are named.
         let found = views.flatMap(Self.pushButtons(in:))
-        #expect(found.count >= 7)
-        let buttons = found + [compose.cancelButton, compose.inviteButton]
+        // The Chief settings' Harness, Model and Effort pickers; its other buttons are links.
+        #expect(Self.pushButtons(in: settings).count == 3)
+        #expect(found.count >= 4)
+        let buttons = found + [invite.cancelButton]
         let fill = scope.perform { Palette.selectionFill }
         for button in buttons {
             let bezel = try #require(button.bezelColor, "\(button.title)")
@@ -118,8 +121,9 @@ import Testing
     }
 
     /// Every read-only text field under `view`.
-    static func labels(in view: NSView) -> [NSTextField] {
-        var found: [NSTextField] = []
+    static func labels(in view: NSView) -> [any ShownText] {
+        var found: [any ShownText] = []
+        if let label = view as? ChromeLabel { found.append(label) }
         if let field = view as? NSTextField, !field.isEditable, !(field is NSSearchField) { found.append(field) }
         for subview in view.subviews { found += labels(in: subview) }
         return found

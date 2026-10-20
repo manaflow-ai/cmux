@@ -46,9 +46,13 @@ impl Hub {
         // global binding; a chat or workspace binding still wins.
         let bound = routes::bound_route(&bindings, session.unwrap_or_default(), workspace, &family);
         let profile_route = profile.env.get(routes::PROFILE_ROUTE_KEY).cloned();
+        // Your own endpoint (byo_endpoint.rs) names its provider itself: a
+        // family or global binding never rewrites it.
+        let own_endpoint = crate::byo_endpoint::Kind::of_env(&profile.env).is_some();
         let Some((id, scope)) = (match (bound, profile_route) {
             (Some((id, scope)), _) if matches!(scope, "chat" | "workspace") => Some((id, scope)),
             (_, Some(id)) => Some((id, "profile")),
+            (_, None) if own_endpoint => None,
             (bound, None) => bound,
         }) else {
             return Ok(None);
@@ -231,7 +235,7 @@ impl Hub {
         message: &str,
     ) -> Option<Value> {
         let lower = message.to_lowercase();
-        let route_class = super::turns::is_limit_error(message)
+        let route_class = super::turn_errors::is_limit_error(message)
             || [
                 "500",
                 "502",

@@ -1,6 +1,7 @@
-// The New Tab composer box's focus is quiet (Lawrence 10-14, "don't like this focus thing"): focus
-// keeps the box's one-device-pixel rim (--cmux-hairline) at its own width, takes one visible but quiet
-// step in tone (30% toward the text), never the accent, and still clears with appearance.borders none. The composer's
+// The New Tab composer box's focus is quiet (Lawrence 10-14, "don't like this focus thing"), and now
+// draws nothing (Leo 2026-10-19: the focus ring flashed): a focused box keeps its resting
+// one-device-pixel rim (--cmux-hairline) in its resting tone, and still clears with
+// appearance.borders none. The composer's
 // fill, the New Tab box's and the chat composer's alike, is no longer a gray slab darker than the
 // page ("same bg kinda weird"; Leo 10-14): in a light theme it is the page lifted toward white,
 // lighter than the page; in a dark theme a small step lighter than the page. Both are solid. Their
@@ -121,11 +122,6 @@ await requireBrowserLane("newtab-quiet-focus.test.ts", async () => {
     return { rgba: parse(style.color), image: style.image };
   }
 
-  /** A rim as it shows: its color over the box's own fill. */
-  function ink([r, g, b, a]: Rim["rgba"], ground: Rim["rgba"]): number[] {
-    return [r, g, b].map((channel, index) => channel * a + ground[index] * (1 - a));
-  }
-
   function luminance([r, g, b]: Rim["rgba"] | number[]): number {
     return 0.2126 * r + 0.7152 * g + 0.0722 * b;
   }
@@ -139,7 +135,7 @@ await requireBrowserLane("newtab-quiet-focus.test.ts", async () => {
   for (const [box, field] of boxes)
     for (const theme of ["dark", "light"] as const) {
       for (const scale of [1, 2]) {
-        test(`${box}, ${theme} at ${scale}x: focus keeps the one-device-pixel rim, a visible quiet step in tone, no accent`, async () => {
+        test(`${box}, ${theme} at ${scale}x: focus keeps the resting one-device-pixel rim, no step in tone`, async () => {
           const page = await open(scale, theme);
           const rest = await rims(page, box);
           expect(rest.length, "the box draws a rim").toBe(1);
@@ -147,20 +143,8 @@ await requireBrowserLane("newtab-quiet-focus.test.ts", async () => {
           expect(rest[0].rgba[3], "the rim's color parsed and shows").toBeGreaterThan(0);
           await page.focus(`#${field}`);
           const focused = await rims(page, box);
-          expect(focused.length, "focus draws one rim, no extra ring").toBe(1);
-          expect(focused[0].spread, "focus keeps the rim's width").toBe(rest[0].spread);
-          const ground = (await fill(page, box)).rgba!;
-          const [r, g, b] = focused[0].rgba;
-          expect(Math.max(Math.abs(r - g), Math.abs(g - b)), "the focused rim is neutral, not the accent").toBeLessThan(
-            0.02,
-          );
-          const lift = Math.max(
-            ...ink(focused[0].rgba, ground).map((value, index) => Math.abs(value - ink(rest[0].rgba, ground)[index])),
-          );
-          // Visible, never loud: the earlier 8% step lifted the rim under 0.06 and a focused box
-          // was pixel-identical to an idle one (cg-composer focus audit, 10-14).
-          expect(lift, "focus lifts the rim's tone enough to see").toBeGreaterThan(0.12);
-          expect(lift, "focus lifts the rim's tone only a step").toBeLessThan(0.3);
+          // No focus ring: the same one rim, width and tone, as at rest.
+          expect(focused, "focus draws the resting rim").toEqual(rest);
           await page.close();
         });
       }
@@ -194,44 +178,49 @@ await requireBrowserLane("newtab-quiet-focus.test.ts", async () => {
       await page.close();
     });
 
-  // The location strip on the card's top edge takes the focused rim's tone, so the focused card and
-  // strip stay one outline instead of a bright card under a resting strip.
+  // The card's one rim goes round the location strip on its top edge (composerLocation.css): the
+  // card's rim layer reaches up over the strip, which draws no rim of its own, so card and strip stay
+  // one outline, in the resting tone whether focused or not.
+  const tone = (shadow: string) => shadow.match(/(?:rgba?|color)\([^)]*\)/)![0];
   for (const theme of ["dark", "light"] as const)
-    test(`${theme}: the location strip's edge follows the card's focus`, async () => {
+    test(`${theme}: the location strip's edge stays at rest when the card is focused`, async () => {
       const page = await open(2, theme);
       const edge = () =>
-        page.evaluate(
-          () => getComputedStyle(document.getElementById("strip")!).boxShadow.match(/(?:rgba?|color)\([^)]*\)/)![0],
-        );
+        page.evaluate(() => {
+          const strip = document.getElementById("strip")!;
+          const card = document.getElementById("strip-composer")!;
+          const rim = getComputedStyle(card, "::before");
+          return {
+            shadow: rim.boxShadow,
+            // Where the rim layer starts, against the strip's top: 0 when it goes round the strip.
+            top: card.getBoundingClientRect().top + parseFloat(rim.top) - strip.getBoundingClientRect().top,
+            stripRim: getComputedStyle(strip).boxShadow,
+          };
+        });
       const rest = await edge();
       await page.focus("#strip-composer-field");
       const focused = await edge();
-      expect(focused, "the strip's edge steps with the card").not.toBe(rest);
-      const card = await page.evaluate(
-        () =>
-          getComputedStyle(document.getElementById("strip-composer")!, "::before").boxShadow.match(
-            /(?:rgba?|color)\([^)]*\)/,
-          )![0],
-      );
-      expect(focused, "the strip and the card draw one tone").toBe(card);
+      expect(Math.abs(focused.top), "the card's rim goes round the strip").toBeLessThan(0.5);
+      expect(focused.stripRim, "the strip draws no second rim").toBe("none");
+      expect(tone(focused.shadow), "the strip's edge keeps its resting tone").toBe(tone(rest.shadow));
       await page.close();
     });
 
-  // Queued prompts sit on the card's top edge as part of its outline, so their sides take the
-  // focused tone with the card instead of staying at rest over a lifted card.
+  // Queued prompts sit on the card's top edge as part of its outline: their sides and the card's rim
+  // (its rim layer) draw one tone, the resting one, focused or not.
   for (const theme of ["dark", "light"] as const)
-    test(`${theme}: queued prompts' edge follows the card's focus`, async () => {
+    test(`${theme}: queued prompts' edge stays at rest when the card is focused`, async () => {
       const page = await open(2, theme);
-      const tone = (id: string) =>
-        page.evaluate(
-          (id) => getComputedStyle(document.getElementById(id)!).boxShadow.match(/(?:rgba?|color)\([^)]*\)/)![0],
-          id,
-        );
-      const rest = await tone("queue");
+      const edges = () =>
+        page.evaluate(() => ({
+          queue: getComputedStyle(document.getElementById("queue")!).boxShadow,
+          card: getComputedStyle(document.getElementById("queue-composer")!, "::before").boxShadow,
+        }));
+      const rest = await edges();
       await page.focus("#queue-composer-field");
-      const focused = await tone("queue");
-      expect(focused, "the queue's edge steps with the card").not.toBe(rest);
-      expect(focused, "the queue and the card draw one tone").toBe(await tone("queue-composer"));
+      const focused = await edges();
+      expect(tone(focused.queue), "the queue's edge keeps its resting tone").toBe(tone(rest.queue));
+      expect(tone(focused.queue), "the queue and the card draw one tone").toBe(tone(focused.card));
       await page.close();
     });
 
@@ -255,16 +244,10 @@ await requireBrowserLane("newtab-quiet-focus.test.ts", async () => {
         element.parentElement!.append(probe);
         const wash = getComputedStyle(probe).backgroundColor;
         probe.remove();
-        const openProbe = document.createElement("div");
-        openProbe.style.background = "var(--acpmux-pill-open)";
-        element.parentElement!.append(openProbe);
-        const open = getComputedStyle(openProbe).backgroundColor;
-        openProbe.remove();
         return {
           focused: document.activeElement === element,
           background: style.backgroundColor,
           wash,
-          open,
           outline: style.outlineStyle,
           offset: style.outlineOffset,
           color: style.color,
@@ -274,7 +257,8 @@ await requireBrowserLane("newtab-quiet-focus.test.ts", async () => {
     const keyboard = await chip();
     expect(keyboard.focused, "Tab reaches the chip").toBe(true);
     expect(keyboard.wash, "the row's hover wash resolves").not.toBe("rgba(0, 0, 0, 0)");
-    expect(keyboard.background, "the focused chip takes the stronger open-pill fill").toBe(keyboard.open);
+    // The hover's soft pill, no stronger step (Leo 2026-10-19: the Claude app's chips).
+    expect(keyboard.background, "the focused chip takes the hover's wash").toBe(keyboard.wash);
     expect(keyboard.outline, "the shared ring still draws").toBe("solid");
     expect(keyboard.offset, "the ring sits on the wash's edge").toBe("0px");
     expect(keyboard.color, "the chip's ink steps up as on hover").toBe(keyboard.text);

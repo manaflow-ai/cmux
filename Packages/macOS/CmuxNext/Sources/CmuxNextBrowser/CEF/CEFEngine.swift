@@ -93,6 +93,16 @@ public final class CEFEngine: BrowserEngine {
         return await Task.detached(priority: .utility) { record.usedRecently(within: window) }.value
     }
 
+    /// A user's page made now when Chromium already runs (its chrome shows in
+    /// the turn that asked for it), nil while Chromium has not started. Like
+    /// `makeUserTab`, it counts toward the launch warm start (`noteTabOpened`).
+    public func makeTabIfRunning(_ configuration: BrowserTabConfiguration) -> (any BrowserTab)? {
+        guard isRunning else { return nil }
+        let tab = makeReadyTab(configuration)
+        noteTabOpened(configuration)
+        return tab
+    }
+
     /// Maps the Chromium framework on a background thread without starting
     /// CEF, so the first Chromium tab opens sooner. Idempotent and cheap to
     /// call when a Chromium tab becomes likely (the "+" menu or the palette
@@ -125,6 +135,19 @@ public final class CEFEngine: BrowserEngine {
     /// when none runs).
     public func libraryLoadEnded() async {
         _ = await CEFRuntime.shared.loadTask?.value
+    }
+
+    /// Records `name` once in the start marks (the first Chromium page's
+    /// creation points, `debug.cef` `start_steps`); true, for a `guard`.
+    public func notePoint(_ name: String) -> Bool {
+        CEFStartSteps.shared.point(name)
+        return true
+    }
+
+    /// `notePoint(name)`, then `value`.
+    public func noted<T>(_ name: String, _ value: T) -> T {
+        CEFStartSteps.shared.point(name)
+        return value
     }
 
     /// The timed steps of Chromium's start in this process (`debug.cef`).
@@ -165,10 +188,11 @@ public final class CEFEngine: BrowserEngine {
     public var crashLog: BrowserCrashLog { CEFRuntime.shared.crashLog }
 
     /// Runs once CEF is initialized in this process (process-wide), after the
-    /// person's password settings reach Chromium (`setPasswordPolicy`).
+    /// person's password settings (`setPasswordPolicy`) and search engine
+    /// (`setDefaultSearch`) reach Chromium.
     public var onReady: (() -> Void)? {
         get { CEFRuntime.shared.onReady }
-        set { CEFRuntime.shared.onReady = { CEFPasswordPolicy.apply(); newValue?() } }
+        set { CEFRuntime.shared.onReady = { CEFPasswordPolicy.apply(); CEFDefaultSearch.apply(); newValue?() } }
     }
 
     /// Runs when starting CEF fails in this process (process-wide). A failed

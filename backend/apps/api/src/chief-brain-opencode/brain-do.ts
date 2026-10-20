@@ -1,7 +1,8 @@
 import { DurableObject } from "cloudflare:workers"
 import type { Env } from "../env.ts"
 import { assertFaultHooks } from "../chief-fault.ts"
-import { ackWake, chiefPrincipal, typing } from "../chief-brain/brain-io.ts"
+import { ackWake, chiefPrincipal, readConversation, typing } from "../chief-brain/brain-io.ts"
+import { turnFailedNotice } from "../chief-brain/brain-gateway.ts"
 import type { Admission } from "../chief-brain/brain-do.ts"
 import type { Step } from "../chief-brain/brain-runs.ts"
 import { signedFetch, turnsObject } from "../chief-brain/claude-auth.ts"
@@ -46,7 +47,7 @@ const PLUGIN_DIR = "/opt/cmux-chief/plugin"
 
 const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS oc_config (name TEXT PRIMARY KEY, value TEXT NOT NULL)`,
-  `CREATE TABLE IF NOT EXISTS oc_wake (n INTEGER PRIMARY KEY AUTOINCREMENT, wake_id TEXT UNIQUE NOT NULL, conversation TEXT NOT NULL, seq INTEGER NOT NULL, reason TEXT NOT NULL, state TEXT NOT NULL DEFAULT 'queued', tries INTEGER NOT NULL DEFAULT 0, run TEXT)`,
+  `CREATE TABLE IF NOT EXISTS oc_wake (n INTEGER PRIMARY KEY AUTOINCREMENT, wake_id TEXT UNIQUE NOT NULL, conversation TEXT NOT NULL, seq INTEGER NOT NULL, reason TEXT NOT NULL, effect_authorized INTEGER NOT NULL DEFAULT 0, state TEXT NOT NULL DEFAULT 'queued', tries INTEGER NOT NULL DEFAULT 0, run TEXT)`,
   `CREATE TABLE IF NOT EXISTS oc_cursor (conversation TEXT PRIMARY KEY, seq INTEGER NOT NULL)`,
   // The P tables the run readers use (brain-runs.ts): one row per run, one per step.
   `CREATE TABLE IF NOT EXISTS cb_turn (id TEXT PRIMARY KEY, conversation TEXT NOT NULL, trigger_message TEXT NOT NULL, trigger_kind TEXT NOT NULL, trigger_thread_root TEXT, last_seq INTEGER NOT NULL, status TEXT NOT NULL, reason TEXT, model TEXT NOT NULL, started INTEGER NOT NULL, ended INTEGER, submitted INTEGER NOT NULL DEFAULT 0, input TEXT, reply TEXT, post TEXT, posted_message TEXT, turn_key TEXT, post_tries INTEGER NOT NULL DEFAULT 0, post_key INTEGER NOT NULL DEFAULT 0)`,
@@ -89,6 +90,9 @@ export class OpencodeBrainDO extends DurableObject<Env> {
   private schema(): void {
     if (this.schemaReady) return
     for (const q of SCHEMA) this.sql.exec(q)
+    if (!this.sql.exec<{ name: string }>(`PRAGMA table_info(oc_wake)`).toArray().some((c) => c.name === "effect_authorized")) {
+      this.sql.exec(`ALTER TABLE oc_wake ADD COLUMN effect_authorized INTEGER NOT NULL DEFAULT 0`)
+    }
     this.schemaReady = true
   }
   private hasSchema(): boolean {
@@ -141,7 +145,9 @@ export class OpencodeBrainDO extends DurableObject<Env> {
     if (cursor !== undefined && w.seq <= cursor) return { queued: 0 }
     // A conversation this brain never answered starts just before the wake: older history is context, not a question.
     if (cursor === undefined) this.sql.exec(`INSERT INTO oc_cursor (conversation, seq) VALUES (?, ?)`, w.conversation, w.seq - 1)
-    const fresh = this.sql.exec(`INSERT INTO oc_wake (wake_id, conversation, seq, reason) VALUES (?, ?, ?, ?) ON CONFLICT (wake_id) DO NOTHING RETURNING n`, `${w.conversation}:${w.seq}`, w.conversation, w.seq, w.reason).toArray()
+    const view = await readConversation(this.env, w.conversation, chiefPrincipal(w.agent, w.owner))
+    const author = "refused" in view ? undefined : view.messages.find((m) => m.seq === w.seq)?.author
+    const fresh = this.sql.exec(`INSERT INTO oc_wake (wake_id, conversation, seq, reason, effect_authorized) VALUES (?, ?, ?, ?, ?) ON CONFLICT (wake_id) DO NOTHING RETURNING n`, `${w.conversation}:${w.seq}`, w.conversation, w.seq, w.reason, author === w.owner ? 1 : 0).toArray()
     this.kick(w.conversation)
     return { queued: fresh.length }
   }
@@ -173,7 +179,8 @@ export class OpencodeBrainDO extends DurableObject<Env> {
     const owner = this.get("owner")
     if (!agent || !owner) return { refused: "unbound" }
     const a = (await this.settings(agent).admit(agent, owner, false)) as Admission
-    return a.ok ? { agent, owner, config: { ...a.config, model: brainModel(a.config.model) } } : { refused: a.reason }
+    const effects = this.hasSchema() ? this.sql.exec<{ effect_authorized: number }>(`SELECT effect_authorized FROM oc_wake WHERE state = 'running'`).toArray() : []
+    return a.ok ? { agent, owner, effects_authorized: effects.length > 0 && effects.every((r) => r.effect_authorized === 1), config: { ...a.config, model: brainModel(a.config.model) } } : { refused: a.reason }
   }
 
   private async turn(conversation: string, row: { n: number; seq: number; reason: string; tries: number }): Promise<void> {
@@ -189,7 +196,12 @@ export class OpencodeBrainDO extends DurableObject<Env> {
       // The owner's turns object counts it (no global object; claude-auth.ts ownerTurn). Only "ok" runs.
       const turns = this.env.CHIEF_BRAIN_DO.get(this.env.CHIEF_BRAIN_DO.idFromName(turnsObject(owner)))
       const verdict = await turns.claudeTurn(owner, model).catch(() => "unreachable")
-      if (verdict !== "ok") return this.endWake(row.n, run, "skipped", `no paid turn (${verdict})`)
+      if (verdict !== "ok") {
+        this.endWake(row.n, run, "skipped", `no paid turn (${verdict})`)
+        // A paid model this owner may not use: the same notice as on P, never a silent wake (its own key: P run ids use run_<n> too).
+        if (verdict === "owner_not_allowed" || verdict === "model_not_offered") await turnFailedNotice(this.env, this.sql, admitted.config, conversation, `oc_${run}`, `no paid turn (${verdict})`, undefined)
+        return
+      }
     }
     this.sql.exec(`UPDATE oc_wake SET state = 'running', run = ?, tries = tries + 1 WHERE n = ?`, run, row.n)
     // An eviction mid-turn loses the in-memory loop: the alarm picks the running row up again.

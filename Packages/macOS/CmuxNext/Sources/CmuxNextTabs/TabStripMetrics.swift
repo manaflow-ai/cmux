@@ -82,6 +82,16 @@ public struct TabStripMetrics: Equatable, Sendable {
     /// Between a group chip's icon and its name or count.
     public var groupChipIconSpacing: CGFloat { groupChipCountSpacing }
 
+    /// Narrowest slot that holds the favicon and the close button whole, side by side (Lawrence
+    /// 2026-10-20): both pill insets, the leading inset, the favicon, the favicon-to-x gap, the x and
+    /// its trailing inset. The x's click target is the drawn button plus 2 pt a side
+    /// (`TabStripView.isInCloseButton`), Apple's 20 x 20 pt macOS minimum, and it stays clear of the
+    /// favicon and inside the pill. 50 comfortable (2 + 8 + 16 + 4 + 16 + 4), 48 compact (14 pt
+    /// favicon), 46 under Compact tabs (6 pt leading inset): the default minimum tab width.
+    public var faviconCloseWidth: CGFloat {
+        2 * tabBackgroundInset + contentLeadingInset + iconSize + titleCloseSpacing + closeButtonSize + contentTrailingInset
+    }
+
     /// Vertical inset of tabs inside the strip.
     public var stripVerticalPadding: CGFloat { max(0, (stripHeight - tabHeight) / 2) }
 
@@ -120,9 +130,11 @@ public struct TabStripMetrics: Equatable, Sendable {
         titleCloseSpacing = TabTunables.titleCloseSpacing.value
         titleFadeWidth = TabTunables.titleFadeWidth.value
         badgeSize = TabTunables.badgeSize.value
-        // Never narrower than the active tab's icon and close button need (comfortable density), never
-        // wider than the max; the inactive minimum never passes the active one.
-        let activeFloor = contentLeadingInset + iconSize + titleCloseSpacing + closeButtonSize + contentTrailingInset
+        // Never narrower than the active tab's icon and close button need (`faviconCloseWidth`; self is
+        // not usable before every property is set), never wider than the max; the inactive minimum never
+        // passes the active one.
+        let activeFloor = 2 * Metrics.tabBackgroundInset + contentLeadingInset + iconSize + titleCloseSpacing + closeButtonSize
+            + contentTrailingInset
         overflow = DesignSettings.shared.tabOverflow
         switch overflow {
         case .shrink:
@@ -140,7 +152,7 @@ public struct TabStripMetrics: Equatable, Sendable {
         tabHeight = Metrics.tabHeight
         // The strip's edges are the content border's edges (the chrome line).
         stripHorizontalPadding = PaneChromeMetrics.pillLeading
-        stripTopOutset = Metrics.panePadding
+        stripTopOutset = Metrics.stripTopOutset
         newTabButtonWidth = Metrics.controlHeight
         scrollFadeWidth = TabTunables.scrollFadeWidth.value
         tabBackgroundInset = Metrics.tabBackgroundInset

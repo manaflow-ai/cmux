@@ -9,7 +9,7 @@ final class SidebarSectionHeaderView: NSView {
     var onContextMenu: ((NSEvent, NSView) -> Void)?
 
     private let name = ChromeLabel(labelWithString: "")
-    let chevron = NSImageView()
+    let chevron = DecorativeImageView() // AXExpanded says what it draws
     private var collapsed = false
     /// Set by the hover owner (`PointerHover`, cx-3wu5).
     var isHovered = false { didSet { if isHovered != oldValue { updateChevron(); needsDisplay = true } } }
@@ -36,8 +36,8 @@ final class SidebarSectionHeaderView: NSView {
     private var pressLocation: NSPoint?
     private var didDrag = false
 
-    override var isFlipped: Bool { true }
-    override var wantsUpdateLayer: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
+    nonisolated override var wantsUpdateLayer: Bool { true }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     func configure(title: String, collapsed: Bool) {

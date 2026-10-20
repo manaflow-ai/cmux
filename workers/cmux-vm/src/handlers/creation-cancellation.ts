@@ -42,7 +42,7 @@ export const continueCancellation = <C>(caller: Named<C, Principal>, scope: KeyH
         const receipt = retained.intent.receipt;
         yield* store.record({ tenantId: caller.value.tenantId, kind: "vm", cmuxId: vm.value, upstreamId: found.upstreamId,
           createdBy: retained.createdBy, createdAt: new Date(retained.intent.createdAt), displayName: receipt.displayName, labels: receipt.labels,
-          creation: { key: retained.key, receipt },
+          creation: { key: retained.key, receipt }, committed: false,
         }).pipe(Effect.mapError(() => unavailable()));
       }
       const owns = yield* tenantOwnsVm(caller, vm).pipe(Effect.mapError(() => unavailable()));

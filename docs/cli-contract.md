@@ -416,7 +416,8 @@ refused. `--window` and `--id-format` are accepted and ignored.
 ### agent
 
 ```text
-cmux agent list [--terminal <term_id>] [--state working|blocked|idle|done|unknown]
+cmux agent list [--terminal <term_id>] [--state working|blocked|idle|done|unknown] [--needs-me]
+                [--sort needs-me|recent|none] [--limit <n>] [--counts]
 cmux agent report --terminal <term_id> --state <state> --source hook|socket [--source-session <id>]
 cmux agent hook install|uninstall|status [provider...]
 cmux agent hook emit --source <agent> --event <native-event> [--terminal <term_id>] [--payload-json <json>]
@@ -425,6 +426,11 @@ cmux agent plugin install <git-url> [--name <value>] [--force]
 cmux agent plugin use|update|remove <name-or-id>
 cmux agent plugin use --builtin
 ```
+
+`agent list` puts blocked agents first, then working, then idle and done
+(`--sort recent|none` for recency or the daemon's order). `--json` stays a bare
+array of agents; `--json --counts` adds the counts by state
+(`{"agents": [...], "counts": {...}}`).
 
 Hook providers are `codex`, `claude` (also `claude-code`), `gemini`, `opencode`
 and `pi`. `hook emit` reads the native payload from stdin when
@@ -537,6 +543,12 @@ Every action in the app's registry is also a verb under its CLI name:
 `--<argument> <value>` per the action's schema; `--target`, `--wait` and
 `--interactive` work as in `action run`. `cmux action list` lists the names and
 `cmux action describe <id>` shows the arguments and targets.
+
+Move to New Window is `cmux <noun> move-to-new-window --target <id>` for
+`tab`, `tab-group`, `pane`, `screen`, `screen-group`, `workspace` and
+`workspace-group`; `cmux <noun> move-to-window --new --target <id>` is the
+same command. The new window opens beside the old one and takes the focus;
+terminals keep running and pages keep their state.
 
 ## `cmux coderouter`
 

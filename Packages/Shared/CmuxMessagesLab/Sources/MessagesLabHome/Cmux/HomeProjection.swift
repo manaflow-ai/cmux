@@ -42,6 +42,8 @@ final class HomeProjection: @preconcurrency ChatIntents {
     private var shownNotice: String? { sendNotice ?? notice }
     /// The Chief's activity line under the transcript (`chief-live-v1`).
     let liveLine = HomeLiveLine()
+    /// The status line's details, made on the first click.
+    private(set) var turnPopover: HomeTurnStatusPopover?
     /// The window is key and visible: the read cursor may advance.
     var isVisibleToUser = false { didSet { if isVisibleToUser { reportReadIfNeeded() } } }
     var onSummaryChange: (ConversationSummary?) -> Void = { _ in }
@@ -94,6 +96,13 @@ final class HomeProjection: @preconcurrency ChatIntents {
     /// Rebuilds and applied (changed) updates, for tests.
     private(set) var rebuilds = 0
     private(set) var appliedUpdates = 0
+    /// Store reads of this conversation (`refresh`), changed or not (tests: traffic for other conversations costs none).
+    private(set) var refreshPasses = 0
+    /// This conversation's store inputs at the last observed pass (HomeProjection+Observe.swift): a
+    /// change to another conversation wakes the observation, not the transcript.
+    var observedInputs: HomeProjectionInputs?
+    /// A store pass waits for the next display frame (a keystroke's frame is open); one at a time.
+    var heldPass = false
 
     /// Link card previews (LinkPresentation, MessagesLab's LinkPreviews): fetched
     /// once per URL for links this Mac sends or the user taps; nil keeps domain cards.
@@ -112,24 +121,30 @@ final class HomeProjection: @preconcurrency ChatIntents {
         if let linkPreviews { core.links = { [weak linkPreviews] in linkPreviews?.cached($0) } }
         controller.intents = self
         liveLine.dispatch = { [weak controller] text in if controller?.store != nil { controller?.dispatch(.setNotice(text)) } }
+        liveLine.onTick = { [weak self] in self?.turnPopover?.refresh() }
+        liveLine.onClose = { [weak self] in self?.turnPopover?.close() }
         video.controller = controller
         media.onReady = { [weak self] _ in self?.refreshAttachments() }
     }
 
     func start() {
         refresh()
+        noteObservedInputs()
         observe()
     }
 
     func stop() {
         stopped = true
+        homeStore.stopTyping(in: conversation)
         liveLine.stop()
+        turnPopover?.close()
         controller.intents = nil
     }
 
     // MARK: HomeStore -> projection
 
     func refresh() {
+        refreshPasses += 1
         if sendWhenConfirmed, homeStore.isConfirmed(conversation) {
             sendWhenConfirmed = false
             sendNotice = nil
@@ -139,7 +154,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
         // A running Chief run (`chief-live-v1`) owns the Chief's bubble: its typing dots until text comes.
         let live = homeStore.liveRun(in: conversation)
         apply(items: homeStore.transcript(for: conversation), summary: homeStore.summary(conversation),
-              typing: (homeStore.typing[conversation] ?? []).union(live.map { [$0.participant] } ?? []),
+              typing: homeStore.typists(in: conversation),
               hasOlder: homeStore.hasOlderMessages(in: conversation), draft: live.map(\.turnDraft) ?? homeStore.drafts[conversation])
         // The line closes on the frame after the one that shows the reply in the bubble's place (cx-zz30r, cx-06vn1).
         if let activity = live?.activity { liveLine.show(activity) } else { liveLine.hide(after: controller) }
@@ -285,7 +300,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
     private func send(thread deferred: (root: MessageID?, parent: MessageID?)?) -> String? {
         guard let store = controller.store else { return noteSend("refused: transcript_not_ready") }
         let draft = store.state.ui.draft
-        let text = draft.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let text = draft.plainText.trimmingCharacters(in: .whitespacesAndNewlines)  // without the attachment marks
         let attachments = draft.attachments.compactMap { drafts[$0.id] }
         // MessagesLab d0017ba: the reducer's own rule first (Return with nothing to send does nothing:
         // no .send, no flash, no jump, nothing to HomeStore); then a chip whose attachment is not prepared.
@@ -323,6 +338,8 @@ final class HomeProjection: @preconcurrency ChatIntents {
         if homeStore.summary(conversation) == nil { _ = noteSend("sent: the store has not listed this conversation") }
         if !store.state.atNewest { _ = noteSend("sent: an older window shows, no local bubble") }
         if store.state.atNewest {
+            // A reply still streaming stays one bubble, the newest row, below this send: the owner posts it
+            // after the send, so it lands in the bubble's place (HomeProjection+Draft, send order).
             controller.dispatch(.send)
             // The local bubble morphs into HomeStore's item; without it the item shows on its own.
             _ = core.recordSend(key, in: store.state)
@@ -409,7 +426,9 @@ final class HomeProjection: @preconcurrency ChatIntents {
         let hash = attachment.ref.hash
         guard !stopped, let store = controller.store, !store.state.ui.draft.attachments.contains(where: { $0.id == hash }) else { return }
         drafts[hash] = attachment
-        controller.dispatch(.attach(HomeMapping.attachment(attachment.ref, picture: media.asset(hash), progress: nil)))
+        // In the field's text at the caret (Draft+InlineMarks.swift); at the end when the field
+        // does not show this draft's text yet.
+        controller.dispatch(.attachAt(HomeMapping.attachment(attachment.ref, picture: media.asset(hash), progress: nil), controller.composeCaret()))
     }
 
     /// The field's attachments, in order.
@@ -509,9 +528,28 @@ final class HomeProjection: @preconcurrency ChatIntents {
     func pickAttachments() { onPickAttachments() }
     func takeAttachments(from pasteboard: NSPasteboard) -> Bool { onAttachmentPasteboard(pasteboard) }
     func acceptsAttachments(from pasteboard: NSPasteboard) -> Bool { acceptsAttachmentDrag(pasteboard) }
+    func statusLineClicked(_ rect: CGRect, in view: NSView) {
+        let popover = turnPopover ?? {
+            let made = HomeTurnStatusPopover { [weak self] in self?.liveLine.details() }
+            // Closed by Esc or a click outside: the field takes the keyboard back (a click elsewhere keeps its own).
+            made.onClosed = { [weak self] in
+                guard let self, let window = view.window else { return }
+                // A click that closed it in another text field keeps that field's keyboard.
+                if let other = window.firstResponder as? NSText, other !== self.controller.demo?.compose.textView.view { return }
+                self.controller.focusCompose()
+            }
+            turnPopover = made
+            return made
+        }()
+        popover.toggle(relativeTo: rect, of: view)
+    }
+
     func draftChanged() {
         if sendNotice == CmuxStrings.threadRootNotReady { sendNotice = nil }  // the user moved on
-        homeStore.setDraft(controller.store?.state.ui.draft.text ?? "", for: conversation)
+        let text = controller.store?.state.ui.draft.plainText ?? ""  // without the attachment marks
+        homeStore.setDraft(text, for: conversation)
+        // My typing dots for the other members (HomeStore+Typing); off once the field is empty.
+        homeStore.composing(text, in: conversation)
         onDraftTextChange()
     }
 
@@ -666,12 +704,17 @@ struct ProjectionCore {
         let roots = HomeMapping.roots(in: items, aliases: aliases, summary: summary, media: media, links: links)
         let conv = Conversation(id: id.rawValue, title: HomeMapping.title(summary, me: me),
                                 participants: HomeMapping.participants(summary, me: me),
-                                messages: items.map { HomeMapping.message($0, aliases: aliases, me: me, summary: summary, media: media, links: links, roots: roots) })
+                                messages: items.map { HomeMapping.message($0, aliases: aliases, me: me, summary: summary, media: media, links: links, roots: roots) },
+                                cmuxGroup: summary?.kind(me: me) == .group)
         return (conv, HomeMapping.window(items))
     }
 
     /// The actions from the shown snapshot to this one.
     mutating func step(items: [TranscriptItem], summary new: ConversationSummary?) -> HomeDiff {
+        // The shown snapshot again (a streamed token, typing, the activity line): nothing to diff.
+        // Mapping every row again cost 3.5 ms per token at 60 rows on the main thread, which a
+        // drag over the field waits for (DragWhileStreamingTests).
+        if items == shown, new == summary { return HomeDiff() }
         let d = HomeDiff.plan(old: shown, new: items, oldSummary: summary, newSummary: new, aliases: aliases, me: me, media: media, links: links,
                               handOff: streamingTurn)
         shown = items

@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "98a9d2053358c89e1050157d73e93dd12753260d29c4a510d371e185ed9c8e85",
+  "catalog_sha256": "fa7b6ed45da0f1e55771d0791020e4efd66764c065dce05bc5c7e3190907cf6b",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -118,8 +118,14 @@
     "chief.profile.get": {
       "class": "read"
     },
+    "chief.profile.history": {
+      "class": "read"
+    },
     "chief.profile.list": {
       "class": "read"
+    },
+    "chief.profile.undo": {
+      "class": "mutation"
     },
     "chief.profile.update": {
       "class": "mutation"
@@ -667,6 +673,21 @@
     "sidebar_view.resize": {
       "class": "mutation"
     },
+    "stash.create": {
+      "class": "mutation"
+    },
+    "stash.delete": {
+      "class": "mutation"
+    },
+    "stash.import": {
+      "class": "mutation"
+    },
+    "stash.list": {
+      "class": "read"
+    },
+    "stash.restore": {
+      "class": "mutation"
+    },
     "stream.cancel": {
       "class": "connection_control"
     },
@@ -857,6 +878,18 @@
       "class": "mutation"
     },
     "workspace.update": {
+      "class": "mutation"
+    },
+    "workspace_checklist.add": {
+      "class": "mutation"
+    },
+    "workspace_checklist.list": {
+      "class": "read"
+    },
+    "workspace_checklist.remove": {
+      "class": "mutation"
+    },
+    "workspace_checklist.update": {
       "class": "mutation"
     },
     "workspace_group.create": {

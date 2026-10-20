@@ -135,11 +135,15 @@ export async function makeHarness(options: HarnessOptions = {}) {
   const ownership = Layer.succeed(OwnershipStore, {
     findCreation: (tenantId, key) => Effect.sync(() => {
       const row = [...resources].reverse().find((r) => r.tenantId === tenantId && r.kind === "vm" && r.creation?.key === key);
-      return row?.creation === undefined ? null : { receipt: row.creation.receipt, labels: row.labels, createdBy: row.createdBy, deleted: deleted.has(row.cmuxId) };
+      return row?.creation === undefined ? null : { receipt: row.creation.receipt, labels: row.labels, createdBy: row.createdBy, deleted: deleted.has(row.cmuxId), committed: row.committed !== false };
     }),
     allocationStatus: (tenantId, cmuxId) => Effect.sync(() => {
       const row = resources.find((r) => r.tenantId === tenantId && r.kind === "vm" && r.cmuxId === cmuxId);
-      return !row ? "absent" as const : deleted.has(cmuxId) ? "deleted" as const : "live" as const;
+      return !row ? "absent" as const : deleted.has(cmuxId) ? "deleted" as const : row.committed === false ? "pending" as const : "live" as const;
+    }),
+    creationKey: (tenantId, cmuxId) => Effect.sync(() => {
+      const row = resources.find((r) => r.tenantId === tenantId && r.kind === "vm" && r.cmuxId === cmuxId);
+      return row?.creation?.key ?? null;
     }),
     find: (tenantId, kind, cmuxId) =>
       Effect.sync(() =>
@@ -150,6 +154,8 @@ export async function makeHarness(options: HarnessOptions = {}) {
       const existing = resources.find((r) => r.cmuxId === resource.cmuxId);
       if (existing && (existing.tenantId !== resource.tenantId || existing.kind !== resource.kind || existing.upstreamId !== resource.upstreamId || existing.createdBy !== resource.createdBy || existing.displayName !== resource.displayName || JSON.stringify(existing.labels) !== JSON.stringify(resource.labels) || JSON.stringify(existing.creation) !== JSON.stringify(resource.creation) || deleted.has(existing.cmuxId))) return yield* Effect.fail(new StoreError({ operation: "ownership.record", cause: "allocation identity conflict" }));
       if (!existing) resources.push({ ...resource, createdAt: nextCreatedAt(resource.createdAt) });
+      // Mirrors the SQL: recording the same allocation again may commit it, never uncommit it.
+      else if (existing.committed === false && resource.committed !== false) resources[resources.indexOf(existing)] = { ...existing, committed: true };
       if (resource.kind === "vm" && recordFault.after > 0) { recordFault.after--; return yield* Effect.fail(new StoreError({ operation: "ownership.record", cause: "injected lost commit reply" })); }
     }),
     // Mirrors the SQL: tenant and kind, live rows, newest first by (created_at, cmux_id), keyset after a position.
@@ -169,7 +175,7 @@ export async function makeHarness(options: HarnessOptions = {}) {
           )
           .slice(0, page.limit),
       ),
-    countLive: (tenantId, kind) => Effect.sync(() => resources.filter((row) => row.tenantId === tenantId && row.kind === kind && live(row)).length),
+    countLive: (tenantId, kind) => Effect.sync(() => resources.filter((row) => row.tenantId === tenantId && row.kind === kind && live(row) && row.committed !== false).length),
     markDeleted: (tenantId, kind, cmuxId) =>
       Effect.sync(() => {
         if (resources.some((row) => row.tenantId === tenantId && row.kind === kind && row.cmuxId === cmuxId)) deleted.add(cmuxId);

@@ -1,5 +1,4 @@
 import CmuxNextCompat
-import CoreLocation
 import Darwin
 import Foundation
 import LocalAuthentication
@@ -15,11 +14,14 @@ import LocalAuthentication
 /// read, those page faults are served from memory. A cached file costs one
 /// memory copy (about 40 ms for all files).
 ///
-/// Two system services Chromium asks synchronously on the main thread are
-/// also asked here first, so their daemons and connections are up:
-/// CoreLocation (CefInitialize sets up geolocation) and LocalAuthentication
-/// (the first browser window creates an `LAContext`, a synchronous XPC that
-/// waited about 0.5 s in a macOS 26 VM). Neither call prompts.
+/// One system service Chromium asks synchronously on the main thread is
+/// also asked here first, so its daemon is up: LocalAuthentication (the
+/// first browser window creates an `LAContext`, a synchronous XPC that
+/// waited about 0.5 s in a macOS 26 VM). `canEvaluatePolicy` only reports
+/// whether a policy can be evaluated: it shows no prompt, asks for no
+/// privacy permission (no TCC request; os-smoke checks the TCC log) and
+/// changes no user-visible state. Location services are not asked (chief
+/// decision 2026-10-18: no system access the user did not ask for).
 nonisolated struct CEFFrameworkPrefetch: Sendable {
     struct Report: Sendable {
         var bytes: Int = 0
@@ -53,7 +55,6 @@ nonisolated struct CEFFrameworkPrefetch: Sendable {
         Task.detached(priority: .utility) {
             let clock = ContinuousClock()
             let started = clock.now
-            _ = CLLocationManager.locationServicesEnabled()
             _ = LAContext().canEvaluatePolicy(.deviceOwnerAuthentication, error: nil)
             let services = clock.now - started
             lastReport.withLock { report in

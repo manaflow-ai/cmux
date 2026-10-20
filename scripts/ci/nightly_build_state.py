@@ -1,125 +1,114 @@
 #!/usr/bin/env python3
-"""Retain NEXT's Release build database, packages and identical input mtimes.
+"""Keep NEXT's package checkouts and compilation cache on a trusted worker, never its build state.
 
-Checkout may clean the workspace; state lives outside it, scoped to the runner,
-source path and toolchain. Published bundles are still rebuilt and verified from
-this revision. Only byte-identical inputs regain the time the prior build saw.
+An incremental Xcode build can keep stale autolink and force-load data in
+objects it did not recompile after an import set changed, and those objects
+then link into the shipped app. So every shipped build starts from an empty
+DerivedData with its inputs at their checkout times. Only the package
+checkouts (source, no build output) and Xcode's compilation cache stay,
+outside the workspace, scoped to the runner, source path and toolchain. The
+compilation cache is content-keyed (each key includes the job's explicit
+module dependencies), so a hit replays exactly what a cold compile of the same
+inputs produces; it is the warm state main restores from R2 (hq-25), kept on
+the dedicated worker's disk instead. Earlier revisions of this script also
+kept DerivedData there and replayed old input times; prepare deletes that state.
+
+The worker also keeps the crate sources that the third-party notices read
+(CMUX_NEXT_NOTICES_CACHE, about 1,100 crates that each job otherwise downloads
+again, about 3 minutes). A crates.io version never changes, fetch_crates.py
+checks each download against Cargo.lock's sha256 and writes it under a
+partial name first, and the notices read them as text. The checkouts where
+the notices run cargo are not kept.
 """
 from __future__ import annotations
 
 import hashlib
-import json
 import os
 from pathlib import Path
 import re
 import shutil
 import subprocess
 import sys
+import time
 
-import e2e_warm_derived_data as warm
-
-MANIFEST = 'cmux-nightly-inputs.json'
-GENERATED_INPUTS = (
-    'Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane',
-    'Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages',
-    'Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/Resources/agent-activity',
-    'Packages/macOS/CmuxNext/Sources/CmuxNextPalette/Resources/palette-ranker.js',
-    'Resources/markdown-viewer/webviews-app',
-    'GhosttyKit.xcframework',
-)
+STATE_ROOT = 'Library/Caches/cmux-nightly-next'
+NOTICES_CACHE = 'notices-crates'
+NOTICES_CACHE_MAX_BYTES = 8 << 30
 
 
 def owned(runner: str) -> bool:
     return re.fullmatch(r'[a-zA-Z0-9._-]+-glaeda(?:-[0-9]+)?', runner) is not None
 
 
+def remove(path: Path) -> None:
+    """Delete a file, link or tree; a leftover writer cannot refill it after the rename."""
+    if not (path.exists() or path.is_symlink()):
+        return
+    if path.is_symlink() or path.is_file():
+        path.unlink()
+        return
+    stale = path.with_name(f'{path.name}.stale.{os.getpid()}.{time.time_ns()}')
+    path.rename(stale)
+    shutil.rmtree(stale, ignore_errors=True)
+
+
 def link(path: Path, target: Path) -> None:
     target.mkdir(parents=True, exist_ok=True)
     if path.is_symlink() and path.resolve() == target.resolve():
         return
-    if path.is_symlink() or path.is_file():
-        path.unlink()
-    elif path.exists():
-        shutil.rmtree(path)
+    remove(path)
     path.symlink_to(target, target_is_directory=True)
+
+
+def tree_bytes(path: Path) -> int:
+    total = 0
+    for parent, _, files in os.walk(path):
+        for name in files:
+            try:
+                total += os.lstat(os.path.join(parent, name)).st_size
+            except OSError:
+                pass
+    return total
+
+
+def notices_cache(home: Path, runner: str) -> Path:
+    """The kept notices crate sources, emptied once they pass the size bound."""
+    cache = home / STATE_ROOT / runner / NOTICES_CACHE
+    if cache.is_dir() and tree_bytes(cache) > NOTICES_CACHE_MAX_BYTES:
+        remove(cache)
+    # Keep only the crate sources fetch_crates.py writes (registry/ and git/),
+    # which the notices read as text. The iroh-ffi, cmux-cua and cmux-tui
+    # checkouts are where generate-third-party-notices.sh runs cargo, so
+    # each job checks them out again: a file another job planted there
+    # (a .cargo/config.toml) never runs in this one.
+    if cache.is_dir():
+        for entry in sorted(cache.iterdir()):
+            if entry.name not in ('registry', 'git') or not entry.is_dir() or entry.is_symlink():
+                remove(entry)
+    # Directories an interrupted fetch left; fetch_crates.py starts them again.
+    for pattern in ('registry/src/*/*.partial', 'git/checkouts/*/*.partial'):
+        for partial in sorted(cache.glob(pattern)):
+            remove(partial)
+    cache.mkdir(parents=True, exist_ok=True)
+    return cache
 
 
 def prepare(workspace: Path, home: Path, runner: str, track: str, toolchain: str) -> bool:
     if not owned(runner) or track != 'nightly-next':
         return False
-    identity = hashlib.sha256(f'{workspace.resolve()}\n{toolchain}'.encode()).hexdigest()[:32]
-    state = home / 'Library/Caches/cmux-nightly-next' / runner / identity
-    link(workspace / 'build-universal', state / 'DerivedData')
-    link(workspace / '.spm-cache', state / 'SourcePackages')
-    if output := os.environ.get('GITHUB_OUTPUT'):
-        with open(output, 'a') as stream:
-            stream.write('enabled=true\n')
-    print(f'Using persistent NEXT Release state: {state}')
-    return True
-
-
-def input_paths(workspace: Path) -> set[str]:
-    included = warm.tracked_paths(workspace)
-    if included is None:
-        raise ValueError('nightly input state requires a Git checkout')
-    for relative in GENERATED_INPUTS:
-        root = workspace / relative
-        paths = [root]
-        if root.is_dir() and not root.is_symlink():
-            paths.extend(root.rglob('*'))
-        for path in paths:
-            if path.is_symlink() or not path.exists():
-                continue
-            name = path.relative_to(workspace).as_posix()
-            included.add(name + '/' if path.is_dir() else name)
-            included.update('/'.join(name.split('/')[:i]) + '/' for i in range(1, len(name.split('/'))))
-    return included
-
-
-def snapshot(workspace: Path, included: set[str]) -> dict[str, list]:
-    result = {}
-    for relative in sorted(included):
-        path = workspace / relative
-        if path.is_symlink():
-            continue
-        if relative.endswith('/') and path.is_dir():
-            result[relative] = [warm.listing(path, workspace, included), path.stat().st_mtime_ns]
-        elif path.is_file():
-            result[relative] = [warm.digest(path), path.stat().st_mtime_ns]
-    return result
-
-
-def inputs(workspace: Path, mode: str) -> None:
+    runner_state = home / STATE_ROOT / runner
     derived = workspace / 'build-universal'
-    # Hosted builds and classic NIGHTLY retain their existing cache behavior.
-    if not derived.is_symlink() or not (workspace / '.spm-cache').is_symlink():
-        return
-    manifest = derived / MANIFEST
-    included = input_paths(workspace)
-    if mode == 'replay':
-        try:
-            recorded = json.loads(manifest.read_text()) if manifest.is_file() else {}
-        except (OSError, ValueError):
-            print('NEXT input manifest unavailable; dating all inputs now')
-            recorded = {}
-        restored = changed = 0
-        for relative in sorted(included, key=lambda item: (item.endswith('/'), item)):
-            path = workspace / relative
-            if path.is_symlink() or not path.exists():
-                continue
-            entry = recorded.get(relative)
-            digest = warm.listing(path, workspace, included) if relative.endswith('/') else warm.digest(path)
-            if entry is not None and entry[0] == digest:
-                os.utime(path, ns=(entry[1], entry[1]))
-                restored += 1
-            elif not relative.endswith('/'):
-                os.utime(path)
-                changed += 1
-        print(f'Reused times for {restored} identical NEXT inputs; {changed} changed or new')
-    if mode == 'record':
-        temporary = manifest.with_suffix('.tmp')
-        temporary.write_text(json.dumps(snapshot(workspace, included), sort_keys=True))
-        temporary.replace(manifest)
+    remove(derived)
+    # Every identity of this runner: a toolchain or path change must not leave
+    # an older build database behind for a later revision to link back.
+    for retained in sorted(runner_state.glob('*/DerivedData*')):
+        remove(retained)
+    derived.mkdir()
+    identity = hashlib.sha256(f'{workspace.resolve()}\n{toolchain}'.encode()).hexdigest()[:32]
+    link(workspace / '.spm-cache', runner_state / identity / 'SourcePackages')
+    link(derived / 'CompilationCache.noindex', runner_state / identity / 'CompilationCache')
+    print(f'NEXT Release build starts from empty DerivedData; package checkouts and compilation cache: {runner_state / identity}')
+    return True
 
 
 def main(argv: list[str]) -> int:
@@ -130,12 +119,15 @@ def main(argv: list[str]) -> int:
             toolchain = os.environ.get('DEVELOPER_DIR', '') + '\n'
             toolchain += subprocess.check_output(['xcodebuild', '-version'], text=True)
             toolchain += subprocess.check_output(['xcrun', '--sdk', 'macosx', '--show-sdk-build-version'], text=True)
-            prepare(workspace, Path.home(), runner, argv[2], toolchain)
+            if prepare(workspace, Path.home(), runner, argv[2], toolchain):
+                cache = notices_cache(Path.home(), runner)
+                print(f'NEXT third-party notices read crate sources kept in {cache}')
+                github_env = os.environ.get('GITHUB_ENV')
+                if github_env:
+                    with open(github_env, 'a', encoding='utf-8') as env:
+                        env.write(f'CMUX_NEXT_NOTICES_CACHE={cache}\n')
         return 0
-    if len(argv) == 2 and argv[1] in {'replay', 'record'}:
-        inputs(workspace, argv[1])
-        return 0
-    print('usage: nightly_build_state.py prepare TRACK | replay | record', file=sys.stderr)
+    print('usage: nightly_build_state.py prepare TRACK', file=sys.stderr)
     return 2
 
 

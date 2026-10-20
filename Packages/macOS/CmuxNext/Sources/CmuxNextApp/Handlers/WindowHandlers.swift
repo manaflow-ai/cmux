@@ -2,20 +2,16 @@ import AppKit
 import CmuxNextDesign
 import CmuxNextActions
 import CmuxNextDaemon
+import CmuxNextKeepAwake
 import CmuxNextPalette
 import CmuxNextSettings
 import CmuxNextSettingsWindow
 
 /// Window and app-level actions (category `window`) not bound in
 /// `AppActions`: settings, show/hide, About, Keep Mac Awake, palette
-/// navigation. Features cmux-next has not built yet report a typed
-/// `ActionFailure` so the CLI and palette say so.
+/// navigation.
 enum WindowHandlers {
-    /// Held while "Keep Mac Awake" is on.
-    private final class KeepAwake { var activity: (any NSObjectProtocol)? }
-
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
-        let keepAwake = KeepAwake()
         // Settings and Debug Settings open as internal page tabs.
         context.services.pages.register(context.services.settingsWindow)
         context.services.pages.register(context.services.debugSettings)
@@ -50,7 +46,9 @@ enum WindowHandlers {
         registry.bind("zoomWindow", run: { _ in targeting(context).target?.zoom(nil) })
         registry.bind("selectNextWindow", run: { _ in selectWindow(offset: 1, context) })
         registry.bind("selectPreviousWindow", run: { _ in selectWindow(offset: -1, context) })
-        registry.bind("keepMacAwake", run: { _ in toggleKeepAwake(keepAwake) })
+        registry.bind("keepMacAwake", run: { _ in KeepAwakeService.shared.toggleManual() })
+        // Sleepy Mode: palette, Window menu, `cmux app sleepy-mode` and MCP all toggle the one controller.
+        registry.bind("palette.sleepyMode", run: { _ in context.services.sleepyMode.toggle() })
         registry.bind("commandPaletteNext", run: { _ in context.services.palette.model.handle(.moveDown) })
         // The palette's own keys as actions (PaletteKeyActionCatalog): the open palette runs the command.
         for id in PaletteKeyMap.paletteKeyActions {
@@ -58,15 +56,6 @@ enum WindowHandlers {
             registry.bind(id, run: { _ in context.services.palette.model.handle(command) })
         }
         registry.bind("commandPalettePrevious", run: { _ in context.services.palette.model.handle(.moveUp) })
-
-        let unbuilt: [(ActionID, String)] = [
-            ("palette.openTaskManager", "task-manager"),
-            ("taskManager.killProcess", "task-manager"),
-            ("palette.sleepyMode", "sleepy-mode"),
-        ]
-        for (id, feature) in unbuilt {
-            registry.bindUnavailable([id], ActionFailure.needsAppCapability(feature))
-        }
     }
 
     private static func showMainWindow(_ context: AppActionContext) {
@@ -85,18 +74,5 @@ enum WindowHandlers {
     private static func selectWindow(offset: Int, _ context: AppActionContext) {
         guard let window = targeting(context).cycled(offset) else { return }
         WindowActivation.show(window, .focus)
-    }
-
-    /// Prevents idle system sleep while on; a second run turns it off.
-    private static func toggleKeepAwake(_ state: KeepAwake) {
-        if let activity = state.activity {
-            ProcessInfo.processInfo.endActivity(activity)
-            state.activity = nil
-        } else {
-            state.activity = ProcessInfo.processInfo.beginActivity(
-                options: [.idleSystemSleepDisabled, .userInitiated],
-                reason: "cmux Keep Mac Awake"
-            )
-        }
     }
 }

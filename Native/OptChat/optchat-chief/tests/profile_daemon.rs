@@ -360,14 +360,15 @@ fn a_chief_gets_its_profile_its_granted_tools_and_edits_only_what_the_person_all
             control: None,
             inspector: None,
             chief: Some(Arc::new(tools)),
+            turn: None,
         },
     )
     .unwrap();
     let mut mcp = Mcp::start(&mcp_args);
     assert_eq!(
         mcp.names(),
-        ["zoom", "date", "tell", "profile"],
-        "only the granted tools, and profile"
+        ["zoom", "date", "tell", "profile", "react", "reply"],
+        "only the granted tools, and profile; react and reply always"
     );
     let (refused, why) = mcp.call("spawn", json!({"tasks": ["build it"]}));
     assert!(
@@ -516,8 +517,8 @@ fn the_default_chief_serves_only_zoom_and_date_until_it_reads_its_record() {
     let mut mcp = Mcp::start(&mcp_args);
     assert_eq!(
         mcp.names(),
-        ["zoom", "date"],
-        "the daemon is away: the default Chief's grant is not known, so it gets zoom and date only"
+        ["zoom", "date", "react", "reply"],
+        "the daemon is away: the default Chief's grant is not known, so it gets zoom and date only (and its own react and reply)"
     );
     let (refused, why) = mcp.call("tell", json!({"id": "a1", "message": "x"}));
     assert!(
@@ -548,6 +549,7 @@ fn the_default_chief_serves_only_zoom_and_date_until_it_reads_its_record() {
     {
         expected.push("profile");
     }
+    expected.extend(["react", "reply"]);
     let minted = me.token_file(dir.path(), "agent_mux");
     std::fs::rename(&minted, &token).unwrap();
     wait_until(

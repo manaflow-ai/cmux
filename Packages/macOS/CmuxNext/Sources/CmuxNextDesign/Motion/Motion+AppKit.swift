@@ -294,12 +294,13 @@ extension Motion {
 
     // MARK: Loops
 
-    /// A continuous rotation for a busy spinner, or nil when loops are off.
-    public static func spinAnimation(backward: Bool = false) -> CAAnimation? {
+    /// A continuous clockwise rotation for a busy spinner, or nil when loops are off. Clockwise
+    /// only: every spinner turns the same way.
+    public static func spinAnimation() -> CAAnimation? {
         guard let period = period(.spinner) else { return nil }
         let spin = CABasicAnimation(keyPath: "transform.rotation.z")
         spin.fromValue = 0
-        spin.toValue = (backward ? 2 : -2) * CGFloat.pi
+        spin.toValue = -2 * CGFloat.pi
         spin.duration = period
         spin.repeatCount = .infinity
         spin.isRemovedOnCompletion = false
@@ -349,11 +350,13 @@ extension Motion {
     }
 
     /// Attention flash: two blinks, one fade under Reduce Motion, nil when off.
+    /// The blinks peak half a `flash` period apart (the 2 Hz cap,
+    /// `MotionLoop.shortestFlashCycle`).
     public static func flashAnimation() -> CAAnimation? {
         guard animatesFades else { return nil }
         let flash = CAKeyframeAnimation(keyPath: "opacity")
         if animatesLoops {
-            flash.values = [0, 1, 1, 0, 1, 0]
+            flash.values = [0, 1, 0, 1, 0]
             flash.duration = MotionLoop.flash.period * speed.timeScale
         } else {
             flash.values = [1, 0]

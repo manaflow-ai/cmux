@@ -144,8 +144,20 @@ class GeneratedClientMixin:
     def cloud_conversation_thread(self, conversation: str, root: str, *, after_seq: Union[int, None, MissingType] = MISSING, limit: Union[int, None, MissingType] = MISSING) -> JsonValue:
         return self._invoke_command('cloud-conversation-thread', CloudConversationThreadRequest(conversation=conversation, root=root, after_seq=after_seq, limit=limit))
 
+    def cloud_conversation_typing(self, conversation: str, on: bool) -> JsonValue:
+        return self._invoke_command('cloud-conversation-typing', CloudConversationTypingRequest(conversation=conversation, on=on))
+
     def cloud_conversation_unsubscribe(self, conversation: str) -> JsonValue:
         return self._invoke_command('cloud-conversation-unsubscribe', CloudConversationUnsubscribeRequest(conversation=conversation))
+
+    def cloud_host_replica_clear(self, *, purge: Union[bool, MissingType] = MISSING) -> JsonValue:
+        return self._invoke_command('cloud-host-replica-clear', CloudHostReplicaClearRequest(purge=purge))
+
+    def cloud_host_replica_set(self, api_base_url: str, expires_at: int, host_name: str, install_token: str, *, client_version: Union[str, None, MissingType] = MISSING) -> JsonValue:
+        return self._invoke_command('cloud-host-replica-set', CloudHostReplicaSetRequest(api_base_url=api_base_url, expires_at=expires_at, host_name=host_name, install_token=install_token, client_version=client_version))
+
+    def cloud_host_replica_status(self) -> JsonValue:
+        return self._invoke_command('cloud-host-replica-status', CloudHostReplicaStatusRequest())
 
     def cloud_inbox_list(self, *, include_archived: Union[bool, MissingType] = MISSING, limit: Union[int, None, MissingType] = MISSING) -> JsonValue:
         return self._invoke_command('cloud-inbox-list', CloudInboxListRequest(include_archived=include_archived, limit=limit))
@@ -170,6 +182,9 @@ class GeneratedClientMixin:
 
     def cloud_participant_avatar_get(self, participant_id: str, *, conversation: Union[str, None, MissingType] = MISSING) -> JsonValue:
         return self._invoke_command('cloud-participant-avatar-get', CloudParticipantAvatarGetRequest(participant_id=participant_id, conversation=conversation))
+
+    def cloud_requests_list(self) -> JsonValue:
+        return self._invoke_command('cloud-requests-list', CloudRequestsListRequest())
 
     def cloud_session_clear(self) -> JsonValue:
         return self._invoke_command('cloud-session-clear', CloudSessionClearRequest())
@@ -360,8 +375,8 @@ class GeneratedClientMixin:
     def home_inbox(self, *, owners: Union[List[str], None, MissingType] = MISSING) -> HomeInboxResult:
         return self._invoke_command('home-inbox', HomeInboxRequest(owners=owners))
 
-    def identify(self) -> IdentifyResult:
-        return self._invoke_command('identify', IdentifyRequest())
+    def identify(self, *, machine_metadata: Union[bool, MissingType] = MISSING, revisions: Union[bool, MissingType] = MISSING) -> IdentifyResult:
+        return self._invoke_command('identify', IdentifyRequest(machine_metadata=machine_metadata, revisions=revisions))
 
     def ids(self, *, kind: Union[Literal['workspace', 'screen', 'pane', 'surface'], None, MissingType] = MISSING) -> IdsResult:
         return self._invoke_command('ids', IdsRequest(kind=kind))
@@ -431,6 +446,9 @@ class GeneratedClientMixin:
 
     def move_browser_profile(self, browser_profile: str, index: int) -> JsonValue:
         return self._invoke_command('move-browser-profile', MoveBrowserProfileRequest(browser_profile=browser_profile, index=index))
+
+    def move_column(self, pane: Id, direction: ColumnMoveDirection) -> JsonValue:
+        return self._invoke_command('move-column', MoveColumnRequest(pane=pane, direction=direction))
 
     def move_personal_group(self, group: str, index: int) -> JsonValue:
         return self._invoke_command('move-personal-group', MovePersonalGroupRequest(group=group, index=index))
@@ -591,8 +609,8 @@ class GeneratedClientMixin:
     def rename_surface(self, surface: Id, name: str) -> EmptyResult:
         return self._invoke_command('rename-surface', RenameSurfaceRequest(surface=surface, name=name))
 
-    def rename_workspace(self, name: str, *, workspace: Union[Id, None, MissingType] = MISSING, key: Union[str, None, MissingType] = MISSING, expected_revision: Union[int, None, MissingType] = MISSING, expected_generation: Union[str, None, MissingType] = MISSING, origin: Union[str, None, MissingType] = MISSING, mutation_id: Union[str, None, MissingType] = MISSING) -> WorkspaceMutationResult:
-        return self._invoke_command('rename-workspace', RenameWorkspaceRequest(name=name, workspace=workspace, key=key, expected_revision=expected_revision, expected_generation=expected_generation, origin=origin, mutation_id=mutation_id))
+    def rename_workspace(self, name: str, *, workspace: Union[Id, None, MissingType] = MISSING, key: Union[str, None, MissingType] = MISSING, expected_revision: Union[int, None, MissingType] = MISSING, expected_generation: Union[str, None, MissingType] = MISSING, origin: Union[str, None, MissingType] = MISSING, mutation_id: Union[str, None, MissingType] = MISSING, expected_name_revision: Union[str, None, MissingType] = MISSING, release: Union[bool, MissingType] = MISSING, source: Union[NameSource, None, MissingType] = MISSING) -> WorkspaceMutationResult:
+        return self._invoke_command('rename-workspace', RenameWorkspaceRequest(name=name, workspace=workspace, key=key, expected_revision=expected_revision, expected_generation=expected_generation, origin=origin, mutation_id=mutation_id, expected_name_revision=expected_name_revision, release=release, source=source))
 
     def reopen_saved_screen_group(self, saved: str, *, workspace: Union[Id, None, MissingType] = MISSING) -> JsonValue:
         return self._invoke_command('reopen-saved-screen-group', ReopenSavedScreenGroupRequest(saved=saved, workspace=workspace))
@@ -639,8 +657,8 @@ class GeneratedClientMixin:
     def select_workspace(self, index: Union[int, None, MissingType] = MISSING, *, delta: Union[int, None, MissingType] = MISSING) -> EmptyResult:
         return self._invoke_command('select-workspace', SelectWorkspaceRequest(index=index, delta=delta))
 
-    def send(self, surface: Union[Id, None, MissingType] = MISSING, *, text: Union[str, None, MissingType] = MISSING, bytes_data: Union[Union[Base64, None, MissingType], bytes] = MISSING, paste: Union[bool, MissingType] = MISSING, terminal_id: Union[str, None, MissingType] = MISSING) -> SendResult:
-        return self._invoke_command('send', SendRequest(surface=surface, text=text, bytes_data=(base64.b64encode(bytes_data).decode('ascii') if isinstance(bytes_data, bytes) else bytes_data), paste=paste, terminal_id=terminal_id))
+    def send(self, surface: Union[Id, None, MissingType] = MISSING, *, text: Union[str, None, MissingType] = MISSING, bytes_data: Union[Union[Base64, None, MissingType], bytes] = MISSING, paste: Union[bool, MissingType] = MISSING, expect_foreground: Union[str, None, MissingType] = MISSING, terminal_id: Union[str, None, MissingType] = MISSING) -> SendResult:
+        return self._invoke_command('send', SendRequest(surface=surface, text=text, bytes_data=(base64.b64encode(bytes_data).decode('ascii') if isinstance(bytes_data, bytes) else bytes_data), paste=paste, expect_foreground=expect_foreground, terminal_id=terminal_id))
 
     def send_key(self, surface: Id, keys: List[str]) -> EmptyResult:
         return self._invoke_command('send-key', SendKeyRequest(surface=surface, keys=keys))
@@ -651,14 +669,14 @@ class GeneratedClientMixin:
     def set_cell_pixels(self, width_px: int, height_px: int) -> SetCellPixelsResult:
         return self._invoke_command('set-cell-pixels', SetCellPixelsRequest(width_px=width_px, height_px=height_px))
 
-    def set_client_info(self, *, name: Union[str, None, MissingType] = MISSING, kind: Union[str, None, MissingType] = MISSING, capabilities: Union[List[str], None, MissingType] = MISSING, device_id: Union[str, None, MissingType] = MISSING, device_kind: Union[str, None, MissingType] = MISSING, device_name: Union[str, None, MissingType] = MISSING, display_name: Union[str, None, MissingType] = MISSING, user_id: Union[str, None, MissingType] = MISSING) -> EmptyResult:
-        return self._invoke_command('set-client-info', SetClientInfoRequest(name=name, kind=kind, capabilities=capabilities, device_id=device_id, device_kind=device_kind, device_name=device_name, display_name=display_name, user_id=user_id))
+    def set_client_info(self, *, name: Union[str, None, MissingType] = MISSING, kind: Union[str, None, MissingType] = MISSING, api_revision: Union[int, None, MissingType] = MISSING, capabilities: Union[List[str], None, MissingType] = MISSING, device_id: Union[str, None, MissingType] = MISSING, device_kind: Union[str, None, MissingType] = MISSING, device_name: Union[str, None, MissingType] = MISSING, display_name: Union[str, None, MissingType] = MISSING, install: Union[str, None, MissingType] = MISSING, user_id: Union[str, None, MissingType] = MISSING, version: Union[str, None, MissingType] = MISSING) -> EmptyResult:
+        return self._invoke_command('set-client-info', SetClientInfoRequest(name=name, kind=kind, api_revision=api_revision, capabilities=capabilities, device_id=device_id, device_kind=device_kind, device_name=device_name, display_name=display_name, install=install, user_id=user_id, version=version))
 
     def set_client_sizing(self, surface: Id, enabled: bool, *, client: Union[int, None, MissingType] = MISSING, exclusive: Union[bool, MissingType] = MISSING) -> EmptyResult:
         return self._invoke_command('set-client-sizing', SetClientSizingRequest(surface=surface, enabled=enabled, client=client, exclusive=exclusive))
 
-    def set_column_dock(self, pane: Id, dock: bool, *, edge: Union[str, None, MissingType] = MISSING, mode: Union[str, None, MissingType] = MISSING, permanent: Union[bool, None, MissingType] = MISSING, role: Union[str, None, MissingType] = MISSING, transaction: Union[int, None, MissingType] = MISSING) -> JsonValue:
-        return self._invoke_command('set-column-dock', SetColumnDockRequest(pane=pane, dock=dock, edge=edge, mode=mode, permanent=permanent, role=role, transaction=transaction))
+    def set_column_dock(self, pane: Id, dock: bool, *, edge: Union[str, None, MissingType] = MISSING, mode: Union[str, None, MissingType] = MISSING, permanent: Union[bool, None, MissingType] = MISSING, pinned: Union[bool, None, MissingType] = MISSING, role: Union[str, None, MissingType] = MISSING, transaction: Union[int, None, MissingType] = MISSING) -> JsonValue:
+        return self._invoke_command('set-column-dock', SetColumnDockRequest(pane=pane, dock=dock, edge=edge, mode=mode, permanent=permanent, pinned=pinned, role=role, transaction=transaction))
 
     def set_default_colors(self, fg: Union[ColorHex, None, MissingType] = MISSING, *, bg: Union[ColorHex, None, MissingType] = MISSING, cursor: Union[ColorHex, None, MissingType] = MISSING, selection_bg: Union[ColorHex, None, MissingType] = MISSING, selection_fg: Union[ColorHex, None, MissingType] = MISSING, cursor_style: Union[CursorStyle, None, MissingType] = MISSING, cursor_blink: Union[bool, None, MissingType] = MISSING, palette: Union[Dict[str, ColorHex], None, MissingType] = MISSING, complete: Union[bool, MissingType] = MISSING) -> EmptyResult:
         return self._invoke_command('set-default-colors', SetDefaultColorsRequest(fg=fg, bg=bg, cursor=cursor, selection_bg=selection_bg, selection_fg=selection_fg, cursor_style=cursor_style, cursor_blink=cursor_blink, palette=palette, complete=complete))
@@ -876,7 +894,11 @@ GeneratedClientMixin.cloud_conversation_runs.__cmux_command__ = COMMANDS['cloud-
 GeneratedClientMixin.cloud_conversation_snapshot.__cmux_command__ = COMMANDS['cloud-conversation-snapshot']
 GeneratedClientMixin.cloud_conversation_subscribe.__cmux_command__ = COMMANDS['cloud-conversation-subscribe']
 GeneratedClientMixin.cloud_conversation_thread.__cmux_command__ = COMMANDS['cloud-conversation-thread']
+GeneratedClientMixin.cloud_conversation_typing.__cmux_command__ = COMMANDS['cloud-conversation-typing']
 GeneratedClientMixin.cloud_conversation_unsubscribe.__cmux_command__ = COMMANDS['cloud-conversation-unsubscribe']
+GeneratedClientMixin.cloud_host_replica_clear.__cmux_command__ = COMMANDS['cloud-host-replica-clear']
+GeneratedClientMixin.cloud_host_replica_set.__cmux_command__ = COMMANDS['cloud-host-replica-set']
+GeneratedClientMixin.cloud_host_replica_status.__cmux_command__ = COMMANDS['cloud-host-replica-status']
 GeneratedClientMixin.cloud_inbox_list.__cmux_command__ = COMMANDS['cloud-inbox-list']
 GeneratedClientMixin.cloud_inbox_op.__cmux_command__ = COMMANDS['cloud-inbox-op']
 GeneratedClientMixin.cloud_inbox_subscribe.__cmux_command__ = COMMANDS['cloud-inbox-subscribe']
@@ -885,6 +907,7 @@ GeneratedClientMixin.cloud_mux_ack.__cmux_command__ = COMMANDS['cloud-mux-ack']
 GeneratedClientMixin.cloud_mux_subscribe.__cmux_command__ = COMMANDS['cloud-mux-subscribe']
 GeneratedClientMixin.cloud_mux_unsubscribe.__cmux_command__ = COMMANDS['cloud-mux-unsubscribe']
 GeneratedClientMixin.cloud_participant_avatar_get.__cmux_command__ = COMMANDS['cloud-participant-avatar-get']
+GeneratedClientMixin.cloud_requests_list.__cmux_command__ = COMMANDS['cloud-requests-list']
 GeneratedClientMixin.cloud_session_clear.__cmux_command__ = COMMANDS['cloud-session-clear']
 GeneratedClientMixin.cloud_session_set.__cmux_command__ = COMMANDS['cloud-session-set']
 GeneratedClientMixin.cloud_session_status.__cmux_command__ = COMMANDS['cloud-session-status']
@@ -972,6 +995,7 @@ GeneratedClientMixin.mint_terminal_renderer.__cmux_command__ = COMMANDS['mint-te
 GeneratedClientMixin.mint_terminal_renderer_by_terminal.__cmux_command__ = COMMANDS['mint-terminal-renderer-by-terminal']
 GeneratedClientMixin.move_bookmark.__cmux_command__ = COMMANDS['move-bookmark']
 GeneratedClientMixin.move_browser_profile.__cmux_command__ = COMMANDS['move-browser-profile']
+GeneratedClientMixin.move_column.__cmux_command__ = COMMANDS['move-column']
 GeneratedClientMixin.move_personal_group.__cmux_command__ = COMMANDS['move-personal-group']
 GeneratedClientMixin.move_profile.__cmux_command__ = COMMANDS['move-profile']
 GeneratedClientMixin.move_screen.__cmux_command__ = COMMANDS['move-screen']

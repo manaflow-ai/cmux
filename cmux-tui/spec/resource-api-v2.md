@@ -31,10 +31,12 @@ without closing the terminal. `terminal.project` adds another view, and only
 single-view tab content. Sidebar extensions are session-scoped auxiliary
 resources and cannot become tabs.
 
-One `cmux.protocol/2` endpoint describes exactly one local mux session. Its
-machine and session resources provide stable routing handles for that local
-session. Cross-machine discovery, aggregation, and provider lifecycle are
-reserved for a later broker protocol.
+One `cmux.protocol/2` endpoint executes session operations on exactly one local
+mux session. Its machine and session resources provide stable routing handles
+for that owner. Explicit catalog reads may also expose a bounded metadata
+projection of admitted remote owners; they provide no remote carrier or session
+authority. Cross-machine execution, aggregation of session state, and provider
+lifecycle remain reserved for a later broker protocol.
 
 All public IDs are JSON strings with one registered prefix and 128 bits of
 lowercase hexadecimal entropy:
@@ -79,17 +81,18 @@ lowercase hexadecimal digits. Older records keep the IDs they already have
 
 | Resource | Owner | Operations |
 | --- | --- | --- |
-| Workspace identity (title, color, icon) | shared | `workspace.update`, `workspace.create` |
+| Workspace identity (title, color, icon), description, manual task status | shared | `workspace.update`, `workspace.create` |
 | Workspace `ephemeral` flag (set only at creation) | shared | `workspace.create`, moves into a new workspace |
 | Home workspace (`workspace-kind-v1`, one per store, created by the store) | shared | `workspace.ensure_home` |
 | App workspaces (`app-screens-v1`, one per installed app), app tabs | shared | `workspace.ensure_app` |
 | Workspace agent folder (where new agent chats start; set only by the user) | shared | `workspace.agent_folder.set` |
 | Web links of a workspace (open on its right side, reuse its browser tab) | shared | `workspace.open_url` |
-| Tab pin, zoom, user icon, browser back/forward, browser owner | shared | `tab.pin`, `tab.unpin`, `tab.update` |
+| Tab pin, zoom, user icon, manual unread mark, browser back/forward, browser owner | shared | `tab.pin`, `tab.unpin`, `tab.update` |
 | Tab groups | shared | `tab_group.*` |
 | Screen pin, color, icon, order; screen groups | shared | `screen.update`, `screen.move`, `screen_group.*` |
 | Closed history (one group per close gesture, kept until deleted) | shared | `closed.list`, `closed.reopen`, `closed.delete` |
 | Workspace status (64 entries), progress, log (newest 200 lines) | shared | `workspace_status.*`, `workspace_progress.*`, `workspace_log.*` |
+| Workspace checklist (50 items: text, state todo, in_progress or done, creator, image attachments by absolute path; `workspace-checklist-v1`) | shared | `workspace_checklist.list`, `workspace_checklist.add`, `workspace_checklist.update`, `workspace_checklist.remove` |
 | Workspace groups, sidebar order, rooms, saved tab groups | personal (home session) | `workspace_group.*`, `workspace.place`, `workspace.placement.list`, `room.*`, `saved_tab_group.*` |
 | Window records (one per app window, keyed install id and window id, one writer) | personal (home session) | `window_record.list`, `window_record.put`, `window_record.delete` |
 | Settings (the settings file `cmux-next.json`, managed layers; one owner per daemon, `settings-v1`) | machine (config owner) | `settings.*` |
@@ -100,6 +103,7 @@ lowercase hexadecimal digits. Older records keep the IDs they already have
 | Sidebar section layout (one per user: sections in top, middle and bottom regions; plans/cmux-next/sidebar-sections.md) | personal (home session) | `sidebar_layout.get`, `sidebar_layout.update` |
 | Sidebar document (one per user: ordered sections of ordered items; every machine's workspace list, Pinned, custom, app and built-in sections; `sidebar-doc-v1`) | personal (home session) | `sidebar.get`, `sidebar.move`, `sidebar.pin`, `sidebar.unpin`, `sidebar.item.add`, `sidebar.item.remove`, `sidebar.item.remove_ref`, `sidebar.item.update`, `sidebar.section.add`, `sidebar.section.update`, `sidebar.section.move`, `sidebar.section.remove`, `sidebar.group.create`, `sidebar.group.update`, `sidebar.group.ungroup`, `sidebar.adopt`, `sidebar.apply`, `sidebar.reset` |
 | Palette usage history (one per user: used rows and learned picks per query start; plans/cmux-next/palette-ranking.md 5.2) | personal (home session) | `palette_usage.get`, `palette_usage.record`, `palette_usage.import`, `palette_usage.hide`, `palette_usage.forget` |
+| Stash (a native OneTab: groups of web pages closed on purpose and kept until restored or deleted; `stash-v1`) | personal (home session) | `stash.create`, `stash.list`, `stash.restore`, `stash.delete`, `stash.import` |
 | Project list (the folders the user works in, imported from agent and editor sources, with the user's rename, pin, hide and order; plans/cmux-next/projects.md) | personal (home session) | `project.list`, `project.observe`, `project.add`, `project.update`, `project.remove`, `project.sync`, `project.source.update` |
 
 Every state mutation takes an idempotency key and commits through the same
@@ -114,8 +118,11 @@ workspaces.
 Fields that belong to an existing snapshot travel in its `extra` map, so a
 restated workspace, screen, tab, or terminal from any operation carries them:
 workspace `title`, `color`, `icon`, `ephemeral`, `kind` (`home` for the home
-workspace, absent for a normal one), `agent_folder` (absent until set); tab `pinned`,
-`tab_group_id`, `zoom`, `icon` (the user icon, absent until set), `back`, `forward`, `owner` (the install id of the app
+workspace, absent for a normal one), `agent_folder` (absent until set), `description`
+(`workspace-description-v1`, absent until set), `task_status` (`todo`, `working`,
+`needs-attention`, `review` or `done`, `workspace-status-v1`; absent while automatic); tab `pinned`,
+`tab_group_id`, `zoom`, `icon` (the user icon, absent until set), `marked_unread`
+(`true` while the person marked the tab unread by hand, `tab-mark-unread-v1`; absent otherwise), `back`, `forward`, `owner` (the install id of the app
 that hosts a frontend-rendered browser, its record's only writer), `relaunch`
 (`{cwd}` for a tab kept by `shutdown-daemon {end_terminals, keep_layout}`,
 absent otherwise); screen `pinned`, `color`, `icon`,
@@ -297,6 +304,9 @@ the folder. A workspace without one gets an app-owned agent-home folder for its
 chats; that folder is not stored here. Neither the user's home folder nor a
 folder above it is accepted (`validation.invalid`): an agent there could read
 the whole home folder.
+Every workspace snapshot also carries `extra.key`, the workspace key that its
+terminals and agent chats get as `CMUX_WORKSPACE_ID` (in UUID form), so a client
+can tell which acpmux chats run in a session's workspaces (`cmux agents chat`).
 `workspace.agent_start.get {workspace, cwd?}` (capability
 `workspace-agent-start-v1`, cx-9aps) is the one answer for where a new agent
 chat of the workspace starts: `{cwd, kind, agent_home, skipped?}`. Rules, first
@@ -472,6 +482,28 @@ read) returns the whole history, with the hidden keys. The ranking
 rules that read it live in the shared palette ranker, not in the daemon. The
 history stays on the Mac: MCP and the CLI do not offer these operations, and
 `palette_usage:read|write` are restricted app scopes.
+
+A stash (`stash-v1`) is a group of web pages the user closed on purpose,
+kept until restored or deleted (no retention pruning). `stash.create {tabs}`
+or `{workspace}` closes the pages in one commit and records them as one
+stash named after their workspace instead of in the closed history; a tab
+that is not a web page or is incognito refuses `{tabs}`, and `{workspace}`
+leaves such tabs (and pinned ones) open as `skipped`. Members keep the
+closed-history tab record (URL with secret query keys stripped, profile,
+engine, back/forward history) and a stable member `id`; `members` names
+members by those ids, and an id the stash no longer holds is
+`resource.not_found` with nothing changed. `stash.restore {stash, members?,
+target?, pane?}` reopens them like `closed.reopen` (`here`; a member whose
+own pane is gone opens in `pane`, the pane the user acted from) or in one
+new workspace (`new_workspace`); restored members leave the stash in the
+same commit. A restore is all or nothing: when one member cannot reopen,
+the pages it opened close again and every member stays, so a retry opens
+each page once. App tabs and pages that are not http(s) are never stashed.
+`stash.delete` drops members or a stash, `stash.import {source: onetab,
+groups}` stores OneTab groups (http(s) pages only), and `stash.list` never
+shows back/forward history. Changes are `state_upsert`/`state_delete` of
+resource `stash`. Restore opens URLs and every mutation changes local state,
+so no remote relay may forward `stash.*`; MCP and the CLI do not offer them.
 
 ## Selectors
 
@@ -794,9 +826,17 @@ back now (nothing changes). An acpmux recipient's outcome is acpmux's
 `_acpmux/prompt_withdraw` answer. When acpmux does not answer for a delivery a
 hand-over may have reached, the outcome is `failed` with `error.reason`
 `acpmux_unavailable`; a withdraw acpmux refuses is `failed` with
-`error.reason` `withdraw_refused` and `error.acpmux_reason`. The other
+`error.reason` `withdraw_refused` and `error.acpmux_reason` (`withdraw.refused`
+when acpmux names none). A queued delivery a pump hand-over went out for,
+which acpmux never accepted, is asked too: when acpmux holds no such prompt
+the outcome is `failed` with `error.reason` `acpmux_unavailable` (the
+hand-over may still reach it, so try again), and when acpmux no longer knows
+the session (it was deleted, and no peer daemon runs it) it is `unsent` (no
+session can take it late). The other
 deliveries' outcomes still commit. A retry under the same key replays, and a
-reused key or stale `expected_revision` is refused, before acpmux is asked.
+reused key or stale `expected_revision` is refused, before acpmux is asked;
+acpmux's answers then commit even when other state changed while it
+answered.
 The result names each delivery's outcome and the message; `outcome` is
 `failed` when any delivery failed, else `too_late` when any was too late, else
 `retracted` when any was retracted, else `unsent`. An unsend runs on this machine only; the remote CLI
@@ -1018,8 +1058,8 @@ operations after the server socket is bound.
 
 | Class | Operations |
 | --- | --- |
-| read | `agent.list`, `agent.message.list`, `browser.devices.list`, `browser.get`, `browser.list`, `browser.profile.list`, `chief.engine.get`, `chief.profile.avatar.get`, `chief.profile.get`, `chief.profile.list`, `client.get`, `client.list`, `closed.list`, `conversation.get`, `conversation.history`, `conversation.list`, `conversation.search`, `credential.mint`, `credential.verify`, `frontend_projection.get`, `git.branches`, `git.checkpoint.diff`, `git.checkpoint.get`, `git.checkpoint.list`, `git.diff`, `git.files.list`, `git.files.search`, `git.status`, `history.entries.list`, `history.visit.summaries`, `keybindings.get`, `machine.get`, `machine.list`, `notification.list`, `pairing_request.list`, `palette_usage.get`, `pane.get`, `pane.list`, `pane.neighbor.get`, `participant.avatar.get`, `project.list`, `room.list`, `saved_tab_group.list`, `screen.get`, `screen.layout.export`, `screen.list`, `screen_group.get`, `screen_group.list`, `session.creation.resolve`, `session.get`, `session.journal.checkpoint.list`, `session.journal.hook.list`, `session.journal.producer.list`, `session.journal.restore.preview`, `session.journal.segment.list`, `session.list`, `session.ping`, `session.snapshot`, `settings.get`, `settings.list`, `settings.schema`, `settings.snapshot`, `sidebar.get`, `sidebar_layout.get`, `sidebar_view.get`, `tab.get`, `tab.list`, `tab_group.get`, `tab_group.list`, `terminal.copy`, `terminal.get`, `terminal.history.read`, `terminal.list`, `terminal.output_read`, `terminal.process.get`, `terminal.screen.read`, `terminal.state.read`, `terminal.wait`, `terminal.wait_exit`, `window_record.list`, `workspace.agent_start.get`, `workspace.get`, `workspace.list`, `workspace.placement.list`, `workspace_group.list`, `workspace_log.list`, `workspace_status.list` |
-| mutation | `agent.message.mark`, `agent.message.release`, `agent.message.send`, `agent.message.unsend`, `agent.report`, `browser.activate`, `browser.back`, `browser.close`, `browser.devices.add_custom`, `browser.devices.remove_custom`, `browser.forward`, `browser.input.key`, `browser.input.mouse`, `browser.input.text`, `browser.input.wheel`, `browser.navigate`, `browser.profile.create`, `browser.profile.open`, `browser.reload`, `browser.tab.emulate`, `browser.tab.emulate.clear`, `browser.tab.set_profile`, `chief.engine.set`, `chief.profile.adopt`, `chief.profile.avatar.set`, `chief.profile.create`, `chief.profile.delete`, `chief.profile.update`, `chief.stop`, `closed.delete`, `closed.reopen`, `column.update`, `conversation.draft`, `conversation.send`, `conversation.typing`, `credential.rotate`, `frontend_projection.put`, `git.checkpoint.create`, `git.checkpoint.pin`, `git.checkpoint.unpin`, `git.commit`, `git.push`, `git.worktree.apply`, `git.worktree.create`, `git.worktree.remove`, `history.backups.purge`, `history.clear`, `history.entries.remove`, `history.restore`, `history.site.remove`, `history.trail.record`, `history.visit.import`, `history.visit.record`, `history.visit.remove`, `history.visit.title`, `keybindings.remove`, `keybindings.reset`, `keybindings.set`, `layout.bulk`, `notification.ack`, `notification.clear`, `notification.create`, `pairing_request.resolve`, `palette_usage.forget`, `palette_usage.hide`, `palette_usage.import`, `palette_usage.record`, `pane.close`, `pane.create`, `pane.focus`, `pane.focus_direction`, `pane.rename`, `pane.run`, `pane.split`, `pane.split_ratio.set`, `pane.swap`, `pane.viewport_width.set`, `pane.zoom`, `participant.avatar.set`, `project.add`, `project.observe`, `project.remove`, `project.source.update`, `project.sync`, `project.update`, `room.create`, `room.delete`, `room.follow`, `room.move`, `room.pin`, `room.unpin`, `room.update`, `saved_tab_group.delete`, `saved_tab_group.reopen`, `saved_tab_group.save`, `screen.close`, `screen.create`, `screen.focus`, `screen.layout.undo`, `screen.move`, `screen.rename`, `screen.update`, `screen_group.add_screens`, `screen_group.create`, `screen_group.remove_screens`, `screen_group.ungroup`, `screen_group.update`, `session.journal.append`, `session.journal.checkpoint.create`, `session.journal.hook.put`, `session.journal.producer.put`, `session.journal.segment.seal`, `session.open`, `session.reload_config`, `session.shutdown`, `session.terminal_defaults.update`, `session.window.title.clear`, `session.window.title.set`, `settings.reset`, `settings.reset_all`, `settings.set`, `sidebar.adopt`, `sidebar.apply`, `sidebar.group.create`, `sidebar.group.ungroup`, `sidebar.group.update`, `sidebar.item.add`, `sidebar.item.remove`, `sidebar.item.remove_ref`, `sidebar.item.update`, `sidebar.move`, `sidebar.pin`, `sidebar.reset`, `sidebar.section.add`, `sidebar.section.move`, `sidebar.section.remove`, `sidebar.section.update`, `sidebar.unpin`, `sidebar_layout.update`, `sidebar_view.ensure`, `sidebar_view.input`, `sidebar_view.reload`, `sidebar_view.resize`, `tab.close`, `tab.create_browser`, `tab.create_terminal`, `tab.focus`, `tab.move`, `tab.pin`, `tab.rename`, `tab.unpin`, `tab.update`, `tab_group.add_tabs`, `tab_group.close`, `tab_group.create`, `tab_group.move`, `tab_group.remove_tabs`, `tab_group.ungroup`, `tab_group.update`, `terminal.close`, `terminal.history.clear`, `terminal.input.focus`, `terminal.input.keys`, `terminal.input.mouse`, `terminal.input.write`, `terminal.move`, `terminal.project`, `terminal.viewport.scroll`, `window_record.delete`, `window_record.put`, `workspace.agent_folder.set`, `workspace.close`, `workspace.create`, `workspace.ensure_app`, `workspace.ensure_home`, `workspace.focus`, `workspace.layout.apply`, `workspace.move`, `workspace.open_url`, `workspace.place`, `workspace.rename`, `workspace.run`, `workspace.update`, `workspace_group.create`, `workspace_group.delete`, `workspace_group.move`, `workspace_group.update`, `workspace_log.append`, `workspace_log.clear`, `workspace_progress.clear`, `workspace_progress.set`, `workspace_status.clear`, `workspace_status.set` |
+| read | `agent.list`, `agent.message.list`, `browser.devices.list`, `browser.get`, `browser.list`, `browser.profile.list`, `chief.engine.get`, `chief.profile.avatar.get`, `chief.profile.get`, `chief.profile.history`, `chief.profile.list`, `client.get`, `client.list`, `closed.list`, `conversation.get`, `conversation.history`, `conversation.list`, `conversation.search`, `credential.mint`, `credential.verify`, `frontend_projection.get`, `git.branches`, `git.checkpoint.diff`, `git.checkpoint.get`, `git.checkpoint.list`, `git.diff`, `git.files.list`, `git.files.search`, `git.status`, `history.entries.list`, `history.visit.summaries`, `keybindings.get`, `machine.get`, `machine.list`, `notification.list`, `pairing_request.list`, `palette_usage.get`, `pane.get`, `pane.list`, `pane.neighbor.get`, `participant.avatar.get`, `project.list`, `room.list`, `saved_tab_group.list`, `screen.get`, `screen.layout.export`, `screen.list`, `screen_group.get`, `screen_group.list`, `session.creation.resolve`, `session.get`, `session.journal.checkpoint.list`, `session.journal.hook.list`, `session.journal.producer.list`, `session.journal.restore.preview`, `session.journal.segment.list`, `session.list`, `session.ping`, `session.snapshot`, `settings.get`, `settings.list`, `settings.schema`, `settings.snapshot`, `sidebar.get`, `sidebar_layout.get`, `sidebar_view.get`, `stash.list`, `tab.get`, `tab.list`, `tab_group.get`, `tab_group.list`, `terminal.copy`, `terminal.get`, `terminal.history.read`, `terminal.list`, `terminal.output_read`, `terminal.process.get`, `terminal.screen.read`, `terminal.state.read`, `terminal.wait`, `terminal.wait_exit`, `window_record.list`, `workspace.agent_start.get`, `workspace.get`, `workspace.list`, `workspace.placement.list`, `workspace_checklist.list`, `workspace_group.list`, `workspace_log.list`, `workspace_status.list` |
+| mutation | `agent.message.mark`, `agent.message.release`, `agent.message.send`, `agent.message.unsend`, `agent.report`, `browser.activate`, `browser.back`, `browser.close`, `browser.devices.add_custom`, `browser.devices.remove_custom`, `browser.forward`, `browser.input.key`, `browser.input.mouse`, `browser.input.text`, `browser.input.wheel`, `browser.navigate`, `browser.profile.create`, `browser.profile.open`, `browser.reload`, `browser.tab.emulate`, `browser.tab.emulate.clear`, `browser.tab.set_profile`, `chief.engine.set`, `chief.profile.adopt`, `chief.profile.avatar.set`, `chief.profile.create`, `chief.profile.delete`, `chief.profile.undo`, `chief.profile.update`, `chief.stop`, `closed.delete`, `closed.reopen`, `column.update`, `conversation.draft`, `conversation.send`, `conversation.typing`, `credential.rotate`, `frontend_projection.put`, `git.checkpoint.create`, `git.checkpoint.pin`, `git.checkpoint.unpin`, `git.commit`, `git.push`, `git.worktree.apply`, `git.worktree.create`, `git.worktree.remove`, `history.backups.purge`, `history.clear`, `history.entries.remove`, `history.restore`, `history.site.remove`, `history.trail.record`, `history.visit.import`, `history.visit.record`, `history.visit.remove`, `history.visit.title`, `keybindings.remove`, `keybindings.reset`, `keybindings.set`, `layout.bulk`, `notification.ack`, `notification.clear`, `notification.create`, `pairing_request.resolve`, `palette_usage.forget`, `palette_usage.hide`, `palette_usage.import`, `palette_usage.record`, `pane.close`, `pane.create`, `pane.focus`, `pane.focus_direction`, `pane.rename`, `pane.run`, `pane.split`, `pane.split_ratio.set`, `pane.swap`, `pane.viewport_width.set`, `pane.zoom`, `participant.avatar.set`, `project.add`, `project.observe`, `project.remove`, `project.source.update`, `project.sync`, `project.update`, `room.create`, `room.delete`, `room.follow`, `room.move`, `room.pin`, `room.unpin`, `room.update`, `saved_tab_group.delete`, `saved_tab_group.reopen`, `saved_tab_group.save`, `screen.close`, `screen.create`, `screen.focus`, `screen.layout.undo`, `screen.move`, `screen.rename`, `screen.update`, `screen_group.add_screens`, `screen_group.create`, `screen_group.remove_screens`, `screen_group.ungroup`, `screen_group.update`, `session.journal.append`, `session.journal.checkpoint.create`, `session.journal.hook.put`, `session.journal.producer.put`, `session.journal.segment.seal`, `session.open`, `session.reload_config`, `session.shutdown`, `session.terminal_defaults.update`, `session.window.title.clear`, `session.window.title.set`, `settings.reset`, `settings.reset_all`, `settings.set`, `sidebar.adopt`, `sidebar.apply`, `sidebar.group.create`, `sidebar.group.ungroup`, `sidebar.group.update`, `sidebar.item.add`, `sidebar.item.remove`, `sidebar.item.remove_ref`, `sidebar.item.update`, `sidebar.move`, `sidebar.pin`, `sidebar.reset`, `sidebar.section.add`, `sidebar.section.move`, `sidebar.section.remove`, `sidebar.section.update`, `sidebar.unpin`, `sidebar_layout.update`, `sidebar_view.ensure`, `sidebar_view.input`, `sidebar_view.reload`, `sidebar_view.resize`, `stash.create`, `stash.delete`, `stash.import`, `stash.restore`, `tab.close`, `tab.create_browser`, `tab.create_terminal`, `tab.focus`, `tab.move`, `tab.pin`, `tab.rename`, `tab.unpin`, `tab.update`, `tab_group.add_tabs`, `tab_group.close`, `tab_group.create`, `tab_group.move`, `tab_group.remove_tabs`, `tab_group.ungroup`, `tab_group.update`, `terminal.close`, `terminal.history.clear`, `terminal.input.focus`, `terminal.input.keys`, `terminal.input.mouse`, `terminal.input.write`, `terminal.move`, `terminal.project`, `terminal.viewport.scroll`, `window_record.delete`, `window_record.put`, `workspace.agent_folder.set`, `workspace.close`, `workspace.create`, `workspace.ensure_app`, `workspace.ensure_home`, `workspace.focus`, `workspace.layout.apply`, `workspace.move`, `workspace.open_url`, `workspace.place`, `workspace.rename`, `workspace.run`, `workspace.update`, `workspace_checklist.add`, `workspace_checklist.remove`, `workspace_checklist.update`, `workspace_group.create`, `workspace_group.delete`, `workspace_group.move`, `workspace_group.update`, `workspace_log.append`, `workspace_log.clear`, `workspace_progress.clear`, `workspace_progress.set`, `workspace_status.clear`, `workspace_status.set` |
 | stream_open | `browser.attach`, `conversation.events`, `session.events`, `session.journal.subscribe`, `sidebar_view.attach`, `terminal.attach` |
 | connection_control | `browser.viewer.release`, `browser.viewer.resize`, `client.cell_pixels.set`, `client.detach`, `client.metadata.update`, `client.sizing.release`, `client.sizing.set`, `origin.confirmation.issue`, `request.cancel`, `stream.cancel`, `terminal.renderer_grant.create`, `terminal.viewer.release`, `terminal.viewer.resize` |
 | local | `sidebar_plugin.install`, `sidebar_plugin.list`, `sidebar_plugin.remove`, `sidebar_plugin.update`, `sidebar_plugin.use`, `sidebar_plugin.use_builtin` |
@@ -1112,9 +1152,42 @@ its platform default shell and `-lc`; SDKs never inspect or expand `$SHELL`.
 To choose a specific executable, callers send
 `argv: [executable, "-lc", script]`.
 
-`machine.list` returns one local machine, and `machine.get` resolves only that
-machine. Its origin is always `local`. `session.list`, `session.get`, and
-`session.open` operate only on the mux session owned by this endpoint.
+By default, `machine.list/get` preserve the original local-only machine shape,
+without top-level platform or capability fields. `identify` advertises
+`machine-catalog-read-v1` when the endpoint accepts the optional boolean
+`catalog` parameter on these two operations. Only `catalog:true` opts this
+request into the extended shape. Omitted or false stays legacy-compatible,
+including after a prior opt-in on the same connection. `session.snapshot` always
+embeds the original machine shape. Unsupported endpoints may reject the new
+parameter; callers can check the advertised capability before opting in.
+
+With `catalog:true`, `machine.list` returns the authoritative local machine first,
+followed by remote metadata published by its verified local app. The local origin is
+`local`; projected origins are `cloud`, `ssh`, or `server`. `machine.get` resolves
+the local machine or one unambiguous published record. Use canonical machine IDs
+to distinguish owners; a display name is not an identity. Without a live, admitted
+publisher, discovery still returns only the local owner. An unopted `machine.get`
+cannot resolve a projected remote record. See
+[machine catalog publication](commands.md#machine-catalog-publication) for the
+negotiation, owner fence, bounds and connection-owned lease.
+
+Machine snapshots may include `platform: {os?, arch?}` and machine-level
+`capabilities`. These are non-secret observations from the selected owner, separate
+from protocol feature negotiation. Omitted legacy metadata remains unknown.
+Capability tokens and `connectable` describe the existing route; they are not
+credentials, enrollment, or permission to execute. Reading the catalog never
+opens a target connection. A remote record disappears when its publication is
+withdrawn or its publishing connection closes.
+
+Catalog projection does not extend session routing: `session.list`, `session.get`,
+and `session.open` operate only on the mux session owned by this endpoint. A
+projected remote ID cannot select a local session or supply a remote carrier.
+Callers need that owner's separately authenticated transport for session work.
+
+`machine.list` accepts no ancestor selectors. `machine.get` accepts its machine
+selector, and `session.list` accepts only its machine ancestor. Clients must not
+add a session default to these reads; explicit unsupported fields remain native
+validation errors.
 
 Sidebar plugin installation and selection are local filesystem operations.
 Transported sidebar view operations never send a `sidebar_plugin_` ID.
@@ -1287,6 +1360,22 @@ directory. A Chief's id is its conversation participant id: the default
 Chief is `agent_mux` and exists from the first read; a new Chief is `agent_`
 and 26 Crockford base32 characters. A deleted id is never reused.
 
+With `chief-profile-history-v1` every committed state of a record is kept as a
+revision (the newest 100 per Chief, dropped with a deleted Chief):
+`chief.profile.history {chief, limit?}` lists them newest first with the actor
+and operation that made each, and `chief.profile.undo {chief, to_rev?}` makes
+the record equal to one of them again (default: the one before the current
+rev) as a new rev, checked as `chief.profile.update` with the fields that
+differ; `no_revision` when there is none. A record carries `locked`, the
+person's switch: while true every Chief's write on it is `chief_locked`, and
+only the owner sets it. `self_edit` takes `engine` (the Chief's own `harness`,
+`model` and `effort`, the harness among its `harnesses`); the default Chief
+and a new Chief get every item. A Chief with the `chiefs` tool changes every
+profile field of another Chief within its own grant (the engine harness one it
+may use). A committed change of a record's engine is written into that Chief's
+brain engine file (`optchat/engine.json` in its brain home), which its next
+turn reads.
+
 `chief.profile.adopt` (capability `chief-profile-adopt-v1`) makes an existing
 agent participant of the owner's conversations a Chief record under its own
 id, so its conversations, history and credentials stay its own. Only the
@@ -1415,7 +1504,10 @@ use the nested `sidebar view` and `sidebar plugin` grammars.
 Hyphenated action-first commands are usage errors with exit code 2.
 
 Global routing flags are `--machine`, `--session`, and advanced `--socket`.
-They select the one local machine and mux session exposed by the endpoint.
+`--session` and `--socket` select the endpoint. Session-scoped operations remain
+owned by that endpoint's native machine and session; selecting a remote metadata
+record does not reroute execution. For `machine.list/get`, an endpoint-selection
+flag is not serialized as an unsupported session ancestor.
 
 Human output follows the selected locale, currently English and Japanese.
 `--json` prints one result object. `--jsonl` prints one object per result or
@@ -1461,4 +1553,5 @@ the workspace tree. Split IDs appear only in raw layout documents.
 Terminal-host, machine-agent, and machine-provider transports keep separate
 version numbers. The machine-provider protocol remains an internal transport.
 A future cross-machine broker must define a later public protocol instead of
-extending this one-session endpoint implicitly.
+extending this endpoint's session execution authority implicitly. The explicit
+catalog metadata opt-in does not supply that authority.

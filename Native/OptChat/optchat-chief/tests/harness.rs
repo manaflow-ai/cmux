@@ -639,11 +639,16 @@ fn a_codex_turn_preset_carries_the_chiefs_turn_cache_key() {
     );
     assert_eq!(codex.system_prompt, None);
     let bare = turn_preset(&paths, &home, "codex", Family::Codex, false, "SYS").unwrap();
-    // Only acpmux's cmux MCP server in a turn (cx-4a5w2).
+    // Only acpmux's cmux MCP server in a turn (cx-4a5w2), and in it only
+    // the Chief's cmux tools (no code mode).
     assert_eq!(
         bare.env,
         std::collections::BTreeMap::from([
             ("ACPMUX_AGENT_TOOL_SERVERS".to_owned(), "cmux".to_owned()),
+            (
+                "CMUX_MCP_TOOLS".to_owned(),
+                optchat_chief::session_dir::CHIEF_CMUX_TOOLS.join(","),
+            ),
             ("CODEX_PROMPT_CACHE_KEY".to_owned(), key),
         ])
     );
@@ -655,6 +660,14 @@ fn a_codex_turn_preset_carries_the_chiefs_turn_cache_key() {
     assert_eq!(
         claude.env.get("SUBROUTER_SESSION_KEY").map(String::as_str),
         Some(format!("optchat-{id}-turn").as_str())
+    );
+    // acpmux sends that key as X-Subrouter-Session on every route (sr2 too).
+    assert_eq!(
+        claude
+            .env
+            .get("SUBROUTER_SESSION_HEADER")
+            .map(String::as_str),
+        Some("1")
     );
     assert_eq!(
         turn_preset(&paths, &home, "pi", Family::Other, false, "SYS"),
@@ -1057,4 +1070,82 @@ fn a_user_entry_right_after_the_last_turns_messages_keeps_its_input_a_prefix() {
     assert_eq!(inner.prompts.len(), 2);
     let (a, b) = (texts(&inner.prompts[0]), texts(&inner.prompts[1]));
     assert_eq!(b[..a.len()], a[..], "the first turn's input is a prefix");
+}
+
+#[test]
+fn a_failed_turn_closes_its_messages_so_the_next_turn_answers_only_the_new_one() {
+    // 2026-10-18: "can u make some subagents" failed on 10-08 ("(turn
+    // failed: ...)" posted); a "hi" ten days later got the answer to it,
+    // because the memory log still showed the old request as open.
+    const ERROR: &str = "agent process closed (claude): No conversation found with session ID: x";
+    let script: Script = Box::new(|turn, blocks| {
+        if turn == 0 {
+            vec![
+                json!({"dir": "mux", "kind": "turn_started", "msg": {}}),
+                json!({"dir": "mux", "kind": "turn_error", "msg": {"error": ERROR}}),
+            ]
+        } else {
+            default_script()(turn, blocks)
+        }
+    });
+    let mut h = Harness::new(script);
+    h.agents.inner.lock().unwrap().answer_error = Some(ERROR.into());
+    h.connect();
+    h.say("user_local", "can u make some subagents");
+    h.settle();
+    let sends = h.owner.lock().unwrap().sends();
+    assert_eq!(sends.len(), 1, "{sends:?}");
+    assert!(
+        sends[0].1.contains("turn failed"),
+        "the failure is posted: {sends:?}"
+    );
+    // The memory log: the request, then the note that closes it.
+    let log = h.log();
+    let asked = log
+        .iter()
+        .position(|(_, t)| t == "can u make some subagents")
+        .expect("the request is logged");
+    let note = log
+        .iter()
+        .position(|(k, t)| k == "note" && t.starts_with("the turn failed ("))
+        .unwrap_or_else(|| panic!("no failure note: {log:?}"));
+    assert!(note > asked, "{log:?}");
+    assert!(log[note].1.contains("answer only messages after this note"));
+    h.say("user_local", "hi");
+    h.settle_posts();
+    let sends = h.owner.lock().unwrap().sends();
+    assert_eq!(sends.len(), 2, "{sends:?}");
+    assert_eq!(sends[1].1, "answer 1");
+    // The next turn's input shows the old request closed before the new one.
+    let inner = h.agents.inner.lock().unwrap();
+    let input = texts(inner.prompts.last().unwrap()).join("");
+    let closed = input
+        .find("note: the turn failed (")
+        .unwrap_or_else(|| panic!("{input}"));
+    let hi = input
+        .rfind("|user: hi")
+        .unwrap_or_else(|| panic!("{input}"));
+    assert!(closed < hi, "{input}");
+}
+
+/// acpmux's built-in Chief turn presets set the same cmux tool allowlist
+/// (`agent_tools::CHIEF_TURN_TOOLS`) as this crate's own presets; the two
+/// workspaces share no crate, so the source pins them equal.
+#[test]
+fn acpmux_built_in_turns_allow_the_same_cmux_tools() {
+    const ACPMUX: &str = include_str!("../../../../cmux-tui/crates/acpmux/src/agent_tools.rs");
+    let start = ACPMUX
+        .find("pub const CHIEF_TURN_TOOLS: &str = \"")
+        .expect("acpmux defines CHIEF_TURN_TOOLS");
+    let rest = &ACPMUX[start..];
+    let rest = &rest[rest.find('"').unwrap() + 1..];
+    let literal = &rest[..rest.find('"').unwrap()];
+    // A Rust string continuation (`\` at a line end) drops the newline and
+    // the next line's leading spaces.
+    let names: Vec<&str> = literal
+        .split(',')
+        .map(|name| name.trim_start_matches(|c: char| c == '\\' || c.is_whitespace()))
+        .map(|name| name.trim_end_matches(|c: char| c == '\\' || c.is_whitespace()))
+        .collect();
+    assert_eq!(names, optchat_chief::session_dir::CHIEF_CMUX_TOOLS);
 }

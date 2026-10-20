@@ -31,13 +31,13 @@ final class TabHoverCardController: HoverCardSource {
     /// Samples CPU and memory of the hovered tab while its card shows (first
     /// sample when it shows: a sweep across tabs samples none), never otherwise.
     let resources = ResourceCardSampler(source: nil)
-    /// Pointer rest before a tab's card opens: Chrome's tab hover card delay
-    /// (`HoverCardTiming.chromeDelay`), or `sidebar.hoverCards.delay`; read on
+    /// Pointer rest before a tab's card opens: `HoverCardTiming.showDelay`,
+    /// or `sidebar.hoverCards.delay`; read on
     /// each hover so a Settings change applies at once. Every tab waits the
     /// same, as a sidebar row does (no width scaling, cx-23e1f).
     var delay: Duration { DesignSettings.shared.hoverCardDelay }
     /// Like a browser's tab preview (Leo 2026-10-14): leaving the tab hides its card at once,
-    /// and another tab reached within Chrome's reshow window shows its card at once.
+    /// and another tab reached within the reshow window shows its card at once.
     var leave: HoverCardLeave { .hides(reshow: HoverCardTiming.reshowWindow) }
     /// The app's one coordinator; the App injects it, a demo strip uses its own.
     var coordinator: HoverCardCoordinator {
@@ -70,6 +70,9 @@ final class TabHoverCardController: HoverCardSource {
 
     init(coordinator: HoverCardCoordinator = HoverCardCoordinator()) {
         self.coordinator = coordinator
+        #if DEBUG
+        HoverCardGallery.register("tabs") { TabHoverCardGallery.cards() }
+        #endif
         let source = DispatchSource.makeMemoryPressureSource(eventMask: [.warning, .critical], queue: .main)
         source.setEventHandler { [weak self] in
             Task { @MainActor in
@@ -195,6 +198,7 @@ final class TabHoverCardController: HoverCardSource {
         // Its frame stays as it is while it fades out.
         if !cardIsShowing() {
             body?.setThumbnail(nil)
+            body?.resetResourceHistory()
             opensFresh = true
         }
     }

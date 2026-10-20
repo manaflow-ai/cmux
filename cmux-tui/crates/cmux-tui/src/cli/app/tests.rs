@@ -14,10 +14,30 @@ fn call(command: AppCommand) -> (&'static str, Value) {
         AppCommand::Open { .. }
         | AppCommand::Events { .. }
         | AppCommand::DebugCall { .. }
-        | AppCommand::Screenshot { .. } => {
+        | AppCommand::Screenshot { .. }
+        | AppCommand::Right { .. }
+        | AppCommand::Settings(_) => {
             panic!("expected a call")
         }
     }
+}
+
+/// `cmux window screenshot --out FILE` names a file of the caller's working
+/// directory, so the app (which runs elsewhere) gets it absolute; `--out -`
+/// (the PNG inline in the reply) and an absolute path go as given.
+#[test]
+fn screenshot_out_is_made_absolute_except_stdout() {
+    let out = |value: &str| {
+        let (method, params) =
+            call(parse(&args(&["window", "screenshot", "--out", value])).unwrap().unwrap());
+        assert_eq!(method, "action.run");
+        assert_eq!(params["action"], "window screenshot");
+        params["args"]["out"].as_str().unwrap().to_owned()
+    };
+    let cwd = std::env::current_dir().unwrap();
+    assert_eq!(out("shot.png"), cwd.join("shot.png").to_string_lossy());
+    assert_eq!(out("-"), "-");
+    assert_eq!(out("/tmp/shot.png"), "/tmp/shot.png");
 }
 
 #[test]
@@ -140,7 +160,20 @@ fn fake_app_after(
     (socket, handle)
 }
 
-fn global_for(socket: &std::path::Path) -> GlobalArgs {
+#[test]
+fn an_app_socket_of_another_user_is_refused_before_a_request_is_written() {
+    let (socket, app) = fake_app(vec![]);
+    let own = cmux_tui_core::platform::effective_uid();
+    let other = if own == u32::MAX { own - 1 } else { own + 1 };
+    let result = connect_for_uid(&socket, other);
+    let kind = result.as_ref().err().map(std::io::Error::kind);
+    drop(result);
+
+    assert_eq!(kind, Some(std::io::ErrorKind::PermissionDenied));
+    assert!(app.join().unwrap()[0].is_empty(), "the client wrote before checking the peer uid");
+}
+
+fn global_for(socket: &Path) -> GlobalArgs {
     GlobalArgs {
         app_socket: Some(socket.to_path_buf()),
         output: OutputMode::Quiet,
@@ -224,10 +257,30 @@ fn action_run_maps_flags_to_target_and_arguments() {
 #[test]
 fn app_requests_wait_for_the_app_to_catch_up_with_the_daemon() {
     assert_eq!(
-        with_read_barrier(json!({ "action": "x" })),
+        with_read_barrier("action.run", json!({ "action": "x" })),
         json!({ "action": "x", "after": "sync" })
     );
-    assert_eq!(with_read_barrier(json!({ "after": 12 })), json!({ "after": 12 }));
+    assert_eq!(with_read_barrier("snapshot.get", json!({ "after": 12 })), json!({ "after": 12 }));
+}
+
+#[test]
+fn liveness_probes_do_not_wait_for_the_daemon() {
+    assert_eq!(with_read_barrier("system.ping", json!({})), json!({}));
+    assert_eq!(with_read_barrier("system.capabilities", json!({})), json!({}));
+    assert_eq!(with_read_barrier("system.identify", json!({})), json!({ "after": "sync" }));
+}
+
+#[test]
+fn only_reads_are_asked_again_after_a_timeout() {
+    for read in ["system.ping", "snapshot.get", "workspace.list", "action.describe"] {
+        assert!(is_retryable_read(read), "{read}");
+    }
+    for write in ["action.run", "workspace.create", "browser.open_split", "settings.set"] {
+        assert!(!is_retryable_read(write), "{write}");
+    }
+    assert!(timed_out(&Err(json!({ "code": "timeout", "message": "x" }))));
+    assert!(!timed_out(&Err(json!({ "code": "busy", "message": "x" }))));
+    assert!(!timed_out(&Ok(json!({}))));
 }
 
 #[test]
@@ -702,7 +755,9 @@ fn only_a_confirmed_settings_write_waits_without_a_deadline() {
         AppCommand::Open { .. }
         | AppCommand::Events { .. }
         | AppCommand::DebugCall { .. }
-        | AppCommand::Screenshot { .. } => {
+        | AppCommand::Screenshot { .. }
+        | AppCommand::Right { .. }
+        | AppCommand::Settings(_) => {
             panic!("expected a call")
         }
     };
@@ -790,7 +845,7 @@ fn identify_answer(bundle_id: &str) -> Value {
     json!({ "id": 1, "ok": true, "result": { "app": "cmux-next", "bundle_id": bundle_id, "tag": "occl1-v1" } })
 }
 
-fn app_call(socket: &std::path::Path, words: &[&str]) -> i32 {
+fn app_call(socket: &Path, words: &[&str]) -> i32 {
     let mut command_args = vec!["app", "call"];
     command_args.extend_from_slice(words);
     run(&global_for(socket), parse(&args(&command_args)).unwrap().unwrap())
@@ -868,6 +923,52 @@ fn ghostty_diagnostics_reads_the_app_report() {
     assert_eq!(method, "ghostty.diagnostics");
     assert_eq!(params, json!({}));
     assert!(parse(&args(&["ghostty", "diagnostics", "extra"])).is_err());
+}
+
+/// `cmux errors` lists the app's error journal (`errors.list`) with its
+/// filters; `cmux errors clear` forgets entries (`errors.clear`).
+#[test]
+fn errors_lists_and_clears_the_app_journal() {
+    let (method, params) = call(parse(&args(&["errors"])).unwrap().unwrap());
+    assert_eq!(method, "errors.list");
+    assert_eq!(params, json!({}));
+    let (method, params) = call(
+        parse(&args(&[
+            "errors",
+            "list",
+            "--since",
+            "2h",
+            "--source",
+            "acpmux",
+            "--source",
+            "page",
+            "--level",
+            "error",
+            "--text",
+            "hello",
+            "--top",
+            "--limit",
+            "5",
+            "--no-harvest",
+        ]))
+        .unwrap()
+        .unwrap(),
+    );
+    assert_eq!(method, "errors.list");
+    assert_eq!(
+        params,
+        json!({"since": "2h", "source": ["acpmux", "page"], "level": "error", "text": "hello",
+               "order": "count", "limit": 5, "harvest": false})
+    );
+    let (method, params) = call(
+        parse(&args(&["errors", "clear", "--fingerprint", "ab", "--fingerprint", "cd"]))
+            .unwrap()
+            .unwrap(),
+    );
+    assert_eq!(method, "errors.clear");
+    assert_eq!(params, json!({"fingerprints": ["ab", "cd"]}));
+    assert!(parse(&args(&["errors", "list", "--limit", "0"])).is_err());
+    assert!(parse(&args(&["errors", "list", "stray"])).is_err());
 }
 
 #[test]
@@ -969,3 +1070,189 @@ fn web_urls_are_absolute_http_with_a_host() {
         assert!(!is_web_url(bad), "{bad}");
     }
 }
+
+fn local(command: AppCommand) -> Result<Value, Value> {
+    match command {
+        AppCommand::Settings(settings::Command::Local(answer)) => answer,
+        _ => panic!("expected a local answer"),
+    }
+}
+
+#[test]
+fn config_is_the_settings_scope() {
+    assert_eq!(
+        call(parse(&args(&["config", "set", "sidebar.side", "right"])).unwrap().unwrap()),
+        ("settings.set", json!({ "path": "sidebar.side", "value": "right" }))
+    );
+    assert_eq!(
+        call(parse(&args(&["config", "get", "sidebar.side"])).unwrap().unwrap()),
+        ("settings.get", json!({ "path": "sidebar.side" }))
+    );
+}
+
+#[test]
+fn settings_list_keys_and_schema_answer_without_the_app() {
+    let keys = local(parse(&args(&["settings", "list", "--keys"])).unwrap().unwrap()).unwrap();
+    let keys: Vec<&str> =
+        keys.as_array().unwrap().iter().map(|key| key.as_str().unwrap()).collect();
+    assert!(keys.contains(&"sidebar.side") && keys.contains(&"appearance.theme"), "{keys:?}");
+    assert!(keys.windows(2).all(|pair| pair[0] < pair[1]), "sorted, no duplicates");
+    let section = local(
+        parse(&args(&["config", "list", "--keys", "--section", "browser"])).unwrap().unwrap(),
+    )
+    .unwrap();
+    let section = section.as_array().unwrap();
+    assert!(!section.is_empty() && section.len() < keys.len());
+    assert!(!section.contains(&json!("sidebar.side")));
+
+    let AppCommand::Settings(settings::Command::Document(schema)) =
+        parse(&args(&["settings", "schema"])).unwrap().unwrap()
+    else {
+        panic!("schema is a local document")
+    };
+    assert_eq!(schema["$schema"], "https://json-schema.org/draft/2020-12/schema");
+    assert_eq!(
+        schema["properties"]["sidebar"]["properties"]["side"]["enum"],
+        json!(["left", "right"])
+    );
+    assert!(parse(&args(&["settings", "schema", "extra"])).is_err());
+    assert!(parse(&args(&["settings", "list", "--nope"])).is_err());
+    assert!(parse(&args(&["settings", "list", "--section"])).is_err());
+}
+
+#[test]
+fn settings_list_shows_the_app_settings_as_schema_rows() {
+    let answer = json!({ "id": 1, "ok": true, "result": {
+        "path": [], "exists": true, "file": "/tmp/cmux-next.json",
+        "value": { "sidebar": { "side": "right", "density": "not-a-density" } },
+    } });
+    let (socket, app) = fake_app(vec![answer.clone()]);
+    let command = parse(&args(&["settings", "list", "--section", "appearance"])).unwrap().unwrap();
+    assert_eq!(run(&global_for(&socket), command), 0);
+    let connections = app.join().unwrap();
+    let [request] = connections[0].as_slice() else { panic!("{connections:?}") };
+    let mut sent = request["params"].clone();
+    sent.as_object_mut().unwrap().remove("after");
+    assert_eq!((&request["method"], &sent), (&json!("settings.get"), &json!({})));
+
+    let rows = settings::list_rows(&answer["result"], Some("appearance"));
+    let row =
+        |key: &str| rows.as_array().unwrap().iter().find(|row| row["key"] == key).cloned().unwrap();
+    let side = row("sidebar.side");
+    assert_eq!((&side["value"], &side["default"]), (&json!("right"), &json!("left")));
+    // The app reports the effective settings: whether the file sets a key or
+    // a policy manages it is not known here, so the rows do not claim it.
+    assert!(side.get("customized").is_none() && side.get("managed").is_none(), "{side}");
+    // A refused value applies its default, as in the app.
+    let density = row("sidebar.density");
+    assert_eq!(density["value"], density["default"]);
+    assert!(rows.as_array().unwrap().iter().all(|row| row["section"] == "appearance"));
+    let shown = settings::human_rows(&rows);
+    assert_eq!(shown[0].as_object().unwrap().len(), 3, "key, value, default");
+    // A section no row is in names the sections.
+    let error = parse(&args(&["settings", "list", "--section", "nope"])).err().unwrap();
+    assert!(error.to_string().contains("appearance"), "{error}");
+    assert!(
+        parse(&args(&["settings", "list", "--section", "browser", "--section", "general"]))
+            .is_err()
+    );
+}
+
+#[test]
+fn settings_validate_reports_what_the_owner_would() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("cmux-next.json");
+    let validate = |text: &str| {
+        std::fs::write(&file, text).unwrap();
+        let path = file.display().to_string();
+        local(parse(&args(&["config", "validate", path.as_str()])).unwrap().unwrap())
+    };
+    let ok = validate("// my rice\n{ \"sidebar\": { \"side\": \"right\", }, \"actions\": {} }\n")
+        .unwrap();
+    assert_eq!(ok["valid"], true);
+
+    let error = validate(
+        "{ \"sidebar\": { \"side\": \"top\" }, \"appearance\": { \"glassTransparency\": 9 } }",
+    )
+    .unwrap_err();
+    assert_eq!(error["code"], "settings.invalid");
+    let keys: Vec<&Value> =
+        error["details"]["diagnostics"].as_array().unwrap().iter().map(|d| &d["path"]).collect();
+    assert!(
+        keys.contains(&&json!("sidebar.side"))
+            && keys.contains(&&json!("appearance.glassTransparency")),
+        "{keys:?}"
+    );
+    let message = error["message"].as_str().unwrap();
+    assert!(
+        message.contains("sidebar.side does not accept \"top\"; expected one of left, right"),
+        "{message}"
+    );
+    assert!(message.contains("expected a number from 0 to 1"), "{message}");
+    let side = error["details"]["diagnostics"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|d| d["path"] == "sidebar.side")
+        .unwrap();
+    assert_eq!(side["accepted"], json!({ "choices": ["left", "right"] }));
+
+    let broken = validate("{ \"sidebar\": ").unwrap_err();
+    assert_eq!(broken["details"]["diagnostics"][0]["kind"], "unreadable_file");
+
+    let missing = dir.path().join("nope.json").display().to_string();
+    let missing =
+        local(parse(&args(&["settings", "validate", missing.as_str()])).unwrap().unwrap());
+    assert_eq!(missing.unwrap_err()["code"], "settings.unreadable");
+}
+
+/// Lawrence 2026-10-19: `cmux <noun> move-to-window --new` moves the object
+/// to a new window, as `cmux <noun> move-to-new-window` does, for every noun.
+#[test]
+fn move_to_window_new_is_move_to_new_window() {
+    for noun in
+        ["tab", "tab-group", "pane", "workspace", "workspace-group", "screen", "screen-group"]
+    {
+        let name = format!("{noun} move-to-window");
+        assert_eq!(
+            new_window_spelling(&name, &args(&["--new", "--target", "x1"])),
+            Some((format!("{noun} move-to-new-window"), args(&["--target", "x1"]))),
+            "{noun}"
+        );
+        assert_eq!(
+            new_window_spelling(&name, &args(&["--target", "x1", "--new=true"])),
+            Some((format!("{noun} move-to-new-window"), args(&["--target", "x1"]))),
+            "{noun} --new=true"
+        );
+    }
+    // Without --new it names a window: the action keeps its own name.
+    assert_eq!(new_window_spelling("workspace move-to-window", &args(&["--window", "w1"])), None);
+    assert_eq!(new_window_spelling("workspace move-to-window", &args(&["--new=false"])), None);
+    assert_eq!(new_window_spelling("workspace rename", &args(&["--new"])), None);
+}
+
+/// A Chief turn (`CMUX_CALLER_HOME_CHAT=1`, set by the Chief host) names the
+/// Home chat too, so the app opens its tabs beside Home's chat when it does not
+/// know the turn's agent session (a Cloud Chief turn on a VM, or a local turn).
+#[test]
+fn a_chief_turn_names_the_home_chat_as_its_caller() {
+    let env = |pairs: &'static [(&'static str, &'static str)]| {
+        move |key: &str| pairs.iter().find(|(k, _)| *k == key).map(|(_, v)| (*v).to_owned())
+    };
+    assert_eq!(
+        caller_from(env(&[("CMUX_AGENT_SESSION", "turn-1"), ("CMUX_CALLER_HOME_CHAT", "1")])),
+        Some(json!({ "agent_session": "turn-1", "home_chat": true }))
+    );
+    assert_eq!(
+        caller_from(env(&[("CMUX_CALLER_HOME_CHAT", "1")])),
+        Some(json!({ "home_chat": true }))
+    );
+    assert_eq!(
+        caller_from(env(&[("CMUX_AGENT_SESSION", "turn-1")])),
+        Some(json!({ "agent_session": "turn-1" }))
+    );
+    assert_eq!(caller_from(env(&[("CMUX_CALLER_HOME_CHAT", "0")])), None);
+}
+
+#[path = "right_tests.rs"]
+mod right;

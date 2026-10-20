@@ -136,12 +136,12 @@ final class ChatsOpenCoordinator {
             createWorkspace(WorkspaceSpawn(cwd: cwd, name: name, command: command, env: env), seed: seed)
         case .readOnly(let path):
             guard let pane = services.windows.active?.focusedPane else { return }
-            _ = services.viewers.markdownPages.open(URL(fileURLWithPath: path), in: pane, focus: true, userChose: false)
+            _ = services.viewers.markdownPages.open(URL(fileURLWithPath: path), in: pane, focus: true, userChose: false, readOnly: true)
         }
     }
 
-    /// The New Tab page `page` becomes `seed`'s chat: the chat opens in the page's pane, in the
-    /// page's place, and the page closes once the chat's tab exists. False when the page is gone.
+    /// The New Tab page `page` opens `seed`'s chat: right of the page's pane by default, else (Same
+    /// Pane) in the page's place; the page closes once the chat's tab exists. False when the page is gone.
     private func replace(_ page: String, with seed: AgentPaneSeed) -> Bool {
         guard let services else { return false }
         // The page's store id (it may have been provisional at the click). The New Tab page is an
@@ -152,6 +152,17 @@ final class ChatsOpenCoordinator {
         // A page of another machine never becomes a chat of this Mac (cx-k21v): the chat opens in a
         // new workspace of this Mac instead, as before open-here.
         guard pane.daemon.isLocal else { return false }
+        // The chat lands right of the page's pane (LinkOpener, `layout.linkPlacement`), like every
+        // link the person opens; only Same Pane makes it the page's tab in place.
+        if NewTabPage.opensBeside(page, in: pane) {
+            let closePage = NewTabPage.closingPage(page, in: pane)
+            return services.linkOpener.open(from: pane) { [services] target, placed in
+                services.agentTabs.openTab(in: target, seed: AgentPaneSeedSource(seed), select: placed == nil) { key in
+                    if let placed, let surface = services.locateTab(key)?.0.surface { placed(surface) }
+                    closePage()
+                }
+            }
+        }
         let placed = NewTabSlot.placing(after: slot, services: services) { [weak pane] (_: String) in
             pane?.close([StripTabID(page)])
         }

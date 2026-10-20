@@ -203,13 +203,6 @@ wire_enum! {
     }
 }
 
-wire_enum! {
-    HomeParticipantRole {
-        Owner = "owner",
-        Member = "member",
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct HomeParticipantInput {
     pub id: ParticipantId,
@@ -232,6 +225,15 @@ wire_enum! {
     HomeParticipantInputAgentClass {
         Mux = "mux",
         Agent = "agent",
+    }
+}
+
+wire_enum! {
+    HomeParticipantRole {
+        Owner = "owner",
+        Admin = "admin",
+        Member = "member",
+        ReadOnly = "read_only",
     }
 }
 
@@ -815,6 +817,8 @@ pub enum Step {
     Sleep(StepSleep),
     Note(StepNote),
     Op(StepOp),
+    Machine(StepMachine),
+    Agent(StepAgent),
     /// A member this build does not know (a newer backend), kept verbatim.
     Unknown(Value),
 }
@@ -849,6 +853,35 @@ pub struct StepOp {
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct StepMachine {
+    pub r#type: LitMachine,
+    pub machine: MachineId,
+    pub command: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input_from: Option<i64>,
+    pub timeout_seconds: i64,
+}
+
+wire_enum! {
+    StepAgentHarness {
+        Claude = "claude",
+        Codex = "codex",
+        Opencode = "opencode",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct StepAgent {
+    pub r#type: LitAgent,
+    pub machine: MachineId,
+    pub harness: StepAgentHarness,
+    pub prompt: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input_from: Option<i64>,
+    pub timeout_seconds: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(untagged)]
 pub enum TargetPolicy {
     CloudVm(TargetPolicyCloudVm),
@@ -867,30 +900,5 @@ wire_enum! {
         CloudVm = "cloud_vm",
         Wait = "wait",
         Fail = "fail",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TargetPolicyHost {
-    pub kind: LitHost,
-    pub host: HostId,
-    pub fallback: TargetPolicyHostFallback,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamAiLimitMember {
-    pub user: UserId,
-    pub display_name: String,
-    pub role: String,
-    pub limit_usd: WireNumber,
-    pub source: TeamAiLimitMemberSource,
-    pub spent_usd: WireNumber,
-}
-
-wire_enum! {
-    TeamAiLimitMemberSource {
-        Personal = "personal",
-        Team = "team",
-        Default = "default",
     }
 }

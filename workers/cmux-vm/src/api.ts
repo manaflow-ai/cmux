@@ -96,6 +96,9 @@ export class Vm extends Schema.Class<Vm>("Vm")({
   }),
   createdAt: Schema.String,
   updatedAt: Schema.String,
+  creation: Schema.optional(Schema.Literal("pending")).annotations({
+    description: "Present while the create that made this VM has not finished: the VM could not be grown to the requested size. Retry that create with its Idempotency-Key or creationKey to finish it, or delete the VM.",
+  }),
 }) {}
 
 export class CreatedVm extends Vm.extend<CreatedVm>("CreatedVm")({

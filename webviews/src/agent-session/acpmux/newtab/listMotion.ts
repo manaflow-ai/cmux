@@ -44,6 +44,17 @@ function trackAnimation(running: { current: Animation[] }, animation: Animation)
   running.current.push(animation);
 }
 
+/// More than one row arrives or more than one leaves.
+function isLoad(before: readonly string[], after: readonly string[]): boolean {
+  const was = new Set(before);
+  const is = new Set(after);
+  let arrived = 0;
+  let left = 0;
+  for (const key of is) if (!was.has(key) && ++arrived > 1) return true;
+  for (const key of was) if (!is.has(key) && ++left > 1) return true;
+  return false;
+}
+
 function measure(root: HTMLElement, elements: HTMLElement[], keys: readonly string[]): Places {
   const origin = root.getBoundingClientRect();
   return new Map(
@@ -69,14 +80,22 @@ export function useListMotion(list: RefObject<HTMLElement | null>, rows: string,
   keysRef.current = keys;
   const signature = JSON.stringify(keys);
   const observed = useRef<{ root: HTMLElement; observer: ResizeObserver } | null>(null);
-  useLayoutEffect(
-    () => () => {
+  useLayoutEffect(() => {
+    // A page hidden mid-motion (another New Tab opened over it) ends its motion there: WebKit
+    // suspends a hidden page's animations, and this one would finish when the page shows again.
+    const doc = list.current?.ownerDocument ?? (typeof document === "undefined" ? undefined : document);
+    const hid = () => {
+      if (doc?.visibilityState === "hidden") cancelRunning(running);
+    };
+    doc?.addEventListener("visibilitychange", hid);
+    return () => {
+      doc?.removeEventListener("visibilitychange", hid);
       observed.current?.observer.disconnect();
       observed.current = null;
       cancelRunning(running);
-    },
-    [],
-  );
+    };
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- the list's document, read once at mount.
+  }, []);
   // The key signature is the invalidation boundary for list motion. The callers derive `keys`
   // from their snapshots and may allocate a fresh array on every render; depending on that array
   // would put the measurement work back on every render. ResizeObserver remains responsible for
@@ -106,18 +125,24 @@ export function useListMotion(list: RefObject<HTMLElement | null>, rows: string,
       shownKeys.current = [];
       return;
     }
-    if (isAgentMotionOff()) {
+    // A hidden page (an earlier New Tab page parked behind a newer one, Leo 2026-10-19) moves
+    // nothing either: its rows take their new places at once. WebKit suspends a hidden page's
+    // animations, so a slide or fade started now would play when the page shows again.
+    if (isAgentMotionOff() || root.ownerDocument.visibilityState === "hidden") {
       cancelRunning(running);
       places.current = measure(root, elements, currentKeys);
       shown.current = signature;
       shownKeys.current = currentKeys;
       return;
     }
-    const changed = shown.current !== "" && shown.current !== signature;
+    // Only a real insert or removal moves: a row or so arriving or leaving. A list that swaps
+    // more at once is a load (a page shows the app's device chats, then acpmux's sessions take
+    // their slots under other keys), and is drawn in place like the first one.
+    const changed = shown.current !== "" && shown.current !== signature && !isLoad(shownKeys.current, currentKeys);
     const before = places.current;
     // Reads: where each row is drawn now (running slides included), then its new place.
     const drawn = new Map(elements.map((element, index) => [currentKeys[index], drawnShift(element)] as const));
-    if (changed) cancelRunning(running);
+    if (shown.current !== signature) cancelRunning(running);
     const after = measure(root, elements, currentKeys);
     places.current = after;
     shown.current = signature;

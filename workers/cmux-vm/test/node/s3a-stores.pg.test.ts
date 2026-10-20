@@ -8,6 +8,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import ownership from "../../migrations/0001_cmux_vm_ownership.sql?raw";
 import s2 from "../../migrations/0002_cmux_vm_display_name_audit.sql?raw";
 import snapshots from "../../migrations/0003_cmux_vm_snapshot_parent.sql?raw";
+import uncommittedCreations from "../../migrations/0012_cmux_vm_uncommitted_creations.sql?raw";
 import { ApiKeyAdminStore, sqlApiKeyAdminStoreLayer } from "../../src/db/api-keys.ts";
 import { sqlSnapshotStoreLayer, SnapshotStore, type SnapshotPage } from "../../src/db/snapshots.ts";
 import { SqlClient, StoreError } from "../../src/db/sql.ts";
@@ -29,6 +30,7 @@ beforeEach(async () => {
   await pg.exec(ownership);
   await pg.exec(s2);
   await pg.exec(snapshots);
+  await pg.exec(uncommittedCreations);
   const sql = Layer.succeed(SqlClient, {
     query: (operation, text, params) =>
       Effect.tryPromise({

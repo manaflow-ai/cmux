@@ -8,7 +8,7 @@
         "key": "settings.group.sidebar",
         "text": "Sidebar"
       },
-      "note": "Hover cards of sidebar workspace rows and tabs (Lawrence 2026-10-14: wait as long as Chrome does, and can be turned off).",
+      "note": "Hover cards of sidebar workspace rows and tabs (Lawrence 2026-10-14: can be turned off; 2026-10-18: Chrome's 1300 ms was too slow, about a tooltip's delay now).",
       "rows": [
         {
           "key": "sidebar.hoverCards.enabled",
@@ -34,7 +34,7 @@
         },
         {
           "key": "sidebar.hoverCards.delay",
-          "note": "Milliseconds the pointer rests before a card opens. 1300 is Chrome's tab hover card delay at the default tab width (tab_hover_card_controller.cc GetShowDelay: kMaximumTriggerDelay 800 ms plus kTabHoverCardAdditionalMaxWidthDelay 500 ms).",
+          "note": "Milliseconds the pointer rests before the first card opens (HoverCardTiming.showDelay). While a card shows, or within 500 ms after it went, the next one opens at once.",
           "title": {
             "key": "settings.sidebar.hoverCards.delay",
             "text": "Hover Card Delay"
@@ -50,13 +50,211 @@
             "step": 100,
             "unit": "milliseconds"
           },
-          "default": 1300,
+          "default": 250,
           "keywords": [
             "hover",
             "card",
             "delay",
             "wait",
             "milliseconds"
+          ]
+        },
+        {
+          "key": "sidebar.hoverCards.layout",
+          "note": "u3320 (Lawrence 2026-10-19): the workspace card's design (plans/cmux-next/hover-card-history/DESIGN.md). timeline (default): stats and a scrollable history of prompts, waits and finished turns; compact: the facts and the last three moments; log: the history alone; classic: the card before the history; minimal: title, status, last prompt.",
+          "title": {
+            "key": "settings.sidebar.hoverCards.layout",
+            "text": "Workspace Card Layout"
+          },
+          "help": {
+            "key": "settings.sidebar.hoverCards.layout.help",
+            "text": "What a workspace's hover card shows: its history of prompts and waits, its details, or both."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "timeline",
+              "title": {
+                "key": "settings.choice.hoverCardTimeline",
+                "text": "Stats and History"
+              }
+            },
+            {
+              "value": "compact",
+              "title": {
+                "key": "settings.choice.hoverCardCompact",
+                "text": "Compact"
+              }
+            },
+            {
+              "value": "log",
+              "title": {
+                "key": "settings.choice.hoverCardLog",
+                "text": "Full History"
+              }
+            },
+            {
+              "value": "classic",
+              "title": {
+                "key": "settings.choice.hoverCardClassic",
+                "text": "Details Only"
+              }
+            },
+            {
+              "value": "minimal",
+              "title": {
+                "key": "settings.choice.hoverCardMinimal",
+                "text": "Minimal"
+              }
+            }
+          ],
+          "default": "timeline",
+          "keywords": [
+            "hover",
+            "card",
+            "workspace",
+            "layout",
+            "history",
+            "timeline",
+            "prompts"
+          ]
+        },
+        {
+          "key": "sidebar.hoverCards.sections.timings",
+          "note": "u3320 (Lawrence 2026-10-19): which parts a workspace hover card shows. On by default.",
+          "title": {
+            "key": "settings.sidebar.hoverCards.sections.timings",
+            "text": "Show Running Times in Workspace Cards"
+          },
+          "help": {
+            "key": "settings.sidebar.hoverCards.sections.timings.help",
+            "text": "How long the workspace has worked or waited, and how long its command has run."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "hover",
+            "card",
+            "workspace",
+            "timings",
+            "elapsed",
+            "duration"
+          ]
+        },
+        {
+          "key": "sidebar.hoverCards.sections.prompts",
+          "note": "u3320 (Lawrence 2026-10-19): which parts a workspace hover card shows. On by default.",
+          "title": {
+            "key": "settings.sidebar.hoverCards.sections.prompts",
+            "text": "Show Prompts in Workspace Cards"
+          },
+          "help": {
+            "key": "settings.sidebar.hoverCards.sections.prompts.help",
+            "text": "Each prompt you sent and when, in the card's history."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "hover",
+            "card",
+            "workspace",
+            "prompts",
+            "history"
+          ]
+        },
+        {
+          "key": "sidebar.hoverCards.sections.waiting",
+          "note": "u3320 (Lawrence 2026-10-19): which parts a workspace hover card shows. On by default.",
+          "title": {
+            "key": "settings.sidebar.hoverCards.sections.waiting",
+            "text": "Show Waits in Workspace Cards"
+          },
+          "help": {
+            "key": "settings.sidebar.hoverCards.sections.waiting.help",
+            "text": "When an agent waited for your input or finished its turn, in the card's history."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "hover",
+            "card",
+            "workspace",
+            "waiting",
+            "input",
+            "finished",
+            "done"
+          ]
+        },
+        {
+          "key": "sidebar.hoverCards.sections.git",
+          "note": "u3320 (Lawrence 2026-10-19): which parts a workspace hover card shows. On by default.",
+          "title": {
+            "key": "settings.sidebar.hoverCards.sections.git",
+            "text": "Show Branch in Workspace Cards"
+          },
+          "help": {
+            "key": "settings.sidebar.hoverCards.sections.git.help",
+            "text": "The workspace's branch and pull request."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "hover",
+            "card",
+            "workspace",
+            "git",
+            "branch",
+            "pull request"
+          ]
+        },
+        {
+          "key": "sidebar.hoverCards.sections.ports",
+          "note": "u3320 (Lawrence 2026-10-19): which parts a workspace hover card shows. On by default.",
+          "title": {
+            "key": "settings.sidebar.hoverCards.sections.ports",
+            "text": "Show Ports in Workspace Cards"
+          },
+          "help": {
+            "key": "settings.sidebar.hoverCards.sections.ports.help",
+            "text": "The ports the workspace listens on."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "hover",
+            "card",
+            "workspace",
+            "ports",
+            "server",
+            "listening"
+          ]
+        },
+        {
+          "key": "sidebar.hoverCards.maxRows",
+          "note": "u3320: the most history lines a workspace card lists (the card scrolls).",
+          "title": {
+            "key": "settings.sidebar.hoverCards.maxRows",
+            "text": "Workspace Card History Lines"
+          },
+          "help": {
+            "key": "settings.sidebar.hoverCards.maxRows.help",
+            "text": "The most prompts, waits and finished turns a workspace's card lists. The list scrolls."
+          },
+          "kind": "number",
+          "range": {
+            "min": 1,
+            "max": 100,
+            "step": 1,
+            "unit": "count"
+          },
+          "default": 20,
+          "keywords": [
+            "hover",
+            "card",
+            "history",
+            "rows",
+            "lines",
+            "limit"
           ]
         }
       ]

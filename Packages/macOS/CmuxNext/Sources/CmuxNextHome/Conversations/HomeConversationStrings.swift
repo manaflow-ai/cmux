@@ -11,6 +11,8 @@ enum HomeConversationStrings {
     static var newMessage: String { String(localized: "home.list.newMessage", defaultValue: "New Message…", bundle: .module) }
     static var newChief: String { String(localized: "home.list.newChief", defaultValue: "New Chief…", bundle: .module) }
     static var invite: String { String(localized: "home.list.invite", defaultValue: "Invite to cmux-next…", bundle: .module) }
+    /// Group info's Invite by Email… after a `not_reachable` refusal.
+    static var inviteByEmail: String { String(localized: "home.groupInfo.inviteByEmail", defaultValue: "Invite by Email…", bundle: .module) }
     static var empty: String {
         String(localized: "home.list.empty", defaultValue: "No conversations yet. Start one with New Message.", bundle: .module)
     }
@@ -39,29 +41,87 @@ enum HomeConversationStrings {
     }
     static var untitled: String { String(localized: "home.list.untitled", defaultValue: "Conversation", bundle: .module) }
 
+    // MARK: Chiefs (HomeChiefRoster)
+
+    /// The main Chief's tag in the list.
+    static var mainChief: String { String(localized: "home.list.chief.main", defaultValue: "Main", bundle: .module) }
+    /// A Chief that runs on this Mac.
+    static var placeThisMac: String { String(localized: "home.list.chief.thisMac", defaultValue: "This Mac", bundle: .module) }
+    /// A Chief that runs in the cloud (the Hosted Chief).
+    static var placeCloud: String { String(localized: "home.list.chief.cloud", defaultValue: "Cloud", bundle: .module) }
+    /// A Chief on a paired server whose name is not known yet.
+    static var placeServer: String { String(localized: "home.list.chief.server", defaultValue: "Paired server", bundle: .module) }
+
+    // MARK: Message requests (home-messaging-invites DESIGN 2.3, 2.5)
+
+    /// The sender's row while the other person has not joined.
+    static func waitingFor(_ name: String) -> String {
+        String(format: String(localized: "home.invite.waitingFor", defaultValue: "Waiting for %@ to accept", bundle: .module), name)
+    }
+    /// The sidebar's button to the requests.
+    static func requestsBar(_ count: Int) -> String {
+        String(format: String(localized: "home.requests.bar", defaultValue: "Message Requests (%lld)", bundle: .module), count)
+    }
+    static var requestsTitle: String { String(localized: "home.requests.title", defaultValue: "Message Requests", bundle: .module) }
+    static var requestsBody: String {
+        String(localized: "home.requests.body",
+               defaultValue: "People you have not talked to yet. They do not get notified, and they do not know if you read their message.",
+               bundle: .module)
+    }
+    static var requestsNone: String { String(localized: "home.requests.none", defaultValue: "No message requests.", bundle: .module) }
+    static var requestsDone: String { String(localized: "home.requests.done", defaultValue: "Done", bundle: .module) }
+    static var requestAccept: String { String(localized: "home.requests.accept", defaultValue: "Accept", bundle: .module) }
+    static var requestDecline: String { String(localized: "home.requests.decline", defaultValue: "Decline", bundle: .module) }
+    static var requestBlock: String { String(localized: "home.requests.block", defaultValue: "Block", bundle: .module) }
+    static var requestTrusted: String { String(localized: "home.requests.trusted", defaultValue: "Same company", bundle: .module) }
+    /// A group request's line: "Invited you to Lunch".
+    static func requestGroup(_ title: String) -> String {
+        String(format: String(localized: "home.requests.group", defaultValue: "Invited you to %@", bundle: .module), title)
+    }
+    static var requestGroupUntitled: String {
+        String(localized: "home.requests.groupUntitled", defaultValue: "Invited you to a group", bundle: .module)
+    }
+    static var requestFailed: String { String(localized: "home.outcome.failed", defaultValue: "That didn’t work. Try again.", bundle: .module) }
+
     // MARK: New Message
 
+    /// The draft row's title and the page's name (Messages' "New Message").
     static var composeTitle: String { String(localized: "home.compose.title", defaultValue: "New Message", bundle: .module) }
+    /// The To: field's VoiceOver label.
     static var composeSearch: String {
         String(localized: "home.compose.search", defaultValue: "Name or email address", bundle: .module)
     }
-    static var composeGroupName: String {
-        String(localized: "home.compose.groupName", defaultValue: "Group name (optional)", bundle: .module)
-    }
-    static var composeStart: String { String(localized: "home.compose.start", defaultValue: "Start", bundle: .module) }
     static var cancel: String { String(localized: "home.compose.cancel", defaultValue: "Cancel", bundle: .module) }
-    static func composeAddAddress(_ address: String) -> String {
-        String(format: String(localized: "home.compose.addAddress", defaultValue: "Invite %@ by email", bundle: .module), address)
-    }
+    /// The To: field's value for VoiceOver: the chosen names.
     static func composeTo(_ names: String) -> String {
         String(format: String(localized: "home.compose.to", defaultValue: "To: %@", bundle: .module), names)
     }
+    /// The + button's suggestions when the user has nobody to pick yet.
     static var composeNoContacts: String {
         String(localized: "home.compose.noContacts", defaultValue: "No teammates yet. Invite someone by email.", bundle: .module)
     }
-    static var inviteByEmail: String { String(localized: "home.compose.inviteByEmail", defaultValue: "Invite by Email…", bundle: .module) }
     static var sourceTeam: String { String(localized: "home.compose.source.team", defaultValue: "Team", bundle: .module) }
     static var sourceConnection: String { String(localized: "home.compose.source.connection", defaultValue: "Contact", bundle: .module) }
+    static var sourceAgent: String { String(localized: "home.compose.source.agent", defaultValue: "Chief", bundle: .module) }
+    /// The label in front of the recipient tokens.
+    static var toLabel: String { String(localized: "home.compose.toLabel", defaultValue: "To:", bundle: .module) }
+    /// The + button at the end of the To: field (all people to pick from).
+    static var addRecipient: String { String(localized: "home.compose.addRecipient", defaultValue: "Add Recipient", bundle: .module) }
+    static var addressEmail: String { String(localized: "home.compose.address.email", defaultValue: "Email", bundle: .module) }
+    static var addressPhone: String { String(localized: "home.compose.address.phone", defaultValue: "Phone", bundle: .module) }
+    /// A token's remove button (VoiceOver).
+    static func removeRecipient(_ name: String) -> String {
+        String(format: String(localized: "home.compose.removeRecipient", defaultValue: "Remove %@", bundle: .module), name)
+    }
+    /// A red token: the typed text names nobody.
+    static func unknownRecipient(_ text: String) -> String {
+        String(format: String(localized: "home.compose.unknownRecipient",
+                              defaultValue: "No one named “%@”. Type their email address to invite them.", bundle: .module), text)
+    }
+    /// Return in the message box before anyone is in To:.
+    static var needsRecipient: String {
+        String(localized: "home.compose.needsRecipient", defaultValue: "Add someone in To: first.", bundle: .module)
+    }
 
     // MARK: Invite
 
@@ -85,6 +145,7 @@ enum HomeConversationStrings {
     }
     static var chiefName: String { String(localized: "home.chief.new.name", defaultValue: "Name", bundle: .module) }
     static var chiefCreate: String { String(localized: "home.chief.new.create", defaultValue: "Create", bundle: .module) }
+    static var chiefBackend: String { String(localized: "home.chief.new.backend", defaultValue: "Backend", bundle: .module) }
 
     // MARK: Sidebar previews
 
@@ -142,7 +203,91 @@ enum HomeConversationStrings {
         }
     }
 
-    /// A refused invite's reason as the user reads it (the owner's codes).
+    // MARK: Group info
+
+    static var infoGroupTitle: String { String(localized: "home.info.title.group", defaultValue: "Group Info", bundle: .module) }
+    static var infoDirectTitle: String { String(localized: "home.info.title.direct", defaultValue: "Info", bundle: .module) }
+    /// The Home row menu's item that opens the sheet for a group.
+    static var infoGroupMenu: String { String(localized: "home.info.menu.group", defaultValue: "Group Info…", bundle: .module) }
+    static var infoName: String { String(localized: "home.info.name", defaultValue: "Group name", bundle: .module) }
+    static var infoRename: String { String(localized: "home.info.rename", defaultValue: "Rename", bundle: .module) }
+    static var infoMembers: String { String(localized: "home.info.members", defaultValue: "Members", bundle: .module) }
+    static var infoYou: String { String(localized: "home.info.you", defaultValue: "You", bundle: .module) }
+    static var infoInvited: String { String(localized: "home.info.invited", defaultValue: "Invited", bundle: .module) }
+    static var infoAgent: String { String(localized: "home.info.agent", defaultValue: "Agent", bundle: .module) }
+    static var infoRemove: String { String(localized: "home.info.remove", defaultValue: "Remove", bundle: .module) }
+    static var infoRoleOwner: String { String(localized: "home.info.role.owner", defaultValue: "Owner", bundle: .module) }
+    static var infoRoleAdmin: String { String(localized: "home.info.role.admin", defaultValue: "Admin", bundle: .module) }
+    static var infoRoleReadOnly: String { String(localized: "home.info.role.readOnly", defaultValue: "Read-only", bundle: .module) }
+    /// A large group's header; the count is already formatted for the locale ("5,000").
+    static func infoMemberCount(_ count: Int) -> String {
+        String(format: String(localized: "home.info.memberCount", defaultValue: "%@ members", bundle: .module), count.formatted())
+    }
+    static var infoAddPeople: String { String(localized: "home.info.addPeople", defaultValue: "Add People…", bundle: .module) }
+    static var infoAdd: String { String(localized: "home.info.add", defaultValue: "Add", bundle: .module) }
+    static var infoAddSearch: String { String(localized: "home.info.addSearch", defaultValue: "Search people", bundle: .module) }
+    static var infoNoOneToAdd: String {
+        String(localized: "home.info.noOneToAdd", defaultValue: "Everyone you can message is already here.", bundle: .module)
+    }
+    static var infoHideAlerts: String { String(localized: "home.info.hideAlerts", defaultValue: "Hide Alerts", bundle: .module) }
+    static var infoLeave: String { String(localized: "home.info.leave", defaultValue: "Leave Group…", bundle: .module) }
+    static var infoDone: String { String(localized: "home.info.done", defaultValue: "Done", bundle: .module) }
+    static func leaveTitle(_ name: String) -> String {
+        String(format: String(localized: "home.info.leave.title", defaultValue: "Leave “%@”?", bundle: .module), name)
+    }
+    static var leaveBody: String {
+        String(localized: "home.info.leave.body",
+               defaultValue: "You stop getting its messages. Someone in the group can add you again.", bundle: .module)
+    }
+    static var leaveButton: String { String(localized: "home.info.leave.button", defaultValue: "Leave", bundle: .module) }
+
+    /// What a group action's outcome says; nil when it worked.
+    static func groupOutcome(_ outcome: HomeGroupOutcome) -> String? {
+        switch outcome {
+        case .done, .queued, .left: nil
+        case .notReachable(let name):
+            String(format: String(localized: "home.group.outcome.notReachable",
+                                  defaultValue: "You can’t add %@ yet. Invite them by email instead.", bundle: .module), name)
+        case .ownerOnly:
+            String(localized: "home.group.outcome.ownerOnly", defaultValue: "Only the group’s owner can remove people.", bundle: .module)
+        case .forbidden:
+            String(localized: "home.group.outcome.forbidden", defaultValue: "You can’t change this group.", bundle: .module)
+        case .readOnly:
+            String(localized: "home.group.outcome.readOnly", defaultValue: "You can only read this group.", bundle: .module)
+        case .notAGroup:
+            String(localized: "home.group.outcome.notAGroup", defaultValue: "Only a group has a name and members to change.",
+                   bundle: .module)
+        case .unknownConversation:
+            String(localized: "home.group.outcome.unknownConversation", defaultValue: "That conversation isn’t in your list.",
+                   bundle: .module)
+        case .unknownPerson(let name):
+            String(format: String(localized: "home.group.outcome.unknownPerson", defaultValue: "No one named “%@” is in your contacts.",
+                                  bundle: .module), name)
+        case .notAMember(let name):
+            String(format: String(localized: "home.group.outcome.notAMember", defaultValue: "%@ isn’t in this conversation.",
+                                  bundle: .module), name)
+        case .cannotMute:
+            String(localized: "home.group.outcome.cannotMute", defaultValue: "Alerts can be hidden only in Cloud conversations.",
+                   bundle: .module)
+        case .emptyText:
+            String(localized: "home.group.outcome.emptyText", defaultValue: "Type a message first.", bundle: .module)
+        case .noPeople:
+            String(localized: "home.group.outcome.noPeople", defaultValue: "Choose at least one person.", bundle: .module)
+        case .offline:
+            String(localized: "home.outcome.offline", defaultValue: "You’re offline. Nothing was sent.", bundle: .module)
+        case .rateLimited:
+            String(localized: "home.group.outcome.rateLimited", defaultValue: "Too many changes at once. Try again later.",
+                   bundle: .module)
+        case .tooMany:
+            String(localized: "home.group.outcome.tooMany", defaultValue: "A group can have up to 64 people.", bundle: .module)
+        case .refused:
+            // A raw owner code is never shown.
+            String(localized: "home.outcome.failed", defaultValue: "That didn’t work. Try again.", bundle: .module)
+        }
+    }
+
+    /// A refused invite's reason as the user reads it (the owner's codes). A code with no
+    /// sentence of its own reads as the generic failure: a raw code is never shown.
     static func inviteRefusal(_ code: String) -> String {
         switch code {
         case "invite.blocked", "invite.recipient_limited":
@@ -153,8 +298,19 @@ enum HomeConversationStrings {
         case "home.not_configured":
             String(localized: "home.outcome.inviteUnavailable", defaultValue: "Invites aren’t available on this server.",
                    bundle: .module)
-        default: code
+        default:
+            String(localized: "home.outcome.failed", defaultValue: "That didn’t work. Try again.", bundle: .module)
         }
+    }
+}
+
+extension HomeGroupInfo {
+    /// The Home row menu's "Group Info…" item.
+    public static var groupInfoMenuTitle: String { HomeConversationStrings.infoGroupMenu }
+
+    /// The question Leave Group asks first: its title, its text and the button that leaves.
+    public var leavePrompt: (title: String, body: String, button: String) {
+        (HomeConversationStrings.leaveTitle(displayTitle), HomeConversationStrings.leaveBody, HomeConversationStrings.leaveButton)
     }
 }
 

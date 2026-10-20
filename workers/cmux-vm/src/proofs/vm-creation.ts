@@ -49,7 +49,8 @@ const lookup = <C>(caller: Named<C, Principal>, rawKey: string) => Effect.gen(fu
     return { status: stateOf({ state: progress.phase === "cancelled" ? "cancelled" : "cancelling", id: parsed.value, receipt: progress.intent.receipt }),
       pending: { key, intent: progress.intent, createdBy: progress.createdBy, ...(progress.snapshotId === undefined ? {} : { snapshotId: progress.snapshotId }) } };
   }
-  if (receipt !== null && (record === null || (journalId !== null && journalId === receipt.receipt.id))) {
+  // An uncommitted row (its growth failed) is still the journal's pending creation, never a committed one.
+  if (receipt !== null && (receipt.committed || receipt.deleted) && (record === null || (journalId !== null && journalId === receipt.receipt.id))) {
     if (!allowed(caller.value, receipt.receipt.id, receipt.labels, receipt.createdBy)
       || !carriesRequiredLabels(caller.value, receipt.receipt.labels)) return yield* Effect.fail(vmNotFound());
     return { status: stateOf({ state: receipt.deleted ? "deleted" : "committed", id: receipt.receipt.id, receipt: receipt.receipt }), pending: null };

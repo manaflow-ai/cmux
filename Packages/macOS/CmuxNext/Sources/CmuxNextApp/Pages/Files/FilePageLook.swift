@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextCompat
+import CmuxNextDiff
 import CmuxNextSettings
 import Foundation
 import Observation
@@ -25,12 +26,23 @@ final class FilePageLook {
     /// Preference writes not yet seen in the settings file, by path.
     private var pending: [[String]: JSONValue] = [:]
     private var lastSent: JSONValue = .object([:])
+    /// The code editor's defaults from another editor's settings (`editor.importFrom`): the
+    /// mapped section, which editor it came from, and the files watched for a change.
+    private let importSources: EditorSettingsSources
+    private var imported: JSONValue = .object([:])
+    private(set) var importedFrom: ImportableEditor?
+    private var importChoice: EditorImportChoice?
+    private var importWatchers: [ConfigFileWatcher] = []
+    private var importRead: Task<Void, Never>?
 
     /// `configDirectory`: where `<section>/theme.css` lives; nil uses the settings file's folder.
-    init(kind: FilePageKind, settings: @escaping () -> SettingsController?, configDirectory: URL? = nil) {
+    /// `importSources`: where the code editor reads another editor's settings (the home folder).
+    init(kind: FilePageKind, settings: @escaping () -> SettingsController?, configDirectory: URL? = nil,
+         importSources: EditorSettingsSources = EditorSettingsSources(home: FileManager.default.homeDirectoryForCurrentUser)) {
         self.kind = kind
         self.settings = settings
         fixedConfigDirectory = configDirectory
+        self.importSources = importSources
     }
 
     /// `markdown.remoteImages` (default true; coordinator decision for S6).
@@ -60,10 +72,12 @@ final class FilePageLook {
         return { [weak self] in self?.listeners[id] = nil }
     }
 
-    /// The settings section with pending writes applied.
+    /// The settings section with pending writes applied; for the code editor, over the defaults
+    /// taken from another editor (a key set in cmux.json wins).
     private func section() -> JSONValue {
         var value = settings()?.fileRoot[kind.section] ?? .object([:])
         if value.objectValue == nil { value = .object([:]) }
+        if kind == .editor { value = EditorSettingsImport.section(imported: imported, own: value) }
         for (path, written) in pending {
             let stored = Self.value(at: Array(path.dropFirst()), in: value)
             if stored == written { pending[path] = nil }
@@ -91,6 +105,7 @@ final class FilePageLook {
         let settings = settings
         settingsTask = Task { [weak self] in
             for await _ in ObservationStream({ (settings()?.fileRoot[section], settings()?.fileRoot["appearance"]?["syntaxTheme"]) }) {
+                self?.followImportChoice()
                 self?.publish()
             }
         }
@@ -103,6 +118,7 @@ final class FilePageLook {
             themeWatcher = watcher
             watcher.start()
             if kind == .editor {
+                followImportChoice()
                 let feed = DiffLanguageFeed(directory: DiffLanguagePack.directory(configFile: directory.appending(path: "cmux.json")))
                 languageFeed = feed
                 stopLanguages = feed.listen { [weak self] pack in
@@ -112,6 +128,49 @@ final class FilePageLook {
             }
         }
     }
+
+    // MARK: Another editor's settings
+
+    /// Reads the chosen editor's settings again when `editor.importFrom` changed.
+    private func followImportChoice() {
+        guard kind == .editor else { return }
+        let choice = EditorImportChoice(setting: settings()?.fileRoot["editor"]?["importFrom"]?.stringValue)
+        guard choice != importChoice else { return }
+        importChoice = choice
+        importWatchers.forEach { $0.stop() }
+        importWatchers = importSources.watchedFiles(choice).map { file in
+            let watcher = ConfigFileWatcher(url: file) { [weak self] in
+                // task-owner: hops one kernel event to the main actor; readImport owns the read
+                Task { @MainActor in self?.readImport() }
+            }
+            watcher.start(reportInitialChange: false)
+            return watcher
+        }
+        readImport()
+    }
+
+    private func readImport() {
+        guard let choice = importChoice else { return }
+        importRead?.cancel()
+        let sources = importSources
+        importRead = Task { [weak self] in
+            let found = await Self.load(sources, choice)
+            guard let self, !Task.isCancelled else { return }
+            self.importedFrom = found?.editor
+            let section = found?.section ?? .object([:])
+            guard section != self.imported else { return }
+            self.imported = section
+            self.publish()
+        }
+    }
+
+    @concurrent private static func load(_ sources: EditorSettingsSources, _ choice: EditorImportChoice) async -> EditorSettingsSources.Found? {
+        // concurrency-allow: @concurrent, off the main actor
+        sources.load(choice)
+    }
+
+    /// The defaults taken from another editor now (the Import Settings action copies them).
+    var importedSection: JSONValue { imported }
 
     private func readTheme(_ file: URL) {
         themeRead?.cancel()
@@ -148,6 +207,10 @@ final class FilePageLook {
         themeRead?.cancel()
         stopLanguages?()
         stopLanguages = nil
+        importWatchers.forEach { $0.stop() }
+        importWatchers = []
+        importRead?.cancel()
+        importChoice = nil
         listeners.removeAll()
     }
 

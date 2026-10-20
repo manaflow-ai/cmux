@@ -25,6 +25,12 @@ pub(super) struct OpenWork {
     /// and its answer when it is already logged.
     prompt_request: Option<Value>,
     prompt_response: Option<Value>,
+    /// The steers written into that turn (`_meta.steer`), by request id with
+    /// their logged answer. A Claude Code steer is answered `steered` at once
+    /// and the turn runs on; a codex-acp turn answers only its last prompt,
+    /// so a steer's answer can be the one that ends the turn
+    /// (`steer_end.rs`). Never the turn's own prompt (`prompt_request`).
+    steers: Vec<(Value, Option<Value>)>,
     /// Agent requests to this host with no logged answer: (id, method,
     /// params, hostSeq).
     requests: Vec<(Value, String, Option<Value>, Option<u64>)>,
@@ -387,6 +393,7 @@ impl Hub {
                     by_permission.clear();
                     work.prompt_request = None;
                     work.prompt_response = None;
+                    work.steers.clear();
                     work.last_host_seq = 0;
                 }
                 ("mux", "turn_started") => {
@@ -403,6 +410,7 @@ impl Hub {
                     ));
                     work.prompt_request = None;
                     work.prompt_response = None;
+                    work.steers.clear();
                 }
                 ("mux", "turn_control") => {
                     if let Some(t) = work.turn.as_mut()
@@ -415,6 +423,7 @@ impl Hub {
                     work.turn = None;
                     work.prompt_request = None;
                     work.prompt_response = None;
+                    work.steers.clear();
                 }
                 ("mux", "permission_request") if current => {
                     if let (Some(pid), Some(aid)) = (
@@ -438,14 +447,27 @@ impl Hub {
                     }
                 }
                 ("out", method::SESSION_PROMPT) if current && work.turn.is_some() => {
-                    work.prompt_request = e.msg.get("id").cloned();
-                }
-                ("in", "response")
-                    if current
+                    let id = e.msg.get("id").cloned();
+                    // A steer into the running turn is not the turn's prompt: its
+                    // answer (Claude Code's `steered`) does not end the turn.
+                    if e.msg.pointer("/params/_meta/steer").and_then(Value::as_bool) == Some(true)
                         && work.prompt_request.is_some()
-                        && e.msg.get("id") == work.prompt_request.as_ref() =>
-                {
-                    work.prompt_response = Some(e.msg.clone());
+                    {
+                        work.steers.extend(id.map(|id| (id, None)));
+                    } else {
+                        work.prompt_request = id;
+                        work.steers.clear();
+                    }
+                }
+                ("in", "response") if current => {
+                    let id = e.msg.get("id");
+                    if work.prompt_request.is_some() && id == work.prompt_request.as_ref() {
+                        work.prompt_response = Some(e.msg.clone());
+                    } else if let Some(steer) =
+                        work.steers.iter_mut().find(|(steer, _)| id == Some(steer))
+                    {
+                        steer.1 = Some(e.msg.clone());
+                    }
                 }
                 ("out", "response") if current => {
                     if let Some(id) = e.msg.get("id") {
@@ -500,7 +522,11 @@ impl Hub {
         Self::recover_floor(session, &work);
         self.rebuild_processes(session);
         if let Some((turn_seq, turn_id, prompt_id, prompt, client, control)) = work.turn.clone() {
-            match (work.prompt_request.clone(), work.prompt_response.clone()) {
+            // A steer whose logged answer ended the turn settles it like the turn's own answer.
+            let answer = work.prompt_response.clone().or_else(|| {
+                work.steers.iter().find_map(|(_, a)| a.clone().filter(steer_answer_ends_turn))
+            });
+            match (work.prompt_request.clone(), answer) {
                 // The prompt never reached this host (or another host ran
                 // it): nothing can answer it any more.
                 (None, _) => {
@@ -533,6 +559,15 @@ impl Hub {
                         Some(_) => None,
                         None => Some(child.await_response(request_id).await),
                     };
+                    // The steers still unanswered: one of them may end the turn.
+                    let mut steer_answers = Vec::new();
+                    if rx.is_some() {
+                        for (id, logged) in &work.steers {
+                            if logged.is_none() {
+                                steer_answers.push(child.await_response(id.clone()).await);
+                            }
+                        }
+                    }
                     let hub = self.clone();
                     let s = session.clone();
                     let c = child.clone();
@@ -541,13 +576,13 @@ impl Hub {
                         let guard = s.turn_lock.lock().await;
                         let result = match (answer, rx) {
                             (Some(msg), _) => response_result(&msg),
-                            (None, Some(rx)) => rx.await.unwrap_or_else(|_| {
-                                Err(RpcError::internal("agent response channel dropped"))
-                            }),
+                            (None, Some(rx)) => turn_answer(rx, steer_answers).await,
                             (None, None) => Err(RpcError::internal("agent answer lost")),
                         };
                         let _ =
                             hub.finish_turn(&s, &c, result, &prompt_id, &turn_id, turn_seq).await;
+                        // A recovered turn is not continued (`auto_resume.rs`); settle its mark.
+                        hub.schedule_auto_resume(&s, &turn_id, None);
                         // A route switch or an update asked for a restart
                         // during the turn (route_switch.rs): the process ends
                         // now and the next prompt starts it again, resuming
@@ -674,6 +709,37 @@ impl Hub {
 
 /// The `session/request_permission` result for a logged outcome, shaped as
 /// `handle_permission` shapes it (`_meta` lifted out of the outcome).
+/// Whether a logged steer answer (a JSON-RPC response) ended its turn: any
+/// stop reason but Claude Code's `steered` (`steer_end.rs`).
+fn steer_answer_ends_turn(msg: &Value) -> bool {
+    msg.pointer("/result/stopReason").and_then(Value::as_str).is_some_and(|r| r != "steered")
+}
+
+/// The answer that settles a recovered turn: its own prompt's, or the first
+/// steer answer that ends the turn (`steered` answers do not).
+async fn turn_answer(
+    own: tokio::sync::oneshot::Receiver<Result<Value, RpcError>>,
+    steers: Vec<tokio::sync::oneshot::Receiver<Result<Value, RpcError>>>,
+) -> Result<Value, RpcError> {
+    use futures::StreamExt;
+    let mut ending = steers
+        .into_iter()
+        .map(|rx| async move {
+            match rx.await {
+                Ok(Ok(v)) if v.get("stopReason").and_then(Value::as_str) != Some("steered") => {
+                    Some(Ok(v))
+                }
+                _ => None,
+            }
+        })
+        .collect::<futures::stream::FuturesUnordered<_>>()
+        .filter_map(std::future::ready);
+    tokio::select! {
+        r = own => r.unwrap_or_else(|_| Err(RpcError::internal("agent response channel dropped"))),
+        Some(r) = ending.next() => r,
+    }
+}
+
 fn permission_answer(outcome: Value) -> Value {
     let mut out = json!({"outcome": outcome});
     if let Some(m) = out["outcome"].get("_meta").cloned() {

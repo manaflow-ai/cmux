@@ -47,11 +47,15 @@ public struct CmuxSidebarEntry: Hashable, Sendable {
     public var spam: Bool
     /// Sidebar v1.2: deleted at this time (only Recently Deleted shows it).
     public var deletedAt: Date?
+    /// A short tag after the name (the engine a Home Chief runs on, "UniiChat"); nil shows none.
+    /// The vendored row draws only the name, so the tag is part of the name it is given.
+    public var badge: String?
 
     public init(id: String, title: String, people: [Person], preview: String, previewSender: String?, lastAt: Date,
                 unreadCount: Int, pinned: Bool, muted: Bool = false, typing: Bool = false,
-                knownSender: Bool = true, spam: Bool = false, deletedAt: Date? = nil, avatar: Avatar? = nil) {
+                knownSender: Bool = true, spam: Bool = false, deletedAt: Date? = nil, avatar: Avatar? = nil, badge: String? = nil) {
         self.avatar = avatar
+        self.badge = badge
         self.knownSender = knownSender
         self.spam = spam
         self.deletedAt = deletedAt
@@ -67,6 +71,12 @@ public struct CmuxSidebarEntry: Hashable, Sendable {
         self.typing = typing
     }
 
+    /// The name the row draws: the title, then the badge after a middle dot.
+    var shownTitle: String {
+        guard let badge, !badge.isEmpty else { return title }
+        return title + " \u{00B7} " + badge
+    }
+
     /// MessagesLab's summary. `version` comes from the content, so a changed
     /// conversation gets a new bitmap and an unchanged one keeps its own.
     var summary: ConversationSummary {
@@ -79,7 +89,7 @@ public struct CmuxSidebarEntry: Hashable, Sendable {
         }
         let avatar: AvatarSpec = own ?? (members.count > 1 ? .group(members.prefix(4).map(\.avatar))
             : members.first?.avatar ?? .monogram(String(title.prefix(1)).uppercased()))
-        var s = ConversationSummary(id: id, title: title, participants: members, avatar: avatar, preview: preview,
+        var s = ConversationSummary(id: id, title: shownTitle, participants: members, avatar: avatar, preview: preview,
                                     previewSender: previewSender, lastAt: lastAt, unreadCount: unreadCount, pinned: pinned,
                                     muted: muted, typing: typing, lastReaction: nil, version: hashValue)
         s.knownSender = knownSender
@@ -96,6 +106,10 @@ public struct CmuxSidebarEntry: Hashable, Sendable {
 @MainActor
 public final class CmuxSidebarView: NSView {
     public var onSelect: (String?) -> Void = { _ in }
+    /// The person opened a conversation (its id): a plain click on its row or tile, the selected
+    /// one too, or Return on the highlighted one. Called after ``onSelect``; Up/Down and Command-,
+    /// Shift- or Control-clicks only select. The host moves the keyboard into the conversation.
+    public var onOpen: (String) -> Void = { _ in }
     public var onSetPinned: (Bool, String) -> Void = { _, _ in }
     /// A drag put a conversation at an index of the pinned grid (a new place, or a row pinned
     /// there). The host changes its order and calls `show` before returning, so the tiles land
@@ -121,6 +135,23 @@ public final class CmuxSidebarView: NSView {
         set { controller.selectionColor = newValue }
     }
 
+    /// Draws the selected row or pinned tile in a neutral grey in every window state, with the
+    /// normal text colours and grey pinned names, instead of the system's blue selection
+    /// (Messages' pinned grid look). Off by default (MessagesLab's look).
+    public var neutralSelection: Bool {
+        get { controller.neutralSelection }
+        set { controller.neutralSelection = newValue }
+    }
+    /// The filter button, right of the search field, for the host's styling (its frame and menu
+    /// stay the list's).
+    public var filterButton: NSButton { controller.filterButton }
+    /// The filter button's side when the host draws it as a round button (nil: MessagesLab's
+    /// 26 pt accessory button with the circled glyph).
+    public var roundFilterSide: CGFloat? {
+        get { controller.roundFilterSide }
+        set { controller.roundFilterSide = newValue }
+    }
+
     let controller = SidebarController()
     private let link = SidebarLink()
     /// The list's scroll view, for the host's scroller style (cmux's scrollers are thin overlays).
@@ -141,7 +172,13 @@ public final class CmuxSidebarView: NSView {
         controller.view.autoresizingMask = [.width, .height]
         addSubview(controller.view)
         setAccessibilityIdentifier("cmux.home.sidebar")
+        // Reduce Motion changes (the system setting or the host's pin) still or restart the typing
+        // bubbles already pulsing (CmuxSidebarView+Motion.swift).
+        motionObservers = observeReduceMotion()
     }
+
+    /// The Reduce Motion observers (weak: a closed view's turn is a no-op).
+    private var motionObservers: [any NSObjectProtocol] = []
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { nil }
@@ -158,7 +195,7 @@ public final class CmuxSidebarView: NSView {
         public static let recentlyDeleted = FilterSources(rawValue: 1 << 2)
     }
     public var filterSources: FilterSources = [] {
-        didSet { controller.availableFilters = Self.filters(filterSources) }
+        didSet { if layoutHeader == nil { controller.availableFilters = Self.filters(filterSources) } }
     }
     static func filters(_ s: FilterSources) -> [SidebarFilter] {
         SidebarFilter.allCases.filter {
@@ -184,25 +221,51 @@ public final class CmuxSidebarView: NSView {
         controller.reloadData()
     }
 
-    /// In the compact (avatar-only) list the search field is hidden rather
-    /// than clipped to a few letters, and a search in progress ends, so no
-    /// hidden filter stays on the rows. (Upstream ask: Messages' compact search.)
-    public override func layout() {
-        super.layout()
-        let compact = bounds.width < SidebarMetrics.compactBelow
-        guard controller.searchField.isHidden != compact else { return }
-        controller.searchField.isHidden = compact
-        if compact, !controller.searchField.stringValue.isEmpty {
-            controller.searchField.stringValue = ""
-            controller.setQuery("")
-        }
-    }
-
     /// The search field's text.
     public var searchQuery: String { controller.searchField.stringValue }
 
-    /// True while the list is too narrow for the search field.
-    public var searchHidden: Bool { controller.searchField.isHidden }
+    /// The search field, for a host that draws the header itself (`layoutHeader`): its frame,
+    /// look and focus are the host's; its text and search stay the list's.
+    public var searchField: CmuxSidebarSearchField { controller.searchField }
+
+    /// The view the header lives in (flipped, the list's full bounds): a host that lays out the
+    /// header adds its own buttons here, next to the search field.
+    public var headerView: NSView { controller.view }
+
+    /// The host lays out the header: called with the header view's bounds on every layout, it
+    /// places `searchField` and its own buttons and returns the y where the list starts. With
+    /// it, MessagesLab's filter menu button is hidden (the host offers the filter); the search
+    /// field never hides at any width. Nil keeps MessagesLab's header.
+    public var layoutHeader: ((CGRect) -> CGFloat)? {
+        didSet {
+            controller.headerLayout = layoutHeader
+            controller.availableFilters = layoutHeader == nil ? Self.filters(filterSources) : []
+            controller.filterButton.isHidden = layoutHeader != nil || controller.availableFilters.count < 2
+        }
+    }
+
+    /// Only unread conversations (Sidebar v1.2's Unread Messages filter); false shows all.
+    public var unreadOnly: Bool {
+        get { controller.filter == .unread }
+        set { controller.filter = newValue ? .unread : .all }
+    }
+
+    /// Ends a search: the field empties and the list shows every conversation again.
+    public func clearSearch() {
+        guard !controller.searchField.stringValue.isEmpty else { return }
+        controller.searchField.stringValue = ""
+        controller.setQuery("")
+    }
+
+    /// The neutral selection's fill (a translucent theme tint); nil keeps the unemphasized grey.
+    public var neutralSelectionFill: NSColor? {
+        get { controller.neutralFill }
+        set { controller.neutralFill = newValue }
+    }
+
+    /// The list's own strings, for a host's header buttons: Search, and the Unread Messages filter.
+    public static var searchTitle: String { SidebarStrings.search }
+    public static var unreadTitle: String { SidebarStrings.filterName(.unread) }
 
     /// Selects `id` without reporting it (the page already shows it).
     public func select(_ id: String?) {
@@ -269,6 +332,7 @@ private final class SidebarLink: @preconcurrency SidebarDataSource, @preconcurre
     }
 
     func sidebar(_ sidebar: SidebarController, didSelect id: ConversationID?) { owner?.onSelect(id) }
+    func sidebar(_ sidebar: SidebarController, didOpen id: ConversationID) { owner?.onOpen(id) }
     func sidebar(_ sidebar: SidebarController, setPinned pinned: Bool, for id: ConversationID) { owner?.onSetPinned(pinned, id) }
     func sidebar(_ sidebar: SidebarController, setRead read: Bool, for id: ConversationID) { owner?.onSetRead(read, id) }
     func sidebar(_ sidebar: SidebarController, place id: ConversationID, at index: Int) { owner?.onPlacePinned(id, index) }

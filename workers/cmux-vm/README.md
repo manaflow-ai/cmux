@@ -90,7 +90,7 @@ public request; the CLI sends only the known request fields. Private keys
 remain with their signer. Admission is limited to 50 live server identities
 per mesh, independently of provider tunnel and Cloud VM billing capacity.
 
-Migration 0013 adds the server inventory and widens signed-request purposes.
+Migration 0014 adds the server inventory and widens signed-request purposes.
 Apply it and grant the Worker SELECT, INSERT and UPDATE on
 `cmux_vm.mesh_overlay_servers` before deployment. The shared Worker/release
 schema gate requires the table, these privileges and a validated replay
@@ -123,7 +123,7 @@ The code stays in the request file rather than command arguments. Private
 keys remain with the signer. This API does not deliver the code or activate
 a server role; backend pairing still needs to supply the approved channel.
 
-Migration 0014 adds `cmux_vm.mesh_overlay_server_codes`. Apply it through
+Migration 0015 adds `cmux_vm.mesh_overlay_server_codes`. Apply it through
 the versioned runner and grant the Worker SELECT, INSERT and UPDATE before
 deployment. The schema gate checks those privileges. Gateway codes and
 older readers retain their own table and code prefix.
@@ -163,8 +163,8 @@ snapshot succeeds and the create fails, the caller gets 503 `ForkIncomplete`
 with the snapshot's id, the snapshot stays in the tenant's ownership rows, and
 a retry with the same `Idempotency-Key` creates from it without a second
 snapshot. Create with `resources` boots the largest base size inside the
-request and then grows it. A failed grow retains the allocation for recovery
-with its original client-supplied or server-issued creation key.
+request and then grows it. A failed grow keeps the new VM as an uncommitted
+creation instead of deleting it (see "Recover a create without a client key").
 
 Use the same `Idempotency-Key` and request body when retrying a create or fork.
 Before provider I/O, the API durably retains the public allocation ID, original
@@ -290,10 +290,21 @@ Neither value is complete history, and listing never releases quota or contacts
 the provider. The CLI advances at most 32 backfill pages per command; set
 `--index-pages 1..128` to change that budget or resume from the printed cursor.
 
-An uncertain send, or a failed grow under a client key, retains the VM and its
-quota reservation. A failed grow without a client key cancels the creation:
-the VM is deleted and tombstoned, its slot is released, and the answer is 409.
-Use the original intent to recover it, or cancel with its handle. A fork that
+An uncertain send or failed grow retains the VM and its quota reservation.
+Use the original intent to recover it, or cancel with its handle. After a
+failed grow (503, or 429 when the provider is out of capacity) the VM is
+recorded as uncommitted: `GET /v1/vms` and `GET /v1/vms/{vmId}` show it with
+`creation: "pending"`, and the creation status stays `pending`. It is never
+replayed or settled as a finished create, and it keeps its quota slot. Retry
+the create with the same key (or `creationKey`) to grow and commit it;
+reconcile commits it once the VM already meets the requested size. Deleting
+it cancels the creation and frees the slot, including when the delete's own
+answer was lost and it is retried. A same-key retry never creates another VM.
+If the provider deleted it first (for example after `autoDeleteSeconds`), the
+retry answers 503 and keeps the slot until the 10-minute send grace window has
+passed; then, once both its exact slug and its recorded provider VM answer 404,
+the allocation is recorded as deleted, its slot is freed, and the retry answers
+404 like any deleted allocation. A fork that
 used the older snapshot stage without a VM receipt reports unresolved. New
 forks retain their destination ID before capture and stay pending under the
 same handle. Retry the original fork to continue. An absent provider lookup

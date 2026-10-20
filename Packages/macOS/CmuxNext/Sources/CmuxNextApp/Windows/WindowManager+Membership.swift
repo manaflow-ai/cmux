@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextLayout
 import Observation
 
 // Window membership transitions. Every change goes through `transition`,
@@ -84,8 +85,9 @@ extension WindowManager {
             var wanted = preferred[window.id] ?? []
             if state.profileID != room, let remembered = state.profileWorkspaces[state.profileID] { wanted.append(remembered) }
             let prior = WindowProfiles.visible(previous[window.id] ?? window.workspaceIDs, profile: state.profileID, machines: machines)
-            let pick = WindowRegistry.repairedSelection(current: state.workspaceID, previous: prior,
-                                                        members: visible, preferred: wanted)
+            // "The next row" is the sidebar's next drawn row, not the next member to have joined.
+            let pick = WindowRegistry.repairedSelection(current: state.workspaceID, previous: prior, members: visible, preferred: wanted, orders:
+                (controller(for: window.id)?.sidebar.model).map { [$0.drawnWorkspaceOrder().map(\.rawValue), $0.allWorkspaces.map(\.id.rawValue)] } ?? [])
             if state.workspaceID != pick { select(pick, in: state, keepsCreation: true) }
         }
     }
@@ -94,7 +96,7 @@ extension WindowManager {
     private func handOffKey(to receivers: [String]) {
         guard ordersWindowsIn, !services.environment.noActivate else { return }
         let next = receivers.lazy.compactMap { self.controller(for: $0) }.first
-            ?? NSApp.orderedWindows.lazy.compactMap { window in self.controllers.first { $0.window === window } }.first
+            ?? registry.value.recency.lazy.compactMap { self.controller(for: $0) }.first { $0.window?.isVisible == true }
         if let next { bringToFront(next) }
     }
 
@@ -221,6 +223,19 @@ extension WindowManager {
         guard let controller = controller(for: id) else { return nil }
         if let frame { controller.window?.setFrame(frame, display: true) }
         return controller
+    }
+
+    /// Move to New Window's one landing, for every kind of content (tabs, tab groups, panes,
+    /// screens, workspaces, workspace groups): `ids` in a new window beside the window they
+    /// left (`MovedWindowPlacement`), which takes the focus when `select`. When they are all of
+    /// that window's workspaces, the window itself moves there: none opens, none is left empty.
+    func openMovedWindow(_ ids: [String], from origin: MoveOrigin, select: Bool) {
+        let source = origin.window.flatMap(controller(for:))
+        let frame = source?.window.map { MovedWindowPlacement().frame(beside: $0.frame, on: ($0.screen ?? NSScreen.main)?.visibleFrame ?? .infinite) }
+        let whole = source.map { Set(ids) == Set(registry.members(of: $0.state.id)) } == true
+        if whole, let source, let frame { source.window?.setFrame(frame, display: true); recordSaver.stateDidChange(source.state) }
+        guard let moved = whole ? source : openWindow(workspaces: ids, frame: frame, incognito: origin.incognito, behind: !select) else { return }
+        if select { bringToFront(moved) }
     }
 
     /// The user closed window `id`: it stays registered, closed, with its

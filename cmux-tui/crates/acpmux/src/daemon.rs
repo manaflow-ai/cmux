@@ -35,6 +35,50 @@ pub struct DaemonOptions {
     pub dev: bool,
 }
 
+/// The daemon's panic log, `$ACPMUX_HOME/panics.jsonl` (cmux-panic-log):
+/// a panic in a request task ends only that task and used to leave just
+/// two lines in `daemon.log` (the 2026-10-14 sort panic). The cmux-next
+/// app sends new lines to Sentry.
+pub fn panic_log_path() -> std::path::PathBuf {
+    home().join("panics.jsonl")
+}
+
+/// Debug builds only: `thread` makes a worker thread panic once the hook
+/// is installed (tests/panic_log.rs). Its line carries `"test": true`.
+#[cfg(debug_assertions)]
+const TEST_PANIC_ENV: &str = "ACPMUX_TEST_PANIC";
+#[cfg(debug_assertions)]
+const TEST_PANIC_THREAD: &str = "acpmux-panic-test";
+
+/// Install the panic log hook; the previous hook (stderr, so `daemon.log`) still runs.
+fn install_panic_log() {
+    let mut fields = cmux_panic_log::Fields::new();
+    fields.insert("process".into(), "acpmux".into());
+    fields.insert("pid".into(), std::process::id().into());
+    fields.insert("version".into(), env!("CARGO_PKG_VERSION").into());
+    cmux_panic_log::install(panic_log_path(), fields, is_test_panic_thread);
+    #[cfg(debug_assertions)]
+    if std::env::var(TEST_PANIC_ENV).as_deref() == Ok("thread") {
+        let _ = std::thread::Builder::new()
+            .name(TEST_PANIC_THREAD.into())
+            // crash-allow: debug-only test trigger for the acpmux panic log
+            .spawn(|| panic!("acpmux test panic"));
+    }
+}
+
+/// The debug test trigger's thread; its line carries `"test": true`.
+fn is_test_panic_thread(thread: &str) -> bool {
+    #[cfg(debug_assertions)]
+    {
+        thread == TEST_PANIC_THREAD
+    }
+    #[cfg(not(debug_assertions))]
+    {
+        let _ = thread;
+        false
+    }
+}
+
 /// How long SIGTERM or `_acpmux/shutdown` may take before the daemon exits
 /// anyway.
 pub const SHUTDOWN_BUDGET: Duration = Duration::from_secs(5);
@@ -69,6 +113,10 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         .iter()
         .map(|origin| crate::server::dev_origin(origin))
         .collect::<Result<Vec<_>>>()?;
+    // State holds tokens, prompts and tool output. Older builds created the
+    // home with the process umask; narrow it before reading any of them.
+    crate::config::private_state_dir(&home())?;
+    install_panic_log();
     let mut config = Config::load()?;
     // config.json holds the dashboard token: owner-only, also when another
     // tool wrote it with the umask's mode and the daemon never saves it.
@@ -84,7 +132,6 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
             Config::path().display()
         );
     }
-    std::fs::create_dir_all(home())?;
     // launchd starts us in /. The daemon's own folder is its cwd, never the
     // home folder: nothing the daemon or a child does relative to its cwd may
     // walk the user's folders (LAUNCH-NO-TCC-PROMPTS).
@@ -796,26 +843,16 @@ fn open_daemon_log(path: &std::path::Path) -> Result<std::fs::File> {
 /// only after the daemon wrote [`KEY_READY`] on it.
 #[cfg(unix)]
 fn spawn_detached(key: Option<zeroize::Zeroizing<String>>) -> Result<std::fs::File> {
-    use std::os::fd::FromRawFd;
     let exe = std::env::current_exe()?;
-    std::fs::create_dir_all(home())?;
+    crate::config::private_state_dir(&home())?;
     let log = open_daemon_log(&home().join("daemon.log"))?;
     let log_err = log.try_clone()?;
-    let mut fds = [0i32; 2];
-    // SAFETY: fds has room for the two descriptors pipe writes.
-    if unsafe { libc::pipe(fds.as_mut_ptr()) } != 0 {
-        return Err(std::io::Error::last_os_error()).context("pipe for acpmux daemon readiness");
-    }
-    let (read_fd, write_fd) = (fds[0], fds[1]);
-    // SAFETY: both descriptors were just created and are owned here.
-    let (reader, writer) =
-        unsafe { (std::fs::File::from_raw_fd(read_fd), std::fs::File::from_raw_fd(write_fd)) };
-    // Neither end leaks into other children; pre_exec reopens the write end
-    // for the daemon only.
-    unsafe {
-        libc::fcntl(read_fd, libc::F_SETFD, libc::FD_CLOEXEC);
-        libc::fcntl(write_fd, libc::F_SETFD, libc::FD_CLOEXEC);
-    }
+    // Close-on-exec from the start (`pipe2(O_CLOEXEC)` where the OS has it):
+    // a child another thread forks meanwhile never inherits either end, and
+    // pre_exec reopens the write end for the daemon only.
+    let (reader, writer) = std::io::pipe().context("pipe for acpmux daemon readiness")?;
+    let reader = std::fs::File::from(std::os::fd::OwnedFd::from(reader));
+    let write_fd = std::os::fd::AsRawFd::as_raw_fd(&writer);
     // The key's socket pair: `ours` stays here, `theirs` goes to the daemon.
     let pair = match &key {
         Some(_) => {
@@ -828,6 +865,10 @@ fn spawn_detached(key: Option<zeroize::Zeroizing<String>>) -> Result<std::fs::Fi
     let key_fd = pair.as_ref().map(|(_, theirs)| std::os::fd::AsRawFd::as_raw_fd(theirs));
     let mut cmd = std::process::Command::new(exe);
     crate::config::scrub_nested_claude_env(&mut cmd);
+    // The daemon serves every session: its starter's turn values are not its own.
+    for k in crate::config::inherited_caller_scoped_keys() {
+        cmd.env_remove(k);
+    }
     // The daemon must use this client's state directory, including a host
     // override that its own environment would not reproduce.
     cmd.env("ACPMUX_HOME", home())
@@ -920,6 +961,10 @@ async fn notify_loop(hub: Arc<Hub>) {
             ),
         };
         let mut c = tokio::process::Command::new("sh");
+        // The daemon starter's turn values are not this command's (config::TURN_SCOPED_ENV).
+        for k in crate::config::inherited_caller_scoped_keys() {
+            c.env_remove(k);
+        }
         crate::login_env::apply_tokio(&mut c);
         c.arg("-c")
             .arg(&cmd)

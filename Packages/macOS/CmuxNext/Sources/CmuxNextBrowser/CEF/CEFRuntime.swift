@@ -45,6 +45,8 @@ final class CEFRuntime {
     var placements = CEFPlacementQueue()
     /// Window requests: decisions, their log and link clicks.
     private(set) lazy var windowRequests = CEFWindowRequests(runtime: self)
+    /// Two-finger Back and Forward swipes over pages (`CEFSwipeNavigation`).
+    private(set) lazy var swipeNavigation = CEFSwipeNavigation(runtime: self)
     /// Opens `url` in a new cmux tab when no Chromium window of its profile
     /// exists (the App sets it; the runtime has no panes of its own).
     var openURLWithoutWindow: ((URL, BrowserNewTabDisposition, BrowserProfileID?) -> Void)?

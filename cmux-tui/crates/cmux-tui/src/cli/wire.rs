@@ -8,7 +8,6 @@ use cmux_tui_core::resource::{
     EnvelopeType, OperationClass, PROTOCOL, ResponseEnvelope, StreamEndEnvelope, StreamEndReason,
     StreamItemEnvelope,
 };
-use ratatui::buffer::CellWidth;
 use serde_json::{Value, json};
 
 use super::command::{RequestPlan, WireOperation, random_prefixed};
@@ -25,27 +24,24 @@ const SESSION_JOURNAL_PROTOCOL_MAXIMUM: u64 = cmux_tui_core::server::PROTOCOL_VE
 
 pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
     if plan.stream && global.output == OutputMode::Json {
-        eprintln!("cmux: streams require --jsonl, --quiet, or human output");
-        return 2;
+        return usage_failure(
+            global.output,
+            "cmux: streams require --jsonl, --quiet, or human output",
+        );
     }
-    if let Err(error) = super::resolve::apply_global_route(&global, &mut plan.params) {
-        eprintln!("cmux: {error}");
-        return 2;
+    if let Err(error) = super::resolve::apply_global_route(&global, &mut plan) {
+        return usage_failure(global.output, &format!("cmux: {error}"));
     }
     #[cfg(unix)]
     super::status::drop_caller_terminal_when_routed(&global, &mut plan);
     if let Err(error) =
         super::command::git::localize_commit_paths(&plan.operation, &mut plan.params)
     {
-        eprintln!("cmux: {error}");
-        return 2;
+        return usage_failure(global.output, &format!("cmux: {error}"));
     }
     let mut request = match request_value(&plan) {
         Ok(request) => request,
-        Err(error) => {
-            eprintln!("cmux: {error}");
-            return 2;
-        }
+        Err(error) => return usage_failure(global.output, &format!("cmux: {error}")),
     };
     let mut encoded = match encode_request(&request) {
         Ok(encoded) => encoded,
@@ -120,7 +116,7 @@ pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
             Err(code) => return code,
         };
     }
-    if notify_desktop::drop_unsupported(&mut reader, &mut request)
+    if notify_desktop::drop_unsupported(&mut reader, &socket, &mut request)
         | super::launch_credential::attach(&mut reader, &socket, &mut request)
         | list_order::apply(&mut plan, &mut request, &socket)
     {
@@ -141,7 +137,16 @@ pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
         if plan.stream && crate::shutdown_requested() {
             return 0;
         }
-        eprintln!("transport error: {error}");
+        if refused_at_connect(&mut reader, &error) {
+            // A refused connection carried no request: nothing applied.
+            return transport_failure(global.output, "session.busy", hints::session_busy(), true);
+        }
+        transport_failure(
+            global.output,
+            "transport.failed",
+            &format!("transport error: {error}"),
+            true,
+        );
         // Part of the request may have reached the daemon.
         key_report.finish(global.output);
         return 3;
@@ -281,30 +286,45 @@ fn require_server_capability(
         .and_then(|_| reader.get_mut().write_all(b"\n"))
         .and_then(|_| reader.get_mut().flush())
         .map_err(|error| {
-            eprintln!("transport error while checking session capabilities: {error}");
-            3
+            if refused_at_connect(reader, &error) {
+                transport_failure(global.output, "session.busy", hints::session_busy(), true)
+            } else {
+                transport_failure(
+                    global.output,
+                    "transport.failed",
+                    &format!("transport error while checking session capabilities: {error}"),
+                    true,
+                )
+            }
         })?;
     let response = read_envelope(reader, false)
         .map_err(|error| {
-            eprintln!("{error}");
-            3
+            transport_failure(global.output, envelope_error_code(&error), &error, true)
         })?
         .ok_or_else(|| {
-            eprintln!("transport closed before capability response");
-            3
+            transport_failure(
+                global.output,
+                "transport.closed",
+                "transport closed before capability response",
+                true,
+            )
         })?;
     if response.get("id").and_then(Value::as_str) != Some(request_id.as_str())
         || response.get("ok").and_then(Value::as_bool) != Some(true)
     {
-        eprintln!("protocol error: invalid identify response during capability negotiation");
-        return Err(3);
+        return Err(protocol_failure(
+            global.output,
+            "protocol error: invalid identify response during capability negotiation",
+        ));
     }
     let identity = response.get("data").unwrap_or(&Value::Null);
     if let Err(reason) = validate_capability_identity(identity) {
-        eprintln!(
-            "protocol error: invalid identify response during capability negotiation: {reason}"
-        );
-        return Err(3);
+        return Err(protocol_failure(
+            global.output,
+            &format!(
+                "protocol error: invalid identify response during capability negotiation: {reason}"
+            ),
+        ));
     }
     let supported = crate::session::parse_identity_capabilities(identity)
         .map(|capabilities| capabilities.contains(capability))
@@ -429,15 +449,18 @@ fn run_response(
             Ok(Some(value)) => value,
             Ok(None) if plan.stream && accepted_stream => return 0,
             Ok(None) => {
-                eprintln!("transport closed before response");
-                return 3;
+                return transport_failure(
+                    global.output,
+                    "transport.closed",
+                    "transport closed before response",
+                    true,
+                );
             }
             Err(error) => {
                 if plan.stream && crate::shutdown_requested() {
                     return 0;
                 }
-                eprintln!("{error}");
-                return 3;
+                return transport_failure(global.output, envelope_error_code(&error), &error, true);
             }
         };
         match value.get("type").and_then(Value::as_str) {
@@ -445,13 +468,17 @@ fn run_response(
                 let response: ResponseEnvelope = match serde_json::from_value(value.clone()) {
                     Ok(response) => response,
                     Err(error) => {
-                        eprintln!("protocol error: invalid response envelope: {error}");
-                        return 3;
+                        return protocol_failure(
+                            global.output,
+                            &format!("protocol error: invalid response envelope: {error}"),
+                        );
                     }
                 };
                 if let Err(error) = response.validate() {
-                    eprintln!("protocol error: {}", error.message);
-                    return 3;
+                    return protocol_failure(
+                        global.output,
+                        &format!("protocol error: {}", error.message),
+                    );
                 }
                 if response.id.as_str() != request_id {
                     continue;
@@ -482,11 +509,14 @@ fn run_response(
                         }
                         WireOperation::Raw { .. } => result,
                     };
+                    let result = agent_roster::with_terminals(reader, plan, result);
                     return print_result(global, plan, result);
                 }
                 if result.get("stream_id").and_then(Value::as_str) != expected_stream_id {
-                    eprintln!("protocol error: stream response did not confirm the requested ID");
-                    return 3;
+                    return protocol_failure(
+                        global.output,
+                        "protocol error: stream response did not confirm the requested ID",
+                    );
                 }
                 if expose_stream_lifecycle
                     && global.output == OutputMode::JsonLines
@@ -501,16 +531,20 @@ fn run_response(
                 let item: StreamItemEnvelope = match serde_json::from_value(value.clone()) {
                     Ok(item) => item,
                     Err(error) => {
-                        eprintln!("protocol error: invalid stream item: {error}");
-                        return 3;
+                        return protocol_failure(
+                            global.output,
+                            &format!("protocol error: invalid stream item: {error}"),
+                        );
                     }
                 };
                 if item.protocol != PROTOCOL
                     || item.envelope_type != EnvelopeType::StreamItem
                     || Some(item.stream_id.as_str()) != expected_stream_id
                 {
-                    eprintln!("protocol error: stream item does not match the opened stream");
-                    return 3;
+                    return protocol_failure(
+                        global.output,
+                        "protocol error: stream item does not match the opened stream",
+                    );
                 }
                 if let Err(error) = print_stream_item(&value, global.output) {
                     eprintln!("stdout error: {error}");
@@ -521,16 +555,20 @@ fn run_response(
                 let end: StreamEndEnvelope = match serde_json::from_value(value.clone()) {
                     Ok(end) => end,
                     Err(error) => {
-                        eprintln!("protocol error: invalid stream end: {error}");
-                        return 3;
+                        return protocol_failure(
+                            global.output,
+                            &format!("protocol error: invalid stream end: {error}"),
+                        );
                     }
                 };
                 if end.protocol != PROTOCOL
                     || end.envelope_type != EnvelopeType::StreamEnd
                     || Some(end.stream_id.as_str()) != expected_stream_id
                 {
-                    eprintln!("protocol error: stream end does not match the opened stream");
-                    return 3;
+                    return protocol_failure(
+                        global.output,
+                        "protocol error: stream end does not match the opened stream",
+                    );
                 }
                 if expose_stream_lifecycle
                     && global.output == OutputMode::JsonLines
@@ -555,12 +593,64 @@ fn run_response(
                 eprintln!("{}", sanitize_human_block(&message));
                 return 1;
             }
+            Some("refused") => {
+                return transport_failure(
+                    global.output,
+                    "session.busy",
+                    hints::session_busy(),
+                    true,
+                );
+            }
+            // A cmux.protocol/2 envelope of a type this command does not
+            // expect is not an older cmux: name the type.
+            Some(other) if value.get("protocol").and_then(Value::as_str) == Some(PROTOCOL) => {
+                return protocol_failure(
+                    global.output,
+                    &format!(
+                        "protocol error: {}",
+                        hints::unexpected_envelope(&sanitize_human_block(other))
+                    ),
+                );
+            }
             _ => {
-                eprintln!("protocol error: {}", hints::wrong_protocol());
-                return 3;
+                return print_local_error(
+                    &json!({
+                        "code": "protocol.mismatch",
+                        "message": format!("protocol error: {}", hints::wrong_protocol()),
+                        "details": {},
+                        "retryable": false,
+                    }),
+                    global.output,
+                    3,
+                );
             }
         }
     }
+}
+
+/// Whether a write that failed because the session closed the socket met
+/// the refusal line a session at its connection limit sends before closing
+/// (`type: "refused"`), so the error says "busy", not "broken pipe".
+fn refused_at_connect(
+    reader: &mut BufReader<Box<dyn transport::Stream>>,
+    error: &io::Error,
+) -> bool {
+    if !matches!(
+        error.kind(),
+        io::ErrorKind::BrokenPipe
+            | io::ErrorKind::ConnectionReset
+            | io::ErrorKind::ConnectionAborted
+    ) {
+        return false;
+    }
+    let _ = reader.get_mut().set_read_timeout(Some(Duration::from_millis(200)));
+    let mut line = Vec::new();
+    if reader.by_ref().take(4096).read_until(b'\n', &mut line).is_err() {
+        return false;
+    }
+    serde_json::from_slice::<Value>(&line)
+        .ok()
+        .is_some_and(|value| value.get("type").and_then(Value::as_str) == Some("refused"))
 }
 
 pub(super) fn read_envelope(
@@ -609,7 +699,7 @@ pub(super) fn print_result(global: &GlobalArgs, plan: &RequestPlan, result: Valu
     let result = plan.view.project(result);
     let shown = match global.output {
         OutputMode::Human => human_view(plan, &result),
-        _ => std::borrow::Cow::Borrowed(&result),
+        output => agent_roster::machine_view(plan, &result, output),
     };
     let code = print_success(&shown, global.output);
     if code == 0 { success_exit_code(plan, &result) } else { code }
@@ -630,6 +720,9 @@ fn success_exit_code(plan: &RequestPlan, result: &Value) -> i32 {
 /// personal` adds an ORDER column (the row's place in the returned order),
 /// because INDEX stays the session order.
 fn human_view<'a>(plan: &RequestPlan, result: &'a Value) -> std::borrow::Cow<'a, Value> {
+    if let Some(roster) = agent_roster::human_view(plan, result) {
+        return roster;
+    }
     let personal = matches!(
         &plan.operation,
         WireOperation::Typed(cmux_tui_core::resource::ResourceOperation::WorkspaceList)
@@ -731,6 +824,48 @@ fn localize_operation_error_with_catalog(
     }
 }
 
+/// A command this CLI cannot send as given: `usage.invalid`, exit code 2.
+fn usage_failure(output: OutputMode, message: &str) -> i32 {
+    print_local_error(
+        &json!({"code": "usage.invalid", "message": message, "details": {}, "retryable": false}),
+        output,
+        2,
+    )
+}
+
+/// A failure of the connection after the session was reached (it closed, did
+/// not answer, refused or broke): one JSON error under `--json`, the message
+/// alone for a person. Exit code 3, like every connection failure.
+fn transport_failure(output: OutputMode, code: &str, message: &str, retryable: bool) -> i32 {
+    print_local_error(
+        &json!({"code": code, "message": message, "details": {}, "retryable": retryable}),
+        output,
+        3,
+    )
+}
+
+/// A reply this command cannot read: `protocol.invalid`, not retryable.
+fn protocol_failure(output: OutputMode, message: &str) -> i32 {
+    print_local_error(
+        &json!({"code": "protocol.invalid", "message": message, "details": {}, "retryable": false}),
+        output,
+        3,
+    )
+}
+
+/// The error code of a [`read_envelope`] failure, from its message.
+fn envelope_error_code(message: &str) -> &'static str {
+    if message == hints::no_answer() {
+        "session.no_answer"
+    } else if message.starts_with("protocol error")
+        || message.starts_with("transport closed with a partial")
+    {
+        "protocol.invalid"
+    } else {
+        "transport.failed"
+    }
+}
+
 pub(super) fn print_local_error(error: &Value, output: OutputMode, exit_code: i32) -> i32 {
     match output {
         OutputMode::Json | OutputMode::JsonLines => {
@@ -818,184 +953,19 @@ fn write_json_lines(value: &Value) -> io::Result<()> {
     write_json_line(value)
 }
 
-fn write_human(value: &Value) -> io::Result<()> {
-    let mut stdout = io::stdout().lock();
-    stdout.write_all(human_text(value).as_bytes())?;
-    stdout.flush()
-}
-
-fn human_text(value: &Value) -> String {
-    let mut output = String::new();
-    append_human(value, &mut output);
-    output
-}
-
-fn append_human(value: &Value, output: &mut String) {
-    match value {
-        Value::Null => {}
-        Value::String(value) => {
-            let value = sanitize_human_block(value);
-            output.push_str(&value);
-            if !value.ends_with('\n') {
-                output.push('\n');
-            }
-        }
-        Value::Array(values) if values.iter().all(Value::is_object) => {
-            append_record_table(values, output);
-        }
-        Value::Array(values) => {
-            for value in values {
-                output.push_str(&human_cell(value));
-                output.push('\n');
-            }
-        }
-        Value::Object(object) => {
-            if object.len() == 1
-                && let Some(values) = object.values().next()
-                && values.is_array()
-            {
-                append_human(values, output);
-                return;
-            }
-            let mut rows = Vec::new();
-            flatten_human_object(None, object, &mut rows);
-            let width =
-                rows.iter().map(|(key, _)| usize::from(key.cell_width())).max().unwrap_or(0);
-            for (key, value) in rows {
-                output.push_str(&key);
-                output.push_str(&" ".repeat(width.saturating_sub(usize::from(key.cell_width()))));
-                output.push_str("  ");
-                output.push_str(&value);
-                output.push('\n');
-            }
-        }
-        value => {
-            output.push_str(&human_cell(value));
-            output.push('\n');
-        }
-    }
-}
-
-fn append_record_table(values: &[Value], output: &mut String) {
-    if values.is_empty() {
-        return;
-    }
-    let mut columns = values
-        .iter()
-        .filter_map(Value::as_object)
-        .flat_map(|object| object.keys().cloned())
-        .collect::<Vec<_>>();
-    columns.sort_by(|left, right| {
-        human_key_rank(left).cmp(&human_key_rank(right)).then_with(|| left.cmp(right))
-    });
-    columns.dedup();
-
-    let rows = values
-        .iter()
-        .filter_map(Value::as_object)
-        .map(|object| {
-            columns
-                .iter()
-                .map(|column| object.get(column).map_or_else(|| "-".to_string(), human_cell))
-                .collect::<Vec<_>>()
-        })
-        .collect::<Vec<_>>();
-    let widths = columns
-        .iter()
-        .enumerate()
-        .map(|(index, column)| {
-            rows.iter()
-                .map(|row| usize::from(row[index].cell_width()))
-                .max()
-                .unwrap_or(0)
-                .max(usize::from(human_header(column).cell_width()))
-        })
-        .collect::<Vec<_>>();
-
-    append_table_row(
-        &columns.iter().map(|column| human_header(column)).collect::<Vec<_>>(),
-        &widths,
-        output,
-    );
-    for row in rows {
-        append_table_row(&row, &widths, output);
-    }
-}
-
-fn append_table_row(cells: &[String], widths: &[usize], output: &mut String) {
-    for (index, cell) in cells.iter().enumerate() {
-        if index != 0 {
-            output.push_str("  ");
-        }
-        output.push_str(cell);
-        if index + 1 != cells.len() {
-            output.push_str(
-                &" ".repeat(widths[index].saturating_sub(usize::from(cell.cell_width()))),
-            );
-        }
-    }
-    output.push('\n');
-}
-
-fn flatten_human_object(
-    prefix: Option<&str>,
-    object: &serde_json::Map<String, Value>,
-    rows: &mut Vec<(String, String)>,
-) {
-    let mut fields = object.iter().collect::<Vec<_>>();
-    fields.sort_by(|(left, _), (right, _)| {
-        human_key_rank(left).cmp(&human_key_rank(right)).then_with(|| left.cmp(right))
-    });
-    for (key, value) in fields {
-        let path = prefix.map_or_else(|| key.clone(), |prefix| format!("{prefix}.{key}"));
-        if let Value::Object(nested) = value {
-            flatten_human_object(Some(&path), nested, rows);
-        } else {
-            rows.push((sanitize_human_cell(&path), human_cell(value)));
-        }
-    }
-}
-
-fn human_cell(value: &Value) -> String {
-    match value {
-        Value::Null => "-".to_string(),
-        Value::String(value) => sanitize_human_cell(value),
-        Value::Bool(value) => value.to_string(),
-        Value::Number(value) => value.to_string(),
-        // serde_json escapes C0 controls but writes C1 controls and the
-        // Unicode separators raw, so the serialized form needs the same pass.
-        value => sanitize_human_cell(
-            &serde_json::to_string(value).expect("JSON value serialization cannot fail"),
-        ),
-    }
-}
-
-fn human_header(key: &str) -> String {
-    sanitize_human_cell(&key.replace('_', " ").to_uppercase())
-}
-
-fn human_key_rank(key: &str) -> usize {
-    match key {
-        "id" => 0,
-        "name" => 1,
-        "title" => 2,
-        "kind" => 3,
-        "state" => 4,
-        "lifecycle" | "order" => 5,
-        "index" => 6,
-        "focused" => 7,
-        "running" => 8,
-        _ => 9,
-    }
-}
-
+mod agent_roster;
 mod closed_view;
 mod hints;
+mod human;
 mod list_order;
 mod notify_desktop;
 mod sanitize;
 mod socket;
+pub(super) use agent_roster::across as agent_roster_across;
 pub(super) use hints::connect_failure;
+#[cfg(test)]
+use human::human_text;
+use human::{append_table_row, human_cell, write_human};
 use sanitize::{sanitize_human_block, sanitize_human_cell};
 
 /// Remote-supplied error text made safe for a terminal (cx-8mla8: the chief

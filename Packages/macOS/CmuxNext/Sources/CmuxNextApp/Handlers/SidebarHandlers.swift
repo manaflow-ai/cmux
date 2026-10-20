@@ -2,8 +2,8 @@ import CmuxNextActions
 
 /// Sidebar actions (category `sidebar`) beyond `toggleSidebar` (bound in
 /// `AppActions`). cmux-next has no right sidebar, file explorer or session
-/// vault yet (minimal mode is `SidebarMinimalToggle`), and the daemon has no checklist records, so
-/// these report the missing capability instead of doing nothing.
+/// vault yet (minimal mode is `SidebarMinimalToggle`), so these report the missing capability
+/// instead of doing nothing. The checklist actions are `WorkspaceChecklistHandlers`.
 enum SidebarHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let features: [(String, [ActionID])] = [
@@ -24,13 +24,6 @@ enum SidebarHandlers {
         ]
         for (feature, ids) in features {
             for id in ids { registry.bindUnavailable([id], ActionFailure.needsAppCapability(feature)) }
-        }
-        let checklist: [ActionID] = [
-            "checklistEditItem", "checklistMarkInProgress", "checklistCompleteItem", "checklistRemoveItem",
-            "checklistOpenAsPane", "checklistAttachImages",
-        ]
-        for id in checklist {
-            registry.bindUnavailable([id], ActionFailure.needsDaemonCapability("workspace-checklist-v1"))
         }
     }
 }

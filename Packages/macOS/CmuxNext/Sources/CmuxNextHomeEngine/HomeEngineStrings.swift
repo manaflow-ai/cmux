@@ -74,14 +74,52 @@ public nonisolated enum HomeEngineStrings {
     static var model: String { String(localized: "home.engine.model", defaultValue: "Model", table: "Home", bundle: .module) }
     static var effort: String { String(localized: "home.engine.effort", defaultValue: "Effort", table: "Home", bundle: .module) }
     static var defaultValue: String { String(localized: "home.engine.default", defaultValue: "Default", table: "Home", bundle: .module) }
+    /// A picker's "Default" item naming what it runs: "Default (claude)", "Default (Opus 5.5)".
+    static var defaultNamedFormat: String {
+        String(localized: "home.engine.defaultNamed", defaultValue: "Default (%@)", table: "Home", bundle: .module)
+    }
+    static var agentSection: String { String(localized: "home.engine.section.agent", defaultValue: "Agent", table: "Home", bundle: .module) }
+    static var appearanceSection: String {
+        String(localized: "home.engine.section.appearance", defaultValue: "Appearance", table: "Home", bundle: .module)
+    }
+    static var diagnostics: String { String(localized: "home.engine.section.diagnostics", defaultValue: "Diagnostics", table: "Home", bundle: .module) }
+    /// Under the name, for a Chief whose brain runs here.
+    static var runsHere: String { String(localized: "home.engine.runsHere", defaultValue: "Runs on this Mac", table: "Home", bundle: .module) }
+    /// The Hosted Chief's place line.
+    public static var runsInCloud: String {
+        String(localized: "home.engine.runsInCloud", defaultValue: "Runs in the cloud", table: "Home", bundle: .module)
+    }
+    /// A paired server's place line, by its name.
+    public static var runsOnFormat: String {
+        String(localized: "home.engine.runsOn", defaultValue: "Runs on %@", table: "Home", bundle: .module)
+    }
+    /// The card's link to the same Chief on its other host.
+    static var switchHostFormat: String {
+        String(localized: "home.engine.switchHost", defaultValue: "Switch to %@", table: "Home", bundle: .module)
+    }
+    /// The avatar's tooltip and VoiceOver label: a click opens its menu.
+    static var changePicture: String {
+        String(localized: "home.engine.changePicture", defaultValue: "Change Picture", table: "Home", bundle: .module)
+    }
     static var name: String { String(localized: "home.engine.name", defaultValue: "Name", table: "Home", bundle: .module) }
-    static var avatar: String { String(localized: "home.engine.avatar", defaultValue: "Avatar", table: "Home", bundle: .module) }
+    static var choosePicture: String {
+        String(localized: "home.engine.choosePicture", defaultValue: "Choose Picture…", table: "Home", bundle: .module)
+    }
+    static var useDefaultPicture: String {
+        String(localized: "home.engine.useDefaultPicture", defaultValue: "Use Default Picture", table: "Home", bundle: .module)
+    }
+    static var pictureUnreadable: String {
+        String(localized: "home.engine.pictureUnreadable", defaultValue: "That picture could not be used. Choose a PNG, JPEG, HEIC, WebP, or a GIF up to 1 MB.",
+               table: "Home", bundle: .module)
+    }
     static var answeredBy: String { String(localized: "home.engine.answeredBy", defaultValue: "Recent replies, answered by:", table: "Home", bundle: .module) }
 
-    /// "“Both subagents are done…” claude-sr, claude-opus-5-5".
+    /// "“Both subagents are done…” claude-sr, claude-opus-5-5", or the engine
+    /// alone for a turn whose reply the trace kept no text of (no empty quotes).
     static func reply(_ turn: HomeEngineTurn) -> String {
         let engine = [turn.harness, turn.model].compactMap { $0 }.joined(separator: ", ")
-        return "\u{201C}\(turn.reply ?? "")\u{201D} \(engine)"
+        let text = turn.reply?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return text.isEmpty ? engine : "\u{201C}\(text)\u{201D} \(engine)"
     }
 
     static var noTurn: String { String(localized: "home.engine.noTurn", defaultValue: "No turn yet", table: "Home", bundle: .module) }

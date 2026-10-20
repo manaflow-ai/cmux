@@ -36,9 +36,9 @@ export const idempotent = <A extends { readonly id: string }, E, R, ER, RR>(
     case "in_progress":
       if (claim.progress?.phase === "creating") {
         // An ownership commit can outlive a failed completion/abandon RPC. SQL may settle it,
-        // but an active claim with no ownership row never permits another provider operation.
+        // but an active claim with no committed row never permits another provider operation.
         const status = yield* (yield* OwnershipStore).allocationStatus(principal.tenantId, claim.progress.vmId).pipe(Effect.mapError(() => unavailable()));
-        if (status !== "absent") {
+        if (status === "live" || status === "deleted") {
           yield* limits.advance(principal.tenantId, scoped, { phase: "done", vmId: claim.progress.vmId }).pipe(Effect.mapError(() => unavailable()));
           return yield* replay(claim.progress.vmId);
         }

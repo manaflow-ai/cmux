@@ -17,8 +17,9 @@ storage, downloads, history and incognito tabs. Reach it in this order:
 
 1. MCP tools `browser_repl_eval`, `browser_repl_open`, `browser_repl_list`,
    `browser_repl_reset`, `browser_repl_close`, `browser_repl_guide` from the
-   `cmux` MCP server. cmux attaches that server to the sessions it starts when
-   cmux.json has `"mcp": {"enabled": true}`.
+   `cmux` MCP server. cmux attaches that server to every agent session it
+   starts; `"mcp": {"enabled": false}` in `~/.config/cmux/cmux-next.json` turns
+   it off.
 2. The bundled CLI, from the app's `Contents/Resources/bin`:
    `cmux-browser-host eval --session NAME 'await page.goto("https://example.com"); snapshot()'`
    (also `list`, `close --session NAME`, `guide`). `cmux browser repl` is
@@ -40,6 +41,15 @@ below do not:
   `{ restoreIds }`; `page.context().restoreCookies(result)` puts them back.
   The cleared cookies stay in an encrypted backup. You may restore from a
   backup; you never delete one (only the person can, from the app).
+- Sign-ins from the person's own browser: `cmux browser import-cookies --from
+  chrome:Work --domain github.com --reason "Open the PR review page signed in"`
+  copies that browser profile's cookies into a cmux browser profile. You must
+  pass `--reason` with what you will do with them; the person sees your chat
+  (by name), your reason and your latest message in a consent panel and must
+  click Allow before anything is read. Ask only for the sites you need. A Deny
+  or no answer within 3 minutes fails the command; do not ask again unless the
+  person tells you to. Never print cookie values. See
+  [references/authentication.md](references/authentication.md).
 - Remote tabs (a page that runs on another machine) use the same tab ids and
   the same REPL calls once that machine's browser host serves them
   (`plans/cmux-next/remote-tab.md`); never assume a remote tab shares this
@@ -137,18 +147,23 @@ cmux browser "$TAB" screenshot --full-page --out full.png
 
 Without `--out` the PNG goes to a new file in the temporary directory and the
 command prints its path; `--out -` writes the PNG to stdout.
+A tab whose workspace is not on screen is captured too: its page is started
+in the background, never focused. To see the page with its toolbar as the
+window shows it, use `cmux tab screenshot --target tab_… --out tab.png`
+([cmux skill](../cmux/SKILL.md)).
 
 ## What the per-tab CLI does not cover
 
 The per-tab commands have no saved state, console
-capture, dialogs, downloads, recording or proxies. The REPL has all of them (see "Pick the surface"). Network
-routing, geolocation, offline and viewport emulation and `identify` have no
-agent surface yet.
+capture, dialogs, downloads, recording or proxies. The REPL has all of them (see "Pick the surface"). Viewport and
+device emulation is a tab verb (`cmux tab <tab_…> emulate`; see `cmux tab --help`).
+Network routing, geolocation and offline emulation and `identify` have no agent
+surface yet.
 
 Some have UI actions that act on the focused browser and return no data:
 `cmux browser screenshot-page`, `browser screenshot-section`,
 `browser toggle-developer-tools`, `browser show-javascript-console`,
-`browser delete-site-data`, `browser new-profile`,
+`browser delete-site-data`,
 `browser toggle-design-mode`, `browser toggle-focus-mode`,
 `browser toggle-react-grab`. List them with `cmux action list --noun browser`.
 Page zoom of an app browser tab is `cmux tab <tab_…> zoom in|out|reset`, which

@@ -77,6 +77,19 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
+        case "pane.setDisplay":
+            // Only the chat's own look keys: the page can never write another setting.
+            if let key = params?["key"] as? String, let path = AgentPaneDisplaySetting.writablePath(key) {
+                let raw = params?["value"]
+                let value = raw == nil || raw is NSNull ? nil : raw.flatMap(JSONValue.init(foundation:))
+                if raw == nil || raw is NSNull || value != nil {
+                    self = .displaySetting(path: path, value: value)
+                } else {
+                    self = .unsupported(method)
+                }
+            } else {
+                self = .unsupported(method)
+            }
         case "pane.painted":
             self = .painted
         case "pane.renderRate":
@@ -144,12 +157,21 @@ extension AgentPaneRequest {
             self = .touched
         case "newTab.context":
             self = .newTabContext
+        case "newTab.warm":
+            if let warm = params?["warm"] as? [String: Any], let data = try? JSONSerialization.data(withJSONObject: warm),
+               data.count <= AgentPaneNewTab.maximumWarmBytes, let text = String(data: data, encoding: .utf8) {
+                self = .newTabWarm(text)
+            } else {
+                self = .unsupported(method)
+            }
         case "newTab.setTemplate":
             if let template = params?["template"] as? String, !template.isEmpty, template.count <= 32 {
                 self = .setNewTabTemplate(template)
             } else {
                 self = .unsupported(method)
             }
+        case "nowPlaying.command":
+            if let command = AgentPaneNowPlaying.Command(params) { self = .nowPlaying(command) } else { self = .unsupported(method) }
         case "newTab.remember":
             // One input (R86): the agent pick, and the model picked on it in `folder`.
             if let agent = params?["agent"] as? String, !agent.isEmpty, agent.count <= 128 {
@@ -185,6 +207,9 @@ extension AgentPaneRequest {
         case "project.list":
             let query = (params?["query"] as? String).map { String($0.prefix(512)) }
             self = .listProjects(query)
+        case "project.icon":
+            if let cwd = params?["cwd"] as? String, cwd.hasPrefix("/"), cwd.utf8.count <= 4096 { self = .projectIcon(cwd) }
+            else { self = .unsupported(method) }
         case "chats.open":
             if let key = params?["key"] as? String, key.contains(":"), key.count <= 512 { self = .openChat(key) }
             else { self = .unsupported(method) }
@@ -220,6 +245,8 @@ extension AgentPaneRequest {
             if let id = params?["subagent"] as? String, !id.isEmpty, id.count <= 256 {
                 self = .subagentPane(id, focus: params?["focus"] as? Bool == true)
             } else { self = .unsupported(method) }
+        case "chat.processTerminal":
+            if let id = params?["toolCallId"] as? String, AgentPaneProcessViewer.isToken(id) { self = .processTerminal(toolCall: id) } else { self = .unsupported(method) }
         case "chat.newHere":
             if let cwd = (params?["cwd"] as? String).flatMap(Self.headerFolder) { self = .newChatHere(cwd) } else { self = .unsupported(method) }
         case "chat.openTab":
@@ -305,6 +332,12 @@ extension AgentPaneRequest {
         case "dictation.start": self = .dictation(.start)
         case "dictation.stop": self = .dictation(.stop)
         case "dictation.cancel": self = .dictation(.cancel)
+        case "dictation.audio":
+            if let enabled = params?["enabled"] as? Bool {
+                self = .dictation(.recordAudio(enabled))
+            } else {
+                self = .unsupported(method)
+            }
         case "dictation.openSettings":
             if let raw = params?["permission"] as? String, let permission = DictationPermission(rawValue: raw) {
                 self = .dictation(.openSettings(permission))

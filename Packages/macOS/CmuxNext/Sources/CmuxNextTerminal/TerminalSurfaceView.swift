@@ -3,6 +3,7 @@ import CmuxNextDesign
 import CmuxNextTerminalGeometry
 import CmuxNextWakeups
 import GhosttyNextKit
+import IOSurface
 import os
 import QuartzCore
 
@@ -31,6 +32,10 @@ public final class TerminalSurfaceView: NSView {
     /// only reported.
     private var geometry = TerminalGridPolicy(ownsGeometry: true)
 
+    /// The grid this view's pixel size fits (its last ``updateSurfaceSize(forceReport:)``),
+    /// whatever grid the PTY owner announced. Nil before the first layout.
+    var fittedGrid: TerminalGridSize? { geometry.desired }
+
     /// Whether this view reports its grid to the PTY owner. Followers only
     /// render the announced grid (shell.md 2.3).
     var ownsGeometry: Bool {
@@ -55,6 +60,8 @@ public final class TerminalSurfaceView: NSView {
 
     private(set) var lastOcclusionVisible: Bool?
     private(set) var pause: SurfacePause? = .notInWindow // why it does not draw (nil: draws)
+    /// The presented frame made volatile while the surface does not draw (`holdPresentedFrame`).
+    private var volatileFrame: IOSurface?
     private var lastFocus: Bool?
     private var windowObservers: [any NSObjectProtocol] = []
     private var appliedContentScale: NSSize?
@@ -149,7 +156,7 @@ public final class TerminalSurfaceView: NSView {
         updateFocus()
     }
 
-    public override var isFlipped: Bool { false }
+    nonisolated public override var isFlipped: Bool { false }
 
     // MARK: Window, scale, and size
 
@@ -212,6 +219,8 @@ public final class TerminalSurfaceView: NSView {
 
     /// Window notifications handled (`debug.layout_counters`): only shown terminals count.
     public static var windowStateUpdates: UInt64 = 0
+    /// Grid reports views made to their session (`debug.window_transition`).
+    public static var gridReports: UInt64 = 0
 
     private func windowStateChanged(_ name: Notification.Name) {
         Self.windowStateUpdates &+= 1
@@ -333,6 +342,7 @@ public final class TerminalSurfaceView: NSView {
         // draws at the next display pass, already reflowed.
         updateReflowPreview(reporting: report != nil)
         guard let report else { return }
+        Self.gridReports &+= 1
         let cells = metrics.cellPixels(of: report)
         session?.surfaceDidReport(grid: report, pixelWidth: cells.width, pixelHeight: cells.height)
     }
@@ -384,7 +394,40 @@ public final class TerminalSurfaceView: NSView {
         pause = WindowDrawPolicy.inputs(for: self, suspended: isRenderingSuspended, forced: mirrorDemand > 0).pause
         guard (pause == nil) != lastOcclusionVisible else { return }
         lastOcclusionVisible = pause == nil
+        holdPresentedFrame(volatile: pause != nil)
         ghostty_surface_set_occlusion(surface, pause == nil)
+    }
+
+    /// A paused surface keeps the frame its layer shows, volatile until it shows again
+    /// (``TerminalFramePurgeability``): shown again, it is non-volatile before the next commit, and a
+    /// purged one leaves the layer empty until Ghostty's next frame, as before.
+    private func holdPresentedFrame(volatile: Bool) {
+        if volatile {
+            volatileFrame = presentedFrame
+            volatileFrame?.makeVolatile()
+        } else if let frame = volatileFrame {
+            volatileFrame = nil
+            // A frame in flight at the pause may have replaced it: that one is not volatile.
+            guard presentedFrame === frame else { return }
+            if !frame.reclaim() { layer?.contents = nil }
+        }
+    }
+
+    /// The presented frame for one reader (hover pictures): a paused surface's volatile frame is
+    /// made non-volatile for the read (nil when purged); ``endFrameRead(_:)`` makes it volatile again.
+    func beginFrameRead() -> IOSurface? {
+        guard let frame = presentedFrame else { return nil }
+        guard frame === volatileFrame else { return frame }
+        guard frame.reclaim() else {
+            volatileFrame = nil
+            layer?.contents = nil
+            return nil
+        }
+        return frame
+    }
+
+    func endFrameRead(_ frame: IOSurface) {
+        if frame === volatileFrame { frame.makeVolatile() }
     }
 
     // MARK: Focus

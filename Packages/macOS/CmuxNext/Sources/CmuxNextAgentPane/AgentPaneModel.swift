@@ -147,6 +147,9 @@ public final class AgentPaneModel {
     /// Diff Colors (`diff.colors`) as the page last got it: "theme", "muted" or "standard".
     @ObservationIgnored public internal(set) var diffColors = "theme"
     @ObservationIgnored public var onComposerSetting: (@MainActor ([String], Bool) async throws -> Void)?
+    /// The chat's look as the page last got it, and where its popover writes (AgentPaneView+Display.swift).
+    @ObservationIgnored public internal(set) var display = AgentPaneDisplaySetting.fallback
+    @ObservationIgnored public var onDisplaySetting: (@MainActor ([String], JSONValue?) async throws -> Void)?
     /// The chat's tool cards (``AgentPaneToolCard``), and the App's answer to a click on one: the card's id, the button's
     /// and what the person typed in the card's field, if the button sends it.
     @ObservationIgnored public internal(set) var toolCards: [AgentPaneToolCard] = []
@@ -226,9 +229,9 @@ public final class AgentPaneModel {
     public func respond(to request: AgentPaneRequest) async -> [String: Any] {
         switch request {
         // Boot traffic, and a request the host refused (it changed nothing), leave it untouched.
-        case .ready, .reconnect, .framePacing, .renderRate, .checkpointAvailability, .painted, .newTabInputReady, .newTabContext, .unsupported,
+        case .ready, .reconnect, .framePacing, .renderRate, .checkpointAvailability, .painted, .newTabInputReady, .newTabContext, .newTabWarm, .unsupported,
              .transportOpen, .transportSend, .transportClose, .transportGesture, .transportGestureRelease, .chatsPage, .quickFloatingState, .quickContext,
-             .tabRowTools: break
+             .tabRowTools, .projectIcon: break
         case .reply(let reply) where reply.isPassive: break
         default:
             if !userTouched { touchedBy = String(String(describing: request).prefix { $0 != "(" }) }
@@ -267,9 +270,12 @@ public final class AgentPaneModel {
             guard sessionId == nil, let newTab, let data = try? JSONEncoder().encode(newTab),
                   let object = try? JSONSerialization.jsonObject(with: data) else { return AgentPaneReply.success() }
             return AgentPaneReply.success(["newTab": object])
+        // Another machine's chats are not this Mac's: only a local page's list warms the next page.
+        case .newTabWarm(let warm): if !remoteChat { AgentPaneNewTab.warmed = warm }; return AgentPaneReply.success()
         case .newTabInputReady(let token): guard newTab?.inputToken == token else { return Self.unsupported("newTab.inputReady") }; onNewTabInputReady?(token); return AgentPaneReply.success()
         case .rememberNewTab(let pick): guard let onRememberNewTab else { return Self.unsupported("newTab.remember") }; onRememberNewTab(pick); return AgentPaneReply.success()
         case .setNewTabTemplate(let template): guard let onSetNewTabTemplate else { return Self.unsupported("newTab.setTemplate") }; onSetNewTabTemplate(template); return AgentPaneReply.success()
+        case .nowPlaying(let command): return AgentPaneNowPlaying.shared.perform(command) ? AgentPaneReply.success() : Self.unsupported("nowPlaying.command")
         case .runAction(let id): return runAction(id)
         case .jump(let target, let id): guard newTab != nil, let onJump else { return Self.unsupported("tab.jump") }; onJump(target, id); return AgentPaneReply.success()
         case .chooseFolder where remoteChat: return Self.unsupported("workspace.chooseFolder")
@@ -288,13 +294,20 @@ public final class AgentPaneModel {
             guard let onBrowseProject else { return Self.unsupported("project.browse") }
             guard let cwd = await onBrowseProject() else { return AgentPaneReply.success() }
             return AgentPaneReply.success(["cwd": await transport.pick(cwd)])
+        case .projectIcon where remoteChat:
+            // A chat on another machine: its folders are there, and this Mac's disk is never read (cx-k21v).
+            return AgentPaneReply.success()
+        case .projectIcon(let cwd):
+            // Off the main actor, cached by file and modification date; nil keeps the page's letters.
+            guard let src = await AgentPaneProjectIcons.shared.icon(for: cwd) else { return AgentPaneReply.success() }
+            return AgentPaneReply.success(["src": src])
         case .listProjects(let query):
             guard let onListProjects else { return Self.unsupported("project.list") }
             return AgentPaneReply.success(["projects": await onListProjects(query)])
         case .openChat(let key): if let onOpenChat { onOpenChat(key); return AgentPaneReply.success() } else { return Self.unsupported("chats.open") }
         case .openChatInTerminal(let key): if let onOpenChatInTerminal { onOpenChatInTerminal(key); return AgentPaneReply.success() } else { return Self.unsupported("chats.openInTerminal") }
         case .chatsPage(let query): return await respondToChatsPage(query)
-        case .paneAction, .preview, .setQuickActions, .tabState, .tabRowTools, .sideChat, .subagentPane, .chatTab, .newChatHere: return await respondToHeader(request)
+        case .paneAction, .preview, .setQuickActions, .tabState, .tabRowTools, .sideChat, .subagentPane, .processTerminal, .chatTab, .newChatHere: return await respondToHeader(request)
         case .appAction(let id):
             guard newTab?.omnibar.actions.contains(where: { $0.id == id }) == true, let onAppAction else { return Self.unsupported("app.action") }
             onAppAction(id)
@@ -321,6 +334,7 @@ public final class AgentPaneModel {
         case .reply(let reply): return await respond(to: reply)
         case .saveFile(let save): return await saveFile(save)
         case .composerSetting(let path, let show): return await setComposer(path, show)
+        case .displaySetting(let path, let value): return await setDisplay(path, value)
         case .toolCard(let card, let action, let value): return AgentPaneToolCard.respond(card: card, action: action, value: value, in: self)
         case .upload(let files): return await AgentPaneUpload.respond(files, in: self)
         case .unsupported(let method): return Self.unsupported(method)

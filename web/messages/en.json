@@ -3522,6 +3522,7 @@
           "soundOverrides": "Sparse per-agent and per-alert-type notification sound overrides. Missing cells use notifications.sound.",
           "soundOverride": "A notification sound override. `default` uses notifications.sound, `none` disables playback, and the remaining values select a built-in or custom sound."
         },
+        "actions": "Reusable actions for the Command Palette, shortcuts, tab-bar buttons, and plus-button menu. Supports builtin, command, agent, workspaceCommand, workspace, setting, settingPreset, and text. Text actions paste into the focused terminal and preserve newlines; submit: true presses Enter. Setting actions require global configuration.",
         "remoteTmux": {
           "beta": {
             "newWorkspaceOnHost": {
@@ -7415,5 +7416,216 @@
     "dbUpdated": "Database: {time}",
     "noOwner": "No cmux owner",
     "none": "None."
+  },
+  "nextPricing": {
+    "metaTitle": "cmux-next pricing: Chief, tokens and sandboxes",
+    "metaDescription": "Chief runs your agents, starts cloud sandboxes and ships the work. Every plan includes Chief credits on open models; pay as you go above that.",
+    "previewBadge": "Proposed prices · preview",
+    "previewNote": "These numbers are a proposal and are not for sale yet.",
+    "eyebrow": "cmux-next",
+    "title": "Pay for Chief, not for seats of software",
+    "lede": "Chief is your agent that runs other agents. It reads your chats, starts Claude Code, Codex and open-model agents, spins up cloud sandboxes and reports back. One credit balance pays for its tokens and its sandboxes.",
+    "pillars": [
+      {
+        "title": "Included Chief credits",
+        "body": "Every plan includes monthly credits. On open models like Kimi and GLM they go about 4x further than on frontier models."
+      },
+      {
+        "title": "Tokens at cost",
+        "body": "Above the included credits, model tokens are billed at our provider cost with no markup. Or bring your own Claude or ChatGPT subscription for free."
+      },
+      {
+        "title": "Sandboxes by the hour",
+        "body": "Chief starts cloud sandboxes when work needs a machine and pauses them when it is idle. You pay per vCPU-hour and GB-hour, from the same credits."
+      }
+    ],
+    "perMonth": "/mo",
+    "perSeatMonth": "/seat/mo",
+    "billedYearly": "{price}/mo billed yearly",
+    "custom": "Custom",
+    "mostPopular": "Most popular",
+    "includedCredits": "{amount} Chief credits / month",
+    "includedCreditsSeat": "{amount} Chief credits / seat / month, pooled",
+    "includedTokens": "≈ {tokens}M tokens on Kimi K2.7 Code, or {hours} sandbox hours",
+    "plans": {
+      "free": {
+        "name": "Free",
+        "cta": "Download cmux",
+        "features": [
+          "Chief on open models",
+          "Hard stop at the included credits, no card needed",
+          "Unlimited Chief with your own Claude Code or Codex subscription on your Mac",
+          "1 sandbox at a time, up to 2 vCPU / 4 GB"
+        ]
+      },
+      "pro": {
+        "name": "Pro",
+        "cta": "Get Pro",
+        "features": [
+          "Everything in Free",
+          "Frontier models (Claude, GPT) from credits",
+          "Pay as you go above the included credits",
+          "5 sandboxes at a time, up to 8 vCPU / 16 GB"
+        ]
+      },
+      "max": {
+        "name": "Max",
+        "cta": "Get Max",
+        "features": [
+          "Everything in Pro",
+          "4x the included credits",
+          "20 sandboxes at a time, up to 32 vCPU / 64 GB"
+        ]
+      },
+      "team": {
+        "name": "Team",
+        "cta": "Start a team",
+        "features": [
+          "Pro for every seat",
+          "Credits pooled across the team",
+          "Spend limits per member and per team",
+          "Central billing and seat management"
+        ]
+      },
+      "enterprise": {
+        "name": "Enterprise",
+        "cta": "Contact us",
+        "features": [
+          "Committed credits at volume rates",
+          "SSO and custom terms",
+          "Dedicated support"
+        ]
+      }
+    },
+    "calculator": {
+      "title": "Estimate your month",
+      "turns": "Chief turns per day",
+      "tokensPerTurn": "Tokens per turn",
+      "workdays": "Working days",
+      "model": "Model",
+      "openModels": "Open models",
+      "frontierModels": "Frontier models",
+      "sandboxHours": "Sandbox hours per day",
+      "sandboxSize": "Sandbox size",
+      "parallel": "Sandboxes at once",
+      "seats": "Seats",
+      "tokens": "Tokens",
+      "tokenCost": "Model tokens",
+      "sandboxCost": "Sandboxes ({hours} h)",
+      "usage": "Usage",
+      "included": "Included credits",
+      "overage": "Pay as you go",
+      "plan": "Plan",
+      "total": "Estimated total",
+      "recommended": "Best fit: {plan}",
+      "doesNotFit": "{plan} can't run this",
+      "assumption": "A Chief turn averages 10% fresh input, 85% cached input and 5% output. Your mix may differ."
+    },
+    "rates": {
+      "title": "Rates above the included credits",
+      "modelHeader": "Model",
+      "inputHeader": "Input / 1M",
+      "cachedHeader": "Cached / 1M",
+      "outputHeader": "Output / 1M",
+      "blendedHeader": "Chief blend / 1M",
+      "sandboxTitle": "Sandboxes",
+      "vcpuHour": "per vCPU-hour",
+      "gbHour": "per GB-hour",
+      "storage": "per GB-month while paused",
+      "example": "A 2 vCPU / 4 GB sandbox costs {price} per running hour."
+    },
+    "compare": {
+      "title": "How it compares",
+      "note": "Published prices on 2026-10-19. Each product counts usage differently.",
+      "productHeader": "Product",
+      "planHeader": "Plan",
+      "includedHeader": "Included usage",
+      "sandboxHeader": "Sandboxes",
+      "rows": [
+        {
+          "product": "cmux-next",
+          "plan": "Pro $50/mo",
+          "included": "$25 of credits; tokens at cost",
+          "sandbox": "$0.15/h (2 vCPU / 4 GB)"
+        },
+        {
+          "product": "Cursor",
+          "plan": "Premium $30/mo",
+          "included": "4x Plus weekly pool",
+          "sandbox": "Not listed"
+        },
+        {
+          "product": "Claude",
+          "plan": "Max 5x $100/mo",
+          "included": "5x Pro limits",
+          "sandbox": "None"
+        },
+        {
+          "product": "Warp",
+          "plan": "Build $20/mo",
+          "included": "$20 at API rates",
+          "sandbox": "None"
+        },
+        {
+          "product": "Replit",
+          "plan": "Pro $100/mo",
+          "included": "$100 of credits",
+          "sandbox": "Included in effort pricing"
+        },
+        {
+          "product": "Devin",
+          "plan": "Pro $20/mo",
+          "included": "Daily and weekly quota",
+          "sandbox": "Included"
+        },
+        {
+          "product": "Conductor",
+          "plan": "Pro $50/mo",
+          "included": "Your own subscriptions",
+          "sandbox": "8 cores / 16 GB, free for now"
+        },
+        {
+          "product": "E2B",
+          "plan": "Pro $150/mo + usage",
+          "included": "No model usage",
+          "sandbox": "$0.17/h (2 vCPU / 4 GB)"
+        },
+        {
+          "product": "Daytona",
+          "plan": "Pay as you go",
+          "included": "No model usage",
+          "sandbox": "$0.17/h (2 vCPU / 4 GB)"
+        }
+      ]
+    },
+    "faq": {
+      "title": "Questions",
+      "items": [
+        {
+          "q": "What is a Chief credit?",
+          "a": "One credit is one US dollar of usage. Model tokens and sandbox time draw from the same balance, so you never juggle two meters."
+        },
+        {
+          "q": "Why do open models go further?",
+          "a": "A Chief turn on Kimi K2.7 Code costs about a quarter of the same turn on Claude Opus. Chief picks open models by default and uses frontier models when you ask or when a task needs them."
+        },
+        {
+          "q": "Can I use my own Claude or ChatGPT subscription?",
+          "a": "Yes, on every plan. When Chief runs Claude Code or Codex on your Mac with your login, cmux does not charge credits for those tokens."
+        },
+        {
+          "q": "When does Chief start a sandbox?",
+          "a": "When work needs its own machine: a build, a test run, a browser session or a long task. Sandboxes pause when idle, and a paused sandbox costs storage only."
+        },
+        {
+          "q": "What happens when credits run out?",
+          "a": "On Free, Chief stops until next month. On paid plans it keeps going pay as you go up to the spend limit you set, or you can top up from the prompt Chief shows you."
+        },
+        {
+          "q": "Do unused credits roll over?",
+          "a": "Included credits reset each month. Credits you buy last 12 months."
+        }
+      ]
+    }
   }
 }

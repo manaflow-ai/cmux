@@ -24,6 +24,8 @@ export const REQUIRED_SCHEMA: ReadonlyArray<Requirement> = [
   { table: "cmux_vm.resources", column: "creation_key", migration: "0010" },
   { table: "cmux_vm.resources", column: "creation_receipt", migration: "0010" },
   { table: "cmux_vm.resources_creation_key_idx", migration: "0011" },
+  // Uncommitted creations (a failed grow) are listed and deletable but never replayed as finished.
+  { table: "cmux_vm.resources", column: "committed", migration: "0012" },
   { table: "cmux_vm.resources", migration: "0001" },
   { table: "cmux_vm.api_keys", migration: "0001" },
   { table: "cmux_vm.resources", column: "display_name", migration: "0002" },
@@ -46,10 +48,10 @@ export const REQUIRED_SCHEMA: ReadonlyArray<Requirement> = [
   { table: "cmux_vm.stack_webhook_events", privileges: ["SELECT", "INSERT", "UPDATE"], migration: "0008" },
   // A device's published public IPv6 address (address rules, bead cx-wb5.45).
   { table: "cmux_vm.mesh_devices", column: "public_ipv6", migration: "0009" },
-  { table: "cmux_vm.mesh_signed_requests", constraint: "mesh_signed_requests_purpose_v2_check", migration: "0012" },
-  { table: "cmux_vm.mesh_overlay_servers", privileges: ["SELECT", "INSERT", "UPDATE"], migration: "0013" },
-  { table: "cmux_vm.mesh_signed_requests", constraint: "mesh_signed_requests_purpose_v3_check", migration: "0013" },
-  { table: "cmux_vm.mesh_overlay_server_codes", privileges: ["SELECT", "INSERT", "UPDATE"], migration: "0014" },
+  { table: "cmux_vm.mesh_signed_requests", constraint: "mesh_signed_requests_purpose_v2_check", migration: "0013" },
+  { table: "cmux_vm.mesh_overlay_servers", privileges: ["SELECT", "INSERT", "UPDATE"], migration: "0014" },
+  { table: "cmux_vm.mesh_signed_requests", constraint: "mesh_signed_requests_purpose_v3_check", migration: "0014" },
+  { table: "cmux_vm.mesh_overlay_server_codes", privileges: ["SELECT", "INSERT", "UPDATE"], migration: "0015" },
 ];
 
 /** The highest migration this build's requirements name. */

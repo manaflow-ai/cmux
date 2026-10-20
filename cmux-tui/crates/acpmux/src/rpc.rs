@@ -234,6 +234,16 @@ pub mod method {
     /// The person proof for this connection's challenge (`hub/person.rs`).
     pub const MUX_PERSON_PROVE: &str = "_acpmux/person_prove";
     pub const MUX_PERSON_HOLDS: &str = "_acpmux/person_holds";
+    /// The person's phones that may sign an allow (`hub/approvers.rs`).
+    pub const MUX_APPROVERS_SET: &str = "_acpmux/approvers_set";
+    /// The person's app: the folders of the workspaces its daemon lists now,
+    /// which a remote (Web) connection may also start sessions in.
+    pub const MUX_WORKSPACE_ROOTS_SET: &str = "_acpmux/workspace_roots_set";
+    /// The person's app: the agent and model its New Tab page picked last,
+    /// anywhere and per folder (`newTab.lastPicks`), which `_acpmux/harnesses`
+    /// shows a remote device so its New Agent Chat starts where the app's does.
+    pub const MUX_NEW_CHAT_PICKS_SET: &str = "_acpmux/new_chat_picks_set";
+    pub const MUX_APPROVERS: &str = "_acpmux/approvers";
     pub const MUX_PERMISSION_GROUPS: &str = "_acpmux/permission_groups";
     pub const MUX_PERMISSION_GROUP_RESPOND: &str = "_acpmux/permission_group_respond";
     pub const MUX_PERMISSION_CHAT_REVOKE: &str = "_acpmux/permission_chat_revoke";
@@ -289,11 +299,23 @@ pub mod method {
     pub const MUX_HARNESS_REMOVE: &str = "_acpmux/harness/remove";
     pub const MUX_HARNESS_RESTORE: &str = "_acpmux/harness/restore";
     pub const MUX_HARNESS_DOCTOR: &str = "_acpmux/harness/doctor";
+    /// Store a harness env key's secret in the system secret store and point
+    /// the profile at it (`{id, key, value}`; the value is never echoed).
+    /// The unix socket only.
+    pub const MUX_HARNESS_SECRET_SET: &str = "_acpmux/harness/secret/set";
     /// The ACP Registry's agents and how each can start here.
     pub const MUX_REGISTRY: &str = "_acpmux/registry";
     /// Agent CLI health (hq #1875; `hub/health_view.rs`): the unix socket
     /// and the local app.
     pub const MUX_HARNESS_HEALTH: &str = "_acpmux/harness/health";
+    /// Local socket only: bounded, cached inventory snapshots; no health control.
+    pub const MUX_HARNESS_INVENTORY_WATCH: &str = "_acpmux/harness/inventory/watch";
+    /// Local socket only: refresh registries for cached installs, never run CLIs or updates.
+    pub const MUX_HARNESS_INVENTORY_REFRESH: &str = "_acpmux/harness/inventory/refresh";
+    pub const MUX_HARNESS_UPDATE_PLAN: &str = "_acpmux/harness/update/plan";
+    pub const MUX_HARNESS_UPDATE_PREPARE: &str = "_acpmux/harness/update/prepare";
+    /// A complete partial-cache replacement on an explicitly subscribed local connection.
+    pub const MUX_HARNESS_INVENTORY: &str = "_acpmux/harness_inventory";
     /// One cheap completion through the user's own harness login, for
     /// naming chats and workspaces (hq#1957, `crate::complete`): no chat
     /// session, tools, MCP, hooks or session file. The unix socket only.
@@ -334,6 +356,15 @@ pub mod method {
     /// the person accepts or dismisses with `offer_respond`.
     pub const MUX_OFFER_SESSION: &str = "_acpmux/offer_session";
     pub const MUX_OFFER_RESPOND: &str = "_acpmux/offer_respond";
+    /// Sub-sessions (`hub/subsessions.rs`, `server/subsessions.rs`): an agent
+    /// session's own children, with the caller proven by its token.
+    pub const MUX_SUBSESSION_START: &str = "_acpmux/subsession/start";
+    pub const MUX_SUBSESSION_LIST: &str = "_acpmux/subsession/list";
+    pub const MUX_SUBSESSION_GET: &str = "_acpmux/subsession/get";
+    pub const MUX_SUBSESSION_SEND: &str = "_acpmux/subsession/send";
+    pub const MUX_SUBSESSION_STOP: &str = "_acpmux/subsession/stop";
+    /// Sets a session's limits: the person, or an ancestor session.
+    pub const MUX_SUBSESSION_LIMITS: &str = "_acpmux/subsession/limits";
     /// The background-process registry (`hub/processes.rs`): list a chat's
     /// (or every chat's) background processes, read one's output, and stop
     /// one.

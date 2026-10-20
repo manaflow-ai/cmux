@@ -4,6 +4,73 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_enum! {
+    FirewallListResultRulesItemSourceProtocol {
+        Tcp = "tcp",
+        Udp = "udp",
+        Icmp = "icmp",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct FirewallListResultRulesItemSource {
+    #[serde(rename = "vmId", default, skip_serializing_if = "Option::is_none")]
+    pub vm_id: Option<String>,
+    #[serde(rename = "vpcId", default, skip_serializing_if = "Option::is_none")]
+    pub vpc_id: Option<String>,
+    #[serde(rename = "tunnelId", default, skip_serializing_if = "Option::is_none")]
+    pub tunnel_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cidr: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub public: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub port: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub protocol: Option<FirewallListResultRulesItemSourceProtocol>,
+}
+
+wire_enum! {
+    FirewallListResultRulesItemDestinationProtocol {
+        Tcp = "tcp",
+        Udp = "udp",
+        Icmp = "icmp",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct FirewallListResultRulesItemDestination {
+    #[serde(rename = "vmId", default, skip_serializing_if = "Option::is_none")]
+    pub vm_id: Option<String>,
+    #[serde(rename = "vpcId", default, skip_serializing_if = "Option::is_none")]
+    pub vpc_id: Option<String>,
+    #[serde(rename = "tunnelId", default, skip_serializing_if = "Option::is_none")]
+    pub tunnel_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cidr: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub public: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub port: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub protocol: Option<FirewallListResultRulesItemDestinationProtocol>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct FirewallListResultRulesItem {
+    pub id: String,
+    pub action: LitAllow,
+    pub source: FirewallListResultRulesItemSource,
+    pub destination: FirewallListResultRulesItemDestination,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct FirewallListResult {
+    pub rules: Vec<FirewallListResultRulesItem>,
+}
+
 wire_errors! {
     /// The error codes firewall.list declares.
     FirewallListError {
@@ -47,6 +114,161 @@ wire_errors! {
         ProviderError = "provider.error",
         RevisionConflict = "revision.conflict",
         SelectorNotFound = "selector.not_found",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Make a group link: whoever signs in and opens it joins with role (default member, at most your own; admin only from the owner) for expires_in_hours (default 168) and max_uses joins (default 20). Only this answer carries the secret (in link's fragment). It closes when revoked, used up, or when you leave, are removed or lose the role it grants. At most 50 open links per group.
+    GrantCreateOp {
+        name: "grant.create",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:ConversationDO",
+        risk: "mutate-shared",
+        principals: [Session, Install],
+        params: GrantCreateParams,
+        result: GrantCreateResult,
+        error: GrantCreateError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct GrantCreateParams {
+    pub conversation: ConversationId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub role: Option<HomeGrantableRole>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expires_in_hours: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_uses: Option<i64>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct GrantCreateResult {
+    pub rev: i64,
+    pub change: Value,
+    pub grant_id: String,
+    pub code: String,
+    pub secret: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub link: Option<String>,
+}
+
+wire_errors! {
+    /// The error codes grant.create declares.
+    GrantCreateError {
+        Archived = "archived",
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        Forbidden = "forbidden",
+        HomeNotConfigured = "home.not_configured",
+        IdempotencyConflict = "idempotency.conflict",
+        InvalidInvite = "invalid_invite",
+        InvalidRole = "invalid_role",
+        InviteLimit = "invite_limit",
+        KindForbids = "kind_forbids",
+        NotParticipant = "not_participant",
+        OwnerUnreachable = "owner.unreachable",
+        ReadOnly = "read_only",
+        UnknownConversation = "unknown_conversation",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Close a group link at once: its maker, or an admin or the owner above the maker. Open links are in the conversation head's grants.
+    GrantRevokeOp {
+        name: "grant.revoke",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:ConversationDO",
+        risk: "mutate-shared",
+        principals: [Session, Install],
+        params: GrantRevokeParams,
+        result: HomeConversationCommit,
+        error: GrantRevokeError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct GrantRevokeParams {
+    pub conversation: ConversationId,
+    pub grant_id: String,
+}
+
+wire_errors! {
+    /// The error codes grant.revoke declares.
+    GrantRevokeError {
+        Archived = "archived",
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        Forbidden = "forbidden",
+        IdempotencyConflict = "idempotency.conflict",
+        KindForbids = "kind_forbids",
+        NotParticipant = "not_participant",
+        OwnerUnreachable = "owner.unreachable",
+        UnknownConversation = "unknown_conversation",
+        UnknownInvite = "unknown_invite",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Your message requests: open invites to your verified email from people you are not connected to, newest first (at most 20). trusted marks a sender with your company email domain.
+    HomeRequestsListOp {
+        name: "home.requests.list",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:ConversationDO",
+        risk: "read",
+        principals: [Session],
+        params: HomeRequestsListParams,
+        result: HomeRequestsListResult,
+        error: HomeRequestsListError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HomeRequestsListParams {}
+
+wire_enum! {
+    HomeRequestsListResultRequestsItemKind {
+        Dm = "dm",
+        Group = "group",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HomeRequestsListResultRequestsItem {
+    pub conversation: ConversationId,
+    pub inviter: String,
+    pub kind: HomeRequestsListResultRequestsItemKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    pub preview: String,
+    pub created_at: String,
+    pub expires_at: String,
+    pub trusted: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HomeRequestsListResult {
+    pub requests: Vec<HomeRequestsListResultRequestsItem>,
+}
+
+wire_errors! {
+    /// The error codes home.requests.list declares.
+    HomeRequestsListError {
+        Archived = "archived",
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        Forbidden = "forbidden",
+        IdempotencyConflict = "idempotency.conflict",
+        KindForbids = "kind_forbids",
+        NotParticipant = "not_participant",
+        OwnerUnreachable = "owner.unreachable",
+        UnknownConversation = "unknown_conversation",
         ValidationInvalid = "validation.invalid",
     }
 }
@@ -118,7 +340,7 @@ wire_errors! {
 }
 
 wire_op! {
-    /// Choose who can find you by email or phone, who may start a conversation with you or add you to one (anyone, teams, nobody), and whether a message request also sends an email.
+    /// Choose who can find you by email or phone, who may start a conversation with you or add you to one (anyone, teams, nobody), whether a message request also sends an email, and whether people with your company email domain reach you directly (trust_same_domain, default on).
     HomeSettingsSetOp {
         name: "home.settings.set",
         class: Mutation,
@@ -150,6 +372,8 @@ pub struct HomeSettingsSetParams {
     pub allow_requests_from: Option<HomeSettingsSetParamsAllowRequestsFrom>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub email_requests: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trust_same_domain: Option<bool>,
 }
 
 wire_enum! {
@@ -166,6 +390,7 @@ pub struct HomeSettingsSetResult {
     pub discoverable_by_phone: bool,
     pub allow_requests_from: HomeSettingsSetResultAllowRequestsFrom,
     pub email_requests: bool,
+    pub trust_same_domain: bool,
 }
 
 wire_errors! {
@@ -282,6 +507,43 @@ pub struct HostRemoveResult {
 wire_errors! {
     /// The error codes host.remove declares.
     HostRemoveError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        RevisionConflict = "revision.conflict",
+        SelectorNotFound = "selector.not_found",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Delete the cloud copy of a host's read replica (its owner only), also while the host is off. The host stays enrolled; it publishes again only while its own app keeps the replica on.
+    HostReplicaPurgeOp {
+        name: "host.replica.purge",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:TeamDO",
+        risk: "destructive",
+        principals: [Session, Install],
+        params: HostReplicaPurgeParams,
+        result: HostReplicaPurgeResult,
+        error: HostReplicaPurgeError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HostReplicaPurgeParams {
+    pub host: HostId,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HostReplicaPurgeResult {
+    pub host: HostId,
+}
+
+wire_errors! {
+    /// The error codes host.replica.purge declares.
+    HostReplicaPurgeError {
         AuthForbidden = "auth.forbidden",
         AuthUnauthenticated = "auth.unauthenticated",
         IdempotencyConflict = "idempotency.conflict",
@@ -634,268 +896,4 @@ wire_op! {
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct InstallRevokeParams {
     pub install: InstallId,
-}
-
-wire_errors! {
-    /// The error codes install.revoke declares.
-    InstallRevokeError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        RevisionConflict = "revision.conflict",
-        SelectorNotFound = "selector.not_found",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Sign this install out: revokes the calling install (its token, grant, push targets and presence key) so a signed-out device keeps nothing usable.
-    InstallSignOutOp {
-        name: "install.sign_out",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:UserDO",
-        risk: "mutate-own",
-        principals: [Install],
-        params: InstallSignOutParams,
-        result: Install,
-        error: InstallSignOutError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct InstallSignOutParams {}
-
-wire_errors! {
-    /// The error codes install.sign_out declares.
-    InstallSignOutError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        RevisionConflict = "revision.conflict",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Read a provider op that waits for your approval (G8): the op, target, summary, full parameters and the digest the feed request shows. Parameters are deleted when the request ends. Only your own session reads it.
-    IntegrationApprovalGetOp {
-        name: "integration.approval.get",
-        class: Read,
-        idempotency: Forbidden,
-        owner: "cloud:ConnectionDO",
-        risk: "read",
-        principals: [Session],
-        params: IntegrationApprovalGetParams,
-        result: IntegrationApprovalGetResult,
-        error: IntegrationApprovalGetError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct IntegrationApprovalGetParams {
-    pub request: String,
-}
-
-wire_enum! {
-    IntegrationApprovalGetResultState {
-        Pending = "pending",
-        Done = "done",
-        Denied = "denied",
-        Expired = "expired",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct IntegrationApprovalGetResult {
-    pub request: String,
-    pub op: String,
-    pub connection: String,
-    pub target: String,
-    pub summary: String,
-    pub params: Value,
-    pub digest: String,
-    pub state: IntegrationApprovalGetResultState,
-    pub created_at: WireNumber,
-    pub expires_at: WireNumber,
-}
-
-wire_errors! {
-    /// The error codes integration.approval.get declares.
-    IntegrationApprovalGetError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        SelectorNotFound = "selector.not_found",
-    }
-}
-
-wire_op! {
-    /// Finish a connection from the provider's redirect (the signed-in user must be the one who started it).
-    IntegrationCompleteOp {
-        name: "integration.complete",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:ConnectionDO",
-        risk: "mutate-shared",
-        principals: [Session],
-        params: IntegrationCompleteParams,
-        result: Connection,
-        error: IntegrationCompleteError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct IntegrationCompleteParams {
-    pub state: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub code: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub installation_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub setup_action: Option<String>,
-}
-
-wire_errors! {
-    /// The error codes integration.complete declares.
-    IntegrationCompleteError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        IntegrationNotConfigured = "integration.not_configured",
-        IntegrationStateInvalid = "integration.state_invalid",
-        MutationIndeterminate = "mutation.indeterminate",
-        RevisionConflict = "revision.conflict",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Start connecting a provider account: returns a pending connection and the provider URL a human opens to approve it.
-    IntegrationConnectOp {
-        name: "integration.connect",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:ConnectionDO",
-        risk: "mutate-shared",
-        principals: [Session],
-        params: IntegrationConnectParams,
-        result: IntegrationConnectResult,
-        error: IntegrationConnectError,
-    }
-}
-
-wire_enum! {
-    IntegrationConnectParamsSharing {
-        Private = "private",
-        Team = "team",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct IntegrationConnectParams {
-    pub provider: IntegrationProvider,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub scopes: Option<Vec<String>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub sharing: Option<IntegrationConnectParamsSharing>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct IntegrationConnectResult {
-    pub connection: Connection,
-    pub authorize_url: String,
-}
-
-wire_errors! {
-    /// The error codes integration.connect declares.
-    IntegrationConnectError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        IntegrationLimit = "integration.limit",
-        IntegrationNotConfigured = "integration.not_configured",
-        PolicyDenied = "policy.denied",
-        RevisionConflict = "revision.conflict",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// List the team's connections the caller may use (no secrets) and which providers this deployment can connect.
-    IntegrationListOp {
-        name: "integration.list",
-        class: Read,
-        idempotency: Forbidden,
-        owner: "cloud:ConnectionDO",
-        risk: "read",
-        principals: [Session, Install],
-        params: IntegrationListParams,
-        result: IntegrationListResult,
-        error: IntegrationListError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct IntegrationListParams {}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct IntegrationListResultProvidersItem {
-    pub provider: IntegrationProvider,
-    pub configured: bool,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct IntegrationListResult {
-    pub connections: Vec<Connection>,
-    pub providers: Vec<IntegrationListResultProvidersItem>,
-    pub revision: String,
-}
-
-wire_errors! {
-    /// The error codes integration.list declares.
-    IntegrationListError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-    }
-}
-
-wire_op! {
-    /// Read the team's integration policy (allowed providers, GitHub repository scope).
-    IntegrationPolicyGetOp {
-        name: "integration.policy.get",
-        class: Read,
-        idempotency: Forbidden,
-        owner: "cloud:ConnectionDO",
-        risk: "read",
-        principals: [Session, Install],
-        params: IntegrationPolicyGetParams,
-        result: TeamIntegrationPolicy,
-        error: IntegrationPolicyGetError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct IntegrationPolicyGetParams {}
-
-wire_errors! {
-    /// The error codes integration.policy.get declares.
-    IntegrationPolicyGetError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-    }
-}
-
-wire_op! {
-    /// Change the team's integration policy (team admins; refused while an SSO or MDM policy locks it).
-    IntegrationPolicySetOp {
-        name: "integration.policy.set",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:ConnectionDO",
-        risk: "mutate-shared",
-        principals: [Session],
-        params: IntegrationPolicySetParams,
-        result: TeamIntegrationPolicy,
-        error: IntegrationPolicySetError,
-    }
 }

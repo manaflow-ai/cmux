@@ -68,6 +68,8 @@ public nonisolated struct KeyBindingDefaults {
     /// `when` that names it. (Home's Cmd-Shift-[ / ] went to the Chrome tab
     /// keys, Leo 2026-10-12: Home is a sidebar item too.)
     ///
+    /// Cmd-N on Home starts a New Message (``onHome``), as in Messages.
+    ///
     /// Cmd-K searches the agent chats everywhere but a terminal, as in ChatGPT and Claude
     /// desktop (Leo 2026-10-12, keyboard parity); a focused terminal keeps Clear (decision K1)
     /// and the code editor keeps its Cmd-K key sequences.
@@ -82,7 +84,16 @@ public nonisolated struct KeyBindingDefaults {
     public static let scopedDefaults: [KeyBinding] = [
         KeyBinding(keys: [Shortcut("k", modifiers: [.command])], command: "agentPane.searchChats",
                    when: .and([notTerminal, .not(.has(KeyContext.codeEditorFocusedKey))])),
+        // Cmd-N on Home is Messages' New Message (Lawrence 2026-10-19); everywhere else it stays New Workspace.
+        KeyBinding(keys: [Shortcut("n", modifiers: [.command])], command: "home.newMessage", when: onHome),
     ]
+
+    /// Home has the keyboard: its top page, its conversation view, or the docked Home's page.
+    public static let onHome = WhenClause.or([
+        .equals(KeyContext.topPage, .string("home")),
+        .equals(KeyContext.surfaceKind, .string("home")),
+        .equals(KeyContext.surfaceKind, .string("home-dock")),
+    ])
 
     /// The arrow aliases for pane resize. These are defaults in addition to
     /// each action's catalog Ctrl-Shift H/J/K/L key, and disappear when a user
@@ -113,6 +124,13 @@ public nonisolated struct KeyBindingDefaults {
         KeyBinding(keys: [Shortcut("[", modifiers: [.command])], command: "focusHistoryBack", when: notWebPage),
         KeyBinding(keys: [Shortcut("]", modifiers: [.command])], command: "focusHistoryForward", when: notWebPage),
     ]
+    /// Cmd-Shift-= (Cmd-+ on a US layout) is the markdown viewer's Zoom In too, as Cmd-= is: the
+    /// key a person reads as "Command plus". The action needs `markdownFocused`, so a terminal or a
+    /// browser page never loses the key to it.
+    public static let zoomAliases: [KeyBinding] = [
+        KeyBinding(keys: [Shortcut("=", modifiers: [.command, .shift])], command: "markdownZoomIn"),
+    ]
+
     /// Not in a web page, and not in the code editor, whose Cmd-[ / Cmd-] are outdent / indent.
     static let notWebPage = WhenClause.and([
         .notEquals(KeyContext.surfaceKind, .string("page")), .not(.has(KeyContext.codeEditorFocusedKey)),
@@ -120,7 +138,7 @@ public nonisolated struct KeyBindingDefaults {
 
     /// Aliases that follow their action's catalog key: present only while
     /// the action has its default key (no cmux.json override or chord).
-    public static var actionAliases: [KeyBinding] { paneResizeAliases + paneFocusAliases + focusHistoryAliases }
+    public static var actionAliases: [KeyBinding] { paneResizeAliases + paneFocusAliases + focusHistoryAliases + zoomAliases }
 
     /// Actions whose default key Monaco also uses for editing (R127,
     /// webviews/src/pages/editor/README.md): while the code editor has the
@@ -132,6 +150,9 @@ public nonisolated struct KeyBindingDefaults {
         "splitRight", "openBrowser", "focusUp", "focusDown",
         "moveSurfaceToPaneLeft", "moveSurfaceToPaneRight", "moveSurfaceToPaneUp", "moveSurfaceToPaneDown",
         "space.previous", "space.next", "globalSearch", "palette.newAgentChat", "focusLocation", "groupSelectedWorkspaces",
+        // VS Code's Insert Line Below / Above (Cmd-Return, Shift-Cmd-Return; Lawrence 2026-10-19:
+        // "all common vscode shortcuts").
+        "toggleChecklistItemComplete", "toggleSplitZoom",
     ]
 
     /// Actions whose default key a terminal program also uses (Ctrl-_ is
@@ -179,7 +200,9 @@ public nonisolated struct KeyBindingDefaults {
             bind(Shortcut.spaceKey, [], "paletteKey.submit", when(empty, .has(K.paletteTogglesInPlace), .not(menu))),
             bind(Shortcut.tabKey, [], "paletteKey.openActions", open),
             bind(Shortcut.tabKey, [.shift], "paletteKey.closeActions", open),
-            // Decision K1: no Cmd-K in the palette; Tab opens the Actions menu.
+            // Tab opens the Actions menu; Cmd-K shows or hides it too (Copy Session ID on a
+            // Go to Workspace row), and on an action row edits its shortcut.
+            bind("k", [.command], "paletteKey.toggleActions", open),
             bind(Shortcut.escapeKey, [], "paletteKey.escape", open),
             bind(Shortcut.rightArrowKey, [], "paletteKey.enterRow", when(tree, .not(menu), .has(K.paletteCaretAtEnd))),
             bind(Shortcut.leftArrowKey, [], "paletteKey.leaveLevel", when(tree, .not(menu), .has(K.paletteCaretAtStart))),

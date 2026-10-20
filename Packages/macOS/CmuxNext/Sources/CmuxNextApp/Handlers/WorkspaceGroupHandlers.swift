@@ -16,6 +16,13 @@ enum WorkspaceGroupHandlers {
         bindEdits(registry, context)
         bindMembers(registry, context)
         WorkspaceGroupPlaces.bind(into: registry, context: context)
+        // The header menu's toggles read as the change they make on the right-clicked group.
+        ActionTargetTitles.set("workspaceGroup.togglePin", in: registry) { invocation in
+            (try? context.group(invocation)).map { isPinned($0, context) ? WorkspaceVerbStrings.unpinGroup : WorkspaceVerbStrings.pinGroup }
+        }
+        ActionTargetTitles.set("toggleFocusedWorkspaceGroupCollapsed", in: registry) { invocation in
+            (try? context.group(invocation)).map { $0.collapsed ? WorkspaceVerbStrings.expandGroup : WorkspaceVerbStrings.collapseGroup }
+        }
         registry.bind("nextWorkspaceGroup", requires: DaemonCapabilities.shared.profiles, daemon: context.services.machines.local,
                       run: { _ in selectGroup(context, offset: 1) })
         registry.bind("prevWorkspaceGroup", requires: DaemonCapabilities.shared.profiles, daemon: context.services.machines.local,
@@ -39,7 +46,9 @@ enum WorkspaceGroupHandlers {
             guard invocation["group"]?.targetValue != nil else { throw ActionFailure.invalidTarget(RefusalStrings.groupRequired) }
             let group = try context.group(ActionInvocation(arguments: invocation.arguments))
             let workspace = try context.workspace(invocation).model
-            let sidebar = try WorkspaceVerbHandlers.sidebar(showing: workspace, context), ids = [SidebarWorkspaceID(workspace.id)]
+            // The right-clicked row, or the multi-selection it belongs to.
+            let sidebar = try WorkspaceVerbHandlers.sidebar(showing: workspace, context)
+            let ids = try WindowMembershipHandlers.workspaces(invocation, context).map(SidebarWorkspaceID.init)
             // The drag's rule (SidebarEdits.canMove): a group holds one machine row's workspaces.
             guard SidebarEdits.canMove(ids, toGroup: sidebarID(group), in: sidebar.model.sections) else {
                 throw ActionFailure(message: RefusalStrings.groupOnAnotherMachine)
@@ -48,7 +57,10 @@ enum WorkspaceGroupHandlers {
         })
         registry.bind("removeWorkspaceFromGroup", requires: DaemonCapabilities.shared.profiles, daemon: home, run: { invocation in
             guard context.usesPersonalGroups else { throw ActionFailure(message: home.personalStateUnavailableReason) }
-            context.ungroupPersonal(try context.workspace(invocation).model)
+            // Every grouped row of the selection the right-clicked row belongs to.
+            let grouped = try WindowMembershipHandlers.workspaces(invocation, context).compactMap(context.services.workspace(id:))
+                .filter { (try? WorkspaceVerbHandlers.group(of: $0, context)) != nil }
+            for workspace in grouped { context.ungroupPersonal(workspace) }
         })
         ActionTargetVisibility.hide("removeWorkspaceFromGroup", in: registry) { (try? context.workspace($0).model).map { (try? WorkspaceVerbHandlers.group(of: $0, context)) == nil } ?? false }
         ActionTargetVisibility.hide("groupSelectedWorkspaces", in: registry) { _ in ((try? context.sidebar().model.orderedSelection.count) ?? 0) < 2 }
@@ -85,10 +97,21 @@ enum WorkspaceGroupHandlers {
                 sidebar.container.beginRename(group: sidebarID(group))
             }
         })
-        registry.bind("workspaceGroup.moveUp", requires: DaemonCapabilities.shared.profiles, daemon: home, run: { invocation in try move(invocation, by: -1, context) })
-        registry.bind("workspaceGroup.moveDown", requires: DaemonCapabilities.shared.profiles, daemon: home, run: { invocation in try move(invocation, by: 1, context) })
+        // Top, Up, Down, Bottom among the section's rows (u2418), one undoable sidebar move each.
+        let moves: [(ActionID, SidebarGroupMove)] = [("workspaceGroup.moveToTop", .top), ("workspaceGroup.moveUp", .up),
+                                                     ("workspaceGroup.moveDown", .down), ("workspaceGroup.moveToBottom", .bottom)]
+        for (id, direction) in moves {
+            registry.bind(id, requires: DaemonCapabilities.shared.profiles, daemon: home, run: { invocation in try move(invocation, direction, context) })
+        }
+        registry.bind("workspaceGroup.collapseOthers", requires: DaemonCapabilities.shared.profiles, daemon: home, run: { invocation in
+            let group = sidebarID(try context.group(invocation))
+            let sidebar = try context.sidebar()
+            for id in SidebarEdits.groupsToggledByCollapsingOthers(keeping: group, in: sidebar.model.sections) {
+                sidebar.handle(.toggleCollapse(.group(id)))
+            }
+        })
         registry.bind("workspaceGroup.ungroup", requires: DaemonCapabilities.shared.profiles, daemon: home, run: { invocation in
-            try WorkspaceGroupUndo.remove(invocation, context, message: WorkspaceGroupUndo.ungroupedToast)
+            try WorkspaceGroupUndo.remove(invocation, context, message: WorkspaceGroupUndo.ungroupedToast, toast: false)
         })
         registry.bind("workspaceGroup.closeWorkspaces", requires: DaemonCapabilities.shared.profiles, daemon: home, run: { invocation in
             try WorkspaceGroupClose.close(invocation, context)
@@ -104,7 +127,7 @@ enum WorkspaceGroupHandlers {
         // A pinned (saved) group stays when its workspaces close.
         registry.bind("workspaceGroup.togglePin", requires: DaemonCapabilities.shared.workspaceGroupPin, daemon: home, run: { invocation in
             let group = try context.group(invocation)
-            try context.sidebar().handle(.setGroupPinned(sidebarID(group), !group.pinned))
+            try context.sidebar().handle(.setGroupPinned(sidebarID(group), !isPinned(group, context)))
         })
         // The group icon: the shared icon string, same rule as workspace and tab icons.
         registry.bind("workspaceGroup.setIcon", requires: DaemonCapabilities.shared.workspaceGroupIcon, daemon: home, run: { invocation in
@@ -161,6 +184,12 @@ enum WorkspaceGroupHandlers {
         CmuxNextSidebar.GroupID(group.id.rawValue)
     }
 
+    /// Whether the group reads as pinned where the person sees it: in the Pinned band on the sidebar
+    /// document, else the personal group's saved flag. Pin/Unpin toggles from this.
+    private static func isPinned(_ group: WorkspaceGroupModel, _ context: AppActionContext) -> Bool {
+        (try? context.sidebar().model.group(sidebarID(group))?.isPinned) ?? group.pinned
+    }
+
     private static func createGroup(named name: String, members: [SidebarWorkspaceID], byUser: Bool, _ context: AppActionContext) throws {
         try context.sidebar().groupFlow.newGroup(of: members, name: name, byUser: byUser)
     }
@@ -196,20 +225,20 @@ enum WorkspaceGroupHandlers {
         for step in 1...groups.count {
             let index = (start + offset * step + groups.count * 2) % groups.count
             let target = groups[index]
-            if let workspace = sidebar.model.group(CmuxNextSidebar.GroupID(target.id.rawValue))?.workspaces.first(where: { !$0.rowState.isPending }) {
-                context.services.windows.show(workspaceID: workspace.id.rawValue, in: window.state)
+            if let workspace = sidebar.model.group(CmuxNextSidebar.GroupID(target.id.rawValue)).flatMap(WorkspaceGroupFocus.firstWorkspace) {
+                context.services.windows.show(workspaceID: workspace.rawValue, in: window.state)
                 return
             }
         }
     }
 
-    private static func move(_ invocation: ActionInvocation, by offset: Int, _ context: AppActionContext) throws {
-        let group = try context.group(invocation)
-        let ordered = context.roomGroups
-        guard let index = ordered.firstIndex(where: { $0 === group }) else { return }
-        let target = min(max(index + offset, 0), ordered.count - 1)
-        guard target != index else { return }
-        try context.sidebar().handle(.reorderGroup(sidebarID(group), index: target))
+    /// Moves the targeted group among its section's rows. `reorderGroup` counts every row of the
+    /// section (loose workspaces too), not the group's place among the room's groups.
+    private static func move(_ invocation: ActionInvocation, _ direction: SidebarGroupMove, _ context: AppActionContext) throws {
+        let group = sidebarID(try context.group(invocation))
+        let sidebar = try context.sidebar()
+        guard let index = SidebarEdits.groupIndex(group, direction, in: sidebar.model.sections) else { return }
+        sidebar.handle(.reorderGroup(group, index: index))
     }
 
     private static func acknowledge(_ invocation: ActionInvocation, _ context: AppActionContext) throws {

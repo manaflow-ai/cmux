@@ -75,6 +75,16 @@ final class SidebarIconButton: NSButton {
 
     @objc private func pressed() { onPress?() }
 
+    /// AXPress runs `onPress` and reports success. NSButton's own press ran the action yet
+    /// answered -25205 (kAXErrorActionUnsupported) for the sidebar's New Workspace, so a
+    /// computer-use agent that read the error pressed again and made a second workspace.
+    override func accessibilityPerformPress() -> Bool {
+        guard let onPress else { return super.accessibilityPerformPress() }
+        guard isEnabled, !isHiddenOrHasHiddenAncestor else { return false }
+        onPress()
+        return true
+    }
+
     /// The button's right-click menu (cx-2lm4; the sidebar's New button shows
     /// the list's empty-space menu); nil keeps AppKit's.
     var menuProvider: (() -> NSMenu?)?
@@ -98,7 +108,7 @@ final class SidebarIconButton: NSButton {
         renderIcon()
     }
 
-    override var wantsUpdateLayer: Bool { true }
+    nonisolated override var wantsUpdateLayer: Bool { true }
 
     override var acceptsFirstResponder: Bool {
         guard takesKeyFocus else { return super.acceptsFirstResponder }

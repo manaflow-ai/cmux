@@ -70,6 +70,7 @@ import {
   requestedVmTeamIdFromRequest,
   vmErrorResponse,
   withAuthedVmApiRoute,
+  vmCreateCreditsCheckoutExtra,
   vmActiveLimitExceededResponse,
   vmMemoryRequiresPlanResponse,
   vmMemoryUnavailableResponse,
@@ -95,6 +96,7 @@ import {
 import { getGoVmUsage, GO_SAVED_VM_LIMIT } from "../../../services/vms/goUsage";
 import { getPlanBudgetUsage, isBudgetPlanId, type PlanBudgetUsage } from "../../../services/vms/planUsage";
 import { publishVmOps, vmSyncReplaceOp } from "../../../services/vms/presencePublisher";
+import { idempotencyKeyFromRequest } from "../../../services/vms/routeInput";
 
 
 // Provisioning can run minutes; without an explicit budget the platform
@@ -613,16 +615,9 @@ async function parseCreateRequest(
     provider: candidate.provider as ProviderId | undefined,
     billingTeamId: typeof bodyBillingTeamId === "string" ? bodyBillingTeamId.trim() : undefined,
   };
-  // Idempotency-Key is standard HTTP; we also accept x-cmux-idempotency-key for CLI
-  // callers that don't know about RFC-style keys. Trim + clamp to a reasonable length
-  // so we don't store unbounded idempotency metadata.
-  const rawKey = (
-    request.headers.get("idempotency-key") ||
-    request.headers.get("x-cmux-idempotency-key") ||
-    ""
-  ).trim();
-  const idempotencyKey = rawKey ? rawKey.slice(0, 128) : undefined;
-  return { ok: true, candidate, body, idempotencyKey };
+  const idempotency = idempotencyKeyFromRequest(request);
+  if (!idempotency.ok) return idempotency;
+  return { ok: true, candidate, body, idempotencyKey: idempotency.key };
 }
 
 function invalidCreateRequestResponse(message: string, action: string, details: Record<string, unknown>): Response {
@@ -971,6 +966,7 @@ function createErrorResponders(entitlements: {
       }),
     VmCreateCreditsInsufficientError: (error) => {
       const billsUser = entitlements.billingCustomerType === "user";
+      const checkout = vmCreateCreditsCheckoutExtra(error.amount, entitlements.planId);
       return vmErrorResponse({
         error: "vm_create_credits_insufficient",
         status: 402,
@@ -978,9 +974,9 @@ function createErrorResponders(entitlements: {
           ? "Your account has no Cloud VM create credits left."
           : "This team has no Cloud VM create credits left.",
         action: billsUser
-          ? "Upgrade your plan or add Cloud VM create credits, then retry."
-          : "Upgrade the team's plan or ask an admin to add Cloud VM create credits, then retry.",
-        extra: { amount: error.amount },
+          ? `Get more Cloud VM credits at ${checkout.upgradeUrl}, then retry.`
+          : `Get more Cloud VM credits at ${checkout.upgradeUrl}, or ask a team admin to add some, then retry.`,
+        extra: checkout,
         details: { amount: error.amount },
       });
     },

@@ -59,6 +59,14 @@ extension SidebarViewComponents {
     }
     /// Draws the model now, in the caller's turn (SidebarSameTurn); the observation's next, equal state is skipped.
     public func renderNow() { render(RenderState(model, design)) }
+
+    /// Draws the model now and scrolls the selection into view, with the header
+    /// and list top around it, even when it did not change: Cmd-`n`, Cmd-Ctrl-[ / ]
+    /// and the palette pressed again on the item they already selected.
+    public func revealSelection() {
+        renderNow()
+        list.revealSelectionNow()
+    }
     func render(_ state: RenderState) {
         guard state != lastState else { return }
         let chromeChanged = lastState?.metrics != state.metrics || lastState?.fontSize != state.fontSize
@@ -93,6 +101,7 @@ extension SidebarViewComponents {
                 list.reload(animated: Self.animatesReload(from: previous, to: model.sections))
             }
             lastSections = model.sections
+            if rowsChanged { SidebarNewRowTimer.shared.drew(lastSections, in: window) }
         }
         if lastState?.cards != state.cards { cardSlot.show(state.cards); needsLayout = true }
         if chromeChanged || profilesChanged { bandsDirty = true; needsLayout = true }

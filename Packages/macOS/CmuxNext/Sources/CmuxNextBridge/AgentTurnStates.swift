@@ -223,10 +223,13 @@ public final class AgentTurnStateStore {
         var generatedTitle: String?
         /// The model and running turn (`AgentChatDetail`), for the hover card.
         var detail: AgentChatDetail?
+        /// The chat's recent prompts, waits and finished turns (u3320), read when a hover card
+        /// opens; not observed (a new moment redraws nothing).
+        @ObservationIgnored var timeline = AgentTimeline()
     }
 
     /// The records by session id; not observed itself (a reader observes the record it reads).
-    @ObservationIgnored private var sessions: [String: Session] = [:]
+    @ObservationIgnored var sessions: [String: Session] = [:]
     /// Bumped by every turn state change of any session: for a reader that
     /// follows all of them (one read, no walk).
     public private(set) var stateRevision: UInt64 = 0
@@ -263,8 +266,16 @@ public final class AgentTurnStateStore {
     }
 
     /// Sets one session's facts from a `_acpmux/session_changed`; writes only what changed.
+    /// `recordsTimeline` false (the watch closing) notes no moment: nothing happened to the chat.
     public func apply(session: String, state: AgentTurnState?, lastMessage: String?, muted: Bool, title: String?,
-                      generatedTitle: String? = nil, detail: AgentChatDetail?) {
+                      generatedTitle: String? = nil, detail: AgentChatDetail?, recordsTimeline: Bool = true) {
+        let held = record(session)
+        if recordsTimeline {
+            let nowMs = UInt64((Date().timeIntervalSince1970 * 1000).rounded())
+            for event in AgentTimeline.chatEvents(from: held.state, held.detail, to: state, detail, nowMs: nowMs) {
+                held.timeline.append(event)
+            }
+        }
         setState(state, session: session)
         let record = record(session)
         if record.lastMessage != lastMessage { record.lastMessage = lastMessage }
@@ -290,7 +301,7 @@ public final class AgentTurnStateStore {
     public func clearLive() {
         for (id, record) in sessions {
             apply(session: id, state: nil, lastMessage: nil, muted: false, title: record.title,
-                  generatedTitle: record.generatedTitle, detail: nil)
+                  generatedTitle: record.generatedTitle, detail: nil, recordsTimeline: false)
         }
     }
 
@@ -301,6 +312,12 @@ public final class AgentTurnStateStore {
 
     /// The last message of the session an agent chat tab shows.
     public func lastMessage(for ref: AgentSessionRef) -> String? { local(ref)?.lastMessage }
+
+    /// The recent moments of the chat an agent chat tab shows (u3320); empty off this Mac.
+    public func timeline(for ref: AgentSessionRef) -> AgentTimeline {
+        guard let session = ref.session, let localHost, ref.host == localHost else { return AgentTimeline() }
+        return sessions[session]?.timeline ?? AgentTimeline()
+    }
 
     /// The model and running turn of the chat an agent chat tab shows; nil off this Mac.
     public func detail(for ref: AgentSessionRef) -> AgentChatDetail? { local(ref)?.detail }

@@ -187,6 +187,7 @@ use deadline_fanout::{
     CELL_PIXEL_FANOUT_MAX_WORKERS, DeadlineFanoutPool, DeadlineMapResult, DeadlinePending,
     bounded_deadline_map,
 };
+mod column_move;
 mod dock_columns;
 mod event_emit;
 mod exit_settle;
@@ -205,6 +206,8 @@ mod journal_retention;
 mod kitty_budget;
 mod kitty_reservation;
 mod launch_identity;
+mod ledger_maintenance;
+mod pinned_columns;
 mod workspace_name;
 use kitty_reservation::kitty_image_limits_exceed;
 mod agent_presence;
@@ -313,6 +316,7 @@ mod workspace_create;
 mod workspace_identity;
 mod workspace_move;
 mod workspace_rename;
+use workspace_rename::workspace_resource_upsert;
 
 use agent_hook_errors::{
     AGENT_HOOK_RETRY_ERROR, AgentHookTerminalGone, AgentHookTerminalUnavailable,
@@ -323,18 +327,26 @@ pub use agent_chat_columns::AGENT_CHAT_COLUMN_CODE;
 pub(crate) use agent_chat_columns::{
     agent_chat_columns, ensure_agent_chat_columns_unsplit, ensure_pane_column_not_agent_chat,
 };
+pub use column_move::{ColumnMoveDirection, ColumnMoveError};
+pub use dock_columns::PINNED_COLUMN_CODE;
 pub use dock_columns::{
     ColumnDockError, ColumnDockOutcome, PERMANENT_COLUMN_CODE, parse_column_dock,
 };
 pub(crate) use dock_columns::{ensure_permanent_columns_kept, permanent_columns};
 pub use idle_close::{IDLE_CLOSE_REAP_INTERVAL, IdleTerminalReaper, start_idle_terminal_reaper};
 pub use layout_ratio_error::LayoutRatioError;
+pub(crate) use pinned_columns::{
+    LONE_DOCK_NEIGHBOR_WIDTH, ensure_pane_takes_tabs, ensure_pinned_columns_kept,
+    lone_pinned_dock_taking_no_tabs, pane_in_lone_pinned_column, pinned_columns,
+};
 pub use presentation::{
     PendingTerminal, TabDirectory, TabNotificationAck, TabPinChange, TreeDecorations,
     WorkspaceGroupChange,
 };
 pub(crate) use resource_content::ResourceEffectProjection;
 use resource_content::ensure_screen_split_public_ids;
+#[cfg(unix)]
+pub(crate) use resource_topology::AgentCLIJobBusy;
 pub(crate) use resource_topology::{
     BatchCloseOutcome, BatchCloseTarget, CloseReason, PANE_BROWSER_URL_FIELD, RoomClose,
 };
@@ -449,29 +461,6 @@ const WORKSPACE_KEY_MAX_BYTES: usize = 256;
 const WORKSPACE_NAME_MAX_BYTES: usize = 1_024;
 const TERMINAL_HOST_CLOSE_WAIT: Duration = Duration::from_secs(4);
 const TERMINAL_READER_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(1);
-fn workspace_resource_upsert(
-    sequence: usize,
-    session_id: &str,
-    workspace_id: &WorkspacePublicId,
-    name: &str,
-    index: usize,
-    focused: bool,
-) -> Value {
-    serde_json::json!({
-        "kind":"upsert",
-        "sequence":sequence,
-        "resource":"workspace",
-        "id":workspace_id,
-        "value":{
-            "id":workspace_id,
-            "session_id":session_id,
-            "name":name,
-            "index":index,
-            "focused":focused,
-        },
-    })
-}
-
 pub(crate) fn clamp_terminal_size(cols: u16, rows: u16) -> (u16, u16) {
     (cols.clamp(1, TERMINAL_DIMENSION_MAX), rows.clamp(1, TERMINAL_DIMENSION_MAX))
 }
@@ -536,9 +525,9 @@ pub struct Mux {
     conversations: crate::conversation_store::ConversationHost,
     /// The Chief registry (chief_registry.rs), opened on first use.
     chiefs: crate::chief_registry::ChiefHost,
-    /// The cloud conversations proxy (`cloud-conversations-v1`), installed by
-    /// a binary that has a cloud transport; absent otherwise.
-    cloud_conversations: OnceLock<crate::cloud_conversations::CloudConversations>,
+    /// The cloud conversations proxy and the host replica publisher, installed
+    /// by a binary that has a cloud transport (mux/cloud_conversations.rs).
+    cloud: cloud_conversations::CloudServices,
     /// The history search index (`history-search-v1`), installed by the
     /// binary with its feeds; absent otherwise.
     history_search: OnceLock<crate::history_search::HistorySearch>,
@@ -696,6 +685,8 @@ pub struct Mux {
     /// frontend bootstraps an otherwise empty session.
     initial_bootstrap: Mutex<()>,
     resource_creation_execution: Mutex<()>,
+    #[cfg(unix)]
+    agent_cli_job_execution: Mutex<()>,
     resource_creation_active: AtomicBool,
     terminal_adoptions: Mutex<HashSet<String>>,
     /// Terminals with a possibly live host and no runtime surface (R41),

@@ -10,7 +10,7 @@ import QuartzCore
 /// are text only by default (WORKSPACE-ROWS-NO-DEFAULT-ICON, Lawrence 2026-10-14).
 /// Tab rows draw their own kind and brand marks.
 final class SidebarIconView: NSView {
-    private let imageView = NSImageView()
+    private let imageView = DecorativeImageView()
     private let swatch = CALayer()
     private let emoji = SidebarEmojiGlyphView()
     private var icon: WorkspaceIcon?
@@ -32,12 +32,15 @@ final class SidebarIconView: NSView {
         imageView.imageScaling = .scaleProportionallyDown
         addSubview(imageView)
         addSubview(emoji)
+        // Decorative: the row it sits in names the workspace, group or machine.
+        setAccessibilityElement(false)
+        emoji.setAccessibilityElement(false)
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
 
-    override var wantsUpdateLayer: Bool { true }
+    nonisolated override var wantsUpdateLayer: Bool { true }
 
     /// The chip behind a colored emoji: the color, light enough that the emoji reads.
     static let chipAlpha: CGFloat = 0.35

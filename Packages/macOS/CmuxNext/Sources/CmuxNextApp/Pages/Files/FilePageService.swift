@@ -1,11 +1,13 @@
 import AppKit
 import CmuxNextBridge
+import CmuxNextBrowser
 import CmuxNextDesign
 import CmuxNextIcons
 import CmuxNextPages
 import CmuxNextSettings
 import Foundation
 import CmuxNextCompat
+import typealias CmuxNextDaemon.SurfaceID
 
 /// Owns one file page's tabs (diff-host S6 `cmux.markdown`, S7 `cmux.editor`): pane tabs, one
 /// ``FilePageProvider`` and page view per tab, one shared look per page (its settings section,
@@ -21,6 +23,8 @@ final class FilePageService: InternalPageProvider {
         var file: URL?
         /// The user opened the document (not an agent or a script): it is granted and writable.
         var userChose = true
+        /// The host opens the document read only (a chat transcript).
+        var readOnly = false
         var page: PageWebView?
         var provider: FilePageProvider?
         var host: FilePageTabHost?
@@ -28,6 +32,8 @@ final class FilePageService: InternalPageProvider {
         var recoveredText: String?
         /// Ends this tab's flush registration on its quit document.
         var stopFlush: (() -> Void)?
+        /// The Markdown omnibar above the page (markdown tabs only).
+        var bar: MarkdownOmnibarBar?
     }
 
     let kind: FilePageKind
@@ -43,6 +49,8 @@ final class FilePageService: InternalPageProvider {
     private var warnedTooLarge: Set<String> = []
     /// Tabs whose pages are saving their last edits after the tab closed.
     private(set) var flushing: [Task<Void, Never>] = []
+    /// The local live links of the Markdown Share menu, started on the first link.
+    private(set) lazy var liveShare = MarkdownLiveShareServer(clock: clock)
 
     /// The file pages draw at the display's full rate, as the diff and agent pages do.
     static let engineOptions = PageEngineOptions(fullFrameRate: true)
@@ -90,16 +98,24 @@ final class FilePageService: InternalPageProvider {
 
     func provider(_ key: String) -> FilePageProvider? { tabs[key]?.provider }
 
+    /// Whether the tab showing `page` waits for the second key of a key sequence
+    /// (``FilePageProvider/keySequencePending``).
+    func keySequencePending(on page: PageWebView) -> Bool {
+        tabs.values.contains { $0.page === page && $0.provider?.keySequencePending == true }
+    }
+
     /// The file tab `key` shows, nil for the empty state or another tab.
     func file(_ key: String) -> URL? { tabs[key]?.provider?.file ?? tabs[key]?.file }
 
     /// Opens `file` in a tab after `pane`'s selected tab, or selects the tab of `pane`'s window that
-    /// already shows it. A user run (`focus`) selects and focuses it.
+    /// already shows it. A user run (`focus`) selects and focuses it. `readOnly`: the tab never saves
+    /// the file (a chat transcript); every other markdown file opens writable.
     @discardableResult
-    func open(_ file: URL, in pane: PaneController, focus: Bool, userChose: Bool = true, recoveredText: String? = nil) -> String {
+    func open(_ file: URL, in pane: PaneController, focus: Bool, userChose: Bool = true, readOnly: Bool = false,
+              recoveredText: String? = nil, placed: (@MainActor (SurfaceID) -> Void)? = nil) -> String {
         let real = file.standardizedFileURL.resolvingSymlinksInPath()
         if userChose { services.viewers.recents.record(real, as: kind.recents) }
-        let key = show(in: pane, focus: focus, Tab(file: real, userChose: userChose, recoveredText: recoveredText)) { key in
+        let key = show(in: pane, focus: focus, placed: placed, Tab(file: real, userChose: userChose, readOnly: readOnly, recoveredText: recoveredText)) { key in
             self.file(key) == real
         }
         // The user opened a file a tab already shows (perhaps one an agent opened): it is theirs now.
@@ -141,6 +157,8 @@ final class FilePageService: InternalPageProvider {
 
     fileprivate func saved(_ url: URL, hash: String) {
         documents.existing(url)?.saved(hash: hash)
+        // A save can change the file's git state (clean to modified).
+        for tab in tabs.values where tab.provider?.file == url { tab.bar?.refresh() }
     }
 
     /// Tab `key` stops showing `url`: the tab's flush goes; the document goes with the last tab.
@@ -161,19 +179,23 @@ final class FilePageService: InternalPageProvider {
     /// (page-tabs-v1), on its file as the route (page-tab-route-v1), so it
     /// moves like any daemon tab and Reopen Closed brings it back on that
     /// file; else as an app-only tab.
-    private func show(in pane: PaneController, focus: Bool, _ tab: Tab, matching: (String) -> Bool) -> String {
+    /// `placed` (``LinkOpener``): a new store tab opens unselected and reports its surface there; a
+    /// tab that already shows the file, or a local tab no move can take, shows where it is.
+    private func show(in pane: PaneController, focus: Bool, placed: (@MainActor (SurfaceID) -> Void)? = nil, _ tab: Tab,
+                      matching: (String) -> Bool) -> String {
         let window = services.windowController(showing: pane)
+        let revealsExisting = focus || placed != nil
         for candidate in window?.content?.panes.values.map({ $0 }) ?? [pane] {
             let keys = services.pages.tabIDs(in: candidate.paneKey) + candidate.pane.tabs.compactMap { services.pages.storeKey(of: $0.id) }
             if let shown = keys.first(where: { tabs[$0] != nil && matching($0) }) {
-                if focus { reveal(shown, in: candidate) }
+                if revealsExisting { reveal(shown, in: candidate) }
                 return shown
             }
             // A store tab of the same file that has not been shown yet (relaunch): show it, not a second one.
             if let file = tab.file?.path, let unshown = candidate.pane.tabs.first(where: {
                 $0.page == kind.page.rawValue && $0.pageRoute == file && services.pages.storeKey(of: $0.id) == nil
             }) {
-                if focus {
+                if revealsExisting {
                     candidate.select(StripTabID(unshown.id))
                     candidate.focusContent()
                 }
@@ -185,13 +207,13 @@ final class FilePageService: InternalPageProvider {
         // A store tab only on this Mac's daemon that keeps the route: a file path of this Mac never
         // goes to another machine's daemon, and a tab without its route could not come back.
         if let window, pane.daemon.isLocal, services.pages.keepsRoutes(pane.daemon),
-           services.pages.openStoreTab(kind.page, in: pane, window: window, focus: focus, key: key) != nil {
+           services.pages.openStoreTab(kind.page, in: pane, window: window, focus: focus, key: key, created: placed) != nil {
             return key
         }
         services.pages.open(kind.page, in: pane.paneKey, of: pane.daemon.store, after: pane.stripModel.selectedID?.rawValue,
                             window: window, key: key)
         pane.apply(pane.snapshot())
-        if focus { reveal(key, in: pane) }
+        if revealsExisting { reveal(key, in: pane) }
         return key
     }
 
@@ -204,6 +226,7 @@ final class FilePageService: InternalPageProvider {
     fileprivate func opened(_ url: URL, in key: String) {
         if let previous = tabs[key]?.file, previous != url { left(previous, tab: key) }
         tabs[key]?.file = url
+        tabs[key]?.bar?.show(url)
         if let pane = services.paneController(showingTab: key) { pane.apply(pane.snapshot()) }
     }
 
@@ -251,17 +274,25 @@ final class FilePageService: InternalPageProvider {
         return await services.viewers.picker.open(options, over: tabs[key]?.page?.window)?.first
     }
 
+    /// A web link clicked in the page: the link setting (``LinkRouter``, cmux browser or the default
+    /// browser) and, in cmux, beside the page's pane (``LinkOpener``).
     fileprivate func openExternal(_ url: URL, from key: String) {
         switch url.scheme?.lowercased() {
         case "http", "https":
-            if let pane = pane(of: key) { pane.newBrowserTab(url: url) } else { NSWorkspace.shared.openInBackground(url) }
+            guard LinkRouter.shared.target(for: url) == .cmuxBrowser else { return LinkRouter.shared.open(url, in: .system) }
+            if let pane = pane(of: key) { services.linkOpener.openWeb(url, from: pane, background: false) } else { NSWorkspace.shared.openInBackground(url) }
         default:
             NSWorkspace.shared.openInBackground(url)
         }
     }
 
+    fileprivate func openAppLink(_ url: URL) -> Bool {
+        CmuxAppLinks.open(url, services: services)
+    }
+
+    /// A file link clicked in the page opens beside the page's pane (``LinkOpener``).
     fileprivate func openFile(_ url: URL, from key: String) {
-        services.viewers.openFile(url, in: pane(of: key), markdown: FilePageKind.isMarkdown(url))
+        services.linkOpener.openFile(url, from: pane(of: key), markdown: FilePageKind.isMarkdown(url))
     }
 
     // MARK: InternalPageProvider
@@ -271,7 +302,7 @@ final class FilePageService: InternalPageProvider {
         var tab = tabs[key] ?? Tab(file: nil)
         let host = FilePageTabHost(service: self, key: key)
         let libraries = Bundle.main.resourceURL.map(PageDescriptor.markdownLibraries(inAppResources:))
-        let provider = FilePageProvider(kind: kind, file: tab.file, userChose: tab.userChose, host: host, clock: clock,
+        let provider = FilePageProvider(kind: kind, file: tab.file, userChose: tab.userChose, readOnly: tab.readOnly, host: host, clock: clock,
                                         libraries: libraries, images: images)
         provider.recoveredText = tab.recoveredText
         let native = AppPageNativeProvider(services: services, page: kind.descriptor)
@@ -288,6 +319,41 @@ final class FilePageService: InternalPageProvider {
         tab.host = host
         tabs[key] = tab
         return page
+    }
+
+    /// The Markdown omnibar above a markdown tab's page (plans/cmux-next/markdown-omnibar-DESIGN.md):
+    /// the browser's omnibar row showing the file's path, its git state and the Share menu.
+    func makeTopBar(for key: String) -> NSView? {
+        guard kind == .markdown, let tab = tabs[key], let page = tab.page else { return nil }
+        let actions = MarkdownOmnibarActions(
+            open: { [weak self] url, disposition in self?.omnibarOpen(url, disposition: disposition, from: key) },
+            returnFocus: { [weak page] in
+                guard let page, let window = page.window else { return }
+                window.makeFirstResponder(page.webKitView)
+            },
+            liveLink: { [weak self] url in try? await self?.liveShare.link(for: url) },
+            openInBrowser: { [weak self] url in self?.openExternal(url, from: key) })
+        let bar = MarkdownOmnibarBar(suggestionEngine: services.cache.suggestionEngine, actions: actions)
+        bar.toolbar.cardClip = page
+        bar.show(tab.provider?.file ?? tab.file)
+        tabs[key]?.bar = bar
+        return bar
+    }
+
+    /// A URL committed in the Markdown omnibar: a Markdown file opens in this tab (the user typed
+    /// it, so it is theirs), another file through the file routing, a web URL in a browser tab
+    /// beside the page. A modified commit (`disposition`) always opens a new tab.
+    private func omnibarOpen(_ url: URL, disposition: OmnibarDisposition?, from key: String) {
+        guard url.isFileURL else { return openExternal(url, from: key) }
+        guard disposition == nil, FilePageKind.isMarkdown(url), let provider = tabs[key]?.provider, let page = tabs[key]?.page else {
+            return openFile(url, from: key)
+        }
+        provider.userChose(url.standardizedFileURL.resolvingSymlinksInPath())
+        // task-owner: one open of the typed file; ends when the tab shows it or refuses it
+        Task {
+            guard (try? await provider.open(url)) != nil else { return NSSound.beep() }
+            page.reload()
+        }
     }
 
     /// Finder drops (WebKit hides their paths from the page): the empty tab opens the dropped file
@@ -375,10 +441,12 @@ final class FilePageTabHost: FilePageHosting {
     func opened(_ url: URL) { service?.opened(url, in: key) }
     func openExternal(_ url: URL) { service?.openExternal(url, from: key) }
     func openFile(_ url: URL) { service?.openFile(url, from: key) }
+    func openAppLink(_ url: URL) -> Bool { service?.openAppLink(url) ?? false }
     func edited(_ url: URL, text: String, baseHash: String?, writable: Bool) -> RecoveryDraftAcceptance {
         service?.edited(url, text: text, baseHash: baseHash, writable: writable, from: key) ?? .kept
     }
     func saved(_ url: URL, hash: String) { service?.saved(url, hash: hash) }
+    var showsOmnibar: Bool { service?.kind == .markdown }
     func isRecent(_ path: String) -> Bool { service?.isRecent(path) ?? false }
     func confirmOpen(_ url: URL, userGesture: Bool) async -> Bool { await service?.confirmOpen(url, userGesture: userGesture, from: key) ?? false }
 }

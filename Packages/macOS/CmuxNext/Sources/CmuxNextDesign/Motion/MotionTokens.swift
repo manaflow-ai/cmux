@@ -58,14 +58,22 @@ public nonisolated enum MotionSpring: String, Sendable, CaseIterable {
     /// Home list pin drag: tiles making room, rows below the grid, a dropped
     /// tile landing (MessagesLab `SidebarPinDragging.spring`).
     case pinDrag
-    /// A pane zooming to fill its screen: it owns the motion (Leo 2026-10-13).
+    /// A pane zooming to fill its screen and back: it owns the motion and
+    /// covers the other panes (Leo 2026-10-13, Lawrence 2026-10-18).
     case zoom
-    /// The panes a zoom leaves fade out, faster than anything arrives
-    /// (`Motion.exit(nearness:)`: the farthest first).
+    /// A pane closing: the neighbours that take its space grow over it, with
+    /// their dividers, on this one spring (Lawrence 2026-10-18).
     case exit
     /// A new tab growing in at its final slot while the tabs right of it make room, on one
     /// spring (`ui.animations.newTab`, on by default). Structural.
     case tabOpen
+    /// A split (Cmd-D, Cmd-Shift-D): the new pane grows in from the split edge while every pane
+    /// of its chain gives up room, one spring from the key's frame to rest (Lawrence 2026-10-19:
+    /// "resize all of them while adding a new one"). Slightly under-damped (0.95): no visible
+    /// overshoot, a shorter tail than critical damping. Not structural: the bounce setting does
+    /// not change it. Swift-only for now (cmux-motion's `MotionSpring` ends at `tabOpen`; parity
+    /// compares the tokens both ports have).
+    case split
 
     /// Values at `MotionSpeed.fast`: the code default (`MotionTunables`),
     /// or its Debug Settings override in DEV and NIGHTLY builds.

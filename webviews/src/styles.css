@@ -454,16 +454,12 @@ body {
   border-radius: 50%;
   border: 1.6px solid color-mix(in lab, var(--cmux-diff-fg) 26%, transparent);
   border-top-color: var(--cmux-diff-fg);
-  animation: base-picker-spin 0.7s linear infinite;
+  animation: cmux-spin var(--cmux-spinner-period, 900ms) linear infinite;
 }
-@keyframes base-picker-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
+/* Reduce Motion stops it (cx-sya4n); the diff viewer has no Static setting of its own. */
 @media (prefers-reduced-motion: reduce) {
   .base-picker-spinner {
-    animation-duration: 1.6s;
+    animation: none;
   }
 }
 .base-picker-popover {
@@ -1207,13 +1203,10 @@ body[data-loading="true"] #status::before {
   border: 2px solid color-mix(in lab, var(--cmux-diff-fg) 20%, transparent);
   border-top-color: color-mix(in lab, var(--cmux-diff-fg) 70%, var(--cmux-diff-bg));
   border-radius: 50%;
-  animation: cmuxDiffPendingSpin 800ms linear infinite;
+  animation: cmux-spin var(--cmux-spinner-period, 900ms) linear infinite;
 }
 #status[data-error="true"] {
   color: var(--cmux-diff-deletion-fg);
-}
-@keyframes cmuxDiffPendingSpin {
-  to { transform: rotate(360deg); }
 }
 @media (prefers-reduced-motion: reduce) {
   #status[data-pending="true"]::before,

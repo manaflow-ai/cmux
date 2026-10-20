@@ -16,17 +16,16 @@ import { creationResult, issueCreation } from "./generated-creation.ts";
 import { scopedCreationKey, scopedForkSnapshotKey } from "../auth/idempotency-key.ts";
 import { acquireForkSnapshot } from "./fork-capture.ts";
 import { cleanupForkSnapshot } from "./fork-snapshot-cleanup.ts";
-import { continueCancellation } from "./creation-cancellation.ts";
 import { recoverWithdrawnImage } from "./image-recovery.ts";
 import { replayVm } from "./replay-vm.ts";
 import { retireVm } from "./retire.ts";
 import { VmInstanceIdentity } from "../api/instance-identity.ts";
 import { INSTANCE_IDENTITY_SCHEME } from "../../../../libs/vm-instance-identity/src/identity.ts";
 import { name, type Named } from "@gdp-ts/core";
-import { Clock, Effect, Option, Schema } from "effect";
+import { Clock, Effect, Either, Option, Schema } from "effect";
 import { idempotent, requestFingerprint } from "./idempotency.ts";
 import type { VmCreationProbe, RetainedVmCreation } from "../domain/vm-creation.ts";
-import type { IdempotencyProgress, ForkCaptureProgress } from "../limits/ledger.ts";
+import { CREATE_SEND_GRACE_MS, type IdempotencyProgress, type ForkCaptureProgress } from "../limits/ledger.ts";
 import { resizeVm } from "./resize.ts";
 import { toVm } from "./vm-view.ts";
 import { replaceVmHttpsProxy } from "./https-proxies.ts";
@@ -53,7 +52,7 @@ import {
 import { newSnapshotId, newVmId, parseSnapshotId, parseVmId, TenantId, type SnapshotId } from "../lib/ids.ts";
 import { TenantLimits } from "../limits/service.ts";
 import { resolveIdleTimeout, TenantPolicy } from "../policy.ts";
-import type { KeyHasScope } from "../proofs/key-has-scope.ts";
+import { keyHasScope, type KeyHasScope } from "../proofs/key-has-scope.ts";
 import { vmNetworkAllowed, vmNetworkEvidenceOf, type VmNetworkAllowed } from "../proofs/vm-network.ts";
 import { tenantMayCreate, type TenantMayCreate } from "../proofs/tenant-may-create.ts";
 import { tenantDeletedVm, tenantOwnsSnapshot, tenantOwnsVm, visitOwnedVms, type TenantOwnsResource } from "../proofs/tenant-owns-resource.ts";
@@ -140,10 +139,30 @@ const withCreateSlot = <C, A, E, R>(caller: Named<C, Principal>, k: (proof: Tena
   });
 
 /**
+ * Once a VM has its tombstone, the creation intent that made it gives up its quota slot: a cancelled intent
+ * settles its cancellation, any other unfinished one settles as finished (the tombstone is its outcome), and a
+ * fork's intermediate snapshot is cleaned up. Both settlements are idempotent, so a retried delete never frees
+ * a slot twice; a deleted committed VM whose intent already finished changes nothing.
+ */
+const settleDeletedCreation = <C>(caller: Named<C, Principal>, scope: KeyHasScope<C, "vm:write">, vmId: string) =>
+  Effect.gen(function* () {
+    const tenantId = caller.value.tenantId;
+    const key = yield* (yield* OwnershipStore).creationKey(tenantId, vmId).pipe(Effect.mapError(() => unavailable()));
+    if (key === null) return;
+    const limits = yield* TenantLimits;
+    const progress = (yield* limits.inspect(tenantId, key).pipe(Effect.mapError(() => unavailable())))?.progress;
+    if ((progress?.phase !== "creating" && progress?.phase !== "cancelled") || progress.vmId !== vmId) return;
+    const settle = progress.phase === "cancelled" || progress.cancelRequested === true ? limits.settleCancellation : limits.settleCreation;
+    yield* settle(tenantId, key, vmId).pipe(Effect.mapError(() => unavailable()));
+    if (progress.snapshotId !== undefined) yield* cleanupForkSnapshot(caller, scope, progress.snapshotId);
+  });
+
+/**
  * Creates the VM upstream (tagged with the tenant), grows it to the requested
  * size, and records it in the ownership table. Keyed creates retain an intent
  * and quota slot before I/O; retries recover the same allocation. Requests
- * without a client key receive a server-issued recovery handle.
+ * without a client key receive a server-issued recovery handle. A failed grow
+ * records the VM uncommitted.
  */
 const createRecorded = <C, S>(
   caller: Named<C, Principal>,
@@ -155,7 +174,7 @@ const createRecorded = <C, S>(
     readonly image?: VmImageAllowed<C>;
     readonly source?: { readonly snapshot: Named<S, SnapshotId>; readonly owns: TenantOwnsResource<C, S> };
   },
-  attempt: { readonly key: string; readonly prior: IdempotencyProgress | null; readonly snapshotId?: string; readonly unkeyed?: string },
+  attempt: { readonly key: string; readonly prior: IdempotencyProgress | null; readonly snapshotId?: string },
 ) =>
   Effect.gen(function* () {
     const upstream = yield* UpstreamClient;
@@ -175,6 +194,16 @@ const createRecorded = <C, S>(
         Effect.flatMap((active) => active ? Effect.void : Effect.fail(new UpstreamError({ operation: "createCancelled", status: null }))),
       ),
       beginSend: () => Effect.gen(function* () {
+        // A recorded allocation is never sent again. Nothing at its exact slug may only be propagation until the
+        // send's grace window has passed; after it, the recorded upstream id is checked before the VM counts as gone.
+        if (attempt.prior?.phase === "creating") {
+          const recorded = yield* store.allocationStatus(caller.value.tenantId, cmuxId).pipe(Effect.mapError(() => new UpstreamError({ operation: "createFence", status: null })));
+          if (recorded !== "absent") {
+            const sent = attempt.prior.dispatch, now = yield* Clock.currentTimeMillis;
+            const settled = recorded === "pending" && sent !== undefined && (sent.state !== "sent" || (sent.at !== undefined && now - sent.at >= CREATE_SEND_GRACE_MS));
+            return yield* Effect.fail(new UpstreamError({ operation: settled ? "createGone" : "createSendUncertain", status: null }));
+          }
+        }
         const token = crypto.randomUUID();
         const allowed = yield* limits.beginCreateSend(caller.value.tenantId, attempt.key, cmuxId, token).pipe(Effect.mapError(() => new UpstreamError({ operation: "createFence", status: null })));
         if (!allowed) return yield* Effect.fail(new UpstreamError({ operation: "createSendUncertain", status: null }));
@@ -192,7 +221,7 @@ const createRecorded = <C, S>(
         );
       },
     };
-    const created = yield* upstream
+    const attempted = yield* upstream
       .createVm(
         caller,
         {
@@ -207,54 +236,64 @@ const createRecorded = <C, S>(
         },
         proofs,
       )
-      .pipe(Effect.mapError((error) => proofs.image !== undefined && (error.status === 400 || error.status === 404) ? unavailable() : onCreate(error)));
-    const vm =
-      spec.size === undefined
-        ? created.vm
-        : yield* created.grow(spec.size).pipe(
-            Effect.mapError((error) =>
-              error.status === 429
-                ? new QuotaExceeded({ message: "VM capacity is exhausted for now; retry later", retryAfterSeconds: 60, budget: "capacity" })
-                : unavailable(),
-            ),
-            // An unkeyed caller cannot resume the growth: delete the undersized VM through the verified
-            // cancellation path (tombstone, slot released) rather than leave it unlisted and billed.
-            Effect.catchAll((error) => attempt.unkeyed === undefined ? Effect.fail(error)
-              : discardUnkeyedCreation(caller, proofs.scope, attempt.key, cmuxId, attempt.unkeyed).pipe(Effect.flatMap((discarded) =>
-                Effect.fail(discarded && error._tag !== "QuotaExceeded" ? conflict("The VM could not be grown to the requested size; nothing was kept") : error)))),
+      .pipe(Effect.either);
+    if (Either.isLeft(attempted)) {
+      const error = attempted.left;
+      if (error.operation === "createGone") {
+        // The uncommitted VM was deleted provider-side (e.g. by autoDeleteSeconds) only if its recorded id is gone
+        // too; any other answer keeps it pending. Then tombstone it and settle its intent once, so the retry
+        // answers like any deleted allocation and nothing new is created.
+        const vanished = yield* name(cmuxId, (vm) => Effect.gen(function* () {
+          const owns = yield* tenantOwnsVm(caller, vm).pipe(Effect.mapError(() => unavailable()));
+          if (owns === null) return false;
+          return yield* upstream.getVmForWrite(vm, { owns, scope: proofs.scope }).pipe(
+            Effect.as(false),
+            Effect.catchAll((failure) => failure.status === 404 ? Effect.succeed(true) : Effect.fail(unavailable())),
           );
-    yield* journal.active.pipe(Effect.mapError(() => unavailable()));
-    yield* store
-      .record({
-        tenantId: caller.value.tenantId,
-        kind: "vm",
-        cmuxId,
-        upstreamId: created.upstreamId,
-        createdBy,
-        createdAt: intent === undefined ? createdAt : new Date(intent.createdAt),
-        ...(intent === undefined ? {} : { creation: { key: attempt.key, receipt: intent.receipt } }),
-        displayName: spec.displayName,
-        labels: spec.labels,
-      })
-      .pipe(
-        Effect.mapError(() => unavailable()),
-      );
-    return toVm(cmuxId, spec, vm);
+        }));
+        if (!vanished) return yield* Effect.fail(unavailable());
+        yield* store.markDeleted(caller.value.tenantId, "vm", cmuxId, new Date(yield* Clock.currentTimeMillis)).pipe(Effect.mapError(() => unavailable()));
+        yield* settleDeletedCreation(caller, proofs.scope, cmuxId);
+        return yield* Effect.fail(vmNotFound());
+      }
+      return yield* Effect.fail(proofs.image !== undefined && (error.status === 400 || error.status === 404) ? unavailable() : onCreate(error));
+    }
+    const created = attempted.right;
+    const grown = spec.size === undefined ? Either.right(created.vm) : yield* Effect.either(created.grow(spec.size));
+    const record = (committed: boolean) => journal.active.pipe(Effect.zipRight(store.record({
+      tenantId: caller.value.tenantId,
+      kind: "vm",
+      cmuxId,
+      upstreamId: created.upstreamId,
+      createdBy,
+      createdAt: intent === undefined ? createdAt : new Date(intent.createdAt),
+      ...(intent === undefined ? {} : { creation: { key: attempt.key, receipt: intent.receipt } }),
+      displayName: spec.displayName,
+      labels: spec.labels,
+      ...(committed ? {} : { committed: false }),
+    })));
+    if (Either.isLeft(grown)) {
+      // Recorded but uncommitted: the owner can list and delete it while the intent keeps its quota slot;
+      // only a same-key retry or reconcile that reaches the floors commits it. A failed write leaves the intent.
+      yield* record(false).pipe(Effect.ignore);
+      return yield* Effect.fail(grown.left.status === 429
+        ? new QuotaExceeded({ message: "VM capacity is exhausted for now; retry later", retryAfterSeconds: 60, budget: "capacity" })
+        : unavailable());
+    }
+    yield* record(true).pipe(Effect.mapError(() => unavailable()));
+    return toVm(cmuxId, spec, grown.right);
     // Uninterruptible: a client that disconnects mid-create must not leave an
     // upstream VM that is neither recorded nor discarded.
   }).pipe(Effect.uninterruptible);
 
-/** Cancels an unkeyed creation whose growth failed; true once its VM is deleted and its slot released. */
-const discardUnkeyedCreation = <C>(caller: Named<C, Principal>, scope: KeyHasScope<C, "vm:write">, key: string, vmId: string, rawKey: string) => Effect.gen(function* () {
-  if ((yield* (yield* TenantLimits).cancelCreation(caller.value.tenantId, key, vmId)) !== "accepted") return false;
-  return (yield* continueCancellation(caller, scope, rawKey)).state === "cancelled";
-}).pipe(Effect.orElseSucceed(() => false));
-
-/** A committed ownership row repairs completion without allocating again, including after deletion. */
+/**
+ * A committed ownership row repairs completion without allocating again, including after deletion.
+ * An uncommitted row is resumed like an unrecorded allocation: the retry grows the same VM.
+ */
 const replayRecordedAttempt = <C>(caller: Named<C, Principal>, scope: KeyHasScope<C, "vm:write">, prior: IdempotencyProgress | null, key: string | null) => Effect.gen(function* () {
   if (prior?.phase !== "creating" || key === null) return null;
   const status = yield* (yield* OwnershipStore).allocationStatus(caller.value.tenantId, prior.vmId).pipe(Effect.mapError(() => unavailable()));
-  if (status === "absent") return null;
+  if (status === "absent" || status === "pending") return null;
   yield* (yield* TenantLimits).advance(caller.value.tenantId, key, { phase: "done", vmId: prior.vmId }).pipe(Effect.mapError(() => unavailable()));
   if (status === "deleted") return yield* Effect.fail(vmNotFound());
   return yield* replayVm(caller, scope, prior.vmId);
@@ -312,7 +351,7 @@ const createVm = (payload: CreateVmRequest, idempotencyKey: string | undefined) 
             const existing = yield* replayRecordedAttempt(caller, scope, prior, key);
             if (existing !== null) return existing;
             if (key === null) return yield* Effect.fail(unavailable());
-            const attempt = { key, prior, ...(generated === undefined ? {} : { unkeyed: generated.key }) };
+            const attempt = { key, prior };
             if (payload.snapshotId === undefined) {
               return yield* withCreateSlot(caller, (mayCreate) => createRecorded(caller, spec, { mayCreate, scope, ...(network === undefined ? {} : { network }), ...(image === undefined ? {} : { image }) }, attempt), resumeSlot(key, prior));
             }
@@ -531,13 +570,21 @@ const listVms = (params: {
     }),
   );
 
-/** Whether the caller's tenant already deleted this VM (same allowlist and service-label rules as a live one). */
+/**
+ * Whether the caller's tenant already deleted this VM (same allowlist and service-label rules as a live one).
+ * A delete that failed after its tombstone left the slot settlement to this retry.
+ */
 const deletedEarlier = (rawId: string) =>
   Effect.gen(function* () {
     const principal = yield* CurrentPrincipal;
     const parsed = parseVmId(rawId);
     if (Option.isNone(parsed)) return false;
-    return yield* name(principal, parsed.value, (caller, vm) => tenantDeletedVm(caller, vm)).pipe(Effect.mapError(() => unavailable()));
+    return yield* name(principal, parsed.value, (caller, vm) => Effect.gen(function* () {
+      const gone = yield* tenantDeletedVm(caller, vm).pipe(Effect.mapError(() => unavailable()));
+      const scope = keyHasScope(caller, "vm:write");
+      if (gone && scope !== null) yield* settleDeletedCreation(caller, scope, vm.value);
+      return gone;
+    }));
   });
 
 export const vmsHandlers = HttpApiBuilder.group(CmuxVmApi, "vms", (handlers) =>
@@ -655,12 +702,18 @@ export const vmsHandlers = HttpApiBuilder.group(CmuxVmApi, "vms", (handlers) =>
           Effect.gen(function* () {
             const upstream = yield* UpstreamClient;
             const store = yield* OwnershipStore;
+            const limits = yield* TenantLimits;
+            const tenantId = TenantId.make(caller.value.tenantId);
+            // Deleting an uncommitted VM cancels its creation: fence the intent first so a retry cannot commit it.
+            const pending = proofs.owns.committed ? null : yield* store.creationKey(tenantId, vm.value).pipe(Effect.mapError(() => unavailable()));
+            if (pending !== null) yield* limits.cancelCreation(tenantId, pending, vm.value).pipe(Effect.mapError(() => unavailable()));
             // "gone" (already deleted upstream) still forgets the VM here.
             yield* upstream.deleteVm(vm, proofs).pipe(Effect.mapError(() => unavailable()));
             const now = new Date(yield* Clock.currentTimeMillis);
             yield* store
-              .markDeleted(TenantId.make(caller.value.tenantId), "vm", vm.value, now)
+              .markDeleted(tenantId, "vm", vm.value, now)
               .pipe(Effect.mapError(() => unavailable()));
+            yield* settleDeletedCreation(caller, proofs.scope, vm.value);
           }),
         ).pipe(
           // Idempotent: the caller's own already-deleted VM answers 204 again, so a lost 204 never wedges the retry.
