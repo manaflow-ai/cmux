@@ -123,7 +123,15 @@ ssh cmux23 'python3 ~/ios-internal-builder/ios_internal_builder.py status'
 ## Operations
 
 - Move the builder's workflow forward (admin): `git push origin
-  <feat-cmux-next sha>:refs/heads/rc/cnx-ios-builder` (fast-forward only).
+  <feat-cmux-next sha>:refs/heads/rc/cnx-ios-builder` (fast-forward only;
+  the pre-push web lint covers other agents' files in that range, so set
+  `CMUX_WEB_LINT_SKIP_REASON`). The push also registers the dispatch-only
+  workflow with GitHub, which refuses to dispatch a workflow it never ran.
+- After `scripts/ci/ios_internal_builder.py` changes, copy it to the mini:
+  `scp scripts/ci/ios_internal_builder.py cmux23:ios-internal-builder/` (the
+  admission hook and watch loop run that copy; a stale copy refuses jobs).
+- The trigger does not retry a head that failed for 12 hours; to retry one at
+  once, dispatch `ios-internal-nightly.yml` on `rc/cnx-ios-builder` with `sha`.
 - Pause: set repo variable `IOS_INTERNAL_HOLD=1`; the trigger then dispatches
   nothing.
 

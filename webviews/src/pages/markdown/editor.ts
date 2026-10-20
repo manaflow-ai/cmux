@@ -52,7 +52,14 @@ import {
 } from "./sourceMap";
 import { imageSize, obsidianSyntaxPlugin } from "./obsidian";
 import { isPointerSelecting, pointerChanged, pointerSelectPlugin } from "./pointerSelect";
-import { ResizableTableView, tableClipboard, tableDragOutPlugin, tableKeyDown, type TableWidths } from "./tables";
+import {
+  ResizableTableView,
+  tableClipboard,
+  tableDragOutPlugin,
+  tableKeyDown,
+  tableViewAt,
+  type TableWidths,
+} from "./tables";
 
 /** What the editor needs from its page: links, images, code colors, diagrams and labels. */
 export interface MarkdownEditorHost {
@@ -60,6 +67,10 @@ export interface MarkdownEditorHost {
   openLink(href: string): void;
   /** The URL an image source loads from (relative sources go through the host). */
   imageURL(src: string): string;
+  /** Approves every guarded web image in the current document; called only by its visible button. */
+  loadRemoteImages?(): Promise<void>;
+  /** Refreshes blocked image views when the current document receives or loses approval. */
+  observeRemoteImages?(refresh: () => void): () => void;
   /** Code token decorations for a code block; `null` while its grammar loads (then `refresh`). */
   highlight?(code: string, language: string, refresh: () => void): CodeToken[] | null;
   /** Renders a diagram block (mermaid, vega-lite, vega) into `target`. */
@@ -72,11 +83,22 @@ export interface MarkdownEditorHost {
   githubRepository?: string;
   /** Link checks, the link bubble's strings, path completion and copying. */
   links?: LinkHost;
-  /** Column widths the user dragged, kept per file (a view setting, never written to the file). */
+  /**
+   * Column widths the user dragged, kept per file (a view setting, never written to the file: the
+   * host keeps them in the file's extended attribute, MARKDOWN-TABLE-WIDTHS-DESIGN.md).
+   */
   tableWidths?: TableWidths;
 }
 
-export type EditorLabel = "frontmatter" | "html" | "definition" | "source" | "plainText" | "document";
+export type EditorLabel =
+  | "frontmatter"
+  | "html"
+  | "definition"
+  | "source"
+  | "plainText"
+  | "document"
+  | "remoteImageBlocked"
+  | "remoteImageLoad";
 
 /** One colored token of a code block, by offset into its text. */
 export interface CodeToken {
@@ -431,6 +453,29 @@ export class MarkdownEditor {
     this.bubble.current?.editAtSelection();
   }
 
+  /** Forgets every table's column widths in the file (the `resetTableWidths` page command). */
+  resetTableWidths(): void {
+    this.options.host.tableWidths?.clear();
+  }
+
+  /**
+   * Forgets the column widths of the table around `target` (the table's right-click Reset Column
+   * Widths); false when `target` is in no table.
+   */
+  resetTableWidthsAt(target: Element | null): boolean {
+    const view = tableViewAt(target);
+    view?.resetWidths();
+    return !!view;
+  }
+
+  /** The index among the document's tables of the table around `target`, or null. */
+  tableIndexAt(target: Element | null): number | null {
+    const wrapper = target?.closest?.(".tableWrapper");
+    if (!wrapper || !this.view?.dom.contains(wrapper)) return null;
+    const index = [...this.view.dom.querySelectorAll(".tableWrapper")].indexOf(wrapper);
+    return index >= 0 ? index : null;
+  }
+
   /** A click on a task item's box (left of its text) checks or unchecks it. */
   private toggleTask(target: Element | null, event: MouseEvent): boolean {
     const item = target?.closest?.('li[data-item-type="task"]');
@@ -770,32 +815,71 @@ function nodeViews(host: MarkdownEditorHost): Record<string, NodeViewConstructor
     // would write widths into the document, so the editor names its own view here.
     table: (node, view, getPos) => new ResizableTableView(node, view, getPos, host.tableWidths, 100),
     image: (node) => {
-      const img = document.createElement("img");
+      const dom = document.createElement("span");
+      dom.className = "md-image-node";
+      dom.contentEditable = "false";
+      let current = node;
       const apply = (next: ProseNode) => {
-        img.src = host.imageURL(String(next.attrs.src ?? ""));
+        current = next;
+        const source = String(next.attrs.src ?? "");
+        const resolved = host.imageURL(source);
         // Obsidian's size suffix: `![alt|300](src)` or `|300x200`.
         const alt = String(next.attrs.alt ?? "");
         const sized = /^(.*?)\|\s*(\d+(?:\s*x\s*\d+)?)\s*$/.exec(alt);
         const size = imageSize(sized?.[2]);
-        img.alt = sized ? sized[1]!.trim() : alt;
+        const plainAlt = sized ? sized[1]!.trim() : alt;
+        if (!resolved && /^https?:\/\//i.test(source.trim())) {
+          dom.replaceChildren(markdownRemoteImagePlaceholder(host, source, plainAlt));
+          return;
+        }
+        const img = document.createElement("img");
+        if (resolved) img.src = resolved;
+        img.alt = plainAlt;
         if (size.width) img.setAttribute("width", String(size.width));
-        else img.removeAttribute("width");
         if (size.height) img.setAttribute("height", String(size.height));
-        else img.removeAttribute("height");
         if (next.attrs.title) img.title = String(next.attrs.title);
-        else img.removeAttribute("title");
+        dom.replaceChildren(img);
       };
       apply(node);
+      const stop = host.observeRemoteImages?.(() => apply(current));
       return {
-        dom: img,
+        dom,
         update: (next) => {
           if (next.type !== node.type) return false;
           apply(next);
           return true;
         },
+        stopEvent: (event) => event.target instanceof Element && !!event.target.closest("button"),
+        ignoreMutation: () => true,
+        destroy: () => stop?.(),
       };
     },
   };
+}
+
+/** The visible control in place of a remote image. Its click approves the whole document. */
+export function markdownRemoteImagePlaceholder(host: MarkdownEditorHost, source: string, alt: string): HTMLElement {
+  const placeholder = document.createElement("span");
+  placeholder.className = "md-remote-image-placeholder";
+  placeholder.title = source;
+  const label = document.createElement("span");
+  label.textContent = alt || host.label("remoteImageBlocked");
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "md-button";
+  button.textContent = host.label("remoteImageLoad");
+  button.addEventListener("mousedown", (event) => event.preventDefault());
+  button.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    button.disabled = true;
+    void host.loadRemoteImages?.().catch((error: unknown) => {
+      button.disabled = false;
+      console.warn("cmux markdown remote images", error);
+    });
+  });
+  placeholder.append(label, button);
+  return placeholder;
 }
 
 /** Puts the caret at the start of a node's text, so clicking a preview edits its source. */
@@ -889,6 +973,7 @@ class RawBlockView {
   private readonly header: HTMLButtonElement;
   private readonly preview: HTMLElement;
   private html = "";
+  private readonly stopRemoteImages: (() => void) | undefined;
 
   constructor(
     private node: ProseNode,
@@ -914,7 +999,7 @@ class RawBlockView {
     this.preview.className = "md-raw-preview";
     this.preview.contentEditable = "false";
     this.preview.addEventListener("mousedown", (event) => {
-      if ((event.target as Element).closest?.("a[href], summary")) return;
+      if ((event.target as Element).closest?.("a[href], summary, button")) return;
       event.preventDefault();
       selectInside(this.view, this.getPos);
     });
@@ -930,6 +1015,10 @@ class RawBlockView {
     pre.append(this.contentDOM);
     this.dom.append(this.header, this.preview, pre);
     this.renderPreview(node);
+    this.stopRemoteImages = host.observeRemoteImages?.(() => {
+      this.html = "";
+      this.renderPreview(this.node);
+    });
   }
 
   private renderPreview(node: ProseNode): void {
@@ -955,5 +1044,9 @@ class RawBlockView {
 
   ignoreMutation(mutation: MutationRecord | { type: string; target: Node }): boolean {
     return !this.contentDOM.contains(mutation.target) || mutation.type === "attributes";
+  }
+
+  destroy(): void {
+    this.stopRemoteImages?.();
   }
 }

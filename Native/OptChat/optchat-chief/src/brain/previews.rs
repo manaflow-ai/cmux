@@ -32,6 +32,9 @@ use crate::state::OutboxEntry;
 /// and room for the uploads.
 pub const HOLD: Duration = Duration::from_secs(12);
 
+/// The longest a reply with pictures or videos waits for their uploads.
+pub const MEDIA_HOLD: Duration = Duration::from_secs(60);
+
 /// The name of a preview picture's attachment record.
 const PICTURE_NAME: &str = "link-preview.jpg";
 
@@ -49,15 +52,9 @@ impl Brain {
     /// Every other reply is returned unchanged and not held.
     pub(super) fn reply_with_previews(&mut self, mut entry: OutboxEntry) -> OutboxEntry {
         let conversation = entry.conversation.clone();
-        let Some(fetcher) = self.previewer.clone() else {
-            return entry;
-        };
         let Some(daemon) = self.daemon.as_ref() else {
             return entry;
         };
-        if !daemon.supports(LINK_PREVIEW_CAPABILITY) {
-            return entry;
-        }
         let reply = match &entry.op {
             Op::MessageSend { parts, .. } => match parts.as_slice() {
                 [Part::Text { text, .. }] => text.clone(),
@@ -65,10 +62,16 @@ impl Brain {
             },
             _ => return entry,
         };
-        if !link_preview::split::text_parts(&reply)
-            .iter()
-            .any(|part| matches!(part, Part::LinkPreview { .. }))
-        {
+        // Pictures and videos the reply names (media.rs) go whether or not the owner takes cards.
+        let home = std::env::var_os("HOME").map(std::path::PathBuf::from);
+        let media = super::media::media_refs(&reply, home.as_deref());
+        let fetcher = self.previewer.clone().filter(|_| {
+            daemon.supports(LINK_PREVIEW_CAPABILITY)
+                && link_preview::split::text_parts(&reply)
+                    .iter()
+                    .any(|part| matches!(part, Part::LinkPreview { .. }))
+        });
+        if media.is_empty() && fetcher.is_none() {
             return entry;
         }
         let Some(port) = daemon.preview_port() else {
@@ -80,10 +83,11 @@ impl Brain {
             self.log.clone(),
         );
         let thread_reply = reply.clone();
+        let hold = if media.is_empty() { HOLD } else { MEDIA_HOLD };
         let spawned = std::thread::Builder::new()
             .name("optchat-link-previews".into())
             .spawn(move || {
-                let parts = previews(port, fetcher, &conversation, &thread_reply, &log);
+                let parts = filled(port, fetcher, &conversation, &thread_reply, &media, &log);
                 let _ = tx.send(Input::Previews {
                     key: owned_key,
                     parts,
@@ -92,7 +96,7 @@ impl Brain {
         match spawned {
             Ok(_) => {
                 entry.plain_text = Some(reply);
-                entry.previews_until = Some(now_ms() + HOLD.as_millis() as u64);
+                entry.previews_until = Some(now_ms() + hold.as_millis() as u64);
             }
             Err(e) => (self.log)(&format!("starting the link previews failed: {e}")),
         }
@@ -125,11 +129,45 @@ impl Brain {
     }
 }
 
-/// The preview thread: the reply's parts with a card for each URL line a
+/// The preview thread's whole answer: the files the reply names uploaded
+/// (media.rs: their image syntax leaves the text, an attachment part each
+/// follows it), then the cards (`previews`) of what text is left. None: the
+/// reply goes as its text.
+fn filled(
+    mut port: Box<dyn PreviewPort>,
+    fetcher: Option<Arc<dyn Fetcher>>,
+    conversation: &str,
+    reply: &str,
+    media: &[super::media::MediaRef],
+    log: &super::Log,
+) -> Option<Vec<Part>> {
+    let files = super::media::upload(&mut *port, conversation, media, log);
+    let refs: Vec<&super::media::MediaRef> = files.iter().map(|(media, _)| media).collect();
+    let text = if files.is_empty() {
+        reply.to_owned()
+    } else {
+        super::media::without_images(reply, &refs)
+    };
+    let cards = fetcher.and_then(|fetcher| previews(&mut *port, fetcher, conversation, &text, log));
+    if files.is_empty() {
+        return cards;
+    }
+    let mut parts = cards.unwrap_or_else(|| {
+        vec![Part::Text {
+            text: text.clone(),
+            runs: None,
+        }]
+    });
+    parts.retain(|part| !matches!(part, Part::Text { text, .. } if text.trim().is_empty()));
+    parts.extend(files.into_iter().map(|(_, part)| part));
+    Some(parts)
+}
+
+/// The cards of the reply: its parts with a card for each URL line a
 /// person wrote, filled with the fetched preview and its uploaded picture;
 /// None when no line qualifies or the conversation cannot be read.
 fn previews(
-    mut port: Box<dyn PreviewPort>,
+    port: &mut dyn PreviewPort,
     fetcher: Arc<dyn Fetcher>,
     conversation: &str,
     reply: &str,

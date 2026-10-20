@@ -1295,7 +1295,9 @@ fn start(
         .with_cloud(crate::subagents::CloudPlacement::from_env(
             env,
             sub_text.clone(),
-        ));
+        ))
+        // `control cloud PEER` sets a peer at run time with no env.
+        .with_cloud_text(sub_text.clone());
         let spawner = Arc::new(spawner);
         sub_starter = Some(spawner.queue_starter());
         spawner as Arc<dyn crate::tools::Orchestrator>

@@ -29,6 +29,31 @@ fn now_ms() -> u64 {
 }
 
 impl Brain {
+    /// Where a spawn's subagents run: `place` (`cloud`/`local`), else the
+    /// saved `control cloud` default, else the env's peer; None: here.
+    pub(super) fn spawn_peer(
+        &self,
+        env: Option<&str>,
+        place: Option<&str>,
+    ) -> Result<Option<String>, String> {
+        let saved = self.state.cloud_peer.as_deref();
+        let peer = match saved {
+            Some(p) if !p.is_empty() => Some(p),
+            _ => env.filter(|p| !p.is_empty()),
+        };
+        match place {
+            Some("local") => Ok(None),
+            Some("cloud") => peer.map(|p| Some(p.to_owned())).ok_or_else(|| {
+                "no cloud peer is set up: `control cloud PEER` names the acpmux peer (`acpmux host ls`) cloud subagents run on".to_owned()
+            }),
+            Some(other) => Err(format!("spawn: no place {other}; cloud or local")),
+            None => Ok(match saved {
+                Some("") => None,
+                _ => peer.map(str::to_owned),
+            }),
+        }
+    }
+
     /// Gives a spawn its id and its subagents theirs (`a<N>`, unique per home).
     pub(super) fn register_spawn(
         &mut self,
@@ -95,6 +120,7 @@ impl Brain {
             queued,
             limit: self.live_cap_source(),
             engine: self.spawn_engine(),
+            peer: peer.map(str::to_owned),
         })
     }
 
@@ -453,7 +479,7 @@ impl Brain {
                 sub.status = SubStatus::Done;
                 sub.stopped = false;
                 sub.report = Some(format!(
-                    "stopped: {reason}. The model endpoint did not answer for {} min, so auto-resume stopped waiting; tell it to continue when the network is back.",
+                    "stopped after a retryable network error. The model endpoint did not answer for {} min, so auto-resume stopped waiting; tell it to continue when the network is back.",
                     crate::auto_resume::NETWORK_WAIT_MAX.as_secs() / 60
                 ));
             }
