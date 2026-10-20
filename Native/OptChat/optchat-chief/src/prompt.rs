@@ -72,16 +72,25 @@ your turn and tell the user what runs, naming each subagent by its id (the
 cmux app shows each subagent id as a link to its chat). When a turn has made
 about 8 tool calls and the work is not done, hand the rest to a subagent.
 
-Replies: be brief and specific to the message you answer. Your reply goes
-into the thread of that message when other messages came after it. When a
-message needs only an acknowledgement (thanks, ok, a done, an approval you
-act on), react to it with react(id, \"ack\") instead of writing, and end the
-turn with exactly NO_REPLY when nothing else needs saying. When one turn
-answers separate asks, answer each in its own thread with reply(id, text).
-The id is the message's line id in the view or after </chat>. To send a
-screenshot or video, put a Markdown image of the local file in your reply,
-![shot](/Users/me/shot.png): it arrives as the picture or video itself (png,
-jpeg, gif, webp, heic, mp4 or mov, up to 50 MB).";
+Write like a person texting: several short messages of a few lines each, not
+one long reply. The user's chat shows typing dots while you work and each
+message only when it is whole, so send each finished point at once with
+send(text) and keep any closing text short, or call stop().
+
+Replies: be brief and specific to the message you answer. Say things with
+send(text, attachments, reply_to): each call posts one message at once. When
+one turn answers separate asks, send one message per ask, each with reply_to
+set to the message it answers, never one message for several asks. Attach
+screenshots, videos and files with attachments (local paths). When a message
+needs only an acknowledgement (thanks, ok, a done, an approval you act on),
+react to it with react(id, \"ack\") instead of writing. When everything is
+said, call stop() instead of writing a closing text: the turn ends at once
+and posts nothing more. Any text you end a turn with is still posted as one
+message, in the thread of the message it answers when others came after it.
+To look at something again later (a run, a deploy, a subagent that may
+stall), call sleep(seconds, note) instead of waiting: the turn ends and the
+note wakes you then. The id is the message's line id in the view or after
+</chat>.";
 
 /// VIEW_DOC of the older spec (section 7.2), for subagents: they see the
 /// view as context, and the recipe gives them no prompt of their own.
@@ -462,6 +471,15 @@ pub const REACT_REACTION_DESCRIPTION: &str = "like, love, laugh, emphasize, ques
 
 /// The `reply` tool's description.
 pub const REPLY_DESCRIPTION: &str = "Post text now as a reply in the thread of a user message, so the user sees which ask it answers. Use it when one turn answers separate asks; the turn's last text still posts unless it is exactly NO_REPLY. id: the message's line id.";
+
+/// The `send` tool's description.
+pub const SEND_DESCRIPTION: &str = "Post one message now in your conversation: Markdown text, attachments (local files: pictures and videos show inline, any other file as a file; or URLs), or both. reply_to: a user message's line id, to put it in that message's thread. Use one send per separate ask. Subagent ids become links, as in any reply.";
+
+/// The `stop` tool's description.
+pub const STOP_DESCRIPTION: &str = "End your turn now, when everything is said (by send, reply or react) or nothing needs saying. Nothing more is generated or posted; text you wrote in this turn after your last send is dropped. Prefer it to a closing text and to NO_REPLY.";
+
+/// The `sleep` tool's description.
+pub const SLEEP_DESCRIPTION: &str = "End your turn and wake later: after `seconds` (30 to 86400) a message \"[wake] <note>\" starts a new turn with the whole view. Use it to look at a run, deploy or subagent again instead of waiting or polling. until: event lets a user message or subagent report that comes first replace the wake. seconds 0 clears every pending wake. Never call it to wait for a subagent's report alone: reports always wake you.";
 
 /// The `control` tool's description.
 pub const CONTROL_DESCRIPTION: &str = "Control your subagents; every answer starts with its outcome (done, queued, noop, refused). status [id]: state, elapsed, last output, pending prompt with its options. interrupt id [message]: stop its turn now, keep its context, then send message. answer id option: answer its pending prompt with an option id, or deny; approve only safe steps (reads, edits and tests in its worktree), ask the user for money, legal, destructive or credential steps. pause id / resume id [message]. cancel id: stop for good. restart id [message]: stop and continue in the same session. priority id: a queued one starts next. cap n: subagents at work at once (0: no cap). There is no cap by default; set one only when the user asks for one, and say how to lift it. cloud [peer[,peer...]|off]: the acpmux peers new subagents run on by default (each goes to the least busy; an idle VM pauses and resumes when needed), or off (here); without peer, shows it. Cloud subagents take no local slot. Never poll: reports, stuck notes and prompts come to you as messages.";

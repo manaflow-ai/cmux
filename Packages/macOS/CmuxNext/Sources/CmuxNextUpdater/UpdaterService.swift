@@ -337,6 +337,8 @@ public final class UpdaterService {
         clearUpdateSnooze()
         controller.model.setOverrideState(nil)
         syncFlowPhase()
+        // As for a check: the loading card shows in the next frame, not one observation hop later.
+        defer { syncFlowPhase() }
         switch flow.phase {
         case .ready, .available, .downloading, .checking:
             // The gate installs once the update is staged and no agent is busy.

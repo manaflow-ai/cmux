@@ -6742,9 +6742,9 @@ Result: `object{conversation:ConversationSummary, imported:array<uint64>, skippe
 | status | implemented |
 | since | protocol 12 additive extension; capability `chief-inspect-v1` |
 
-The Chief memory inspector's read-only API for the Chief's owner
-(plans/cmux-next/optchat-inspector.md). The daemon forwards one line,
-`{"tool":"inspect","method":"GET","path","query"}`, to the brain host's tools
+The Chief memory inspector's API for the Chief's owner
+(plans/cmux-next/optchat-inspector.md, plans/cmux-next/memory-inspector-native-DESIGN.md).
+The daemon forwards one line, `{"tool":"inspect","method","path","query"}`, to the brain host's tools
 socket named by `CMUX_TUI_CHIEF_TOOLS_SOCKET` (a Unix socket, not a symlink,
 owned by the daemon's user) and answers the brain's reply. Only the owner's
 trusted connection may call it: a registered Unix client with no link peer
@@ -6752,8 +6752,14 @@ record whose principal is `user_local`, which is a local client or the link's
 `owner_session` splice. A link-stamped or relayed (`Remote`), WebSocket,
 unregistered or agent-bound connection is refused with `origin.forbidden`
 before anything is forwarded, and the remote relay never admits it. `path` must
-be one of `/api/status`, `/api/turns`, `/api/turn`, `/api/node`, `/api/level`,
-`/api/date`, `/api/search`; a reply line above 5 MiB is refused, never cut.
+be a read path, forwarded with `GET` (`/api/status`, `/api/turns`, `/api/turn`,
+`/api/node`, `/api/level`, `/api/date`, `/api/search`, `/api/view`,
+`/api/memory/changes`), or one of the owner's memory change paths, forwarded
+with `POST` (`/api/memory/edit`, `/api/memory/delete`, `/api/memory/undo`; the
+brain refuses them to the Chief's own turn and subagent sessions). The reserved
+`query` key `chief` names a Chief other than the default (chief-brains-v1): the
+request goes to that Chief's brain socket and the key is not forwarded. A reply
+line above 5 MiB is refused, never cut.
 Every daemon advertises the capability (it speaks the command); without the
 environment variable the daemon answers the owner with
 `error_code:"chief.not_configured"` and forwards nothing. The daemon reads the variable once at startup and

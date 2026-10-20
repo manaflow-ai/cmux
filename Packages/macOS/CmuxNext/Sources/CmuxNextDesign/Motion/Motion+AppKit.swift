@@ -271,6 +271,27 @@ extension Motion {
         return animation
     }
 
+    /// Sets `layer.keyPath` to `value` over `duration` seconds on the fade
+    /// curve, from the current presentation value: a spring token's
+    /// perceived duration (``duration(_:)-swift.type.method``) for a pair of
+    /// changes that must end together, as a popup's fade and shrink on close.
+    @discardableResult
+    static func set(_ layer: CALayer, _ keyPath: String, to value: Any, duration: TimeInterval, from: Any? = nil) -> CAAnimation? {
+        let start = from ?? presentationValue(layer, keyPath)
+        setModel(layer, keyPath, value)
+        guard duration > 0, let start else {
+            layer.removeAnimation(forKey: keyPath)
+            return nil
+        }
+        let animation = CABasicAnimation(keyPath: keyPath)
+        animation.duration = duration
+        animation.timingFunction = fadeCurve
+        animation.fromValue = start
+        animation.toValue = value
+        add(animation, to: layer, keyPath: keyPath, trace: "layer.\(keyPath).timed")
+        return animation
+    }
+
     /// A movement (scale, position) timed with a fade token, as a panel's
     /// shrink while it fades out. When movement does not animate (Reduce
     /// Motion, speed "off") the value stays as it is, so only the opacity
@@ -333,6 +354,23 @@ extension Motion {
         step.repeatCount = .infinity
         step.isRemovedOnCompletion = false
         return step
+    }
+
+    /// Unmeasured progress: a segment (anchored at its left edge) crosses a
+    /// track `travel` points wide, entering from its own width left of the
+    /// track, once per `sweep` period, or nil when loops are off. The track
+    /// clips it.
+    /// - Parameter policy: The motion settings to follow (the host's injected policy, default ``Motion/policy``).
+    public static func sweepAnimation(segment: CGFloat, travel: CGFloat, policy: MotionPolicy = Motion.policy) -> CAAnimation? {
+        guard let period = policy.period(.sweep), travel > 0 else { return nil }
+        let sweep = CABasicAnimation(keyPath: "position.x")
+        sweep.fromValue = -segment
+        sweep.toValue = travel
+        sweep.duration = period
+        sweep.repeatCount = .infinity
+        sweep.timingFunction = CAMediaTimingFunction(controlPoints: 0.45, 0, 0.55, 1)
+        sweep.isRemovedOnCompletion = false
+        return sweep
     }
 
     /// An opacity pulse (1 -> `low` -> 1), or nil when loops are off.
