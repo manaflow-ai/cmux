@@ -2,6 +2,8 @@
 //! and broadcasts [`MuxEvent`]s to subscribed frontends.
 
 mod agent_hook_errors;
+mod terminal_size_clamp;
+pub(crate) use terminal_size_clamp::clamp_terminal_size;
 mod terminal_exit_snapshot;
 use terminal_exit_snapshot::{
     render_terminal_output_plain, run_placement_for_surface, terminal_exit_snapshot_in_state,
@@ -187,6 +189,7 @@ use deadline_fanout::{
     CELL_PIXEL_FANOUT_MAX_WORKERS, DeadlineFanoutPool, DeadlineMapResult, DeadlinePending,
     bounded_deadline_map,
 };
+mod column_move;
 mod dock_columns;
 mod event_emit;
 mod exit_settle;
@@ -326,6 +329,7 @@ pub use agent_chat_columns::AGENT_CHAT_COLUMN_CODE;
 pub(crate) use agent_chat_columns::{
     agent_chat_columns, ensure_agent_chat_columns_unsplit, ensure_pane_column_not_agent_chat,
 };
+pub use column_move::{ColumnMoveDirection, ColumnMoveError};
 pub use dock_columns::PINNED_COLUMN_CODE;
 pub use dock_columns::{
     ColumnDockError, ColumnDockOutcome, PERMANENT_COLUMN_CODE, parse_column_dock,
@@ -334,7 +338,8 @@ pub(crate) use dock_columns::{ensure_permanent_columns_kept, permanent_columns};
 pub use idle_close::{IDLE_CLOSE_REAP_INTERVAL, IdleTerminalReaper, start_idle_terminal_reaper};
 pub use layout_ratio_error::LayoutRatioError;
 pub(crate) use pinned_columns::{
-    ensure_pane_takes_tabs, ensure_pinned_columns_kept, pinned_columns,
+    LONE_DOCK_NEIGHBOR_WIDTH, ensure_pane_takes_tabs, ensure_pinned_columns_kept,
+    lone_pinned_dock_taking_no_tabs, pane_in_lone_pinned_column, pinned_columns,
 };
 pub use presentation::{
     PendingTerminal, TabDirectory, TabNotificationAck, TabPinChange, TreeDecorations,
@@ -345,7 +350,8 @@ use resource_content::ensure_screen_split_public_ids;
 #[cfg(unix)]
 pub(crate) use resource_topology::AgentCLIJobBusy;
 pub(crate) use resource_topology::{
-    BatchCloseOutcome, BatchCloseTarget, CloseReason, PANE_BROWSER_URL_FIELD, RoomClose,
+    BatchCloseOutcome, BatchCloseTarget, CloseReason, PANE_BROWSER_URL_FIELD,
+    PANE_SPLIT_FOCUS_FIELD, RoomClose,
 };
 pub use rows::{RowHeightsOutcome, RowsError};
 pub(crate) use screen_groups::workspace_screen_groups;
@@ -452,15 +458,11 @@ type RestoredViewport = (std::collections::BTreeMap<SplitId, f32>, Option<f32>, 
 
 /// Startup diagnostics kept until the frontend installs its sink.
 const MAX_PENDING_DIAGNOSTICS: usize = 8;
-const TERMINAL_DIMENSION_MAX: u16 = 10_000;
 const WORKSPACE_REGISTRY_LIMIT: usize = 4_096;
 const WORKSPACE_KEY_MAX_BYTES: usize = 256;
 const WORKSPACE_NAME_MAX_BYTES: usize = 1_024;
 const TERMINAL_HOST_CLOSE_WAIT: Duration = Duration::from_secs(4);
 const TERMINAL_READER_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(1);
-pub(crate) fn clamp_terminal_size(cols: u16, rows: u16) -> (u16, u16) {
-    (cols.clamp(1, TERMINAL_DIMENSION_MAX), rows.clamp(1, TERMINAL_DIMENSION_MAX))
-}
 
 /// A durable client install identity: non-empty, at most 128 ASCII graphic
 /// bytes. Shared by per-client focus memory and per-client notification reads.

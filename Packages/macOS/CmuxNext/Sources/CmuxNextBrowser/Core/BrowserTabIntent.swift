@@ -4,8 +4,12 @@ public import Foundation
 public nonisolated enum BrowserNewTabDisposition: Hashable, Sendable {
     /// A new selected tab next to the opener (plain `target=_blank`).
     case foregroundTab
-    /// A new unselected tab (Cmd-click, middle click).
+    /// A new unselected tab (middle click; Cmd-click with Chrome's mapping).
     case backgroundTab
+    /// Where the host puts every link the person opens (cmux's Cmd-click,
+    /// `browser.links.cmdClick`; the host's one rule, `layout.linkPlacement`,
+    /// the same place a terminal's Cmd-click lands).
+    case linkPlacement
     /// `window.open` with window features (OAuth, payment popups). Callers may
     /// show it as a tab or a small floating pane; it keeps `window.opener`.
     case popup

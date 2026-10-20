@@ -2,8 +2,8 @@ import type { CmuxTuiAttachBundle } from "./drivers/cmuxTuiDaemon";
 import type { VmRuntimeEnv } from "./config";
 
 /**
- * Read-only Huge Blue app-server inspection (#21332, design in
- * docs/design/huge-blue-app-server-inspection.md).
+ * Read-only Huge Blue app-server inspection (#21332; see "Huge Blue inspection"
+ * in web/services/vms/README.md).
  *
  * Inspection answers whether a registered Cloud machine can be observed. It
  * never creates a Run, mints a terminal route token, or returns provider
