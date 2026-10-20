@@ -162,6 +162,25 @@ await requireBrowserLane("agent-question-card.test.ts", async () => {
       await page.close();
     });
 
+    test("in the floating chat Esc on the card is claimed, so it does not hide the panel", async () => {
+      // The Quick Composer hides on an Esc nothing claimed (paneSurface.ts useEscapeToDismiss).
+      const page = await pendingQuestion();
+      await page.evaluate(() => {
+        document.querySelector(".acpmux-shell")!.setAttribute("data-surface", "quick");
+        const seen: boolean[] = [];
+        window.addEventListener("keydown", (event) => {
+          if (event.key === "Escape") seen.push(event.defaultPrevented);
+        });
+        Object.assign(window, { escapesSeen: seen });
+      });
+      await page.keyboard.press("Escape");
+      await page.waitForTimeout(100);
+      expect(await permissionCalls(page, 0)).toEqual([]);
+      expect(await page.evaluate(() => (window as unknown as { escapesSeen: boolean[] }).escapesSeen)).toEqual([true]);
+      expect(await focusedInCard(page)).toBe(false);
+      await page.close();
+    });
+
     test("one click on the last single-choice question sends it", async () => {
       const page = await pendingQuestion();
       await page.locator(".acpmux-question-row", { hasText: "Passkeys" }).click();
