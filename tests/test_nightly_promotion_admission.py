@@ -416,6 +416,16 @@ def test_unknown_push_actor_fails_closed() -> None:
     assert "push actor" in out["decision"]["reason"]
 
 
+def test_unknown_surface_commit_author_fails_closed() -> None:
+    case = surface_change()
+    case["commits"][0]["author"] = None
+    case["approvals"] = [{"state": "approved", "user": {"login": "austinywang"},
+                          "environments": [{"name": "release-surface-ack"}]}]
+    out = run(case)
+    assert out["decision"]["action"] == "refuse", out["decision"]
+    assert "author" in out["decision"]["reason"]
+
+
 def test_activity_pages_are_followed_and_one_push_covers_its_commits() -> None:
     case = surface_change()
     # One push brought MID and SHA; an unrelated event comes first.
