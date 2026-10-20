@@ -40,6 +40,21 @@ describe("Cloud socket authority races", () => {
     expect(stale.closes).toEqual([{ code: 4401, reason: "team authority changed" }])
   })
 
+  it("an older notice read cannot close a connection admitted by a newer membership read", async () => {
+    const held = deferred<ReturnType<typeof member>>()
+    const old = socket("user", "0".repeat(64)), fresh = socket("user", B)
+    const sockets = [old.ws]
+    let reads = 0
+    const gate = new CloudSocketAuthority(() => ++reads === 1 ? held.promise : Promise.resolve(member(B)), () => sockets)
+    const notice = gate.changed("team", "user")
+    expect(await gate.admit("team", "user")).toBe(B)
+    sockets.push(fresh.ws)
+    held.resolve(member(A))
+    await notice
+    expect(fresh.closes).toEqual([])
+    expect(old.closes).toEqual([{ code: 4401, reason: "team authority changed" }])
+  })
+
   it("an unreachable owner closes affected idle sockets and leaves delivery retryable", async () => {
     const affected = socket("user", A), other = socket("other", A)
     let unavailable = true
