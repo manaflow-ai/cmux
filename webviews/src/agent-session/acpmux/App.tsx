@@ -101,6 +101,7 @@ import { useToolCards } from "./toolCards/toolCardStore";
 import { PermissionCard } from "./PermissionCard";
 import { QuestionCard } from "./question/QuestionCard";
 import { QUESTION_RECORD } from "./question/record";
+import { PERMISSION_RECORD } from "./permissions/record";
 import type { QuestionReply } from "./question/model";
 import { agentName } from "./agents";
 import { type Translate, translate, useT } from "./i18n";
@@ -773,6 +774,17 @@ const QuestionRecordRow = memo(
   (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
 );
 const ignoreReply = () => {};
+/// A single permission card's receipt (permissions/record.ts): one muted line, the decision first.
+const PermissionRecordRow = memo(
+  function PermissionRecordRow({ row }: RowProps) {
+    return (
+      <div className="acpmux-permission-record" data-decision={row.status}>
+        {row.text}
+      </div>
+    );
+  },
+  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
+);
 /// A batch of subagents (subagents/SubagentGroup.tsx); opening it lists them below.
 const SubagentGroupRow = memo(
   function SubagentGroupRow({ row, onToggleActivity, expanded }: RowProps) {
@@ -854,6 +866,7 @@ const defaultRegistry: NativeRegistry = {
   typing: NoticeRow,
   permission: PermissionRow,
   [QUESTION_RECORD]: QuestionRecordRow,
+  [PERMISSION_RECORD]: PermissionRecordRow,
   [SHELL_ROW]: ShellRow,
   [SUBAGENTS]: SubagentGroupRow,
   [SUBAGENT_ROW]: SubagentRow,
