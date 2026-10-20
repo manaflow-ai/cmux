@@ -23,6 +23,11 @@ nonisolated extension RefusalStrings {
         text("handlers.refusal.linkTargetGone", "the linked item is gone: it was closed or deleted, or its machine isn't connected")
     }
 
+    /// A `cmux://agent/…` link while Debug Settings turned agent links off.
+    public static var agentLinksOff: String {
+        text("handlers.refusal.agentLinksOff", "agent links are turned off in this build")
+    }
+
     /// A nightly pane or tab link: its workspace opened, the item itself has no counterpart here.
     public static var linkItemNotFound: String {
         text("handlers.refusal.linkItemNotFound", "opened the workspace, but the linked pane or tab couldn't be found")

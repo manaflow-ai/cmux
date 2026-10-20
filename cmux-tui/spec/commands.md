@@ -8712,12 +8712,19 @@ object{
     state: "working"|"blocked"|"idle"|"done"|"unknown",
     source: "plugin"|"detected"|"socket"|"hook",
     session: string|null,
+    agent?: string|null,
+    agent_session_id?: string|null,
     updated_at_ms: uint64,
     since_ms?: uint64,
     last_prompt?: string|null
   }>
 }
 ```
+
+`agent_session_id` is the harness's own session id that the agent's hooks reported
+(a `claude` or `codex` session id, at most 256 bytes of `[A-Za-z0-9._:-]`), or null.
+A hook report keeps `session` for a human label, so a client finds the terminal of an
+agent session (a `cmux://agent` link) by this id.
 
 `last_prompt` is the terminal agent's last prompt (at most 200 characters), which the
 hook helper sends beside a turn-start event (`session.journal.append` `live_prompt`).
