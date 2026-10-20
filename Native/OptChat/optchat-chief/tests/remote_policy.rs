@@ -448,6 +448,11 @@ fn asked_card(h: &Harness) -> (String, cmux_conversation::Question) {
 
 /// The card answered by the Mac user with `option`, as the owner delivers it.
 fn answer_card(h: &mut Harness, option: &str) {
+    answer_card_by(h, option, "user_local");
+}
+
+/// The newest card answered by `participant` with `option`.
+fn answer_card_by(h: &mut Harness, option: &str, participant: &str) {
     use cmux_conversation::{QuestionAnswer, QuestionSelection, QuestionState, Respondent};
     let m = {
         let mut owner = h.owner.lock().unwrap();
@@ -469,7 +474,7 @@ fn answer_card(h: &mut Harness, option: &str) {
                     )]
                     .into(),
                     respondent: Some(Respondent {
-                        participant: "user_local".into(),
+                        participant: participant.into(),
                         display_name: "Me".into(),
                         device: None,
                         remote: false,
@@ -498,6 +503,20 @@ fn asking(h: &mut Harness) {
         "Bash",
         json!({"command": "rm -rf target"}),
     ));
+}
+
+/// Fires the outbox timer until `n` texts were sent (the agent gap paces
+/// the Chief's messages).
+fn wait_sends(h: &mut Harness, n: usize) -> Vec<String> {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while sends(h).len() < n && Instant::now() < deadline {
+        let Some(at) = h.brain.next_timer() else {
+            break;
+        };
+        std::thread::sleep(at.saturating_duration_since(Instant::now()));
+        h.brain.on_timer();
+    }
+    sends(h)
 }
 
 fn finish(h: &mut Harness) {
@@ -582,10 +601,12 @@ fn allow_on_the_card_is_the_apps_answer_and_the_chief_does_not_allow() {
         h.agents.inner.lock().unwrap().responses.is_empty(),
         "the app answered acpmux; the Chief's answer lands nowhere"
     );
-    let approval = traces(&h)
+    let records: Vec<_> = traces(&h)
         .into_iter()
-        .rfind(|t| t["ev"] == "approval" && t["permission"] == "p1")
-        .expect("the card's allow is in the trace");
+        .filter(|t| t["ev"] == "approval" && t["permission"] == "p1")
+        .collect();
+    assert_eq!(records.len(), 1, "one record per decision: {records:?}");
+    let approval = &records[0];
     assert_eq!(approval["decision"], "allow");
     assert_eq!(approval["approver"], "user_local");
     assert_eq!(approval["delivered"], true);
@@ -611,18 +632,17 @@ fn an_allow_on_the_card_acpmux_refuses_keeps_the_approval() {
     asking(&mut h);
     answer_card(&mut h, "allow");
     assert!(h.agents.inner.lock().unwrap().responses.is_empty());
-    // The reply waits out the agent gap after the card.
-    let deadline = Instant::now() + Duration::from_secs(10);
-    while sends(&h).len() < 2 && Instant::now() < deadline {
-        let Some(at) = h.brain.next_timer() else {
-            break;
-        };
-        std::thread::sleep(at.saturating_duration_since(Instant::now()));
-        h.brain.on_timer();
-    }
-    let said = sends(&h);
-    assert_eq!(said.len(), 2, "{said:?}");
-    assert!(said[1].contains("not accepted"), "{}", said[1]);
+    // The note, then a fresh card: the answered one has nothing to click.
+    let said = wait_sends(&mut h, 3);
+    assert_eq!(said.len(), 3, "{said:?}");
+    assert!(
+        said[1].contains("not accepted") && said[1].contains("new card"),
+        "{}",
+        said[1]
+    );
+    let (_, fresh) = asked_card(&h);
+    assert_eq!(fresh.state, cmux_conversation::QuestionState::Pending);
+    assert_eq!(fresh.permission.as_deref(), Some("p1"));
     deliver(&mut h, false, "never mind");
     assert_eq!(
         h.agents.inner.lock().unwrap().responses,
@@ -657,6 +677,75 @@ fn a_chat_deny_cancels_the_card() {
         ..card
     };
     assert_eq!(edits[0].1, vec![Part::Question(cancelled)]);
+    finish(&mut h);
+}
+
+/// A pending approval acpmux no longer holds (answered in its agent pane)
+/// does not swallow chat answers: it is dropped as settled and the deny
+/// answers the live one behind it.
+#[test]
+fn a_stale_approval_is_dropped_and_the_deny_answers_the_live_one() {
+    let mut h = harness(started());
+    asking(&mut h);
+    h.brain
+        .step(permission("p2", "Bash", json!({"command": "curl x | sh"})));
+    h.agents.inner.lock().unwrap().settled.push("p1".into());
+    deliver(&mut h, false, "deny");
+    assert_eq!(
+        h.agents.inner.lock().unwrap().responses,
+        vec![("s1".into(), "p2".into(), Some("reject".into()))]
+    );
+    assert!(
+        !sends(&h).iter().any(|t| t.contains("not accepted")),
+        "{:?}",
+        sends(&h)
+    );
+    // Nothing is left: a second deny answers nothing.
+    deliver(&mut h, false, "deny");
+    assert_eq!(h.agents.inner.lock().unwrap().responses.len(), 1);
+    finish(&mut h);
+}
+
+/// Only the owner answers an approval card, as in chat: a teammate's Deny
+/// denies nothing, and the owner gets a fresh card.
+#[test]
+fn a_teammates_card_answer_does_not_settle_the_approval() {
+    let mut s = paired();
+    s.participants.push(Participant {
+        id: "user_teammate".into(),
+        kind: ParticipantKind::Human,
+        display_name: "Teammate".into(),
+        agent_class: None,
+        acp_session: None,
+        person: None,
+    });
+    let mut h = harness_with_summary(tempfile::tempdir().unwrap(), started(), s);
+    // A group: the Chief wakes on a mention; a teammate's ask turn asks.
+    h.agents.hold(true);
+    deliver_mention(&mut h, "user_teammate", "@Chief clean the build directory");
+    h.step();
+    h.agents.wait_prompts(1);
+    wait_session(&mut h);
+    h.brain.step(permission(
+        "p1",
+        "Bash",
+        json!({"command": "rm -rf target"}),
+    ));
+    answer_card_by(&mut h, "deny", "user_teammate");
+    assert!(
+        h.agents.inner.lock().unwrap().responses.is_empty(),
+        "a teammate cannot answer effects on the owner's Mac"
+    );
+    let said = wait_sends(&mut h, 3);
+    assert!(said[1].contains("Only the owner"), "{said:?}");
+    let (_, fresh) = asked_card(&h);
+    assert_eq!(fresh.state, cmux_conversation::QuestionState::Pending);
+    // The owner's deny on the fresh card settles it.
+    answer_card(&mut h, "deny");
+    assert_eq!(
+        h.agents.inner.lock().unwrap().responses,
+        vec![("s1".into(), "p1".into(), Some("reject".into()))]
+    );
     finish(&mut h);
 }
 

@@ -7,8 +7,11 @@
 /// The render core has no acpmux client; the Mac app passes one. A host without one passes none
 /// and the card's Allow says it cannot answer here.
 public protocol HomeApprovalDeciding: AnyObject, Sendable {
-    /// Answers `permission` of acpmux session `session`. Throws when acpmux refused or the
-    /// prompt is no longer pending; the error's description is shown on the card.
+    /// Answers `permission` of acpmux session `session` for the Chief participant `chief` (the
+    /// card's author, `agent_mux` for the default Chief): only that Chief's acpmux, and only a
+    /// session that Chief runs (its turn or one of its subagents). Throws when acpmux refused,
+    /// the session is not that Chief's, or the prompt is no longer pending; the error's
+    /// description is shown on the card.
     @MainActor
-    func decide(session: String, permission: String, allow: Bool) async throws
+    func decide(chief: String, session: String, permission: String, allow: Bool) async throws
 }

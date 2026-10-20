@@ -56,6 +56,8 @@ public final class AcpmuxApprovalAnswerer: AgentApprovalAnswering {
         case notPerson
         /// The prompt ended (answered elsewhere, the turn stopped) or offers no matching option.
         case notPending
+        /// The session is not this Chief's turn or one of its subagents: nothing is answered.
+        case notChiefSession
         /// acpmux refused the answer.
         case refused
 
@@ -66,21 +68,30 @@ public final class AcpmuxApprovalAnswerer: AgentApprovalAnswering {
                 String(localized: "approval.answer.notPerson", defaultValue: "The Chief did not accept this app as you", bundle: .module)
             case .notPending:
                 String(localized: "approval.answer.notPending", defaultValue: "The Chief is no longer waiting for this", bundle: .module)
+            case .notChiefSession:
+                String(localized: "approval.answer.notChiefSession", defaultValue: "This request is not from the Chief", bundle: .module)
             case .refused: String(localized: "approval.answer.refused", defaultValue: "The Chief refused the answer", bundle: .module)
             }
         }
     }
 
     /// Answers `permission` of `session` (allow once, else deny), as the person: the Home approval
-    /// card's Allow and Deny. The app gives this daemon its person key first (a daemon the app did
-    /// not start, as the Chief's, takes it by the app's signature, `AcpmuxPersonKey.enroll`), so an
-    /// allow counts with no Chief tab attached this launch.
-    public func answer(session: String, permission: String, allow: Bool) async throws {
+    /// card's Allow and Deny. Only a session of the Chief home `chiefHomeID` (optchat-chief
+    /// `paths::home_id`) counts: its turn or one of its subagents (``isChiefSession(_:session:chiefHomeID:)``);
+    /// a card that names any other session answers nothing. The app gives this daemon its person
+    /// key first (a daemon the app did not start, as the Chief's, takes it by the app's signature,
+    /// `AcpmuxPersonKey.enroll`), so an allow counts with no Chief tab attached this launch.
+    public func answer(session: String, permission: String, allow: Bool, chiefHomeID: String) async throws {
         if allow, let status = try? await AcpmuxStatusClient.status(socketPath: environment.socketPath) {
             _ = await AcpmuxPersonKey.enroll(status, environment: environment, mayHandOff: false)
         }
         guard let line = await AcpmuxPersonLine.open(environment) else { throw Refusal.noDaemon }
         defer { line.close() }
+        guard let listing = await line.call("_acpmux/sessions", [:]),
+              Self.isChiefSession(listing, session: session, chiefHomeID: chiefHomeID) else {
+            logger.error("approval card: session \(session, privacy: .public) is not the Chief's; nothing answered")
+            throw Refusal.notChiefSession
+        }
         if allow, !line.isPerson {
             logger.error("approval card: acpmux refused this app's person proof; nothing allowed")
             throw Refusal.notPerson
@@ -91,5 +102,17 @@ public final class AcpmuxApprovalAnswerer: AgentApprovalAnswering {
         else { throw Refusal.notPending }
         let params: [String: Any] = ["sessionId": session, "permissionId": permission, "optionId": option]
         guard await line.call("_acpmux/permission_respond", params) != nil else { throw Refusal.refused }
+    }
+
+    /// Whether `_acpmux/sessions` result `listing` has `session` as a session of the Chief home
+    /// `chiefHomeID`: its turn (tags `cmux.chief` = the id, `cmux.chief.role` = `turn`) or a
+    /// subagent it spawned (`mux.parent` = `optchat-chief:<id>`, as AcpmuxChiefSessionRouter reads it).
+    public nonisolated static func isChiefSession(_ listing: [String: Any], session: String, chiefHomeID: String) -> Bool {
+        let rows = listing["sessions"] as? [[String: Any]] ?? []
+        guard let row = rows.first(where: { $0["sessionId"] as? String == session }) else { return false }
+        let tags = row["tags"] as? [String: Any] ?? [:]
+        let turn = tags["cmux.chief"] as? String == chiefHomeID && tags["cmux.chief.role"] as? String == "turn"
+        let subagent = tags["mux.parent"] as? String == "optchat-chief:" + chiefHomeID
+        return turn || subagent
     }
 }

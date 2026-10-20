@@ -1155,7 +1155,11 @@ the turn wins until it ends.
   request then stays pending and the chat says so. Any other new message
   denies the pending requests so the turn reaches its next tool boundary and
   reads it. A request settled any way but its card cancels the card; an owner
-  that refuses the card gets the question as text.
+  that refuses the card gets the question as text. Only the owner answers a
+  card, as in chat: another person's answer, or an answer acpmux refuses,
+  leaves the request waiting with a fresh card. A pending request acpmux no
+  longer holds (answered in its agent pane) is dropped as settled, and a chat
+  answer goes to the next one.
 - Every answer goes to the trace (`optchat/traces/YYYY-MM-DD.jsonl`, event
   `approval`: turn, permission, tool, decision, option, approver, install,
   delivered); the approver is the answering participant (`user_local` or

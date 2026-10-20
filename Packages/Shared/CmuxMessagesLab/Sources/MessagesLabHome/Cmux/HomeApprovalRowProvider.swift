@@ -54,12 +54,15 @@ final class HomeApprovalRowProvider: TranscriptCustomRowProvider {
         var busy = false
         /// This Mac's last decision was refused: why.
         var error: String?
+        /// This Mac's decision landed in acpmux but not on the card ("Allowed; the card was not updated").
+        var note: String?
     }
 
     /// This Mac's state of one approval (`local`).
     struct Local: Equatable {
         var busy = false
         var error: String?
+        var note: String?
     }
 
     // Lock carve-out: the mapping reads it on the loader queue and the row bitmap threads
@@ -101,6 +104,7 @@ final class HomeApprovalRowProvider: TranscriptCustomRowProvider {
             let mine = local(Self.key(session: payload.session, permission: permission))
             payload.busy = mine.busy
             payload.error = mine.error
+            payload.note = mine.note
         case .cancelled:
             payload.status = .skipped
         case .answered(let answer):
@@ -158,7 +162,7 @@ final class HomeApprovalRowProvider: TranscriptCustomRowProvider {
 
     static func lineText(_ p: Payload) -> String? {
         switch p.status {
-        case .pending: return p.error.map(CmuxStrings.approvalRefused)
+        case .pending: return p.error.map(CmuxStrings.approvalRefused) ?? p.note
         case .allowed: return p.device.map(CmuxStrings.approvalAllowedOn) ?? CmuxStrings.approvalAllowed
         case .denied: return p.device.map(CmuxStrings.approvalDeniedOn) ?? CmuxStrings.approvalDenied
         case .skipped: return CmuxStrings.approvalSkipped
@@ -206,7 +210,7 @@ final class HomeApprovalRowProvider: TranscriptCustomRowProvider {
                         fill: Fixture.incomingText.withAlphaComponent(0.14 * alpha), text: Fixture.incomingText.withAlphaComponent(alpha))
         }
         if let line = l.line {
-            let color = p.status == .pending ? UIColor(red: 1, green: 0.27, blue: 0.23, alpha: 1) : Fixture.secondaryText
+            let color = p.status == .pending && p.error != nil ? UIColor(red: 1, green: 0.27, blue: 0.23, alpha: 1) : Fixture.secondaryText
             TextDraw.line(line.text, font: Self.statusFont, color: color, x: rect.minX + Fixture.bubblePadX,
                           baseline: rect.minY + line.baseline, in: ctx)
         }

@@ -108,31 +108,51 @@ impl Brain {
     /// Asks in the conversation the request belongs to (G9): the running
     /// turn's, or the main one for a child.
     fn ask_person(&mut self, pending: Pending, key: &str) {
-        let question = card(&pending, self.turn_ask_reason);
-        let conversation = pending
+        self.post_card(&pending, key);
+        self.approvals.push_back(pending);
+    }
+
+    /// Posts `pending`'s card under `key` (a fresh key for a card posted
+    /// again: the owner keeps every key it saw) and remembers it.
+    fn post_card(&mut self, pending: &Pending, key: &str) {
+        let question = card(pending, self.turn_ask_reason);
+        let Some(conversation) = pending
             .conversation
             .clone()
-            .or_else(|| self.state.conversation.clone());
-        let permission_id = pending.permission_id.clone();
-        self.approvals.push_back(pending);
-        if let Some(conversation) = conversation {
-            let mut entry = reply_entry(conversation.clone(), key, "");
-            if let Op::MessageSend { parts, .. } = &mut entry.op {
-                *parts = vec![Part::Question(question.clone())];
-            }
-            // An owner that refuses the card gets the question as text.
-            entry.plain_text = Some(crate::approval::question_text(&question.items[0].prompt));
-            self.approval_cards.push(Card {
-                permission_id,
-                key: key.to_owned(),
-                conversation,
-                question,
-                message_id: None,
-            });
-            self.state.outbox.push(entry);
-            self.save();
-            self.flush_outbox();
+            .or_else(|| self.state.conversation.clone())
+        else {
+            return;
+        };
+        let mut entry = reply_entry(conversation.clone(), key, "");
+        if let Op::MessageSend { parts, .. } = &mut entry.op {
+            *parts = vec![Part::Question(question.clone())];
         }
+        // An owner that refuses the card gets the question as text.
+        entry.plain_text = Some(crate::approval::question_text(&question.items[0].prompt));
+        self.approval_cards.push(Card {
+            permission_id: pending.permission_id.clone(),
+            key: key.to_owned(),
+            conversation,
+            question,
+            message_id: None,
+        });
+        self.state.outbox.push(entry);
+        self.save();
+        self.flush_outbox();
+    }
+
+    /// Posts `text` in `pending`'s conversation under `key`.
+    fn say_about(&mut self, pending: &Pending, key: &str, text: &str) {
+        let Some(conversation) = pending
+            .conversation
+            .clone()
+            .or_else(|| self.state.conversation.clone())
+        else {
+            return;
+        };
+        self.state.outbox.push(reply_entry(conversation, key, text));
+        self.save();
+        self.flush_outbox();
     }
 
     /// The owner confirmed the send of `key`: an approval card's message id.
@@ -182,12 +202,14 @@ impl Brain {
             .retain(|c| c.permission_id != permission_id);
     }
 
-    /// An updated message of the Chief's own: when it is an approval card a
-    /// person answered, the answer settles its pending approval. Allow: the
-    /// app already answered acpmux itself with the person's proof (an allow
-    /// from the Chief is refused), so the approval is only dropped. Deny:
-    /// the Chief denies it. Side conversations' cards are answered the same
-    /// way once their updates reach the brain (they do not yet).
+    /// An updated message of the Chief's own: when it is an approval card
+    /// the owner answered, the answer settles its pending approval. The Mac
+    /// app answers acpmux itself (with the person's proof) before it answers
+    /// the card, so for an allow acpmux no longer holds the request; the
+    /// Chief's own answer then only confirms that. A card answered by anyone
+    /// but the owner, or an answer acpmux refuses, leaves the approval
+    /// waiting with a fresh card. Side conversations' cards are answered the
+    /// same way once their updates reach the brain (they do not yet).
     pub(super) fn on_card_update(&mut self, message: &Message) {
         for part in &message.parts {
             let Part::Question(question) = part else {
@@ -203,44 +225,58 @@ impl Brain {
             else {
                 continue;
             };
+            // That card is answered: nothing is left to click on it.
+            self.forget_card(&permission);
+            let fresh = format!("approval:{permission}:card:{}", message.seq);
+            if who != self.settings.membership.owner {
+                // The same rule as a chat answer: only the owner approves
+                // effects on this Mac.
+                (self.log)(&format!(
+                    "approval {permission}: the card's {} by {who} is not the owner's; asked again",
+                    answer.as_str()
+                ));
+                let Some(pending) = self.approvals.get(k).cloned() else {
+                    continue;
+                };
+                self.say_about(
+                    &pending,
+                    &format!("{fresh}:note"),
+                    &format!(
+                        "Only the owner of this Mac can answer that approval, so {} is still waiting.",
+                        pending.tool
+                    ),
+                );
+                self.post_card(&pending, &fresh);
+                continue;
+            }
             let Some(pending) = self.approvals.remove(k) else {
                 continue;
             };
-            self.forget_card(&permission);
-            // The Mac app answers acpmux itself before it answers the card,
-            // so acpmux no longer holds an allowed request. Answering again
-            // confirms that: "no pending permission" means it is settled.
-            match self.respond(&pending, answer, &who, None) {
-                Ok(()) => {}
-                Err(e) if e.contains("no pending permission") => {
+            let option = option_for(&pending.request, answer);
+            match self.answer_acpmux(&pending, answer, &who) {
+                Ok(()) => {
+                    self.trace_approval(&pending, answer, option, &who, None, true);
+                }
+                Err(e) if settled(&e) => {
                     (self.log)(&format!(
                         "approval {permission}: {} in the app by {who}",
                         answer.as_str()
                     ));
-                    self.trace_approval(&pending, answer, None, &who, None, true);
+                    self.trace_approval(&pending, answer, option, &who, None, true);
                 }
                 Err(e) => {
-                    // Answered elsewhere (a paired device, another person)
-                    // without the person's proof: acpmux still waits, so the
-                    // approval stays and the person hears why.
-                    let conversation = pending
-                        .conversation
-                        .clone()
-                        .or_else(|| self.state.conversation.clone());
+                    // An answer without the person's proof (an allow from a
+                    // paired device): acpmux still waits, so the approval
+                    // stays, with a fresh card to answer in the app.
+                    self.trace_approval(&pending, answer, option, &who, None, false);
                     let text = format!(
-                        "That {} was not accepted, so {} is still waiting: {e}. Allow it in the cmux app on this Mac, or reply deny or send a new message to skip it.",
+                        "That {} was not accepted, so {} is still waiting: {e}. Allow it on the new card in the cmux app on this Mac, or reply deny or send a new message to skip it.",
                         answer.as_str(),
                         pending.tool
                     );
-                    let key = format!("approval:{permission}:card-undelivered:{}", message.seq);
+                    self.say_about(&pending, &format!("{fresh}:note"), &text);
+                    self.post_card(&pending, &fresh);
                     self.approvals.insert(k, pending);
-                    if let Some(conversation) = conversation {
-                        self.state
-                            .outbox
-                            .push(reply_entry(conversation, &key, &text));
-                        self.save();
-                        self.flush_outbox();
-                    }
                 }
             }
         }
@@ -294,56 +330,61 @@ impl Brain {
 
     /// A person in `conversation` (None: main) answered that conversation's
     /// oldest pending approval with `message`; another conversation's
-    /// approvals are never answered from here.
+    /// approvals are never answered from here. A pending approval acpmux no
+    /// longer holds (answered in its agent pane, or on a card the brain did
+    /// not see) is dropped as settled, and the answer goes to the next one.
     pub(super) fn answer_approval(
         &mut self,
         answer: Answer,
         message: &Message,
         conversation: Option<&str>,
     ) {
-        let Some(k) = self
-            .approvals
-            .iter()
-            .position(|p| p.conversation.as_deref() == conversation)
-        else {
-            return;
-        };
-        let Some(pending) = self.approvals.remove(k) else {
-            return;
-        };
         let install = message
             .origin
             .as_ref()
             .map(|Origin::Remote { install }| install.clone());
-        let result = self.respond(&pending, answer, &message.author, install.as_deref());
-        if result.is_ok() {
-            self.cancel_card(&pending.permission_id);
-        }
-        if let Err(e) = result {
-            // acpmux still holds the request (an allow needs the person's
-            // decision proof, which a chat reply never carries): keep it, so
-            // a deny or a newer message still answers it, and say so rather
-            // than leave the turn waiting in silence.
-            let text = format!(
-                "That {} was not accepted, so {} is still waiting: {e}. Use Allow on the card, or reply deny or send a new message to skip it.",
-                answer.as_str(),
-                pending.tool
-            );
-            let key = format!(
-                "approval:{}:undelivered:{}",
-                pending.permission_id, message.seq
-            );
-            let conversation = pending
-                .conversation
-                .clone()
-                .or_else(|| self.state.conversation.clone());
-            self.approvals.insert(k, pending);
-            if let Some(conversation) = conversation {
-                self.state
-                    .outbox
-                    .push(reply_entry(conversation, &key, &text));
-                self.save();
-                self.flush_outbox();
+        loop {
+            let Some(k) = self
+                .approvals
+                .iter()
+                .position(|p| p.conversation.as_deref() == conversation)
+            else {
+                return;
+            };
+            let Some(pending) = self.approvals.remove(k) else {
+                return;
+            };
+            match self.respond(&pending, answer, &message.author, install.as_deref()) {
+                Ok(()) => {
+                    self.cancel_card(&pending.permission_id);
+                    return;
+                }
+                Err(e) if settled(&e) => {
+                    (self.log)(&format!(
+                        "approval {}: acpmux no longer holds it; dropped as settled",
+                        pending.permission_id
+                    ));
+                    self.cancel_card(&pending.permission_id);
+                }
+                Err(e) => {
+                    // acpmux still holds the request (an allow needs the
+                    // person's decision proof, which a chat reply never
+                    // carries): keep it, so a deny or a newer message still
+                    // answers it, and say so rather than leave the turn
+                    // waiting in silence.
+                    let text = format!(
+                        "That {} was not accepted, so {} is still waiting: {e}. Use Allow on the card, or reply deny or send a new message to skip it.",
+                        answer.as_str(),
+                        pending.tool
+                    );
+                    let key = format!(
+                        "approval:{}:undelivered:{}",
+                        pending.permission_id, message.seq
+                    );
+                    self.say_about(&pending, &key, &text);
+                    self.approvals.insert(k, pending);
+                    return;
+                }
             }
         }
     }
@@ -368,6 +409,19 @@ impl Brain {
         approver: &str,
         install: Option<&str>,
     ) -> Result<(), String> {
+        let result = self.answer_acpmux(pending, answer, approver);
+        let option = option_for(&pending.request, answer);
+        self.trace_approval(pending, answer, option, approver, install, result.is_ok());
+        result
+    }
+
+    /// Answers acpmux and logs it; the caller records the trace once.
+    fn answer_acpmux(
+        &mut self,
+        pending: &Pending,
+        answer: Answer,
+        approver: &str,
+    ) -> Result<(), String> {
         let option = option_for(&pending.request, answer);
         let result = self.agents.respond_permission(
             &pending.session_id,
@@ -384,7 +438,6 @@ impl Brain {
                 Err(e) => format!(" (not delivered: {e})"),
             }
         ));
-        self.trace_approval(pending, answer, option, approver, install, result.is_ok());
         result
     }
 
@@ -416,4 +469,10 @@ impl Brain {
             }
         }
     }
+}
+
+/// Whether acpmux's refusal says it no longer holds the request (answered
+/// elsewhere, or its session ended): the approval is settled.
+fn settled(error: &str) -> bool {
+    error.contains("no pending permission") || error.contains("not_found")
 }

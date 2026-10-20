@@ -150,6 +150,13 @@ enum CmuxStrings {
     static func approvalRefused(_ reason: String) -> String {
         String(format: String(localized: "home.approval.refused", defaultValue: "Not answered: %@", table: "CmuxHome", bundle: .module), reason)
     }
+    /// acpmux took this Mac's answer, but the conversation did not record it on the card.
+    static var approvalAllowedNotRecorded: String {
+        String(localized: "home.approval.allowedNotRecorded", defaultValue: "Allowed; the card was not updated", table: "CmuxHome", bundle: .module)
+    }
+    static var approvalDeniedNotRecorded: String {
+        String(localized: "home.approval.deniedNotRecorded", defaultValue: "Denied; the card was not updated", table: "CmuxHome", bundle: .module)
+    }
     /// The reason when this window cannot answer the Chief's approvals (no acpmux client here).
     static var approvalUnavailable: String {
         String(localized: "home.approval.unavailable", defaultValue: "Answer it in the Chief's agent tab", table: "CmuxHome", bundle: .module)

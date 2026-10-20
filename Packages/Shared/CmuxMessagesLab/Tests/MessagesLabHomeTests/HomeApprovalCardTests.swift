@@ -25,10 +25,28 @@ import Testing
         return HomeApprovalRowProvider.payload(c)
     }
 
-    func mapped(_ question: AgentQuestion) -> Part? {
-        CustomRows.register(HomeApprovalRowProvider.shared)
+    static let me = ParticipantID("user_local")
+    static let chief = ParticipantID("agent_mux")
+    /// Another agent in the conversation (a subagent, a teammate's agent): not a Chief.
+    static let agent = ParticipantID("agent_scout")
+
+    static func summary() -> ConversationSummary {
+        let base = Date(timeIntervalSince1970: 1_800_000_000)
+        let people = [CmuxHomeCore.Participant(id: me, kind: .human, displayName: "Me"),
+                      CmuxHomeCore.Participant(id: chief, kind: .agent, displayName: "Chief", agentClass: .chief),
+                      CmuxHomeCore.Participant(id: agent, kind: .agent, displayName: "Scout", agentClass: .agent)]
+        return ConversationSummary(id: ConversationID("conv_approval"), title: "Chief", participants: people, lastSeq: Seq(1),
+                                   createdAt: base, updatedAt: base, readCursors: [:], readCursorTimes: [:])
+    }
+
+    /// The question as the transcript shows it, posted by `author` (the Chief by default).
+    func mapped(_ question: AgentQuestion, author: ParticipantID = Self.chief, registered: Bool = true) -> Part? {
+        if registered { CustomRows.register(HomeApprovalRowProvider.shared) }
         defer { CustomRows.unregister(HomeApprovalRowProvider.kind) }
-        return HomeMapping.parts(.question(question)).first
+        let item = TranscriptItem(key: IdempotencyKey("k1"), seq: Seq(1), author: author, parts: [.question(question)],
+                                  createdAt: Date(timeIntervalSince1970: 1_800_000_000), delivery: .committed,
+                                  messageID: MessageID("msg_1"))
+        return HomeMapping.projectedParts(item, summary: Self.summary()).parts.first
     }
 
     // MARK: Mapping
@@ -59,7 +77,20 @@ import Testing
         #expect(Self.card(mapped(Self.approval(harness: .claude))) == nil)
         #expect(Self.card(mapped(Self.approval(permission: nil))) == nil)
         // Without the provider registered, a Chief approval is its text too.
-        #expect(Self.card(HomeMapping.parts(.question(Self.approval())).first) == nil)
+        #expect(Self.card(mapped(Self.approval(), registered: false)) == nil)
+    }
+
+    /// Any agent may post a pending question: a look-alike with the Chief's harness and the ids of
+    /// its real request, posted by another agent, must not become a card whose Allow answers that
+    /// request as the person (review of PR 22639, finding 1).
+    @Test func aChiefHarnessQuestionFromAnotherAuthorStaysText() {
+        let part = mapped(Self.approval(), author: Self.agent)
+        #expect(Self.card(part) == nil)
+        guard case .text(let text, _)? = part else { Issue.record("not text: \(String(describing: part))"); return }
+        #expect(text.contains("Bash wants to run: ls -la"))
+        // A participant the summary does not list (a stranger, a left member) is not a Chief either.
+        #expect(Self.card(mapped(Self.approval(), author: ParticipantID("agent_gone"))) == nil)
+        #expect(Self.card(mapped(Self.approval(), author: Self.me)) == nil)
     }
 
     // MARK: Hit test
@@ -91,8 +122,10 @@ import Testing
     @MainActor final class FakeDecider: HomeApprovalDeciding {
         struct Refused: LocalizedError { var errorDescription: String? { "acpmux said no" } }
         var calls: [(String, String, Bool)] = []
+        var chiefs: [String] = []
         var fails = false
-        func decide(session: String, permission: String, allow: Bool) async throws {
+        func decide(chief: String, session: String, permission: String, allow: Bool) async throws {
+            chiefs.append(chief)
             calls.append((session, permission, allow))
             if fails { throw Refused() }
         }
@@ -119,7 +152,7 @@ import Testing
         let decider = FakeDecider()
         rig.view.projection.approvals = decider
         let message = try await posted(rig)
-        let result = await rig.view.projection.decideApproval(message: message, partIndex: 0, session: "s1", permission: "p1", allow: true)
+        let result = await rig.view.projection.decideApproval(chief: rig.chief.rawValue, message: message, partIndex: 0, session: "s1", permission: "p1", allow: true)
         #expect((try? result.get()) != nil)
         #expect(decider.calls.count == 1 && decider.calls.first?.2 == true)
         await HomeChatRig.until { part(rig, message)?.isPending == false }
@@ -134,7 +167,7 @@ import Testing
         decider.fails = true
         rig.view.projection.approvals = decider
         let message = try await posted(rig)
-        let result = await rig.view.projection.decideApproval(message: message, partIndex: 0, session: "s1", permission: "p1", allow: true)
+        let result = await rig.view.projection.decideApproval(chief: rig.chief.rawValue, message: message, partIndex: 0, session: "s1", permission: "p1", allow: true)
         #expect(result == .failure(.refused("acpmux said no")))
         rig.frame()
         #expect(part(rig, message)?.isPending == true, "the card takes input again")
@@ -147,11 +180,42 @@ import Testing
         decider.fails = true
         rig.view.projection.approvals = decider
         let message = try await posted(rig)
-        let result = await rig.view.projection.decideApproval(message: message, partIndex: 0, session: "s1", permission: "p1", allow: false)
+        let result = await rig.view.projection.decideApproval(chief: rig.chief.rawValue, message: message, partIndex: 0, session: "s1", permission: "p1", allow: false)
         #expect((try? result.get()) != nil, "the Chief denies on the card's answer")
         await HomeChatRig.until { part(rig, message)?.isPending == false }
         guard case .answered(let answer)? = part(rig, message)?.state else { Issue.record("not answered"); return }
         #expect(answer.selections["approval"]?.optionIDs == ["deny"])
+    }
+
+    /// acpmux allowed but the conversation refused the card's answer: the request is settled, so
+    /// the card keeps its buttons off and says so (review finding 9).
+    @Test func anAllowTheCardCannotRecordStaysSettled() async throws {
+        let rig = try await HomeChatRig(history: 2)
+        defer { rig.stop() }
+        let decider = FakeDecider()
+        rig.view.projection.approvals = decider
+        let message = try await posted(rig)
+        // The part is no longer pending (answered on another device): `question.answer` is refused.
+        let first = await rig.view.projection.decideApproval(chief: rig.chief.rawValue, message: message, partIndex: 0,
+                                                             session: "s1", permission: "p1", allow: false)
+        #expect((try? first.get()) != nil)
+        await HomeChatRig.until { part(rig, message)?.isPending == false }
+        let result = await rig.view.projection.decideApproval(chief: rig.chief.rawValue, message: message, partIndex: 0,
+                                                              session: "s1", permission: "p1", allow: true)
+        #expect(result == .failure(.decidedNotRecorded(allowed: true)))
+        let local = HomeApprovalFailure.decidedNotRecorded(allowed: true).local
+        #expect(local.busy && local.error == nil && local.note == CmuxStrings.approvalAllowedNotRecorded)
+    }
+
+    @Test func theDeciderHearsTheCardsChief() async throws {
+        let rig = try await HomeChatRig(history: 2)
+        defer { rig.stop() }
+        let decider = FakeDecider()
+        rig.view.projection.approvals = decider
+        let message = try await posted(rig)
+        _ = await rig.view.projection.decideApproval(chief: rig.chief.rawValue, message: message, partIndex: 0,
+                                                     session: "s1", permission: "p1", allow: true)
+        #expect(decider.chiefs == [rig.chief.rawValue])
     }
 
     @Test func withoutADeciderAllowSaysWhereToAnswer() async throws {
@@ -159,7 +223,7 @@ import Testing
         defer { rig.stop() }
         rig.view.projection.approvals = nil
         let message = try await posted(rig)
-        let result = await rig.view.projection.decideApproval(message: message, partIndex: 0, session: "s1", permission: "p1", allow: true)
+        let result = await rig.view.projection.decideApproval(chief: rig.chief.rawValue, message: message, partIndex: 0, session: "s1", permission: "p1", allow: true)
         #expect(result == .failure(.unavailable))
     }
 }

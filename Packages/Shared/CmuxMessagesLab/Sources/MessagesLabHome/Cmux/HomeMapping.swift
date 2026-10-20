@@ -91,11 +91,31 @@ enum HomeMapping {
         let markdown = isAgent(item.author, summary)
         var parts: [Part] = [], owners: [Int] = []
         for (i, p) in item.parts.enumerated() {
+            if let card = approvalCard(p, item: item, summary: summary) {
+                parts.append(card)
+                owners.append(i)
+                continue
+            }
             let shown = self.parts(p, media: media, progress: item.attachmentProgress, markdown: markdown, links: links)
             parts += shown
             owners += Array(repeating: i, count: shown.count)
         }
         return (parts, owners)
+    }
+
+    /// The Allow and Deny card of a permission approval that a Chief of this conversation posted
+    /// (HomeApprovalRowProvider); nil for any other part. Only a Chief's own message is a card:
+    /// any agent may post a pending question, and a look-alike carrying the ids of the Chief's
+    /// real request would make the person's Allow approve that request (the card answers acpmux as
+    /// the person), so another author's question stays text.
+    static func approvalCard(_ p: MessagePart, item: TranscriptItem, summary: ConversationSummary?) -> Part? {
+        guard case .question(let question) = p, isChief(item.author, summary) else { return nil }
+        return HomeApprovalRowProvider.installed?.part(question)
+    }
+
+    /// Whether `author` is a Chief participant of the conversation (agent class chief).
+    static func isChief(_ author: ParticipantID, _ summary: ConversationSummary?) -> Bool {
+        summary?.participants.first { $0.id == author }?.isChief == true
     }
 
     /// A HomeStore part index as the first MessagesLab part it shows as
@@ -245,13 +265,9 @@ enum HomeMapping {
             return .attachment(attachment(ref, picture: media(ref.hash), progress: progress.value(for: ref.hash))) // // crash program: dictionary read
         case .location(let place):
             return .location(latitude: place.latitude, longitude: place.longitude, title: place.label, subtitle: nil)
-        case .question(let question):
-            // The Chief's permission approval is a card with Allow and Deny (HomeApprovalRowProvider);
-            // any other question is its text until the question card takes the custom-row seam.
-            if let card = HomeApprovalRowProvider.installed?.part(question) { return card }
-            return .text(p.plainText, runs: [])
-        case .work, .approval:
-            // Agent session and approval cards are not MessagesLab rows yet: their text.
+        case .work, .approval, .question:
+            // Agent session, approval and question cards are not MessagesLab rows yet: their text.
+            // A Chief's own permission approval is a card (`projectedParts`, which knows the author).
             return .text(p.plainText, runs: [])
         }
     }
