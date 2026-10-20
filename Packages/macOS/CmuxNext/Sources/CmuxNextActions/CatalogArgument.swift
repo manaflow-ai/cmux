@@ -45,6 +45,13 @@ nonisolated enum CatalogArgument {
         ActionArgument(name: "status", title: String(localized: "argument.status", defaultValue: "Status", bundle: .module), kind: .enumeration([choice("auto"), choice("todo"), choice("working"), choice("needs-attention"), choice("review"), choice("done")]))
     }
 
+    /// A workspace checklist item (`chk_…`); without one a checklist action acts on the current
+    /// item (the first in progress, else the first to do).
+    static var checklistItem: ActionArgument {
+        ActionArgument(name: "item", title: String(localized: "argument.checklistItem", defaultValue: "Checklist Item", bundle: .module),
+                       kind: .string, isRequired: false)
+    }
+
     static var textString: ActionArgument {
         ActionArgument(name: "text", title: String(localized: "argument.text", defaultValue: "Text", bundle: .module), kind: .string)
     }

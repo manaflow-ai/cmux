@@ -79,6 +79,12 @@ extension HomeService {
         return directory.chief(for: agent.id)
     }
 
+    /// The one path for managing a DM or group: the group info sheet, the Home row menu and the
+    /// `home.*` group actions (AppActions+HomeGroups) all run it.
+    var groupActions: HomeGroupActions {
+        HomeGroupActions(store: homeStore, muting: groupMuting, contacts: { [weak self] in self?.contacts() ?? [] })
+    }
+
     /// The Home sidebar's data source (the vendored MessagesLab sidebar reads it):
     /// choosing a row shows its conversation on the Home page, a person starts a DM.
     func makeSidebarSource() -> HomeSidebarSource {

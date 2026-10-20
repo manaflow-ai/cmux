@@ -228,6 +228,10 @@ pub struct SubRecord {
     /// Its cmux workspace, once created.
     #[serde(default)]
     pub workspace: Option<String>,
+    /// The acpmux peer (a cloud VM) it runs on; None: this machine. Only
+    /// local subagents count against the live cap.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub peer: Option<String>,
     pub status: SubStatus,
     /// The report waiting for the log.
     #[serde(default)]

@@ -2752,137 +2752,6 @@
         }
       }
     },
-    "handlers.misc.unavailable.browserToggle": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "The cmux browser is always on in cmux-next; there is no setting to turn it off yet."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux-next ではブラウザは常に有効です。無効にする設定はまだありません。"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "متصفح cmux مفعّل دائمًا في cmux-next؛ لا يوجد إعداد لإيقافه بعد."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux preglednik je uvijek uključen u cmux-next; još ne postoji postavka za njegovo isključivanje."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux-browseren er altid slået til i cmux-next. Der er endnu ingen indstilling til at slå den fra."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Der cmux-Browser ist in cmux-next immer aktiv; es gibt noch keine Einstellung zum Deaktivieren."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "El navegador de cmux siempre está activo en cmux-next; aún no hay ningún ajuste para desactivarlo."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Le navigateur cmux est toujours actif dans cmux-next ; aucun réglage ne permet encore de le désactiver."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Il browser cmux è sempre attivo in cmux-next; non c’è ancora un’impostazione per disattivarlo."
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "កម្មវិធីរុករក cmux តែងតែបើកក្នុង cmux-next។ មិនទាន់មានការកំណត់ដើម្បីបិទវានៅឡើយទេ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux-next에서는 cmux 브라우저가 항상 켜져 있으며, 아직 끄는 설정이 없습니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux-nettleseren er alltid på i cmux-next. Det finnes ingen innstilling for å slå den av ennå."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Przeglądarka cmux jest w cmux-next zawsze włączona; nie ma jeszcze ustawienia, by ją wyłączyć."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "O navegador do cmux está sempre ativo no cmux-next; ainda não há ajuste para desativá-lo."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "В cmux-next браузер cmux всегда включен; настройки для его отключения пока нет."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "เบราว์เซอร์ cmux เปิดอยู่เสมอใน cmux-next ยังไม่มีการตั้งค่าสำหรับปิด"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux-next’te cmux tarayıcısı her zaman açık; henüz kapatmak için bir ayar yok."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "У cmux-next браузер cmux завжди увімкнений; параметра для його вимкнення поки немає."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Trình duyệt cmux luôn bật trong cmux-next; chưa có cài đặt để tắt."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "在 cmux-next 中 cmux 浏览器始终开启，目前还没有关闭它的设置。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux-next 中的 cmux 瀏覽器一律啟用；目前還沒有可關閉的設定。"
-          }
-        }
-      }
-    },
     "handlers.misc.unavailable.cloud": {
       "extractionState": "manual",
       "localizations": {
@@ -14731,6 +14600,138 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "選擇一個版面配置範本"
+          }
+        }
+      }
+    },
+    "handlers.misc.browserOff": {
+      "comment": "Refusal when a browser tab is asked for while the cmux browser is turned off.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The cmux browser is off. Run Enable cmux Browser to open web pages in cmux."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "متصفح cmux متوقف. شغّل «تفعيل متصفح cmux» لفتح صفحات الويب في cmux."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux preglednik je isključen. Pokrenite Omogući cmux preglednik da otvarate web stranice u cmuxu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-browseren er slået fra. Kør Slå cmux-browser til for at åbne websider i cmux."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der cmux-Browser ist aus. Führe „cmux-Browser aktivieren“ aus, um Webseiten in cmux zu öffnen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El navegador de cmux está desactivado. Ejecuta Activar el navegador de cmux para abrir páginas web en cmux."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le navigateur cmux est désactivé. Lancez Activer le navigateur cmux pour ouvrir des pages web dans cmux."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il browser di cmux è disattivato. Esegui Attiva il browser di cmux per aprire pagine web in cmux."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux ブラウザはオフです。cmux で Web ページを開くには「cmux ブラウザを有効にする」を実行してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កម្មវិធីរុករក cmux ត្រូវបានបិទ។ ដំណើរការ បើកកម្មវិធីរុករក cmux ដើម្បីបើកទំព័របណ្ដាញក្នុង cmux។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 브라우저가 꺼져 있습니다. cmux에서 웹 페이지를 열려면 cmux 브라우저 사용을 실행하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-nettleseren er av. Kjør Slå på cmux-nettleser for å åpne nettsider i cmux."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Przeglądarka cmux jest wyłączona. Uruchom Włącz przeglądarkę cmux, aby otwierać strony internetowe w cmux."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O navegador do cmux está desativado. Execute Ativar o navegador do cmux para abrir páginas da web no cmux."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Браузер cmux выключен. Выполните «Включить браузер cmux», чтобы открывать веб-страницы в cmux."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เบราว์เซอร์ cmux ปิดอยู่ เรียกใช้ เปิดใช้เบราว์เซอร์ cmux เพื่อเปิดหน้าเว็บใน cmux"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux tarayıcısı kapalı. Web sayfalarını cmux içinde açmak için cmux Tarayıcısını Etkinleştir’i çalıştırın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Браузер cmux вимкнено. Виконайте «Увімкнути браузер cmux», щоб відкривати вебсторінки в cmux."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trình duyệt cmux đang tắt. Chạy Bật trình duyệt cmux để mở trang web trong cmux."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 浏览器已关闭。运行“启用 cmux 浏览器”即可在 cmux 中打开网页。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 瀏覽器已關閉。執行「啟用 cmux 瀏覽器」即可在 cmux 中開啟網頁。"
           }
         }
       }

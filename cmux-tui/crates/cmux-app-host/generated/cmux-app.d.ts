@@ -454,6 +454,12 @@ declare namespace Cmux {
   type WorkspaceAgentStartKind = "seed" | "chosen" | "workspace" | "agent_home"
   type WorkspaceAgentStartSkip = { cwd: string; reason: Cmux.WorkspaceAgentStartSkipReason }
   type WorkspaceAgentStartSkipReason = "home" | "above_home" | "agent_home" | "missing"
+  type WorkspaceChecklist = { workspace_id: string /* workspace_… */; items: Array<Cmux.WorkspaceChecklistItem> }
+  type WorkspaceChecklistAttachment = { id: string; path: string; name: string }
+  type WorkspaceChecklistAttachmentInput = { id?: string; path: string; name?: string }
+  type WorkspaceChecklistItem = { id: string; text: string; state: Cmux.WorkspaceChecklistItemState; origin: Cmux.WorkspaceChecklistItemOrigin; attachments: Array<Cmux.WorkspaceChecklistAttachment>; created_at_ms: string; updated_at_ms: string }
+  type WorkspaceChecklistItemOrigin = "user" | "agent"
+  type WorkspaceChecklistItemState = "todo" | "in_progress" | "done"
   type WorkspaceCloseResult = { closed_ids?: Array<Cmux.StateId> }
   type WorkspaceGroupDeleteResult = { id: Cmux.StateId; ungrouped: Array<Cmux.WorkspaceRef> }
   type WorkspaceGroupSnapshot = { id: Cmux.StateId; room_id: Cmux.StateId; name: string; color: string | null; collapsed: boolean; index: number; top_index?: number | null; icon?: string | null; pinned?: boolean }
@@ -1663,6 +1669,16 @@ interface CmuxGlobal {
     run: CmuxOp<{ machine?: string; session?: string; workspace: string; correlation_key?: string; argv?: Array<string>; shell?: string; cwd?: string; name?: string; on_exit?: "close" | "keep"; cols?: number; rows?: number; expected_revision?: string }, Cmux.MutationResult<Cmux.CreatedTerminalPath>>
     /** `workspace.update` (mutation, scope `workspace:write`) */
     update: CmuxOp<{ machine?: string; session?: string; workspace: string; title?: string | null; color?: string | null; icon?: string | null; description?: string | null; task_status?: "todo" | "working" | "needs-attention" | "review" | "done" | null; expected_revision?: string }, Cmux.MutationResult<Cmux.WorkspaceSnapshot>>
+  }
+  workspace_checklist: {
+    /** `workspace_checklist.add` (mutation, scope `workspace_checklist:write`) */
+    add: CmuxOp<{ machine?: string; session?: string; workspace: string; text: string; state?: Cmux.WorkspaceChecklistItemState; origin?: Cmux.WorkspaceChecklistItemOrigin; index?: number; expected_revision?: string }, Cmux.MutationResult<Cmux.WorkspaceChecklist>>
+    /** `workspace_checklist.list` (read, scope `workspace_checklist:read`) */
+    list: CmuxOp<{ machine?: string; session?: string; workspace?: string }, Array<Cmux.WorkspaceChecklist>>
+    /** `workspace_checklist.remove` (mutation, scope `workspace_checklist:write`) */
+    remove: CmuxOp<{ machine?: string; session?: string; workspace: string; item: string; expected_revision?: string }, Cmux.MutationResult<Cmux.WorkspaceChecklist>>
+    /** `workspace_checklist.update` (mutation, scope `workspace_checklist:write`) */
+    update: CmuxOp<{ machine?: string; session?: string; workspace: string; item: string; text?: string; state?: Cmux.WorkspaceChecklistItemState; index?: number; attachments?: Array<Cmux.WorkspaceChecklistAttachmentInput>; expected_revision?: string }, Cmux.MutationResult<Cmux.WorkspaceChecklist>>
   }
   workspace_group: {
     /** `workspace_group.create` (mutation, scope `workspace_group:write`) */
