@@ -119,6 +119,14 @@ export function rememberStartMode(harness: string, cwd: string | undefined, mode
   save(all);
 }
 
+/** Test seam: forget the kept answers this module read or wrote. A test file that clears
+ * localStorage must also call this, or the next file in the same bun process starts with them. */
+export function resetStartModesForTests(): void {
+  memory = undefined;
+  version += 1;
+  notify();
+}
+
 /// This pane picked `mode` (named `name`) in a local chat on `harness`, and acpmux took it: its
 /// kept answers for that harness say so at once, then every pending chat asks acpmux again, which
 /// corrects any that acpmux did not take as a pick (a preset's chat, a profile that pins it).
