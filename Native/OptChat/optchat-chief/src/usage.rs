@@ -233,7 +233,7 @@ pub fn dir(root: &Path) -> PathBuf {
 }
 
 fn local_month(ts: u64) -> String {
-    chrono::DateTime::from_timestamp_millis(ts as i64)
+    chrono::DateTime::from_timestamp_millis(i64::try_from(ts).unwrap_or(i64::MAX))
         .map(|t| t.with_timezone(&chrono::Local).format("%Y-%m").to_string())
         .unwrap_or_else(|| "9999-12".to_owned())
 }
@@ -401,8 +401,10 @@ fn last_cost(dir: &Path, id: &str) -> Option<f64> {
 /// Every line with `since_ms <= ts < until_ms`, oldest first.
 pub fn read(dir: &Path, since_ms: u64, until_ms: u64) -> Result<Vec<Line>, String> {
     // A day of slack: the month files are named in local time.
-    let first = local_month(since_ms.saturating_sub(DAY_MS as u64));
-    let last = local_month(until_ms.saturating_add(DAY_MS as u64));
+    // Clamped to year 9999, so a far bound (u64::MAX) never wraps to a negative time.
+    const MAX_MS: u64 = 253_402_300_799_000;
+    let first = local_month(since_ms.min(MAX_MS).saturating_sub(DAY_MS as u64));
+    let last = local_month(until_ms.min(MAX_MS - DAY_MS as u64) + DAY_MS as u64);
     let mut lines = Vec::new();
     for (month, file) in month_files(dir) {
         if month < first || month > last {
