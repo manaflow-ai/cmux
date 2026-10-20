@@ -119,7 +119,7 @@ jobs:
         run: python3 tests/test_ci_repo_variable_defaults.py
 
       - name: Validate scripts keep full clones full
-        if: ${{ matrix.group == 'ci' }}
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_no_shallow_dev_fetch.py
 
       - name: Validate the local and fast guard runner
@@ -684,7 +684,7 @@ jobs:
         run: python3 tests/test_ci_simple_pool_picker.py
 
       - name: Validate the cmux-next macOS cascade onto free Blacksmith slots
-        if: ${{ matrix.group == 'ci' }}
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_next_macos_cascade.py
 
       - name: Validate agent pane frame pacing summary
@@ -740,7 +740,7 @@ jobs:
         run: python3 tests/test_ci_side_lane_placement.py
 
       - name: Validate session jobs keep the gui label until runners carry the session label
-        if: ${{ matrix.group == 'ci' }}
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_session_label_routing.py
 
       - name: Validate owned Mac build state
@@ -784,7 +784,7 @@ jobs:
         run: python3 tests/test_runner_label_policy.py
 
       - name: Validate the INTERNAL iOS builder decisions
-        if: ${{ matrix.group == 'ci' }}
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ios_internal_builder.py
 
       - name: Validate the trusted web complexity workflow
@@ -1145,7 +1145,7 @@ jobs:
         run: python3 tests/test_cmux_next_media_tour_gate.py
 
       - name: Validate webview-only changes tour on Linux, not a Mac
-        if: ${{ matrix.group == 'release-notary' }}
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: |
           python3 tests/test_cmux_next_media_path_map.py
           python3 tests/test_cmux_next_media_runner_scope.py
@@ -1155,7 +1155,7 @@ jobs:
         run: python3 tests/test_ci_prune_media_derived_data.py
 
       - name: Validate a second cmux-next tour of a tag waits for the tour holding it
-        if: ${{ matrix.group == 'release-notary' }}
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_media_tag_lock.py
 
       - name: Validate the cmux-next tour drops stale prebuilt modules when a binary pin changes
@@ -1163,11 +1163,11 @@ jobs:
         run: python3 tests/test_ci_media_module_cache_stamp.py
 
       - name: Validate the cmux-next tour reuses a base app another tour built for the same commit
-        if: ${{ matrix.group == 'release-notary' }}
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_media_app_cache.py
 
       - name: Validate the cmux-next tour never waits for an unpublished base cmux-tui tree
-        if: ${{ matrix.group == 'release-notary' }}
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_cmux_next_media_tree_fallback.py
 
       - name: Validate feat-cmux-next publishes its cmux-tui tree before the daemon tests
