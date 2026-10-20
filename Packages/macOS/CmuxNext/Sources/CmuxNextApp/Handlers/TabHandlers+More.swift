@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextDaemon
+import enum CmuxNextLayout.ChatColumnPlacement
 
 // Tab moves out of the pane (split, column, workspace, window), unread
 // state, per-kind tab verbs, and identifier copies (links: LinkHandlers).
