@@ -724,8 +724,10 @@ impl Hub {
         for rec in records {
             match rec.kind.as_str() {
                 "agent_pair_held" => {
-                    if let Some(h) = Held::from_record(session, &rec.msg) {
-                        held.retain(|x| x.prompt_id != h.prompt_id);
+                    // A resend of a message held already keeps its first place.
+                    if let Some(h) = Held::from_record(session, &rec.msg)
+                        && !held.iter().any(|x| x.prompt_id == h.prompt_id)
+                    {
                         held.push(h);
                     }
                 }
@@ -875,7 +877,11 @@ impl Hub {
                 let done = hub.prompt_with(&target, blocks, &client, steer, opts).await;
                 let _ = tx.send(done.map(|_| ()));
             });
-            let outcome = rx.recv().await.unwrap_or(Ok(()));
+            // Both ends gone with no word (the delivery task died): not accepted.
+            let outcome = rx
+                .recv()
+                .await
+                .unwrap_or_else(|| Err(RpcError::internal("the release ended unanswered")));
             self.pairs_state().releasing.remove(&h.prompt_id);
             match outcome {
                 Ok(()) => {
