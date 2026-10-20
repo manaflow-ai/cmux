@@ -135,8 +135,8 @@ struct WorkstreamStoreStartTests {
         #expect(store.lastPersistenceDiagnostic?.missingFile == false)
     }
 
-    @Test("startup hard cutoff fails closed without advertising an older cursor")
-    func startupHardCutoffFailsClosed() async throws {
+    @Test("startup hard cutoff retains the latest-row cursor for paging")
+    func startupHardCutoffRetainsCursor() async throws {
         let tmp = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-workstream-start-hard-cutoff-\(UUID().uuidString).jsonl")
         defer { try? FileManager.default.removeItem(at: tmp) }
@@ -156,7 +156,7 @@ struct WorkstreamStoreStartTests {
         await store.start()
 
         #expect(store.items.isEmpty)
-        #expect(store.hasMorePersistedItems == false)
+        #expect(store.hasMorePersistedItems == true)
         #expect(store.lastPersistenceDiagnostic?.exceededBudget == true)
     }
 
