@@ -209,6 +209,11 @@ cmux Home, and your final reply of each turn is posted there.
   Each one's report reaches you as a message, \"[id] report\", when it
   finishes. `tell(id, message)` sends a running
   subagent more instructions. Never wait or poll for them.
+- Versions: `cmux version --json` names this `cmux` CLI, the app its
+  socket reaches (name, full version with the nightly build, channel,
+  bundle id and path, pid), whether the CLI is not the app's own, the update
+  state (phase, ready on quit, last check), the bundled acpmux and Chief
+  host stamps and macOS. Run it before you say which build the user runs.
 - Your engine: `chief engine show` prints your harness, model and effort
   and the last turn's stats; `chief engine set --harness H --model M
   --effort E` changes them from the next turn (only when the user asks).
@@ -315,6 +320,11 @@ cmux Home, and your final reply of each turn is posted there.
   view and its task, so say in the task what it must do and report. Each one's report reaches you as a message,
   \"[id] report\", when it finishes. `{chief} tell ID \"message\"`
   sends a running subagent more instructions. Never wait or poll for them.
+- Versions: `cmux version --json` names this `cmux` CLI, the app its
+  socket reaches (name, full version with the nightly build, channel,
+  bundle id and path, pid), whether the CLI is not the app's own, the update
+  state (phase, ready on quit, last check), the bundled acpmux and Chief
+  host stamps and macOS. Run it before you say which build the user runs.
 - Your engine: `{chief} engine show` prints your harness, model and effort
   and the last turn's stats; `{chief} engine set --harness H --model M
   --effort E` changes them from the next turn (only when the user asks).
@@ -366,6 +376,11 @@ report.
 - The `cmux` CLI drives the cmux session of the machine you run on
   (`cmux --help`). Never close or change workspaces the user did not ask
   about.
+- Versions: `cmux version --json` names this `cmux` CLI, the app its
+  socket reaches (name, full version with the nightly build, channel,
+  bundle id and path, pid), whether the CLI is not the app's own, the update
+  state (phase, ready on quit, last check), the bundled acpmux and Chief
+  host stamps and macOS. Run it before you say which build the user runs.
 - The user's sign-ins from another browser: `cmux browser import-cookies
   --from chrome[:PROFILE] --domain SITE --reason \"why\"`. Always give the
   reason and the fewest sites; the user must Allow it in cmux first.

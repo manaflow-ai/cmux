@@ -160,6 +160,13 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
     if let Some(command) = agent_open::parse(args)? {
         return Ok(Some(command));
     }
+    if scope == "version" {
+        if let Some(extra) = args.get(1) {
+            let messages = &crate::localization::catalog().app_control;
+            return Err(UsageError::new(messages.unexpected_argument.replace("{value}", extra)));
+        }
+        return Ok(Some(AppCommand::Version));
+    }
     if !APP_SCOPES.contains(&scope.as_str()) {
         return Ok(None);
     }
