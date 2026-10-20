@@ -19,7 +19,7 @@ import Foundation
 ///   it; a run that ends `done` with reply text keeps that text (no activity)
 ///   until its reply lands, so the bubble never leaves before the message
 ///   takes its place (also when the run record comes first), and the next
-///   message or run of that Chief ends it; `failed` or `cancelled` ends it at
+///   message of that Chief ends it (a new run does not: its reply is still coming); `failed` or `cancelled` ends it at
 ///   once. Late frames of an ended run never bring it back; activity frames
 ///   never end a run.
 struct HomeLiveBook {
@@ -56,6 +56,8 @@ struct HomeLiveBook {
         var done: Set<String> = []
         var activity: HomeLiveActivity?
         var touched = 0
+        /// When the run began on this client (a snapshot keeps it): the streams' display order.
+        var begun = 0
         /// The run ended `done`: its text waits for the reply.
         var awaitingReply = false
 
@@ -68,6 +70,7 @@ struct HomeLiveBook {
     /// Ended runs, newest last (bounded): their late frames are dropped.
     private var ended: [Key] = []
     private var tick = 0
+    private var beginTick = 0
     static let endedLimit = 512
     /// The owner keeps 64 KiB of tail text per step; so does this.
     static let stepCap = 64 * 1024
@@ -81,7 +84,7 @@ struct HomeLiveBook {
             guard let author = resolve(frame.author) else { return .ignored }
             let key = Key(conversation: frame.conversation, author: author, run: frame.run)
             guard !ended.contains(key) else { return .ignored }
-            var run = runs[key] ?? Run()
+            var run = runs[key] ?? newRun()
             guard run.activity != frame.activity else { return .ignored }
             run.activity = frame.activity
             run.touched = touch()
@@ -96,6 +99,7 @@ struct HomeLiveBook {
                 guard !ended.contains(key) else { continue }
                 let old = runs[key]
                 var run = Run(activity: entry.activity, touched: touch())
+                run.begun = old?.begun ?? begin()
                 run.done = old?.done ?? []
                 // Ended steps the owner freed, and steps seeded from rows, keep the text this client holds.
                 let listed = Set(entry.steps.map(\.step))
@@ -153,22 +157,18 @@ struct HomeLiveBook {
                 return .changed
             }
             guard change.status == "running" else { return end(key) ? .changed : .ignored }
-            guard !ended.contains(key) else { return .ignored }
-            // A new run of this Chief: a reply its earlier run waits for is not coming.
-            var changed = false
-            for other in runs.keys where other.conversation == key.conversation && other.author == key.author
-                && other != key && runs[other]?.awaitingReply == true {
-                changed = end(other) || changed
-            }
-            // Step rows end nothing: the local Chief writes an open talk row while the step still
-            // streams; a step ends with its `final` frame.
-            return changed ? .changed : .ignored
+            // A new run does not end a run that waits for its reply (B4,
+            // plans/cmux-next/home-chat-pipeline-DESIGN.md): that reply is still coming, and its
+            // bubble stays until it lands (or the Chief's next message, `posted`). Step rows end
+            // nothing: the local Chief writes an open talk row while the step still streams; a step
+            // ends with its `final` frame.
+            return .ignored
         }
     }
 
     private mutating func apply(_ delta: HomeLiveDelta, key: Key) -> Outcome {
         guard !ended.contains(key) else { return .ignored }
-        var run = runs[key] ?? Run()
+        var run = runs[key] ?? newRun()
         guard !run.done.contains(delta.step) else { return .ignored }
         if var step = run.steps[delta.step] {
             if step.fromRow, delta.seq > 0 {
@@ -244,15 +244,37 @@ struct HomeLiveBook {
             if let current = best[key.conversation], current.1.touched >= run.touched { continue }
             best[key.conversation] = (key, run)
         }
-        return best.mapValues { pair in
-            let (key, run) = pair
-            let talk = run.order.enumerated().filter { run.steps[$0.element]?.isTalk == true }
-                .sorted { (Self.place(run.steps[$0.element]), $0.offset) < (Self.place(run.steps[$1.element]), $1.offset) }
-                .compactMap { run.steps[$0.element]?.text }
-                .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-            return HomeLiveRun(participant: key.author, run: key.run, turn: turn(of: key),
-                               text: talk.joined(separator: "\n\n"), activity: run.activity)
-        }
+        return best.mapValues { liveRun($0.0, $0.1) }
+    }
+
+    /// Every run of `conversation` with reply text, in the order the runs began: each is one
+    /// running reply (one bubble) until its reply lands (several can run at once: two Chiefs in a
+    /// group, a new turn while the last one's reply is on its way).
+    func streams(in conversation: ConversationID) -> [HomeLiveRun] {
+        runs.filter { $0.key.conversation == conversation && $0.value.hasTalk }
+            .sorted { ($0.value.begun, $0.key.run) < ($1.value.begun, $1.key.run) }
+            .map { liveRun($0.key, $0.value) }
+            .filter { !$0.text.isEmpty }
+    }
+
+    private func liveRun(_ key: Key, _ run: Run) -> HomeLiveRun {
+        let talk = run.order.enumerated().filter { run.steps[$0.element]?.isTalk == true }
+            .sorted { (Self.place(run.steps[$0.element]), $0.offset) < (Self.place(run.steps[$1.element]), $1.offset) }
+            .compactMap { run.steps[$0.element]?.text }
+            .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        return HomeLiveRun(participant: key.author, run: key.run, turn: turn(of: key),
+                           text: talk.joined(separator: "\n\n"), activity: run.activity)
+    }
+
+    private mutating func newRun() -> Run {
+        var run = Run()
+        run.begun = begin()
+        return run
+    }
+
+    private mutating func begin() -> Int {
+        beginTick += 1
+        return beginTick
     }
 
     private mutating func touch() -> Int {

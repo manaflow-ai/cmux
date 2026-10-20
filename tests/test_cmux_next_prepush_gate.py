@@ -232,5 +232,49 @@ class PrePushGateTests(unittest.TestCase):
         self.assertIn("2 commit(s) checked, 1 add violations", output)
 
 
+    # Ghostty's default split keys (Lawrence 2026-10-20, after 2f3e1f95983 made Cmd-Opt-Left / Right
+    # sidebar keys): the gate refuses a push whose exported keymap gives one to another action.
+    RESERVED = {"reserved": [{"key": "cmd+opt+left", "command": "focusLeft", "ghostty": "goto_split:left"}],
+                "scopedOwners": {"keys": ["codeEditorFocused"]}, "scopedActions": []}
+
+    @staticmethod
+    def surfaces(sidebar_alias):
+        left = {"key": "\uf702", "modifiers": ["opt", "cmd"]}
+        prev = {"id": "prevSidebarTab", "default_shortcut": {"key": "[", "modifiers": ["ctrl", "cmd"]},
+                "default_aliases": [{"keys": [left], "when": None}] if sidebar_alias else []}
+        focus = {"id": "focusLeft", "default_shortcut": left, "default_aliases": []}
+        return {"version": 1, "actions": [focus, prev]}
+
+    def reserved_base(self):
+        import json
+        self.write("schemas/keybindings/ghostty-reserved-keys.json", json.dumps(self.RESERVED))
+        self.write("plans/cmux-next/action-surfaces.json", json.dumps(self.surfaces(False)))
+        self.commit("reserved keys")
+        self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
+        self.git("fetch", "--quiet", "origin")
+        self.write("plans/cmux-next/action-surfaces.json", json.dumps(self.surfaces(True)))
+
+    def test_push_that_gives_a_ghostty_key_to_another_action_is_refused_even_with_a_skip_reason(self):
+        self.reserved_base()
+        before = self.remote_head()
+        self.commit("Cmd-Opt-Left selects the previous sidebar item")
+
+        result = self.push(CMUX_NEXT_CHECKS_SKIP_REASON="fixture: unrelated base failure")
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertEqual(self.remote_head(), before)
+        self.assertIn("prevSidebarTab takes Ghostty's cmd+opt+left", output)
+        self.assertIn("does not skip", output)
+
+    def test_a_ghostty_defaults_ok_trailer_lets_the_change_through(self):
+        self.reserved_base()
+        self.commit("Cmd-Opt-Left selects the previous sidebar item\n\nGhostty-defaults-OK: \"fixture: yes, rebind it\"")
+
+        result = self.push()
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -28,6 +28,12 @@ fn now_ms() -> u64 {
     super::now_ms()
 }
 
+/// Only an explicitly persisted approve-all policy authorizes effects from a
+/// completed report. Missing/legacy/unknown policy provenance fails closed.
+fn report_requires_approval(policy: Option<&str>) -> bool {
+    policy != Some("approve-all")
+}
+
 impl Brain {
     /// Where a spawn's subagents run: `place` (`cloud`/`local`), else the
     /// saved `control cloud` default, else the env's peer; None: here.
@@ -651,7 +657,7 @@ impl Brain {
                     s.id.clone(),
                     format!("[{}] {report}\n{footer}", s.id),
                     s.floor,
-                    s.policy.as_deref() == Some(crate::approval::ASK),
+                    report_requires_approval(s.policy.as_deref()),
                     s.stopped,
                 )
             })
@@ -1323,6 +1329,19 @@ impl Brain {
                 .unwrap_or(u64::MAX)
         });
         stopped
+    }
+}
+
+#[cfg(test)]
+mod security_tests {
+    use super::report_requires_approval;
+
+    #[test]
+    fn unknown_subagent_policy_fails_closed() {
+        assert!(report_requires_approval(None));
+        assert!(report_requires_approval(Some("ask")));
+        assert!(report_requires_approval(Some("unknown")));
+        assert!(!report_requires_approval(Some("approve-all")));
     }
 }
 

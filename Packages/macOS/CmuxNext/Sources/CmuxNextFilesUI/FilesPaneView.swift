@@ -26,6 +26,8 @@ public final class FilesPaneView: NSView {
     private lazy var sidebarView = FileSidebarView(actions: makeSidebarActions())
     private var sidebarWidth: NSLayoutConstraint?
     let quickLook = QuickLookSource()
+    /// The shared file menu (Open With, Share) the host gives; nil leaves those rows out.
+    public var fileMenu: FileActionsMenu?
     lazy var prompts = FilesPrompts(window: { [weak self] in self?.window })
     private let toolbar = NSStackView()
     private let backButton = NSButton()
