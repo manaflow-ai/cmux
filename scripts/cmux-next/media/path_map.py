@@ -15,7 +15,7 @@ import re
 import sys
 
 
-TOUR_ORDER = ("new-tab", "agent-pane", "now-playing", "chief-settings", "glass", "core")
+TOUR_ORDER = ("new-tab", "agent-pane", "now-playing", "hover-card", "chief-settings", "glass", "core")
 UI_ROOTS = (
     re.compile(r"^(?:Packages/macOS/CmuxNext/Sources|webviews/(?:src|apps)|agent-chat/(?:src|app|components?)/)"),
     re.compile(r"^(?:Packages/macOS/CmuxNext/(?:Resources|Tests?)/|webviews/|agent-chat/)"),
@@ -25,6 +25,8 @@ UI_ROOTS = (
 NEW_TAB = re.compile(r"(?:new.?tab|NewTab)", re.IGNORECASE)
 AGENT_PANE = re.compile(r"(?:agent.?pane|agent-session|AgentPane|acpmux)", re.IGNORECASE)
 NOW_PLAYING = re.compile(r"(?:now.?playing|music)", re.IGNORECASE)
+# The sidebar's workspace hover card (its surface and content), in dark, light and over art.
+HOVER_CARD = re.compile(r"(?:WorkspaceHoverCard|HoverCards/HoverCardPanel)")
 # The Chief's settings popover and the Home view that opens it.
 CHIEF_SETTINGS = re.compile(r"(?:HomeChiefSettings|HomeHostView|HomeEngineStrings)")
 # Themes, glass and background art: the glass tour shows them over art and opaque.
@@ -52,6 +54,8 @@ def tours_for_path(path: str) -> list[str]:
         selected.append("agent-pane")
     if NOW_PLAYING.search(normalized):
         selected.append("now-playing")
+    if HOVER_CARD.search(normalized):
+        selected.append("hover-card")
     if CHIEF_SETTINGS.search(normalized):
         selected.append("chief-settings")
     if GLASS.search(normalized):
