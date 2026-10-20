@@ -204,6 +204,9 @@ public final class PaletteModel {
     public var breadcrumbs: [String] { scopeChips.map(\.title) }
 
     /// Waits for the in-flight search, if any (tests, scripted checks).
+    /// Red commit stub (the open latency tests before the fix): nothing is deferred yet.
+    func settleDeferredLoads() async {}
+
     public func settle() async {
         while let task = searchTask {
             await task.value
