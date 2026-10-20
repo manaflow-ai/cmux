@@ -1875,16 +1875,24 @@ export class AcpmuxDirectClient {
     const asked = id ? this.askedPermissions.get(id) : undefined;
     if (!id || !asked) return;
     this.askedPermissions.delete(id);
+    const rowId = `permission-${id}`;
+    // Drawn already: a resync replays the live records after its rebuild drew them, and closing
+    // the stream again then would split the reply that streams on.
+    if (this.rows.has(rowId)) return;
     const decision = permissionDecision(asked, msg.outcome);
     this.closeSegment();
-    const rowId = `permission-${id}`;
     this.rows.set(rowId, {
       id: rowId,
-      version: (this.rows.get(rowId)?.version ?? 0) + 1,
+      version: 1,
       at: event.at,
       kind: PERMISSION_RECORD,
-      status: decision,
-      text: translate(DECISION_TEXT[decision], { action: asked.title?.trim() || translate("permission.required") }),
+      permission: asked,
+      decision,
+      // What Copy reads; the row draws its words in the pane's language as it is then.
+      text: translate(DECISION_TEXT[decision.kind], {
+        action: asked.title?.trim() || translate("permission.required"),
+        option: decision.kind === "answered" ? decision.option : "",
+      }),
     });
   }
 

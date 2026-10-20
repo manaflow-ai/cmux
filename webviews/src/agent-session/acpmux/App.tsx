@@ -101,7 +101,7 @@ import { useToolCards } from "./toolCards/toolCardStore";
 import { PermissionCard } from "./PermissionCard";
 import { QuestionCard } from "./question/QuestionCard";
 import { QUESTION_RECORD } from "./question/record";
-import { PERMISSION_RECORD } from "./permissions/record";
+import { DECISION_TEXT, PERMISSION_RECORD } from "./permissions/record";
 import type { QuestionReply } from "./question/model";
 import { agentName } from "./agents";
 import { type Translate, translate, useT } from "./i18n";
@@ -777,9 +777,15 @@ const ignoreReply = () => {};
 /// A single permission card's receipt (permissions/record.ts): one muted line, the decision first.
 const PermissionRecordRow = memo(
   function PermissionRecordRow({ row }: RowProps) {
+    const t = useT();
+    const decision = row.decision;
+    if (!decision) return null;
     return (
-      <div className="acpmux-permission-record" data-decision={row.status}>
-        {row.text}
+      <div className="acpmux-permission-record" data-decision={decision.kind}>
+        {t(DECISION_TEXT[decision.kind], {
+          action: row.permission?.title?.trim() || t("permission.required"),
+          option: decision.kind === "answered" ? decision.option : "",
+        })}
       </div>
     );
   },

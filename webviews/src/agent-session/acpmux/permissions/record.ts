@@ -3,32 +3,40 @@
 // once the card goes (direct.ts, the `permissionRecord` row), so a reload shows it again. The
 // grouped panel keeps its own receipt (permissions/Panel.tsx).
 import type { AcpmuxPermission } from "../model";
+import { permissionOptionKind } from "../PermissionCard";
 
 /// The transcript row of a single permission card's answer.
 export const PERMISSION_RECORD = "permissionRecord";
 
-export type PermissionDecision = "allowed" | "allowedAlways" | "denied" | "cancelled";
+/// How an ask was answered. `answered` is an option neither its ACP kind nor its name places (a
+/// custom choice, or one the ask no longer lists): the receipt names it rather than guess.
+export type PermissionDecision =
+  | { kind: "allowed" | "allowedAlways" | "denied" | "cancelled" }
+  | { kind: "answered"; option: string };
 
-/// How `outcome` answered `permission`: by the chosen option's ACP kind, else (an older agent
-/// without kinds) its id and name, as PermissionCard.tsx `permissionOptionKind` reads them.
+/// How `outcome` answered `permission`, read as the card reads its options (`permissionOptionKind`).
 export function permissionDecision(permission: AcpmuxPermission, outcome: unknown): PermissionDecision {
   const value = outcome as { outcome?: unknown; optionId?: unknown } | undefined;
-  if (value?.outcome !== "selected" || typeof value.optionId !== "string") return "cancelled";
+  if (value?.outcome !== "selected" || typeof value.optionId !== "string") return { kind: "cancelled" };
   const option = permission.options.find((candidate) => candidate.id === value.optionId);
-  const kind = option?.kind?.toLowerCase();
-  if (kind?.startsWith("reject")) return "denied";
-  if (kind === "allow_once") return "allowed";
-  if (kind?.startsWith("allow")) return "allowedAlways";
-  const named = `${value.optionId} ${option?.name ?? ""}`.toLowerCase();
-  if (/deny|reject|decline/.test(named)) return "denied";
-  if (/always|forever|permanent|chat|session/.test(named)) return "allowedAlways";
-  return "allowed";
+  switch (option && permissionOptionKind(option)) {
+    case "allow_once":
+      return { kind: "allowed" };
+    case "allow_always":
+    case "allow_chat":
+      return { kind: "allowedAlways" };
+    case "deny":
+      return { kind: "denied" };
+    default:
+      return { kind: "answered", option: option?.name.trim() || value.optionId };
+  }
 }
 
-/// The receipt's words for each decision, `{action}` the ask's title.
+/// The receipt's words for each decision: `{action}` the ask's title, `{option}` the option named.
 export const DECISION_TEXT = {
   allowed: "permission.receipt.allowed",
   allowedAlways: "permission.receipt.allowedAlways",
   denied: "permission.receipt.denied",
   cancelled: "permission.receipt.cancelled",
-} as const satisfies Record<PermissionDecision, string>;
+  answered: "permission.receipt.answered",
+} as const satisfies Record<PermissionDecision["kind"], string>;
