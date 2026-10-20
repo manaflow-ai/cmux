@@ -51,6 +51,7 @@ nonisolated extension ActionSurfaceCatalog {
         "palette.copyWorkspaceIDAndRef": [p(.workspaceRow, .inspect, 407, folder: .copy)],
         "palette.copyWorkspaceLink": [p(.workspaceRow, .inspect, 406, folder: .copy)],
         "workspaceGroup.newWorkspace": [p(.workspaceGroup, .create, 0)],
+        "workspaceGroup.newSubgroup": [p(.workspaceGroup, .create, 1)],
         "workspaceGroup.rename": [p(.workspaceGroup, .identity, 1)],
         "workspaceGroup.togglePin": [p(.workspaceGroup, .identity, 3)],
         "workspaceGroup.markRead": [p(.workspaceGroup, .identity, 110, folder: .options)],
