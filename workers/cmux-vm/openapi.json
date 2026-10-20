@@ -7415,7 +7415,7 @@
             }
           }
         },
-        "description": "Read a VM's current receiving policy. Requires the mesh:read scope. Also needs vm:read and visibility of the exact VM and mesh. Returns unique live public client identities and their incoming VM service permissions, with a 30-second lease. Public-address transport rules are excluded. No listener activation or backend service grant is implied. Experiment: answers 404 unless the mesh experiment is enabled for the team.",
+        "description": "Read a VM's current receiving policy. Requires the mesh:read scope. Also needs vm:read and visibility of the exact VM and mesh. Returns unique live public client identities and at most 4096 incoming service rules, with a lease of at most 30 seconds capped by included owner-key expiry. Public-address transport rules are excluded. No listener activation or backend service grant is implied. Experiment: answers 404 unless the mesh experiment is enabled for the team.",
         "summary": "Read a VM's current receiving policy"
       }
     },
@@ -12315,7 +12315,10 @@
                   "type": "array",
                   "items": {
                     "$ref": "#/components/schemas/PeerAllow"
-                  }
+                  },
+                  "description": "an array of at most 4096 item(s)",
+                  "title": "maxItems(4096)",
+                  "maxItems": 4096
                 }
               },
               "additionalProperties": false
