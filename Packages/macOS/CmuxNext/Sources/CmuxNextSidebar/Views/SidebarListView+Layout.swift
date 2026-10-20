@@ -6,9 +6,12 @@ import QuartzCore
 extension SidebarListViewComponents {
     // MARK: - Reload
     /// Recomputes layout from the model and animates rows to their frames.
-    /// `fromModel`: the model changed under the list, not a gesture here.
+    /// `fromModel`: the model changed under the list (`showModelChange`); any other animated reload
+    /// is a user's gesture here, so the model change that follows it may animate too.
     func reload(animated: Bool, adopt: Bool = false, fromModel: Bool = false, file: StaticString = #fileID, line: UInt = #line) {
         SidebarPerfCounters.add(.listReloads, from: file, line: line)
+        if animated, !fromModel { model.noteUserIntent() }
+        holdsModelChange = false // this reload shows the model as it is now
         // No drag holds the rows: this reload shows every held patch (the model has them).
         if !holdsRowPatches { rowHold = SidebarRowHold() }
         workspaces = [:]
