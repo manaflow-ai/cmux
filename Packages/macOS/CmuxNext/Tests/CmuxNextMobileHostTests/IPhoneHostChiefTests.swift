@@ -24,7 +24,7 @@ struct IPhoneHostChiefTests {
         let launch = IPhoneHostService.launch(dependencies, executable: URL(fileURLWithPath: "/bin/cnx-hostd"),
                                               account: Self.account, deviceID: "d", deviceName: "Mac",
                                               daemonSocket: "/tmp/cmux-tui-501/cmux-app-tag.sock",
-                                              chief: await dependencies.chief())
+                                              chief: await dependencies.chief?())
         let environment = launch.environment(inherited: [:])
         #expect(environment["CNX_CHIEF_SESSION"] == "cmux-chief-1a2b3c4d")
         #expect(environment["CNX_CHIEF_SOCKET"] == "/tmp/cmux-tui-501/cmux-chief-1a2b3c4d.sock")
@@ -36,7 +36,7 @@ struct IPhoneHostChiefTests {
         let launch = IPhoneHostService.launch(dependencies, executable: URL(fileURLWithPath: "/bin/cnx-hostd"),
                                               account: Self.account, deviceID: "d", deviceName: "Mac",
                                               daemonSocket: "/tmp/cmux-tui-501/cmux-app-tag.sock",
-                                              chief: await dependencies.chief())
+                                              chief: await dependencies.chief?())
         let environment = launch.environment(inherited: [:])
         #expect(environment["CNX_CHIEF_SESSION"] == "cmux-chief-1a2b3c4d")
         #expect(environment["CNX_CHIEF_SOCKET"] == nil)

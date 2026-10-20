@@ -67,7 +67,7 @@ public final class IPhoneHostService {
         /// This app's own Chief owner: its session (from the app's `ChiefHome`, always known)
         /// and its socket once connected. hostd's `chief` service dials it; without it hostd
         /// guesses `~/.cmux/chief/default`, which is not a DEV or tagged build's Chief.
-        var chief: @MainActor () async -> ChiefPlacement? = { nil }
+        var chief: (@MainActor () async -> ChiefPlacement?)?
     }
 
     /// Where this app's Chief owner listens (``Dependencies/chief``).
@@ -382,7 +382,7 @@ public final class IPhoneHostService {
                 // task-owner: one Keychain read per hostd start; awaited here
                 let identity = try await Task.detached { try store.loadOrCreate() }.value
                 let name = await dependencies.computerName()
-                let chief = await dependencies.chief()
+                let chief = await dependencies.chief?()
                 guard !Task.isCancelled, self?.running == key else { return }
                 let launch = Self.launch(dependencies, executable: executable, account: want, deviceID: deviceID,
                                          deviceName: name, daemonSocket: socket, chief: chief)
