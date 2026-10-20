@@ -45,7 +45,7 @@ import {
   type VmWorkflowError,
 } from "./errors";
 import { recordSpanTiming } from "./timings";
-import { planIncludes } from "../billing/planTier";
+import { nextUpgradePlanId, planIncludes } from "../billing/planTier";
 import { authProviderErrorResponse } from "./authErrors";
 import { goCapacityConstraint } from "./goUsage";
 import { isSyntheticAccountEmail, rememberSyntheticUser } from "../analytics/syntheticAccounts";
@@ -569,8 +569,16 @@ export const VM_CREATE_CREDITS_CHECKOUT_URL =
  * The fields every `vm_create_credits_insufficient` response carries, so each
  * client shows a checkout button instead of a dead error.
  */
-export function vmCreateCreditsCheckoutExtra(amount: number) {
-  return { amount, upgradeRequired: true, upgradePlanId: "pro", upgradeUrl: VM_CREATE_CREDITS_CHECKOUT_URL } as const;
+export function vmCreateCreditsCheckoutExtra(amount: number, planId: string | null | undefined) {
+  // Send the tenant to the next plan up: a Pro, Team or Founder's tenant to Max
+  // (never to the plan it already has), a Max tenant to the pricing page.
+  const upgradePlanId = nextUpgradePlanId(planId);
+  const upgradeUrl = upgradePlanId === null
+    ? VM_UPGRADE_URL
+    : upgradePlanId === "pro"
+      ? VM_CREATE_CREDITS_CHECKOUT_URL
+      : `https://cmux.com/api/billing/checkout?plan=${upgradePlanId}&cmux_source=vm_create_credits`;
+  return { amount, upgradeRequired: true, upgradePlanId, upgradeUrl } as const;
 }
 
 /**
@@ -879,8 +887,8 @@ export function vmCreateLikeErrorResponders(input: {
         error: "vm_create_credits_insufficient",
         status: 402,
         message: "This team has no Cloud VM create credits left.",
-        action: `Buy Cloud VM credits at ${VM_CREATE_CREDITS_CHECKOUT_URL}, or ask a team admin to add some, then retry.`,
-        extra: vmCreateCreditsCheckoutExtra(error.amount),
+        action: `Get more Cloud VM credits at ${vmCreateCreditsCheckoutExtra(error.amount, input.planId).upgradeUrl}, or ask a team admin to add some, then retry.`,
+        extra: vmCreateCreditsCheckoutExtra(error.amount, input.planId),
         details: { amount: error.amount },
       }),
     VmModelPlaneError: (error) => vmModelPlaneErrorResponse(error, input.operation),

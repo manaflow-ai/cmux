@@ -721,7 +721,7 @@ Plan limits are team-based. Stack Auth personal teams should stay enabled for bo
 
 `vmActiveLimitExceededResponse` (routeHelpers) renders every provisioning verb's over-limit error. On unpaid plans the message sells the upgrade — with the default zero allowance it is the subscribe gate ("Cloud VMs require a cmux Pro subscription") with `upgradeRequired: true` and `upgradeUrl` pointing at `/pricing` — so clients can show a real upgrade prompt (checkout flow per `skills/cmux-billing`) instead of a dead error. Paid plans see it at the plan allowance (5 active machines, times paid seats on Team) or at an operator incident brake; then the message is operational "delete one" guidance, not a paywall.
 
-Running out of create credits is the same moment: every `402 vm_create_credits_insufficient` (create, fork, restore, Base open and reset) carries `upgradeRequired: true`, `upgradePlanId: "pro"` and `upgradeUrl` = `VM_CREATE_CREDITS_CHECKOUT_URL` (the cmux checkout, `cmux_source=vm_create_credits`), built once by `vmCreateCreditsCheckoutExtra`. `tests/vm-create-credits-checkout.test.ts` pins it.
+Running out of create credits is the same moment: every `402 vm_create_credits_insufficient` (create, fork, restore, Base open and reset) carries `upgradeRequired: true`, `upgradePlanId` (the next plan up: Pro for Free/Go, Max for Pro/Team/Founder's, null on Max) and `upgradeUrl` (that plan's cmux checkout with `cmux_source=vm_create_credits`, or `/pricing` on Max), built once by `vmCreateCreditsCheckoutExtra`. `tests/vm-create-credits-checkout.test.ts` pins it.
 
 ### Pricing is flat
 
