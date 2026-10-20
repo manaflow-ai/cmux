@@ -24,6 +24,12 @@ final class SidebarGroupLineViews {
     /// drag gap the decorations draw sits right of the members' gutter, so
     /// it never covers a line.
     func update(_ new: [SidebarGroupLine], from start: [SidebarGroupLine], in list: NSView, below decorations: NSView, animated: Bool) -> (changes: () -> Void, leaving: [NSView]) {
+        // A reload without motion shows the lines as they are now: a line still fading out
+        // from an earlier, animated update (the join setting turned on, a group closed) goes now.
+        if !animated {
+            leavingViews.forEach { $0.removeFromSuperview() }
+            leavingViews.removeAll()
+        }
         var gone = views
         let starts = Dictionary(start.map { ($0.group, $0.frame) }, uniquingKeysWith: { first, _ in first })
         var moves: [(GroupLineView, CGRect)] = []
