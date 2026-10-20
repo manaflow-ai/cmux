@@ -33,7 +33,10 @@ extension SidebarListViewComponents {
     /// (`sidebar.hoverCards.groups.workspaceGroups`): none during a drag, a rename or an open group
     /// editor. One row lookup by position, like a workspace row's: a hover never walks the groups.
     func hoverCardGroup(at point: CGPoint) -> GroupID? {
-        nil
+        guard DesignSettings.shared.groupHoverCard.workspaceGroups, drag == nil, !inlineRename.isActive,
+              visibleRect.contains(point), !isHiddenOrHasHiddenAncestor,
+              case .group(let id)? = displayed.row(at: point.y)?.key, groups[id] != nil else { return nil }
+        return id
     }
     /// The group header's frame on screen, nil when it is not laid out.
     func hoverCardAnchor(forGroup id: GroupID) -> CGRect? {

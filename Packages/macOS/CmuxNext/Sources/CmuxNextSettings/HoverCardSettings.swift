@@ -50,6 +50,22 @@ public nonisolated struct HoverCardSettings: Sendable, Equatable {
             if let value = sections.bool("ports") { settings.showsPorts = value }
             diagnostics += sections.diagnostics
         }
+        if var groups = ConfigFieldReader(root, at: ["sidebar", "hoverCards", "groups"], diagnostics: &diagnostics) {
+            if let value = groups.bool("workspaceGroups") { settings.groupsWorkspaceGroups = value }
+            if let value = groups.bool("tabGroups") { settings.groupsTabGroups = value }
+            if let value = groups.number("delay", range: groupsDelayRange) { settings.groupsDelayMilliseconds = value }
+            if let value = groups.choice("order", GroupHoverCardOrderSetting.self) { settings.groupsOrder = value }
+            if let value = groups.number("maxMembers", range: groupsMaxMembersRange) { settings.groupsMaxMembers = value.rounded() }
+            diagnostics += groups.diagnostics
+        }
+        if var sections = ConfigFieldReader(root, at: ["sidebar", "hoverCards", "groups", "sections"], diagnostics: &diagnostics) {
+            if let value = sections.bool("status") { settings.groupsShowsStatus = value }
+            if let value = sections.bool("members") { settings.groupsShowsMembers = value }
+            if let value = sections.bool("activity") { settings.groupsShowsActivity = value }
+            if let value = sections.bool("git") { settings.groupsShowsGit = value }
+            if let value = sections.bool("ports") { settings.groupsShowsPorts = value }
+            diagnostics += sections.diagnostics
+        }
         return settings
     }
 }

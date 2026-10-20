@@ -38,7 +38,34 @@ public nonisolated struct GroupHoverCardSummary: Sendable, Hashable {
     ///   - now: The time ages are measured from.
     public static func make(title: String, kind: Kind, members: [GroupHoverCardMember],
                             options: GroupHoverCardOptions, now: Date) -> Self {
-        let blocks: [Block] = []
+        var blocks: [Block] = []
+        for section in options.sections {
+            switch section {
+            case .status:
+                blocks.append(status(members))
+            case .members:
+                let shown = members.prefix(max(1, options.maxMembers)).map(\.title)
+                var lines = [GroupHoverCardStrings.count(kind, members.count)] + shown.map { "\u{2022} " + $0 }
+                if members.count > shown.count { lines.append(GroupHoverCardStrings.more(members.count - shown.count)) }
+                blocks.append(Block(section: .members, lines: lines, tone: .secondary))
+            case .activity:
+                let latest = members.compactMap { member in member.lastActivity.map { (member, $0) } }.max { $0.1 < $1.1 }
+                if let (member, date) = latest {
+                    blocks.append(Block(section: .activity, lines: [GroupHoverCardStrings.latest(member.title, age: age(since: date, now: now))],
+                                        tone: .secondary))
+                }
+            case .git:
+                let branches = unique(members.compactMap(\.branch))
+                if !branches.isEmpty {
+                    blocks.append(Block(section: .git, lines: [GroupHoverCardStrings.branches(joined(branches))], tone: .secondary))
+                }
+            case .ports:
+                let ports = unique(members.compactMap(\.ports).flatMap { $0.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) } })
+                if !ports.isEmpty {
+                    blocks.append(Block(section: .ports, lines: [GroupHoverCardStrings.ports(joined(ports))], tone: .secondary))
+                }
+            }
+        }
         return Self(title: title, blocks: blocks)
     }
 
