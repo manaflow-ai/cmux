@@ -100,6 +100,8 @@ public final class LiveCoordinator {
     @ObservationIgnored private var terminals: [WeakTerminal] = []
     private struct WeakTerminal { weak var session: DaemonTerminalSession? }
     @ObservationIgnored private var chiefLive = false
+    /// A `startChief` is opening the channel (Try Again does not start a second one).
+    @ObservationIgnored private var chiefStarting = false
     @ObservationIgnored private var discoveryTask: Task<Void, Never>?
     /// Follows the phone's network (Wi-Fi, cellular, airplane mode).
     @ObservationIgnored private var networkTask: Task<Void, Never>?
@@ -1113,6 +1115,12 @@ public final class LiveCoordinator {
     /// reason; there is no stand-in Chief.
     private func startChief(_ link: any MacLink) async {
         let session = ChiefSession.shared
+        chiefStarting = true
+        // Every way out ends a Try Again in flight, even one for a link replaced meanwhile.
+        defer {
+            chiefStarting = false
+            session.endReconnect()
+        }
         // Try Again on Chief's unavailable bar opens the channel again on this link.
         session.reconnect = { [weak self] in self?.retryChief() }
         session.macName = self.link.target?.name
@@ -1172,6 +1180,8 @@ public final class LiveCoordinator {
     /// Try Again on Chief's unavailable bar: the Chief channel again, on the
     /// link that is up now. Without one, the bar says so.
     func retryChief() {
+        // One open at a time: the one running now ends the try.
+        guard !chiefStarting else { return }
         guard let link = servedLink else {
             ChiefSession.shared.status = String(localized: "Your Mac isn't connected. Chief comes back when it is.")
             return

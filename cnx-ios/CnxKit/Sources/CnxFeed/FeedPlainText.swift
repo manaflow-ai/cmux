@@ -30,6 +30,9 @@ public struct FeedPlainText: Sendable {
                 return false
             }
             if line.hasPrefix("    ") || line.hasPrefix("\t") { return false }
+            // Setext underlines and thematic breaks (`===`, `---`, `***`, `___`).
+            if trimmed.count >= 3, Set(trimmed.replacingOccurrences(of: " ", with: "")).count == 1,
+               let mark = trimmed.first, "=-*_".contains(mark) { return false }
         }
         return true
     }

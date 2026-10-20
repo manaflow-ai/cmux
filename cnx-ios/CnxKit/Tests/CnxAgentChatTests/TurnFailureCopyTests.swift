@@ -73,6 +73,8 @@ import Testing
         #expect(copy.sentence == "Codex can't use this model with the Mac's account. Pick another model.")
         #expect(copy.detail == raw)
         #expect(!TurnFailureCopy.plain(raw, harness: "codex", harnessName: "Codex").contains("{"))
+        // A capacity error that mentions the model stays a capacity error.
+        #expect(TurnFailureCopy(message: "The model is currently not available (503)").kind == .rateLimited)
         // Plain text stays as it is.
         #expect(TurnFailureCopy.plain("Already answered.") == "Already answered.")
     }

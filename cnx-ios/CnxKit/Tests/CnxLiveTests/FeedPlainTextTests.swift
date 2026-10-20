@@ -18,5 +18,7 @@ import Testing
         #expect(!FeedPlainText("1. first").isInline)
         #expect(!FeedPlainText(String(repeating: "word ", count: 80)).isInline)
         #expect(!FeedPlainText("a\nb\nc\nd\ne").isInline)
+        #expect(!FeedPlainText("Title\n===").isInline)
+        #expect(!FeedPlainText("above\n---\nbelow").isInline)
     }
 }

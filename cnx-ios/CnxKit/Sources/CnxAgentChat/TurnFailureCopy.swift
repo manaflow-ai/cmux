@@ -84,8 +84,8 @@ public struct TurnFailureCopy: Hashable, Sendable {
             return .modelServiceUnavailable
         }
         // The account can't run the chat's model (Codex with a ChatGPT account, a retired model).
-        if matches(Self.modelUnavailable, parts.message ?? raw) { return .modelUnavailable }
         if matches(Self.rate, raw) { return .rateLimited }
+        if matches(Self.modelUnavailable, parts.message ?? raw) { return .modelUnavailable }
         if matches(Self.unreachable, raw) { return .unreachable }
         let via = via(raw, harness: harness)
         if matches(Self.invalidKey, raw), !(matches(Self.subscription, raw) && via == nil) { return .invalidKey }

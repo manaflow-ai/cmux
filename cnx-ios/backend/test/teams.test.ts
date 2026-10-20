@@ -16,6 +16,7 @@ describe("POST /v1/teams", () => {
     expect((await call("POST", "/v1/teams", tok, {})).status).toBe(400)
     expect((await call("POST", "/v1/teams", tok, { name: "   " })).status).toBe(400)
     expect((await call("POST", "/v1/teams", tok, { name: "x".repeat(65) })).status).toBe(400)
+    expect((await call("POST", "/v1/teams", tok, { name: "a\nb" })).status).toBe(400)
   })
 
   it("says so when this Worker cannot create teams for the caller's project", async () => {

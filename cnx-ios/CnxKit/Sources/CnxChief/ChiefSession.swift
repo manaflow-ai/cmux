@@ -193,6 +193,11 @@ public final class ChiefSession {
         reconnect()
     }
 
+    /// The coordinator's try ended (connected, refused or replaced): Try Again is offered again.
+    public func endReconnect() {
+        if isReconnecting { isReconnecting = false }
+    }
+
     /// The conversation's own send takes a message now. Before Chief ever
     /// connected it has no sender and drops the message after clearing the
     /// composer (D3), so the screen holds the text and sends it through

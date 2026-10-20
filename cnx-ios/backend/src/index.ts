@@ -416,8 +416,8 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
     // caller's project server key and the caller as its creator and first member.
     const b = await readJson(req)
     const name = typeof b.name === "string" ? b.name.trim() : ""
-    if (!name || name.length > 64) throw new HttpError(400, "bad_request", "name must be 1 to 64 characters")
-    await limit(env.INVITE_LIMIT, me, "team creations")
+    if (!name || name.length > 64 || /\p{Cc}/u.test(name)) throw new HttpError(400, "bad_request", "name must be 1 to 64 characters, no control characters")
+    await limit(env.TEAM_LIMIT, me, "team creations")
     const r = await createTeam(env, caller, name)
     if (!r.ok) {
       if (r.code === "team_creation_unavailable") return fail(503, r.code, "this service can't create teams for your account yet")

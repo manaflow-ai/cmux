@@ -230,11 +230,31 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
     private func updateAvailability() {
         let unavailable: Bool
         if case .unavailable? = session.barItem { unavailable = true } else { unavailable = false }
-        conversation.view.firstSubview { $0.accessibilityIdentifier == "conversation.initialLoading" }?.alpha = unavailable ? 0 : 1
         let sends = session.acceptsSendsNow
+        // Found once (the store changes on every keystroke and stream chunk).
+        if gatedViews.spinner == nil { gatedViews.spinner = packageView("conversation.initialLoading") }
+        if gatedViews.record == nil { gatedViews.record = packageView("conversation.composer.record") as? UIControl }
+        if gatedViews.plus == nil { gatedViews.plus = packageView("conversation.composer.plus") as? UIControl }
+        gatedViews.spinner?.alpha = unavailable ? 0 : 1
+        // Voice messages, photos, polls and Send Later clear and drop the same way before
+        // Chief connects: off until it takes sends (the text field and its gated Send stay).
+        gatedViews.record?.isEnabled = sends
+        gatedViews.plus?.isEnabled = sends
         for recognizer in sendButton?.gestureRecognizers ?? [] where recognizer is UILongPressGestureRecognizer {
             recognizer.isEnabled = sends
         }
+    }
+
+    private struct GatedViews {
+        weak var spinner: UIView?
+        weak var record: UIControl?
+        weak var plus: UIControl?
+    }
+
+    private var gatedViews = GatedViews()
+
+    private func packageView(_ identifier: String) -> UIView? {
+        conversation.view.firstSubview { $0.accessibilityIdentifier == identifier }
     }
 
     // MARK: Chief's questions
