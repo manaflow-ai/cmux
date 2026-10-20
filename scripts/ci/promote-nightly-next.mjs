@@ -116,6 +116,25 @@ const COMPARE_PAGE = 100;
 // one merge) had no smaller step and blocked every nightly (run 39407965731).
 const MAX_RANGE_COMMITS = 10000;
 const COMMIT_FILE_CAP = 3000;
+// Per-commit reads in flight at once. One by one, a 1782-commit range ran the
+// decide job past its 10-minute limit (run 39410930509); 16 stays well under
+// GitHub's secondary rate limit for concurrent requests.
+const READ_CONCURRENCY = 16;
+
+// fn over items with at most `limit` calls in flight; results in input order.
+async function mapLimit(items, limit, fn) {
+  const results = new Array(items.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length) {
+      const index = next;
+      next += 1;
+      results[index] = await fn(items[index], index);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
+}
 
 // One compare request, memoized for the life of a decision: the guard reads
 // the same range several times and the job token's quota is shared.
@@ -359,11 +378,10 @@ export async function decide({
   // surface (a commit whose file list GitHub truncates counts as touching).
   // A change no single commit shows (a merge that kept the other side's
   // version) is attributed to the range's merge commits.
-  const detailed = [];
-  for (const commit of commits) {
+  const detailed = await mapLimit(commits, READ_CONCURRENCY, async (commit) => {
     const full = await commitWithFiles(github, owner, repo, commit.sha);
-    detailed.push(full || { sha: commit.sha, truncated: true, files: [], parents: commit.parents || [] });
-  }
+    return full || { sha: commit.sha, truncated: true, files: [], parents: commit.parents || [] };
+  });
   const touching = detailed.filter((commit) => commit.truncated || commit.files.some(touches));
   // A surface path that no commit's own diff lists changed through a merge
   // resolution: every merge commit in the range is a lander for it.
@@ -380,11 +398,12 @@ export async function decide({
   const actors = await pushActors(github, owner, repo, compare, new Set(touching.map((commit) => commit.sha)), rangeSet, current);
   const landers = new Set();
   const unresolved = [];
-  for (const commit of touching) {
-    const logins = await landersOf(github, owner, repo, commit, actors);
+  const landerSets = await mapLimit(touching, READ_CONCURRENCY, (commit) => landersOf(github, owner, repo, commit, actors));
+  touching.forEach((commit, index) => {
+    const logins = landerSets[index];
     if (!logins) unresolved.push(commit.sha);
     else logins.forEach((login) => landers.add(login));
-  }
+  });
   if (unresolved.length && policy.require_non_lander_approver) {
     return refuse(`no push actor found for ${unresolved.join(', ')}; the landers of the release surface change are unknown`, { sha, current, surfaceFiles });
   }
