@@ -12,6 +12,14 @@ extension TerminalSurface {
     static let managedTerminalProgram = "ghostty"
     static let managedColorTerm = "truecolor"
 
+    /// cmux embeds Ghostty, but its child terminals do not expose Ghostty's
+    /// native selection path while a full-screen TUI owns mouse reporting.
+    /// Advertising the embedded Ghostty build version makes clients such as
+    /// Codex disable their own copy-on-select behavior under the assumption
+    /// that Ghostty will handle it. Keep the Ghostty identity for capability
+    /// detection, but do not pass through a host version that creates that
+    /// false capability claim.
+
     private static let inheritedClaudeAuthSelectionEnvironmentKeys: Set<String> = [
         "ANTHROPIC_API_KEY",
         "ANTHROPIC_MODEL",
@@ -30,6 +38,8 @@ extension TerminalSurface {
         protectedKeys.insert("COLORTERM")
         environment["TERM_PROGRAM"] = managedTerminalProgram
         protectedKeys.insert("TERM_PROGRAM")
+        environment.removeValue(forKey: "TERM_PROGRAM_VERSION")
+        protectedKeys.insert("TERM_PROGRAM_VERSION")
     }
 
     static func applyManagedCmuxContextEnvironment(
