@@ -126,8 +126,11 @@ pub struct SpawnPlan {
     /// The engine of the turn that called spawn (engine.json); None before
     /// any turn.
     pub engine: Option<SpawnEngine>,
-    /// The acpmux peer its subagents run on (cloud); None: this host.
+    /// The acpmux peer its subagents run on (cloud; the first one's when
+    /// they differ); None: this host.
     pub peer: Option<String>,
+    /// Each subagent's peer, in `ids` order (B4: the least busy one each).
+    pub peers: Vec<Option<String>>,
 }
 
 /// The engine a spawn's subagents run on: the calling turn's harness and
@@ -307,6 +310,8 @@ pub struct Spawner {
     /// The subagent system text for a peer set at run time
     /// (`control cloud`) when the env set none.
     cloud_text: Option<String>,
+    /// The VMs behind cloud peers (B4): resumed before a subagent starts.
+    cloud_vms: Option<Arc<dyn crate::cloud_vms::CloudVms>>,
 }
 
 impl Spawner {
@@ -332,6 +337,7 @@ impl Spawner {
             refused: Mutex::new(BTreeMap::new()),
             cloud: None,
             cloud_text: None,
+            cloud_vms: None,
         }
     }
 
@@ -358,6 +364,13 @@ impl Spawner {
                 instructions: self.cloud_text.clone().unwrap_or_default(),
             },
         }
+    }
+
+    /// The VMs behind cloud peers: resumed before a subagent starts or is
+    /// told there.
+    pub fn with_cloud_vms(mut self, vms: Option<Arc<dyn crate::cloud_vms::CloudVms>>) -> Spawner {
+        self.cloud_vms = vms;
+        self
     }
 
     pub fn with_cloud(mut self, cloud: Option<CloudPlacement>) -> Spawner {
@@ -574,7 +587,7 @@ impl Spawner {
         self.send(Input::SubagentStarted {
             id: id.to_owned(),
             session_id: session.clone(),
-            policy: floor.map(str::to_owned),
+            policy: Some(spec.policy.clone()),
         })?;
         let (tx, rx) = channel();
         let prompt_id = format!("{PROMPT_PREFIX}sub:{id}:{}", now_ms());
@@ -605,13 +618,24 @@ impl Spawner {
         match workspaces.open(&key, &session, &name, &group, &s.cwd) {
             Ok(key) => {
                 let place = workspaces.place();
+                // a313: the real ws_ id and its session, so the CLI can list, move and pin it.
+                let located = workspaces.locate(&key);
                 self.trace.emit(
                     "subagent.workspace",
-                    json!({"id": id, "spawn": spawn, "workspace": key, "name": name, "group": group, "place": place}),
+                    json!({"id": id, "spawn": spawn, "workspace": key, "name": name, "group": group, "place": place,
+                        "ws": located.as_ref().map(|r| r.id.clone()), "session": located.as_ref().map(|r| r.session.clone())}),
                 );
                 // No link here: the posted reply links every mention (link_subagents), so
                 // the memory keeps the plain id, not a 70-character URL per mention.
-                let note = format!("workspace \"{name}\" in group \"{group}\" in {place}");
+                let mut note = format!("workspace \"{name}\" in group \"{group}\" in {place}");
+                if let Some(r) = &located {
+                    note.push_str(&format!(
+                        " (id {}, cmux session \"{}\"; `{}` moves it to the top)",
+                        r.id,
+                        r.session,
+                        r.move_to_top()
+                    ));
+                }
                 let _ = self.send(Input::SubagentWorkspace {
                     id: id.to_owned(),
                     key,
@@ -1062,7 +1086,9 @@ impl Orchestrator for Spawner {
                 map.insert(id.clone(), e.clone());
             }
         }
-        for (id, task) in plan.ids.iter().zip(&tasks) {
+        for (k, (id, task)) in plan.ids.iter().zip(&tasks).enumerate() {
+            let sub_peer = plan.peers.get(k).cloned().flatten();
+            let sub_cloud = sub_peer.as_deref().map(|p| self.placement(p));
             if let Some(e) = &refused {
                 (self.log)(&format!("subagent {id} did not start: {e}"));
                 lines.push(format!("- {id}: did not start ({e})"));
@@ -1113,19 +1139,27 @@ impl Orchestrator for Spawner {
                 ));
                 continue;
             }
-            let task = match &cloud {
+            let task = match &sub_cloud {
                 Some(c) => c.task(id, cwd.as_deref(), task),
                 None => task.clone(),
             };
-            match self.start_one(
-                &plan.spawn,
-                id,
-                &task,
-                &view,
-                floor.as_deref(),
-                &launch,
-                plan.peer.as_deref(),
-            ) {
+            // A paused VM resumes first (B4); a no-op when it runs.
+            let resumed = match (&sub_peer, &self.cloud_vms) {
+                (Some(p), Some(vms)) => vms.resume(p),
+                _ => Ok(()),
+            };
+            let started_one = resumed.and_then(|()| {
+                self.start_one(
+                    &plan.spawn,
+                    id,
+                    &task,
+                    &view,
+                    floor.as_deref(),
+                    &launch,
+                    sub_peer.as_deref(),
+                )
+            });
+            match started_one {
                 Ok(note) => {
                     started.push(id.clone());
                     lines.push(format!("- {id}: {note}"));
@@ -1145,12 +1179,31 @@ impl Orchestrator for Spawner {
         } else if started.is_empty() {
             format!("Queued {}.", plan.queued.join(", "))
         } else if let Some(c) = &cloud {
-            format!(
-                "Started {} on the cloud VM {} (acpmux peer), in {}.",
-                started.join(", "),
-                c.peer,
-                dir.display()
-            )
+            let mut on: Vec<&str> = plan.peers.iter().flatten().map(String::as_str).collect();
+            on.sort_unstable();
+            on.dedup();
+            if on.len() > 1 {
+                let each = plan
+                    .ids
+                    .iter()
+                    .zip(&plan.peers)
+                    .filter(|(id, _)| started.contains(id))
+                    .filter_map(|(id, p)| p.as_ref().map(|p| format!("{id} on {p}")))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!(
+                    "Started {} on the cloud VMs (acpmux peers; {each}), in {}.",
+                    started.join(", "),
+                    dir.display()
+                )
+            } else {
+                format!(
+                    "Started {} on the cloud VM {} (acpmux peer), in {}.",
+                    started.join(", "),
+                    c.peer,
+                    dir.display()
+                )
+            }
         } else {
             format!("Started {} in {}.", started.join(", "), dir.display())
         };
@@ -1172,11 +1225,22 @@ impl Orchestrator for Spawner {
     }
 
     fn tell_keyed(&self, id: &str, message: &str, key: Option<&str>) -> Result<String, String> {
+        self.tell_with(id, message, key, false)
+    }
+
+    fn tell_with(
+        &self,
+        id: &str,
+        message: &str,
+        key: Option<&str>,
+        queue: bool,
+    ) -> Result<String, String> {
         let (reply, answer) = channel();
         self.send(Input::Tell {
             id: id.to_owned(),
             message: message.to_owned(),
             key: key.map(str::to_owned),
+            queue,
             reply,
         })?;
         answer

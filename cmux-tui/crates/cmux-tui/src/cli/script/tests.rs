@@ -121,7 +121,10 @@ fn values_render_for_people_and_for_machines() {
         "ok": false,
         "error": "bad request: unknown variant `script-run`, expected one of `identify`"
     }));
-    assert!(report(&old, OutputMode::Human).1.unwrap().contains(messages().unsupported_daemon));
+    let old_text = report(&old, OutputMode::Human).1.unwrap();
+    assert!(old_text.contains(messages().unsupported_daemon));
+    // Never tell an agent to stop the daemon: that ends the user's terminals.
+    assert!(!old_text.contains("daemon stop"), "{old_text}");
     // A new daemon's own bad-request keeps its text.
     let new = Outcome::Answer(
         json!({ "ok": false, "error_code": "bad-request", "error": "unknown variant `script-walk`" }),

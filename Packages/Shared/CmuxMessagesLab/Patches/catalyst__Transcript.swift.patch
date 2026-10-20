@@ -13,7 +13,26 @@
      /// Long text rows: tiles and the three-slice bubble (TiledBubble.swift).
      var tiled: TiledBody?
      /// Markdown rows: scrollable blocks and copy buttons (MarkdownOverlay.swift).
-@@ -616,10 +622,14 @@
+@@ -541,6 +547,18 @@
+     private var pendingWant: RowSpec?
+     private func dropWant() { if let w = pendingWant { RowBitmaps.shared.unwant(w); pendingWant = nil } }
+     static var synchronousBitmaps = false
++    /// cmux (home-streaming-perf-DESIGN.md): a streaming bubble (ask 11) at least this tall draws its next
++    /// text off main while its previous bitmap stays (drawing the whole bubble on main per token was the
++    /// largest part of a streaming frame); a shorter one draws on main as before (cheap, and its look is
++    /// unchanged).
++    static var streamOffMainHeight: CGFloat = 160
++    /// Streaming rows that kept their previous bitmap while the next one is drawn off main (tests).
++    static var streamKeptBitmaps = 0
++    /// Whether `spec` is a tall streaming bubble's text row (it draws off main: `streamOffMainHeight`).
++    static func streamDrawsOffMain(_ spec: RowSpec) -> Bool {
++        guard spec.height >= streamOffMainHeight, case let .part(p) = spec.kind, !p.outgoing, case .text = p.part else { return false }
++        return StreamBubble.isStream(p.ref.messageId)
++    }
+     /// Rows drawn on the main thread because their bitmap was not ready
+     /// (bench evidence).
+     static var syncRenders = 0
+@@ -616,10 +634,14 @@
          let noActions: [String: CAAction] = ["contents": NSNull(), "bounds": NSNull(), "position": NSNull(), "path": NSNull(),
                                               "hidden": NSNull(), "opacity": NSNull(), "strokeEnd": NSNull(), "transform": NSNull()]
          appliedScale = renderScale
@@ -29,7 +48,7 @@
          typingBody.actions = noActions.merging(["fillColor": NSNull()]) { a, _ in a }
          fillMaskImage.actions = noActions.merging(["contentsCenter": NSNull()]) { a, _ in a }
          typingBody.frame = RowDraw.typingBubble
-@@ -638,8 +648,7 @@
+@@ -638,8 +660,7 @@
          connector.strokeColor = Fixture.connector.cgColor
          connector.lineWidth = 2.6
          connector.lineCap = .round
@@ -39,7 +58,7 @@
          fillContainer.addSublayer(fillGradient)
          fillContainer.mask = fillMask
          connectorLine.backgroundColor = connector.strokeColor
-@@ -687,10 +696,21 @@
+@@ -687,12 +708,23 @@
          key = ""
          // A bitmap kept in a live resize is not the row's own: the next configure draws it, even for the same row.
          if liveKept { liveKept = false; spec = nil }
@@ -48,8 +67,8 @@
          markdownOverlay?.detach()
          CustomRows.host?.detach(self)
          dropWant()
-+    }
-+
+     }
+ 
 +    /// cmux: draws the selection highlight (`selectionHighlight`), nil for none. The path is in this cell's
 +    /// coordinates.
 +    func setSelectionHighlight(_ path: CGPath?) {
@@ -58,10 +77,12 @@
 +        if path != nil, selectionHighlight.superlayer !== contentView.layer { contentView.layer.addSublayer(selectionHighlight) }
 +        selectionHighlight.path = path
 +        CATransaction.commit()
-     }
- 
++    }
++
      func clearAnimations() {
-@@ -712,10 +732,11 @@
+         layer.removeAllAnimations()
+         contentView.layer.removeAllAnimations()
+@@ -712,10 +744,11 @@
              guard let spec else { return nil }
              switch spec.kind {
              case let .part(p): return p.text?.text ?? p.part.plainText
@@ -74,7 +95,7 @@
              default: return nil
              }
          }
-@@ -773,21 +794,21 @@
+@@ -773,21 +806,21 @@
          let showingThisRow = key == spec.key && bitmap.contents != nil
          let rescaled = appliedScale != renderScale
          let repaint = palette != Fixture.paletteGeneration || rescaled
@@ -99,7 +120,43 @@
              CATransaction.commit()
              self.spec = nil
          }
-@@ -1186,8 +1207,11 @@
+@@ -847,6 +880,7 @@
+             liveKept = true
+             RowCell.liveKeptBitmaps += 1
+         } else if RowCell.synchronousBitmaps || (!deferred && !(repaint && showingThisRow) && !(RowCell.reflow != nil && showingThisRow && Images.ready(spec))
++                                                    && !(showingThisRow && RowCell.streamDrawsOffMain(spec)) // cmux: a tall stream's next text
+                                                     && ((RowCell.transitionDepth > 0 && !RowCell.inPaging)
+                                                         || (RowCell.mainDrawBudgetLeft() && Images.ready(spec)))) {
+             // (A scrolled-in row whose image is not decoded waits for its off-main bitmap: no decode on main.)
+@@ -876,6 +910,14 @@
+                 bitmap.contents = nil
+                 bitmapCleared()
+                 tintTypingDiscs()
++            } else if showingThisRow, RowCell.streamDrawsOffMain(spec) {
++                // cmux (home-streaming-perf-DESIGN.md): a tall streaming bubble's new text is drawn off main. Its
++                // previous bitmap stays at its own size, top at the row's top: the text already shown sits where
++                // it will be, and the new line shows when its bitmap lands (a frame or two later), never stretched.
++                RowCell.streamKeptBitmaps += 1
++                bitmap.frame = CGRect(origin: bitmapFrame.origin, size: drawnSize)
++                bitmap.contentsCenter = CGRect(x: 0, y: 0, width: 1, height: 1)
++                stretched = false
+             } else if showingThisRow {
+                 // The same row is on screen with its previous bitmap and its spec changed: a new
+                 // width (live resize, the sidebar divider: every visible row at once) or a palette
+@@ -913,7 +955,11 @@
+             RowBitmaps.shared.request(want, scale: renderScale) { [weak self, scale = renderScale] img in
+                 if self?.pendingWant == want { self?.dropWant() }
+                 // A bitmap of the scale the cell had at the request (a scale change since: its own request follows).
+-                guard let self, self.spec == want, self.renderScale == scale else { return }
++                // cmux: a streaming bubble's earlier text that lands after a newer one was asked for still shows
++                // (top at the row's top, its own size): under a fast stream every text is followed by a newer one.
++                guard let self, self.renderScale == scale,
++                      self.spec == want || (self.spec?.key == want.key && RowCell.streamDrawsOffMain(want)
++                                            && self.drawn.map { $0.spec != want } ?? true) else { return }
+                 CATransaction.begin(); CATransaction.setDisableActions(true)
+                 Reclaimer.release(self.bitmap.contents)
+                 MediaPlaceholder.clear(self.bitmap)
+@@ -1186,8 +1232,11 @@
          box.position = CGPoint(x: c.x - 20 + box.anchorPoint.x * size.width, y: c.y - 20 + box.anchorPoint.y * size.height)
          box.contentsScale = renderScale
          badgeTop = c.y - 20
@@ -113,7 +170,7 @@
          RowCell.placeFill(fill, windowTop: contentWindowY + badgeTop, width: size.width, span: fillSpan, reachBelow: fillReachBelow)
          if let holder = fill.superlayer, let mask = holder.mask as? CAShapeLayer {
              holder.frame = CGRect(origin: .zero, size: size)
-@@ -1375,7 +1399,7 @@
+@@ -1375,7 +1424,7 @@
          case let .label(_, outgoing, _), let .replies(_, _, outgoing): return outgoing
          case .receipt: return true
          case let .threadPreview(pv): return pv.outgoing
@@ -122,12 +179,10 @@
          }
      }
      /// The x (view pt) of the row's anchored side for a cell at `frame` (snapRow, the send morph's landing place): the
-@@ -1438,6 +1462,16 @@
-     private func restartTypingClip() {
-         guard let c = typingClip.animation(forKey: "breath.clip.position.x") else { return }
+@@ -1440,6 +1489,16 @@
          clipTypingBody(Springs.typingBreathBody, about: Springs.typingBreathAnchor, begin: c.beginTime - Springs.typingBreathBody.start)
-+    }
-+
+     }
+ 
 +    /// cmux: the outgoing gradient's colours and their locations from one
 +    /// stop list. A palette change that set only the colours left a cell
 +    /// made under the measured palette (8 stops) with 11 themed colours.
@@ -136,10 +191,12 @@
 +            ?? Fixture.gradientStops.map { ($0.0, Fixture.gradientColor($0.1, $0.2).cgColor) }
 +        fillGradient.colors = stops.map(\.1)
 +        fillGradient.locations = stops.map { NSNumber(value: Double($0.0 / (Fixture.gradientHeight * 2))) }
-     }
- 
++    }
++
      /// Window y of the cell's top: the outgoing fill shades with it.
-@@ -1460,10 +1494,12 @@
+     var windowY: CGFloat = 0 {
+         didSet {
+@@ -1460,10 +1519,12 @@
      /// down to this bubble: an arc that hangs from the root and a vertical
      /// stroke whose bottom stays 8.5 pt above this bubble. When the two rows
      /// move apart, the arc and the stroke's height animate (no path animation).
@@ -155,7 +212,7 @@
          connectorState = state
          CATransaction.begin(); CATransaction.setDisableActions(true)
          defer { CATransaction.commit() }
-@@ -1476,7 +1512,7 @@
+@@ -1476,7 +1537,7 @@
              contentView.layer.insertSublayer(connector, at: 0)
              contentView.layer.insertSublayer(connectorLine, at: 1)
          }
@@ -164,7 +221,7 @@
          let cx = x + r, cy = top + r
          let w = spec?.width ?? 628
          let p = UIBezierPath()
-@@ -1555,6 +1591,8 @@
+@@ -1555,6 +1616,8 @@
              a.isRemovedOnCompletion = false
              a.calculationMode = .linear
              if let p = Springs.typingStillPhase { a.speed = 0; a.timeOffset = p }
@@ -173,7 +230,7 @@
              hi.add(a, forKey: "dots")
          }
      }
-@@ -1565,6 +1603,8 @@
+@@ -1565,6 +1628,8 @@
      func startTypingBreath(insert: CFTimeInterval) {
  #if !os(iOS) || targetEnvironment(macCatalyst)
          guard Springs.typingStillPhase == nil else { return }
@@ -182,7 +239,7 @@
          let a = RowDraw.typingAnchor, b = Springs.typingBreathAnchor
          // The container scales about RowDraw.typingAnchor; the opposite offset of a scale e about it moves the
          // fixed point to b: e x (a - b).
-@@ -1663,7 +1703,8 @@
+@@ -1663,7 +1728,8 @@
      /// The typing row should breathe but does not (macOS, not a still scene): its breathing was stopped or never started.
      var needsTypingBreath: Bool {
  #if !os(iOS) || targetEnvironment(macCatalyst)

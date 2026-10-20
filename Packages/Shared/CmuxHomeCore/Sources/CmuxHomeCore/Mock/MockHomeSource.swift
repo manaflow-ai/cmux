@@ -446,6 +446,12 @@ public actor MockHomeSource: HomeSource {
         _ = try? commitMessage(in: conversation, author: author, parts: [.text(text)], key: .make())
     }
 
+    /// Publishes one draft item of an agent's running reply, as an owner streams a Chief turn (demos and the
+    /// DEBUG Home fixture's width sweep). Nothing is stored: the reply posts only through ``receive(_:from:in:)``.
+    public func streamDraft(_ update: HomeDraftUpdate) {
+        publish(.draft(update))
+    }
+
     // MARK: Owner logic
 
     private func apply(_ intent: HomeIntent) throws -> HomeOpResult {
