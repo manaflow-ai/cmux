@@ -124,7 +124,7 @@ final class PaneToolbar {
         return ["splitRight", "splitDown"] + own + [zoom]
     }
 
-    static let zoom: ActionID = "toggleSplitZoom"
+    static let zoom: ActionID = "toggleSplitZoom", search: ActionID = "tab.search"
 
     /// Shows the `pinned` actions tab `target` of `kind` can run and "…" (nil kind: none); lit while the pane is zoomed.
     /// `paneKinds`: the kinds of every tab in the pane that offers "…", whichever is selected.
@@ -134,12 +134,12 @@ final class PaneToolbar {
         self.zoomed = zoomed
         self.pinned = pinned
         let shown = target != nil && kind != nil
-        // The room the bar keeps: "…" and the most pins any tab of the pane shows, so selecting a
-        // tab without "…" (a chat, a window's own page) or with fewer pins moves no tab.
+        // The room the bar keeps: Search Tabs (Chrome's tab search), "…" and the most pins any tab of the
+        // pane shows, so selecting a tab without "…" (a chat, a window's own page) or fewer pins moves no tab.
         let kinds = kind.map { paneKinds.union([$0]) } ?? paneKinds
         let reservedPins = kinds.map { kind in pinned.count(where: { Self.actions(kind).contains(ActionID(rawValue: $0)) }) }.max() ?? 0
-        view.show(shownPins().compactMap(item), more: shown, lit: zoomed && shown,
-                  reserving: kinds.isEmpty ? 0 : reservedPins + 1)
+        view.show((shownPins() + (kinds.isEmpty ? [] : [Self.search])).compactMap(item), more: shown, lit: zoomed && shown,
+                  reserving: kinds.isEmpty ? 0 : reservedPins + 2)
     }
 
     /// The pinned actions the tab can run, in the user's order, as buttons before "…".
@@ -150,14 +150,14 @@ final class PaneToolbar {
         guard let registry = registry(), let descriptor = registry.descriptor(for: id) else { return nil }
         let title = descriptor.title.hasSuffix("…") ? String(descriptor.title.dropLast()) : descriptor.title
         let lit = zoomed && id == Self.zoom
-        let symbols: [ActionID: String] = ["openDiffViewer": "plusminus", "file.open": "folder", "agentPane.searchChats": "bubble.left.and.text.bubble.right"]
+        let symbols: [ActionID: String] = ["openDiffViewer": "plusminus", "file.open": "folder", "agentPane.searchChats": "bubble.left.and.text.bubble.right", Self.search: "chevron.down"]
         return PaneToolbarItem(id: id.rawValue, title: title, symbol: lit ? "arrow.down.right.and.arrow.up.left" : symbols[id] ?? descriptor.symbol,
                                shortcut: registry.shortcutDisplay(for: id), lit: lit)
     }
 
     private func perform(_ id: ActionID) {
-        guard let target else { return }
-        _ = registry()?.perform(id, invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: target), origin: .user))
+        guard id == Self.search || target != nil else { return } // Search Tabs takes no tab target: one only reveals that tab
+        _ = registry()?.perform(id, invocation: ActionInvocation(target: id == Self.search ? nil : target.map { ActionTargetRef(kind: .tab, id: $0) }, origin: .user))
     }
 
     /// The tab's actions "…" offers: those it can run.

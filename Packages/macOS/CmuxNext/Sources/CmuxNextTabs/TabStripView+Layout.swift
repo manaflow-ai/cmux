@@ -96,7 +96,6 @@ extension TabStripView {
         // An opening tab first shows where it opens from; the move takes it to its slot.
         if !starts.isEmpty { place(starts, mapping: mappingBefore) }
         applyFrames(move: move, scrollFrom: mappingBefore)
-        overflowHints.update()
     }
 
     /// A closing tab's left edge stays on the previous tab's right edge minus the close width (0: our

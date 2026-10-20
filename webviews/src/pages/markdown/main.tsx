@@ -109,7 +109,9 @@ function editorHost(
       return highlighter.tokens(code, language, refresh);
     },
     renderDiagram(language, source, target) {
-      renderDiagram(libraries, language, source, target, strings.t(L.diagramFailed));
+      const flag = config()?.mermaidRenderer;
+      const mermaidRenderer = flag === "mermaid" || flag === "ondine" ? flag : undefined;
+      renderDiagram(libraries, language, source, target, strings.t(L.diagramFailed), mermaidRenderer);
     },
     label: (key) => strings.t(LABELS[key]),
     htmlPreview: (html) => htmlPreview(html, imageURL),

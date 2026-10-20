@@ -1,0 +1,473 @@
+#!/usr/bin/env python3
+"""Triage tester bug reports: split, dedup against open work, score, decide.
+
+  cmux-bug-triage add [--text FILE|-] [--image PATH]... [--from NAME]
+  cmux-bug-triage triage REPORT [--json] [sources]
+  cmux-bug-triage inbox [--json] [sources]
+
+sources: --open-work FILE (lines "aN: task"), --prompt-commits FILE,
+--sentry FILE (sentry-cli issues JSON), --repo DIR | --no-git.
+
+Stdlib only. Never opens images; the calling agent transcribes them into
+report.md under "## Images" first (see SKILL.md). See DESIGN.md for rules.
+"""
+
+from __future__ import annotations
+
+import argparse
+import datetime as dt
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+INBOX_DEFAULT = Path.home() / "fun" / "cmux-bug-inbox"
+PROMPT_COMMITS_DEFAULT = Path.home() / "fun" / "cmux-prompt-commits.md"
+REPORT_SUFFIXES = (".md", ".txt")
+LOG_FILES = {"SKIPPED.md", "BATCH.md"}
+
+STOP = set(
+    """a an the and or but if when while in on at of for to from with by as is are was were be been it its
+    this that these those i me my we our you your they them he she not no does do did doesnt dont cant
+    can cannot get gets got just very really also still then than so too right away instead into out up
+    down over under app cmux bug issue please some any all thing stuff when whole one two
+    """.split()
+)
+SHORTCUT_RE = re.compile(r"\b(?:(?:cmd|command|ctrl|control|opt|option|alt|shift|⌘|⌥|⇧|⌃)\s*\+\s*)+[\w\[\]=\-,.;'/`]", re.I)
+BULLET_RE = re.compile(r"^\s*(?:[-*•]|\d+[.)])\s+(.*\S)\s*$")
+ENV_RE = re.compile(r"\b(macos|sequoia|sonoma|ventura|tahoe|monterey|nightly|build|version|v\d)\b", re.I)
+MACOS_NAMES = {"sequoia": "15", "sonoma": "14", "ventura": "13", "tahoe": "26", "monterey": "12"}
+
+SEV3 = re.compile(
+    r"\b(crash\w*|hang\w*|freez\w*|froze|data loss|lost|loses|deleted?|corrupt\w*|beachball\w*|unresponsive|"
+    r"panic\w*)\b|\bcloses?\b.*\b(whole|entire|wrong|window|instead|everything)\b",
+    re.I,
+)
+SEV2 = re.compile(
+    r"\b(not work\w*|doesn'?t work|does not|don'?t|won'?t|cannot|can'?t|broken|break\w*|fails?|failed|"
+    r"error\w*|wrong|missing|nothing happens|stuck|ignored|no effect)\b",
+    re.I,
+)
+SEV1 = re.compile(
+    r"\b(overflow\w*|clipp\w*|cut off|truncat\w*|misalign\w*|spacing|padding|gap|ugly|looks?|color|colour|"
+    r"font|blurry|flicker\w*|jitter\w*|typo|animation|offset)\b",
+    re.I,
+)
+REACH = re.compile(r"\b(launch\w*|startup|every|always|sidebar|terminal|workspaces?|all windows)\b", re.I)
+LARGE = re.compile(r"\b(redesign|rewrite|all of|everything|whole system|architecture)\b", re.I)
+
+GROUPS = [
+    ("cmux-next app", re.compile(r"\b(settings?|preferences|wallpaper|theme|appearance|update)\b", re.I)),
+    ("Home & chat", re.compile(r"\b(composer|home|chat|message\w*|imessage|chief)\b", re.I)),
+    ("Browser & parity", re.compile(r"\b(browser|omnibar|web ?page|extension\w*|url)\b", re.I)),
+    ("Panes & layout", re.compile(r"\b(panes?|split\w*|divider|layout)\b", re.I)),
+    ("Sidebar & tabs", re.compile(r"\b(tabs?|sidebar|workspaces?|groups?)\b", re.I)),
+]
+GROUP_FALLBACK = "cmux-next app"
+
+RULES = (
+    "Rules: work in a new worktree off origin/feat-cmux-next in ~/fun/cmux. Reproduce first with a "
+    "failing test (commit it alone), then fix. Fleet/remote builds and tests only, nothing heavy on this "
+    "Mac; never touch NIGHTLY 90930, cmux-tui 91465, acpmux 29622. Rebase, plain push feat-cmux-next, "
+    "no force, no PR, log in /Users/lawrence/fun/cmux-prompt-commits.md. Pick defaults yourself. Short "
+    "report: cause, fix, shas, tests, doubts."
+)
+
+
+# ---------- parsing ----------
+
+def normalize_shortcuts(text: str) -> str:
+    """'Cmd+1 / Cmd+2 / Cmd+3' -> 'Cmd+1/2/3'."""
+    return re.sub(r"(?i)\b(cmd|ctrl|opt)\+(\w)((?:\s*/\s*\1\+\w)+)",
+                  lambda m: f"{m.group(1)}+{m.group(2)}" + "".join(
+                      "/" + p.split("+")[-1] for p in re.findall(r"\w+\+\w", m.group(3))),
+                  text)
+
+
+def shortcut_tokens(text: str) -> set[str]:
+    out: set[str] = set()
+    for raw in SHORTCUT_RE.findall(text):
+        tok = re.sub(r"\s+", "", raw.lower()).replace("command", "cmd").replace("control", "ctrl")
+        tok = tok.replace("option", "opt").replace("alt", "opt")
+        out.add(tok)
+    # 'Cmd+N/T/D' and 'Cmd+1/2/3' also name each key.
+    for m in re.finditer(r"(?i)\b((?:(?:cmd|ctrl|opt|shift)\+)+)(\w)((?:/\w\b)+)", text):
+        prefix = m.group(1).lower()
+        for key in [m.group(2)] + m.group(3).split("/")[1:]:
+            out.add(prefix + key.lower())
+    return out
+
+
+def stem(word: str) -> str:
+    for suf in ("ing", "ed", "es", "s"):
+        if len(word) > len(suf) + 3 and word.endswith(suf):
+            return word[: -len(suf)]
+    return word
+
+
+def words(text: str) -> set[str]:
+    stripped = SHORTCUT_RE.sub(" ", text.lower())
+    return {stem(w) for w in re.findall(r"[a-z][a-z']+", stripped) if w not in STOP and len(w) > 2}
+
+
+def split_report(text: str) -> tuple[list[str], str]:
+    """Return (bug texts, environment) for one report."""
+    lines = [l.rstrip() for l in text.splitlines()]
+    env_parts: list[str] = []
+    bullets: list[str] = []
+    paragraphs: list[str] = []
+    current: list[str] = []
+    for line in lines:
+        if not line.strip() or line.lstrip().startswith("#"):
+            if current:
+                paragraphs.append(" ".join(current))
+                current = []
+            continue
+        m = BULLET_RE.match(line)
+        if m:
+            bullets.append(m.group(1))
+            continue
+        if ENV_RE.search(line) and len(line.split()) <= 12 and not SEV3.search(line) and not SEV2.search(line):
+            env_parts.append(line.strip())
+            continue
+        current.append(line.strip())
+    if current:
+        paragraphs.append(" ".join(current))
+    bugs = bullets if bullets else paragraphs
+    return [normalize_shortcuts(b) for b in bugs], "; ".join(env_parts)
+
+
+# ---------- sources ----------
+
+def load_open_work(path: Path | None) -> list[dict]:
+    if not path or not path.exists():
+        return []
+    out = []
+    for line in path.read_text(errors="replace").splitlines():
+        m = re.match(r"\s*[-*]?\s*(a\d+)\s*[:·\-]\s*(.+)", line)
+        if m:
+            out.append({"kind": "open agent", "ref": m.group(1), "text": m.group(2)})
+    return out
+
+
+def load_prompt_commits(path: Path | None) -> list[dict]:
+    if not path or not path.exists():
+        return []
+    out = []
+    for line in path.read_text(errors="replace").splitlines():
+        cells = [c.strip() for c in line.strip().strip("|").split("|")]
+        if len(cells) < 5 or cells[0] in ("msg", "") or set(cells[0]) <= set("-"):
+            continue
+        msg, _date, prompt, status, commits = cells[:5]
+        shas = re.findall(r"`([0-9a-f]{7,40})`", commits)
+        landed = status.startswith("landed")
+        out.append({
+            "kind": "landed" if landed else f"prompt {status}",
+            "ref": shas[0] if (landed and shas) else f"msg {msg}",
+            "text": prompt,
+        })
+    return out
+
+
+def load_git(repo: Path | None) -> list[dict]:
+    if repo is None:
+        return []
+    try:
+        proc = subprocess.run(
+            ["git", "-C", str(repo), "log", "--format=%h %s", "-n", "400", "origin/feat-cmux-next"],
+            capture_output=True, text=True, timeout=20,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return []
+    out = []
+    for line in proc.stdout.splitlines():
+        sha, _, subject = line.partition(" ")
+        out.append({"kind": "landed", "ref": sha, "text": subject})
+    return out
+
+
+def load_sentry(path: Path | None) -> list[dict]:
+    if not path or not path.exists():
+        return []
+    try:
+        data = json.loads(path.read_text())
+    except json.JSONDecodeError:
+        return []
+    items = data if isinstance(data, list) else data.get("issues", [])
+    return [{"kind": "sentry", "ref": str(i.get("shortId") or i.get("id")), "text": str(i.get("title", ""))}
+            for i in items if isinstance(i, dict)]
+
+
+# ---------- scoring ----------
+
+def match(bug: str, work: list[dict]) -> dict | None:
+    bw, bs = words(bug), shortcut_tokens(bug)
+    weight = len(bw) + 2 * len(bs)
+    if weight == 0:
+        return None
+    best, best_ratio = None, 0.0
+    for item in work:
+        shared_w = bw & words(item["text"])
+        shared_s = bs & shortcut_tokens(item["text"])
+        shared = len(shared_w) + 2 * len(shared_s)
+        ratio = shared / weight
+        if (len(shared_w) >= 3 or (shared_s and len(shared_w) >= 1)) and ratio >= 0.5 and ratio > best_ratio:
+            best, best_ratio = item, ratio
+    return best
+
+
+def severity(text: str) -> int:
+    if SEV3.search(text):
+        return 3
+    if SEV2.search(text):
+        return 2
+    return 1
+
+
+def title_for(text: str) -> str:
+    clause = re.split(r"[.;(]| and | but | when | instead ", text, maxsplit=1)[0]
+    clause = clause.replace(":", " ").replace(",", " ")
+    toks = [t for t in clause.split() if t not in ("/",) and t.lower() not in STOP]
+    title = " ".join(["Fix"] + toks[:4])
+    return title if len(title.split()) >= 2 else "Fix tester bug"
+
+
+def group_for(text: str) -> str:
+    for name, rx in GROUPS:
+        if rx.search(text):
+            return name
+    return GROUP_FALLBACK
+
+
+def macos_note(env: str) -> str:
+    low = env.lower()
+    for name, major in MACOS_NAMES.items():
+        if name in low and major != "26":
+            return f" Tester is on macOS {major} ({name.title()}): reproduce on a macOS {major} builder (aws-m4pro), not only macOS 26."
+    m = re.search(r"macos\s*(1[0-5])", low)
+    if m:
+        return f" Tester is on macOS {m.group(1)}: reproduce on a macOS {m.group(1)} builder (aws-m4pro), not only macOS 26."
+    return ""
+
+
+def triage_text(text: str, work: list[dict], images: list[str], report_ref: str) -> dict:
+    bug_texts, env = split_report(text)
+    bugs, tasks = [], []
+    for raw in bug_texts:
+        sev = severity(raw)
+        reach = 1 if (shortcut_tokens(raw) or REACH.search(raw)) else 0
+        effort = 3 if LARGE.search(raw) else (1 if sev == 1 else 2)
+        score = sev * 3 + reach - effort
+        dup = match(raw, work)
+        label = {3: "crash/data loss", 2: "broken feature", 1: "polish"}[sev]
+        if len(words(raw) | shortcut_tokens(raw)) < 3:
+            decision, reason = "skip", "too vague to act on; ask the tester for steps and a screenshot"
+        elif dup and dup["kind"] == "landed":
+            decision, reason = "skip", f"likely fixed by {dup['ref']} ({dup['text'][:60]}); ask tester to retest on the next nightly"
+        elif dup:
+            decision, reason = "skip", f"already in work: {dup['kind']} {dup['ref']} ({dup['text'][:60]})"
+        elif sev == 3 or score >= 6:
+            decision, reason = "fix now", f"{label}, reach {reach}, effort {effort}, score {score}"
+        else:
+            decision, reason = "batch", f"{label}, reach {reach}, effort {effort}, score {score}"
+        bug = {
+            "text": raw, "environment": env, "severity": sev, "reach": reach, "effort": effort,
+            "score": score, "decision": decision, "reason": reason, "title": title_for(raw),
+            "group": group_for(raw), "report": report_ref,
+        }
+        bugs.append(bug)
+        if decision == "fix now":
+            tasks.append(make_task("fix now", bug["title"], bug["group"], [bug], images))
+    batch = [b for b in bugs if b["decision"] == "batch"]
+    if len(batch) >= 3:
+        tasks.append(make_task("batch", "Tester polish batch", batch_group(batch), batch, images))
+    order = {"fix now": 0, "batch": 1, "skip": 2}
+    bugs.sort(key=lambda b: (order[b["decision"]], -b["score"]))
+    return {"report": report_ref, "environment": env, "bugs": bugs, "tasks": tasks}
+
+
+def batch_group(bugs: list[dict]) -> str:
+    groups = [b["group"] for b in bugs]
+    return max(set(groups), key=groups.count)
+
+
+def make_task(kind: str, title: str, group: str, bugs: list[dict], images: list[str]) -> dict:
+    env = bugs[0]["environment"]
+    lines = [title, ""]
+    if kind == "fix now":
+        lines.append(f"Tester bug report ({bugs[0]['report']}), triaged fix now ({bugs[0]['reason']}):")
+        lines.append(f'"{bugs[0]["text"]}"')
+    else:
+        lines.append("Tester bug reports, triaged batch (fix each, one commit pair per bug):")
+        lines += [f'- "{b["text"]}" ({b["report"]})' for b in bugs]
+    if env:
+        lines.append(f"Environment: {env}." + macos_note(env))
+    if images:
+        lines.append("Screenshots (read them with the Read tool): " + ", ".join(images))
+    lines += ["", RULES]
+    return {"kind": kind, "title": title, "group": group, "prompt": "\n".join(lines)}
+
+
+def render_md(result: dict) -> str:
+    out = [f"# Triage: {result['report']}", ""]
+    if result["environment"]:
+        out += [f"Environment: {result['environment']}", ""]
+    for b in result["bugs"]:
+        out.append(f"- **{b['decision']}**: {b['title']} ({b['group']}): {b['reason']}")
+    if result["tasks"]:
+        out += ["", "Tasks to spawn:"] + [f"- {t['title']} -> group \"{t['group']}\"" for t in result["tasks"]]
+    return "\n".join(out) + "\n"
+
+
+# ---------- commands ----------
+
+def inbox_dir() -> Path:
+    return Path(os.environ.get("CMUX_BUG_INBOX") or INBOX_DEFAULT).expanduser()
+
+
+def gather_work(args) -> list[dict]:
+    pc_env = os.environ.get("CMUX_PROMPT_COMMITS")
+    if args.prompt_commits:
+        pc = Path(args.prompt_commits)
+    elif pc_env is not None:
+        pc = Path(pc_env) if pc_env else None
+    else:
+        pc = PROMPT_COMMITS_DEFAULT
+    repo = None if args.no_git else Path(args.repo or os.getcwd())
+    work = load_open_work(Path(args.open_work) if args.open_work else None)
+    work += load_sentry(Path(args.sentry) if args.sentry else None)
+    work += load_prompt_commits(pc)
+    work += load_git(repo)
+    return work
+
+
+def images_in(folder: Path) -> list[str]:
+    return sorted(str(p) for p in folder.iterdir()
+                  if p.suffix.lower() in (".png", ".jpg", ".jpeg", ".heic", ".gif", ".webp"))
+
+
+def cmd_add(args) -> int:
+    inbox = inbox_dir()
+    stamp = dt.datetime.now().strftime("%Y%m%d-%H%M%S")
+    slug = re.sub(r"[^a-z0-9]+", "-", (args.from_ or "report").lower()).strip("-") or "report"
+    folder = inbox / f"{stamp}-{slug}"
+    n = 1
+    while folder.exists():
+        n += 1
+        folder = inbox / f"{stamp}-{slug}-{n}"
+    folder.mkdir(parents=True)
+    text = sys.stdin.read() if args.text == "-" else (Path(args.text).read_text() if args.text else "")
+    header = f"<!-- from: {args.from_} -->\n" if args.from_ else ""
+    (folder / "report.md").write_text(header + text)
+    for img in args.image or []:
+        src = Path(img).expanduser()
+        shutil.copy2(src, folder / src.name)
+    print(folder)
+    return 0
+
+
+def cmd_triage(args) -> int:
+    report = Path(args.report).expanduser()
+    folder = report if report.is_dir() else report.parent
+    if report.is_dir():
+        report = folder / "report.md"
+    result = triage_text(report.read_text(errors="replace"), gather_work(args),
+                         images_in(folder), folder.name)
+    print(json.dumps(result, indent=2) if args.json else render_md(result), end="" if not args.json else "\n")
+    return 0
+
+
+def append_log(path: Path, header: str, lines: list[str]) -> None:
+    if not lines:
+        return
+    if not path.exists():
+        path.write_text(header)
+    with path.open("a") as fh:
+        fh.write("\n".join(lines) + "\n")
+
+
+def cmd_inbox(args) -> int:
+    inbox = inbox_dir()
+    inbox.mkdir(parents=True, exist_ok=True)
+    for loose in sorted(inbox.iterdir()):
+        if loose.is_file() and loose.suffix in REPORT_SUFFIXES and loose.name not in LOG_FILES:
+            folder = inbox / loose.stem
+            folder.mkdir(exist_ok=True)
+            shutil.move(str(loose), folder / "report.md")
+    work = gather_work(args)
+    results, batch_new = [], []
+    for folder in sorted(p for p in inbox.iterdir() if p.is_dir()):
+        report = folder / "report.md"
+        if not report.exists():
+            texts = [p for p in folder.iterdir() if p.suffix in REPORT_SUFFIXES and p.name != "triage.md"]
+            if not texts:
+                continue
+            report = texts[0]
+        if (folder / "triage.json").exists():
+            continue
+        result = triage_text(report.read_text(errors="replace"), work, images_in(folder), folder.name)
+        result["tasks"] = [t for t in result["tasks"] if t["kind"] == "fix now"]
+        (folder / "triage.json").write_text(json.dumps(result, indent=2) + "\n")
+        (folder / "triage.md").write_text(render_md(result))
+        today = dt.date.today().isoformat()
+        append_log(inbox / "SKIPPED.md", "# Skipped tester bugs\n\n",
+                   [f"- {today} {folder.name}: {b['text']} — {b['reason']}" for b in result["bugs"] if b["decision"] == "skip"])
+        batch_new += [b for b in result["bugs"] if b["decision"] == "batch"]
+        for b in result["bugs"]:
+            b["images"] = images_in(folder)
+        results.append(result)
+    append_log(inbox / "BATCH.md", "# Batched tester bugs (pending until 3+)\n\n",
+               [f"- [ ] {b['report']}: {b['text']} — {b['reason']}" for b in batch_new])
+    batch_task = None
+    pending = [l for l in (inbox / "BATCH.md").read_text().splitlines() if l.startswith("- [ ]")] \
+        if (inbox / "BATCH.md").exists() else []
+    if len(pending) >= 3:
+        items = [{"text": l.split(": ", 1)[1].rsplit(" — ", 1)[0], "report": l[6:].split(":", 1)[0],
+                  "environment": ""} for l in pending]
+        group = batch_group([{"group": group_for(i["text"])} for i in items])
+        batch_task = make_task("batch", "Tester polish batch", group, items, [])
+        path = inbox / "BATCH.md"
+        path.write_text(path.read_text().replace("- [ ]", "- [x]"))
+    summary = {"triaged": results, "batch_task": batch_task}
+    if args.json:
+        print(json.dumps(summary, indent=2))
+    else:
+        for r in results:
+            print(render_md(r))
+        if batch_task:
+            print(f"Batch task ready: {batch_task['title']} -> group \"{batch_task['group']}\"")
+        if not results:
+            print("inbox: nothing new")
+    return 0
+
+
+def main(argv: list[str]) -> int:
+    ap = argparse.ArgumentParser(prog="cmux-bug-triage", description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    add = sub.add_parser("add", help="put a report (text + images) into the inbox")
+    add.add_argument("--text", help="report text file, or - for stdin")
+    add.add_argument("--image", action="append", help="screenshot/photo to copy (repeatable)")
+    add.add_argument("--from", dest="from_", help="tester name")
+
+    def sources(p):
+        p.add_argument("--json", action="store_true")
+        p.add_argument("--open-work", help='file of "aN: task" lines (open subagents)')
+        p.add_argument("--prompt-commits", help="cmux-prompt-commits.md (default ~/fun/cmux-prompt-commits.md)")
+        p.add_argument("--sentry", help="JSON from sentry-cli issues list")
+        p.add_argument("--repo", help="git repo for origin/feat-cmux-next log (default cwd)")
+        p.add_argument("--no-git", action="store_true", help="skip the git log source")
+
+    tri = sub.add_parser("triage", help="triage one report file or folder")
+    tri.add_argument("report")
+    sources(tri)
+    sources(sub.add_parser("inbox", help="triage every new report in the inbox"))
+    args = ap.parse_args(argv)
+    return {"add": cmd_add, "triage": cmd_triage, "inbox": cmd_inbox}[args.cmd](args)
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

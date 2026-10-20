@@ -309,12 +309,13 @@ public final class WindowMaterialView: NSView {
         updateArtCrop()
     }
 
-    /// The blur and dimming of the fill behind shrunk art: enough that it reads as the art's own
-    /// light, never as a second picture. Made for each view: filters are mutable objects.
-    private static func fillFilters() -> [CIFilter] {
+    /// The blur of the fill behind shrunk art: enough that it reads as the art's own light, never
+    /// as a second picture, in the art's own tone. Made for each view: filters are mutable objects.
+    static func fillFilters() -> [CIFilter] {
+        // Blur only: a dimmed fill read as a darker sidebar beside the art (Lawrence 2026-10-19,
+        // "not a different color"), so the fill keeps the art's own tone.
         let blur = CIFilter(name: "CIGaussianBlur", parameters: [kCIInputRadiusKey: 48])
-        let dim = CIFilter(name: "CIColorControls", parameters: [kCIInputBrightnessKey: -0.18, kCIInputSaturationKey: 0.9])
-        return [blur, dim].compactMap { $0 }
+        return [blur].compactMap { $0 }
     }
 
     /// Places the art (``BackdropArtMetadata/placement(forViewSize:imageSize:visible:)``): on a
