@@ -326,11 +326,11 @@ final class HomeProjection: @preconcurrency ChatIntents {
     private func send(thread deferred: (root: MessageID?, parent: MessageID?)?) -> String? {
         guard let store = controller.store else { return noteSend("refused: transcript_not_ready") }
         let draft = store.state.ui.draft
-        let text = draft.plainText.trimmingCharacters(in: .whitespacesAndNewlines)  // without the attachment marks
+        let typed = draft.plainText.trimmingCharacters(in: .whitespacesAndNewlines)  // without the attachment marks
         let attachments = draft.attachments.compactMap { drafts[$0.id] }
         // MessagesLab d0017ba: the reducer's own rule first (Return with nothing to send does nothing:
         // no .send, no flash, no jump, nothing to HomeStore); then a chip whose attachment is not prepared.
-        guard Reducer.canSend(draft), !text.isEmpty || !attachments.isEmpty else { return noteSend("refused: empty_draft") }
+        guard Reducer.canSend(draft), !typed.isEmpty || !attachments.isEmpty else { return noteSend("refused: empty_draft") }
         // The open thread or reply view: the send is a reply in that thread (HomeStore's root id).
         let threadRoot: MessageID?, parent: MessageID?
         if let deferred {
@@ -357,6 +357,11 @@ final class HomeProjection: @preconcurrency ChatIntents {
         }
         sendNotice = nil
         let key = IdempotencyKey.make()
+        // Reply to Selection: the quote goes out as a Markdown blockquote above the reply
+        // (ReplyQuote.quoted); the local bubble shows it as HomeMapping shows the stored reply.
+        let text = controller.quotedForSend(typed)
+        let shownDraft = controller.shownDraftForSend(draft.text)
+        controller.replyQuote = nil
         linkPreviews?.allowSend(text)
         // The paths that used to drop a send without a word (cx-ebm.55), one line each,
         // so a lost send in dogfood says which one it took.
@@ -366,6 +371,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
         if store.state.atNewest {
             // A reply still streaming stays one bubble, the newest row, below this send: the owner posts it
             // after the send, so it lands in the bubble's place (HomeProjection+Draft, send order).
+            if let shownDraft { controller.dispatch(.setDraft(shownDraft)) }
             controller.dispatch(.send)
             // The local bubble morphs into HomeStore's item; without it the item shows on its own.
             _ = core.recordSend(key, in: store.state)
