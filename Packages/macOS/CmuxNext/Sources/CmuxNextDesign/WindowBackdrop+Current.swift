@@ -17,7 +17,8 @@ public extension ThemeScope {
     var shownWindowOpacity: Double {
         guard backdropSelection != nil else { return input.backgroundOpacity }
         let backdrop = WindowBackdrop(tokens, art: backdropArt, selection: backdropSelection,
-                                      tuning: appearanceTuning, tintOpacity: backdropTintOpacity)
+                                      tuning: appearanceTuning, tintOpacity: backdropTintOpacity,
+                                      legibility: artLegibility)
         return backdrop.isOpaque ? input.backgroundOpacity : backdrop.tintOpacity
     }
 }
