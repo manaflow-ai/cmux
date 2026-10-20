@@ -21,8 +21,19 @@ public nonisolated struct MovedWindowPlacement: Sendable, Hashable {
     /// - Parameters:
     ///   - source: The frame of the window the content leaves.
     ///   - screen: The visible frame of that window's screen.
-    /// - Returns: A stub that returns `source` (the failing-first commit).
+    /// - Returns: The same size on the source's right, `gap` away, when it
+    ///   fits the screen; else on its left; else cascaded 28 pt from it and
+    ///   kept on the screen (a source too wide for a neighbor).
     public func frame(beside source: CGRect, on screen: CGRect) -> CGRect {
-        source
+        let right = source.offsetBy(dx: source.width + gap, dy: 0)
+        if screen.contains(right) { return right }
+        let left = source.offsetBy(dx: -(source.width + gap), dy: 0)
+        if screen.contains(left) { return left }
+        let step: CGFloat = 28
+        for (dx, dy) in [(step, -step), (-step, step), (step, step), (-step, -step)] {
+            let cascaded = source.offsetBy(dx: dx, dy: dy)
+            if screen.contains(cascaded) { return cascaded }
+        }
+        return source.offsetBy(dx: step, dy: -step)
     }
 }

@@ -7,7 +7,7 @@ import CmuxNextSidebar
 
 /// Workspace verbs that change what a workspace holds: duplicate (layout and
 /// directories, new terminals), merge into another workspace, move a pane
-/// out into a new workspace, icon, copy path (REWRITE.md round 3).
+/// out into a new workspace or window, icon, copy path (REWRITE.md round 3).
 enum WorkspaceStructureHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         registry.bind("workspace.duplicate", run: { try duplicate(context, $0, browsers: true) })
@@ -47,6 +47,14 @@ enum WorkspaceStructureHandlers {
         registry.bind("workspace.clearIcon", run: { try changeIcon(to: nil, $0, context) })
         registry.bind("workspace.mergeInto", run: { try merge(context, $0) })
         registry.bind("pane.moveToNewWorkspace", run: { try movePane(context, $0) })
+        registry.bind("pane.moveToNewWindow", run: { invocation in
+            guard let pane = context.daemonPane(invocation), let first = pane.tabs.first else {
+                throw ActionFailure.invalidTarget(RefusalStrings.noWorkspaceToActOn)
+            }
+            // Home keeps its tabs, whichever way they would leave (TabPromotion).
+            if let reason = TabPromotion.refusal(tab: first.id, services: context.services) { throw ActionFailure.invalidTarget(reason) }
+            tabsToNewWindow(pane.tabs, context)
+        })
     }
 
     // MARK: Duplicate
@@ -204,6 +212,29 @@ enum WorkspaceStructureHandlers {
             }
             return nil
         })
+    }
+
+    /// Move Pane to New Window: the pane's tabs leave as one, the way Move Tab to New Window moves
+    /// a selection (`TabMoves.toNewWorkspace` then `TabMoves.join`), into a new window beside
+    /// theirs (`WindowManager.openMovedWindow`). The daemon moves each tab, so its terminal keeps
+    /// running and its page entry is reparented, never reloaded. A pane that is all of its
+    /// workspace moves the workspace.
+    private static func tabsToNewWindow(_ tabs: [TabModel], _ context: AppActionContext) {
+        let services = context.services, windows = services.windows
+        guard let first = tabs.first, let workspace = services.workspaceID(ofTab: first.id) else { return }
+        let origin = windows.moveOrigin(of: workspace)
+        // Read before the await: a run this client's user did not start opens the window behind.
+        let allowed = ActionRunScope.viewChangeAllowed()
+        let all = services.workspace(id: workspace)?.screens.flatMap(\.panes).flatMap(\.tabs).map(\.id) ?? []
+        if Set(all) == Set(tabs.map(\.id)) {
+            windows.openMovedWindow([workspace], from: origin, select: allowed)
+            return
+        }
+        Task {
+            guard let key = await TabMoves.toNewWorkspace(first, services: services) else { return }
+            await TabMoves.join(tabs.dropFirst(), workspace: key, services: services)
+            windows.openMovedWindow([key.rawValue], from: origin, select: allowed)
+        }
     }
 
     /// Moves `tabs` into `workspace` one after another (each move waits for

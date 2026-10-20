@@ -64,20 +64,9 @@ enum WindowMembershipHandlers {
         context.services.windows.bringToFront(target)
     }
 
-    /// Into a new window cascaded from the window they leave. When they are
-    /// every workspace of that window, the window itself moves there (like
-    /// dragging them out): no second window opens and none closes.
+    /// Into a new window beside the window they leave (`WindowManager.openMovedWindow`).
     static func toNewWindow(_ ids: [String], _ context: AppActionContext) {
         let windows = context.services.windows
-        let source = ids.first.flatMap { windows.registry.value.owner(of: $0) }.flatMap(windows.controller(for:))
-        let frame = source?.window?.frame.offsetBy(dx: 28, dy: -28)
-        if let source, let frame, Set(ids) == Set(windows.registry.members(of: source.state.id)) {
-            source.window?.setFrame(frame, display: true)
-            windows.bringToFront(source)
-            windows.recordSaver.stateDidChange(source.state)
-            return
-        }
-        guard let controller = windows.openWindow(workspaces: ids, frame: frame) else { return }
-        windows.bringToFront(controller)
+        windows.openMovedWindow(ids, from: windows.moveOrigin(of: ids.first), select: ActionRunScope.viewChangeAllowed())
     }
 }
