@@ -45,6 +45,30 @@ pub(super) fn set_fallback_title(m: &mut SessionMeta, text: &str) {
     m.title_prompt = Some(short_text(gist.body.trim(), 2000));
 }
 
+/// A sub-session's title as it starts (2026-10-20: seven sub-sessions all read
+/// "Read /Users/…/COMMON.md fi…", their prompts' shared first line). Its
+/// session name (`parent/short`) is the mux's, not the person's, so it is not
+/// `NAMED` for that: a name the starter gave titles it, and without one the
+/// prompt and then a generated title do, as for any chat.
+pub(super) fn title_subsession(m: &mut SessionMeta, requested: Option<&str>) {
+    subsession_title_fields(&mut m.title, &mut m.title_source, requested);
+}
+
+fn subsession_title_fields(
+    title: &mut Option<String>,
+    source: &mut Option<String>,
+    requested: Option<&str>,
+) {
+    match requested.map(str::trim).filter(|n| !n.is_empty()) {
+        Some(name) => {
+            *title = Some(short_text(name, 80));
+            *source = Some(NAMED.to_owned());
+        }
+        None if source.as_deref() == Some(NAMED) => *source = None,
+        None => {}
+    }
+}
+
 /// What a first prompt says, for its title: `line` names the chat, `body` is
 /// what the title command reads.
 #[derive(Debug, PartialEq, Eq)]
@@ -317,6 +341,23 @@ fn clean(out: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_named_subsession_is_titled_by_its_name_not_its_prompt() {
+        // The session name made it NAMED (`lifecycle.rs`); the requested name titles it.
+        let (mut title, mut source) = (None, Some(NAMED.to_owned()));
+        subsession_title_fields(&mut title, &mut source, Some("  sidebar-cleanup "));
+        assert_eq!(title.as_deref(), Some("sidebar-cleanup"));
+        assert_eq!(source.as_deref(), Some(NAMED));
+    }
+
+    #[test]
+    fn an_unnamed_subsession_gets_a_generated_title() {
+        // Not NAMED: the first prompt's line is only the fallback, and a title is generated after it.
+        let (mut title, mut source) = (None, Some(NAMED.to_owned()));
+        subsession_title_fields(&mut title, &mut source, Some(" "));
+        assert_eq!((title, source), (None, None));
+    }
 
     #[test]
     fn a_plain_prompt_is_titled_by_its_first_line() {

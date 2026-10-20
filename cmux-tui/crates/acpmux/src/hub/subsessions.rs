@@ -612,6 +612,8 @@ impl Hub {
         {
             let mut m = probe.meta.lock().unwrap_or_else(|e| e.into_inner());
             m.permission_rules = pm.permission_rules.clone();
+            // Titled by its name, else by its prompt and then a generated title (`titles.rs`).
+            super::titles::title_subsession(&mut m, req.name.as_deref());
             for row in &pm.tools.off {
                 if !m.tools.off.contains(row) {
                     m.tools.off.push(row.clone());
