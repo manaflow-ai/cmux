@@ -1173,6 +1173,13 @@ function scrollRangeIn(scroller: HTMLElement, range: Range) {
   if (box.top < view.top || box.bottom > view.bottom)
     scroller.scrollTop += box.top - view.top - scroller.clientHeight / 3;
 }
+/// Scrolls `range` into view in the scrollers between it and `transcript` (a command's capped
+/// output scrolls on its own), innermost first; the transcript itself is left to the caller.
+function scrollRangeInBoxes(transcript: HTMLElement, range: Range) {
+  for (let box = range.startContainer.parentElement; box && box !== transcript; box = box.parentElement)
+    if (box.scrollHeight > box.clientHeight && /auto|scroll/.test(getComputedStyle(box).overflowY))
+      scrollRangeIn(box, range);
+}
 /// How long Find keeps a new match in view while its groups open and the rows above it measure:
 /// at least 600 ms and 36 frames, so a page the machine starves (fewer frames) still holds the
 /// match through the measures that come late. A page hidden meanwhile draws no frames and finishes
@@ -2081,6 +2088,7 @@ export function VirtualTranscript({
         // and a move with no render (a block that grew) is brought back here, not only on a commit.
         const range = findActiveRange();
         if (range && range.getBoundingClientRect().height > 0) {
+          scrollRangeInBoxes(node, range);
           const before = node.scrollTop;
           scrollRangeIn(node, range);
           if (node.scrollTop !== before) findMoved(node);
@@ -2097,9 +2105,7 @@ export function VirtualTranscript({
     }
     if (current.getBoundingClientRect().height === 0) return;
     // Inner scrollers first (a command's output scrolls on its own), then the transcript.
-    for (let box = current.startContainer.parentElement; box && box !== node; box = box.parentElement)
-      if (box.scrollHeight > box.clientHeight && /auto|scroll/.test(getComputedStyle(box).overflowY))
-        scrollRangeIn(box, current);
+    scrollRangeInBoxes(node, current);
     const before = node.scrollTop;
     scrollRangeIn(node, current);
     if (node.scrollTop !== before) findMoved(node);
