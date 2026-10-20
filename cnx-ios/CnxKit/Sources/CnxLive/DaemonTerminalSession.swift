@@ -289,15 +289,15 @@ public final class DaemonTerminalSession: TerminalSession {
             // tells the screen where the Mac's screen starts in its taller
             // mirror (TerminalRowShift).
             log.notice("surface \(self.surface, privacy: .public): mirror reset cause=\(self.everAttached ? "reattach" : "attach", privacy: .public) size=\(self.attachedWithSize.map { "\($0.columns)x\($0.rows)" } ?? "-", privacy: .public)")
+            // The alternate screen is not touched here: the replay's
+            // `vt-state` says its own final state before its rows (held or
+            // still coming). Set to the primary screen first, a reattach to a
+            // TUI left TUI mode and came back: the page showed the empty
+            // primary screen with nothing held over it (termfix-r13 D2, `top`:
+            // blank for ~170 ms, then half drawn).
+            handler?(.output(Data("\u{1B}c".utf8)))
             let held = heldEvents ?? []
             heldEvents = nil
-            // The screen goes straight to the replay's own alternate screen
-            // state (like a `resized` reset). Set to the primary screen first,
-            // a reattach to a TUI left TUI mode and came back: the page showed
-            // the empty primary screen with nothing held over it (termfix-r13
-            // D2, `top`: blank for ~170 ms, then half drawn).
-            setAlternate(Self.finalAlternate(held))
-            handler?(.output(Data("\u{1B}c".utf8)))
             for event in held { apply(event) }
             attachRetries = 0
             attached = true
@@ -570,15 +570,6 @@ public final class DaemonTerminalSession: TerminalSession {
 
     /// Events that arrived before the Mac confirmed the attach (nil: none held).
     private var heldEvents: [DaemonTerminalInbound]?
-    /// The alternate screen state a replay ends in: its last switch, else
-    /// the primary screen (a replay on the primary screen has no switch).
-    static func finalAlternate(_ events: [DaemonTerminalInbound]) -> Bool {
-        for event in events.reversed() {
-            if case .alternateScreen(let on) = event { return on }
-        }
-        return false
-    }
-
     /// Failed reattach attempts since the last good attach.
     private var attachRetries = 0
     /// Delays before retrying a failed reattach (seconds); then the error shows.

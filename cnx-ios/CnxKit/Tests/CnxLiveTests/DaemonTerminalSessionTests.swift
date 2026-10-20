@@ -16,6 +16,8 @@ final class FakeTerminalDaemon: @unchecked Sendable {
     var initialSize = false
     /// The `vt-state` replay an attach sends.
     var replay = "hello\r\n$ "
+    /// Live output right after the attach reply (nil: none).
+    var afterAttach: String? = "\u{1B}[?1049hTUI"
 
     var recorded: [[String: Any]] { lock.withLock { commands } }
 
@@ -50,7 +52,7 @@ final class FakeTerminalDaemon: @unchecked Sendable {
                 Self.line(["event": "vt-state", "surface": 7, "cols": 80, "rows": 24,
                            "data": Data(replay.utf8).base64EncodedString()]),
                 reply(["lease": "l1"]),
-                Self.line(["event": "output", "surface": 7, "data": Data("\u{1B}[?1049hTUI".utf8).base64EncodedString()]),
+            ] + (afterAttach.map { [Self.line(["event": "output", "surface": 7, "data": Data($0.utf8).base64EncodedString()])] } ?? []) + [
                 Self.line(["event": "output", "surface": 8, "data": Data("other".utf8).base64EncodedString()]),
             ]
         default:
@@ -290,6 +292,7 @@ final class FakeTerminalDaemon: @unchecked Sendable {
         await channels.last?.close(code: "link_closed", reason: "link dropped")
         try await waitUntil { !session.isAttached }
         daemon.replay = "hello\r\n$ "
+        daemon.afterAttach = nil
         let mark = events.count
         session.reconnect()
         try await waitUntil { session.isAttached }
@@ -303,6 +306,7 @@ final class FakeTerminalDaemon: @unchecked Sendable {
     /// (offline, not "Reattaching…" forever) and attaches again by itself.
     @Test func aDroppedSessionShowsOfflineWhileTheMacIsGone() async throws {
         let daemon = FakeTerminalDaemon()
+        daemon.afterAttach = nil
         let link = MockMacLink { service, line in daemon.respond(service, line) }
         let channels = ChannelLog()
         let session = DaemonTerminalSession(surface: 7) {
@@ -329,9 +333,10 @@ final class FakeTerminalDaemon: @unchecked Sendable {
 
         session.setMacOffline(false)
         #expect(events.last == .connection(.reattaching(mac: "mini")))
+        let back = events.count
         session.reconnect()
         try await waitUntil { session.isAttached }
-        #expect(events.last == .connection(.attached))
+        #expect(events[back...].contains(.connection(.attached)))
     }
 
     /// termfix-r13 D5 (T-INPUT-17): keys typed while the Mac is down are not
