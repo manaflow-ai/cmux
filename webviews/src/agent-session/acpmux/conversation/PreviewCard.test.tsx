@@ -11,7 +11,17 @@ import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { PreviewCard } from "./PreviewCard";
 import { layoutConversation } from "../model";
+import * as previewUrl from "./previewUrl";
 import { GALLERY_FRAME_HEIGHT, isGalleryFrame, PREVIEW_FRAME_HEIGHT, previewFrameHeight } from "./previewUrl";
+
+// The compact row and the loaded card's head (previewUrl.ts); literal until they exist there.
+const PREVIEW_COMPACT_HEIGHT = 36;
+const PREVIEW_HEAD_HEIGHT = 58;
+const previewCardHeight = (url: string, loaded: boolean): number =>
+  (previewUrl as unknown as { previewCardHeight: (url: string, loaded: boolean) => number }).previewCardHeight(
+    url,
+    loaded,
+  );
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -80,37 +90,74 @@ test("only the gallery's own mounts on loopback are live stages", () => {
   expect(isGalleryFrame("http://localhost.example.com/gallery/frame.html?entry=x")).toBe(false);
 });
 
-test("loading a gallery stage does not move the transcript: placeholder, frame and estimate agree", () => {
-  const stage = "http://127.0.0.1:5173/gallery/frame.html?entry=agent-pane.preview-card";
-  const page = "http://127.0.0.1:3000/admin";
-  expect(previewFrameHeight(stage)).toBe(GALLERY_FRAME_HEIGHT);
-  expect(previewFrameHeight(page)).toBe(PREVIEW_FRAME_HEIGHT);
-  const dir = path.join(import.meta.dir, "..");
-  const styles = readFileSync(path.join(dir, "styles.css"), "utf8");
-  const conversation = readFileSync(path.join(dir, "conversation/conversation.css"), "utf8");
+const STAGE = "http://127.0.0.1:5173/gallery/frame.html?entry=agent-pane.preview-card";
+const PAGE = "http://127.0.0.1:3000/admin";
+
+// Leo, 2026-10-15 (#20931): a loopback address a turn merely mentioned drew the whole card, a 58px
+// head over a 180px (a gallery stage: 360px) empty box around one "Load preview" button. Until the
+// reader clicks Load preview, the card is one compact row, like Claude desktop's link chips.
+test("an unloaded card is one compact row, with Load preview among its actions and no empty box", () => {
+  for (const url of [PAGE, STAGE]) {
+    root = createRoot(container);
+    act(() => root!.render(<PreviewCard url={url} onOpen={() => {}} />));
+    const card = container.querySelector(".acpmux-turn-preview")!;
+    expect(card.hasAttribute("data-compact")).toBe(true);
+    expect([...card.children].map((child) => child.className)).toEqual(["acpmux-turn-preview-head"]);
+    expect(container.querySelector(".acpmux-turn-preview-frame")).toBeNull();
+    expect(container.querySelector("iframe")).toBeNull();
+    const load = container.querySelector(".acpmux-turn-preview-head .acpmux-turn-preview-load");
+    expect(load?.textContent).toBe("Load preview");
+    act(() => root!.unmount());
+    root = undefined;
+  }
+  const conversation = readFileSync(path.join(import.meta.dir, "conversation.css"), "utf8");
+  expect(conversation).not.toContain(".acpmux-turn-preview-unloaded");
+  expect(conversation).toMatch(
+    new RegExp(
+      `\\.acpmux-turn-preview\\[data-compact\\] \\.acpmux-turn-preview-head \\{[^}]*min-height: ${PREVIEW_COMPACT_HEIGHT}px;`,
+    ),
+  );
+});
+
+test("a loaded card keeps its head and frame: 180px for a page, 360px for a gallery stage", () => {
+  expect(previewFrameHeight(STAGE)).toBe(GALLERY_FRAME_HEIGHT);
+  expect(previewFrameHeight(PAGE)).toBe(PREVIEW_FRAME_HEIGHT);
+  expect(PREVIEW_FRAME_HEIGHT).toBe(180);
+  expect(GALLERY_FRAME_HEIGHT).toBe(360);
+  const styles = readFileSync(path.join(import.meta.dir, "..", "styles.css"), "utf8");
   expect(styles).toContain(`.acpmux-turn-preview-frame--live{height:${GALLERY_FRAME_HEIGHT}px;`);
   expect(styles).toContain(`.acpmux-turn-preview-frame{position:relative;height:${PREVIEW_FRAME_HEIGHT}px;`);
-  expect(conversation).toMatch(
-    new RegExp(`\\.acpmux-turn-preview-unloaded--live \\{\\s*height: ${GALLERY_FRAME_HEIGHT}px;`),
+  expect(styles).toContain(
+    `.acpmux-turn-preview-head{display:flex;align-items:center;gap:11px;min-height:${PREVIEW_HEAD_HEIGHT}px;`,
   );
-  expect(conversation).toMatch(
-    new RegExp(`\\.acpmux-turn-preview-unloaded \\{[^}]*height: ${PREVIEW_FRAME_HEIGHT}px;`),
-  );
-  // The placeholder takes the live height before the click.
-  root = createRoot(container);
-  act(() => root!.render(<PreviewCard url={stage} onOpen={() => {}} />));
-  expect(
-    container.querySelector(".acpmux-turn-preview-unloaded")!.classList.contains("acpmux-turn-preview-unloaded--live"),
-  ).toBe(true);
-  // The virtualizer's estimate: the 58px head, the frame, and 14px below (model.ts).
+  for (const url of [PAGE, STAGE]) {
+    const frame = render(url, []);
+    expect(frame).not.toBeNull();
+    const card = container.querySelector(".acpmux-turn-preview")!;
+    expect(card.hasAttribute("data-compact")).toBe(false);
+    expect(container.querySelector(".acpmux-turn-preview-load")).toBeNull();
+    act(() => root!.unmount());
+    root = undefined;
+  }
+  // The card's height once loaded: the head, the frame, and 14px below.
+  expect(previewCardHeight(PAGE, true)).toBe(PREVIEW_HEAD_HEIGHT + 180 + 14);
+  expect(previewCardHeight(STAGE, true)).toBe(PREVIEW_HEAD_HEIGHT + 360 + 14);
+  expect(previewCardHeight(PAGE, false)).toBe(PREVIEW_COMPACT_HEIGHT + 14);
+  expect(previewCardHeight(STAGE, false)).toBe(PREVIEW_COMPACT_HEIGHT + 14);
+});
+
+test("the transcript estimates a preview row at the compact row, page or gallery stage", () => {
+  // measuredRowHeight sends a preview row to fallbackRowHeight (model.ts); a card mounts unloaded,
+  // so the estimate is the compact row, and the ResizeObserver measures a card once it is loaded.
   const heights = layoutConversation(
     [
-      { id: "preview-a", kind: "preview", text: stage },
-      { id: "preview-b", kind: "preview", text: page },
+      { id: "preview-a", kind: "preview", text: STAGE },
+      { id: "preview-b", kind: "preview", text: PAGE },
+      { id: "preview-c", kind: "preview" },
     ] as never,
     600,
   ).heights;
-  expect([...heights]).toEqual([58 + GALLERY_FRAME_HEIGHT + 14, 58 + PREVIEW_FRAME_HEIGHT + 14]);
+  expect([...heights]).toEqual([PREVIEW_COMPACT_HEIGHT + 14, PREVIEW_COMPACT_HEIGHT + 14, PREVIEW_COMPACT_HEIGHT + 14]);
 });
 
 test("a gallery stage loads live: full size, focusable, and a click stays in the chat", () => {
