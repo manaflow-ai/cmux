@@ -1,3 +1,4 @@
+import type { CloudVmNetwork } from "@cmux/protocol"
 import { createCmuxVmClient, type Vm, type components } from "@cmux/vm"
 import type { CreateOptions, EdgeTlsRule, ListedVm, RawCloudDriver, VmResources, VmTag } from "./cloud-driver.ts"
 import type { GuestExecResult } from "./cloud-driver-exec.ts"
@@ -91,6 +92,10 @@ export class VmApiCloudDriver implements RawCloudDriver {
     const vm = await this.vm(id)
     if (!this.network || tag.team !== this.team || vm?.labels.cmux_next_machine !== tag.machine) throw unavailable("unconfirmed VM attachment owner", true)
     return this.network.attach(id, target)
+  }
+  async readNetwork(id: string, tag: VmTag, target: typeof CloudVmNetwork.Type) {
+    if (!this.network || tag.team !== this.team || !VM_ID.test(id)) throw unavailable("unconfirmed member owner", true)
+    return this.network.read(id, target, async () => (await this.vm(id))?.labels.cmux_next_machine === tag.machine)
   }
   private async vm(id: string): Promise<Vm | null> {
     const r = await this.request(() => this.client.GET("/v1/vms/{vmId}", { params: { path: { vmId: id } } }))

@@ -38,3 +38,29 @@ it("keeps an unchanged member's attachment identity", async () => {
   expect(read.status).toBe(200);
   expect(await read.json()).toMatchObject({ attachedAt: member.attachedAt.toISOString() });
 });
+
+it.each([
+  [{ vpc: "vpc-other", ipv4: "10.128.0.9" }],
+  [],
+])("clears the address when the provider no longer places the VM on this mesh %#", async (networks) => {
+  const f = await world(); f.upstream.vpcs = networks;
+  const read = await h.request(f.path, bearer(f.key));
+  expect(read.status).toBe(200);
+  expect(await read.json()).toMatchObject({ ipv4: null });
+});
+
+it.each(["10.129.0.9", "10.128.000.9", "10.128.0.0", "10.128.15.255"])("refuses a non-member address instead of caching it (%s)", async (ipv4) => {
+  const f = await world();
+  const prior = h.mesh.store.members.find((m) => m.vmId === f.vm.vmId)!.ipv4;
+  f.upstream.vpcs = [{ vpc: f.vpc, ipv4 }];
+  expect((await h.request(f.path, bearer(f.key))).status).toBe(503);
+  expect(h.mesh.store.members.find((m) => m.vmId === f.vm.vmId)?.ipv4).toBe(prior);
+});
+
+it("refuses ambiguous network identities", async () => {
+  const f = await world();
+  f.upstream.vpcs = [{ vpc: f.vpc, ipv4: "10.128.0.9" }, { vpc: f.vpc, ipv4: "10.128.0.10" }];
+  expect((await h.request(f.path, bearer(f.key))).status).toBe(503);
+  f.upstream.vpcs = [{ vpc: f.vpc, vpcId: "vpc-other", ipv4: "10.128.0.9" }];
+  expect((await h.request(f.path, bearer(f.key))).status).toBe(503);
+});

@@ -1,3 +1,4 @@
+import { applyNetworkObservation } from "./cloud-network.ts"
 import type { Domain, Principal, ReduceContext, ReduceResult, RowReader, RowWrite } from "@cmux/ownership"
 import { CloudAbandonedClearParams, CloudDriverResultParams, CloudMachineCreate, CloudMachineDelete, CloudMachineIdlePolicySet, CloudMachineRename, CloudPruneParams, CloudWatchResultParams, planRequiredDetails, type CloudVmNetwork } from "@cmux/protocol"
 import { Exit, Schema } from "effect"
@@ -217,6 +218,8 @@ export const cloudDomain = (config: CloudConfig): Domain<CloudState> => ({
         return snapshotRestore(state, params, ctx, (p) => create(config, state, p, ctx))
       case "cloud.machine.idle_pause":
         return ctx.principal.kind === "system" ? powerIntent(config, state, "cloud.machine.pause", params, ctx, true, (params as { reason?: "idle" | "no_report" } | null)?.reason ?? "idle") : reject("auth.forbidden", "internal op")
+      case "cloud.machine.network_observed":
+        return applyNetworkObservation(state, params, ctx, next)
       case "cloud.machine.provider_state":
         return ctx.principal.kind === "system" ? providerStateResult(state, params, ctx) : reject("auth.forbidden", "internal op")
       case "cloud.machine.vm_status":
