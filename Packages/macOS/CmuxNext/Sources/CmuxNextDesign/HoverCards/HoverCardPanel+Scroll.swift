@@ -8,9 +8,6 @@ extension HoverCardPanel {
     /// first one. False when the card has no scroll view (the event is still the card's).
     @discardableResult
     func scrollCard(with event: NSEvent, at screenPoint: CGPoint) -> Bool {
-        // A card shown moments ago may not have had its layout pass: its scroll document is
-        // still zero high and the wheel would move nothing.
-        glass.contentView.layoutSubtreeIfNeeded()
         let scrollViews = Self.scrollViews(in: glass.contentView)
         guard !scrollViews.isEmpty else { return false }
         let under = scrollViews.last { view in
