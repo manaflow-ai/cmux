@@ -36,6 +36,7 @@ impl Mux {
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn resource_create_empty_workspace_selected(
         self: &Arc<Self>,
         selectors: ResourceSelectors,
