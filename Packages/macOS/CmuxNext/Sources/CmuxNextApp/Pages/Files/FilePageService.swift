@@ -42,6 +42,8 @@ final class FilePageService: InternalPageProvider {
     private let clock: any Clock<Duration>
     private let images: any RemoteImageFetching
     private var tabs: [String: Tab] = [:]
+    /// Markdown table column widths between opens (the file's extended attribute, then an app-side copy).
+    private let tableWidths: (any MarkdownTableWidthStoring)?
     private(set) lazy var look = FilePageLook(kind: kind, settings: { [weak services] in services?.settings })
     /// The documents of the R96 quit hook (one per file, shared with the other file page).
     let documents: FileQuitDocuments
@@ -58,8 +60,12 @@ final class FilePageService: InternalPageProvider {
     static let flushTimeout: Duration = .seconds(3)
 
     init(services: AppServices, kind: FilePageKind, clock: any Clock<Duration> = ContinuousClock(),
-         images: any RemoteImageFetching = GuardedRemoteImages(), documents: FileQuitDocuments = .shared) {
+         images: any RemoteImageFetching = GuardedRemoteImages(), documents: FileQuitDocuments = .shared,
+         tableWidths: (any MarkdownTableWidthStoring)? = nil) {
         self.services = services
+        self.tableWidths = kind == .markdown
+            ? tableWidths ?? MarkdownTableWidthRepository(fallback: MarkdownTableWidthRepository.defaultFallbackDirectory())
+            : nil
         self.documents = documents
         self.kind = kind
         self.clock = clock
@@ -303,7 +309,7 @@ final class FilePageService: InternalPageProvider {
         let host = FilePageTabHost(service: self, key: key)
         let libraries = Bundle.main.resourceURL.map(PageDescriptor.markdownLibraries(inAppResources:))
         let provider = FilePageProvider(kind: kind, file: tab.file, userChose: tab.userChose, readOnly: tab.readOnly, host: host, clock: clock,
-                                        libraries: libraries, images: images)
+                                        libraries: libraries, images: images, tableWidths: tableWidths)
         provider.recoveredText = tab.recoveredText
         let native = AppPageNativeProvider(services: services, page: kind.descriptor)
         let routes = [PageRoute(prefix: kind.namespace + ".", provider: provider), PageRoute(prefix: "cmux.app.", provider: native)]
@@ -312,6 +318,7 @@ final class FilePageService: InternalPageProvider {
             return NSView()
         }
         native.anchor = { [weak page] in page }
+        if kind == .markdown { page.contextMenuEditor = Self.tableMenu(provider: provider, page: page) }
         page.onOpenExternal = { [weak self] url in self?.openExternal(url, from: key) }
         page.fileDrop = fileDrop(provider: provider, page: page, key: key)
         tab.page = page
