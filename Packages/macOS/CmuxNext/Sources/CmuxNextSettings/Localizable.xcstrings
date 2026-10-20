@@ -125402,6 +125402,661 @@
           }
         }
       }
+    },
+    "settings.group.screenshots": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Screenshots"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لقطات الشاشة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Snimci ekrana"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skærmbilleder"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bildschirmfotos"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Capturas de pantalla"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Captures d’écran"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Istantanee schermo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "スクリーンショット"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "រូបថតអេក្រង់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "스크린샷"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skjermbilder"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zrzuty ekranu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Capturas de Tela"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Снимки экрана"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ภาพหน้าจอ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ekran Görüntüleri"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Знімки екрана"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ảnh chụp màn hình"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "截屏"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "截圖"
+          }
+        }
+      }
+    },
+    "settings.screenshots.findTools": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Find Screenshot Apps"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "العثور على تطبيقات لقطات الشاشة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pronađi aplikacije za snimke ekrana"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Find skærmbilledapps"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bildschirmfoto-Apps finden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Buscar apps de capturas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trouver les apps de capture"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trova app per istantanee"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "スクリーンショットアプリを検出"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ស្វែងរកកម្មវិធីថតអេក្រង់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "스크린샷 앱 찾기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Finn skjermbildeapper"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Znajdź aplikacje do zrzutów ekranu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Encontrar Apps de Captura"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Находить приложения для снимков"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ค้นหาแอปจับภาพหน้าจอ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ekran Görüntüsü Uygulamalarını Bul"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Шукати застосунки для знімків"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tìm ứng dụng chụp màn hình"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "查找截屏应用"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "尋找截圖 App"
+          }
+        }
+      }
+    },
+    "settings.screenshots.findTools.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Screenshots pane also shows the folders of screenshot apps it finds, such as CleanShot X, Shottr and Kap."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يعرض جزء لقطات الشاشة أيضًا مجلدات تطبيقات لقطات الشاشة التي يعثر عليها، مثل CleanShot X وShottr وKap."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Okno Snimci ekrana prikazuje i mape aplikacija za snimke ekrana koje pronađe, kao što su CleanShot X, Shottr i Kap."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skærmbilleder-panelet viser også mapperne fra de skærmbilledapps, det finder, f.eks. CleanShot X, Shottr og Kap."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der Bereich „Bildschirmfotos“ zeigt auch die Ordner gefundener Bildschirmfoto-Apps wie CleanShot X, Shottr und Kap."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El panel Capturas de pantalla también muestra las carpetas de las apps de capturas que encuentra, como CleanShot X, Shottr y Kap."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le panneau Captures d’écran affiche aussi les dossiers des apps de capture trouvées, comme CleanShot X, Shottr et Kap."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il pannello Istantanee schermo mostra anche le cartelle delle app per istantanee che trova, come CleanShot X, Shottr e Kap."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "スクリーンショットペインには、CleanShot X、Shottr、Kap など検出したスクリーンショットアプリのフォルダも表示されます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្ទាំងរូបថតអេក្រង់ក៏បង្ហាញថតឯកសាររបស់កម្មវិធីថតអេក្រង់ដែលវារកឃើញផងដែរ ដូចជា CleanShot X, Shottr និង Kap។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "스크린샷 패널에는 CleanShot X, Shottr, Kap 등 찾은 스크린샷 앱의 폴더도 표시됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skjermbilder-panelet viser også mappene til skjermbildeappene det finner, for eksempel CleanShot X, Shottr og Kap."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Panel Zrzuty ekranu pokazuje też foldery znalezionych aplikacji do zrzutów, takich jak CleanShot X, Shottr i Kap."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O painel Capturas de Tela também mostra as pastas dos apps de captura que encontrar, como CleanShot X, Shottr e Kap."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Панель «Снимки экрана» также показывает папки найденных приложений для снимков, например CleanShot X, Shottr и Kap."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แผงภาพหน้าจอจะแสดงโฟลเดอร์ของแอปจับภาพหน้าจอที่พบด้วย เช่น CleanShot X, Shottr และ Kap"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ekran Görüntüleri bölmesi, bulduğu CleanShot X, Shottr ve Kap gibi ekran görüntüsü uygulamalarının klasörlerini de gösterir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Панель «Знімки екрана» також показує теки знайдених застосунків для знімків, як-от CleanShot X, Shottr і Kap."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ngăn Ảnh chụp màn hình cũng hiển thị thư mục của các ứng dụng chụp màn hình tìm thấy, như CleanShot X, Shottr và Kap."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "截屏面板也会显示找到的截屏应用的文件夹，例如 CleanShot X、Shottr 和 Kap。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "截圖面板也會顯示找到的截圖 App 的資料夾，例如 CleanShot X、Shottr 和 Kap。"
+          }
+        }
+      }
+    },
+    "settings.screenshots.folders": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "More Screenshot Folders"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "مجلدات لقطات شاشة إضافية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dodatne mape snimaka ekrana"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Flere skærmbilledmapper"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Weitere Bildschirmfoto-Ordner"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Más carpetas de capturas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Autres dossiers de captures"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Altre cartelle di istantanee"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "その他のスクリーンショットフォルダ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ថតរូបថតអេក្រង់បន្ថែម"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "추가 스크린샷 폴더"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Flere skjermbildemapper"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Więcej folderów zrzutów ekranu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mais Pastas de Capturas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Другие папки снимков"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "โฟลเดอร์ภาพหน้าจอเพิ่มเติม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Diğer Ekran Görüntüsü Klasörleri"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Інші теки знімків"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thư mục ảnh chụp khác"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "更多截屏文件夹"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "更多截圖資料夾"
+          }
+        }
+      }
+    },
+    "settings.screenshots.folders.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Screenshots pane also shows the pictures and videos in these folders. Use full paths or ~/ paths."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يعرض جزء لقطات الشاشة أيضًا الصور ومقاطع الفيديو في هذه المجلدات. استخدم مسارات كاملة أو مسارات ~/."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Okno Snimci ekrana prikazuje i slike i video zapise u ovim mapama. Koristite pune putanje ili ~/ putanje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skærmbilleder-panelet viser også billeder og videoer i disse mapper. Brug fulde stier eller ~/-stier."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der Bereich „Bildschirmfotos“ zeigt auch die Bilder und Videos in diesen Ordnern. Verwende vollständige Pfade oder ~/-Pfade."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El panel Capturas de pantalla también muestra las imágenes y los vídeos de estas carpetas. Usa rutas completas o rutas ~/."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le panneau Captures d’écran affiche aussi les images et vidéos de ces dossiers. Utilisez des chemins complets ou des chemins ~/."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il pannello Istantanee schermo mostra anche immagini e video di queste cartelle. Usa percorsi completi o percorsi ~/."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "スクリーンショットペインには、これらのフォルダの画像とビデオも表示されます。フルパスまたは ~/ パスを使用してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្ទាំងរូបថតអេក្រង់ក៏បង្ហាញរូបភាព និងវីដេអូក្នុងថតទាំងនេះផងដែរ។ ប្រើផ្លូវពេញ ឬផ្លូវ ~/។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "스크린샷 패널에는 이 폴더의 사진과 비디오도 표시됩니다. 전체 경로나 ~/ 경로를 사용하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skjermbilder-panelet viser også bildene og videoene i disse mappene. Bruk fullstendige stier eller ~/-stier."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Panel Zrzuty ekranu pokazuje też obrazy i filmy z tych folderów. Użyj pełnych ścieżek lub ścieżek ~/."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O painel Capturas de Tela também mostra as imagens e vídeos destas pastas. Use caminhos completos ou caminhos ~/."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Панель «Снимки экрана» также показывает изображения и видео из этих папок. Используйте полные пути или пути ~/."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แผงภาพหน้าจอจะแสดงรูปภาพและวิดีโอในโฟลเดอร์เหล่านี้ด้วย ใช้พาธเต็มหรือพาธ ~/"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ekran Görüntüleri bölmesi bu klasörlerdeki resimleri ve videoları da gösterir. Tam yollar veya ~/ yolları kullanın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Панель «Знімки екрана» також показує зображення й відео з цих тек. Використовуйте повні шляхи або шляхи ~/."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ngăn Ảnh chụp màn hình cũng hiển thị ảnh và video trong các thư mục này. Dùng đường dẫn đầy đủ hoặc đường dẫn ~/."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "截屏面板也会显示这些文件夹中的图片和视频。请使用完整路径或 ~/ 路径。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "截圖面板也會顯示這些資料夾中的圖片和影片。請使用完整路徑或 ~/ 路徑。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

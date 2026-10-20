@@ -168,6 +168,10 @@ extension WorkspaceRowView {
             mutedMark.frame = NSRect(x: trailing - ind, y: cy - ind / 2, width: ind, height: ind)
             trailing -= ind + Metrics.space2
         }
+        if !audioButton.isHidden {
+            audioButton.frame = NSRect(x: trailing - control, y: cy - control / 2, width: control, height: control)
+            trailing -= control + Metrics.space1
+        }
         if !presenceDots.isHidden {
             let w = presenceDots.preferredWidth
             presenceDots.frame = NSRect(x: trailing - w, y: isExpanded ? top : 0, width: w, height: isExpanded ? th : b.height)
@@ -206,7 +210,7 @@ extension WorkspaceRowView {
         title.setTrailingOcclusion(overlayStart.map { max(0, title.frame.maxX - ($0 - Metrics.space1)) } ?? 0, animated: fades)
         subtitle.wantsLayer = true
         subtitle.setTrailingFade(occlusion: overlayStart.map { max(0, subtitle.frame.maxX - ($0 - Metrics.space1)) } ?? 0, fade: fade, animated: fades)
-        for mark in [activity, rowBadge, agentMark, mutedMark, presenceDots, timeLabel] as [NSView] {
+        for mark in [activity, rowBadge, agentMark, mutedMark, audioButton, presenceDots, timeLabel] as [NSView] {
             fadeOpacity(mark, to: overlayStart.map { mark.frame.maxX > $0 - Metrics.space1 } == true ? 0 : 1, fades: fades)
         }
         layoutStatus(x: textX, width: max(0, b.width - Metrics.space3 - textX), head: b.maxY, bottom: full.maxY)

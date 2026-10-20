@@ -4103,6 +4103,11 @@ Result<Json> Codec<IdentifyResult>::encode(const IdentifyResult& value) {
         if (!encoded) return std::move(encoded).error();
         object.emplace("cli_path", std::move(encoded).value());
     }
+    if (!value.crate_version.is_absent()) {
+        auto encoded = encode_value(value.crate_version);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("crate_version", std::move(encoded).value());
+    }
     object.emplace("daemon_handoff", Json(static_cast<std::uint64_t>(1ULL)));
     auto encoded_generation = encode_value(value.generation);
     if (!encoded_generation) return std::move(encoded_generation).error();
@@ -4111,6 +4116,11 @@ Result<Json> Codec<IdentifyResult>::encode(const IdentifyResult& value) {
         auto encoded = encode_value(value.ghostty_commit);
         if (!encoded) return std::move(encoded).error();
         object.emplace("ghostty_commit", std::move(encoded).value());
+    }
+    if (!value.install.is_absent()) {
+        auto encoded = encode_value(value.install);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("install", std::move(encoded).value());
     }
     if (!value.launch_snapshot_path.is_absent()) {
         auto encoded = encode_value(value.launch_snapshot_path);
@@ -4167,6 +4177,11 @@ Result<Json> Codec<IdentifyResult>::encode(const IdentifyResult& value) {
     auto encoded_terminal_revision = encode_value(value.terminal_revision);
     if (!encoded_terminal_revision) return std::move(encoded_terminal_revision).error();
     object.emplace("terminal_revision", std::move(encoded_terminal_revision).value());
+    if (!value.update_command.is_absent()) {
+        auto encoded = encode_value(value.update_command);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("update_command", std::move(encoded).value());
+    }
     auto encoded_version = encode_value(value.version);
     if (!encoded_version) return std::move(encoded_version).error();
     object.emplace("version", std::move(encoded_version).value());
@@ -4235,6 +4250,16 @@ Result<IdentifyResult> Codec<IdentifyResult>::decode(const Json& value) {
             result.cli_path = Field<std::string>(std::move(decoded).value());
         }
     }
+    const Json* field_crate_version = value.find("crate_version");
+    if (field_crate_version) {
+        if (field_crate_version->is_null()) {
+            result.crate_version = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_crate_version);
+            if (!decoded) return std::move(decoded).error();
+            result.crate_version = Field<std::string>(std::move(decoded).value());
+        }
+    }
     const Json* field_daemon_handoff = value.find("daemon_handoff");
     if (!field_daemon_handoff) {
         return make_error(ErrorCode::decode, "missing required field 'daemon_handoff'");
@@ -4261,6 +4286,16 @@ Result<IdentifyResult> Codec<IdentifyResult>::decode(const Json& value) {
             auto decoded = decode_value<std::string>(*field_ghostty_commit);
             if (!decoded) return std::move(decoded).error();
             result.ghostty_commit = Field<std::string>(std::move(decoded).value());
+        }
+    }
+    const Json* field_install = value.find("install");
+    if (field_install) {
+        if (field_install->is_null()) {
+            result.install = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_install);
+            if (!decoded) return std::move(decoded).error();
+            result.install = Field<std::string>(std::move(decoded).value());
         }
     }
     const Json* field_launch_snapshot_path = value.find("launch_snapshot_path");
@@ -4363,6 +4398,16 @@ Result<IdentifyResult> Codec<IdentifyResult>::decode(const Json& value) {
         auto decoded = decode_value<std::uint64_t>(*field_terminal_revision);
         if (!decoded) return std::move(decoded).error();
         result.terminal_revision = std::move(decoded).value();
+    }
+    const Json* field_update_command = value.find("update_command");
+    if (field_update_command) {
+        if (field_update_command->is_null()) {
+            result.update_command = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_update_command);
+            if (!decoded) return std::move(decoded).error();
+            result.update_command = Field<std::string>(std::move(decoded).value());
+        }
     }
     const Json* field_version = value.find("version");
     if (!field_version) {
@@ -22161,6 +22206,11 @@ Result<Json> Codec<IdentifyRequest>::encode(const IdentifyRequest& value) {
         if (!encoded) return std::move(encoded).error();
         object.emplace("machine_metadata", std::move(encoded).value());
     }
+    if (value.revisions) {
+        auto encoded = encode_value(*value.revisions);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("revisions", std::move(encoded).value());
+    }
     return Json(std::move(object));
 }
 
@@ -22173,6 +22223,12 @@ Result<IdentifyRequest> Codec<IdentifyRequest>::decode(const Json& value) {
         auto decoded = decode_value<bool>(*field_machine_metadata);
         if (!decoded) return std::move(decoded).error();
         result.machine_metadata = std::move(decoded).value();
+    }
+    const Json* field_revisions = value.find("revisions");
+    if (field_revisions) {
+        auto decoded = decode_value<bool>(*field_revisions);
+        if (!decoded) return std::move(decoded).error();
+        result.revisions = std::move(decoded).value();
     }
     return result;
 }
@@ -28686,6 +28742,11 @@ Result<Json> Codec<SetClientInfoRequest>::encode(const SetClientInfoRequest& val
         if (!encoded) return std::move(encoded).error();
         object.emplace("display_name", std::move(encoded).value());
     }
+    if (!value.install.is_absent()) {
+        auto encoded = encode_value(value.install);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("install", std::move(encoded).value());
+    }
     if (!value.kind.is_absent()) {
         auto encoded = encode_value(value.kind);
         if (!encoded) return std::move(encoded).error();
@@ -28700,6 +28761,11 @@ Result<Json> Codec<SetClientInfoRequest>::encode(const SetClientInfoRequest& val
         auto encoded = encode_value(value.user_id);
         if (!encoded) return std::move(encoded).error();
         object.emplace("user_id", std::move(encoded).value());
+    }
+    if (!value.version.is_absent()) {
+        auto encoded = encode_value(value.version);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("version", std::move(encoded).value());
     }
     return Json(std::move(object));
 }
@@ -28768,6 +28834,16 @@ Result<SetClientInfoRequest> Codec<SetClientInfoRequest>::decode(const Json& val
             result.display_name = Field<std::string>(std::move(decoded).value());
         }
     }
+    const Json* field_install = value.find("install");
+    if (field_install) {
+        if (field_install->is_null()) {
+            result.install = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_install);
+            if (!decoded) return std::move(decoded).error();
+            result.install = Field<std::string>(std::move(decoded).value());
+        }
+    }
     const Json* field_kind = value.find("kind");
     if (field_kind) {
         if (field_kind->is_null()) {
@@ -28796,6 +28872,16 @@ Result<SetClientInfoRequest> Codec<SetClientInfoRequest>::decode(const Json& val
             auto decoded = decode_value<std::string>(*field_user_id);
             if (!decoded) return std::move(decoded).error();
             result.user_id = Field<std::string>(std::move(decoded).value());
+        }
+    }
+    const Json* field_version = value.find("version");
+    if (field_version) {
+        if (field_version->is_null()) {
+            result.version = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_version);
+            if (!decoded) return std::move(decoded).error();
+            result.version = Field<std::string>(std::move(decoded).value());
         }
     }
     return result;
@@ -40898,8 +40984,9 @@ constexpr std::array<CommandFieldRequirement, 2> kCommand103FieldRequirements{{
     {"by", 12U, "shared-sizing-v1"},
     {"surface", 12U, "shared-sizing-v1"},
 }};
-constexpr std::array<CommandFieldRequirement, 1> kCommand121FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 2> kCommand121FieldRequirements{{
     {"machine_metadata", 12U, "machine-identity-v1"},
+    {"revisions", 12U, ""},
 }};
 constexpr std::array<CommandFieldRequirement, 1> kCommand149FieldRequirements{{
     {"transaction", 12U, "tab-drag-v1"},
@@ -40995,13 +41082,15 @@ constexpr std::array<CommandFieldRequirement, 3> kCommand214FieldRequirements{{
     {"paste", 7U, ""},
     {"terminal_id", 0U, "terminal-input-while-creating-v1"},
 }};
-constexpr std::array<CommandFieldRequirement, 6> kCommand218FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 8> kCommand218FieldRequirements{{
     {"api_revision", 12U, ""},
     {"device_id", 12U, "shared-sizing-v1"},
     {"device_kind", 12U, "shared-sizing-v1"},
     {"device_name", 12U, "shared-sizing-v1"},
     {"display_name", 12U, "shared-sizing-v1"},
+    {"install", 12U, ""},
     {"user_id", 12U, "shared-sizing-v1"},
+    {"version", 12U, ""},
 }};
 constexpr std::array<CommandFieldRequirement, 2> kCommand220FieldRequirements{{
     {"pinned", 12U, "pinned-dock-v1"},

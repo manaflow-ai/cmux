@@ -27,6 +27,11 @@ final class WorkspaceRowView: SidebarRowView {
     /// A muted workspace (`notifications.mutedWorkspaces`): a quiet bell-slash
     /// in the trailing cluster, in the tertiary text color; hidden otherwise.
     let mutedMark = NSImageView()
+    /// The workspace's tabs play sound (or are muted): a small speaker in the
+    /// trailing cluster, always shown while they do, crossed out while they
+    /// are muted. A click mutes or unmutes them (`onToggleAudio`).
+    let audioButton = SidebarIconButton(icon: .mediaAudio, pointSize: { Metrics.smallIconSize - Metrics.space2 }, label: Strings.muteTabs)
+    internal(set) var audio: SidebarWorkspaceAudio?
     let closeButton = SidebarIconButton(icon: .actionClose, pointSize: { Metrics.smallIconSize - Metrics.space2 }, label: Strings.closeButton)
     /// The row's menu (cx-a9h6, ChatGPT project style): the right-click menu,
     /// under the button. Shows on hover only, over the end of the title
@@ -80,6 +85,7 @@ final class WorkspaceRowView: SidebarRowView {
     /// Activates this workspace from an accessibility AXPress.
     var onSelect: (() -> Void)?
     var onToggleTabs: (() -> Void)?
+    var onToggleAudio: (() -> Void)?
     /// The row draws a placeholder bar instead of a title.
     internal(set) var isShowingPlaceholder = false
     /// Any placeholder, titled or not: no hover fill, no marquee, no press (cx-gaq9).
@@ -112,7 +118,7 @@ final class WorkspaceRowView: SidebarRowView {
         mutedMark.imageScaling = .scaleProportionallyDown
         mutedMark.isHidden = true
         mutedMark.setAccessibilityElement(false)
-        [icon, title, subtitle, timeLabel, metaLabel, activity, agentMark, mutedMark, badge, rowBadge, presenceDots, closeButton, moreButton, pinButton, disclosureButton, tabCount, prBadge, placeholderBar, statusBlock,
+        [icon, title, subtitle, timeLabel, metaLabel, activity, agentMark, mutedMark, audioButton, badge, rowBadge, presenceDots, closeButton, moreButton, pinButton, disclosureButton, tabCount, prBadge, placeholderBar, statusBlock,
          treeLine, pullRequests, keycap].forEach(addSubview)
         setUpSessionTree()
         disclosureButton.isHidden = true
@@ -125,6 +131,7 @@ final class WorkspaceRowView: SidebarRowView {
         progressTrack.isHidden = true
         layer?.addSublayer(progressTrack)
         closeButton.isHidden = true
+        audioButton.isHidden = true
         placeholderBar.wantsLayer = true
         placeholderBar.layer?.cornerRadius = Metrics.chipCornerRadius(height: SidebarStyle.placeholderBarHeight)
         placeholderBar.isHidden = true
@@ -133,9 +140,10 @@ final class WorkspaceRowView: SidebarRowView {
         moreButton.onPress = { [weak self] in self?.onMore?() }
         pinButton.onPress = { [weak self] in self?.onPin?() }
         disclosureButton.onPress = { [weak self] in self?.onToggleTabs?() }
+        audioButton.onPress = { [weak self] in self?.onToggleAudio?() }
     }
 
-    override var interactiveSubviews: [NSView] { [closeButton, moreButton, pinButton, disclosureButton] }
+    override var interactiveSubviews: [NSView] { [closeButton, moreButton, pinButton, disclosureButton, audioButton] }
     override var debugIcon: String? {
         switch iconKind {
         case nil: !agentMark.isHidden && agentMarkVariant == .besideTitle ? "agentMark" : nil
@@ -167,6 +175,7 @@ final class WorkspaceRowView: SidebarRowView {
         (onPin, isPinned) = (nil, nil)
         onSelect = nil
         onToggleTabs = nil
+        onToggleAudio = nil
         title.stopMarquee()
         title.layer?.removeAnimation(forKey: "workspace-title-motion")
         lastTitle = nil
@@ -257,6 +266,10 @@ final class WorkspaceRowView: SidebarRowView {
         mutedMark.image = ws.muted && !isShowingPlaceholder
             ? NSImage.icon(symbol: "bell.slash", size: .iconRowSize(forLabelPointSize: SidebarStyle.indicatorSize - Metrics.space1)) : nil
         mutedMark.isHidden = mutedMark.image == nil
+        audio = isShowingPlaceholder ? nil : ws.audio
+        audioButton.isHidden = audio == nil
+        audioButton.icon = audio == .muted ? .mediaMuted : .mediaAudio
+        audioButton.label = audio == .muted ? Strings.unmuteTabs : Strings.muteTabs
         disclosure = row.tabDisclosure
         count = row.tabCount
         disclosureButton.icon = row.tabDisclosure == .expanded ? .disclosureExpanded : .disclosureCollapsed
