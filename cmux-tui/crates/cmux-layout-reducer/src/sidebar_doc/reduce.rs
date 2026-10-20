@@ -1042,6 +1042,12 @@ fn update_section(tx: &mut Tx, id: &str, patch: &SectionPatch) -> Result<(), Ref
     if let Some(scroll) = patch.scroll {
         section.scroll = scroll;
     }
+    if let Some(host_group) = patch.host_group {
+        if host_group && section.kind.machine().is_none() {
+            return Err(Refusal::InvalidValue);
+        }
+        section.host_group = host_group;
+    }
     validate_section_numbers(&section)?;
     if tx.doc.section(id) != Some(&section) {
         tx.put_section(section);

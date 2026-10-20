@@ -32,7 +32,11 @@ extension SidebarDocProjection {
                 }
                 return true
             }
-            if section.machine != nil { section.nodes = Self.machineNodes(section, projection, drag: drag) }
+            if section.machine != nil {
+                section.nodes = Self.machineNodes(section, projection, drag: drag)
+                // A machine section the person made a remote group keeps its header in one list.
+                section.isHostGroup = drag.section(section.id).flatMap { projection.hostGroups.contains($0) } ?? false
+            }
             return section
         }
         // Every section of the document in its order: the sections before the machine lists (Pinned,
