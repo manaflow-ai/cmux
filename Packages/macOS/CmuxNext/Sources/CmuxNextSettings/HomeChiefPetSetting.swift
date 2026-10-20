@@ -2,8 +2,9 @@ public import CmuxNextActions
 
 /// `home.chiefPetEnabled` in cmux.json: the Chief pet, a small Chief that floats over every app,
 /// pops up agent events and takes a quick reply (CmuxNextFloating's `ChiefPetController`). Off by
-/// default; the person turns it on (Settings > Home > Chief Pet, View > Show Chief Pet, the palette's
-/// Show Chief Pet and Message the Chief, the empty Chief conversation); agents may not (it puts their output over every app).
+/// default; the person or an agent turns it on (Settings > Home > Chief Pet, View > Show Chief Pet, the
+/// palette's Show Chief Pet and Message the Chief, the empty Chief conversation, `cmux settings set`),
+/// and the person can hide it again the same way.
 /// `home.chiefPetMascot` picks its character among the Chief Dock's nine pixel mascots.
 public nonisolated struct HomeChiefPetSetting {
     public nonisolated init() {}
@@ -27,10 +28,9 @@ public nonisolated struct HomeChiefPetSetting {
 extension HomeChiefPetSetting {
     /// Show Chief Pet / Hide Chief Pet (`home.toggleChiefPet`; the View menu and the palette):
     /// flips `home.chiefPetEnabled` as the caller. The row and the menu item read as the change they
-    /// make (Hide Chief Pet while it shows). Only a person may turn it on or off: the settings layer
-    /// refuses an agent's write (the key is not agent-settable), and the action is person-only, so
-    /// the control socket refuses it too. `unavailable` is the refusal while
-    /// settings are not loaded.
+    /// make (Hide Chief Pet while it shows). The action is person-only, so the control socket refuses
+    /// an agent's run; an agent turns the pet on or off with `cmux settings set` (the key is
+    /// agent-settable). `unavailable` is the refusal while settings are not loaded.
     public static let toggleAction: ActionID = "home.toggleChiefPet"
 
     /// The toggle's title while the pet shows.

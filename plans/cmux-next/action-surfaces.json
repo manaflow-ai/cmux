@@ -9536,34 +9536,6 @@
       "title_table" : "HomeActions"
     },
     {
-      "cli" : "guiOnly",
-      "cli_name" : "action home-message-chief-pet",
-      "context_menu" : "noObject",
-      "context_menus" : [
-
-      ],
-      "default_aliases" : [
-
-      ],
-      "default_chord" : null,
-      "default_shortcut" : null,
-      "id" : "home.messageChiefPet",
-      "main_menu" : null,
-      "mcp" : "guiOnly",
-      "palette" : "offered",
-      "palette_section" : {
-        "id" : "category.window",
-        "order" : 100,
-        "title" : "Window",
-        "title_key" : "category.window",
-        "title_table" : "Localizable"
-      },
-      "palette_suggested" : null,
-      "title" : "Message the Chief",
-      "title_key" : "action.home.messageChiefPet",
-      "title_table" : "HomeActions"
-    },
-    {
       "cli" : "offered",
       "cli_name" : "home attach",
       "context_menu" : "noObject",
