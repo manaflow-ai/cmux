@@ -124,9 +124,11 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
   }, [store, ownCount]);
   if (backdrops.length === 0) return null;
   const background = rows.get(BACKGROUND_KEY);
-  const current = own
-    ? (own.value ?? FOLLOW_ID)
-    : (((background?.value ?? background?.default) as string | undefined) ?? "none");
+  const appCurrent = ((background?.value ?? background?.default) as string | undefined) ?? "none";
+  const current = own ? (own.value ?? FOLLOW_ID) : appCurrent;
+  // A workspace's tint is over its picture (its own, or the one it follows): with none there is
+  // nothing for Opacity over Art to change.
+  const ownPicture = own !== null && (own.value ?? appCurrent) !== "none";
   const opacity = rowsByKey.get(BACKGROUND_OPACITY_KEY);
   const choose = async (id: string) => {
     cancelDwell();
@@ -223,7 +225,7 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
           }}
         />
       )}
-      {own && (
+      {own && ownPicture && (
         <WorkspaceOpacity background={own} onSaved={(saved) => setWorkspaceBackground({ ...own, opacity: saved })} />
       )}
       {!own && (
