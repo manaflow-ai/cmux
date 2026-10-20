@@ -1120,6 +1120,9 @@ dependencies = [
 name = "cmux-host"
 version = "0.1.0"
 dependencies = [
+ "base64",
+ "cmux-cloud-wire",
+ "cmux-link",
  "cmux-server",
  "cmux-server-core",
  "libc",
@@ -1127,6 +1130,8 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+ "url",
+ "x25519-dalek",
 ]
 
 [[package]]

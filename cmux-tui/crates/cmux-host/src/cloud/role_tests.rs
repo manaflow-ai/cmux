@@ -8,6 +8,39 @@ use super::Worker;
 use crate::cloud::wire::AGENT_SOCKET;
 use crate::config::Paths;
 
+/// Exercise the real agent socket and client reply routing without starting
+/// network jobs or polling for readiness. Unbound agents must answer closed.
+#[test]
+fn vm_receiver_client_socket_refuses_unbound_and_caller_identity() {
+    use std::io::{BufRead, BufReader};
+    let root = tempfile::tempdir().unwrap();
+    let paths = Paths::new(root.path());
+    let (_control, theirs) = UnixStream::pair().unwrap();
+    let mut worker = Worker::new(paths.clone(), "vm-1".into(), None, theirs).unwrap();
+    worker.listener = Some(worker.serve_socket().unwrap());
+    let mut first = UnixStream::connect(paths.at(AGENT_SOCKET)).unwrap();
+    let mut second = UnixStream::connect(paths.at(AGENT_SOCKET)).unwrap();
+    first.set_read_timeout(Some(Duration::from_secs(1))).unwrap();
+    second.set_read_timeout(Some(Duration::from_secs(1))).unwrap();
+    first.write_all(b"{\"op\":\"cloud.vm.network_policy\"}\n").unwrap();
+    second
+        .write_all(b"{\"op\":\"cloud.vm.network_policy\",\"machine\":\"caller-chosen\"}\n")
+        .unwrap();
+    worker.accept();
+    assert_eq!(worker.clients.len(), 2);
+    worker.read_clients(&[0, 1]);
+    for stream in [first, second] {
+        let mut line = String::new();
+        BufReader::new(stream).read_line(&mut line).unwrap();
+        let reply: serde_json::Value = serde_json::from_str(&line).unwrap();
+        assert_eq!(
+            reply,
+            serde_json::json!({"ok":false,"error":"cloud.vm.network_policy.unavailable"})
+        );
+    }
+    assert!(worker.live.is_none());
+}
+
 /// dev-e2e on sh-584ab926a57d (2026-10-08): the first client of the agent
 /// socket killed the worker (`index out of bounds` in the poll loop: a client
 /// accepted in this pass was read with the revents of the previous pass), so

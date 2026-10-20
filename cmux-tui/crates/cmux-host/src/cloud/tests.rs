@@ -105,7 +105,8 @@ impl Http for Fake {
                 }
                 Ok((
                     200,
-                    json!({ "access_token": "tok-1", "token_type": "Bearer", "expires_at": T0 + 3_600_000 }),
+                    json!({ "access_token": "tok-1", "token_type": "Bearer", "expires_at": T0 + 3_600_000,
+                        "user": USER, "install": INSTALL, "grant": "grant_v000000000000000004", "team": TEAM }),
                 ))
             }
             "/v1/ops" => Ok(st.ops.pop_front().unwrap_or((200, applied()))),
