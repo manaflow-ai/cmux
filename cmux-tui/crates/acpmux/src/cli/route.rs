@@ -8,6 +8,8 @@ use serde_json::{Map, Value, json};
 
 use crate::rpc::method;
 
+// Parsed once per CLI run: `Add`'s size never matters.
+#[allow(clippy::large_enum_variant)]
 #[derive(Subcommand)]
 pub enum RouteCmd {
     /// Every route with its kind and endpoint, and which scopes use it.
