@@ -35,8 +35,7 @@ nonisolated enum ContextMenuEssentials {
                          .action("reloadTab"), .action("duplicateTab"), .action("palette.toggleTabPin"), .action("toggleTabAudioMute")],
                    close: ["closeTab", "closeOtherTabsInPane", "closeTabsToRight"]),
         // Split Left and Split Up sit in Split beside Split Right and Split Down (menu audit S1).
-        .pane: Rows(top: [.action("splitRight"), .action("splitDown"), .folder(.split, []), .action("toggleSplitZoom"), .action("renamePane"),
-                          .folder(.appearance, [])],
+        .pane: Rows(top: [.action("splitRight"), .action("splitDown"), .folder(.split, []), .action("toggleSplitZoom"), .action("renamePane")],
                     close: ["closePane"]),
     ]
 
