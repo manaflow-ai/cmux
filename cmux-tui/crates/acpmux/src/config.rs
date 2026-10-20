@@ -160,7 +160,7 @@ fn validate_private_state_file(file: &std::fs::File, path: &Path) -> Result<()> 
         "{} is writable by another user; inspect it before removing group/other write permission",
         path.display()
     );
-    refuse_extended_acl(&file, path)?;
+    refuse_extended_acl(file, path)?;
     if metadata.mode() & 0o077 != 0 {
         file.set_permissions(std::fs::Permissions::from_mode(0o600))
             .with_context(|| format!("make {} owner-only", path.display()))?;

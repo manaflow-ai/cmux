@@ -3,7 +3,7 @@
 use anyhow::Result;
 #[cfg(unix)]
 use anyhow::anyhow;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 /// The daemon lock, held while the daemon runs. Dropping it unlocks
@@ -22,7 +22,7 @@ impl Drop for DaemonLock {
 }
 
 #[cfg(unix)]
-pub(super) fn acquire_lock(path: &PathBuf) -> Result<DaemonLock> {
+pub(super) fn acquire_lock(path: &Path) -> Result<DaemonLock> {
     use std::os::unix::io::AsRawFd;
     let file = crate::config::private_state_rw(path)?;
     let rc = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
@@ -35,7 +35,7 @@ pub(super) fn acquire_lock(path: &PathBuf) -> Result<DaemonLock> {
 /// while the file stays open; the system releases it when the daemon exits
 /// (a child gets no copy: the daemon starts children with a handle list).
 #[cfg(windows)]
-pub(super) fn acquire_lock(path: &PathBuf) -> Result<DaemonLock> {
+pub(super) fn acquire_lock(path: &Path) -> Result<DaemonLock> {
     use anyhow::{Context, anyhow};
     let file = crate::config::private_state_rw(path)?;
     match file.try_lock() {
