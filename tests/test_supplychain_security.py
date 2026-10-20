@@ -112,7 +112,9 @@ def test_cloud_dogfood_keeps_the_public_installer_out_of_the_secret_job() -> Non
     assert "vars." not in installer["runs-on"]
     installer_script = run_text(installer)
     assert "gh attestation verify" in installer_script
-    assert "--source-digest" in installer_script
+    assert "--source-ref refs/heads/main" in installer_script
+    assert "sourceRepositoryDigest" in installer_script
+    assert "latest/manifest.json" not in installer_script
     assert "$RUNNER_TEMP/public-cmux/cmux" in installer_script
     assert 'cmux-tui/$commit/$artifact' not in installer_script
     assert any("actions/download-artifact@" in str(step.get("uses", "")) for step in installer["steps"])
