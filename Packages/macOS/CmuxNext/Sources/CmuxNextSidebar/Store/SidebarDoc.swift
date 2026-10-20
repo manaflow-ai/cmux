@@ -244,7 +244,7 @@ public nonisolated struct SidebarDocRecords: Hashable, Sendable {
     /// of a pinned group is not pinned itself; Pin pins it in that group.
     public func isPinned(item id: String) -> Bool {
         guard let item = items[id] else { return false }
-        return item.section == SidebarDocStore.pinnedSection
+        return item.pinnedInGroup || (item.parent == nil && item.section == SidebarDocStore.pinnedSection)
     }
 
     /// Records from a `sidebar.get` reply.
