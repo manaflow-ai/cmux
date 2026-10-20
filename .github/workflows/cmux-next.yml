@@ -52,6 +52,7 @@ on:
       - scripts/ci/cmux-tui-darwin-builder
       - scripts/ci/macho_weaken.py
       - scripts/ci/macos-cross.sh
+      - scripts/ci/cargo-groups.sh
       - scripts/ci/macos-stubs/**
       - first-party-apps/cloud/server/**
       - scripts/ci/macos_stubs.py
@@ -258,6 +259,7 @@ on:
       - scripts/ci/cmux-tui-darwin-builder
       - scripts/ci/macho_weaken.py
       - scripts/ci/macos-cross.sh
+      - scripts/ci/cargo-groups.sh
       - scripts/ci/macos-stubs/**
       - first-party-apps/cloud/server/**
       - scripts/ci/macos_stubs.py
@@ -718,6 +720,11 @@ jobs:
           CMUX_TUI_TREE_DISPATCH: ""
           CMUX_TUI_TREE_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           CMUX_TUI_TREE_BASE_FALLBACK: ${{ steps.route.outputs.own_tui == 'false' && '1' || '' }}
+          # A same-repository PR with its own merge tree waits (read-only, the
+          # script's 90s default) for the artifacts run main's
+          # cmux-next-pr-merge-tree.yml starts on cmux-tui-pin-<sha12>. That
+          # workflow skips forks, so a fork PR looks once.
+          CMUX_TUI_TREE_PUBLISHER_WAIT_SECONDS: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && '0' || '' }}
           GH_TOKEN: ${{ github.token }}
         run: scripts/cmux-next/pin-cmux-tui.sh probe
 
