@@ -14,7 +14,16 @@ import Testing
 
     @Test func theMostRecentlyUsedCachedCodeServerWinsAndRunsWithoutElectronAsNode() throws {
         let planner = VSCodeServeWebLaunchPlanner(
-            homeDirectory: Self.home, environment: ["ELECTRON_RUN_AS_NODE": "1"],
+            homeDirectory: Self.home, environment: [
+                "ELECTRON_RUN_AS_NODE": "1",
+                "HOME": "/Users/me",
+                "LANG": "en_US.UTF-8",
+                "LC_ALL": "en_US.UTF-8",
+                "NODE_OPTIONS": "--require /tmp/untrusted.js",
+                "OPENAI_API_KEY": "ambient-secret",
+                "PATH": "/usr/bin:/bin",
+                "SSH_AUTH_SOCK": "/tmp/agent.sock",
+            ],
             isExecutable: { $0 == "\(Self.cache)/bbb/bin/code-server" || $0 == "\(Self.cache)/aaa/bin/code-server" || $0.hasSuffix("code-tunnel") },
             data: { $0.path == "\(Self.cache)/lru.json" ? Data(#"["../evil","bbb","aaa"]"#.utf8) : nil },
             contents: { _ in [] }, modificationDate: { _ in nil }
@@ -22,7 +31,33 @@ import Testing
         let launch = try #require(planner.launch(vscode: Self.vscode, connectionTokenFile: Self.token))
         #expect(launch.executableURL.path == "\(Self.cache)/bbb/bin/code-server")
         #expect(launch.arguments == ["--accept-server-license-terms", "--host", "127.0.0.1", "--port", "0", "--connection-token-file", "/tmp/token"])
-        #expect(launch.environment["ELECTRON_RUN_AS_NODE"] == nil)
+        #expect(launch.environment == [
+            "HOME": "/Users/me",
+            "LANG": "en_US.UTF-8",
+            "LC_ALL": "en_US.UTF-8",
+            "PATH": "/usr/bin:/bin",
+        ])
+    }
+
+    @Test func symlinkedCachedCodeServerIsRefused() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("vscode-link-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let serverDirectory = root.appendingPathComponent(".vscode/cli/serve-web/current/bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: serverDirectory, withIntermediateDirectories: true)
+        let target = root.appendingPathComponent("replacement")
+        try "#!/bin/sh\nexit 0\n".write(to: target, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: target.path)
+        let server = serverDirectory.appendingPathComponent("code-server")
+        try FileManager.default.createSymbolicLink(at: server, withDestinationURL: target)
+        let planner = VSCodeServeWebLaunchPlanner(
+            homeDirectory: root,
+            environment: [:],
+            data: { $0.path.hasSuffix("lru.json") ? Data(#"["current"]"#.utf8) : nil },
+            contents: { _ in [] },
+            modificationDate: { _ in nil }
+        )
+
+        #expect(planner.launch(vscode: root.appendingPathComponent("Visual Studio Code.app"), connectionTokenFile: Self.token) == nil)
     }
 
     @Test func withoutLRUTheNewestCachedServerWinsInTheProductsDataFolder() throws {
