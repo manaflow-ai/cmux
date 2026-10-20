@@ -326,6 +326,7 @@ impl Mux {
                             ratio: None,
                             viewport_width: None,
                             row_height: None,
+                            focus: true,
                         },
                     ),
                     None if slots.workspace.is_some() => self.effect_create_terminal_in_workspace(
@@ -374,6 +375,13 @@ impl Mux {
                             .and_then(Value::as_f64)
                             .map(|value| value as f32),
                         row_height: rows::row_height_field(fields)?,
+                        // Absent only on the daemon's own and the user's
+                        // splits: the resource router sends `focus: false`
+                        // for a caller that did not ask.
+                        focus: fields
+                            .get(PANE_SPLIT_FOCUS_FIELD)
+                            .and_then(Value::as_bool)
+                            .unwrap_or(true),
                     },
                 )
                 .map(|created| created.path)
@@ -828,7 +836,7 @@ impl Mux {
         target: PaneId,
         options: PaneAddOptions<'_>,
     ) -> anyhow::Result<CreatedTerminalEffect> {
-        let PaneAddOptions { direction, argv, cwd, size, ratio, viewport_width, row_height } =
+        let PaneAddOptions { direction, argv, cwd, size, ratio, viewport_width, row_height, focus } =
             options;
         let split_direction = direction
             .map(|direction| {
@@ -979,7 +987,9 @@ impl Mux {
                     || self.next_id(),
                 );
             }
-            screen.active_pane = pane_id;
+            if focus {
+                screen.active_pane = pane_id;
+            }
             screen.zoomed_pane = None;
             screen.record_layout_change(before, vec![pane_id], None);
             if let (Some(split), Some(public_id)) = (split_id, split_public_id) {
@@ -996,7 +1006,9 @@ impl Mux {
                 focused_at: 0,
             });
             state.register_placed_tab_identity(surface.id);
-            stamp_pane_focus(self, &mut state, pane_id);
+            if focus {
+                stamp_pane_focus(self, &mut state, pane_id);
+            }
             Self::rebuild_split_screen_index(&mut state);
             let entity = crate::server::tree_entity_json(
                 &state,

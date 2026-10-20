@@ -16,7 +16,8 @@ enum BrowserHandlers {
         bindSplits(into: registry, context: context)
         bindLinkHints(into: registry, context: context)
         BrowserEnabledToggle.bind(into: registry, context: context)
-        bindUnavailable(registry)
+        BrowsingDataClear.bindClearHistory(registry, context: context)
+        registry.bind("palette.browserToggleOmnibar", run: { invocation in try context.page(invocation).chrome.toggleOmnibar() })
     }
 
     private static func bindPage(into registry: ActionRegistry, context: AppActionContext) {
@@ -221,11 +222,5 @@ enum BrowserHandlers {
                 }, notice: { [weak chrome = entry.chrome] text in chrome?.showNotice(text) })
             })
         }
-    }
-
-    private static func bindUnavailable(_ registry: ActionRegistry) {
-        func unavailable(_ ids: [ActionID], _ reason: String) { registry.bindUnavailable(ids, ActionFailure(message: reason)) }
-        unavailable(["palette.browserToggleOmnibar"], MiscHandlerStrings.omnibarToggle)
-        unavailable(["palette.browserClearHistory"], MiscHandlerStrings.browserHistory)
     }
 }

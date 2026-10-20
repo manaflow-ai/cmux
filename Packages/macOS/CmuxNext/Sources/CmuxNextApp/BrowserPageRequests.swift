@@ -139,6 +139,10 @@ final class BrowserPageRequests: BrowserTabDelegate {
             openInNewWorkspace(url, opener: page)
         case .adoptTab(let child, .newWindow):
             openInNewWorkspace(child.state.url, adopting: child, opener: page)
+        case .openURL(let url, .linkPlacement):
+            openOnRight(url: url, adopting: nil, engine: engine, profile: profile, from: pane, opener: openerTab.surface)
+        case .adoptTab(let child, .linkPlacement):
+            openOnRight(url: child.state.url, adopting: child, engine: engine, profile: profile, from: pane, opener: openerTab.surface)
         case .openURL(let url, let disposition):
             open(url: url, adopting: nil, engine: engine, profile: profile, in: pane, opener: openerTab.surface,
                  background: disposition == .backgroundTab)
@@ -285,6 +289,23 @@ final class BrowserPageRequests: BrowserTabDelegate {
             return
         }
         services.popups.open(child, request: request, from: window, openerKey: openerKey)
+    }
+
+    /// A Cmd-click (`browser.links.cmdClick`: `linkPlacement`): the same placement as every other
+    /// link the person opens (``LinkOpener``, `layout.linkPlacement`): the pane right of the page's
+    /// pane, else a new split there; the page keeps showing. The opener's engine and browser profile
+    /// carry over, and an engine-made child page is adopted there (`window.opener` kept). With its
+    /// pane off screen it opens as a background tab next to the opener, as before.
+    private func openOnRight(url: URL?, adopting child: (any BrowserTab)?, engine: String, profile: String?, from pane: PaneModel,
+                             opener: SurfaceID) {
+        guard let services, let source = services.paneController(for: pane) else {
+            return open(url: url, adopting: child, engine: engine, profile: profile, in: pane, opener: opener, background: true)
+        }
+        // A refusal closes an adopted child itself (PaneBrowserTabOpener).
+        services.linkOpener.open(from: source) { target, placed in
+            target.newBrowserTab(url: url, inherited: engine, adopting: child, background: placed != nil, profile: profile,
+                                 opener: target === source ? opener : nil, then: placed)
+        }
     }
 
     private func open(url: URL?, adopting child: (any BrowserTab)?, engine: String, profile: String?, in pane: PaneModel,

@@ -46,6 +46,23 @@ pub(crate) struct AppControlMessages {
     pub skew_classic: &'static str,
     pub skew_other: &'static str,
     pub skew_use_cli: &'static str,
+    /// `cmux version` (cli/app/version.rs): the text report's labels.
+    pub version: VersionLabels,
+}
+
+/// The labels of `cmux version`'s text report; the JSON keys stay English.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct VersionLabels {
+    pub cli: &'static str,
+    pub app: &'static str,
+    pub no_app: &'static str,
+    pub bundle: &'static str,
+    pub socket: &'static str,
+    pub cli_matches_app: &'static str,
+    pub yes: &'static str,
+    pub no: &'static str,
+    pub updates: &'static str,
+    pub last_check: &'static str,
 }
 
 pub(super) const ENGLISH: AppControlMessages = AppControlMessages {
@@ -86,6 +103,18 @@ pub(super) const ENGLISH: AppControlMessages = AppControlMessages {
     skew_classic: "this cmux-next CLI ({cli}) sent {method}, but the app at {socket} is the classic cmux app{version}, which does not speak cmux-next methods. Run this in a cmux-next terminal, or use the classic app's own CLI.",
     skew_other: "this CLI ({cli}) sent {method}, but {app}{version} at {socket} does not support it. Use the CLI that ships with {app}, or quit {app} and open the app this CLI ships with.",
     skew_use_cli: "Its CLI: {path}",
+    version: VersionLabels {
+        cli: "CLI",
+        app: "App",
+        no_app: "no app answered",
+        bundle: "Bundle",
+        socket: "Socket",
+        cli_matches_app: "CLI is the app's",
+        yes: "yes",
+        no: "no, the app's CLI is",
+        updates: "Updates",
+        last_check: "Last check",
+    },
     search_text_usage: "usage: cmux {scope} search <text> [OPTIONS]; `cmux {scope} --help` lists the options",
     history_clear_range_usage: "usage: cmux history clear-range --range hour|today|week|month|all [--kind <kind,...>] [--profile <profile>]",
     history_text_bytes: "{what} must contain 1 to 1024 UTF-8 bytes",
@@ -131,6 +160,18 @@ pub(super) const JAPANESE: AppControlMessages = AppControlMessages {
     skew_classic: "この cmux-next CLI ({cli}) は {method} を送りましたが、{socket} のアプリは従来の cmux アプリ{version} で、cmux-next のメソッドを話しません。cmux-next のターミナルで実行するか、従来のアプリ自身の CLI を使ってください。",
     skew_other: "この CLI ({cli}) は {method} を送りましたが、{socket} の {app}{version} はこのメソッドに対応していません。{app} に同梱された CLI を使うか、{app} を終了してこの CLI が同梱されたアプリを開いてください。",
     skew_use_cli: "その CLI: {path}",
+    version: VersionLabels {
+        cli: "CLI",
+        app: "アプリ",
+        no_app: "応答するアプリがありません",
+        bundle: "バンドル",
+        socket: "ソケット",
+        cli_matches_app: "アプリ同梱の CLI",
+        yes: "はい",
+        no: "いいえ。アプリの CLI は",
+        updates: "アップデート",
+        last_check: "最終確認",
+    },
     search_text_usage: "使い方: cmux {scope} search <テキスト> [オプション]。オプションは `cmux {scope} --help` で表示",
     history_clear_range_usage: "使い方: cmux history clear-range --range hour|today|week|month|all [--kind <種類,...>] [--profile <プロファイル>]",
     history_text_bytes: "{what} は 1 から 1024 バイトの UTF-8 にしてください",
