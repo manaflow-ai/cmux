@@ -15,6 +15,7 @@ fn call(command: AppCommand) -> (&'static str, Value) {
         | AppCommand::Events { .. }
         | AppCommand::DebugCall { .. }
         | AppCommand::Screenshot { .. }
+        | AppCommand::Right { .. }
         | AppCommand::Settings(_) => {
             panic!("expected a call")
         }
@@ -755,6 +756,7 @@ fn only_a_confirmed_settings_write_waits_without_a_deadline() {
         | AppCommand::Events { .. }
         | AppCommand::DebugCall { .. }
         | AppCommand::Screenshot { .. }
+        | AppCommand::Right { .. }
         | AppCommand::Settings(_) => {
             panic!("expected a call")
         }
@@ -1228,3 +1230,6 @@ fn move_to_window_new_is_move_to_new_window() {
     assert_eq!(new_window_spelling("workspace move-to-window", &args(&["--new=false"])), None);
     assert_eq!(new_window_spelling("workspace rename", &args(&["--new"])), None);
 }
+
+#[path = "right_tests.rs"]
+mod right;

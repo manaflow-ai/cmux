@@ -62,10 +62,13 @@ public final class LayoutRootView: NSView {
     var overlayIsStale = false
     var overlayFlushScheduled = false
 
-    /// A pane close holds the terminals' grids (red: never).
+    /// A pane close is springing on some screen: the panes around it change size every frame, and
+    /// their terminals keep their grids (the PTY resizes once, at rest) until it lands
+    /// (plans/cmux-next/close-animation/DESIGN.md). Called with true when the first close starts
+    /// and false when the last one lands; the App holds `ResizeCoordinator` with it.
     public var onTerminalGridHold: ((Bool) -> Void)?
-    /// Whether a pane close holds the terminals' grids now (red: never).
-    public var holdsTerminalGrids: Bool { false }
+    /// Whether a pane close holds the terminals' grids now (``onTerminalGridHold``).
+    public var holdsTerminalGrids: Bool { !context.closingScreens.isEmpty }
 
     /// Everything the view reads from the model, observed as one value.
     private struct Snapshot: Equatable, Sendable {
@@ -101,6 +104,7 @@ public final class LayoutRootView: NSView {
         context.requestFrames = { [weak self] in self?.driver.start() }
         driver.onFrame = { [weak self] dt in self?.advanceFrame(dt) ?? false }
         context.overlayNeedsSync = { [weak self] in self?.setNeedsOverlaySync() }
+        context.gridHoldDidChange = { [weak self] held in self?.onTerminalGridHold?(held) }
         context.stripClipsDidChange = { [weak self] in
             guard let self else { return }
             planeHost?.paneShapesDidChange(overlayPlane)

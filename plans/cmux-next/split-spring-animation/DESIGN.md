@@ -45,7 +45,7 @@ does not change it). Values for a 700 pt travel (the new pane of a full-width sp
 | Spring | half travel | 95% | visible end (0.5 pt) | overshoot |
 |---|---|---|---|---|
 | `move` 0.15 / 1.0 (before) | 40 ms | 113 ms | 246 ms | 0 |
-| `exit` 0.24 / 1.0 (close) | 64 ms | 181 ms | 385 ms | 0 |
+| `exit` 0.24 / 1.0 (close; a window close since close-animation) | 64 ms | 181 ms | 385 ms | 0 |
 | `zoom` 0.30 / 1.0 | 80 ms | 227 ms | ~480 ms | 0 |
 | **`split` 0.28 / 0.95** | **73 ms** | **195 ms** | **375 ms** | **< 0.1 pt** |
 | 0.30 / 0.90 | 76 ms | 192 ms | 306 ms | 0.5 pt |
@@ -83,7 +83,7 @@ Why these:
   client keys) and the layout-intent split (`WorkspaceContentController` `.split`) still size after
   the reply; see Doubts.
 - `ScreenPaneMotionState.retarget(splitting:)`: a change with an arriving pane takes
-  `PaneMotionVariant.splitSpring` (`split` by default); a close keeps `exit`; anything else `move`.
+  `PaneMotionVariant.splitSpring` (`split` by default); a close takes `split` too since close-animation (it was `exit`); anything else `move`.
   A change while a split still moves (the daemon's echo ~75 ms in) keeps the spring and velocity.
 - One landing: a screen's pane and divider frames advance without settling one by one
   (`AnimatedFrame.advanceUnsettled`) and snap together once every edge is within a quarter point

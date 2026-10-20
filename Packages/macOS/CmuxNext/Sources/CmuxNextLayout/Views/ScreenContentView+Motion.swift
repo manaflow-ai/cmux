@@ -34,7 +34,10 @@ extension ScreenContentView {
         }
         if stepRows(dt, policy: policy) { moving = true }
         if MotionTrace.isEnabled { MotionTrace.sample("layout.travel", Double(travelLeft)) }
-        if scrollRidesFrames, !paneFrames.values.contains(where: { $0.rect != $0.targetRect }) { scrollRidesFrames = false }
+        let panesMoving = paneFrames.values.contains { $0.rect != $0.targetRect }
+        if scrollRidesFrames, !panesMoving { scrollRidesFrames = false }
+        // The panes landed: their terminals' grids go to the PTY once, now.
+        if closing, !panesMoving { closing = false }
         if !isUserScrolling {
             if scroll.advance(dt, parameters: scrollRidesFrames ? frameSpring : policy.spring(.scroll), epsilon: 0.25) {
                 moving = true

@@ -156,9 +156,9 @@ final class TopHomePageView: NSView {
             // The Chiefs listed when their engines (the rows' badges) were last read.
             var badgedChiefs: Set<String>?
             var listed: Set<ConversationID> = []
-            for await (all, archived, _, _, _, _, _, _) in ObservationStream({
+            for await (all, archived, _, _, _, _, _, _, _) in ObservationStream({
                 (store.rows, home.directory.archivedChiefs, sidebar.query, sidebar.pins, sidebar.unreadMarks, home.directory.chiefAvatar,
-                 sidebar.ownerRows, home.directory.chiefHarnesses)
+                 sidebar.ownerRows, home.directory.chiefHarnesses, home.chiefRoster)
             }) {
                 guard let self else { return }
                 let chiefs = Set(all.flatMap { $0.summary.participants.filter(\.isChief).map(\.id.rawValue) })
