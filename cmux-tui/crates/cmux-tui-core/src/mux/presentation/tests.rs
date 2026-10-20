@@ -147,6 +147,7 @@ fn cmux_next_workspace_metadata_survives_restart_and_emits_workspace_changed() {
         title: Some(Some("Release train".into())),
         pinned: Some(true),
         marked_unread: Some(true),
+        ..Default::default()
     };
     let result = mux
         .set_workspace_metadata(

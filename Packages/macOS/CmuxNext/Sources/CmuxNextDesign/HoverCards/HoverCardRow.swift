@@ -127,6 +127,7 @@ public final class HoverCardRowView: NSView {
         textLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
         accessoryView.setContentHuggingPriority(.required, for: .horizontal)
         accessoryView.setContentCompressionResistancePriority(.required, for: .horizontal)
+        icon.cell?.setAccessibilityElement(false) // decorative: the row's text says it (an image view answers through its cell)
         // The text and its counts read from the leading edge; the live mark sits at the trailing one.
         stack.setViews([icon, statusLabel, textLabel, additionsLabel, deletionsLabel], in: .leading)
         stack.setViews([accessoryView], in: .trailing)

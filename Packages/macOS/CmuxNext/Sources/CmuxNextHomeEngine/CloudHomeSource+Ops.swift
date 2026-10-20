@@ -58,6 +58,8 @@ nonisolated extension CloudHomeSource {
             return HomeOpResult(rev: 0, conversation: conversation)
         case .renameConversation(let conversation, let title):
             return try await edit(.setTitle(title.trimmingCharacters(in: .whitespacesAndNewlines)), in: conversation)
+        case .setChiefReplies(let conversation, let policy):
+            return try await edit(.setSettings(wakePolicy: policy.rawValue), in: conversation)
         case .addParticipants(let conversation, let ids):
             let records = state.withLock { state in
                 ids.filter { $0 != identity.localID }.map { state.participantRecord($0, identity: identity) }

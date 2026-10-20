@@ -5,6 +5,8 @@ import SwiftUI
 @MainActor
 final class DismissBox {
     var action: (() -> Void)?
+    /// The approver's new size, after its layout changed (the floating card follows it).
+    var resized: ((CGSize) -> Void)?
 }
 
 /// Reads the style tunables, the border switch and the resolved colors in a
@@ -31,7 +33,7 @@ struct ServerRoot: View {
         case let .health(style):
             ServerHealthView(model: model, style: style ?? ServerTunables.healthStyle.value)
         case .approver:
-            ServerApproverView(model: model) { dismiss.action?() }
+            ServerApproverView(model: model, close: { dismiss.action?() }, resized: { dismiss.resized?($0) })
         }
     }
 }

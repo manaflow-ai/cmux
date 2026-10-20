@@ -82,7 +82,7 @@ final class WebAuthSessionWindow: NSObject, WebAuthSessionSurface, BrowserTabDel
         if let cef = page as? CEFTab {
             CEFSignInCallbacks.shared.set(Self.shimCallback(callback), on: cef) { [weak self] url in self?.shimStopped(url) }
         }
-        let panel = BrowserPopupWindow(page: page, frame: Self.frame())
+        let panel = BrowserPopupWindow(page: page, frame: Self.frame(), readOnlyAddress: true)
         panel.onEscape = { [weak self] in self?.close() }
         panel.onClose = { [weak self] in self?.end() }
         self.panel = panel
