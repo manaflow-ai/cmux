@@ -369,7 +369,6 @@
     "setting.browser.searchEngine": "google",
     "setting.browser.showAgentCursor": true,
     "setting.browser.showBookmarksBar": false,
-    "setting.browser.siteEngines": {"amazon.com/gp/video": "webkit", "disneyplus.com": "webkit", "hulu.com": "webkit", "max.com": "webkit", "music.apple.com": "webkit", "netflix.com": "webkit", "primevideo.com": "webkit", "spotify.com": "webkit", "tv.apple.com": "webkit"},
     "setting.browser.toolbar.back": true,
     "setting.browser.toolbar.downloads": true,
     "setting.browser.toolbar.extensions": true,

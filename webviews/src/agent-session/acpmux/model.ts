@@ -93,6 +93,8 @@ export type AcpmuxRow = {
   status?: string;
   error?: string;
   permission?: AcpmuxPermission;
+  /// A `questionRecord` row's question, answered or cancelled (question/record.ts).
+  question?: AgentQuestion;
   /// A turn summary whose turn draws a "Worked for" line (conversation/turns.ts), so its
   /// footer need not repeat the time and count.
   folded?: boolean;
@@ -326,6 +328,8 @@ export type AcpmuxSnapshot = {
   /// prompt (acpmux `queue_order` with `next`).
   queue: QueuedPrompt[];
   permission?: AcpmuxPermission;
+  /// How many more asks wait behind `permission`, answered one at a time; absent when none do.
+  permissionsWaiting?: number;
   secret?: AcpmuxSecretAsk;
   /** `unavailable`: why acpmux will not run that model (its backend refused it), or that harness
    * (its launcher check or its model probe failed). */

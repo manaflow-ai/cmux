@@ -8,6 +8,14 @@ public nonisolated struct AgentCLIJobCarrier: Sendable {
     /// The canonical session of that transport, preserved across this carrier's lifetime.
     public let session: ResourceID
     let transport: LineTransport
+    let identity: DaemonIdentity
+
+    /// Reads family evidence on this captured transport before an explicit update.
+    public func inventory() async throws -> AcpmuxHarnessInventory {
+        try MachineAgentInventoryRequest.requireServed(by: identity)
+        return try await DaemonRequestExecutor(transport: transport).perform(
+            MachineAgentInventoryRequest(expectedMachineID: machine), timeout: .seconds(15))
+    }
 
     /// Starts or replays one explicit intent using its original key.
     /// A lost reply does not establish refusal; retain the same intent for recovery.
