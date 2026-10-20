@@ -36,6 +36,8 @@ export interface ConversationListProps {
   onOpenPalette(): void;
   /** New message or channel: opens the page's #/new/message sheet (absent: the owner cannot). */
   onCompose?(): void;
+  /** New Chief: opens the page's #/new/chief page (absent: the owner has no Chief registry). */
+  onNewChief?(): void;
   actions: ListRowActions;
 }
 
@@ -50,6 +52,7 @@ export function ConversationList({
   onSelect,
   onOpenPalette,
   onCompose,
+  onNewChief,
   actions,
 }: ConversationListProps) {
   const { t } = strings;
@@ -87,6 +90,18 @@ export function ConversationList({
             onClick={onCompose}
           >
             <HomeIcon name="compose" size={16} />
+          </button>
+        )}
+        {onNewChief && (
+          <button
+            type="button"
+            className="hc-icon-button"
+            aria-label={t("action.newChief")}
+            title={t("action.newChief")}
+            data-new-chief=""
+            onClick={onNewChief}
+          >
+            <HomeIcon name="chiefAdd" size={16} />
           </button>
         )}
       </header>
