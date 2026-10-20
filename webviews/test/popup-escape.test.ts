@@ -204,7 +204,13 @@ await requireBrowserLane("popup-escape.test.ts", async () => {
   });
 
   /** Types `query` into `field` with the recorder on; the list escapes, keyboard and pick intact. */
-  const checkSuggestions = async (page: Page, field: string, list: string, query: string) => {
+  const checkSuggestions = async (
+    page: Page,
+    field: string,
+    list: string,
+    query: string,
+    side: "top" | "bottom" = "bottom",
+  ) => {
     await page.click(field);
     await page.keyboard.press("ControlOrMeta+A");
     await page.keyboard.press("Backspace");
@@ -217,7 +223,7 @@ await requireBrowserLane("popup-escape.test.ts", async () => {
     });
     const rows = await page.locator(`${list} [role=option]`).count();
     const show = (await popupCalls(page)).find((call) => call.method === "popup.show");
-    expect(show?.params).toMatchObject({ kind: "list", side: "bottom" });
+    expect(show?.params).toMatchObject({ kind: "list", side });
     expect(show?.params.items as unknown[] | undefined).toHaveLength(rows);
     expect(rows).toBeGreaterThan(1);
     // The field keeps the keyboard; the host's highlight follows the arrows to the page's row.
@@ -251,7 +257,8 @@ await requireBrowserLane("popup-escape.test.ts", async () => {
 
   test("a short window sends the New Tab suggestions past its edge", async () => {
     const page = await stage("agent-pane.new-tab", "typed-tab-match", { width: 600, height: 260 });
-    const labels = await checkSuggestions(page, ".nt-field", ".nt-rows", "release");
+    // The default layout's composer sits at the foot of the page, so its rows open above it.
+    const labels = await checkSuggestions(page, ".nt-field", ".nt-rows", "release", "top");
     expect(labels).toContain("Release notes cmux.dev");
     await page.close();
   });

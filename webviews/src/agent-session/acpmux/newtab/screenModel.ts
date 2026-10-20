@@ -403,9 +403,15 @@ export function needsYouCards(
   t: Translate,
   count = MAX_NEEDS_YOU,
 ): ChatCard[] {
-  return liveChatCards(sessions, now, t, Number.POSITIVE_INFINITY, false)
-    .filter((card) => card.state === "input" || card.state === "error" || card.state === "failed")
-    .slice(0, count);
+  // One pass keeps the waiting chats (sessionCard's state, read without building a card); only
+  // those few are sorted and carded, never the whole list (greptile on #22119).
+  const waiting = sessions.filter((raw) => {
+    const session = normalizedSessionEntry(raw as Parameters<typeof normalizedSessionEntry>[0]);
+    if (session.indicator === "failed") return true;
+    const mark = sessionMark(session, false);
+    return mark === "input" || mark === "error";
+  });
+  return liveChatCards(waiting, now, t, count, false);
 }
 
 function liveChatCards(

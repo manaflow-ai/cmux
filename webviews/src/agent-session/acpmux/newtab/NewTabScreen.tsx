@@ -393,7 +393,9 @@ export function NewTabScreen(props: Props) {
     const document = box.ownerDocument;
     const press = (event: Event) => {
       const target = event.target as Element | null;
-      if (target && (box.contains(target) || target.closest?.(".nt-popover"))) return;
+      // The stage layout's footer chips are the box's own controls, moved under it: a press there
+      // keeps the rows, as it did in the box.
+      if (target && (box.contains(target) || target.closest?.(".nt-popover, .nt-footer .acpmux-chips"))) return;
       setDismissed(textRef.current);
     };
     document.addEventListener("pointerdown", press, true);

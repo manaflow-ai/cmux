@@ -106,7 +106,14 @@ await requireBrowserLane("composer-top-strip-variants.test.ts", async () => {
       card: ".acpmux-composer-box",
       kind: "queue",
     },
-    { name: "New Tab strip", entry: "agent-pane.new-tab", variant: "empty", card: ".nt-box", kind: "strip" },
+    // The top-composer templates' strip; the default (stage) layout's is in the footer under the box.
+    {
+      name: "New Tab strip",
+      entry: "agent-pane.new-tab",
+      variant: "template-threads",
+      card: ".nt-box",
+      kind: "strip",
+    },
   ];
   const ring = /0px 0px 0px (0\.5|1)px inset/;
 

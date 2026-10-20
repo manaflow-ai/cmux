@@ -94,7 +94,8 @@ await requireBrowserLane("composer-caret-focus.test.ts", async () => {
       variant: "reasoning-chip",
       field: ".nt-field",
       box: ".nt-box",
-      row: ".nt-pickers",
+      // The default (stage) layout's chips are the quiet footer's, under the box.
+      row: ".nt-footer",
     },
   ];
   const CONTROLS = ":is(.acpmux-picker-button, .acpmux-mic, .acpmux-plan, .acpmux-steer, .acpmux-fast)";

@@ -1,12 +1,14 @@
 // The New Tab screen as the agent pane lays it out (App.tsx): the screen is the page's one scroller,
 // with the template pager under it, and its composer carries the pane's own model chip
 // (NewTabComposerChips). The host's actions answer nothing. `?reported` gives the chips a session
-// that reported its reasoning levels and access modes, so the effort and access menus show.
+// that reported its reasoning levels and access modes, so the effort and access menus show;
+// `?template=threads` draws a top-composer template instead of the default (stage) layout.
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createRoot } from "react-dom/client";
 import { noChat } from "../../src/gallery/fixtures/acpmux";
 import { NewTabComposerChips } from "../../src/agent-session/acpmux/App";
 import { NewTabScreen } from "../../src/agent-session/acpmux/newtab/NewTabScreen";
+import type { ScreenTemplate } from "../../src/agent-session/acpmux/newtab/templates";
 // The pane's styles, as its dev entry loads them (acpmux/dev.tsx).
 import "../../src/pages/shared/desktop.css";
 import "../../src/ui/popupSurface.css";
@@ -24,7 +26,9 @@ import "../../src/agent-session/acpmux/newtab/screen.css";
 );
 
 const noop = () => {};
-const reported = new URLSearchParams(location.search).has("reported");
+const params = new URLSearchParams(location.search);
+const reported = params.has("reported");
+const template = (params.get("template") ?? undefined) as ScreenTemplate | undefined;
 const snapshot = noChat(
   [],
   reported
@@ -66,6 +70,7 @@ createRoot(root).render(
   <QueryClientProvider client={client}>
     <NewTabScreen
       snapshot={snapshot}
+      template={template}
       lastAgent="claude"
       cwd="/Users/you/src/app"
       inputToken="opening-1"

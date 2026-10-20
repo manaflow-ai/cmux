@@ -4,6 +4,11 @@
 // suggestion. Same for the reasoning (effort) menu, and the other way around: suggestions that
 // open while a menu shows stay under it.
 //
+// Both layouts: the threads template keeps the composer at the top, where the short window's menus
+// open down over the suggestions; the default (stage) layout keeps it at the foot, its chips in the
+// footer under the box, and the suggestions open above it. Where a menu does lie over the
+// suggestions, a press on its rows reaches the menu; the top layout must show that overlap.
+//
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
@@ -122,37 +127,46 @@ await requireBrowserLane("new-tab-menu-over-suggestions.test.ts", async () => {
     },
   ];
 
-  for (const { name, query, height, button, menu, rows } of MENUS) {
-    test(`the ${name} menu opened over the suggestions takes the presses on its rows`, async () => {
-      const page = await openPage(query, height);
-      await suggest(page);
-      await page.locator(button).first().click();
-      const result = await covered(page, menu, rows);
-      console.log(`${name} menu over suggestions`, JSON.stringify(result));
-      expect(result.overlapping).toBeGreaterThan(0);
-      expect(result.misses).toEqual([]);
-      await page.close();
-    });
-  }
+  const LAYOUTS = [
+    { layout: "top", template: "threads", mustOverlap: true },
+    { layout: "stage", template: "", mustOverlap: false },
+  ];
+  const withTemplate = (query: string, template: string) =>
+    template ? `${query ? `${query}&` : "?"}template=${template}` : query;
 
-  for (const { name, query, height, button, menu, rows } of MENUS) {
-    test(`suggestions that open while the ${name} menu shows stay under it`, async () => {
-      const page = await openPage(query, height);
-      await page.locator(button).first().click();
-      await page.locator(menu).waitFor();
-      // The field takes text without a press elsewhere (which would close the menu), as the host's
-      // dictation or a paste lands there.
-      await page.evaluate(() => {
-        const field = document.querySelector<HTMLTextAreaElement>(".nt-field")!;
-        Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(field, "re");
-        field.dispatchEvent(new Event("input", { bubbles: true }));
+  for (const { layout, template, mustOverlap } of LAYOUTS)
+    for (const { name, query, height, button, menu, rows } of MENUS) {
+      test(`${layout}: the ${name} menu opened over the suggestions takes the presses on its rows`, async () => {
+        const page = await openPage(withTemplate(query, template), height);
+        await suggest(page);
+        await page.locator(button).first().click();
+        const result = await covered(page, menu, rows);
+        console.log(`${layout}: ${name} menu over suggestions`, JSON.stringify(result));
+        if (mustOverlap) expect(result.overlapping).toBeGreaterThan(0);
+        expect(result.misses).toEqual([]);
+        await page.close();
       });
-      await page.locator(".nt-popover .nt-row").first().waitFor();
-      const result = await covered(page, menu, rows);
-      console.log(`suggestions under the open ${name} menu`, JSON.stringify(result));
-      expect(result.overlapping).toBeGreaterThan(0);
-      expect(result.misses).toEqual([]);
-      await page.close();
-    });
-  }
+    }
+
+  for (const { layout, template, mustOverlap } of LAYOUTS)
+    for (const { name, query, height, button, menu, rows } of MENUS) {
+      test(`${layout}: suggestions that open while the ${name} menu shows stay under it`, async () => {
+        const page = await openPage(withTemplate(query, template), height);
+        await page.locator(button).first().click();
+        await page.locator(menu).waitFor();
+        // The field takes text without a press elsewhere (which would close the menu), as the host's
+        // dictation or a paste lands there.
+        await page.evaluate(() => {
+          const field = document.querySelector<HTMLTextAreaElement>(".nt-field")!;
+          Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(field, "re");
+          field.dispatchEvent(new Event("input", { bubbles: true }));
+        });
+        await page.locator(".nt-popover .nt-row").first().waitFor();
+        const result = await covered(page, menu, rows);
+        console.log(`${layout}: suggestions under the open ${name} menu`, JSON.stringify(result));
+        if (mustOverlap) expect(result.overlapping).toBeGreaterThan(0);
+        expect(result.misses).toEqual([]);
+        await page.close();
+      });
+    }
 });
