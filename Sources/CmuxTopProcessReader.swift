@@ -12,9 +12,9 @@ struct CmuxTopProcessReader: CmuxTopProcessReading {
     }
     func processPath(pid: Int) -> String? { CmuxTopProcessSnapshot.processPath(pid: pid) }
     func scope(for pid: Int, key: CmuxTopProcessScopeCacheKey) -> CmuxTopProcessScope? {
-        // No cross-census scope cache: exec can change argv/environment without
-        // changing the PID's birth timestamp. In particular, absence cannot be
-        // cached across authoritative restore scans.
+        // Exec can change argv/environment without changing the PID's birth
+        // timestamp, so this reads every time. Reuse across censuses is keyed by
+        // `execIdentity` (CmuxTopProcessEnrichmentMemo), which an exec changes.
         guard case .resolved(let value) = CmuxTopProcessSnapshot.cmuxScopeProbe(
             for: pid, expectedCacheKey: key
         ) else { return nil }
@@ -23,6 +23,7 @@ struct CmuxTopProcessReader: CmuxTopProcessReading {
     func matches(pid: Int, key: CmuxTopProcessScopeCacheKey) -> Bool {
         CmuxTopProcessSnapshot.processMatchesKey(pid, key)
     }
+    func execIdentity(pid: Int) -> CmuxTopProcessExecIdentity? { CmuxTopProcessExecIdentity.read(pid: pid) }
     func processHasExited(pid: Int) -> Bool {
         guard pid > 0, pid <= Int(Int32.max) else { return false }
         return PIDPresence.current(pid: pid_t(pid)) == .absent

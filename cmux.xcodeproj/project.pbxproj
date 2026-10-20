@@ -1644,7 +1644,10 @@
 		C7A50C000000000000000002 /* CmuxTopProcessCPUTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A50C000000000000000001 /* CmuxTopProcessCPUTests.swift */; };
 		C7A50D000000000000000002 /* CmuxTopProcessCPUTracker.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A50D000000000000000001 /* CmuxTopProcessCPUTracker.swift */; };
 		C7A50E000000000000000002 /* CmuxTopProcessDetails.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A50E000000000000000001 /* CmuxTopProcessDetails.swift */; };
+		E65600826BE5EC3A27217823 /* CmuxTopProcessEnrichmentMemo.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F18C1035AC8BAD52CAE6439 /* CmuxTopProcessEnrichmentMemo.swift */; };
+		1F149F404A7A90FB6D42AE21 /* CmuxTopProcessEnrichmentMemoStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = E784D86972EC8D00AC2A4315 /* CmuxTopProcessEnrichmentMemoStore.swift */; };
 		C7A511000000000000000002 /* CmuxTopProcessEnumeration.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A511000000000000000001 /* CmuxTopProcessEnumeration.swift */; };
+		4C9DCF054D70009B75FE3740 /* CmuxTopProcessExecIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3CDFBAF57405D85EA810A2E5 /* CmuxTopProcessExecIdentity.swift */; };
 		E3963264188C49057DCE049E /* CmuxTopProcessFields.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88B38BF5157128ECD9B19C7F /* CmuxTopProcessFields.swift */; };
 		C524C9E20285BD22E1A965B3 /* CmuxTopProcessInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC7F0982F94748BE9A92F09D /* CmuxTopProcessInfo.swift */; };
 		90690100000000000000000A /* CmuxTopProcessOwner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 906901000000000000000009 /* CmuxTopProcessOwner.swift */; };
@@ -6273,7 +6276,10 @@
 		C7A50C000000000000000001 /* CmuxTopProcessCPUTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxTopProcessCPUTests.swift; sourceTree = "<group>"; };
 		C7A50D000000000000000001 /* CmuxTopProcessCPUTracker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxTopProcessCPUTracker.swift; sourceTree = "<group>"; };
 		C7A50E000000000000000001 /* CmuxTopProcessDetails.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxTopProcessDetails.swift; sourceTree = "<group>"; };
+		5F18C1035AC8BAD52CAE6439 /* CmuxTopProcessEnrichmentMemo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CmuxTopProcessEnrichmentMemo.swift"; sourceTree = "<group>"; };
+		E784D86972EC8D00AC2A4315 /* CmuxTopProcessEnrichmentMemoStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CmuxTopProcessEnrichmentMemoStore.swift"; sourceTree = "<group>"; };
 		C7A511000000000000000001 /* CmuxTopProcessEnumeration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxTopProcessEnumeration.swift; sourceTree = "<group>"; };
+		3CDFBAF57405D85EA810A2E5 /* CmuxTopProcessExecIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CmuxTopProcessExecIdentity.swift"; sourceTree = "<group>"; };
 		88B38BF5157128ECD9B19C7F /* CmuxTopProcessFields.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CmuxTopProcessFields.swift"; sourceTree = "<group>"; };
 		CC7F0982F94748BE9A92F09D /* CmuxTopProcessInfo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CmuxTopProcessInfo.swift"; sourceTree = "<group>"; };
 		906901000000000000000009 /* CmuxTopProcessOwner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxTopProcessOwner.swift; sourceTree = "<group>"; };
@@ -11288,6 +11294,9 @@
 				CC7F0982F94748BE9A92F09D /* CmuxTopProcessInfo.swift */,
 				88B38BF5157128ECD9B19C7F /* CmuxTopProcessFields.swift */,
 				4D542F660F18A3AA7D63E888 /* CmuxTopProcessCapture.swift */,
+				E784D86972EC8D00AC2A4315 /* CmuxTopProcessEnrichmentMemoStore.swift */,
+				5F18C1035AC8BAD52CAE6439 /* CmuxTopProcessEnrichmentMemo.swift */,
+				3CDFBAF57405D85EA810A2E5 /* CmuxTopProcessExecIdentity.swift */,
 				B35750000000000000000003 /* CmuxTopProcessArguments.swift */,
 				C7A508000000000000000001 /* CmuxTopSnapshotScopeCache.swift */,
 				C7A50D000000000000000001 /* CmuxTopProcessCPUTracker.swift */,
@@ -15591,7 +15600,10 @@
 				17B466F022929A67A20013DD /* CmuxTopProcessCapture.swift in Sources */,
 				C7A50D000000000000000002 /* CmuxTopProcessCPUTracker.swift in Sources */,
 				C7A50E000000000000000002 /* CmuxTopProcessDetails.swift in Sources */,
+				E65600826BE5EC3A27217823 /* CmuxTopProcessEnrichmentMemo.swift in Sources */,
+				1F149F404A7A90FB6D42AE21 /* CmuxTopProcessEnrichmentMemoStore.swift in Sources */,
 				C7A511000000000000000002 /* CmuxTopProcessEnumeration.swift in Sources */,
+				4C9DCF054D70009B75FE3740 /* CmuxTopProcessExecIdentity.swift in Sources */,
 				E3963264188C49057DCE049E /* CmuxTopProcessFields.swift in Sources */,
 				C524C9E20285BD22E1A965B3 /* CmuxTopProcessInfo.swift in Sources */,
 				90690100000000000000000A /* CmuxTopProcessOwner.swift in Sources */,

@@ -11,10 +11,18 @@ extension CmuxTopProcessSnapshot {
         now: @escaping @Sendable () -> ContinuousClock.Instant = { ContinuousClock.now }
     ) -> ProcessSnapshotService<CmuxTopProcessCapture, CmuxTopProcessFields> {
         let sampler = CmuxTopProcessSampler(reader: reader)
+        // Reads of unchanged process images carry over between censuses: an idle
+        // census reads one exec identity per process, not its argv/environment.
+        let memo = CmuxTopProcessEnrichmentMemoStore()
         return ProcessSnapshotService(
             now: now,
             capture: { try sampler.capture() },
-            enrich: { try sampler.enrich($0, fields: $1) }
+            enrich: { capture, fields in
+                let known = await memo.current()
+                let enriched = try sampler.enrich(capture, fields: fields, memo: known)
+                await memo.replace(with: enriched.memo)
+                return enriched.capture
+            }
         )
     }
 

@@ -11,6 +11,9 @@ protocol CmuxTopProcessReading: Sendable {
     func processPath(pid: Int) -> String?
     func scope(for pid: Int, key: CmuxTopProcessScopeCacheKey) -> CmuxTopProcessScope?
     func matches(pid: Int, key: CmuxTopProcessScopeCacheKey) -> Bool
+    /// The PID's process image (changes on exec and PID reuse), or nil when
+    /// unreadable; nil disables reuse of earlier reads for that process.
+    func execIdentity(pid: Int) -> CmuxTopProcessExecIdentity?
     /// Whether the PID no longer exists. A process that exited mid-census is
     /// absent evidence, not a gap that makes the census incomplete.
     func processHasExited(pid: Int) -> Bool

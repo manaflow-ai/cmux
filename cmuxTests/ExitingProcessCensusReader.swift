@@ -50,5 +50,6 @@ struct ExitingProcessCensusReader: CmuxTopProcessReading {
     }
 
     func matches(pid: Int, key: CmuxTopProcessScopeCacheKey) -> Bool { pid != exitedPID }
+    func execIdentity(pid: Int) -> CmuxTopProcessExecIdentity? { nil }
     func processHasExited(pid: Int) -> Bool { pid == exitedPID }
 }

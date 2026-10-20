@@ -137,6 +137,17 @@ final class SyntheticProcessSnapshotReader: CmuxTopProcessReading, Sendable {
         }
     }
 
+    /// Image identity: an exec'd PID gets a new version, a reused PID a new unique id.
+    func execIdentity(pid: Int) -> CmuxTopProcessExecIdentity? {
+        state.withLock { value in
+            value.counts.identity += 1
+            return CmuxTopProcessExecIdentity(
+                uniqueID: UInt64(pid) + (value.reusedPID == pid ? 1_000_000 : 0),
+                version: value.execedPID == pid ? 2 : 1
+            )
+        }
+    }
+
     /// The synthetic census has no exited processes: a replaced PID is live.
     func processHasExited(pid: Int) -> Bool { false }
 }
