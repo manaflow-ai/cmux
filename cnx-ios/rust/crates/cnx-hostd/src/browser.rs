@@ -16,14 +16,21 @@
 //! A host outlives its channel, so a phone that comes back (link drop,
 //! transport switch, tab switch) finds the page as it left it. A new channel
 //! for the same tab takes the host over (`replaced` closes the older one).
-//! At most `max_tabs` hosts run; opening another stops the least recently
-//! used one.
+//! At most `max_tabs` hosts run; opening another stops an idle host first,
+//! then a hidden tab's, then the least recently used one, whose channel
+//! closes `evicted` (the phone opens it again when it shows the tab).
+//!
+//! The phone says which tab it shows (`rb.visibility`, forwarded to the host
+//! too). With `video: "track"` the tab shown last owns the link's media lane:
+//! a newer channel takes the lane, and `rb.visibility` true takes it back
+//! (transport-verify-20261019.md defect 7).
 
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::process::Stdio;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use bytes::Bytes;
@@ -72,11 +79,32 @@ pub struct RunningHost {
 pub type Launcher =
     Arc<dyn Fn(LaunchRequest) -> BoxFuture<'static, Result<RunningHost, String>> + Send + Sync>;
 
+/// Why a viewer's splice ends.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Stop {
+    /// Another channel opened the same tab.
+    Replaced,
+    /// The host limit stopped this tab's host.
+    Evicted,
+}
+
 struct Entry {
     host: RunningHost,
     last_used: Instant,
     /// The channel that views the tab now; firing it ends that splice.
-    viewer: Option<(u64, oneshot::Sender<()>)>,
+    viewer: Option<(u64, oneshot::Sender<Stop>)>,
+    /// The phone shows this tab (its viewer's last `rb.visibility`; streams
+    /// start shown). Hidden hosts are stopped before shown ones.
+    visible: Arc<AtomicBool>,
+}
+
+/// A viewer's hold on a tab's host.
+pub(crate) struct Claim {
+    addr: SocketAddr,
+    secret: String,
+    viewer: u64,
+    pub(crate) stopped: oneshot::Receiver<Stop>,
+    pub(crate) visible: Arc<AtomicBool>,
 }
 
 /// The `browser` service's configuration and its running hosts.
@@ -135,11 +163,7 @@ impl BrowserConfig {
     }
 
     /// The host for `tab`, launched when needed, now owned by a new viewer.
-    async fn claim(
-        &self,
-        tab: &str,
-        url: &str,
-    ) -> Result<(SocketAddr, String, u64, oneshot::Receiver<()>), Refusal> {
+    pub(crate) async fn claim(&self, tab: &str, url: &str) -> Result<Claim, Refusal> {
         let launcher = self
             .launcher
             .clone()
@@ -148,10 +172,14 @@ impl BrowserConfig {
         hosts.retain(|_, entry| entry.host.guard.alive());
         if !hosts.contains_key(tab) {
             while hosts.len() >= self.max_tabs {
-                // Idle hosts go first, then the least recently used.
+                // Idle hosts go first, then hidden tabs', then the least
+                // recently used: the tab on the phone's screen goes last.
                 let Some(oldest) = hosts
                     .iter()
-                    .min_by_key(|(_, entry)| (entry.viewer.is_some(), entry.last_used))
+                    .min_by_key(|(_, entry)| {
+                        let shown = entry.viewer.is_some() && entry.visible.load(Ordering::SeqCst);
+                        (entry.viewer.is_some(), shown, entry.last_used)
+                    })
                     .map(|(tab, _)| tab.clone())
                 else {
                     break;
@@ -160,23 +188,35 @@ impl BrowserConfig {
                 if let Some(mut entry) = hosts.remove(&oldest)
                     && let Some((_, viewer)) = entry.viewer.take()
                 {
-                    let _ = viewer.send(());
+                    let _ = viewer.send(Stop::Evicted);
                 }
             }
             let request = LaunchRequest { tab: tab.to_owned(), url: url.to_owned() };
             let host = launcher(request).await.map_err(|e| Refusal::new("unavailable", e))?;
             tracing::info!(tab, addr = %host.addr, "browser: host started");
-            hosts.insert(tab.to_owned(), Entry { host, last_used: Instant::now(), viewer: None });
+            hosts.insert(
+                tab.to_owned(),
+                Entry { host, last_used: Instant::now(), viewer: None, visible: Arc::default() },
+            );
         }
         let entry = hosts.get_mut(tab).ok_or_else(|| Refusal::new("unavailable", "browser host vanished"))?;
         if let Some((_, previous)) = entry.viewer.take() {
-            let _ = previous.send(());
+            let _ = previous.send(Stop::Replaced);
         }
-        let id = self.next_viewer.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let (cancel, cancelled) = oneshot::channel();
+        let id = self.next_viewer.fetch_add(1, Ordering::Relaxed);
+        let (cancel, stopped) = oneshot::channel();
         entry.viewer = Some((id, cancel));
         entry.last_used = Instant::now();
-        Ok((entry.host.addr, entry.host.secret.clone(), id, cancelled))
+        // A new viewer starts shown; each viewer gets its own flag, so an
+        // older splice's last word never marks the newer one hidden.
+        entry.visible = Arc::new(AtomicBool::new(true));
+        Ok(Claim {
+            addr: entry.host.addr,
+            secret: entry.host.secret.clone(),
+            viewer: id,
+            stopped,
+            visible: Arc::clone(&entry.visible),
+        })
     }
 
     async fn release(&self, tab: &str, viewer: u64) {
@@ -205,6 +245,20 @@ pub fn allowed_url(url: &str) -> bool {
     let lower = url.trim().to_ascii_lowercase();
     (lower.starts_with("https://") || lower.starts_with("http://")) && url.len() <= 8192
         || lower == "about:blank"
+}
+
+/// The shown state in a phone-to-host control frame (`rb.visibility`), if
+/// it is one.
+pub fn visibility(payload: &[u8]) -> Option<bool> {
+    let control = serde_json::from_slice::<Value>(payload).ok()?;
+    if control.get("t").and_then(Value::as_str) != Some("service") {
+        return None;
+    }
+    let body = control.get("body")?;
+    if body.get("t").and_then(Value::as_str) != Some("rb.visibility") {
+        return None;
+    }
+    body.get("visible").and_then(Value::as_bool)
 }
 
 /// rb messages a viewer may send (cmux.rb/1 section 4, direction V). The
@@ -305,7 +359,8 @@ pub async fn serve(
         Some(_) => return Err(Refusal::new("forbidden", "only http, https and about:blank load")),
         None => "about:blank".to_owned(),
     };
-    let (addr, secret, viewer, cancelled) = config.claim(tab, &url).await?;
+    let claim = config.claim(tab, &url).await?;
+    let viewer = claim.viewer;
     // `video: "track"`: the page's video on the link's media lane (a WebRTC
     // track or RTP inside the WireGuard tunnel) when the link has one;
     // otherwise (an older phone, or the lane off) on this channel.
@@ -316,20 +371,20 @@ pub async fn serve(
     // The phone's tag for this tab's lane frames (cnx_link::media::tag).
     let video_tag = args.get("video_tag").and_then(Value::as_u64).and_then(|tag| u32::try_from(tag).ok());
     let track = track.map(|video| (video, video_tag));
-    let result = splice(addr, &secret, peer, sender, receiver, cancelled, track).await;
+    let result = splice(claim, peer, sender, receiver, track).await;
     config.release(tab, viewer).await;
     result
 }
 
 async fn splice(
-    addr: SocketAddr,
-    secret: &str,
+    claim_of_host: Claim,
     peer: &Peer,
     sender: &ChannelSender,
     mut receiver: ChannelReceiver,
-    mut cancelled: oneshot::Receiver<()>,
     track: Option<(&cnx_link::media::VideoOut, Option<u32>)>,
 ) -> Result<(), Refusal> {
+    let Claim { addr, secret, stopped: mut cancelled, visible, .. } = claim_of_host;
+    let secret = secret.as_str();
     let video_tag = track.and_then(|(_, tag)| tag);
     // A tagged phone keeps only its own tab's lane frames (the lane changes
     // tabs without telling it when); an older phone sent no tag.
@@ -461,6 +516,24 @@ async fn splice(
                             Ok(Some((kind, payload))) => match filter_frame(kind, &payload) {
                                 FrameVerdict::Forward => {
                                     let _ = encode_stream_frame(kind, &payload, &mut out);
+                                    if kind == STREAM_CONTROL && let Some(shown) = visibility(&payload) {
+                                        visible.store(shown, Ordering::SeqCst);
+                                        // The tab on screen takes the lane back
+                                        // from a hidden tab that opened later.
+                                        if shown
+                                            && claim.as_ref().is_none_or(|c| !c.owns())
+                                            && let Some((video, _)) = track
+                                            && !video.is_closed()
+                                        {
+                                            tracing::info!("browser: the shown tab takes the media lane back");
+                                            claim = Some(video.claim());
+                                            // A fresh viewer of the main stream,
+                                            // starting at a keyframe.
+                                            bridge = crate::browser_track::TrackBridge::new();
+                                            let recovery = bridge.feedback(false, now_us());
+                                            out.extend(recovery);
+                                        }
+                                    }
                                 }
                                 FrameVerdict::Drop(reason) => {
                                     dropped += 1;
@@ -486,8 +559,11 @@ async fn splice(
             }
             () = sleep => {}
             () = uncongested => {}
-            _ = &mut cancelled => {
-                return Err(Refusal::new("replaced", "another viewer opened this tab"));
+            stop = &mut cancelled => {
+                return Err(match stop {
+                    Ok(Stop::Evicted) => Refusal::new("evicted", "the Mac stopped this page to make room for another tab"),
+                    _ => Refusal::new("replaced", "another viewer opened this tab"),
+                });
             }
         }
         if let Some(c) = claim.as_ref() {
@@ -662,7 +738,19 @@ async fn launch_process(
     std::fs::create_dir_all(&cache).map_err(|e| format!("cache {}: {e}", cache.display()))?;
     let log = std::fs::File::create(cache.join("host.log")).map_err(|e| format!("host log: {e}"))?;
     let mut child = tokio::process::Command::new(exe)
-        .args(["--serve", "--listen", "127.0.0.1:0", "--lifeline", "--url", &request.url])
+        // `--use-mock-keychain` reaches Chromium through the host's argv: a host binary
+        // built without the switch in rb_shim.mm (the pin e9bed2bc) otherwise waits for
+        // the login Keychain's "Chromium Safe Storage" key it can never read, and every
+        // http(s) load hangs on about:blank (PR #22555 smoke).
+        .args([
+            "--serve",
+            "--listen",
+            "127.0.0.1:0",
+            "--lifeline",
+            "--use-mock-keychain",
+            "--url",
+            &request.url,
+        ])
         .env("CMUX_RB_CACHE_DIR", &cache)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -787,6 +875,57 @@ mod tests {
         drop(pending.await.unwrap().unwrap());
         let stop = events.lock().unwrap()[3].clone();
         assert_eq!(stop, serde_json::json!({"type": "browser_stop", "tab": "s6"}));
+    }
+
+    struct Alive;
+    impl HostGuard for Alive {
+        fn alive(&mut self) -> bool {
+            true
+        }
+    }
+
+    fn fake_launcher() -> Launcher {
+        Arc::new(|_request: LaunchRequest| {
+            Box::pin(async {
+                Ok(RunningHost {
+                    addr: "127.0.0.1:9".parse().unwrap(),
+                    secret: "s".into(),
+                    guard: Box::new(Alive),
+                })
+            })
+        })
+    }
+
+    /// transport-verify-20261019.md defect 7: the host limit stopped the
+    /// shown tab's page. A host the phone shows is stopped last, and its
+    /// viewer hears `evicted` (the page reopens), not `replaced`.
+    #[tokio::test]
+    async fn the_host_limit_stops_a_hidden_tab_before_the_shown_one() {
+        let config = BrowserConfig::new(Some(fake_launcher()), 2);
+        let shown = config.claim("s1", "about:blank").await.unwrap();
+        let mut hidden = config.claim("s2", "about:blank").await.unwrap();
+        // s2 opened last (it was used more recently), but the phone hides it.
+        hidden.visible.store(false, std::sync::atomic::Ordering::SeqCst);
+        let _third = config.claim("s3", "about:blank").await.unwrap();
+        assert_eq!(config.running_tabs().await, vec!["s1".to_owned(), "s3".to_owned()]);
+        assert_eq!(hidden.stopped.try_recv(), Ok(Stop::Evicted));
+        drop(shown);
+    }
+
+    #[tokio::test]
+    async fn a_second_viewer_of_a_tab_replaces_the_first() {
+        let config = BrowserConfig::new(Some(fake_launcher()), 2);
+        let mut first = config.claim("s1", "about:blank").await.unwrap();
+        let _second = config.claim("s1", "about:blank").await.unwrap();
+        assert_eq!(first.stopped.try_recv(), Ok(Stop::Replaced));
+    }
+
+    #[test]
+    fn the_phone_says_which_tab_is_shown() {
+        assert_eq!(visibility(&rb(serde_json::json!({"t": "rb.visibility", "visible": true}))), Some(true));
+        assert_eq!(visibility(&rb(serde_json::json!({"t": "rb.visibility", "visible": false}))), Some(false));
+        assert_eq!(visibility(&rb(serde_json::json!({"t": "rb.screen", "visible": true}))), None);
+        assert_eq!(visibility(b"not json"), None);
     }
 
     #[test]

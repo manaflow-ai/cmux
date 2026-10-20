@@ -14,6 +14,17 @@ public struct RelativeStamp: Sendable {
         self.calendar = calendar
     }
 
+    /// What VoiceOver says for `date`, matching ``string(for:)``: "now" under a minute
+    /// (also for a time a little ahead of the minute clock, which read "in 10 seconds",
+    /// full verify D14), else "5 minutes ago".
+    public func spoken(for date: Date) -> String {
+        let seconds = now.timeIntervalSince(date)
+        if seconds < 60 { return "now" }
+        let formatter = RelativeDateTimeFormatter()
+        formatter.calendar = calendar
+        return formatter.localizedString(for: date, relativeTo: now)
+    }
+
     public func string(for date: Date) -> String {
         let seconds = max(0, now.timeIntervalSince(date))
         switch seconds {

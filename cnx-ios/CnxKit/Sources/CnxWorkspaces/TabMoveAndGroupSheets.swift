@@ -57,6 +57,9 @@ struct TabMoveAndGroupSheets: ViewModifier {
                 set: { shown in if !shown { source.renamingGroupTab = nil } }
             ), presenting: source.renamingGroupTab) { tab in
                 TextField(tab.group?.name.isEmpty == false ? tab.group!.name : "Name", text: $groupName)
+                    // Names and prompts are code-like: no autocorrect, no capitals (full verify D5).
+                    .autocorrectionDisabled()
+                    .textInputAutocapitalization(.never)
                 Button("Cancel", role: .cancel) {}
                 Button("Rename") { Task { await source.editGroup(.rename(groupName), tab.id) } }
             }

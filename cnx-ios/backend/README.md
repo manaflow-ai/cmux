@@ -4,11 +4,15 @@ Cloudflare Worker for the cnx-ios app. It implements the HTTP and signaling
 parts of [`../PROTOCOL.md`](../PROTOCOL.md), which is the contract.
 
 - `src/index.ts`: routes, Stack JWT auth, validation.
-- `src/team-hub.ts`: `TeamHub` Durable Object, one per team (SQLite-backed,
-  hibernating WebSockets): signaling admission, Mac presence (no data relay: WireGuard without UDP uses TURN over TLS),
-  60 s membership cache. A hub is created with a `locationHint` from the
-  caller's geolocation (`locationHintFor` in `src/index.ts`), since a hub
-  never moves and free-plan requests are sometimes received in a far colo.
+- `src/team-hub.ts`: `TeamHub` Durable Object, one per **user** (named
+  `user:<owner key>` from the verified token; SQLite-backed, hibernating
+  WebSockets): signaling admission, Mac presence of the user's own devices
+  (no data relay: WireGuard without UDP uses TURN over TLS), 60 s membership
+  cache. A hub binds its owner on first use and refuses calls for another.
+  Teammates never share a hub (PROTOCOL.md "Signaling WebSocket"). A hub is
+  created with a `locationHint` from the caller's geolocation
+  (`locationHintFor` in `src/index.ts`), since a hub never moves and
+  free-plan requests are sometimes received in a far colo.
   `GET /v1/teams/:teamId/hub` reports the ingress colo and the hub's colo.
 - `src/store.ts`, `src/schema.ts`, `drizzle/`: PlanetScale Postgres through
   Hyperdrive (Drizzle). Tests use an in-memory store.

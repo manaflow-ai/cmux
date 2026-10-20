@@ -257,4 +257,6 @@ public enum ChiefBarItem: Equatable, Sendable {
     case question(AgentQuestion)
     /// `id` is the failed message's id.
     case failure(id: String, ChiefTurnFailure)
+    /// The Mac's Chief can't be reached: why, and whether Try Again is running.
+    case unavailable(reason: String, retrying: Bool)
 }

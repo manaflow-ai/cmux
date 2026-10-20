@@ -646,3 +646,25 @@ async fn a_socket_the_backend_closed_refuses_to_queue() {
     let bye = cnx_link::signaling::SignalPayload::Bye { reason: "late".into() };
     assert!(client.send_signal("mac", "session", bye).is_err(), "a closed socket still queues signals");
 }
+
+/// termfix r13 D2b (T-LIFE-12): an offer sent while the Mac's host was down
+/// or restarting is never answered. The dial gives up at its answer deadline,
+/// not at the whole dial's timeout (25 s in the app: the link came back 26.7 s
+/// after a cnx-hostd kill), so the next dial reaches the restarted host.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn webrtc_dial_gives_up_on_an_unanswered_offer_at_its_answer_deadline() {
+    let server = FakeSignaling::start(FakeOptions::default()).await;
+    let phone_id = uuid::Uuid::new_v4().to_string();
+    let mac_id = uuid::Uuid::new_v4().to_string();
+    // The Mac is on signaling but never answers (its host is gone).
+    let _mac = SignalingClient::connect(&server.base_url, "user:alice", "team", &mac_id).await.unwrap();
+    let phone = SignalingClient::connect(&server.base_url, "user:alice", "team", &phone_id).await.unwrap();
+    let dial_options =
+        DialOptions { timeout: Duration::from_secs(20), answer_timeout: Duration::from_secs(1), ..options() };
+    let started = std::time::Instant::now();
+    let result =
+        dial::connect(&phone, &mac_id, TransportKind::WebRtc, &dial_options, LinkConfig::default()).await;
+    let waited = started.elapsed();
+    assert!(matches!(result, Err(dial::DialError::Timeout)), "expected a timeout, got {:?}", result.err());
+    assert!(waited < Duration::from_secs(4), "gave up after {waited:?}");
+}

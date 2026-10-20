@@ -49,7 +49,7 @@ import Testing
         #expect(actions.responds == 1)
         actions.release?.resume()
         await settle { store.item(id: "p1")?.resolution != nil }
-        #expect(store.item(id: "p1")?.resolution == "Allowed: Allow once")
+        #expect(store.item(id: "p1")?.resolution == "Allowed once")
         #expect(store.item(id: "p1")?.pending == nil)
     }
 

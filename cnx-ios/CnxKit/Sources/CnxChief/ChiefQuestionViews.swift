@@ -60,6 +60,7 @@ struct ChiefQuestionBar: View {
         switch shown {
         case .question(let question)?: question.id + (session.answers[question.id]?.statusText ?? "")
         case .failure(let id, _)?: id
+        case .unavailable(let reason, let retrying)?: reason + (retrying ? "\u{0}" : "")
         case nil: ""
         }
     }
@@ -67,6 +68,8 @@ struct ChiefQuestionBar: View {
     @ViewBuilder private var content: some View {
         if case .failure(_, let failure)? = shown {
             failureBar(failure)
+        } else if case .unavailable(let reason, let retrying)? = shown {
+            unavailableBar(reason: reason, retrying: retrying)
         } else if case .question(let question)? = shown {
             let flow = session.answers[question.id] ?? ChiefAnswerFlow()
             Button { open(question) } label: {
@@ -118,6 +121,43 @@ struct ChiefQuestionBar: View {
         .padding(.horizontal, 16)
         .accessibilityIdentifier("chief.failure.bar")
         .accessibilityHint("Sends your last message to Chief again")
+        .opacity(visible ? 1 : 0)
+        .allowsHitTesting(visible)
+    }
+
+    /// The Mac's Chief can't be reached (refused, not running, no Mac): why,
+    /// in its own words, and Try Again when the link can try. Replaces the
+    /// conversation's first-load spinner, which never ends without Chief.
+    private func unavailableBar(reason: String, retrying: Bool) -> some View {
+        Button { session.retryConnecting() } label: {
+            HStack(spacing: 10) {
+                if retrying {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Image(systemName: "exclamationmark.triangle.fill").font(.body).foregroundStyle(.orange)
+                }
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Chief isn't available").font(.footnote.weight(.semibold))
+                    Text(reason).font(.footnote).foregroundStyle(.secondary).lineLimit(3)
+                }
+                Spacer(minLength: 4)
+                if session.canRetryConnecting {
+                    Text(retrying ? "Trying…" : "Try Again").font(.footnote.weight(.semibold))
+                }
+            }
+            .foregroundStyle(.primary)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 9)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(.rect)
+            .background(Color(uiColor: .secondarySystemBackground), in: .rect(cornerRadius: 20, style: .continuous))
+        }
+        .dynamicTypeSize(...DynamicTypeSize.accessibility1)
+        .buttonStyle(.plain)
+        .disabled(retrying || !session.canRetryConnecting)
+        .padding(.horizontal, 16)
+        .accessibilityIdentifier("chief.unavailable.bar")
+        .accessibilityHint(session.canRetryConnecting ? "Tries to reach Chief on your Mac again" : "")
         .opacity(visible ? 1 : 0)
         .allowsHitTesting(visible)
     }

@@ -55,6 +55,18 @@ public struct BrowserStreamStats: Sendable, Equatable {
         guard videoTrack else { return "channel" }
         return transport == .wireGuard ? "wg-rtp" : "track"
     }
+
+    /// The overlay's name for the library's carrier (`webrtc-track`,
+    /// `wireguard-udp`, `channel`): a WebRTC track (the link's own, or the
+    /// media session's beside a WireGuard link) is `track`.
+    public static func carrier(library: String, videoTrack: Bool, transport: TransportKind) -> String {
+        switch library {
+        case "webrtc-track": "track"
+        case "wireguard-udp": "wg-rtp"
+        case "channel": "channel"
+        default: carrier(videoTrack: videoTrack, transport: transport)
+        }
+    }
 }
 
 /// Where a stream delivers, on a library thread: hand off quickly.
@@ -76,11 +88,25 @@ public protocol BrowserStreamConnection: AnyObject, Sendable {
     func noteDecode(micros: UInt32)
     func stats() -> BrowserStreamStats
     func nowMicros() -> UInt64
+    /// The tab is on screen or not: a shown tab keeps the WebRTC media
+    /// session beside a WireGuard link open (verify/hybrid-link.md).
+    func setVisible(_ visible: Bool)
     func close()
+}
+
+extension BrowserStreamConnection {
+    public func setVisible(_ visible: Bool) {}
 }
 
 /// A link that can stream a Mac browser tab (the `browser` service).
 public protocol BrowserStreamOpening: Sendable {
     /// `tab`: the tab's key on the Mac (`s<surface>`); `url`: its first page.
     func openBrowser(tab: String, url: String?, sink: any BrowserStreamSink) async throws -> any BrowserStreamConnection
+    /// The shown workspace has browser tabs: open the WebRTC media session
+    /// beside a WireGuard link ahead of the first one (no-op otherwise).
+    func warmMedia()
+}
+
+extension BrowserStreamOpening {
+    public func warmMedia() {}
 }
