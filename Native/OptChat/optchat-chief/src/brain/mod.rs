@@ -226,6 +226,12 @@ pub enum Input {
         call: crate::tools::SleepCall,
         reply: Sender<Result<String, String>>,
     },
+    /// `escalate_auth` from subagent `agent` (control.rs): an urgent note.
+    EscalateAuth {
+        agent: String,
+        request: crate::tools::AuthEscalation,
+        reply: Sender<Result<String, String>>,
+    },
     /// `control(action, ...)` (control.rs).
     Control {
         request: crate::tools::ControlCall,
@@ -1072,6 +1078,13 @@ impl Brain {
             Input::Sleep { call, reply } => {
                 let _ = reply.send(self.sleep(call));
             }
+            Input::EscalateAuth {
+                agent,
+                request,
+                reply,
+            } => {
+                let _ = reply.send(self.escalate_auth(&agent, &request));
+            }
             Input::Control { request, reply } => {
                 let answer = self.control(&request);
                 let _ = reply.send(answer);
@@ -1358,6 +1371,25 @@ impl Brain {
         let wakes = item.wakes();
         self.queue.push_back(item);
         if human && same && wakes {
+            self.interrupt_for_newer();
+        }
+        self.maybe_start_turn();
+    }
+
+    /// Queues `text` as a note at the head of the main conversation's queue
+    /// and steers it into a running main turn at once (a subagent's
+    /// sign-in escalation: the user is waiting on it, so it never waits
+    /// behind other reports).
+    fn queue_urgent(&mut self, text: String) {
+        let item = Queued {
+            logged: false,
+            text,
+            source: Source::Note,
+            images: Vec::new(),
+            conversation: None,
+        };
+        self.queue.push_front(item);
+        if self.phase == Phase::Running && self.turn_side().is_none() {
             self.interrupt_for_newer();
         }
         self.maybe_start_turn();

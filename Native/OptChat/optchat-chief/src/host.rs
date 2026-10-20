@@ -893,6 +893,11 @@ fn start(
         chiefs_tool: chief_tools.grant().allows("chiefs"),
     };
     session_dir::write(paths, &setup).map_err(|e| format!("writing the session directory: {e}"))?;
+    // The skills cmux ships, shared by every Chief (skills.rs); a failure
+    // costs only the skill, never the host.
+    if let Err(e) = crate::skills::install_builtin(&crate::skills::shared_dir(&paths.home)) {
+        eprintln!("optchat-chief: installing the shipped Chief skills: {e}");
+    }
     // Section 9: every subagent's directory and system prompt.
     let sub_tools = if sub_family == Family::Claude {
         crate::prompt::Tools::Mcp
