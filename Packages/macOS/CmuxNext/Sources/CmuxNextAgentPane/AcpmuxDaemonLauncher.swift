@@ -36,7 +36,7 @@ nonisolated enum AcpmuxDaemonLauncher {
     /// Use variable, plus `childEnvironment`, the current Computer Use socket
     /// and agent token (never the host token), the session offer tools while
     /// suggested tasks are on (``AcpmuxEnvironment/offersSessionTools``), the agent message
-    /// runaway guard off when ``AcpmuxEnvironment/agentPairGuard`` is off, and the launch knobs.
+    /// runaway guard off when ``AcpmuxEnvironment/agentPairGuard`` is off (else its cap), and the launch knobs.
     static func spawnEnvironment(_ environment: AcpmuxEnvironment, inherited: [String: String]) -> [String: String] {
         let computerUse = Set(AcpmuxEnvironment.computerUseKeys + [AcpmuxEnvironment.computerUseHostKey])
         var variables = inherited.filter { !computerUse.contains($0.key) }.merging(environment.childEnvironment) { $1 }
@@ -44,7 +44,12 @@ nonisolated enum AcpmuxDaemonLauncher {
             if let value = environment.computerUse[key], !value.isEmpty { variables[key] = value }
         }
         if environment.offersSessionTools { variables[AcpmuxEnvironment.offerToolsKey] = "1" }
-        if !environment.agentPairGuard { variables[AcpmuxEnvironment.agentPairGuardKey] = "0" }
+        if environment.agentPairGuard {
+            variables[AcpmuxEnvironment.agentPairCapKey] = String(max(0, environment.agentPairCap))
+            variables[AcpmuxEnvironment.agentPairWindowKey] = String(max(0, environment.agentPairWindowSeconds))
+        } else {
+            variables[AcpmuxEnvironment.agentPairGuardKey] = "0"
+        }
         variables["ACPMUX_LAUNCH_LOG"] = environment.logPath
         variables["ACPMUX_LOGIN_ENV"] = "1"
         return variables

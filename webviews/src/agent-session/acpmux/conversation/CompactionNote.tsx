@@ -5,8 +5,11 @@
 //
 // A failover note says acpmux moved the chat onto its fallback harness after a usage limit, which
 // is otherwise invisible: the turn just goes on, answered by another harness.
+//
+// An agent pair note says acpmux paused this chat and another agent that kept messaging each
+// other (`hub/agent_pairs.rs`), with Resume until either chat is resumed.
 import { useT } from "../i18n";
-import type { AcpmuxCompaction, AcpmuxFailover } from "../model";
+import type { AcpmuxAgentPair, AcpmuxCompaction, AcpmuxFailover } from "../model";
 import { ArrowRight, Spinner, SummaryToggle } from "./icons";
 
 /// 27183 -> "27k", 2470 -> "2.5k"; under a thousand as is.
@@ -47,6 +50,32 @@ export function FailoverNote({ failover }: { failover: AcpmuxFailover }) {
           <ArrowRight />
         </span>
         <span className="cv-tool__text">{t("failover.continued", { from: failover.from, to: failover.to })}</span>
+      </div>
+    </div>
+  );
+}
+
+export function AgentPairNote({ pair, onResume }: { pair: AcpmuxAgentPair; onResume: (peer: string) => void }) {
+  const t = useT();
+  const peer = pair.peerName || pair.peer.slice(0, 8);
+  const text =
+    pair.reason === "cap"
+      ? t("agentPair.cap", { peer, count: pair.count ?? 0 })
+      : pair.reason === "release_failed"
+        ? t("agentPair.failed", { peer })
+        : t("agentPair.loop", { peer });
+  return (
+    <div className="cv-tools">
+      <div className="cv-tool cv-agent-pair" data-resumed={pair.resumed ? "" : undefined}>
+        <span className="cv-tool__icon">
+          <ArrowRight />
+        </span>
+        <span className="cv-tool__text">{text}</span>
+        {pair.resumed ? null : (
+          <button type="button" className="cv-agent-pair__resume" onClick={() => onResume(pair.peer)}>
+            {t("agentPair.resume")}
+          </button>
+        )}
       </div>
     </div>
   );

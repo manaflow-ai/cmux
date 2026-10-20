@@ -36,6 +36,11 @@ export type AcpmuxCompaction = {
 /// acpmux moved the chat onto its fallback harness after a usage limit (a `failover` record).
 export type AcpmuxFailover = { from: string; to: string };
 
+/// acpmux paused this chat and another agent session that kept messaging each other (an
+/// `agent_pair_paused` record, `hub/agent_pairs.rs`): `reason` is `alternating`, `repeating`,
+/// `cap` or `release_failed`. `resumed` once either chat logs `agent_pair_resumed`.
+export type AcpmuxAgentPair = { peer: string; peerName?: string; reason: string; count?: number; resumed?: boolean };
+
 /// What the chat's agent runs on, from its own start line (Claude Code's system/init, acpmux's
 /// `session_info_update._meta.claude`): drawn once, where the session started
 /// (conversation/SessionStartNote.tsx). `harness` and `cwd` are the chat's when the line came.
@@ -71,6 +76,8 @@ export type AcpmuxRow = {
   compaction?: AcpmuxCompaction;
   /// A failover row's harnesses.
   failover?: AcpmuxFailover;
+  /// An agent pair pause row's peer and why it paused.
+  agentPair?: AcpmuxAgentPair;
   /// A session start row's agent, version, model, route and folder.
   sessionStart?: AcpmuxSessionStart;
   /// A suggested tasks card's offers (offer/SuggestedTasks.tsx): the offers of one group, in the
@@ -520,6 +527,7 @@ function fallbackRowHeight(row: AcpmuxRow, width: number): number {
     row.kind === "backgroundTask" ||
     row.kind === "compaction" ||
     row.kind === "failover" ||
+    row.kind === "agentPair" ||
     row.kind === "plan" ||
     row.kind === "typing"
   )

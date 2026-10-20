@@ -266,7 +266,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         std::env::var("ACPMUX_PROBE_HARNESSES").ok().as_deref(),
     ));
     // The agent message runaway guard (`hub/agent_pairs.rs`): `ACPMUX_AGENT_PAIR_GUARD=0` turns
-    // it off; `ACPMUX_AGENT_PAIR_{ALTERNATIONS,REPEATS,SIMILARITY}` tune it.
+    // it off; `ACPMUX_AGENT_PAIR_{ALTERNATIONS,REPEATS,SIMILARITY,MAX_MESSAGES,WINDOW_SECS}` tune it.
     hub.set_agent_pair_guard(crate::hub::PairGuard::from_env(|k| std::env::var(k).ok()));
     if !std::env::var("ACPMUX_AGENT_HOSTS").is_ok_and(|v| v == "0") {
         hub.enable_agent_hosts();
@@ -914,10 +914,19 @@ async fn notify_loop(hub: Arc<Hub>) {
                     .and_then(Value::as_str)
                     .unwrap_or("tool")
             ),
-            "agent_pair_paused" => format!(
-                "{name} paused: it kept messaging {} without progress",
-                ev.record.msg.get("peerName").and_then(Value::as_str).unwrap_or("another agent")
-            ),
+            "agent_pair_paused" => {
+                let peer = ev
+                    .record
+                    .msg
+                    .get("peerName")
+                    .and_then(Value::as_str)
+                    .unwrap_or("another agent");
+                match ev.record.msg.get("reason").and_then(Value::as_str) {
+                    Some("cap") => format!("{name} paused: too many messages with {peer}"),
+                    Some("release_failed") => format!("{name} paused: a message to {peer} failed"),
+                    _ => format!("{name} paused: it kept messaging {peer} without progress"),
+                }
+            }
             _ => format!(
                 "{name} finished ({})",
                 ev.record.msg.get("status").and_then(Value::as_str).unwrap_or("completed")

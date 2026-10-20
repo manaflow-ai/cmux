@@ -2,8 +2,8 @@
 //! messaging each other with no tool call or file change in between, or one that keeps sending
 //! the same message, are paused as a pair. A paused pair's messages are held, not delivered, and
 //! both transcripts say so; `_acpmux/agent_pair_resume` (or the person prompting either session)
-//! delivers them in order. Sessions whose turns do work are never paused, however many messages
-//! they exchange: there is no cap per turn.
+//! delivers them in order. Sessions whose turns do work are paused only by the cap: more than 20
+//! messages within 10 minutes with no prompt from the person (`0` turns it off).
 
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;
@@ -244,8 +244,8 @@ async fn a_sender_repeating_the_same_message_is_paused() {
     assert_eq!(resumed[0]["by"], "person", "{resumed:?}");
 }
 
-/// Two sessions whose turns each make a tool call are never paused, however many messages they
-/// exchange and however alike the messages are: there is no cap per turn.
+/// Two sessions whose turns each make a tool call are not paused as a loop, however alike their
+/// messages are.
 #[tokio::test]
 async fn sessions_whose_turns_do_work_are_never_paused() {
     let hub = hub();
@@ -426,4 +426,122 @@ async fn a_remote_client_cannot_resume_a_pair() {
         let reply = remote.reply(RESUME, json!({"sessionId": a})).await;
         assert!(reply.get("error").is_some(), "{origin:?}: {reply}");
     }
+}
+
+/// Sessions doing work are still paused past the cap: more than 20 messages within the window
+/// with no prompt from the person. A person's prompt into either session starts the count over.
+#[tokio::test]
+async fn a_pair_past_the_cap_is_paused_until_the_person_steps_in() {
+    let hub = hub();
+    let mut c = Client::open(&hub);
+    let (a, b) = (c.new_session().await, c.new_session().await);
+    for i in 0..15 {
+        let reply = work(&mut c, &a, &b, i).await;
+        assert!(reply.get("error").is_none(), "message {i} was delivered: {reply}");
+    }
+    let mut person = Client::person(&hub).await;
+    person
+        .call(
+            "session/prompt",
+            json!({"sessionId": a, "prompt": [{"type": "text", "text": "carry on"}]}),
+        )
+        .await;
+    for i in 15..35 {
+        let reply = work(&mut c, &a, &b, i).await;
+        assert!(
+            reply.get("error").is_none(),
+            "message {i} after the person was delivered: {reply}"
+        );
+    }
+    let over = work(&mut c, &a, &b, 35).await;
+    assert!(held(&over), "the 21st since the person is held: {over}");
+    assert_eq!(over.pointer("/error/data/trip"), Some(&json!("cap")), "{over}");
+    let paused = c.records(&a, "agent_pair_paused").await;
+    assert_eq!(paused.len(), 1, "{paused:?}");
+    assert_eq!(
+        (paused[0]["reason"].clone(), paused[0]["count"].clone()),
+        (json!("cap"), json!(21))
+    );
+    person.call(RESUME, json!({"sessionId": a})).await;
+    c.wait_ran(&a, "c35").await;
+}
+
+/// Message `i` of a working pair, alternating: each turn makes a tool call.
+async fn work(c: &mut Client, a: &str, b: &str, i: usize) -> Value {
+    let (from, to) = if i.is_multiple_of(2) { (a, b) } else { (b, a) };
+    c.message(from, to, &format!("c{i}"), &format!("do-work step {i}")).await
+}
+
+/// The cap set to 0 (`ACPMUX_AGENT_PAIR_MAX_MESSAGES=0`): working sessions are never paused.
+#[tokio::test]
+async fn a_cap_of_zero_pauses_nothing() {
+    let hub = hub();
+    hub.set_agent_pair_guard(acpmux::hub::PairGuard { max_messages: 0, ..Default::default() });
+    let mut c = Client::open(&hub);
+    let (a, b) = (c.new_session().await, c.new_session().await);
+    for i in 0..25 {
+        let (from, to) = if i % 2 == 0 { (&a, &b) } else { (&b, &a) };
+        let reply = c.message(from, to, &format!("z{i}"), &format!("do-work step {i}")).await;
+        assert!(reply.get("error").is_none(), "message {i} was delivered: {reply}");
+    }
+    assert!(c.records(&a, "agent_pair_paused").await.is_empty());
+}
+
+/// A steer-only message the receiver cannot take is refused as such, even when it would have
+/// tripped the pair: a refused attempt never pauses anyone.
+#[tokio::test]
+async fn a_refused_attempt_never_pauses_the_pair() {
+    let hub = hub();
+    let mut c = Client::open(&hub);
+    let (a, b) = (c.new_session().await, c.new_session().await);
+    for i in 0..2 {
+        c.message(&a, &b, &format!("s{i}"), "please check the build").await;
+    }
+    let steer = json!({"steer": true, "steerOnly": true});
+    let reply = c.message_as(&format!("acp:{a}"), &b, "s2", "please check the build", steer).await;
+    assert_eq!(reply.pointer("/error/data/reason"), Some(&json!("steer.unavailable")), "{reply}");
+    assert!(c.records(&b, "agent_pair_paused").await.is_empty());
+}
+
+/// Messages held both ways come back from a restart in the order they were held, not grouped
+/// by receiver.
+#[tokio::test]
+async fn held_messages_keep_their_order_across_a_restart() {
+    let dir = std::env::temp_dir().join(format!("acpmux-pairs-{}", uuid::Uuid::now_v7()));
+    let hub = hub_in(Some(&dir));
+    let mut c = Client::open(&hub);
+    let (a, b) = (c.new_session().await, c.new_session().await);
+    for i in 0..2 {
+        c.message(&a, &b, &format!("q{i}"), "please check the build").await;
+    }
+    assert!(held(&c.message(&a, &b, "q2", "please check the build").await));
+    assert!(held(&c.message(&b, &a, "q3", "checking now").await));
+    assert!(held(&c.message(&a, &b, "q4", "thanks").await));
+    hub.shutdown_all().await;
+    drop(c);
+    drop(hub);
+
+    let hub = hub_in(Some(&dir));
+    let mut c = Client::open(&hub);
+    let mut person = Client::person(&hub).await;
+    let resumed = person.call(RESUME, json!({"sessionId": a})).await;
+    assert_eq!(resumed["delivered"], 3, "{resumed}");
+    c.wait_ran(&b, "q4").await;
+    let mut released = Vec::new();
+    for session in [&a, &b] {
+        let page = c
+            .call("_acpmux/events", json!({"sessionId": session, "kinds": ["agent_pair_released"]}))
+            .await;
+        for e in page["events"].as_array().unwrap() {
+            released.push((
+                e["at"].as_u64().unwrap(),
+                e["msg"]["promptId"].as_str().unwrap().to_owned(),
+            ));
+        }
+    }
+    released.sort();
+    let ids: Vec<&str> = released.iter().map(|(_, id)| id.as_str()).collect();
+    assert_eq!(ids, ["q2", "q3", "q4"], "released in the order held");
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&dir);
 }

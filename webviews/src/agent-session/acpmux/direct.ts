@@ -1816,6 +1816,25 @@ export class AcpmuxDirectClient {
             failover: { from: msg.from, to: msg.to },
           });
         }
+      } else if (event.kind === "agent_pair_paused") {
+        // acpmux paused this chat and an agent it kept messaging (`hub/agent_pairs.rs`).
+        if (typeof msg.peer === "string") {
+          const id = `agent-pair-${event.seq}`;
+          this.rows.set(id, {
+            id,
+            version: 1,
+            at: event.at,
+            kind: "agentPair",
+            agentPair: {
+              peer: msg.peer,
+              ...(typeof msg.peerName === "string" && msg.peerName ? { peerName: msg.peerName } : {}),
+              reason: String(msg.reason ?? ""),
+              ...(typeof msg.count === "number" ? { count: msg.count } : {}),
+            },
+          });
+        }
+      } else if (event.kind === "agent_pair_resumed") {
+        if (typeof msg.peer === "string") this.agentPairResumed(msg.peer);
       } else if (event.kind === "session_offer") {
         // Off by default: off, an offer draws nothing (offer/offersShown.ts).
         const offer = offersShown() ? sessionOffer(msg) : undefined;
@@ -3116,6 +3135,23 @@ export class AcpmuxDirectClient {
     this.liveAdopt = undefined;
     this.emit();
     await this.adoptChat({ ...live.adopt, ifLive: choice });
+  }
+  /// Marks this chat's pause rows with `peer` resumed: their Resume action goes.
+  private agentPairResumed(peer: string): void {
+    for (const [id, row] of this.rows)
+      if (row.kind === "agentPair" && row.agentPair?.peer === peer && !row.agentPair.resumed)
+        this.rows.set(id, { ...row, version: row.version + 1, agentPair: { ...row.agentPair, resumed: true } });
+  }
+  /// Resumes the pair this chat and `peer` are paused in (`_acpmux/agent_pair_resume`, the
+  /// person's call); acpmux then delivers what the pair held. A refusal says so in the transcript.
+  async resumeAgentPair(peer: string): Promise<void> {
+    const sessionId = this.actingSessionId;
+    if (!sessionId) return;
+    try {
+      await this.request("_acpmux/agent_pair_resume", { sessionId, peerSessionId: peer });
+    } catch (error) {
+      this.notice(error instanceof Error && error.message ? error.message : translate("agentPair.resumeFailed"));
+    }
   }
   /// A line in the shown transcript (a pick the agent refused).
   notice(text: string): void {

@@ -142,7 +142,7 @@ import { loadHighlightedCode } from "./conversation/CodeBlock";
 import { loadEditDiffHunks } from "./conversation/EditDiff";
 import { PlanList } from "./conversation/PlanList";
 import { BackgroundTaskNote } from "./conversation/BackgroundTaskNote";
-import { CompactionNote, FailoverNote } from "./conversation/CompactionNote";
+import { AgentPairNote, CompactionNote, FailoverNote } from "./conversation/CompactionNote";
 import { SessionStartNote } from "./conversation/SessionStartNote";
 import {
   SessionCwdContext,
@@ -716,6 +716,14 @@ const FailoverRow = memo(
   },
   (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
 );
+/// Two agents paused for messaging each other (conversation/CompactionNote.tsx AgentPairNote).
+const AgentPairRow = memo(
+  function AgentPairRow({ row }: RowProps) {
+    return row.agentPair ? <AgentPairNote pair={row.agentPair} onResume={resumeAgentPair} /> : null;
+  },
+  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
+);
+const resumeAgentPair = (peer: string) => void callNative("chat.agent_pair.resume", { peer }).catch(() => undefined);
 const SessionStartRow = memo(
   function SessionStartRow({ row }: RowProps) {
     return row.sessionStart ? <SessionStartNote start={row.sessionStart} /> : null;
@@ -817,6 +825,7 @@ const defaultRegistry: NativeRegistry = {
   backgroundTask: BackgroundTaskRow,
   compaction: CompactionRow,
   failover: FailoverRow,
+  agentPair: AgentPairRow,
   sessionStart: SessionStartRow,
   sessionOffer: SessionOfferRow,
   [OFFER_RESULT]: OfferResultRow,
@@ -1043,6 +1052,7 @@ const isStepRow = (row: AcpmuxRow | undefined) =>
   (row.kind === "backgroundTask" ||
     row.kind === "compaction" ||
     row.kind === "failover" ||
+    row.kind === "agentPair" ||
     row.kind === "sessionStart" ||
     (row.kind === "activity" && !isEditRow(row)));
 const rowDomId = (id: string) => `acpmux-row-${encodeURIComponent(id)}`;
@@ -4364,6 +4374,7 @@ function AcpmuxPane() {
               optionId === undefined || optionId === null ? undefined : String(optionId),
               answers && typeof answers === "object" ? (answers as Record<string, unknown>) : undefined,
             ),
+          "chat.agent_pair.resume": ({ peer }) => client.resumeAgentPair(String(peer)),
           "chat.permission_group.respond": ({ groupId, revision, decision }) =>
             client.permissionGroup(String(groupId), Number(revision), decision as PermissionDecision),
           "chat.permission_group.retry": () => client.permissions.retry(),

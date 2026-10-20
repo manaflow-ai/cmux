@@ -1121,6 +1121,28 @@ pre.cv-math-source {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* An agent pair pause (CompactionNote.tsx AgentPairNote): its Resume sits after the text. */
+.cv-agent-pair__resume {
+  all: unset;
+  box-sizing: border-box;
+  flex: none;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 6px;
+  font-family: var(--cv-font);
+  font-size: var(--text-control);
+  line-height: 22px;
+  color: var(--cv-text);
+  box-shadow: inset 0 0 0 1px var(--cv-rule);
+  cursor: default;
+}
+.cv-agent-pair__resume:hover {
+  background: var(--cv-faint-rule);
+}
+.cv-agent-pair__resume:focus-visible {
+  outline: 2px solid var(--cv-text);
+  outline-offset: 1px;
+}
 .cv-tool__detail {
   color: var(--cv-text-dim);
 }
