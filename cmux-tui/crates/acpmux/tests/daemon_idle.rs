@@ -16,7 +16,7 @@ use std::fs;
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 /// Quiet window over which wakeups are counted.
 const WINDOW: Duration = Duration::from_secs(10);
