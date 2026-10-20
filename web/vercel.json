@@ -20,6 +20,10 @@
       "schedule": "* * * * *"
     },
     {
+      "path": "/api/cron/run-attempt-retention",
+      "schedule": "* * * * *"
+    },
+    {
       "path": "/api/cron/vm-reconcile",
       "schedule": "7,17,27,37,47,57 * * * *"
     },
