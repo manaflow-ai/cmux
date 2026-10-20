@@ -1,5 +1,6 @@
 import CmuxNextHomeEngine
 import CmuxNextHome
+import Observation
 import Testing
 
 /// A first launch with no workspace of the person's own lands on Home, the Chief's workspace,
@@ -21,4 +22,35 @@ struct FirstWorkspaceLandingTests {
     @Test func noHomeWorkspaceYetMakesANewTabWorkspace() {
         #expect(FirstWorkspace.landing(launchIntoHome: true, classic: false, home: nil) == nil)
     }
+
+    /// A fresh store can answer `ensure_home` before its snapshot lists the workspace: the launch
+    /// waits for the listing instead of falling back to a New Tab workspace by timing.
+    @MainActor @Test func aHomeListedAfterEnsureHomeStillLands() async {
+        let store = ListedHome()
+        // task-owner: the test; lists Home once the wait has started
+        Task { @MainActor in store.id = "ws_home" }
+        let home = await FirstWorkspace.landing(launchIntoHome: true, classic: false, ensured: true, within: .seconds(30)) { store.id }
+        #expect(home == "ws_home")
+    }
+
+    @MainActor @Test func aHomeNeverListedFallsBackAfterTheDeadline() async {
+        let store = ListedHome()
+        let home = await FirstWorkspace.landing(launchIntoHome: true, classic: false, ensured: true, within: .milliseconds(50)) { store.id }
+        #expect(home == nil)
+    }
+
+    @MainActor @Test func noEnsureHomeOrTheSwitchOffDoesNotWait() async {
+        let store = ListedHome()
+        store.id = "ws_home"
+        let notEnsured = await FirstWorkspace.landing(launchIntoHome: true, classic: false, ensured: false, within: .seconds(30)) { store.id }
+        let switchedOff = await FirstWorkspace.landing(launchIntoHome: false, classic: false, ensured: true, within: .seconds(30)) { store.id }
+        #expect(notEnsured == nil)
+        #expect(switchedOff == nil)
+    }
+}
+
+/// The store's listing of the Home workspace, as `HomeService.homeWorkspace` reads it.
+@MainActor @Observable
+private final class ListedHome {
+    var id: String?
 }

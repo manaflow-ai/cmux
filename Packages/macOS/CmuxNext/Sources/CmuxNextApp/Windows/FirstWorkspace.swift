@@ -12,14 +12,15 @@ import CmuxNextHomeEngine
 struct FirstWorkspaceLaunch {
     let manager: WindowManager
 
-    /// The new workspace's id, or nil when the tree has one of the user's
-    /// own. A fresh store's snapshot can show Home before its kind row, so
-    /// this decides once `ensure_home` answered, with the workspace it named.
+    /// The new workspace's id, or nil when the tree has one of the user's own. A fresh store's
+    /// snapshot can show Home before its kind row, or not yet at all, so this decides once
+    /// `ensure_home` answered and (briefly) once the store lists the workspace it named.
     func create(leftover: [String]) async -> String? {
         let services = manager.services
         await services.home.awaitHomeEnsured()
         guard FirstWorkspace.isNeeded(services.daemon.store.workspaces, leftover: leftover, home: services.home.homeWorkspaceID) else { return nil }
-        if let home = FirstWorkspace.landing(launchIntoHome: HomeTunables.launchIntoHome.value, classic: services.home.dock.isClassic, home: services.home.homeWorkspace?.id) { return home }
+        if let home = await FirstWorkspace.landing(launchIntoHome: HomeTunables.launchIntoHome.value, classic: services.home.dock.isClassic,
+                                                  ensured: services.home.homeWorkspaceID != nil, home: { services.home.homeWorkspace?.id }) { return home }
         return await manager.createWorkspace(newTabPage: true)
     }
 
