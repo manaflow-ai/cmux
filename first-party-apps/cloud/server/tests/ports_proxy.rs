@@ -121,12 +121,14 @@ fn browser_open_returns_a_route_and_refuses_other_hosts() {
     assert_eq!(route["proxy"]["host"], "127.0.0.1");
     assert!(route["proxy"]["username"].as_str().is_some_and(|value| !value.is_empty()));
     assert!(route["proxy"]["password"].as_str().is_some_and(|value| value.len() >= 64));
+    assert!(route["incarnation"].as_u64().is_some_and(|value| value > 0));
     assert_eq!(route["url"], "http://localhost:3000/");
     let again = rig
         .server
         .handle(&open(json!({"machine": "vm-alpha01", "port": 5173, "path": "/app?x=1"}), "b-2"))
         .unwrap();
     assert_eq!(again["proxy"], route["proxy"], "one route per machine");
+    assert_eq!(again["incarnation"], route["incarnation"], "one server process incarnation");
     assert_eq!(again["url"], "http://localhost:5173/app?x=1");
     let v6 = rig
         .server
@@ -167,6 +169,12 @@ fn the_proxy_refuses_hosts_that_are_not_the_machine_on_the_wire() {
     let origin_form =
         String::from_utf8(exchange(proxy, b"GET / HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n")).unwrap();
     assert!(origin_form.starts_with("HTTP/1.1 400"), "a page cannot use the route directly");
+    let (absolute_auth, _) = proxy_authorization(&route, "localhost:5173");
+    let absolute_request = format!(
+        "GET http://localhost:5173/ HTTP/1.1\r\nHost: localhost:5173\r\nProxy-Authorization: {absolute_auth}\r\n\r\n"
+    );
+    let absolute_form = String::from_utf8(exchange(proxy, absolute_request.as_bytes())).unwrap();
+    assert!(absolute_form.starts_with("HTTP/1.1 400"), "absolute form bypassed CONNECT");
     assert!(rig.tunnel.log().opened.is_empty(), "no refused request opened a stream");
 
     let unauthenticated = String::from_utf8(exchange(
