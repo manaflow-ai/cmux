@@ -199,8 +199,9 @@ nonisolated enum BrowserActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "palette.browserClearHistory",
                 title: String(localized: "action.palette.browserClearHistory", defaultValue: "Clear Browser History", bundle: .module),
-                keywords: ["browser", "privacy"], category: .browser, symbol: "clock.badge.xmark", surfaces: [.palette],
-                targets: [.pane], cliName: "browser clear-history"
+                keywords: ["browser", "privacy", "clear", "delete"], category: .browser, symbol: "clock.badge.xmark", surfaces: [.palette],
+                arguments: [HistoryActionCatalog.historyRange, CatalogArgument.browserProfile],
+                targets: [.pane], cliName: "browser clear-history", destructive: true
             ),
             {
                 // Person-only and no CLI verb (PASSWORDS-IMPORT-ANY-BROWSER): an agent must not put
@@ -269,19 +270,27 @@ nonisolated enum BrowserActionCatalog: ActionCatalogGroup {
                 keywords: ["browser", "print", "page", "pdf"], category: .browser, symbol: "printer",
                 surfaces: [.palette, .menu, .contextMenu], requires: [.browserFocused], targets: [.pane], mainMenu: .file
             ),
-            ActionDescriptor(
-                id: "browserScreenshotPage",
-                title: String(localized: "action.browserScreenshotPage", defaultValue: "Screenshot Page", bundle: .module),
-                keywords: ["browser", "capture"], category: .browser, symbol: "camera", surfaces: [.contextMenu],
-                requires: [.browserFocused], targets: [.pane], cliName: "browser screenshot-page"
-            ),
-            ActionDescriptor(
-                id: "browserScreenshotSection",
-                title: String(localized: "action.browserScreenshotSection", defaultValue: "Screenshot Section", bundle: .module),
-                keywords: ["browser", "capture"], category: .browser, symbol: "camera.viewfinder",
-                surfaces: [.contextMenu], requires: [.browserFocused], targets: [.pane],
-                cliName: "browser screenshot-section"
-            ),
+            {
+                var screenshot = ActionDescriptor(
+                    id: "browserScreenshotPage",
+                    title: String(localized: "action.browserScreenshotPage", defaultValue: "Screenshot Page", bundle: .module),
+                    keywords: ["browser", "capture"], category: .browser, symbol: "camera", surfaces: [.contextMenu],
+                    requires: [.browserFocused], targets: [.pane], cliName: "browser screenshot-page"
+                )
+                screenshot.isPersonOnly = true
+                return screenshot
+            }(),
+            {
+                var screenshot = ActionDescriptor(
+                    id: "browserScreenshotSection",
+                    title: String(localized: "action.browserScreenshotSection", defaultValue: "Screenshot Section", bundle: .module),
+                    keywords: ["browser", "capture"], category: .browser, symbol: "camera.viewfinder",
+                    surfaces: [.contextMenu], requires: [.browserFocused], targets: [.pane],
+                    cliName: "browser screenshot-section"
+                )
+                screenshot.isPersonOnly = true
+                return screenshot
+            }(),
             ActionDescriptor(
                 id: "browserTheme",
                 title: String(localized: "action.browserTheme", defaultValue: "Browser Theme…", bundle: .module),
@@ -322,6 +331,13 @@ nonisolated enum BrowserActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.filePreviewRevealInFinder", defaultValue: "Reveal File in Finder", bundle: .module),
                 keywords: ["file", "finder"], category: .browser, symbol: "folder", surfaces: [.contextMenu],
                 requires: [.filePreviewFocused], targets: [.pane], cliName: "browser reveal-file-in-finder"
+            ),
+            ActionDescriptor(
+                id: "filePreviewRevealInFiles",
+                title: String(localized: "action.filePreviewRevealInFiles", defaultValue: "Reveal File in cmux Files", bundle: .module),
+                keywords: ["file", "files", "finder", "reveal", "folder"], category: .browser, symbol: "folder",
+                surfaces: [.contextMenu], requires: [.filePreviewFocused], targets: [.pane],
+                cliName: "browser reveal-file-in-files"
             ),
             ActionDescriptor(
                 id: "diffViewerNextLine",

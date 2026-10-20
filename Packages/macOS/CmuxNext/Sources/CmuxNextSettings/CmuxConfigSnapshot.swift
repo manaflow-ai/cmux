@@ -8,8 +8,16 @@ public import CmuxNextDesign
 public struct CmuxConfigSnapshot: Sendable, Equatable {
     /// The whole document, for `settings.get`.
     public var root: JSONValue
-    /// `appearance.density`, when present and valid.
+    /// `appearance.density`, when present and valid: a built-in density's id.
     public var density: String?
+    /// `appearance.customDensities` (``CustomDensitiesSetting``), in file order.
+    public var customDensities: [DensityTokens] = []
+    /// `appearance.customDensity` when it names one of `customDensities`: it wins over `density`.
+    public var customDensity: String?
+    /// The density the file selects: the custom one, else the built-in, else Compact.
+    public var selectedDensity: DensityTokens {
+        DensitySetting.resolve(customDensity, custom: customDensities) ?? DensitySetting.resolve(density, custom: []) ?? .compact
+    }
     /// `app.uiScale` (first-party page scale) and `appearance.interfaceScale` (chrome, only with Labs on).
     public var uiScale: Double = UIScaleSetting().fallback
     public var interfaceScale: Double = InterfaceScaleSetting().fallback
@@ -31,6 +39,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var commandActions: [ConfigCommandAction] = []
     /// `browser.defaultEngine`; Chromium when unset or invalid.
     public var browserDefaultEngine: BrowserDefaultEngine = .fallback
+    /// `browser.siteEngines`; the protected-media sites on WebKit when unset.
+    public var browserSiteEngines: BrowserSiteEngines = .fallback
     /// `browser.newTabPage`; nil opens a blank page.
     public var browserNewTabPage: URL?
     /// `browser.showBookmarksBar`; off when unset.
@@ -41,6 +51,9 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var browserBuiltInAdBlocker = BuiltInAdBlockerSetting().fallback
     /// `browser.showAgentCursor`; on when unset.
     public var browserShowAgentCursor = AgentCursorSetting().fallback
+    /// `browser.agentMouse.*`: how an agent's pointer moves; human motion,
+    /// 350 ms cap when unset.
+    public var browserAgentMouse = AgentMouseSetting().fallback
     /// `home.attachments.keepLocation` (off: strip location) and `home.channelsEnabled`; off when unset.
     public var homeKeepLocation = false, homeChannelsEnabled = false, homeChiefPetEnabled = false, homeChiefPetMascot = HomeChiefPetSetting.defaultMascot
     /// `labs.previewFeatures` and `labs.classicHome`; off when unset.
@@ -64,6 +77,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     /// `ui.animationSpeed`; "fast" when unset or invalid.
     public var animationSpeed: MotionSpeed = AnimationSpeedSetting.fallback
     public var animationKinds = AnimationKindsSetting()
+    /// `ui.animations.enabled` and `ui.animations.<category>` (``MotionCategoriesSetting``).
+    public var motionCategories = MotionCategoriesSetting()
     /// `ui.paneAnimations`; on when unset or invalid.
     public var paneAnimations: Bool = PaneAnimationsSetting.fallback
     /// `layout.centerFocusedColumn`; "never" when unset or invalid.
@@ -87,8 +102,11 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var frameOrientation: FrameOrientation = ColumnLayoutSettings.frameOrientationFallback
     /// `layout.rows`: rows on (default) or off (plans/cmux-next/rows.md O1).
     public var layoutRows: Bool = ColumnLayoutSettings.rowsFallback
-    /// `layout.focusPaneOnScroll`: a scroll over an unfocused pane focuses it (default on).
-    public var focusPaneOnScroll: Bool = ColumnLayoutSettings.focusPaneOnScrollFallback
+    /// `layout.focusFollowsMouse`: hovering or scrolling an unfocused pane focuses it (default off).
+    public var focusFollowsMouse: Bool = ColumnLayoutSettings.focusFollowsMouseFallback
+    /// `layout.scrollAreas`: splits that cannot fit scroll instead of squashing (default off;
+    /// plans/cmux-next/scroll-areas-DESIGN.md).
+    public var layoutScrollAreas: Bool = ColumnLayoutSettings.scrollAreasFallback
     public var minimumPaneContentSize = CGSize(width: ColumnLayoutSettings.minimumPaneWidthFallback,
                                                height: ColumnLayoutSettings.minimumPaneHeightFallback)
     /// `layout.newPanePlacement` and `layout.tileBrowsers` (`CmuxConfigSnapshot+PanePlacement`).
@@ -126,6 +144,9 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     /// `appearance.glassTransparency`, `appearance.hue` and
     /// `appearance.saturation`; identity values when unset or invalid.
     public var appearanceTuning = AppearanceTuningSetting.fallback
+    /// The tuning the window tint takes: ``appearanceTuning`` while Experimental Appearance
+    /// Controls is on, else none.
+    public var windowTuning: AppearanceTuning { experimentalAppearance ? appearanceTuning : .identity }
     /// `appearance.statusIndicator.*`.
     public var statusIndicator = StatusIndicatorSettings()
     /// `status.*`.
@@ -149,6 +170,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var spacesVisibility: SpacesVisibilityMode = .hover
     /// `tabs.barPosition` (R109).
     public var tabBarPosition: TabBarPosition = .top
+    /// `appearance.paneBackgrounds`: one background for the window or one per pane.
+    public var paneBackgrounds: PaneBackgroundMode = .shared
     /// `tabs.barOrder` (R109).
     public var tabBarOrder: TabBarOrder = .aboveToolbar
     /// `app.quitBehavior`; "ask" when unset or invalid.
@@ -239,11 +262,13 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.showModifierHoldHints = hints
         if let hintsDiagnostic { snapshot.diagnostics.append(hintsDiagnostic) }
         snapshot.take(BrowserDefaultEngine.parse(root), \.browserDefaultEngine)
+        snapshot.take(BrowserSiteEngines.parse(root), \.browserSiteEngines)
         snapshot.take(BrowserNewTabPage.parse(root), \.browserNewTabPage)
         snapshot.take(BookmarksBarSetting.parse(root), \.browserShowBookmarksBar)
         snapshot.take(HomeChiefBubbleStyleSetting.parse(root), \.homeChiefBubbleStyle)
         snapshot.take(BuiltInAdBlockerSetting().parse(root), \.browserBuiltInAdBlocker)
         snapshot.take(AgentCursorSetting().parse(root), \.browserShowAgentCursor)
+        snapshot.take(AgentMouseSetting().parse(root), \.browserAgentMouse)
         snapshot.takeHome(root)
         snapshot.take(Self.parsePreviewFeatures(root), \.previewFeatures)
         snapshot.take(Self.parseLabsToggle(root, path: classicHomePath, fallback: classicHomeDefault), \.classicHome)
@@ -259,6 +284,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.animationSpeed = speed
         if let speedDiagnostic { snapshot.diagnostics.append(speedDiagnostic) }
         snapshot.take(AnimationKindsSetting.parse(root), \.animationKinds)
+        snapshot.take(MotionCategoriesSetting.parse(root), \.motionCategories)
         snapshot.take(PaneAnimationsSetting.parse(root), \.paneAnimations)
         let (centering, centeringDiagnostic) = CenterFocusedColumnSetting.parse(root)
         snapshot.centerFocusedColumn = centering
@@ -312,6 +338,9 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.plusButton = plusButton
         if let plusButtonDiagnostic { snapshot.diagnostics.append(plusButtonDiagnostic) }
         ChromePlacementSetting.parse(root, into: &snapshot)
+        let (paneBackgrounds, paneBackgroundsDiagnostic) = PaneBackgroundsSetting.parse(root)
+        snapshot.paneBackgrounds = paneBackgrounds
+        if let paneBackgroundsDiagnostic { snapshot.diagnostics.append(paneBackgroundsDiagnostic) }
         let (quitBehavior, quitDiagnostic) = QuitBehaviorSetting.parse(root)
         snapshot.quitBehavior = quitBehavior
         if let quitDiagnostic { snapshot.diagnostics.append(quitDiagnostic) }
@@ -363,6 +392,15 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         if let fontSizeDiagnostic { snapshot.diagnostics.append(fontSizeDiagnostic) }
         snapshot.uiScale = UIScaleSetting().parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.interfaceScale = InterfaceScaleSetting().parse(root, diagnostics: &snapshot.diagnostics)
+        snapshot.customDensities = CustomDensitiesSetting().parse(root, diagnostics: &snapshot.diagnostics)
+        if let custom = root.value(at: CustomDensitySelectionSetting().configPath) {
+            if let id = custom.stringValue, snapshot.customDensities.contains(where: { $0.id == id }) {
+                snapshot.customDensity = id
+            } else {
+                snapshot.diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "appearance.customDensity",
+                                                               message: "expected the id of one of appearance.customDensities"))
+            }
+        }
         if let appearance = root["appearance"] {
             if case .object(let members) = appearance {
                 if let density = members["density"] {

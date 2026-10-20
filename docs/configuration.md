@@ -172,10 +172,21 @@ Where Cmd-T and the + button put a new tab.
 }
 ```
 
-- `"end"` (default): after the pane's last tab, as in Chrome and Edge.
-- `"afterCurrent"`: right after the selected tab. A selected tab in a tab group puts the new tab after the group; it doesn't join the group.
+- `"afterCurrent"` (default): right after the selected tab. A selected tab in a tab group puts the new tab after the group; it doesn't join the group.
+- `"end"`: after the pane's last tab, as in Chrome and Edge.
+- `"start"`: first, right after the pinned tabs.
 
-**New Tab to the Right** in a tab's right-click menu always puts the new tab right after that tab. Change the setting in **Settings > General > Tabs** or with `cmux settings set tabs.newTabPosition afterCurrent`.
+The setting applies to what you open with Cmd-T and the + button. A script's `cmux tab new` still adds the tab at the end.
+
+To put one new tab in a specific place, whatever the setting, use these commands (Cmd-Shift-P, the CLI, or MCP). They have no default key; you can assign one in **Settings > Keyboard Shortcuts**.
+
+| Command | CLI |
+|---|---|
+| **New Tab After Current Tab** | `cmux tab new-after-current` |
+| **New Tab at Start** | `cmux tab new-at-start` |
+| **New Tab at End** | `cmux tab new-at-end` |
+
+**New Tab to the Right** in a tab's right-click menu always puts the new tab right after that tab. Change the setting in **Settings > General > Tabs** or with `cmux settings set tabs.newTabPosition end`.
 
 ## `tabs.newTabTemplate`
 
@@ -289,20 +300,35 @@ Where a new terminal or browser opens when you create it (New Terminal, Cmd-T, t
 
 The CLI and MCP always open a tab, so scripts get a predictable result; a command that names a pane opens in that pane. Change these in **Settings > General > Columns** or with `cmux settings set layout.newPanePlacement split`.
 
-## `layout.focusPaneOnScroll`
+## `layout.focusFollowsMouse`
 
-Scrolling over a pane focuses it, as a click does: a terminal, browser, Markdown viewer, agent chat or Home. The scroll still reaches the pane.
+Off by default: hovering or scrolling over a pane leaves keyboard focus where you type, and only a click or the keyboard moves it. Turn it on to have the pointer focus panes, as a click does: a terminal, browser, Markdown viewer, agent chat or Home. The scroll still reaches the pane.
 
 ```json
 {
-  "layout": { "focusPaneOnScroll": false }
+  "layout": { "focusFollowsMouse": true }
 }
 ```
 
-- `true` (default): the first scroll of a gesture, or a mouse-wheel notch, focuses the pane under the pointer.
-- `false`: only a click or the keyboard moves focus.
+- `false` (default): only a click or the keyboard moves focus.
+- `true`: the pointer entering a pane, the first scroll of a gesture, or a mouse-wheel notch focuses the pane under the pointer.
 
-Focus stays where it is for momentum (the coast after a flick that started in another pane), for a scroll that moves columns or rows, within a second of typing, and over a window that is not active. Change it in **Settings > General > Columns** or with `cmux settings set layout.focusPaneOnScroll false`.
+With it on, focus still stays where it is for momentum (the coast after a flick that started in another pane), for a scroll that moves columns or rows, while a mouse button is held, within a second of typing, and over a window that is not active. A pointer that stays inside one pane does not undo a keyboard move to another pane. Change it in **Settings > General > Columns**, with **Focus Follows Mouse** in the command palette (Cmd+Shift+P), or with `cmux settings set layout.focusFollowsMouse true`. It replaces `layout.focusPaneOnScroll`, which was on by default.
+
+## `layout.scrollAreas`
+
+Side-by-side panes that do not fit scroll sideways instead of shrinking below **Minimum Pane Width** (`layout.minimumPaneWidth`). This works in docked columns, in columns of the strip and on a screen without columns.
+
+```json
+{
+  "layout": { "scrollAreas": true }
+}
+```
+
+- `false` (default): today's layout. A column widens to fit its splits, and a docked column refuses a split that has no room.
+- `true`: a column keeps its width, and its splits scroll inside it. Each pane keeps the minimum width. Swipe sideways with two fingers, or use Shift with the mouse wheel, over the panes. Focus (Cmd-Opt-arrows, a click, the CLI with focus) scrolls the focused pane into view. Cmd-Opt-Left and Cmd-Opt-Right step through the panes, then go on to the next column.
+
+Change it in **Settings > General > Columns** or with `cmux settings set layout.scrollAreas true`. The design is in `plans/cmux-next/scroll-areas-DESIGN.md`.
 
 ## `workspaces.newPlacement`
 

@@ -264,7 +264,8 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         }
     }
     let mailbox = crate::mailbox::Mailbox::open(home().join("mailbox"))?;
-    let hub = Hub::new_with_mailbox(config, store, mailbox);
+    // Only the session list before the ready line; the chat logs load right after it.
+    let hub = Hub::new_deferred(config, store, mailbox);
     if let Some(key) = person_key {
         // A Team-signed daemon takes the key only from the signed app's
         // `_acpmux/person_enroll`: a same-uid process could restart it with
@@ -407,6 +408,8 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     {
         let hub = hub.clone();
         tokio::spawn(async move {
+            // The chat logs (tails, cut-off turns, queues), before adoption as before.
+            hub.load_logs_async().await;
             // Agents that outlived the previous daemon come back first.
             hub.adopt_agent_hosts().await;
             hub.finish_startup().await;

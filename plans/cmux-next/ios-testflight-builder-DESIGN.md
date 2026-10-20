@@ -17,9 +17,11 @@ Sibling: `plans/cmux-next/nightly-builder-DESIGN.md` (the Mac nightly on cmux22)
   `--internal-only`, version and build number checks against App Store Connect,
   and a split mode: `--unsigned --no-asc` archives on a host with no secrets,
   and `--from-archive` signs, validates and uploads that archive elsewhere.
-- **Aziz's workflow** `cnx-ios-testflight.yml` uploads on a manual push to
-  `rc/cnx-ios-internal-*` (run 39347548402 uploaded on 2026-10-20). It runs on
-  Blacksmith and needs an admin push per build.
+- **The retired manual workflow** `cnx-ios-testflight.yml` uploaded from
+  `rc/cnx-ios-internal-*` in one job that also installed rolling tools, built
+  branch code and held signing/upload credentials. The continuous split
+  builder below replaces it; the legacy workflow was removed after the round-3
+  CI security audit.
 - The old `ios-testflight.yml` (main's `ios/` INTERNAL lane) is disabled.
 - Signing material (`ASC_API_*`, `IOS_*`) lives only in the GitHub `release`
   environment, which admits `main`, `rc/**` and `v*`. `rc/**` is admin-only
@@ -91,12 +93,49 @@ Sibling: `plans/cmux-next/nightly-builder-DESIGN.md` (the Mac nightly on cmux22)
    highest one in cmux INTERNAL.
 8. **Internal testers only.** Every upload passes `--internal-only`
    (`testFlightInternalTestingOnly`), so the build can never go to an external
-   group. "What to Test" lists the commit range since the last upload.
+   group. "What to Test" lists what changed since the last upload (below).
 9. **Warm cache on cmux23.** `CNX_BUILDS_ROOT=~/cnx-ios-builds` persists between
    builds: `.cache/xcframework/<key>` (the Rust `CnxFFI.xcframework`, keyed by
    the Rust tree SHAs), `.cache/cnx-rust-target` (cargo), `.cache/spm`
    (SwiftPM checkouts). Each archive starts DerivedData empty (the script's
    choice), like the Mac nightly.
+
+## What to Test (2026-10-20)
+
+Every upload carries a note for testers, written without a person and without
+a signing secret (`scripts/ci/ios_internal_notes.py`, tests in
+`tests/test_ios_internal_notes.py`).
+
+- **Content.** The `## Changelog` lines (Added / Changed / Fixed / Removed) of the
+  pull requests whose commits in BASE..SHA change the app: `cnx-ios/`,
+  `AppIcon.icon/`, `cmux-wg`, `cmux-transport` and every local package
+  `cnx-ios/CnxKit/Package.swift` names at SHA. Builder files are not app
+  changes. Lines are grouped, `none` is dropped, repeats are dropped, and
+  markdown, template comments and footers after the section are left out. A PR
+  with no Changelog section contributes its title. A commit pushed straight to
+  the branch contributes its subject under "Other changes", minus area labels
+  and engineering references; test-only, CI, docs and red commits are left out.
+- **PR lookup.** `associatedPullRequests` per commit and the `(#N)` in the
+  subject, in batched GraphQL reads: links first (it also lists open PRs that
+  branched from a commit), then the bodies of the chosen PRs. A PR merged into
+  `feat-cmux-next` with that commit as its merge commit wins.
+- **Shape.** The first line is `cmux-next iPhone <version>, feat-cmux-next
+  <12-hex sha>. Internal testers only.`, then the range, then the groups. The
+  note stays under App Store Connect's 4000 characters (UTF-16 units): items
+  that do not fit become "...and N more"; no line is cut.
+- **BASE.** The dispatch's `base` (the last successful builder run, from
+  `plan`). When it is empty, `previous-build` reads the newest processed
+  (VALID) build in cmux INTERNAL and takes the commit its note's first line
+  records; the binary also carries it as `CNXSourceCommit` in Info.plist, but
+  App Store Connect does not expose Info.plist. Else the newest successful run
+  of this builder or of the retired `cnx-ios-testflight.yml` lane. Else the note
+  says "First continuous build" and lists the last 20 lines.
+- **Secrets.** `notes` runs on `ubuntu-24.04` with `contents`, `pull-requests`
+  and `actions` read only, no environment, and the builder branch's script.
+  `previous-build` runs only when `base` is empty and holds only the App Store
+  Connect key (no certificate, no profile). `upload` downloads the note as an
+  artifact and only passes it on. A failed `notes` or `previous-build` does not
+  fail the run: the signer then sends the first line alone.
 
 ## The launchd watch loop (`ios_internal_builder.py watch`)
 
@@ -115,10 +154,11 @@ ssh cmux23 'python3 ~/ios-internal-builder/ios_internal_builder.py status'
 
 ## Fallback
 
-- A dispatch of `ios-internal-nightly.yml` with `runner=macos-26` archives on
-  GitHub-hosted macOS instead of cmux23.
-- Aziz's manual lane (`rc/cnx-ios-internal-*` push) keeps working; both use
-  timestamp build numbers, so they interleave without collisions.
+- Unset repo variable `CI_IOS_INTERNAL_RUNNER` and the archive runs on
+  GitHub-hosted `macos-26` instead of cmux23 (no warm cache).
+- Manual retries dispatch `ios-internal-nightly.yml` on the admin-only
+  `rc/cnx-ios-builder` ref. There is no second branch-controlled signing lane;
+  timestamp build numbers remain monotonic within the serialized builder.
 
 ## Operations
 
@@ -137,7 +177,29 @@ ssh cmux23 'python3 ~/ios-internal-builder/ios_internal_builder.py status'
 
 ## Not done (follow-ups)
 
+- The admission hook does not check the iOS platform is installed. cmux23 had
+  none at first (`iOS 26.5 is not installed`); it was added with
+  `xcodebuild -downloadPlatform iOS`. An Xcode update needs the same step.
+- A build Apple rejects in processing holds the signer for 45 min
+  (`asc builds wait`).
+
 - The Mac nightly and this builder use separate minis; neither waits on the
   other.
 - The archive job uploads the `.xcarchive` as an Actions artifact (about
   0.3 GB per build, kept 3 days).
+
+## App Store review rules (2026-10-20, after ITMS-90626)
+
+Apple rejected cmux INTERNAL builds in processing (after upload) because an App
+Intent description said "transcribed on this iPhone". `scripts/cmux-next/check-app-store-rules.py`
+now finds that class of error before upload. It checks App Intents text in every language
+(Apple trademarks: iPhone, iPad, Mac, Siri, Apple, iCloud, ...), App Shortcut phrases without the
+app name, missing or empty purpose strings for APIs the binary uses (ITMS-90683), usage
+descriptions that name one Apple device, unknown `UIBackgroundModes`, and iPad orientations
+(ITMS-90474). It runs in four places:
+
+1. the pre-push gate (`--source`, on pushes that change `cnx-ios/`);
+2. the cmux-next checks job (`--source` plus `tests/test_app_store_rules.py`);
+3. this builder's archive job, on the source and on the built app, before the archive goes to the
+   signer;
+4. `testflight-build.sh` `check_app`, before it signs, exports or uploads.
