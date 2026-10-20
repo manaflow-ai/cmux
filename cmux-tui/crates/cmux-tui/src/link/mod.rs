@@ -19,6 +19,9 @@ mod native_route;
 mod native_process;
 #[cfg_attr(not(test), allow(dead_code))]
 mod native_receiver;
+#[cfg(target_os = "linux")]
+#[cfg_attr(not(test), allow(dead_code))]
+mod native_supervision;
 mod sync_cli;
 // Wired into `serve` when Cloud hosts run the link (needs the TeamDO peer
 // map and a token format); tested now.

@@ -1,5 +1,6 @@
-//! Version 1 acknowledges only an empty lifetime fence. No service or private
-//! payload is accepted by this transport-only recipient.
+//! Seal private root stdin before terminal exec. Lifetime-only mode starts no
+//! service; Native support is advertised only after an owned recipient attaches.
+//! That recipient must drain and reap before returning a stop acknowledgement.
 use std::io::{self, Read, Write};
 use std::net::Shutdown;
 use std::os::fd::{AsRawFd, FromRawFd};

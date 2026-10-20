@@ -1,6 +1,7 @@
-//! Private root/daemon transport. Version 1 carries only a role lifetime fence;
-//! it grants no service and accepts no key payload. Original VM bootstrap and
-//! receiver composition must negotiate a later capability before sending keys.
+//! Private root/daemon transport. Lifetime-only recipients never receive keys.
+//! Native support requires a root-authenticated startup request and an attached
+//! recipient; protected frames bind the current role to its exact daemon.
+//! The receiving child still needs fresh original policy before serving.
 use std::io::{self, Read, Write};
 use std::net::Shutdown;
 use std::os::fd::{AsRawFd, OwnedFd};
@@ -278,7 +279,8 @@ impl Host {
         if let Some(role) = &state.role
             && state.capability == Some(Capability::NativeReceiver)
         {
-            let events = libc::POLLIN | if role.payload.is_some() { libc::POLLOUT } else { 0 };
+            let events = libc::POLLIN
+                | if role.sent() && role.payload.is_some() { libc::POLLOUT } else { 0 };
             fds.push(libc::pollfd { fd: role.host.as_raw_fd(), events, revents: 0 });
             streams.push(role.host.clone());
         }

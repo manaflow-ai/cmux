@@ -3,7 +3,7 @@
 use std::io;
 use std::os::fd::AsRawFd as _;
 use std::os::unix::net::UnixStream;
-use std::process::Child;
+use std::process::{Child, ExitStatus};
 use std::sync::Mutex;
 
 /// A process spawned by the daemon, retained until its remote entry stops.
@@ -44,6 +44,28 @@ impl SupervisedChild {
     /// The pid captured from this child handle, for startup acknowledgements.
     pub fn id(&self) -> u32 {
         self.pid
+    }
+
+    /// Reap this owned process if it has exited, retaining its exit status.
+    pub fn try_wait(&self) -> io::Result<Option<ExitStatus>> {
+        self.child.lock().map_err(|_| refused())?.try_wait()
+    }
+
+    /// Stop and reap only this owned child, even when an entry retains another
+    /// reference to its admission identity. Never signals an unowned pid.
+    pub fn kill_and_wait(&self) -> io::Result<ExitStatus> {
+        let mut child = self.child.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(status) = child.try_wait()? {
+            return Ok(status);
+        }
+        let killed = child.kill();
+        match child.wait() {
+            Ok(status) => Ok(status),
+            Err(error) => {
+                killed?;
+                Err(error)
+            }
+        }
     }
 
     /// Accept only this live process, in addition to the ordinary caller check.
