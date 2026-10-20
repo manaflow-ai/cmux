@@ -74,11 +74,18 @@ extension ExternalTreeNode {
     }
 
     private func splitPath(toSplitId splitId: UUID) -> [ExternalSplitNode]? {
-        guard case .split(let node) = self else { return nil }
-        if UUID(uuidString: node.id) == splitId { return [node] }
-        guard let rest = node.first.splitPath(toSplitId: splitId)
-            ?? node.second.splitPath(toSplitId: splitId) else { return nil }
-        return [node] + rest
+        var path: [ExternalSplitNode] = []
+        return appendSplitPath(toSplitId: splitId, path: &path) ? path : nil
+    }
+
+    private func appendSplitPath(toSplitId splitId: UUID, path: inout [ExternalSplitNode]) -> Bool {
+        guard case .split(let node) = self else { return false }
+        path.append(node)
+        if UUID(uuidString: node.id) == splitId { return true }
+        if node.first.appendSplitPath(toSplitId: splitId, path: &path)
+            || node.second.appendSplitPath(toSplitId: splitId, path: &path) { return true }
+        path.removeLast()
+        return false
     }
 
     /// The splits from this node down to `paneId`'s parent, or `nil` when

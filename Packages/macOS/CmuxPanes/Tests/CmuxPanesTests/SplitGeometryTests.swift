@@ -156,6 +156,34 @@ struct SplitGeometryTests {
         #expect(pane("solo").equalizeDividerPlan(forSplitRunContainingSplitId: UUID()).adjustments.isEmpty)
     }
 
+    @Test(arguments: ["horizontal", "vertical"])
+    func splitIdRunPlanFindsDeepTargetAfterBacktracking(orientation: String) {
+        let cross = orientation == "horizontal" ? "vertical" : "horizontal"
+        let target = UUID()
+        var targetBranch = split(target, orientation: orientation, dividerPosition: 0.2,
+            first: pane("target-a"), second: pane("target-b"))
+        var rejectedBranch = pane("rejected-leaf")
+        // Two 256-pane branches exercise a 512-pane workspace with a deep
+        // failed search before the target path. Alternate axes to isolate
+        // the target run from its ancestors.
+        for index in 0..<254 {
+            targetBranch = split(UUID(), orientation: index.isMultiple(of: 2) ? cross : orientation,
+                first: pane("target-\(index)"), second: targetBranch)
+        }
+        for index in 0..<255 {
+            rejectedBranch = split(UUID(), orientation: cross,
+                first: rejectedBranch, second: pane("rejected-\(index)"))
+        }
+        let tree = split(UUID(), orientation: cross, first: rejectedBranch, second: targetBranch)
+        let plan = tree.equalizeDividerPlan(forSplitRunContainingSplitId: target)
+        #expect(plan.foundSplit)
+        #expect(!plan.hadInvalidSplitIds)
+        #expect(plan.adjustments == [SplitDividerAdjustment(splitId: target, position: 0.5)])
+        let missing = tree.equalizeDividerPlan(forSplitRunContainingSplitId: UUID())
+        #expect(!missing.foundSplit)
+        #expect(missing.adjustments.isEmpty)
+    }
+
     @Test func splitRunPlanRebalancesTheNewPanesRow() {
         let outerId = UUID()
         let innerId = UUID()
