@@ -56,6 +56,19 @@ public nonisolated struct CEFRuntimeLayout: Hashable, Sendable {
         } else {
             return nil
         }
+        return at(frameworks, fallbackMainBundle: bundle.bundleURL, fileManager: fileManager)
+    }
+
+    /// The layout of a runtime in `frameworks` (an app's `Contents/Frameworks`,
+    /// such as a downloaded pack's wrapper app), or nil when the framework,
+    /// shim or base helper is missing.
+    ///
+    /// - Parameters:
+    ///   - frameworks: The folder that holds the framework, shim and helpers.
+    ///   - fallbackMainBundle: The main bundle when `frameworks` is not inside an `.app`.
+    ///   - fileManager: Lists the folder.
+    /// - Returns: The layout; its main bundle is the `.app` that holds `frameworks`.
+    public static func at(_ frameworks: URL, fallbackMainBundle: URL, fileManager: FileManager = .default) -> CEFRuntimeLayout? {
         guard let entries = try? fileManager.contentsOfDirectory(atPath: frameworks.path),
               entries.contains(frameworkName), entries.contains(shimName),
               let helper = baseHelperName(in: entries) else {
@@ -65,7 +78,7 @@ public nonisolated struct CEFRuntimeLayout: Hashable, Sendable {
         let main = frameworks.deletingLastPathComponent().deletingLastPathComponent()
         return CEFRuntimeLayout(
             frameworksDirectory: frameworks,
-            mainBundle: main.pathExtension == "app" ? main : bundle.bundleURL,
+            mainBundle: main.pathExtension == "app" ? main : fallbackMainBundle,
             helperApp: frameworks.appending(path: helper)
         )
     }
