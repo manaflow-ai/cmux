@@ -1,9 +1,10 @@
 // The background picker's scope (cx-t2x.5): Change Background… on a workspace opens the picker for
 // that workspace, which can keep its own background over appearance.background.
 import { useEffect, useRef, useState } from "react";
-import { useStore } from "../context";
+import { useSettingsSelector, useStore } from "../context";
 import type { WorkspaceBackground } from "../ops";
 import { t } from "../strings";
+import { opacityFloorOnGrid } from "./opacityFloor";
 
 /** The tile that clears a workspace's own background, so it follows All Workspaces again. */
 export const FOLLOW_ID = "follow";
@@ -69,6 +70,7 @@ const FOLLOW_OPACITY = 0.5;
 const KEY_SAVE_MS = 400;
 /** At 1 the glass hides the art (the host caps a workspace's tint the same way). */
 const MAX_OPACITY = 0.95;
+const STEP = 0.05;
 
 /**
  * This Workspace's Opacity over art: the slider previews the tint while it moves (never written)
@@ -89,6 +91,10 @@ export function WorkspaceOpacity({
   const dragging = useRef(false);
   const keySave = useRef<ReturnType<typeof setTimeout> | null>(null);
   const stored = background.opacity ?? null;
+  // Over a picture the window paints no tint below the legibility floor, the same floor as the
+  // All Workspaces row (`derived_min`, the active window's): the slider starts there.
+  const floor = useSettingsSelector((state) => state.host?.derived_min?.["appearance.backgroundOpacity"]);
+  const min = opacityFloorOnGrid(floor, 0, STEP, MAX_OPACITY);
   const save = async (opacity: number | null) => {
     if (await store.setWorkspaceOpacity(background.workspace, opacity)) onSaved(opacity);
     // The slider keeps the chosen value until the save answered, so it never snaps back.
@@ -123,19 +129,25 @@ export function WorkspaceOpacity({
                 ? t("settingsWindow.backdropPicker.workspaceOpacityFollows")
                 : t("settingsWindow.backdropPicker.workspaceOpacityHelp")}
             </div>
+            {min > 0 && (
+              <div className="row-help">
+                {t("settingsWindow.backdropPicker.opacityFloor", `${Math.round(min * 100)}%`)}
+              </div>
+            )}
           </div>
           <div className="row-control">
             <span className="number-editor">
               <input
                 type="range"
                 className="slider"
-                min={0}
+                min={min}
                 max={MAX_OPACITY}
-                step={0.05}
-                value={drag ?? stored ?? FOLLOW_OPACITY}
+                step={STEP}
+                value={Math.max(min, drag ?? stored ?? FOLLOW_OPACITY)}
+                disabled={min >= MAX_OPACITY}
                 aria-labelledby="workspace-opacity-label"
                 onChange={(event) => {
-                  const next = Number(event.currentTarget.value);
+                  const next = Math.max(min, Number(event.currentTarget.value));
                   pending.current = next;
                   setDrag(next);
                   store.previewWorkspaceOpacity(background.workspace, next);
