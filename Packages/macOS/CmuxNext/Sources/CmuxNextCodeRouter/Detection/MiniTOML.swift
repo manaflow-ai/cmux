@@ -78,16 +78,17 @@ struct MiniTOML {
         cursor.advance()
         tables.insert(path)
         values[path] = .other
-        while true {
-            cursor.skipSpaces()
-            switch cursor.peek {
-            case nil: return
-            case "}"?: cursor.advance(); return
-            case ","?: cursor.advance()
+        // Every pass moves the cursor forward or returns; the line's end ends it.
+        cursor.skipSpaces()
+        while let character = cursor.peek {
+            switch character {
+            case "}": cursor.advance(); return
+            case ",": cursor.advance()
             default:
                 guard let key = cursor.key() else { return }
                 assign(path + key, below: path.count, &cursor)
             }
+            cursor.skipSpaces()
         }
     }
 

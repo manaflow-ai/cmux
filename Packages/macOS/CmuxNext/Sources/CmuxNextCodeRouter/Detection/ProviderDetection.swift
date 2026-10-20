@@ -40,14 +40,6 @@ public enum DetectionSource: Sendable, Equatable, Hashable, Encodable {
     }
 }
 
-/// A credential type the row names in words, which the UI that shows the
-/// row localizes (``ProviderDetection/detail`` is a name or an address and
-/// is shown as is).
-public enum DetectionNote: String, Sendable, Equatable, Hashable, Encodable {
-    /// An API key Claude Code's `/login` saved in `.claude.json`.
-    case savedAPIKey = "saved_api_key"
-}
-
 /// One provider's detection result. A credential value is never kept
 /// here, and neither is an email or login: the signed-in account is an
 /// ``AccountLabel`` (an opaque handle and a redacted display), made inside

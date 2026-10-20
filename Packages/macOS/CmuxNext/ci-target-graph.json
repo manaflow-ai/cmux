@@ -512,6 +512,15 @@
       ],
       "packages": []
     },
+    "CmuxNextCodeRouterTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextCodeRouterTests",
+      "targets": [
+        "CmuxNextCodeRouter"
+      ],
+      "packages": [],
+      "reads": []
+    },
     "CmuxNextCompat": {
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextCompat",
