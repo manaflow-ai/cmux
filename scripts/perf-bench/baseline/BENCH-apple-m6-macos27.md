@@ -1,30 +1,35 @@
-<!-- cmux20 (Apple M6, macOS 27.0), fleet step 914d13021d593bfc1910ebc7 at feat-cmux-next e775c2af2226, 2026-10-20.
-     Main table: cmux NEXT nightly, terminals only, 1 round (launch rows skipped); other browsers were not in this run.
-     Tab switch: tagged Debug build at the same commit. -->
+<!-- cmux20 (Apple M6, macOS 27.0), fleet step 6dd1020ca6392079a618a734 at feat-cmux-next 3330ea7facf0, 2026-10-20,
+     cmux NEXT nightly 3944134600801, 3 rounds. Tab switch rows: tagged Debug build at the same commit. -->
 
 # xbench, 2026-10-20: cmux NEXT against Chrome, Helium, Ardia, Dia, Safari
 
-Apple M6 (Mac18,5), 12 cores, 16 GB, macOS 27.0 (26A425), host cmux20, cmux ref `e775c2af2226`. Medians over runs (n per cell in results.json, min-max there too). Lower is better.
+Apple M6 (Mac18,5), 12 cores, 16 GB, macOS 27.0 (26A425), host cmux20, cmux ref `3330ea7facf0`. Medians over runs (n per cell in results.json, min-max there too). Lower is better.
 
-Versions: cmux NEXT (terminals) 1.0.0-nightly.3939848657701.
+Versions: cmux NEXT (Chromium tab) 1.0.0-nightly.3944134600801, cmux NEXT (WebKit tab) 1.0.0-nightly.3944134600801, cmux NEXT (terminals) 1.0.0-nightly.3944134600801, Chrome 155.0.8059.85, Helium 0.19.4.1, Ardia 0.2.38, Dia 1.53.0, Safari 27.0.
 
-| Metric | cmux NEXT (terminals) | best other | cmux vs best other | Ardia (published, M5 Pro) | Helium (published) |
-|---|---|---|---|---|---|
-| Power, idle, hidden | 0.1 mW | – | – | 3.9 mW | 3.1 mW |
-| Power, idle, in view | 1.7 mW | – | – | 3.5 mW | 4.0 mW |
-| Power, switching tabs | 14.2 mW | – | – | 136 mW | 173 mW |
-| Wakeups, idle, 20 tabs | 9.0/s | – | – | 13.6/s | 28.1/s |
-| CPU, idle, 20 tabs | 1.65% | – | – | 0.45% | 1.02% |
-| Memory, 1 tab | 443 MB | – | – | 298 MB | 374 MB |
-| Memory, 10 tabs | 483 MB | – | – | 714 MB | 773 MB |
-| Memory, 20 tabs | 532 MB | – | – | 1,082 MB | 1,121 MB |
-| Memory, back to 1 tab after 20 * | 478 MB | – | – | – | – |
-| CPU, idle, 1 tab * | 0.08% | – | – | – | – |
-| Wakeups, idle, 1 tab * | 7.2/s | – | – | – | – |
-| Power, idle, in view, 1 tab * | 0.1 mW | – | – | – | – |
-| Power, cmux idle on Home * | 0.1 mW | – | – | – | – |
-| CPU, cmux idle on Home * | 0.12% | – | – | – | – |
-| Wakeups, cmux idle on Home * | 8.1/s | – | – | – | – |
+| Metric | cmux NEXT (Chromium tab) | cmux NEXT (WebKit tab) | cmux NEXT (terminals) | Chrome | Helium | Ardia | Dia | Safari | best other | cmux vs best other | Ardia (published, M5 Pro) | Helium (published) |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| Power, idle, hidden | 0.6 mW | 0.5 mW | 0.1 mW | 0.2 mW | 0.3 mW | – | 5.2 mW | 0.1 mW | 0.1 mW (Safari) | 1.3x MORE | 3.9 mW | 3.1 mW |
+| Power, idle, in view | 105 mW | 0.7 mW | 7.5 mW | 1.1 mW | 1.2 mW | 0.9 mW | 6.0 mW | 0.1 mW | 0.1 mW (Safari) | 8.1x MORE | 3.5 mW | 4.0 mW |
+| Power, scrolling | 0.8 mW | 1.2 mW | – | 5.5 mW | 8.3 mW | – | 10.7 mW | 1.0 mW | 1.0 mW (Safari) | 1.3x less | 28.2 mW | 51.9 mW |
+| Power, video | 0.8 mW | 0.7 mW | – | 23.2 mW | 23.5 mW | – | 24.2 mW | 0.2 mW | 0.2 mW (Safari) | 3.8x MORE | 82.0 mW | 90.9 mW |
+| Power, switching tabs | 9.4 mW | 5.5 mW | 5.0 mW | 6.4 mW | 6.4 mW | – | 5.4 mW | – | 5.4 mW (Dia) | 1.1x less | 136 mW | 173 mW |
+| Cold launch, window up | 316 ms | 312 ms | 311 ms | 623 ms | 496 ms | 956 ms | 1,083 ms | 484 ms | 484 ms (Safari) | 1.6x less | 280 ms | 353 ms |
+| New tab first paint | – | 259 ms | – | 88.5 ms | 92.2 ms | 67.1 ms | – | 250 ms | 67.1 ms (Ardia) | 3.9x MORE | 54.9 ms | 71.5 ms |
+| Wakeups, idle, 20 tabs | 38.4/s | 58.8/s | 7.8/s | 102.8/s | 100.3/s | 87.7/s | 243.5/s | 4.8/s | 4.8/s (Safari) | 1.6x MORE | 13.6/s | 28.1/s |
+| CPU, idle, 20 tabs | 2.47% | 0.80% | 7.30% | 1.50% | 1.68% | 1.26% | 7.03% | 0.12% | 0.12% (Safari) | 6.8x MORE | 0.45% | 1.02% |
+| Memory, 1 tab | 932 MB | 892 MB | 468 MB | 389 MB | 340 MB | 352 MB | 581 MB | 994 MB | 340 MB (Helium) | 1.4x MORE | 298 MB | 374 MB |
+| Memory, 10 tabs | 1,110 MB | 1,020 MB | 565 MB | 578 MB | 688 MB | 648 MB | 926 MB | 377 MB | 377 MB (Safari) | 1.5x MORE | 714 MB | 773 MB |
+| Memory, 20 tabs | 1,529 MB | 1,255 MB | 626 MB | 793 MB | 1,022 MB | 1,008 MB | 1,263 MB | 544 MB | 544 MB (Safari) | 1.2x MORE | 1,082 MB | 1,121 MB |
+| Cold launch, link -> page painted * | – | – | – | 714 ms | 523 ms | – | – | – | 523 ms (Helium) | – | – | – |
+| Tab switch -> shown * | – | – | – | 16.5 ms | 16.5 ms | – | – | – | 16.5 ms (Chrome) | – | – | – |
+| Memory, back to 1 tab after 20 * | 955 MB | 941 MB | 504 MB | 373 MB | 371 MB | – | 609 MB | – | 371 MB (Helium) | 1.4x MORE | – | – |
+| CPU, idle, 1 tab * | 1.65% | 3.98% | 0.09% | 1.87% | 1.80% | 0.18% | 1.97% | 0.77% | 0.18% (Ardia) | 2.1x less | – | – |
+| Wakeups, idle, 1 tab * | 27.8/s | 19.8/s | 7.3/s | 77.1/s | 77.3/s | 6.8/s | 77.1/s | 7.8/s | 6.8/s (Ardia) | 1.1x MORE | – | – |
+| Power, idle, in view, 1 tab * | 1.6 mW | 52.9 mW | 0.1 mW | 7.1 mW | 32.2 mW | 0.2 mW | 8.9 mW | 2.6 mW | 0.2 mW (Ardia) | 2.7x less | – | – |
+| Power, cmux idle on Home * | – | – | 0.1 mW | – | – | – | – | – | – | – | – | – |
+| CPU, cmux idle on Home * | – | – | 0.12% | – | – | – | – | – | – | – | – | – |
+| Wakeups, cmux idle on Home * | – | – | 8.3/s | – | – | – | – | – | – | – | – | – |
 
 \* not in Ardia's tweet. "cmux vs best other" uses the best cmux variant of the row. Power is CPU energy (ri_energy_nj) over every process of the browser; GPU and display are not in it. The 10x goal: every cmux cell at a tenth of the best other.
 
@@ -36,19 +41,29 @@ tab-switch-matrix.py: one pane holding N tabs of a kind, warm; end-to-end = OS i
 
 | Kind | Tabs | Ctrl-Tab | Cmd-Shift-] | Click | late | per hidden tab |
 |---|---|---|---|---|---|---|
-| Browser (Chromium) | 2 | 14.7 / 18.3 | 15.5 / 17.9 | 23.7 / 25.0 | 0/5, 0/5, 0/5 | 251.65 MB |
-| Browser (Chromium) | 10 | 17.7 / 21.5 | 19.4 / 21.4 | 27.9 / 32.4 | 0/20, 0/20, 0/20 | 77.04 MB |
-| Browser (Chromium) | 30 | 22.9 / 33.2 | 26.9 / 39.0 | 34.0 / 40.4 | 0/58, 0/58, 0/51 | 68.0 MB |
-| Browser (WebKit) | 2 | 15.0 / 19.1 | 15.0 / 20.0 | 19.0 / 22.8 | 0/5, 0/5, 0/5 | 193.0 MB |
-| Browser (WebKit) | 10 | 17.7 / 20.6 | 14.6 / 18.3 | 18.6 / 24.4 | 0/20, 0/20, 0/20 | 40.43 MB |
-| Browser (WebKit) | 30 | 20.3 / 26.0 | 19.8 / 24.4 | 22.6 / 26.8 | 0/58, 0/58, 0/52 | 16.05 MB |
-| Markdown | 2 | 11.9 / 18.0 | 10.9 / 13.1 | 9.4 / 21.5 | 0/5, 0/6, 0/5 | 194.4 MB |
-| Markdown | 10 | 12.4 / 19.3 | 13.4 / 17.8 | 13.6 / 21.5 | 0/20, 0/20, 0/20 | 38.12 MB |
-| Markdown | 30 | 14.4 / 18.9 | 13.8 / 19.4 | 15.6 / 21.8 | 0/58, 0/58, 0/52 | 12.68 MB |
-| Chat | 2 | 7.8 / 17.1 | 13.5 / 16.8 | 19.1 / 21.1 | 0/5, 0/5, 0/5 | 195.15 MB |
-| Chat | 10 | 9.2 / 15.3 | 11.4 / 19.1 | 14.9 / 21.1 | 0/20, 0/20, 0/20 | 38.31 MB |
-| Chat | 30 | 14.7 / 25.1 | 14.8 / 24.1 | 18.5 / 24.7 | 0/58, 0/58, 0/52 | 12.78 MB |
+| Browser (Chromium) | 2 | 18.4 / 19.8 | 20.4 / 21.7 | 21.3 / 36.1 | 0/5, 0/5, 0/5 | 72.35 MB |
+| Browser (Chromium) | 10 | 21.7 / 23.4 | 20.8 / 23.0 | 30.4 / 36.4 | 0/20, 0/20, 0/20 | 44.87 MB |
+| Browser (Chromium) | 30 | 21.7 / 33.0 | 22.9 / 29.8 | 29.0 / 35.9 | 0/58, 0/58, 0/52 | 59.05 MB |
+| Browser (WebKit) | 2 | 15.6 / 17.7 | 12.0 / 20.0 | 19.6 / 26.1 | 0/5, 1/5, 0/5 | 20.5 MB |
+| Browser (WebKit) | 10 | 11.8 / 18.5 | 14.9 / 19.8 | 16.3 / 27.6 | 0/20, 0/20, 0/20 | 4.94 MB |
+| Browser (WebKit) | 30 | 19.4 / 27.9 | 16.3 / 25.8 | 18.8 / 28.5 | 0/58, 0/58, 0/52 | 4.12 MB |
+| Markdown | 2 | 15.4 / 17.6 | 7.1 / 14.0 | 17.6 / 20.9 | 0/5, 0/5, 0/5 | 14.0 MB |
+| Markdown | 10 | 10.9 / 19.5 | 12.1 / 18.4 | 16.5 / 23.5 | 0/20, 0/20, 0/20 | 1.91 MB |
+| Markdown | 30 | 13.4 / 21.8 | 13.3 / 21.0 | 16.3 / 22.2 | 0/58, 0/58, 0/52 | 1.12 MB |
+| Chat | 2 | 10.2 / 16.6 | 11.8 / 16.5 | 14.7 / 20.1 | 0/5, 0/5, 0/5 | 21.35 MB |
+| Chat | 10 | 13.3 / 17.3 | 13.4 / 17.3 | 13.1 / 21.4 | 0/20, 0/20, 0/20 | 5.06 MB |
+| Chat | 30 | 15.7 / 25.1 | 13.7 / 24.6 | 17.2 / 24.2 | 0/58, 0/58, 0/52 | 1.6 MB |
 
+## Rows that could not be measured
+
+- cmux-chromium newtab-paint: no paint within 15 s
+- cmux-chromium tab-switch: no visibilitychange seen
+- cmux-webkit tab-switch: no visibilitychange seen
+- ardia session-error: HTTPError: HTTP Error 404: Not Found
+- dia launch-link: no paint within 30 s
+- dia newtab-paint: no paint within 15 s
+- dia tab-switch: no visibilitychange seen
+- dia launch-window: no window within 30 s
 
 ## Tab switch before and after (cmux20, Debug)
 

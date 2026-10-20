@@ -179,9 +179,10 @@ await requireBrowserLane("agent-pane-activity-line.test.ts", async () => {
     await page.close();
   });
 
-  test("with the toggle off, the pane draws no activity line and keeps Working for", async () => {
+  test("with the toggle off, the pane draws no activity line and keeps the running status line", async () => {
     const page = await open(false);
-    await page.getByText(/^Working for/).waitFor();
+    // The status line over the work ("Working for", or the running call it names, WorkingFor.tsx).
+    await page.locator(".cv-worked").waitFor();
     expect(await page.locator(".cv-activity").count()).toBe(0);
     await page.close();
   });

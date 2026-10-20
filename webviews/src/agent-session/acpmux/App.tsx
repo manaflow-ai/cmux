@@ -5648,9 +5648,8 @@ function AcpmuxPane() {
     (trustAsk.ask && (trustAsk.ask.state !== "decided" || trustAsk.ask.level === "untrusted")) ||
     (!trustPending && (hasPermissionGroups || individualPermission || secret || toolCards.length > 0)),
   );
-  // Behind the agent.sessionStatus Debug toggle: a turn that ended on a question offers its yes
-  // above the composer (RecapCard.tsx).
-  const sessionStatus = useSessionStatus();
+  // Behind the agent.sessionStatus Debug toggle (`sessionStatus`, read above for the transcript): a
+  // turn that ended on a question offers its yes above the composer (RecapCard.tsx).
   const recapCard = useRecapCard({
     rows: snapshot.rows,
     sessionId: snapshot.sessionId,
