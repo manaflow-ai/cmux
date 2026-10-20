@@ -1,4 +1,6 @@
+import CmuxFoundation
 import Foundation
+import SQLite3
 import Testing
 
 #if canImport(cmux_DEV)
@@ -83,16 +85,6 @@ struct VaultSessionExclusionTests {
         #expect(config.exclude.count == 1)
     }
 
-    @Test("Pattern is accepted as a label matcher alias")
-    func patternAliasDecodes() throws {
-        let config = try JSONDecoder().decode(
-            CmuxVaultConfigDefinition.self,
-            from: Data(#"{"exclude":[{"pattern":"*background*"}]}"#.utf8)
-        )
-
-        #expect(config.exclude.first?.matches(makeEntry(agent: .claude, title: "background review")) == true)
-    }
-
     @Test("Registry loads Vault filters from the user config")
     func registryLoadsFilters() throws {
         let fileManager = FileManager.default
@@ -117,23 +109,6 @@ struct VaultSessionExclusionTests {
         #expect(!registry.excludes(makeEntry(agent: .claude, entrypoint: "cli")))
     }
 
-    @Test("A label pattern without re: is a wildcard, not a substring regex")
-    func labelPatternIsWildcardUnlessPrefixed() {
-        let wildcard = CmuxVaultSessionExclusion(labelPattern: "Draft*")
-        let regex = CmuxVaultSessionExclusion(labelPattern: "re:draft")
-
-        #expect(wildcard.matches(makeEntry(agent: .claude, title: "Draft notes")))
-        #expect(!wildcard.matches(makeEntry(agent: .claude, title: "Redrafting notes")))
-        #expect(regex.matches(makeEntry(agent: .claude, title: "Redrafting notes")))
-    }
-
-    @Test("A wildcard still spans a literal star in the label")
-    func wildcardSpansLiteralStar() {
-        let rule = CmuxVaultSessionExclusion(labelPattern: "*review*")
-
-        #expect(rule.matches(makeEntry(agent: .claude, title: "**Bold** review this")))
-    }
-
     @Test("Exclusions only make an agent filter when a rule can match it")
     func exclusionsAreScopedPerAgent() {
         let sdkOnly = CmuxVaultAgentRegistry(registrations: [], hideClaudeSDKSessions: true)
@@ -154,95 +129,155 @@ struct VaultSessionExclusionTests {
         #expect(anyAgentRule.hasSessionExclusions(for: .codex))
     }
 
-    @Test("A filtered page grows its source read only until the page is full")
-    func filteredPageGrowsSourceRead() async {
+    @Test("A filtered page parses later windows of one snapshot only until it is full")
+    func filteredPageGrowsOverOneSnapshot() async {
         let source = (0..<200).map { makeEntry(agent: .claude, title: "s\($0)") }
         let hidden = Set(source.prefix(40).map(\.id))
-        let requests = LimitRecorder()
+        let windows = RangeRecorder()
 
-        let page = await SessionIndexStore.filteredSourcePage(
+        let page = await SessionIndexStore.growingWindowPage(
+            candidateCount: source.count,
             offset: 5,
             limit: 10,
-            ceiling: 1500,
-            shortReadMeansExhausted: true,
-            load: { limit in
-                requests.append(limit)
-                return Array(source.prefix(limit))
+            cap: 1500,
+            grows: true,
+            parse: { range in
+                windows.append(range)
+                return Array(source[range])
             },
             isIncluded: { !hidden.contains($0.id) }
         )
 
         #expect(page.map(\.title) == (45..<55).map { "s\($0)" })
-        #expect(requests.values == [30, 60])
+        #expect(windows.values == [0..<30, 30..<60])
     }
 
-    @Test("A filtered page stops when the source is exhausted or at the ceiling")
-    func filteredPageStopsAtSourceEnd() async {
-        let source = (0..<50).map { makeEntry(agent: .claude, title: "s\($0)") }
-        let exhausted = LimitRecorder()
-        let capped = LimitRecorder()
-
-        let short = await SessionIndexStore.filteredSourcePage(
-            offset: 0,
-            limit: 30,
-            ceiling: 1500,
-            shortReadMeansExhausted: true,
-            load: { limit in
-                exhausted.append(limit)
-                return Array(source.prefix(limit))
-            },
-            isIncluded: { $0.title != "s0" }
-        )
-        _ = await SessionIndexStore.filteredSourcePage(
-            offset: 0,
-            limit: 100,
-            ceiling: 120,
-            shortReadMeansExhausted: true,
-            load: { limit in
-                capped.append(limit)
-                return Array(repeating: source[0], count: limit)
-            },
-            isIncluded: { _ in false }
-        )
-
-        #expect(short.count == 30)
-        #expect(exhausted.values == [60])
-        #expect(capped.values == [120])
-    }
-
-    @Test("A loader that drops part of its window keeps growing until the page fills")
-    func filteredPageKeepsGrowingPastShortWindowedReads() async {
-        // Like Claude's loader: each read parses a window of 2x the request
-        // and returns only the sessions in this folder, so a short read does
-        // not mean the source is exhausted.
+    @Test("A filtered page keeps parsing past windows the loader mostly drops")
+    func filteredPageKeepsGrowingPastDroppedWindows() async {
+        // Like Claude's loader: a window's sessions outside the folder or the
+        // search are dropped, so a short window is not the end of the snapshot.
         let source = (0..<400).map { makeEntry(agent: .claude, title: "s\($0)") }
-        let inFolder = Set(source.enumerated().filter { $0.offset % 10 == 0 }.map(\.element.id))
-        let requests = LimitRecorder()
+        let windows = RangeRecorder()
 
-        let page = await SessionIndexStore.filteredSourcePage(
+        let page = await SessionIndexStore.growingWindowPage(
+            candidateCount: source.count,
             offset: 0,
             limit: 20,
-            ceiling: 200,
-            shortReadMeansExhausted: false,
-            load: { limit in
-                requests.append(limit)
-                return Array(source.prefix(limit * 2).filter { inFolder.contains($0.id) }.prefix(limit))
+            cap: 1500,
+            grows: true,
+            parse: { range in
+                windows.append(range)
+                return source[range].enumerated()
+                    .filter { ($0.offset + range.lowerBound) % 10 == 0 }
+                    .map(\.element)
             },
             isIncluded: { _ in true }
         )
 
         #expect(page.count == 20)
-        #expect(requests.values == [40, 80, 160])
+        #expect(windows.values == [0..<40, 40..<80, 80..<160, 160..<320])
     }
 
-    private final class LimitRecorder: @unchecked Sendable {
+    @Test("A filtered page stops at the snapshot end or the cap, and an unfiltered page reads one window")
+    func filteredPageStopsAtSnapshotEnd() async {
+        let source = (0..<50).map { makeEntry(agent: .claude, title: "s\($0)") }
+        let exhausted = RangeRecorder()
+        let capped = RangeRecorder()
+        let unfiltered = RangeRecorder()
+
+        let short = await SessionIndexStore.growingWindowPage(
+            candidateCount: source.count,
+            offset: 0,
+            limit: 30,
+            cap: 1500,
+            grows: true,
+            parse: { range in
+                exhausted.append(range)
+                return Array(source[range])
+            },
+            isIncluded: { $0.title != "s0" }
+        )
+        _ = await SessionIndexStore.growingWindowPage(
+            candidateCount: 10_000,
+            offset: 0,
+            limit: 100,
+            cap: 120,
+            grows: true,
+            parse: { range in
+                capped.append(range)
+                return []
+            },
+            isIncluded: { _ in true }
+        )
+        _ = await SessionIndexStore.growingWindowPage(
+            candidateCount: 10_000,
+            offset: 0,
+            limit: 30,
+            cap: 1500,
+            grows: false,
+            parse: { range in
+                unfiltered.append(range)
+                return []
+            },
+            isIncluded: { _ in true }
+        )
+
+        #expect(short.count == 30)
+        #expect(exhausted.values == [0..<50])
+        #expect(capped.values == [0..<120])
+        #expect(unfiltered.values == [0..<60])
+    }
+
+    @Test("Codex's SQL reader exposes the thread source as the entrypoint")
+    func codexSQLReadsSourceAsEntrypoint() async throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-vault-codex-source-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        let stateDB = tempDir.appendingPathComponent("state_5.sqlite")
+
+        var db: OpaquePointer?
+        guard sqlite3_open(stateDB.path, &db) == SQLITE_OK, let db else {
+            Issue.record("open failed")
+            return
+        }
+        defer { sqlite3_close(db) }
+        let sql = """
+        CREATE TABLE threads (
+          id TEXT PRIMARY KEY, rollout_path TEXT NOT NULL, source TEXT NOT NULL,
+          cwd TEXT NOT NULL, title TEXT NOT NULL, sandbox_policy TEXT NOT NULL,
+          approval_mode TEXT NOT NULL, archived INTEGER NOT NULL DEFAULT 0,
+          git_branch TEXT, first_user_message TEXT NOT NULL DEFAULT '',
+          model TEXT, reasoning_effort TEXT, updated_at_ms INTEGER
+        );
+        INSERT INTO threads (id, rollout_path, source, cwd, title, sandbox_policy, approval_mode, updated_at_ms)
+        VALUES ('codex-exec', '/tmp/rollout-exec.jsonl', 'exec', '/work', 'Batch job', '{}', 'never', 2000),
+               ('codex-cli', '/tmp/rollout-cli.jsonl', 'cli', '/work', 'Pairing', '{}', 'never', 1000);
+        """
+        #expect(sqlite3_exec(db, sql, nil, nil, nil) == SQLITE_OK)
+
+        let outcome = await SessionIndexStore.loadCodexEntriesForTesting(
+            stateDBPath: stateDB.path,
+            needle: ""
+        )
+        let registry = CmuxVaultAgentRegistry(
+            registrations: [],
+            sessionExclusions: [CmuxVaultSessionExclusion(agent: "codex", entrypoint: "exec")]
+        )
+
+        #expect(outcome.errors == [])
+        #expect(outcome.entries.map(\.entrypoint) == ["exec", "cli"])
+        #expect(outcome.entries.filter { !registry.excludes($0) }.map(\.sessionId) == ["codex-cli"])
+    }
+
+    private final class RangeRecorder: @unchecked Sendable {
         private let lock = NSLock()
-        private var recorded: [Int] = []
-        func append(_ value: Int) {
+        private var recorded: [Range<Int>] = []
+        func append(_ value: Range<Int>) {
             lock.lock(); defer { lock.unlock() }
             recorded.append(value)
         }
-        var values: [Int] {
+        var values: [Range<Int>] {
             lock.lock(); defer { lock.unlock() }
             return recorded
         }
