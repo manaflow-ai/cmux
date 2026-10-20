@@ -213,6 +213,7 @@ test("a context block in the middle of output is the output's own text and stays
   const middle = `# Template\n${AMBIENT}more`;
   expect(cleanText(middle)).toBe(middle);
   expect(cleanText(`${AMBIENT}body\n${AMBIENT}`)).toBe("body\n");
+  expect(cleanText(`${middle}\n${AMBIENT}`)).toBe(`${middle}\n`);
 });
 
 test("only id-named arguments resolve to titles, and a message names its recipient, not its subject", async () => {

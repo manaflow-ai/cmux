@@ -91,8 +91,11 @@ export function mcpAction(call: McpCall): McpAction {
 
 /// Arguments that name what a call acts on, in the order they are tried.
 const NAME_KEYS = ["title", "name", "subject", "path", "file_path", "filePath", "url", "query", "q", "to", "recipient"];
-/// Arguments holding an id the run's other calls may name (`threadId`, `chat_id`, `id`).
-const ID_KEY = /^(?:[a-z]*_?)?id$/i;
+/// A message is named by whom it went to, never by its subject or body.
+const MESSAGE_KEYS = ["to", "recipient", "title", "name"];
+/// Arguments holding an id the run's other calls may name (`id`, `chat_id`, `threadId`), not words
+/// that merely end in "id" (`valid`, `paid`).
+const ID_KEY = /^(?:id|[a-zA-Z]+_id|[a-z]+Id)$/;
 
 /// Ids to titles, from objects in the run's MCP requests and responses that carry both
 /// (`{"id": "01a1…", "title": "Coordination hub"}`), so a call that names only an id reads by title.
@@ -138,7 +141,7 @@ export function mcpNames(items: readonly AcpmuxActivity[] | undefined): McpNames
 export function mcpTarget(call: McpCall, names: McpNames): string | undefined {
   const args = call.args;
   if (!isRecord(args)) return undefined;
-  for (const key of NAME_KEYS) {
+  for (const key of mcpAction(call) === "message" ? MESSAGE_KEYS : NAME_KEYS) {
     const value = args[key];
     if (typeof value === "string" && value.trim() && value.length <= 200) return value.trim();
   }
@@ -179,13 +182,29 @@ const INTERNAL_TAGS = [
   "ide_selection",
   "ide_opened_file",
 ];
-/// Only a closed block goes: text that merely names a tag (a file that mentions `<system-reminder>`)
-/// keeps everything after it.
-const INTERNAL_BLOCK = new RegExp(`<(${INTERNAL_TAGS.join("|")})\\b[^>]*>[\\s\\S]*?</\\1>\\s*`, "g");
+/// One closed block (text that merely names a tag keeps everything after it), never reaching into
+/// another of its tag: anchored at the end, a lazy match would otherwise start at a block in the
+/// middle and swallow the text up to the last one.
+const BLOCK = `<(${INTERNAL_TAGS.join("|")})\\b[^>]*>(?:(?!<\\1\\b)[\\s\\S])*?</\\1>`;
+const LEADING_BLOCK = new RegExp(`^\\s*${BLOCK}\\s*`);
+const TRAILING_BLOCK = new RegExp(`\\s*${BLOCK}\\s*$`);
 
-/// `text` without the internal context blocks a host injected into it.
+/// `text` without the internal context blocks a host injected at its start or end. A block in the
+/// middle is the text's own (a template or a file that quotes one) and stays.
 export function cleanText(text: string): string {
-  return text.includes("<") ? text.replace(INTERNAL_BLOCK, "") : text;
+  if (!text.includes("<")) return text;
+  let out = text;
+  for (let found = true; found; ) {
+    const next = out.replace(LEADING_BLOCK, "");
+    found = next !== out;
+    out = next;
+  }
+  for (let found = true; found; ) {
+    const end = TRAILING_BLOCK.exec(out);
+    found = Boolean(end);
+    if (end) out = `${out.slice(0, end.index)}${/\n\s*$/.test(end[0]) ? "\n" : ""}`;
+  }
+  return out;
 }
 
 /// A JSON value with every string cleaned, and every string that holds JSON parsed in its place.

@@ -69,7 +69,10 @@ export function ToolRow({ item }: { item: AcpmuxActivity }) {
   // Only a call with a command line is a shell; an MCP call can also say "execute".
   const shell = tool.kind === "execute" && Boolean(tool.command);
   // A shell prints what it printed; any other output loses the context a host injects into it.
-  const body = (shell || !tool.output ? tool.output : cleanText(tool.output))?.replace(/\n$/, "");
+  const body = useMemo(
+    () => (shell || !tool.output ? tool.output : cleanText(tool.output))?.replace(/\n$/, ""),
+    [shell, tool.output],
+  );
   const images = useMemo(() => toolImages(tool), [tool]);
   const content = (
     <>
