@@ -1176,9 +1176,13 @@ export class AcpmuxDirectClient {
     } else if (isNotification(notification, "_acpmux/session_changed")) this.sessionChanged(notification.params);
     else if (isNotification(notification, "_acpmux/permission_pending")) this.applyPermission(notification.params);
     else if (notification.method === "_acpmux/lagged") this.resyncAfterLag(notification.params);
-    else if (notification.method === "_acpmux/harnesses_changed") this.onHarnessesChanged?.();
-    // A new chat's start mode may have changed (a pick in any pane, a config reload): pending
-    // chats ask acpmux again (startMode.ts).
+    // A profile change may pin or free a harness's mode, which changes a new chat's start mode too.
+    else if (notification.method === "_acpmux/harnesses_changed") {
+      this.onHarnessesChanged?.();
+      startModeChanged();
+    }
+    // A new chat's start mode may have changed (a pick in any pane, a config reload, the
+    // `agents.defaultPermissionMode` setting): pending chats ask acpmux again (startMode.ts).
     else if (notification.method === "_acpmux/start_mode_changed") startModeChanged();
   }
 
