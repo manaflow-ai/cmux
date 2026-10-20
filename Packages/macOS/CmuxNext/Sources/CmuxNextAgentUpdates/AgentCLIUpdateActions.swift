@@ -245,11 +245,14 @@ public final class AgentCLIUpdateActions {
         }
     }
 
+    /// The jobs whose owner the app still routes to, then every retained row none of them shows:
+    /// what blocks a CLI in `start` is always shown.
     public var state: JSONValue {
-        .array(intents.keys.sorted().flatMap { key in
-            guard let intent = intents[key], owner(of: intent) != nil else { return [JSONValue]() }
+        let reachable = intents.keys.sorted().flatMap { key -> [JSONValue] in
+            guard let intent = intents[key], owner(of: intent) != nil else { return [] }
             return intent.jobs
-        })
+        }
+        return .array(reachable + unreachableRows().map(Self.unreachableJob))
     }
 
     /// The intent's owner while the app still routes to it: the captured route, or after a
@@ -343,7 +346,10 @@ public final class AgentCLIUpdateActions {
                 throw DaemonError.malformedResponse("Agent update receipt owner mismatch")
             }
             try remember(receipt, for: input, in: intent)
-            try await persistence.attach(input, receipt)
+            do { try await persistence.attach(input, receipt) } catch {
+                // The update started and stays tracked; its recorded row lets recovery resolve it.
+                failures.append("\(input.cli): \(Self.text(error))")
+            }
             guard intent.route.isCurrent() else { throw DaemonError.notConnected }
         }
         guard failures.isEmpty else { throw ActionFailure(message: failures.joined(separator: "\n")) }

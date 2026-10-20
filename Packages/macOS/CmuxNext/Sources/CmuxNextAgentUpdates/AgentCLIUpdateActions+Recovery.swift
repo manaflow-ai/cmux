@@ -9,7 +9,12 @@ extension AgentCLIUpdateActions {
     /// No outcome of this read authorizes an execution request.
     func recover() async throws {
         guard let persistence else { throw DaemonError.notConnected }
-        let listed = try await persistence.list()
+        let listed: [AgentCLIStoredIntent]
+        do { listed = try await persistence.list() } catch {
+            // An unread ledger shows no stale rows; nothing can start without reading it anyway.
+            retained = []
+            throw error
+        }
         // A settled key whose delete failed earlier is deleted again, never restored.
         let unsettled = listed.filter { settled.contains($0.intent.key) }.map(\.intent.key)
         if !unsettled.isEmpty { try? await persistence.settle(unsettled) }
@@ -115,6 +120,13 @@ extension AgentCLIUpdateActions {
     /// Dismissing stops it blocking another update; it never stops a process.
     func dismiss(_ key: String) async throws {
         try await recover()
+        if unreachableRows().contains(where: { $0.key == key }) {
+            // No route reaches the row's owner, so only this local ledger delete can stop it blocking.
+            let holder = intents.values.first { $0.inputs.contains { $0.key == key } }
+            guard holder?.busy != true else { throw ActionFailure(message: unsupported()) }
+            await settle(key, in: holder)
+            return
+        }
         guard let intent = intents.values.first(where: { $0.inputs.contains { $0.key == key } }), !intent.busy,
               intent.jobs.contains(where: { $0["intent_key"]?.stringValue == key && $0["can_dismiss"] == true }) else {
             throw ActionFailure(message: unsupported())
@@ -133,6 +145,23 @@ extension AgentCLIUpdateActions {
         }
         // A failed delete keeps the key in `settled`; the next recovery deletes it again.
         try? await persistence?.settle([key])
+    }
+
+    /// Retained rows that no intent with a current owner shows: another or a dead session, a
+    /// withdrawn route, or a foreign machine. Each still blocks its CLI on its machine (`start`)
+    /// until a person dismisses it or the ledger's seven-day read bound drops it.
+    func unreachableRows() -> [AgentCLIUpdateIntent] {
+        let shown = Set(intents.values.filter { owner(of: $0) != nil }.flatMap { intent in
+            intent.jobs.compactMap { $0["intent_key"]?.stringValue }
+        })
+        return retained.map(\.intent).filter { !settled.contains($0.key) && !shown.contains($0.key) }
+    }
+
+    /// An unreachable row: nothing here can observe or resume it, so its outcome is unknown.
+    static func unreachableJob(_ input: AgentCLIUpdateIntent) -> JSONValue {
+        guard var row = Self.job(input).objectValue else { return Self.job(input) }
+        row["can_dismiss"] = true
+        return .object(row)
     }
 
     static func job(_ input: AgentCLIUpdateIntent) -> JSONValue {

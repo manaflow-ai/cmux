@@ -281,18 +281,26 @@ fn read_rows(db: &Connection, actor: &str, now_ms: i64) -> anyhow::Result<Vec<Va
             Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?))
         })?
         .collect::<Result<Vec<_>, _>>()?;
-    rows.into_iter()
-        .map(|(input, receipt)| {
-            let input: AgentCLIIntent = serde_json::from_str(&input)?;
-            validate_intent(&input)?;
-            let receipt = receipt
-                .map(|s| -> anyhow::Result<Value> {
-                    normalize_receipt(&input, &serde_json::from_str(&s)?)
-                })
-                .transpose()?;
-            row_value(&input, receipt)
+    // One unreadable row is skipped, not the whole ledger: the others still block and resume.
+    Ok(rows
+        .into_iter()
+        .filter_map(|(input, receipt)| match read_row(&input, receipt.as_deref()) {
+            Ok(row) => Some(row),
+            Err(error) => {
+                eprintln!("cmux-tui: skipping an unreadable agent CLI intent row: {error:#}");
+                None
+            }
         })
-        .collect()
+        .collect())
+}
+
+fn read_row(input: &str, receipt: Option<&str>) -> anyhow::Result<Value> {
+    let input: AgentCLIIntent = serde_json::from_str(input)?;
+    validate_intent(&input)?;
+    let receipt = receipt
+        .map(|s| -> anyhow::Result<Value> { normalize_receipt(&input, &serde_json::from_str(s)?) })
+        .transpose()?;
+    row_value(&input, receipt)
 }
 
 #[cfg(test)]

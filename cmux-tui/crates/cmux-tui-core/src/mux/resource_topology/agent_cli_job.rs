@@ -27,8 +27,7 @@ impl Mux {
     ) -> anyhow::Result<Value> {
         let correlation = format!("agent-cli-job:{:x}", Sha256::digest(mutation.id.as_bytes()));
         let fingerprint = self.agent_cli_job_fingerprint(cli, mutation);
-        let registry =
-            self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
+        let registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
         let previous = registry
             .lookup_resource_creation(
                 &correlation,
