@@ -18,6 +18,7 @@ import type {
 import { mergeModelCatalog } from "./modelCatalog";
 import { commandsFromUpdate, type SlashCommand } from "./slashCommands";
 import { promptBlocks, promptText, takesAudio, type ComposerAttachment } from "./attachments";
+import { peerKindsFromStatus } from "./environments";
 import { hostKind, sessionEntry, text, type AcpmuxSessionEntry } from "./sessionList";
 import { agentName } from "./agents";
 import { FORK_OP, servesOperation } from "./operations";
@@ -778,6 +779,8 @@ export class AcpmuxDirectClient {
   private readonly listener: Listener;
   private host: AcpmuxHostConfig;
   private peers: string[] = [];
+  /// Each peer's transport, for the environment picker's SSH and Cloud sections (environments.ts).
+  private peerKinds: Record<string, "ssh" | "cloud"> = {};
   private reconnectTimer?: number;
   private reconnectDelay = 250;
   /// Called once when an established connection drops. The host then asks Swift
@@ -962,6 +965,7 @@ export class AcpmuxDirectClient {
             .map((peer: any) => (typeof peer?.name === "string" ? peer.name : undefined))
             .filter((peer: string | undefined): peer is string => Boolean(peer))
         : [];
+      this.peerKinds = peerKindsFromStatus(status);
       const first = await this.sessionPages.first();
       let laterPages = first?.next ? first : undefined;
       const linkedLater =
@@ -2214,6 +2218,7 @@ export class AcpmuxDirectClient {
         return entry;
       }),
       peers: this.peers,
+      peerKinds: this.peerKinds,
       ...(this.forkedAtSeq !== undefined ? { forkedAtSeq: this.forkedAtSeq } : {}),
       summary: summary
         ? {
