@@ -139,6 +139,17 @@ Object.assign(variants, {
       ],
     },
   }),
+  // Settings > Agents > Agent integrations, opened: installed, needs repair, a file cmux did
+  // not create in the way (no Install, the command to copy), and not installed.
+  "agents-integrations": variant("agents", {
+    note: "Agent integrations opened: one row per hook state, a conflict with no Install, and the manual command.",
+    focus: "agents.integrations",
+  }),
+  "agents-integrations-no-cli": variant("agents", {
+    note: "Agent integrations in a build without the cmux CLI: it says so and gives the command.",
+    focus: "agents.integrations",
+    integrations: { loading: false, problem: "unavailable", command: "cmux agent hook install", providers: [] },
+  }),
   "agents-harnesses-unreachable": variant("agents", {
     note: "Harnesses when the acpmux daemon did not answer.",
     harnesses: { loading: false, problem: "unreachable", harnesses: [] },
@@ -809,6 +820,7 @@ export default settingsPageEntry({
     "page:cmux.settings",
     "pages/settings/components/AccountsSection.tsx",
     "pages/settings/components/AgentHarnesses.tsx",
+    "pages/settings/components/AgentIntegrations.tsx",
     "pages/settings/components/ComputerUseCard.tsx",
     "pages/settings/components/HarnessesCard.tsx",
     "pages/settings/components/AgentHarnesses.tsx#AgentHarnesses",
