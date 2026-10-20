@@ -168,17 +168,14 @@ impl Doc {
     }
 
     /// Every item in display order: per section, its top-level list with
-    /// each group's children right after the group. Items no list reaches
-    /// (an unknown section or parent, possible only in a document that
-    /// fails the invariants) follow, by id.
+    /// each group's subtree right after the group, depth first. Items no
+    /// list reaches (an unknown section or parent, or a parent cycle,
+    /// possible only in a document that fails the invariants) follow, by id.
     pub fn items_in_order(&self) -> Vec<&Item> {
         let mut out = Vec::with_capacity(self.items.len());
         for section in &self.sections {
             for item in self.list(&section.id, None) {
-                out.push(item);
-                if item.body.is_group() {
-                    out.extend(self.list(&section.id, Some(item.id.as_str())));
-                }
+                self.push_subtree(item, &mut out);
             }
         }
         if out.len() != self.items.len() {
@@ -189,6 +186,97 @@ impl Doc {
             rest.sort_by(|a, b| a.id.cmp(&b.id));
             out.extend(rest);
         }
+        out
+    }
+
+    /// `item`, then its subtree in display order. A list reached from the
+    /// top level cannot cycle (a cycle has no top-level member), so this
+    /// recursion ends; the depth bound keeps a corrupt document finite.
+    fn push_subtree<'a>(&'a self, item: &'a Item, out: &mut Vec<&'a Item>) {
+        let mut stack: Vec<(&Item, usize)> = vec![(item, 0)];
+        while let Some((item, depth)) = stack.pop() {
+            out.push(item);
+            if item.body.is_group() && depth <= MAX_GROUP_DEPTH {
+                let children: Vec<&Item> =
+                    self.list(&item.section, Some(item.id.as_str())).collect();
+                for child in children.into_iter().rev() {
+                    stack.push((child, depth + 1));
+                }
+            }
+        }
+    }
+
+    /// The group ancestors of `item`, nearest first. Stops at a missing
+    /// parent, a parent that is not a group, or a cycle (then
+    /// [`Doc::has_parent_cycle`] is true).
+    pub fn ancestors(&self, item: &Item) -> Vec<&Item> {
+        let mut out: Vec<&Item> = Vec::new();
+        let mut current = item.parent.as_deref();
+        while let Some(id) = current {
+            let Some(parent) = self.items.get(id) else { break };
+            if !parent.body.is_group()
+                || parent.id == item.id
+                || out.iter().any(|seen| seen.id == parent.id)
+            {
+                break;
+            }
+            out.push(parent);
+            current = parent.parent.as_deref();
+        }
+        out
+    }
+
+    /// Whether following `item`'s parents comes back to an item already
+    /// passed.
+    pub fn has_parent_cycle(&self, item: &Item) -> bool {
+        let mut seen = std::collections::HashSet::from([item.id.as_str()]);
+        let mut current = item.parent.as_deref();
+        while let Some(id) = current {
+            if !seen.insert(id) {
+                return true;
+            }
+            current = self.items.get(id).and_then(|parent| parent.parent.as_deref());
+        }
+        false
+    }
+
+    /// The level of a group: 1 at the top level, plus one per group
+    /// ancestor.
+    pub fn group_level(&self, group: &Item) -> usize {
+        self.ancestors(group).len() + 1
+    }
+
+    /// The levels of groups in `group`'s subtree, itself included (1 for a
+    /// group with no subgroups).
+    pub fn group_height(&self, group: &Item) -> usize {
+        let mut height = 0;
+        let mut stack: Vec<(&Item, usize)> = vec![(group, 1)];
+        while let Some((item, level)) = stack.pop() {
+            if !item.body.is_group() {
+                continue;
+            }
+            height = height.max(level);
+            if level > MAX_GROUP_DEPTH + 1 {
+                continue;
+            }
+            for child in self.list(&item.section, Some(item.id.as_str())) {
+                stack.push((child, level + 1));
+            }
+        }
+        height
+    }
+
+    /// The top-level item of `item`'s tree (itself when it has no parent).
+    pub fn root<'a>(&'a self, item: &'a Item) -> &'a Item {
+        self.ancestors(item).last().copied().unwrap_or(item)
+    }
+
+    /// Every item under `group` (children, their children, ...), depth
+    /// first, without `group` itself.
+    pub fn descendants<'a>(&'a self, group: &'a Item) -> Vec<&'a Item> {
+        let mut out = Vec::new();
+        self.push_subtree(group, &mut out);
+        out.remove(0);
         out
     }
 
@@ -263,13 +351,14 @@ impl Doc {
     }
 
     /// The machine a group or workspace item belongs to: a workspace's
-    /// session, a group's first workspace child's session (None for an empty
-    /// group or another body).
+    /// session, the session of the first workspace in a group's subtree
+    /// (None for a group with no workspace, or another body).
     pub fn item_machine(&self, item: &Item) -> Option<String> {
         match &item.body {
             Body::Workspace { reference } => Some(reference.session_id.clone()),
             Body::Group { .. } => self
-                .list(&item.section, Some(item.id.as_str()))
+                .descendants(item)
+                .into_iter()
                 .find_map(|child| child.body.workspace().map(|r| r.session_id.clone())),
             _ => None,
         }
@@ -279,11 +368,11 @@ impl Doc {
         self.sections.iter().find(|section| section.kind.machine() == Some(session_id))
     }
 
-    /// The last row a top-level item draws: its last child for a group
-    /// with children, else itself.
+    /// The last row an item draws: the last row of its subtree for a
+    /// group with children, else itself.
     fn last_drawn<'a>(&'a self, item: &'a Item) -> &'a Item {
         if item.body.is_group() {
-            return self.list(&item.section, Some(item.id.as_str())).next_back().unwrap_or(item);
+            return self.descendants(item).last().copied().unwrap_or(item);
         }
         item
     }
@@ -297,7 +386,9 @@ impl Doc {
                 .list_entries(&item.section, Some(parent.as_str()))
                 .and_then(|set| set.range(..&entry).next_back())
                 .and_then(|(_, id)| self.items.get(id));
-            return earlier.or_else(|| self.items.get(parent));
+            return earlier
+                .map(|earlier| self.last_drawn(earlier))
+                .or_else(|| self.items.get(parent));
         }
         if let Some(earlier) = self
             .list_entries(&item.section, None)
@@ -320,19 +411,24 @@ impl Doc {
             .map(|top| self.last_drawn(top))
     }
 
-    /// A key that sorts items into display order (section, the top-level
-    /// entry of the item or its group, depth, own entry).
-    pub fn display_key(&self, item: &Item) -> (usize, ListEntry, u8, ListEntry) {
+    /// A key that sorts items into display order: the section, then the
+    /// path of list entries from the top-level item down to the item (a
+    /// group sorts before its subtree, which is a longer path with the
+    /// group's path as prefix).
+    pub fn display_key(&self, item: &Item) -> (usize, Vec<ListEntry>) {
         let section = self
             .sections
             .iter()
             .position(|section| section.id == item.section)
             .unwrap_or(usize::MAX);
-        let own = (item.order.clone(), item.id.clone());
-        match item.parent.as_deref().and_then(|parent| self.items.get(parent)) {
-            Some(parent) => (section, (parent.order.clone(), parent.id.clone()), 1, own),
-            None => (section, own.clone(), 0, own),
-        }
+        let mut path: Vec<ListEntry> = self
+            .ancestors(item)
+            .into_iter()
+            .rev()
+            .map(|ancestor| (ancestor.order.clone(), ancestor.id.clone()))
+            .collect();
+        path.push((item.order.clone(), item.id.clone()));
+        (section, path)
     }
 
     /// The first entry after `entry` in a list, skipping `skip`.

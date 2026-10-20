@@ -49,7 +49,7 @@ impl Drop for Owner {
 }
 
 #[test]
-fn a_worker_thread_panic_is_logged_and_the_owner_keeps_running() {
+fn tester_rollout_a_worker_thread_panic_is_logged_and_the_owner_keeps_running() {
     let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
     let dir = PathBuf::from("/tmp").join(format!("cmux-op-{}-{stamp}", std::process::id()));
     fs::create_dir_all(dir.join("state").join("sessions")).unwrap();

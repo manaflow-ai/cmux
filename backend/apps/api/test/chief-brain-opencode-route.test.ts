@@ -4,6 +4,7 @@ import { importJWK, SignJWT, type JWK } from "jose"
 import { afterAll, describe, expect, it } from "vitest"
 import { OpencodeBrainDO } from "../src/chief-brain-opencode/brain-do.ts"
 import { MODEL_UNAVAILABLE_NOTICE } from "../src/chief-brain/brain-gateway.ts"
+import { messagesEffectAuthorized } from "../src/chief-brain/effect-policy.ts"
 import { fireAlarm } from "./setup/alarm.ts"
 
 /**
@@ -68,6 +69,18 @@ const dmAndReply = async (token: string, chief: { id: string; main_conversation:
 }
 
 describe("Chief wake routing by brain_impl", { timeout: 120_000 }, () => {
+  it("taints effects from every non-owner message returned to an OpenCode turn", () => {
+    const owner = "user_owner"
+    expect(messagesEffectAuthorized([
+      { author: { id: owner, kind: "person" } },
+      { author: { id: "chief_1", kind: "self" } }
+    ], owner)).toBe(true)
+    expect(messagesEffectAuthorized([
+      { author: { id: owner, kind: "person" } },
+      { author: { id: "user_teammate", kind: "person" } }
+    ], owner)).toBe(false)
+  })
+
   it("a pi Chief is woken without the opencode brain; an opencode Chief is woken there and falls back without a container", async () => {
     const { token, chief } = await ownerWithChief("route-impl")
 

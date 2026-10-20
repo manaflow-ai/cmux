@@ -13,6 +13,10 @@ public nonisolated struct OmnibarKeyword: Hashable, Sendable {
     public var name: String
     /// `omnibox.setDefaultSuggestion`, shown for the typed text.
     public var defaultDescription: String?
+    /// A search engine's keyword (Chrome's tab to search) instead of an
+    /// extension's: the session searches with this engine
+    /// (`BrowserSearchEngine+Keyword`); no extension takes part.
+    public var searchEngine: BrowserSearchEngine?
 
     public init(extensionID: String, keyword: String, name: String, defaultDescription: String? = nil) {
         self.extensionID = extensionID
@@ -33,9 +37,16 @@ public nonisolated struct OmnibarKeyword: Hashable, Sendable {
         return nil
     }
 
-    /// The keyword `text` is exactly (Tab starts its session).
+    /// The keyword `text` is exactly (Tab starts its session). A search
+    /// engine's keyword also matches its site as the field shows a completed
+    /// address (`www.youtube.com/`, `youtube.com/`).
     static func exact(_ text: String, in keywords: [OmnibarKeyword]) -> OmnibarKeyword? {
-        keywords.first { !$0.keyword.isEmpty && $0.keyword.lowercased() == text.lowercased() }
+        let lowered = text.lowercased()
+        if let keyword = keywords.first(where: { !$0.keyword.isEmpty && $0.keyword.lowercased() == lowered }) { return keyword }
+        var host = lowered
+        for prefix in ["https://", "http://", "www."] where host.hasPrefix(prefix) { host.removeFirst(prefix.count) }
+        if host.hasSuffix("/") { host.removeLast() }
+        return keywords.first { $0.searchEngine != nil && !$0.keyword.isEmpty && $0.keyword.lowercased() == host }
     }
 
     /// A suggestion row of the extension: `content` goes into the field and
