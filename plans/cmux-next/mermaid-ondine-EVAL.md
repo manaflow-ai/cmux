@@ -131,3 +131,13 @@ Not done here (follow-ups):
 
 Harness (outside the repo, untrusted copies): `~/fun/scratch/ondine-eval/` (`corpus.json`,
 `run.mjs`, `analyze.py`, `compare.html`, screenshots `cmp1.png`–`cmp3.png`).
+
+## 4. Follow-up (2026-10-19, later)
+
+- **Mermaid fallback upgraded to 11.17.2** (npm tarball `sha512-V6K3C8EB…BBg==`, released
+  2026-08-25). Every advisory above is fixed at or before 11.16.1, so none remains open. On the same
+  603-source corpus in WebKit 11.17.2 draws 551 (11.4.1: 379); Ondine still draws every one of them
+  plus 43 more; mean render 12.9 ms against Ondine's 0.042 ms. Its HTML labels still put `<img>`/`<a>`
+  elements inside `<foreignObject>` (no handlers); `cleanSVG` strips those classes of attributes either way.
+- **Agent pane and Home chat** draw ```` ```mermaid ```` fences with the same `renderMermaid`
+  (Ondine, Mermaid fallback) instead of a code block.

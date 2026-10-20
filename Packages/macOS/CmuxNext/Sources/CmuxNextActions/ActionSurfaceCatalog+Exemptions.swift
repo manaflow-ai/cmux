@@ -55,7 +55,8 @@ nonisolated extension ActionSurfaceCatalog {
         "renameTab", "palette.clearTabName", "tab.restart",
         "moveSurfaceLeft", "moveSurfaceRight", "moveSurfaceToPreviousPane", "moveSurfaceToNextPane",
         "moveSurfaceToPaneLeft", "moveSurfaceToPaneRight", "moveSurfaceToPaneUp", "moveSurfaceToPaneDown",
-        "palette.moveTabToNewWorkspace", "palette.toggleTabPin", "palette.toggleTabUnread", "duplicateTab",
+        "palette.moveTabToNewWorkspace", "palette.toggleTabPin", "palette.toggleTabUnread", "toggleTabAudioMute", "tab.muteAudio", "tab.unmuteAudio", "tab.muteOtherAudio",
+        "workspace.toggleAudioMute", "duplicateTab",
         "tab.setIcon", "tab.clearIcon",
         "reloadTab", "reopenClosedBrowserPanel", "tabGroup.create",
         "tabGroup.addTab", "tabGroup.removeTab", "tabGroup.rename", "tabGroup.setColor", "tabGroup.setIcon", "tabGroup.clearIcon", "tabGroup.collapse",
@@ -134,6 +135,10 @@ nonisolated extension ActionSurfaceCatalog {
         .duplicateOfDefault: [
             "openBrowser.chromium",
         ],
+        // Mute Tab and Unmute Tab list in its place; the right-click menu keeps the toggle, titled for the tab.
+        .familyMember: [
+            "toggleTabAudioMute",
+        ],
         // A row of the titlebar Back / Forward list: the click on the row is the gesture.
         .focusMove: [
             "history.goTo", "agent.openSessionWorkspace",
@@ -147,9 +152,7 @@ nonisolated extension ActionSurfaceCatalog {
             "palette.disableBrowser",
             "palette.enableBrowser",
             "disconnectRemoteTab",
-            "toggleTabAudioMute",
             "agentChat.toggleNotificationMute",
-            "palette.openCloudPane",
             "palette.openVaultPane",
             "palette.openFindPane",
             "palette.openFilesPane",
@@ -174,7 +177,7 @@ nonisolated extension ActionSurfaceCatalog {
             "switchRightSidebarToSessions", "switchRightSidebarToFeed", "switchRightSidebarToDock",
             "switchRightSidebarToMachines", "showNotifications", "feed.show", "palette.openTerminalChatView",
             "palette.computerUse.setup", "palette.computerUse.accessibility", "palette.computerUse.screenRecording",
-            "palette.cloud.tools", "cloudOpenMachine", "openTeamPicker", "palette.mobileConnect",
+            "palette.cloud.tools", "cloudOpenMachine", "openTeamPicker",
             "palette.openCmuxSettingsFile", "palette.openGhosttySettings", "ghostty.showDiagnostics", "palette.searchShortcuts", "agentPane.searchChats",
             "palette.pro.upgrade", "sendFeedback", "help.featureFlags",
             "help.documentation", "recentlyFocused", "recentlyClosed", "history.commands", "browserShowHistory",
