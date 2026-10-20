@@ -617,6 +617,8 @@ struct SceneSpin: ViewModifier {
     let value: ScenePropValue
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+    /// Wraps `content` in a timeline that turns it once per period, paused
+    /// while the prop or Reduce Motion says not to spin.
     func body(content: Content) -> some View {
         let period = Self.period(value, reduceMotion: reduceMotion)
         // The angle comes from the timeline's date, not from a repeating
@@ -643,6 +645,8 @@ struct SceneSpin: ViewModifier {
         return seconds
     }
 
+    /// Degrees clockwise at `date`: the fraction of the current period that
+    /// has elapsed since the reference date, times 360.
     nonisolated static func angle(at date: Date, period: Double) -> Double {
         date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: period) / period * 360
     }

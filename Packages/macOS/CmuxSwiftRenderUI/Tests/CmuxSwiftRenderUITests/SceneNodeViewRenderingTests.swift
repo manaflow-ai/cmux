@@ -73,6 +73,8 @@ struct SceneNodeViewRenderingTests {
         #expect(vertical.height > 20)
     }
 
+    /// On: a positive number of seconds, `true` (one turn a second), or
+    /// numeric text.
     @Test(arguments: [
         (ScenePropValue.number(1.5), false, 1.5),
         (.bool(true), false, 1),
