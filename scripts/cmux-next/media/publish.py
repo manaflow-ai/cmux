@@ -213,7 +213,10 @@ def scope_table(media: Path) -> str:
     if not isinstance(matches, dict):
         return ""
     rows = []
-    for tour in ("new-tab", "agent-pane", "glass", "core"):
+    order = data.get("tours") if isinstance(data.get("tours"), list) else []
+    for tour in order:
+        if not isinstance(tour, str) or not TOUR_NAME.fullmatch(tour):
+            continue
         paths = matches.get(tour)
         if not isinstance(paths, list) or not paths:
             continue
