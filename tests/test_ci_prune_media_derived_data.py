@@ -79,6 +79,16 @@ def build_tree(root, outside):
         handle.write("not a dir")
 
 
+JOBS = []
+
+
+def held_by_a_running_job():
+    """media_tag_lock.py arguments that tie a hold to a stand-in for another tour's Runner.Worker, alive until
+    the checks end: a hold that lapsed by --max-hold while a loaded machine ran the prune would read as a bug."""
+    JOBS.append(subprocess.Popen(["sleep", "600"]))
+    return ["--max-hold", "600", "--worker-pid", str(JOBS[-1].pid)]
+
+
 def hold_open(path):
     """A child process with a file under path open until it is killed."""
     target = os.path.join(path, "Build", "Products", "Debug", "app.bin")
@@ -177,7 +187,7 @@ def scenario_held_tag():
             tempfile.TemporaryDirectory() as locks:
         build_tree(root, outside)
         held = subprocess.run([sys.executable, lock, "hold", "--tag", "ci-media-pr-1", "--lock-dir", locks,
-                               "--wait", "0", "--max-hold", "60"], capture_output=True, text=True)
+                               "--wait", "0", *held_by_a_running_job()], capture_output=True, text=True)
         _check(held.returncode == 0, "a tour holds ci-media-pr-1")
         child = hold_open(os.path.join(root, "cmux-ci-media-pr-3-base"))
         try:
@@ -206,7 +216,7 @@ def scenario_slots():
             make_dir(root, f"cmux-ci-media-slot{slot}-base", hours * HOUR)
             make_dir(root, f"cmux-ci-media-slot{slot}-head", hours * HOUR)
         held = subprocess.run([sys.executable, lock, "hold", "--tag", "ci-media-slot3", "--lock-dir", locks,
-                               "--wait", "0", "--max-hold", "60"], capture_output=True, text=True)
+                               "--wait", "0", *held_by_a_running_job()], capture_output=True, text=True)
         _check(held.returncode == 0, "a tour holds overflow slot 3")
         child = hold_open(os.path.join(root, "cmux-ci-media-pr-3-base"))
         try:
@@ -353,7 +363,7 @@ def scenario_old_head_prunes_with_the_lock(head_kind):
         env = dict(os.environ, HOME=home, CMUX_MEDIA_TOUR_SLOTS="2", GITHUB_SHA="0" * 40, RUNNER_TEMP=temp,
                    GITHUB_ENV=github_env, PATH=bin_dir + os.pathsep + os.environ["PATH"])
         other = subprocess.run([sys.executable, lock, "hold", "--tag", "ci-media-pr-1", "--lock-dir", locks,
-                                "--wait", "0", "--max-hold", "60"], capture_output=True, text=True)
+                                "--wait", "0", *held_by_a_running_job()], capture_output=True, text=True)
         _check(other.returncode == 0, "another tour holds ci-media-pr-1")
         try:
             held = subprocess.run(["bash", "-c", hold_step["run"]], cwd=head, env=env, capture_output=True,
@@ -378,6 +388,15 @@ def scenario_old_head_prunes_with_the_lock(head_kind):
 
 
 def main():
+    try:
+        return checks()
+    finally:
+        for job in JOBS:
+            job.kill()
+            job.wait()
+
+
+def checks():
     scenario_keep_four()
     scenario_keep_zero()
     scenario_held_tag()
