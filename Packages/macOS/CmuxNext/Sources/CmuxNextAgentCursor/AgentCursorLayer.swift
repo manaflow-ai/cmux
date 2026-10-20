@@ -23,6 +23,9 @@ public final class AgentCursorLayer {
     }()
 
     public let root = CALayer()
+    /// The arrow and ripple, turned with the travel heading; the name tag
+    /// and caption sit on `root` and stay level.
+    public let heading = CALayer()
     let arrow = CAShapeLayer()
     let ripple = CAShapeLayer()
     let indicator = CAShapeLayer()
@@ -47,6 +50,8 @@ public final class AgentCursorLayer {
         hasName = !(name ?? "").isEmpty
         root.bounds = CGRect(x: 0, y: 0, width: 1, height: 1)
         root.anchorPoint = .zero
+        heading.bounds = CGRect(x: 0, y: 0, width: 1, height: 1)
+        heading.anchorPoint = .zero
         arrow.path = Self.arrowPath
         arrow.fillColor = color
         arrow.strokeColor = CGColor(gray: 0, alpha: 0.55)
@@ -93,8 +98,9 @@ public final class AgentCursorLayer {
         } else {
             nameTag.isHidden = true
         }
-        root.addSublayer(ripple)
-        root.addSublayer(arrow)
+        heading.addSublayer(ripple)
+        heading.addSublayer(arrow)
+        root.addSublayer(heading)
         root.addSublayer(indicator)
         root.addSublayer(nameTag)
         root.addSublayer(caption)

@@ -60,11 +60,11 @@ public final class AgentCursorLayerHost: AgentCursorLayerHosting {
             let rotation = plan.rotationAnimation()
             if let last = plan.samples.last {
                 cursor.root.position = CGPoint(x: last.x, y: last.y)
-                cursor.root.setValue(last.heading - AgentCursorOverlayModel.restingHeading, forKeyPath: "transform.rotation.z")
+                cursor.heading.setValue(last.heading - AgentCursorOverlayModel.restingHeading, forKeyPath: "transform.rotation.z")
             }
             rotation.values = rotation.values?.compactMap { ($0 as? Double).map { $0 - AgentCursorOverlayModel.restingHeading } }
             cursor.root.add(position, forKey: "agentCursor.glide")
-            cursor.root.add(rotation, forKey: "agentCursor.heading")
+            cursor.heading.add(rotation, forKey: "agentCursor.heading")
             cursor.armIdleHide(after: plan.duration + Self.idleHideDelay)
         case let .pulse(session):
             // A pulse follows its action's place or glide, which armed the idle hide.
@@ -78,7 +78,7 @@ public final class AgentCursorLayerHost: AgentCursorLayerHosting {
         case let .indicate(session, anchor):
             let cursor = cursor(for: session)
             cursor.root.removeAnimation(forKey: "agentCursor.glide")
-            cursor.root.removeAnimation(forKey: "agentCursor.heading")
+            cursor.heading.removeAnimation(forKey: "agentCursor.heading")
             cursor.root.position = anchor
             cursor.root.isHidden = false
             cursor.showsIndicator = true
