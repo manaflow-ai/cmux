@@ -50,6 +50,7 @@ use crate::turn::{TurnOutcome, TurnStart, usage_line};
 
 /// The result of a local tool call in a remote-origin turn on this engine.
 const REMOTE_REFUSED: &str = "Refused: this turn started from a paired device, and running commands or editing files then needs the user's approval, which this engine cannot ask for. Say what you would run; the user can approve it from the Mac.";
+const SHARED_MEMORY_REFUSED: &str = "Refused: this shared-conversation turn cannot read the Chief's other conversations without the owner's approval, which this engine cannot ask for.";
 
 /// Tries per model call (parity item 8). A transient failure waits the
 /// server's `retry-after` when it gives one, else `Native::retry` doubled
@@ -180,13 +181,18 @@ impl Native {
 
     /// One step's request body.
     pub fn body(&self, messages: &[Value]) -> Value {
+        self.body_with_system(messages, None)
+    }
+
+    /// `body` with this turn's scoped system text when supplied.
+    fn body_with_system(&self, messages: &[Value], system: Option<&str>) -> Value {
         let mut body = json!({
             "model": self.config.model,
             "max_tokens": self.config.max_tokens,
             "stream": true,
             // Marked: compactions send the same system prompt and tools, so
             // they read them from this entry (spec 4).
-            "system": [{"type": "text", "text": self.config.system, "cache_control": self.cache_ttl.cache_control()}],
+            "system": [{"type": "text", "text": system.unwrap_or(&self.config.system), "cache_control": self.cache_ttl.cache_control()}],
             "tools": Native::tools(),
             "messages": messages,
             // The end of each request: the next step reads it (section 8).
@@ -291,7 +297,8 @@ impl Native {
             if interrupted() {
                 deliver(&mut messages, mailbox());
             }
-            let message = match self.call(&self.body(&messages), &start.key, log, interrupted) {
+            let body = self.body_with_system(&messages, start.system_prompt.as_deref());
+            let message = match self.call(&body, &start.key, log, interrupted) {
                 Ok(m) => m,
                 Err(e) if e.interrupted => {
                     // The step is dropped whole: its thinking is never
@@ -364,7 +371,13 @@ impl Native {
                         let (text, is_error) = if local && gated() {
                             (REMOTE_REFUSED.to_owned(), true)
                         } else {
-                            self.run_tool(block, chat, &shell, deadline)
+                            self.run_tool(
+                                block,
+                                chat,
+                                &shell,
+                                deadline,
+                                start.restrict_shared_memory,
+                            )
                         };
                         tools += 1;
                         tool_errors += usize::from(is_error);
@@ -443,6 +456,7 @@ impl Native {
         chat: &OptChat,
         shell: &Shell,
         deadline: Option<Instant>,
+        restrict_shared_memory: bool,
     ) -> (String, bool) {
         let name = block.get("name").and_then(Value::as_str).unwrap_or("");
         let input = block.get("input").cloned().unwrap_or(json!({}));
@@ -464,6 +478,7 @@ impl Native {
                 }
             }
             "str_replace_based_edit_tool" => editor::run(&input, &shell.cwd()),
+            "zoom" | "date" if restrict_shared_memory => Err(SHARED_MEMORY_REFUSED.to_owned()),
             "zoom" | "date" => Call::parse(name, &input).map(|call| call.answer(chat)),
             other => Err(format!("unknown tool {other}")),
         };

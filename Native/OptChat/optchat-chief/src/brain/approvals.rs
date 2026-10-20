@@ -27,8 +27,10 @@ impl Brain {
         request: Value,
     ) {
         let tool = tool_name(&request);
-        if is_memory_tool(&request) {
-            // Reading the memory has no local effect.
+        if is_memory_tool(&request) && self.turn_shared_memory {
+            // A private owner turn may read its memory without approval.
+            // Shared-conversation turns ask: the read can disclose another
+            // conversation through the turn's ordinary reply.
             let option = option_for(&request, Answer::Allow);
             if let Err(e) =
                 self.agents
