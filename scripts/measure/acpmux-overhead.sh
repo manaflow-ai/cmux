@@ -48,12 +48,28 @@ echo "ACPMUX-OVERHEAD-MACHINE host=$(scutil --get ComputerName 2>/dev/null || ho
 # The build scripts run Cargo only on a build host; this step is one.
 export CI=1
 git submodule update --init --depth 1 ghostty-next
-scripts/cmux-next/build-acpmux.sh --output "$work/bin/acpmux-after"
+# acpmux gives every chat cmux's own tools (`cmux mcp serve`, found next to its executable), so
+# each acpmux build gets the cmux binary of this ref beside it: the published cmux-tui tree,
+# else built here.
+key="$(python3 scripts/ci/cmux_tui_tree_key.py HEAD)"
+tree="${CMUX_TUI_PIN_BASE:-https://files.cmux.com/cmux-tui}/tree/$key"
+mkdir -p "$work/after" "$work/before"
+if curl -fsSL --proto '=https' "$tree/cmux-tui-aarch64-apple-darwin" -o "$work/cmux"; then
+  sum="$(curl -fsSL --proto '=https' "$tree/cmux-tui-aarch64-apple-darwin.sha256" | awk '{print $1}')"
+  [[ "$(shasum -a 256 "$work/cmux" | awk '{print $1}')" == "$sum" ]] || { echo "ACPMUX-OVERHEAD cmux sha256 mismatch ($key)" >&2; exit 1; }
+else
+  (cd cmux-tui && CARGO_TARGET_DIR="$work/target" cargo build --release --locked -p cmux-tui)
+  cp "$work/target/release/cmux-tui" "$work/cmux"
+fi
+chmod 755 "$work/cmux"
+cp "$work/cmux" "$work/after/cmux"
+cp "$work/cmux" "$work/before/cmux"
+scripts/cmux-next/build-acpmux.sh --output "$work/after/acpmux"
 if [[ -n "$before" ]]; then
   git fetch -q --depth 1 origin "$before"
   git worktree add -q --detach "$work/before-src" "$before"
   trap 'git -C "$root" worktree remove --force "$work/before-src" 2>/dev/null || true' EXIT
-  (cd "$work/before-src" && git submodule update --init --depth 1 ghostty-next && scripts/cmux-next/build-acpmux.sh --output "$work/bin/acpmux-before")
+  (cd "$work/before-src" && git submodule update --init --depth 1 ghostty-next && scripts/cmux-next/build-acpmux.sh --output "$work/before/acpmux")
 fi
 
 # The harnesses at pinned versions, under the step only.
@@ -68,9 +84,9 @@ run() {
   python3 -I scripts/cmux-next/acpmux-overhead-bench.py --acpmux "$bin" --harness "$harness" -n "$n" \
     --label "$label" --json "$work/$label.json" --md "$work/table.md" 2> "$work/$label.log" | sed "s/^/ACPMUX-OVERHEAD /"
 }
-[[ -n "$before" ]] && run before "$work/bin/acpmux-before"
-run after "$work/bin/acpmux-after"
-[[ -n "$before" ]] && run before-again "$work/bin/acpmux-before"
+[[ -n "$before" ]] && run before "$work/before/acpmux"
+run after "$work/after/acpmux"
+[[ -n "$before" ]] && run before-again "$work/before/acpmux"
 echo "ACPMUX-OVERHEAD-LOAD end $(sysctl -n vm.loadavg)"
 python3 -I - "$work/after.json" "$guard_ms" <<'PY' || status=1
 import json, statistics, sys
@@ -81,7 +97,7 @@ for h, s in d.items():
         continue
     if s["errors"]:
         bad.append(f"{h}: {len(s['errors'])} failed runs, first: {s['errors'][0]}")
-    for m in ("ready", "first", "end", "warm_first", "warm_end"):
+    for m in ("ready", "first", "end", "warm_first", "warm_end", "requests", "request_kb"):
         delta = s["delta_p50"][m]
         raw = sorted(r[m] for r in s["runs"]["raw"])
         # Noise: the standard error of the raw median (1.25 IQR / sqrt n), so a cold start

@@ -447,7 +447,7 @@ def via_acpmux(daemon: Daemon, harness, cwd):
 
 # ---------------------------------------------------------------- main
 
-METRICS = ["ready", "first", "end", "warm_first", "warm_end", "requests", "request_kb"]
+METRICS = ["ready", "first", "end", "warm_first", "warm_end", "requests", "request_kb", "request_ktok"]
 
 
 def pct(xs, q):
@@ -486,6 +486,10 @@ env_key = "BENCH_API_KEY"
                    "provider": {"bench": {"npm": "@ai-sdk/openai-compatible", "name": "bench",
                                           "options": {"baseURL": f"{stand_url}/v1", "apiKey": "x"},
                                           "models": {"m": {"name": "m"}}}}}, f)
+    # A scratch HOME: the person's own ~/.acpx, ~/.config/cmux and logins stay out of both sides.
+    home = os.path.join(scratch, "home")
+    os.makedirs(home, exist_ok=True)
+    env["HOME"] = home
     claude_dir = os.path.join(scratch, "claude-config")
     os.makedirs(claude_dir, exist_ok=True)
     env.update({
@@ -495,6 +499,7 @@ env_key = "BENCH_API_KEY"
         "ANTHROPIC_MODEL": "claude-bench", "ANTHROPIC_SMALL_FAST_MODEL": "claude-bench",
         "CODEX_HOME": codex_home, "BENCH_API_KEY": "x",
         "OPENCODE_CONFIG": oc, "OPENCODE_DISABLE_AUTOUPDATE": "1", "OPENCODE_DISABLE_LSP_DOWNLOAD": "1",
+        "XDG_CONFIG_HOME": os.path.join(scratch, "xdg-config"),
         "XDG_DATA_HOME": os.path.join(scratch, "xdg-data"), "XDG_STATE_HOME": os.path.join(scratch, "xdg-state"),
     })
     return env
@@ -546,6 +551,8 @@ def main():
                         # Model requests and KB this run sent (the turn, and any side request
                         # such as a title, made before the run ended).
                         r["requests"], r["request_kb"] = n1 - n0, round((b1 - b0) / 1024, 1)
+                        # Input tokens sent, estimated at 4 bytes per token of request JSON.
+                        r["request_ktok"] = round((b1 - b0) / 4000, 1)
                     except Exception as e:  # noqa: BLE001: a bench reports and goes on
                         rows["errors"].append(f"{side} run {k}: {e}")
                         print(f"{h} {side} run {k}: {e}", file=sys.stderr)
