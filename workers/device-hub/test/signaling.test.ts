@@ -96,14 +96,21 @@ describe("signaling relay", () => {
     expect(ids.length).toBeGreaterThan(0);
   });
 
-  it("ends the session when either socket closes", async () => {
+  it("a signaling socket close alone does not end the session", async () => {
     const { host, viewer } = await setup();
     const { sid, vt, ht } = await approvedSession(host, viewer);
     const v = (await viewer.signal(vt)).peer!;
     const h = (await host.signal(ht)).peer!;
+    await waitFor(() => auditEvents(viewer, sid), (e) => e.includes("started"));
     v.ws.close(1000, "gone");
+    // Longer than the 300 ms test close grace.
+    expect(await host.user!.none((f) => f.sessionId === sid && (f.type === "session.ended" || f.type === "session.revoked"), 700)).toBe(true);
+    expect(h.closed).toBeNull();
+    expect((await viewer.call("POST", `/v1/sessions/${sid}/ice`)).status).toBe(200);
+    expect(await auditEvents(viewer, sid)).toEqual(["requested", "approved", "started"]);
+    // The session still ends on /end, and closes the host's signaling socket.
+    await viewer.call("POST", `/v1/sessions/${sid}/end`, {});
+    expect((await host.user!.next((f) => f.type === "session.revoked" && f.sessionId === sid)).reason).toBe("viewer_disconnected");
     await h.waitClosed();
-    expect((await host.user!.next((f) => f.type === "session.ended")).reason).toBe("closed");
-    await waitFor(() => auditEvents(viewer, sid), (e) => e.includes("ended"));
   });
 });

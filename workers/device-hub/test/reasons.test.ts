@@ -60,11 +60,16 @@ describe("end reasons", () => {
     expect(await endedDetail(ctx.viewer, s.sid)).toBe("permission_revoked");
   });
 
-  it("a socket close with no authoritative reason still ends the session as closed", async () => {
+  it("a bye followed by /end records the /end reason; a bye alone ends as bye", async () => {
     const ctx = await setup();
     const s = await live(ctx);
-    s.v.ws.close(1000, "gone");
-    expect((await ctx.host.user!.next(isEnd(s.sid))).reason).toBe("closed");
+    s.v.send({ type: "bye" });
+    await ctx.viewer.call("POST", `/v1/sessions/${s.sid}/end`, {});
+    expect((await ctx.host.user!.next(isEnd(s.sid))).reason).toBe("viewer_disconnected");
+    expect(await ctx.host.user!.none(isEnd(s.sid), 600)).toBe(true);
+    const t = await live(ctx);
+    t.h.send({ type: "bye" });
+    expect((await ctx.viewer.user!.next(isEnd(t.sid))).reason).toBe("bye");
   });
 
   it("names the removed side: device_removed:host", async () => {
