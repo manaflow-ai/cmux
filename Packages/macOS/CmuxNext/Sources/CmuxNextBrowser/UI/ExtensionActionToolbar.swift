@@ -30,16 +30,27 @@ final class ExtensionActionToolbar {
         let button = ChromeIconButton(icon: .browserToolbarExtensions, label: Strings.extensions,
                                       action: #selector(MenuTrampoline.fire), target: trampoline, toolbar: true)
         button.setAccessibilityIdentifier(Identifier.menuButton)
+        // Chrome opens the Extensions menu on the press, not the release.
+        button.sendAction(on: [.leftMouseDown])
         return button
+    }()
+    /// The Extensions bubble (Chrome's `ExtensionsMenuView`).
+    private(set) lazy var menuController: ExtensionsMenuController = {
+        let controller = ExtensionsMenuController()
+        controller.toggleView = { [weak self] in
+            guard let self else { return nil }
+            return self.puzzle.window == nil ? self.menuAnchor?() : self.puzzle
+        }
+        return controller
     }()
     private let trampoline = MenuTrampoline()
     let crashIndicator = ExtensionCrashIndicator()
     private var lastActions: [CEFExtensionAction] = []
     private var showsPuzzle = false
-    private var afterMenu: [() -> Void] = []
-    /// The Extensions menu or an extension's menu while it is open
-    /// (`debug.extensions.menu`).
+    /// An extension's menu at its toolbar icon while it is open (`debug.extensions.menu`).
     private(set) weak var presentedMenu: NSMenu?
+    /// Whether the Extensions bubble is open.
+    var isMenuShown: Bool { menuController.isShown }
 
     /// Pinned buttons the pane has room for (`BrowserToolbarLayout`).
     var visibleLimit = ExtensionActionToolbar.maxVisible {
@@ -64,6 +75,7 @@ final class ExtensionActionToolbar {
 
     /// Binds the toolbar to a tab; a tab without extensions empties it.
     func bind(_ tab: any BrowserTab) {
+        menuController.close()
         observation?.cancel()
         observation = nil
         host?.hideExtensionPopups()
@@ -161,8 +173,12 @@ final class ExtensionActionToolbar {
         host?.requestExtensionAction(id)
     }
 
-    /// Closes any open action popup (the pane resized, the tab changed).
-    func hidePopups() { host?.hideExtensionPopups() }
+    /// Closes any open action popup and the Extensions bubble (the pane resized, the tab
+    /// changed or left the window).
+    func hidePopups() {
+        menuController.close()
+        host?.hideExtensionPopups()
+    }
 
     private var handler: (any ExtensionMenuHandling)? {
         if let menuHandler { return menuHandler }
@@ -175,29 +191,31 @@ final class ExtensionActionToolbar {
         return directHandler
     }
 
-    /// Shows the Extensions menu below the Extensions button and runs a
-    /// row's deferred work once it closed.
+    /// The Extensions button: opens the Extensions bubble below it, or closes it when open.
     func showMenu() {
-        guard let host, let handler, presentedMenu == nil else { return }
-        host.extensionStore.refresh()
-        let menu = ExtensionsMenu().make(
-            for: host, handler: handler,
-            afterClose: { [weak self] work in self?.afterMenu.append(work) },
-            presentItemMenu: { [weak self] menu in self?.popUp(menu) }
-        )
-        popUp(menu)
-        let work = afterMenu
-        afterMenu.removeAll()
-        for item in work { item() }
+        guard let host, let handler else { return }
+        menuController.toggle(host: host, handler: handler, anchor: menuButtonAnchor)
     }
 
-    /// One extension's menu at its button (right click), or at the
-    /// Extensions button.
+    /// Opens the Extensions bubble (the CLI, the palette, More); an open bubble stays open.
+    func openMenu() {
+        guard let host, let handler, !menuController.isShown else { return }
+        menuController.show(host: host, handler: handler, anchor: menuButtonAnchor)
+    }
+
+    /// The Extensions button, or More while the button is not shown.
+    private var menuButtonAnchor: NSView {
+        let fallback = menuAnchor?().flatMap { $0.window == nil ? nil : $0 } ?? anchorView ?? puzzle
+        return puzzle.window == nil ? fallback : puzzle
+    }
+
+    /// One extension's context menu at its toolbar icon (right click), with Pin / Unpin as
+    /// Chrome offers them there; at the Extensions button when the icon is not shown.
     func showItemMenu(_ id: String) {
         guard let host, let handler,
               let info = ExtensionsMenu().extensions(of: host).first(where: { $0.id == id }) else { return }
         let menu = ExtensionsMenu().itemMenu(for: info, supportsManagement: host.extensionStore.supportsManagement,
-                                           handler: handler)
+                                             handler: handler, fromToolbar: true)
         popUp(menu, at: buttons[id])
     }
 
@@ -211,7 +229,7 @@ final class ExtensionActionToolbar {
         guard view.window != nil else { return }
         let previous = presentedMenu
         presentedMenu = menu
-        menu.popUp(positioning: nil, at: CmuxPopoverAnchor.menuPoint(in: view, gap: 4), in: view)
+        menu.popUp(positioning: nil, at: CmuxPopoverAnchor.menuPoint(in: view, gap: 0), in: view)
         presentedMenu = previous
     }
 

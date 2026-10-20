@@ -42,28 +42,86 @@ import Testing
         Double(duration.components.seconds) * 1000 + Double(duration.components.attoseconds) / 1e15
     }
 
-    @Test func fortyExtensionsOpenUnderFiftyAndReopenUnderTenMilliseconds() {
-        let tab = Self.tab()
-        let handler = ExtensionsMenu.DirectHandler(host: tab) { _ in }
-        let clock = ContinuousClock()
-        let open = clock.measure {
-            let menu = ExtensionsMenu().make(for: tab, handler: handler, afterClose: { $0() }, presentItemMenu: { _ in })
-            _ = menu.size
-        }
-        let reopen = clock.measure {
-            let menu = ExtensionsMenu().make(for: tab, handler: handler, afterClose: { $0() }, presentItemMenu: { _ in })
-            _ = menu.size
-        }
-        #expect(Self.milliseconds(open) < 50, "open took \(Self.milliseconds(open)) ms")
-        #expect(Self.milliseconds(reopen) < 10, "reopen took \(Self.milliseconds(reopen)) ms")
+    /// A visible window with the Extensions button at its top right.
+    static func window() -> (NSWindow, NSView) {
+        let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 900, height: 700), styleMask: [.titled],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let anchor = NSView(frame: NSRect(x: 860, y: 660, width: 28, height: 28))
+        window.contentView?.addSubview(anchor)
+        window.orderFrontRegardless()
+        return (window, anchor)
     }
 
-    @Test func aReopenDecodesNoIconAgain() {
+    @Test func fortyExtensionsOpenUnderFiftyAndReopenUnderTenMilliseconds() throws {
         let tab = Self.tab()
-        for info in tab.extensionStore.extensions { _ = ExtensionsMenu().image(for: info, png: nil) }
-        let again = ContinuousClock().measure {
-            for info in tab.extensionStore.extensions { _ = ExtensionsMenu().image(for: info, png: nil) }
+        let (window, anchor) = Self.window()
+        defer { window.close() }
+        let handler = ExtensionsMenu.DirectHandler(host: tab) { _ in }
+        let controller = ExtensionsMenuController()
+        let clock = ContinuousClock()
+        let open = clock.measure { controller.show(host: tab, handler: handler, anchor: anchor) }
+        try #require(controller.isShown)
+        #expect(controller.content.rows.count == Self.count)
+        controller.close()
+        let reopen = clock.measure { controller.show(host: tab, handler: handler, anchor: anchor) }
+        #expect(controller.isShown)
+        #expect(Self.milliseconds(open) < 50, "open took \(Self.milliseconds(open)) ms")
+        #expect(Self.milliseconds(reopen) < 10, "reopen took \(Self.milliseconds(reopen)) ms")
+        controller.close()
+    }
+
+    @Test func aReopenDecodesNoIconAgain() throws {
+        let tab = Self.tab()
+        let (window, anchor) = Self.window()
+        defer { window.close() }
+        let handler = ExtensionsMenu.DirectHandler(host: tab) { _ in }
+        let controller = ExtensionsMenuController()
+        controller.show(host: tab, handler: handler, anchor: anchor)
+        try #require(controller.isShown)
+        #expect(controller.icons.loads == Self.count)
+        controller.close()
+        controller.show(host: tab, handler: handler, anchor: anchor)
+        #expect(controller.icons.loads == Self.count, "a reopen read icon files again")
+        controller.close()
+    }
+
+    @Test func hoveringARowRedrawsWithinAFrame() throws {
+        let tab = Self.tab()
+        let (window, anchor) = Self.window()
+        defer { window.close() }
+        let controller = ExtensionsMenuController()
+        controller.show(host: tab, handler: ExtensionsMenu.DirectHandler(host: tab) { _ in }, anchor: anchor)
+        try #require(controller.isShown)
+        let enter = try #require(NSEvent.enterExitEvent(with: .mouseEntered, location: .zero, modifierFlags: [], timestamp: 0,
+                                                        windowNumber: 0, context: nil, eventNumber: 0, trackingNumber: 0, userData: nil))
+        let exit = try #require(NSEvent.enterExitEvent(with: .mouseExited, location: .zero, modifierFlags: [], timestamp: 0,
+                                                       windowNumber: 0, context: nil, eventNumber: 0, trackingNumber: 0, userData: nil))
+        let clock = ContinuousClock()
+        var slowest = Duration.zero
+        for row in controller.content.rows {
+            let rep = try #require(row.bitmapImageRepForCachingDisplay(in: row.bounds))
+            let hover = clock.measure {
+                row.primary.mouseEntered(with: enter)
+                row.cacheDisplay(in: row.bounds, to: rep)
+                row.primary.mouseExited(with: exit)
+            }
+            slowest = max(slowest, hover)
         }
-        #expect(Self.milliseconds(again) < 0.5, "icons again took \(Self.milliseconds(again)) ms")
+        #expect(Self.milliseconds(slowest) < 16, "slowest hover took \(Self.milliseconds(slowest)) ms")
+        controller.close()
+    }
+
+    @Test func openingDoesNotWaitForChromium() throws {
+        let tab = Self.tab()
+        let (window, anchor) = Self.window()
+        defer { window.close() }
+        let before = tab.extensionBackend.snapshots
+        let controller = ExtensionsMenuController()
+        controller.show(host: tab, handler: ExtensionsMenu.DirectHandler(host: tab) { _ in }, anchor: anchor)
+        try #require(controller.isShown)
+        #expect(tab.extensionBackend.snapshots == before, "the open asked Chromium for the list before it showed")
+        #expect(controller.renders == 1)
+        controller.close()
     }
 }
