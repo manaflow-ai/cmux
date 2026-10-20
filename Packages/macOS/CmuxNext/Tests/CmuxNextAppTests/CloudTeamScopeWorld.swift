@@ -4,7 +4,7 @@ import Foundation
 
 /// Session-only team listing beside an independent owner that checks the real Mac signer.
 actor CloudTeamScopeWorld: InstallAuthTransport {
-    let owner = MacTeamAuthOwner(user: NativeDeviceTestWorld.user)
+    let owner: MacTeamAuthOwner
     static let personal = "team_" + String(repeating: "c", count: 20)
     static let shared = NativeDeviceTestWorld.team("tenant_a")
     private var selected = CloudTeamScope.Selection(account: "stack_1", stackTeam: "tenant_a", generation: 0)
@@ -16,6 +16,8 @@ actor CloudTeamScopeWorld: InstallAuthTransport {
     private(set) var authorityReads = 0
     private(set) var listings = 0
     private(set) var operationTeams: [String] = []
+
+    init(wireTokens: Bool = false) { owner = MacTeamAuthOwner(user: NativeDeviceTestWorld.user, includeExpiry: wireTokens) }
 
     func selection() -> CloudTeamScope.Selection { selected }
     func select(_ team: String?) {
@@ -33,12 +35,13 @@ actor CloudTeamScopeWorld: InstallAuthTransport {
             guard path == "/v1/read", let bearer, bearer != NativeDeviceTestWorld.session(),
                   let payload = bearer.split(separator: ".").dropFirst().first,
                   let data = Data(base64URLEncoded: String(payload)),
-                  let claims = try JSONSerialization.jsonObject(with: data) as? [String: String],
-                  let team = claims["team"], headers["x-cmux-team"] == team,
+                  let claims = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let team = claims["team"] as? String, let user = claims["sub"] as? String,
+                  let install = claims["inst"] as? String, let grant = claims["grant"] as? String, headers["x-cmux-team"] == team,
                   (body?["params"] as? [String: String])?.isEmpty == true else { throw MacTeamAuthOwner.Failure.invalidRequest }
             authorityReads += 1
             if authorityMode == "revoked" { return (403, Data(#"{"code":"auth.forbidden"}"#.utf8)) }
-            var value: [String: Any] = ["user": claims["sub"]!, "install": claims["inst"]!, "grant": claims["grant"]!, "team": team, "authority_version": authority]
+            var value: [String: Any] = ["user": user, "install": install, "grant": grant, "team": team, "authority_version": authority]
             if authorityMode == "missing" { value.removeValue(forKey: "authority_version") }
             if authorityMode == "null" { value["authority_version"] = NSNull() }
             if ["user", "team", "install", "grant"].contains(authorityMode) { value[authorityMode] = "other" }

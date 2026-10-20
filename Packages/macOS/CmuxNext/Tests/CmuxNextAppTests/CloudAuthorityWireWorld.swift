@@ -1,3 +1,4 @@
+import CmuxInstallAuthCore
 import Foundation
 @testable import CmuxNextCloud
 
