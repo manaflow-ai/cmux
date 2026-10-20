@@ -49,7 +49,6 @@ export interface Store {
   getDevice(deviceId: string): Promise<Device | undefined>
   /** Insert or update; "not_owner" when the id already belongs to another user (nothing changes). */
   upsertDevice(d: DeviceInput): Promise<{ device: Device; previousTeamId: string | null } | "not_owner">
-  listMacs(teamId: string): Promise<Array<Device>>
   /** Every Mac one owner registered, in any team or personal space (`ownerUserId` is the owner key). */
   listOwnerMacs(ownerUserId: string): Promise<Array<Device>>
   /** Every device (Mac or phone) of one owner, with whether it has a push token. */
@@ -67,6 +66,11 @@ export interface Store {
   getPrefs(userId: string, teamId: string): Promise<Prefs>
   /** Only the given fields change; `undefined` keeps the stored value. */
   putPrefs(userId: string, teamId: string, patch: Partial<Prefs>): Promise<Prefs>
+  /**
+   * Every team id the database knows (devices and team prefs), with the Stack project of its rows: null for the
+   * primary project (bare owner keys), else the project id (`<projectId>:<sub>` keys). Names the old team hubs.
+   */
+  listTeamScopes(): Promise<Array<{ project: string | null; teamId: string; deviceIds: Array<string> }>>
   close(): Promise<void>
 }
 
@@ -120,10 +124,6 @@ export const pgStore = async (hyperdrive: Hyperdrive): Promise<Store> => {
         .returning()
       if (!r) return "not_owner"
       return { device: row(r), previousTeamId: prev && prev.teamId !== d.teamId ? prev.teamId : null }
-    },
-    async listMacs(teamId) {
-      const rs = await db.select().from(devices).where(and(eq(devices.teamId, teamId), eq(devices.kind, "mac"))).orderBy(devices.name)
-      return rs.map(row)
     },
     async listOwnerMacs(ownerUserId) {
       const rs = await db.select().from(devices).where(and(eq(devices.ownerUserId, ownerUserId), eq(devices.kind, "mac"))).orderBy(devices.name)
@@ -184,6 +184,15 @@ export const pgStore = async (hyperdrive: Hyperdrive): Promise<Store> => {
         .returning()
       return { color: r?.color ?? null, emoji: r?.emoji ?? null }
     },
+    async listTeamScopes() {
+      const r = await client.query<{ project: string | null; team_id: string; device_ids: Array<string> | null }>(
+        `SELECT project, team_id, array_agg(device_id::text) FILTER (WHERE device_id IS NOT NULL) AS device_ids FROM (
+           SELECT NULLIF(split_part(owner_user_id, ':', 1), owner_user_id) AS project, team_id, device_id FROM devices
+           UNION ALL SELECT NULLIF(split_part(user_id, ':', 1), user_id) AS project, team_id, NULL FROM team_prefs
+         ) t GROUP BY project, team_id`
+      )
+      return r.rows.map((x) => ({ project: x.project, teamId: x.team_id, deviceIds: x.device_ids ?? [] }))
+    },
     close: () => client.end()
   }
 }
@@ -202,9 +211,6 @@ export const memoryStore = (): Store => ({
     const device: Device = { ...d, createdAt: prev?.createdAt ?? now, updatedAt: now, lastSeenAt: prev?.lastSeenAt ?? null }
     mem.devices.set(d.deviceId, device)
     return { device: { ...device }, previousTeamId: prev && prev.teamId !== d.teamId ? prev.teamId : null }
-  },
-  async listMacs(teamId) {
-    return [...mem.devices.values()].filter((d) => d.teamId === teamId && d.kind === "mac").sort((a, b) => a.name.localeCompare(b.name))
   },
   async listOwnerMacs(owner) {
     return [...mem.devices.values()].filter((d) => d.ownerUserId === owner && d.kind === "mac").sort((a, b) => a.name.localeCompare(b.name))
@@ -253,6 +259,19 @@ export const memoryStore = (): Store => ({
     const next = { color: patch.color !== undefined ? patch.color : cur.color, emoji: patch.emoji !== undefined ? patch.emoji : cur.emoji }
     mem.prefs.set(k, next)
     return { ...next }
+  },
+  async listTeamScopes() {
+    const scope = (owner: string) => (owner.includes(":") ? owner.slice(0, owner.indexOf(":")) : null)
+    const out = new Map<string, { project: string | null; teamId: string; deviceIds: Array<string> }>()
+    const add = (project: string | null, teamId: string, deviceId?: string) => {
+      const k = `${project}\u0000${teamId}`
+      const row = out.get(k) ?? { project, teamId, deviceIds: [] }
+      if (deviceId) row.deviceIds.push(deviceId)
+      out.set(k, row)
+    }
+    for (const d of mem.devices.values()) add(scope(d.ownerUserId), d.teamId, d.deviceId)
+    for (const k of mem.prefs.keys()) add(scope(k.split("\u0000")[0]!), k.split("\u0000")[1]!)
+    return [...out.values()]
   },
   close: async () => {}
 })

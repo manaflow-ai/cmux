@@ -27,8 +27,11 @@ pub enum TransportKind {
 
 impl TransportKind {
     /// The transport a session's first signal asks for, if it starts one.
+    /// A media session's offer (`mediaFor`) starts no link: see
+    /// [`media_session_for`].
     pub fn for_first_signal(payload: &SignalPayload) -> Option<Self> {
         match payload {
+            SignalPayload::WebrtcOffer { media_for: Some(_), .. } => None,
             SignalPayload::WebrtcOffer { .. } => Some(Self::WebRtc),
             SignalPayload::WgInit { .. } => Some(Self::WireGuard),
             _ => None,
@@ -42,6 +45,19 @@ impl TransportKind {
         }
     }
 }
+
+/// The WireGuard link a media session's first signal is for
+/// (PROTOCOL.md "Media session"), if it is one.
+pub fn media_session_for(payload: &SignalPayload) -> Option<&str> {
+    match payload {
+        SignalPayload::WebrtcOffer { media_for: Some(link), .. } => Some(link),
+        _ => None,
+    }
+}
+
+/// The lane a WireGuard link lists when its sides support a WebRTC media
+/// session beside it (PROTOCOL.md "Media session").
+pub const WEBRTC_MEDIA_LANE: &str = "webrtc-media";
 
 /// How the link's bytes travel right now.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -117,6 +133,10 @@ pub struct DialOptions {
     /// link's peer connection; on WireGuard it is RTP on overlay UDP inside
     /// the tunnel ([`crate::media::wireguard`]).
     pub video_lane: bool,
+    /// WireGuard with the media lane: offer (phone) or accept (Mac) a WebRTC
+    /// media session beside the link ([`WEBRTC_MEDIA_LANE`],
+    /// [`crate::hybrid`]), which carries browser video while it works.
+    pub webrtc_media: bool,
     /// Test and measurement support (Mac side): drop this many of every
     /// 1000 outgoing video RTP packets after the NACK responder kept them.
     #[doc(hidden)]
@@ -136,6 +156,10 @@ pub struct DialOptions {
     pub stock_ice_waits: bool,
     /// Bound on the whole dial or answer.
     pub timeout: Duration,
+    /// Dial side, WebRTC: how long an offer waits for the Mac's answer. An
+    /// offer sent while the Mac's host was down or restarting is never
+    /// answered; this ends that dial long before `timeout` (termfix r13 D2b).
+    pub answer_timeout: Duration,
     /// Where the dial or answer records its steps (`offer_sent`,
     /// `ice_connected`, `dtls_connected`, `channel_open`, ...).
     pub timeline: crate::Timeline,
@@ -156,11 +180,13 @@ impl Default for DialOptions {
             restrict_inbound_udp: false,
             input_lane: true,
             video_lane: false,
+            webrtc_media: false,
             video_drop_permille: 0,
             video_cap_bps: 0,
             video_blackout: None,
             stock_ice_waits: false,
             timeout: Duration::from_secs(25),
+            answer_timeout: Duration::from_secs(8),
             timeline: crate::Timeline::new(),
         }
     }
@@ -202,6 +228,8 @@ pub struct Dialed {
     pub lane: Option<oneshot::Receiver<Box<dyn LinkStream>>>,
     /// The media lane's carrier, when both sides negotiated one.
     pub media: Option<PendingMedia>,
+    /// Both sides listed [`WEBRTC_MEDIA_LANE`] (WireGuard).
+    pub webrtc_media: bool,
 }
 
 /// A negotiated media carrier; the link starts its core once it runs (the
@@ -231,7 +259,8 @@ impl PendingMedia {
 
 /// The lanes this side offers in its first signal or answer. `video`: this
 /// transport carries the media lane and this side offers (or attached) it.
-pub(crate) fn offered_lanes(options: &DialOptions, video: bool) -> Vec<String> {
+/// `webrtc_media`: this side offers (or accepts) a WebRTC media session.
+pub(crate) fn offered_lanes(options: &DialOptions, video: bool, webrtc_media: bool) -> Vec<String> {
     let mut lanes = Vec::new();
     if options.input_lane {
         lanes.push(crate::link::INPUT_LANE.to_owned());
@@ -239,7 +268,15 @@ pub(crate) fn offered_lanes(options: &DialOptions, video: bool) -> Vec<String> {
     if video {
         lanes.push(crate::media::VIDEO_LANE.to_owned());
     }
+    if video && webrtc_media {
+        lanes.push(WEBRTC_MEDIA_LANE.to_owned());
+    }
     lanes
+}
+
+/// Whether the peer listed the WebRTC media session lane.
+pub(crate) fn webrtc_media_listed(peer_lanes: &[String]) -> bool {
+    peer_lanes.iter().any(|lane| lane == WEBRTC_MEDIA_LANE)
 }
 
 /// Whether the peer listed the media lane.
@@ -360,6 +397,9 @@ pub struct Connected {
     pub transport: TransportKind,
     pub path: watch::Receiver<LinkPath>,
     pub session_id: String,
+    /// Both sides agreed on a WebRTC media session beside this (WireGuard)
+    /// link; the phone opens it on demand ([`crate::hybrid`]).
+    pub webrtc_media: bool,
 }
 
 /// Phone side: dial `mac` over `kind` and run a link on the result.
@@ -406,7 +446,7 @@ pub async fn connect(
         link.attach_media(media.start(&link));
     }
     options.timeline.mark("link_ready");
-    Ok(Connected { link, transport: kind, path: dialed.path, session_id })
+    Ok(Connected { link, transport: kind, path: dialed.path, session_id, webrtc_media: dialed.webrtc_media })
 }
 
 /// Mac side: answer `first` and run a link on the result.
@@ -443,7 +483,7 @@ pub async fn answer(
         link.attach_media(media.start(&link));
     }
     options.timeline.mark("link_ready");
-    Ok(Connected { link, transport: kind, path: dialed.path, session_id })
+    Ok(Connected { link, transport: kind, path: dialed.path, session_id, webrtc_media: dialed.webrtc_media })
 }
 
 #[cfg(test)]

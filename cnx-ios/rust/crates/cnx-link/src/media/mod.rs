@@ -38,6 +38,7 @@ use tokio::sync::{Mutex, mpsc, watch};
 pub mod h264;
 pub mod receiver;
 pub mod resend;
+pub mod routes;
 pub mod sender;
 pub mod tag;
 pub mod track;
@@ -172,10 +173,18 @@ pub struct SenderState {
     pub keyframe_requests: u64,
     pub packets_sent: u64,
     pub nacks_received: u64,
+    /// How long packets sent since the last TWCC feedback have waited for
+    /// one (0: none waiting). A working path answers every 25 ms.
+    pub feedback_wait_us: u64,
 }
 
 /// The Mac side of a lane: one source at a time owns it. A newer
 /// [`VideoOut::claim`] preempts the older one, whose `preempted` fires.
+///
+/// A lane has one route per carrier ([`routes`]): the carrier the dial
+/// negotiated and, on a WireGuard link, the WebRTC media session's track
+/// while one is up ([`VideoOut::add_route`]). Frames go on the preferred
+/// usable route and move between routes only at keyframes.
 #[derive(Clone)]
 pub struct VideoOut {
     inner: Arc<OutInner>,
@@ -183,11 +192,28 @@ pub struct VideoOut {
 
 struct OutInner {
     kind: CarrierKind,
-    frames: mpsc::Sender<(u64, OutgoingFrame)>,
+    config: SenderConfig,
     owner: watch::Sender<u64>,
-    state: watch::Receiver<SenderState>,
+    /// The state of the route the source should follow ([`routes::Table::shown`]).
+    state: watch::Sender<SenderState>,
     keyframes: tokio::sync::broadcast::Sender<()>,
     next_claim: std::sync::atomic::AtomicU64,
+    routes: std::sync::Mutex<routes::Table>,
+    /// Bumped on every route change (added, removed, health, a switch).
+    version: Arc<watch::Sender<u64>>,
+    /// The carrier video rides now.
+    active: watch::Sender<Option<CarrierKind>>,
+    closed: Option<watch::Receiver<Option<String>>>,
+}
+
+impl OutInner {
+    fn table(&self) -> std::sync::MutexGuard<'_, routes::Table> {
+        self.routes.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    fn bump(&self) {
+        self.version.send_modify(|v| *v = v.wrapping_add(1));
+    }
 }
 
 impl std::fmt::Debug for VideoOut {
@@ -204,6 +230,36 @@ pub struct VideoClaim {
     pub keyframes: tokio::sync::broadcast::Receiver<()>,
 }
 
+/// A route added with [`VideoOut::add_route`]; dropping it removes the
+/// route (video moves to the next one at its next keyframe).
+pub struct RouteHandle {
+    id: u64,
+    inner: std::sync::Weak<OutInner>,
+}
+
+impl Drop for RouteHandle {
+    fn drop(&mut self) {
+        if let Some(inner) = self.inner.upgrade() {
+            inner.table().remove(self.id);
+            inner.bump();
+        }
+    }
+}
+
+fn initial_state(config: &SenderConfig) -> SenderState {
+    SenderState {
+        target_bps: config.cc.start_bps,
+        in_flight_bytes: 0,
+        congested: false,
+        loss: 0.0,
+        feedback_delay_us: 0,
+        keyframe_requests: 0,
+        packets_sent: 0,
+        nacks_received: 0,
+        feedback_wait_us: 0,
+    }
+}
+
 impl VideoOut {
     /// Runs the sender core on `carrier` until the carrier ends or `closed`
     /// (the link's close state) says the link closed.
@@ -212,32 +268,68 @@ impl VideoOut {
         config: SenderConfig,
         closed: Option<watch::Receiver<Option<String>>>,
     ) -> Self {
-        let (frames_tx, frames_rx) = mpsc::channel(4);
-        let (state_tx, state_rx) = watch::channel(SenderState {
-            target_bps: config.cc.start_bps,
-            in_flight_bytes: 0,
-            congested: false,
-            loss: 0.0,
-            feedback_delay_us: 0,
-            keyframe_requests: 0,
-            packets_sent: 0,
-            nacks_received: 0,
-        });
         let (keyframes, _) = tokio::sync::broadcast::channel(8);
+        let (version, version_rx) = watch::channel(0u64);
         let inner = Arc::new(OutInner {
             kind: carrier.kind(),
-            frames: frames_tx,
+            config,
             owner: watch::channel(0).0,
-            state: state_rx,
-            keyframes: keyframes.clone(),
+            state: watch::channel(initial_state(&config)).0,
+            keyframes,
             next_claim: std::sync::atomic::AtomicU64::new(1),
+            routes: std::sync::Mutex::new(routes::Table::default()),
+            version: Arc::new(version),
+            active: watch::channel(None).0,
+            closed: closed.clone(),
         });
-        tokio::spawn(sender::run(carrier, config, frames_rx, state_tx, keyframes, closed));
-        Self { inner }
+        let out = Self { inner };
+        let (_, health) = watch::channel(true);
+        // The dial's own carrier lives as long as the lane.
+        out.spawn_route(carrier, health);
+        tokio::spawn(route_watch(Arc::downgrade(&out.inner), version_rx, closed));
+        out
     }
 
+    fn spawn_route(&self, carrier: Arc<dyn MediaCarrier>, mut health: watch::Receiver<bool>) -> u64 {
+        let (frames_tx, frames_rx) = mpsc::channel(4);
+        let (state_tx, state_rx) = watch::channel(initial_state(&self.inner.config));
+        let kind = carrier.kind();
+        let id = self.inner.table().add(kind, frames_tx, state_rx, health.clone());
+        tokio::spawn(sender::run(
+            carrier,
+            self.inner.config,
+            frames_rx,
+            state_tx,
+            self.inner.keyframes.clone(),
+            self.inner.closed.clone(),
+        ));
+        // Health changes re-run the choice.
+        let version = Arc::clone(&self.inner.version);
+        tokio::spawn(async move {
+            while health.changed().await.is_ok() {
+                version.send_modify(|v| *v = v.wrapping_add(1));
+            }
+        });
+        self.inner.bump();
+        id
+    }
+
+    /// Adds a route on `carrier` (the WebRTC media session's track), usable
+    /// while `health` is true. Video moves to it at the next keyframe when
+    /// it is preferred.
+    pub fn add_route(&self, carrier: Arc<dyn MediaCarrier>, health: watch::Receiver<bool>) -> RouteHandle {
+        let id = self.spawn_route(carrier, health);
+        RouteHandle { id, inner: Arc::downgrade(&self.inner) }
+    }
+
+    /// The carrier the dial negotiated.
     pub fn kind(&self) -> CarrierKind {
         self.inner.kind
+    }
+
+    /// The carrier video rides now (None before the first frame).
+    pub fn active(&self) -> watch::Receiver<Option<CarrierKind>> {
+        self.inner.active.subscribe()
     }
 
     /// Takes the lane; the previous claim (if any) is preempted.
@@ -256,9 +348,67 @@ impl VideoOut {
         *self.inner.state.borrow()
     }
 
-    /// Whether the sender task still runs.
+    /// Whether every route's sender ended.
     pub fn is_closed(&self) -> bool {
-        self.inner.frames.is_closed()
+        !self.inner.table().alive()
+    }
+}
+
+/// Keeps the lane's shown state and switch keyframes current as routes
+/// change, stall or come back.
+async fn route_watch(
+    inner: std::sync::Weak<OutInner>,
+    mut version: watch::Receiver<u64>,
+    mut closed: Option<watch::Receiver<Option<String>>>,
+) {
+    loop {
+        let Some(out) = inner.upgrade() else { return };
+        let now = std::time::Instant::now();
+        let (shown, retry, ask, stalled) = {
+            let mut table = out.table();
+            let stalled = table.check_stall(now);
+            let shown = table.shown(now).and_then(|id| table.route(id)).map(|r| r.state.clone());
+            (shown, table.next_retry(now), table.switch_keyframe(now), stalled.then(|| table.current_kind()))
+        };
+        if let Some(Some(kind)) = stalled {
+            tracing::info!(
+                carrier = kind.name(),
+                "media route stalled (no feedback); video moves to the next route"
+            );
+        }
+        if ask {
+            let _ = out.keyframes.send(());
+        }
+        let mut shown = shown;
+        if let Some(state) = shown.as_mut() {
+            let value = *state.borrow_and_update();
+            out.state.send_if_modified(|s| {
+                let changed = *s != value;
+                *s = value;
+                changed
+            });
+        }
+        drop(out);
+        let state_changed = async {
+            match shown.as_mut() {
+                Some(state) => {
+                    let _ = state.changed().await;
+                }
+                None => std::future::pending().await,
+            }
+        };
+        let retry_due = async {
+            match retry {
+                Some(at) => tokio::time::sleep_until(at.into()).await,
+                None => std::future::pending().await,
+            }
+        };
+        tokio::select! {
+            changed = version.changed() => if changed.is_err() { return },
+            () = state_changed => {}
+            () = retry_due => {}
+            () = link_closed(&mut closed) => return,
+        }
     }
 }
 
@@ -274,12 +424,41 @@ impl VideoClaim {
         let _ = self.owner.wait_for(|owner| *owner != id).await;
     }
 
-    /// Sends one frame. A preempted claim's frames are dropped.
+    /// Sends one frame on the lane's current route. A preempted claim's
+    /// frames are dropped; so is a frame that would start a route without
+    /// being a keyframe (the source is asked for one).
     pub async fn send(&self, frame: OutgoingFrame) -> Result<(), MediaError> {
         if !self.owns() {
             return Err(MediaError::Closed);
         }
-        self.inner.frames.send((self.id, frame)).await.map_err(|_| MediaError::Closed)
+        let keyframe = h264::is_keyframe(&frame.access_unit);
+        let (decision, ask, switch) = self.inner.table().decide(keyframe, std::time::Instant::now());
+        if ask {
+            let _ = self.inner.keyframes.send(());
+        }
+        if let Some(switch) = switch {
+            if switch.from.is_some() {
+                tracing::info!(
+                    from = switch.from.map(CarrierKind::name),
+                    to = switch.to.name(),
+                    "media lane switched route at a keyframe"
+                );
+            }
+            self.inner.active.send_replace(Some(switch.to));
+            self.inner.bump();
+        }
+        match decision {
+            routes::Decision::Send { frames, .. } => {
+                // A route whose sender just ended loses this frame; the next
+                // one goes on another route.
+                if frames.send((self.id, frame)).await.is_err() {
+                    self.inner.bump();
+                }
+                Ok(())
+            }
+            routes::Decision::Drop => Ok(()),
+            routes::Decision::Closed => Err(MediaError::Closed),
+        }
     }
 
     pub fn state(&self) -> SenderState {
@@ -289,7 +468,7 @@ impl VideoClaim {
     /// Resolves with `true` once the lane is no longer congested (at once if
     /// it is not), or `false` when the lane's sender ended first.
     pub fn uncongested(&self) -> impl std::future::Future<Output = bool> + Send + 'static {
-        let mut state = self.inner.state.clone();
+        let mut state = self.inner.state.subscribe();
         async move { state.wait_for(|s| !s.congested).await.is_ok() }
     }
 }
@@ -326,6 +505,13 @@ pub struct ReceiverStats {
 /// The phone side of a lane. [`VideoIn::subscribe`] takes the frames from
 /// every earlier subscriber; [`VideoIn::subscribe_shared`] gets them beside
 /// the others (each viewer then keeps its own tab's, by [`tag`]).
+///
+/// A lane may have more than one source (the dial's carrier and a WebRTC
+/// media session's track, [`VideoIn::add_source`]), each with its own
+/// receiver core. The Mac sends on one at a time and moves only at a
+/// keyframe, so subscribers get one stream: a source's frames pass only
+/// while it is the current one, and a keyframe from another source makes
+/// that one current.
 #[derive(Clone)]
 pub struct VideoIn {
     inner: Arc<InInner>,
@@ -334,8 +520,126 @@ pub struct VideoIn {
 pub(crate) struct InInner {
     kind: CarrierKind,
     subscribers: Mutex<Vec<mpsc::Sender<ReceivedFrame>>>,
+    sources: std::sync::Mutex<Vec<Source>>,
+    next_source: std::sync::atomic::AtomicU64,
+    /// Which source's frames pass now.
+    gate: std::sync::Mutex<Gate>,
+    /// The final counters of sources that ended (added to [`VideoIn::stats`]).
+    retired: std::sync::Mutex<ReceiverStats>,
+}
+
+/// Which source's frames pass (see [`VideoIn`]).
+#[derive(Debug, Default)]
+pub(crate) struct Gate {
+    /// The current source (None before the first frame).
+    current: Option<u64>,
+    /// The RTP timestamp (the host's capture time) of the newest frame that
+    /// passed: a keyframe older than it never moves the gate back (a late
+    /// keyframe of the route the Mac just left).
+    newest_ts: Option<u32>,
+    /// When a frame last passed, and when the gate last asked for a keyframe
+    /// because only another source's frames were coming.
+    last_pass: Option<std::time::Instant>,
+    last_ask: Option<std::time::Instant>,
+}
+
+/// A source whose frames are the only ones coming waits this long for a
+/// keyframe of its own before the gate asks for one.
+const GATE_STUCK: std::time::Duration = std::time::Duration::from_millis(250);
+
+/// What the gate does with one frame.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Admit {
+    Pass,
+    Reject,
+    /// Rejected, and nothing has passed for a while: ask for a keyframe.
+    RejectAndAsk,
+}
+
+impl Gate {
+    pub(crate) fn admit(&mut self, id: u64, keyframe: bool, ts: u32, now: std::time::Instant) -> Admit {
+        let newer = self.newest_ts.is_none_or(|newest| (ts.wrapping_sub(newest) as i32) > 0);
+        let pass = self.current.is_none() || (self.current == Some(id)) || (keyframe && newer);
+        if pass {
+            self.current = Some(id);
+            if newer {
+                self.newest_ts = Some(ts);
+            }
+            self.last_pass = Some(now);
+            return Admit::Pass;
+        }
+        let stuck = self.last_pass.is_none_or(|at| now.duration_since(at) >= GATE_STUCK);
+        let due = self.last_ask.is_none_or(|at| now.duration_since(at) >= GATE_STUCK);
+        if stuck && due {
+            self.last_ask = Some(now);
+            return Admit::RejectAndAsk;
+        }
+        Admit::Reject
+    }
+}
+
+struct Source {
+    id: u64,
+    kind: CarrierKind,
     keyframe: mpsc::UnboundedSender<()>,
     stats: watch::Receiver<ReceiverStats>,
+    /// The dial's own carrier: its end ends the lane.
+    primary: bool,
+    running: bool,
+}
+
+impl InInner {
+    fn sources(&self) -> std::sync::MutexGuard<'_, Vec<Source>> {
+        self.sources.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// Asks every source's receiver for a keyframe (PLI on its carrier).
+    fn request_keyframe(&self) {
+        for source in self.sources().iter().filter(|s| s.running) {
+            let _ = source.keyframe.send(());
+        }
+    }
+
+    /// Whether `frame` from source `id` passes: the current source's do, and
+    /// a newer keyframe from another source makes that one current. A source
+    /// stuck behind the gate (the current one went quiet) asks for a keyframe.
+    pub(crate) fn admit(&self, id: u64, frame: &ReceivedFrame) -> bool {
+        let verdict = self.gate.lock().unwrap_or_else(std::sync::PoisonError::into_inner).admit(
+            id,
+            frame.keyframe,
+            frame.rtp_timestamp,
+            std::time::Instant::now(),
+        );
+        if verdict == Admit::RejectAndAsk {
+            self.request_keyframe();
+        }
+        verdict == Admit::Pass
+    }
+
+    /// The carrier of the source whose frames pass now.
+    fn current_kind(&self) -> Option<CarrierKind> {
+        let id = self.gate.lock().unwrap_or_else(std::sync::PoisonError::into_inner).current?;
+        self.sources().iter().find(|s| s.id == id).map(|s| s.kind)
+    }
+
+    /// A source's receiver ended. Returns whether the lane ended with it
+    /// (its primary source, or the last one).
+    pub(crate) fn source_ended(&self, id: u64) -> bool {
+        let mut sources = self.sources();
+        let mut primary = false;
+        for source in sources.iter_mut().filter(|s| s.id == id) {
+            source.running = false;
+            primary = source.primary;
+        }
+        // An ended media session's source goes; its counters stay in the sum.
+        if !primary && let Some(at) = sources.iter().position(|s| s.id == id) {
+            let ended = sources.remove(at);
+            let s = *ended.stats.borrow();
+            let mut retired = self.retired.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            add_stats(&mut retired, &s);
+        }
+        primary || !sources.iter().any(|s| s.running)
+    }
 }
 
 impl std::fmt::Debug for VideoIn {
@@ -348,13 +652,25 @@ impl std::fmt::Debug for VideoIn {
 /// over or the lane closes.
 pub struct VideoFrames {
     pub frames: mpsc::Receiver<ReceivedFrame>,
-    keyframe: mpsc::UnboundedSender<()>,
+    inner: Arc<InInner>,
 }
 
 impl VideoFrames {
     /// Asks the Mac for a keyframe (PLI): the decoder lost its state.
     pub fn request_keyframe(&self) {
-        let _ = self.keyframe.send(());
+        self.inner.request_keyframe();
+    }
+}
+
+/// A source added with [`VideoIn::add_source`]; dropping it stops its
+/// receiver.
+pub struct SourceHandle {
+    stop: watch::Sender<Option<String>>,
+}
+
+impl Drop for SourceHandle {
+    fn drop(&mut self) {
+        self.stop.send_replace(Some("source removed".into()));
     }
 }
 
@@ -368,20 +684,87 @@ impl VideoIn {
         rtt: Option<watch::Receiver<Option<std::time::Duration>>>,
         closed: Option<watch::Receiver<Option<String>>>,
     ) -> Self {
-        let (keyframe_tx, keyframe_rx) = mpsc::unbounded_channel();
-        let (stats_tx, stats_rx) = watch::channel(ReceiverStats::default());
         let inner = Arc::new(InInner {
             kind: carrier.kind(),
             subscribers: Mutex::new(Vec::new()),
-            keyframe: keyframe_tx,
-            stats: stats_rx,
+            sources: std::sync::Mutex::new(Vec::new()),
+            next_source: std::sync::atomic::AtomicU64::new(1),
+            gate: std::sync::Mutex::new(Gate::default()),
+            retired: std::sync::Mutex::new(ReceiverStats::default()),
         });
-        tokio::spawn(receiver::run(carrier, config, Arc::clone(&inner), keyframe_rx, stats_tx, rtt, closed));
-        Self { inner }
+        let lane = Self { inner };
+        lane.spawn_source(carrier, config, rtt, closed, true);
+        lane
     }
 
+    fn spawn_source(
+        &self,
+        carrier: Arc<dyn MediaCarrier>,
+        config: ReceiverConfig,
+        rtt: Option<watch::Receiver<Option<std::time::Duration>>>,
+        closed: Option<watch::Receiver<Option<String>>>,
+        primary: bool,
+    ) {
+        let id = self.inner.next_source.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let (keyframe_tx, keyframe_rx) = mpsc::unbounded_channel();
+        let (stats_tx, stats_rx) = watch::channel(ReceiverStats::default());
+        self.inner.sources().push(Source {
+            id,
+            kind: carrier.kind(),
+            keyframe: keyframe_tx,
+            stats: stats_rx,
+            primary,
+            running: true,
+        });
+        tokio::spawn(receiver::run(
+            carrier,
+            config,
+            Arc::clone(&self.inner),
+            id,
+            keyframe_rx,
+            stats_tx,
+            rtt,
+            closed,
+        ));
+    }
+
+    /// Adds a source on `carrier` (a WebRTC media session's track) beside
+    /// the dial's own, until the handle is dropped, the carrier ends or
+    /// `closed` (the link's close state) says the link closed.
+    pub fn add_source(
+        &self,
+        carrier: Arc<dyn MediaCarrier>,
+        rtt: Option<watch::Receiver<Option<std::time::Duration>>>,
+        mut closed: Option<watch::Receiver<Option<String>>>,
+    ) -> SourceHandle {
+        let (stop, stop_rx) = watch::channel(None);
+        // The source stops on the link's close or the handle's drop.
+        if let Some(mut link) = closed.take() {
+            let stop = stop.clone();
+            tokio::spawn(async move {
+                tokio::select! {
+                    reason = link.wait_for(Option::is_some) => {
+                        let reason = reason.map(|r| r.clone()).unwrap_or(None);
+                        stop.send_replace(Some(reason.unwrap_or_else(|| "link closed".into())));
+                    }
+                    () = stop.closed() => {}
+                }
+            });
+        }
+        self.spawn_source(carrier, ReceiverConfig::default(), rtt, Some(stop_rx), false);
+        // A new source starts at a keyframe of its own.
+        self.inner.request_keyframe();
+        SourceHandle { stop }
+    }
+
+    /// The carrier the dial negotiated.
     pub fn kind(&self) -> CarrierKind {
         self.inner.kind
+    }
+
+    /// The carrier of the frames passing now (the dial's before any).
+    pub fn current_kind(&self) -> CarrierKind {
+        self.inner.current_kind().unwrap_or(self.inner.kind)
     }
 
     /// Takes the frames from now on, from every earlier subscriber (and
@@ -406,13 +789,28 @@ impl VideoIn {
             }
             subscribers.push(tx);
         }
-        let _ = self.inner.keyframe.send(());
-        VideoFrames { frames: rx, keyframe: self.inner.keyframe.clone() }
+        self.inner.request_keyframe();
+        VideoFrames { frames: rx, inner: Arc::clone(&self.inner) }
     }
 
+    /// The counters of every source, summed (ended ones included).
     pub fn stats(&self) -> ReceiverStats {
-        *self.inner.stats.borrow()
+        let mut sum = *self.inner.retired.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        for source in self.inner.sources().iter() {
+            add_stats(&mut sum, &source.stats.borrow());
+        }
+        sum
     }
+}
+
+fn add_stats(sum: &mut ReceiverStats, s: &ReceiverStats) {
+    sum.packets += s.packets;
+    sum.bytes += s.bytes;
+    sum.frames += s.frames;
+    sum.keyframes += s.keyframes;
+    sum.frames_dropped += s.frames_dropped;
+    sum.plis_sent += s.plis_sent;
+    sum.packets_recovered += s.packets_recovered;
 }
 
 /// The lane a dial produced: the Mac's sender or the phone's receiver.
@@ -436,6 +834,42 @@ pub(crate) async fn link_closed(closed: &mut Option<watch::Receiver<Option<Strin
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// verify/hybrid-link.md: the phone's gate between the tunnel and the
+    /// media session.
+    #[test]
+    fn a_late_older_keyframe_of_the_left_route_never_takes_the_gate_back() {
+        let t0 = std::time::Instant::now();
+        let ms = |n| t0 + std::time::Duration::from_millis(n);
+        let (tunnel, session) = (1, 2);
+        let mut gate = Gate::default();
+        assert_eq!(gate.admit(tunnel, true, 1000, ms(0)), Admit::Pass);
+        assert_eq!(gate.admit(tunnel, false, 2500, ms(16)), Admit::Pass);
+        // The Mac switches at keyframe K (ts 4000) on the session...
+        assert_eq!(gate.admit(session, true, 4000, ms(30)), Admit::Pass);
+        // ...and an older keyframe K' (ts 3000) it sent on the tunnel just
+        // before arrives late over TURN over TLS: it does not pass.
+        assert_eq!(gate.admit(tunnel, true, 3000, ms(40)), Admit::Reject);
+        assert_eq!(gate.admit(tunnel, false, 3500, ms(45)), Admit::Reject);
+        assert_eq!(gate.admit(session, false, 5500, ms(46)), Admit::Pass);
+        // Falling back: a newer keyframe from the tunnel takes it.
+        assert_eq!(gate.admit(tunnel, true, 9000, ms(300)), Admit::Pass);
+        assert_eq!(gate.admit(session, false, 8000, ms(301)), Admit::Reject);
+    }
+
+    #[test]
+    fn a_source_stuck_behind_the_gate_asks_for_a_keyframe() {
+        let t0 = std::time::Instant::now();
+        let ms = |n| t0 + std::time::Duration::from_millis(n);
+        let mut gate = Gate::default();
+        assert_eq!(gate.admit(2, true, 1000, ms(0)), Admit::Pass);
+        // The session went quiet; only the tunnel's P frames come.
+        assert_eq!(gate.admit(1, false, 2000, ms(100)), Admit::Reject);
+        assert_eq!(gate.admit(1, false, 3000, ms(260)), Admit::RejectAndAsk);
+        assert_eq!(gate.admit(1, false, 3500, ms(300)), Admit::Reject, "asked at most every 250 ms");
+        assert_eq!(gate.admit(1, false, 4000, ms(520)), Admit::RejectAndAsk);
+        assert_eq!(gate.admit(1, true, 4500, ms(540)), Admit::Pass);
+    }
 
     #[test]
     fn a_timestamp_slightly_ahead_of_the_clock_estimate_is_now() {

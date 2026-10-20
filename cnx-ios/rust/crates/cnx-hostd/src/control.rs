@@ -126,6 +126,9 @@ pub enum Event {
     PhoneUp { session_id: String, phone_device_id: String, transport: String, path: String },
     /// A phone's link moved to another path.
     PhonePath { session_id: String, path: String },
+    /// A phone's WebRTC media session beside its WireGuard link `session_id`
+    /// came up over `media_path` (`direct`, `turn`), or went away (`none`).
+    PhoneMedia { session_id: String, media_path: String },
     /// A phone's link ended.
     PhoneDown { session_id: String, reason: String },
     /// A phone proved keys the Mac has not approved: ask the user.

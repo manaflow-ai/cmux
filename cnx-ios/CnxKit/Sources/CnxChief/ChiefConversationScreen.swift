@@ -43,6 +43,9 @@ public struct ChiefConversationScreen: View {
 
     public var body: some View {
         ChiefConversationController(session: session, compose: compose, focusesComposer: focusesComposer, back: { dismiss() })
+            // The conversation draws one store; a new backend (Try Again, a new link) makes a
+            // new store, so the open screen is rebuilt on it instead of waiting on the old one.
+            .id(ObjectIdentifier(session.store))
             .ignoresSafeArea()
             .toolbar(.hidden, for: .navigationBar)
             .toolbar(.hidden, for: .tabBar)
@@ -130,10 +133,131 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
         // the Mac (chief-profile-changed) redraws it in place.
         headerAvatar = chiefInitials
         conversation.store.addObserver { [weak self] _ in
-            guard let self, self.isViewLoaded, self.chiefInitials != self.headerAvatar else { return }
+            guard let self, self.isViewLoaded else { return }
+            self.updateAvailability()
+            guard self.chiefInitials != self.headerAvatar else { return }
             self.headerAvatar = self.chiefInitials
             if self.view.window != nil { self.conversation.setBackUnreadCount(self.backUnreadCount) }
         }
+        installSendGate()
+        observeAvailability()
+    }
+
+    // MARK: Chief unavailable (full verify D2, D3)
+
+    /// The package's send action, kept while the gate holds the button.
+    private var packageSendActions: [UIAction] = []
+    private weak var sendButton: UIButton?
+
+    /// Before Chief ever connected, the package's send clears the composer
+    /// and then drops the message (its store has no sender yet). The send
+    /// button goes through this gate: once Chief takes sends it runs the
+    /// package's own action; until then the text stays in the composer and
+    /// the screen says why, with Try Again and Send When Chief Connects.
+    private func installSendGate() {
+        guard let button = conversation.view.firstSubview(where: { $0.accessibilityIdentifier == "conversation.composer.send" }) as? UIButton
+        else { return }
+        var actions: [UIAction] = []
+        button.enumerateEventHandlers { action, _, event, _ in
+            if event == .touchUpInside, let action { actions.append(action) }
+        }
+        guard !actions.isEmpty else { return }
+        sendButton = button
+        packageSendActions = actions
+        for action in actions { button.removeAction(action, for: .touchUpInside) }
+        button.addAction(UIAction { [weak self] _ in self?.sendTapped() }, for: .touchUpInside)
+        updateAvailability()
+    }
+
+    private func sendTapped() {
+        guard let button = sendButton else { return }
+        if session.acceptsSendsNow {
+            for action in packageSendActions { button.sendAction(action) }
+            return
+        }
+        holdUnsentMessage()
+    }
+
+    private var composerTextView: UITextView? {
+        conversation.view.firstSubview { $0.accessibilityIdentifier == "conversation.composer.text" } as? UITextView
+    }
+
+    /// The message stays in the composer; the alert says why and offers to
+    /// try Chief again or to send it once Chief connects (the outbox).
+    private func holdUnsentMessage() {
+        guard presentedViewController == nil else { return }
+        let text = composerTextView?.text.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let reason = session.unavailableReason ?? String(localized: "Chief isn't connected yet.")
+        let alert = UIAlertController(
+            title: String(localized: "Message Not Sent"),
+            message: String(localized: "\(reason) Your message is still in the box."),
+            preferredStyle: .alert)
+        if session.canRetryConnecting {
+            alert.addAction(UIAlertAction(title: String(localized: "Try Again"), style: .default) { [weak self] _ in
+                self?.session.retryConnecting()
+            })
+        }
+        if !text.isEmpty {
+            alert.addAction(UIAlertAction(title: String(localized: "Send When Chief Connects"), style: .default) { [weak self] _ in
+                self?.moveComposerToOutbox(text)
+            })
+        }
+        alert.addAction(UIAlertAction(title: String(localized: "OK"), style: .cancel))
+        present(alert, animated: true)
+    }
+
+    private func moveComposerToOutbox(_ text: String) {
+        session.send(ConversationComposeMessage(text: text))
+        guard let field = composerTextView else { return }
+        field.text = ""
+        // The composer follows its field through the delegate (send button, height).
+        field.delegate?.textViewDidChange?(field)
+    }
+
+    /// Follows the session for the gate and the spinner.
+    private func observeAvailability() {
+        withObservationTracking {
+            _ = session.barItem
+            _ = session.isConnected
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                self?.updateAvailability()
+                self?.observeAvailability()
+            }
+        }
+    }
+
+    /// The package's first-load spinner never ends while Chief is unavailable:
+    /// hidden while the bar says why. The effect long-press on Send would
+    /// also clear and drop: off until Chief takes sends.
+    private func updateAvailability() {
+        let unavailable: Bool
+        if case .unavailable? = session.barItem { unavailable = true } else { unavailable = false }
+        let sends = session.acceptsSendsNow
+        // Found once (the store changes on every keystroke and stream chunk).
+        if gatedViews.spinner == nil { gatedViews.spinner = packageView("conversation.initialLoading") }
+        if gatedViews.record == nil { gatedViews.record = packageView("conversation.composer.record") as? UIControl }
+        if gatedViews.plus == nil { gatedViews.plus = packageView("conversation.composer.plus") as? UIControl }
+        gatedViews.spinner?.alpha = unavailable ? 0 : 1
+        // Voice messages, photos, polls and Send Later clear and drop the same way before
+        // Chief connects: off until it takes sends (the text field and its gated Send stay).
+        gatedViews.record?.isEnabled = sends
+        gatedViews.plus?.isEnabled = sends
+        for recognizer in sendButton?.gestureRecognizers ?? [] where recognizer is UILongPressGestureRecognizer {
+            recognizer.isEnabled = sends
+        }
+    }
+
+    private struct GatedViews {
+        weak var spinner: UIView?
+        weak var record: UIControl?
+        weak var plus: UIControl?
+    }
+
+    private var gatedViews = GatedViews()
+
+    private func packageView(_ identifier: String) -> UIView? {
+        conversation.view.firstSubview { $0.accessibilityIdentifier == identifier }
     }
 
     // MARK: Chief's questions
@@ -413,7 +537,15 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
         if let pop = navigation.interactivePopGestureRecognizer { recognizers.append(pop) }
         if #available(iOS 26.0, *), let content = navigation.interactiveContentPopGestureRecognizer { recognizers.append(content) }
         for recognizer in recognizers {
-            if recognizer.delegate !== self { previousPopDelegates[ObjectIdentifier(recognizer)] = WeakDelegate(value: recognizer.delegate) }
+            if recognizer.delegate !== self {
+                // A Chief screen rebuilt on a new store (Try Again) takes over from the old one:
+                // keep the navigation's own delegate, never the outgoing Chief screen.
+                if let outgoing = recognizer.delegate as? ChiefConversationContainer {
+                    previousPopDelegates[ObjectIdentifier(recognizer)] = outgoing.previousPopDelegates[ObjectIdentifier(recognizer)]
+                } else {
+                    previousPopDelegates[ObjectIdentifier(recognizer)] = WeakDelegate(value: recognizer.delegate)
+                }
+            }
             recognizer.isEnabled = true
             recognizer.delegate = self
         }
@@ -447,10 +579,19 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
         field?.becomeFirstResponder()
     }
 
+    /// The Chief screen on screen now: a rebuilt one may appear before the old one disappears.
+    private static weak var shown: ChiefConversationContainer?
+
     public override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         enableEdgePop()
+        Self.shown = self
         session.isVisible = true
+        // Text written on the screen this one replaced (Try Again rebuilt it on a new store).
+        if let carried = session.takeCarriedComposerText(), let field = composerTextView, field.text.isEmpty {
+            field.text = carried
+            field.delegate?.textViewDidChange?(field)
+        }
         session.markSeen()
         showOutboxIfWaiting()
         if focusesComposerOnAppear {
@@ -465,12 +606,14 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
 
     public override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
-        // A sheet over Chief keeps it on screen.
-        if presentedViewController == nil { session.isVisible = false }
+        // A sheet over Chief keeps it on screen; so does the screen that replaced this one.
+        if presentedViewController == nil, Self.shown === self || Self.shown == nil { session.isVisible = false }
     }
 
     public override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
+        // Unsent text goes with the session to a rebuilt screen (it reads it on appear).
+        session.carryComposerText(composerTextView?.text ?? "")
         // Hand the recognizers back to their own delegates for the next screen.
         for recognizer in popRecognizers where recognizer.delegate === self {
             recognizer.delegate = previousPopDelegates[ObjectIdentifier(recognizer)]?.value

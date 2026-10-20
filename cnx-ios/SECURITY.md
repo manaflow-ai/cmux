@@ -93,9 +93,26 @@ allowlist gets a local `forbidden` error line and never reaches the daemon.
 
 ## `file`: read-only previews
 
-- **Path checks.** Only absolute paths inside `CNX_FILE_ROOTS` are served.
-  These are the chat roots from Settings, and there are none by default, which
-  refuses every read.
+- **Path checks.** Only absolute paths inside `CNX_FILE_ROOTS` or one of the
+  Mac's workspace folders are served.
+  - `CNX_FILE_ROOTS` are the chat roots from Settings; there are none by default.
+  - The workspace folders are the folders of the tabs the Mac's daemon lists
+    at the time of the read (`list-workspaces`, canonicalized): the same
+    folders the app already shares with phones for agent chats
+    (`_acpmux/workspace_roots_set`, the agentcwd decision). As acpmux does, a
+    folder that is `/`, the home folder or any ancestor of it is dropped, so a
+    tab in `~` never opens `~/.ssh` or `~/Library`. They are read only when a
+    path is outside `CNX_FILE_ROOTS`; with no daemon answer the read is refused
+    (full verify D9, 2026-10-19: the Files and Artifacts list showed files the
+    phone's own chat edited in its workspace folder, and every preview was
+    refused). This does not widen what a phone can reach: an agent chat the
+    phone starts there can already read those folders.
+  - A tab's folder is its shell's last reported cwd (OSC 7), which any
+    terminal output can set. So a folder inside a credential or settings tree
+    of home (`.ssh`, `.gnupg`, `.aws`, `.azure`, `.kube`, `.docker`,
+    `.config`, `.password-store`, `Library`; `SENSITIVE_HOME_TREES` in
+    `services.rs`) is never a workspace-folder root for previews (PR #22555
+    review).
   - The path is canonicalized (symlinks resolved) before the open.
   - After the open, the descriptor's real path (`F_GETPATH`) is checked again,
     so a component swapped for a symlink in between cannot escape.

@@ -70,6 +70,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     private var freezeStarted: CFTimeInterval = 0
     /// A reset's replay being fed: layout waits for all of it.
     private var replayGate = TerminalReplayGate()
+    /// M-SIZELOG (G-07): when the last reset came and the bytes of its replay.
+    private var replayStartedAt: CFTimeInterval?
+    private var replayBytes = 0
     /// Clips the key bar while its height follows the keyboard; the bar
     /// itself keeps its 44 pt layout pinned to the clip's top.
     private let keyBarClip = UIView()
@@ -214,6 +217,13 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     private var measureDepth = 0
     #else
     private func measured<T>(_ name: StaticString, _ body: () -> T) -> T { body() }
+    #endif
+
+    #if DEBUG
+    /// Rig echo probe and text export (`-CnxTermProbe`, G-08/G-09).
+    private lazy var devProbe: TerminalDevProbe? = TerminalDevProbe.isEnabled
+        ? TerminalDevProbe(title: { [weak self] in self?.model.title ?? "" }, text: { [weak self] in self?.surface.screenRows()?.logicalText })
+        : nil
     #endif
 
     /// The cursor's distance from the last row when it was last seen.
@@ -492,7 +502,12 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         installSelection()
 
         surface.configurePasteControlTarget()
-        surface.onInput = { [weak self] data in self?.model.session.send(data) }
+        surface.onInput = { [weak self] data in
+            #if DEBUG
+            self?.devProbe?.sent(data)
+            #endif
+            self?.model.session.send(data)
+        }
         // Every input path (keyboard, key bar, composer, paste) goes through
         // the surface's `perform`: typing brings the prompt into view, like Terminal.
         surface.onUserInput = { [weak self] in self?.revealCursorForInput() }
@@ -862,11 +877,13 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     private var output = TerminalOutputQueue()
     /// Runs while output is waiting; stopped when the queue is drained.
     private var outputLink: CADisplayLink?
-    /// A batch is with Ghostty; the next waits for its completion.
-    private var feedInFlight = false
-    /// The next feed outside the display link waits until this time: the
-    /// end of the display frame of the last feed.
-    private var nextFeedAllowed: CFTimeInterval = 0
+    /// One batch with Ghostty at a time, one started per display frame, and
+    /// never mid-burst (`TerminalFeedPacer`, r13 D1). `-CnxNoBurstHold` for A/B.
+    private var pacer = TerminalFeedPacer(holdsBursts: !CommandLine.arguments.contains("-CnxNoBurstHold"))
+    private var feedInFlight: Bool { pacer.inFlight }
+    /// Wakes the pump when output waits only for its burst to end.
+    private var burstWake: DispatchWorkItem?
+    private var burstWakeTime: CFTimeInterval = 0
     /// The session was asked to stop delivering output (the queue is over its high water).
     private var outputPaused = false
     /// The row shift's state; used only on the surface's output queue, in feed order.
@@ -892,7 +909,14 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
                 scroll.reset()
                 armReplayDeadline()
             }
+            if isReset {
+                replayStartedAt = CACurrentMediaTime()
+                replayBytes = 0
+            } else if replayGate.isReplaying {
+                replayBytes += data.count
+            }
             replayGate.received(data.count, isReset: isReset, at: CACurrentMediaTime())
+            pacer.arrived(at: CACurrentMediaTime())
             #if DEBUG
             if TerminalFrameLog.isEnabled { frameLog.outputArrived() }
             #endif
@@ -918,13 +942,15 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// not held back to the next frame); otherwise the display link feeds at
     /// the start of the next frame. Either way, at most one batch per frame.
     private func scheduleOutput() {
-        if !feedInFlight, CACurrentMediaTime() >= nextFeedAllowed {
+        if pacer.canFeed(at: CACurrentMediaTime()) {
             pumpOutput()
+        } else {
+            armBurstWake()
         }
         guard outputLink == nil, !output.isEmpty || feedInFlight else { return }
         let link = CADisplayLink(target: DisplayLinkProxy(owner: self) { [weak self] in
             // A new frame: one more batch may go.
-            self?.nextFeedAllowed = 0
+            self?.pacer.newFrame()
             self?.pumpOutput()
         }, selector: #selector(DisplayLinkProxy.step(_:)))
         link.add(to: .main, forMode: .common)
@@ -939,16 +965,41 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// One display frame: hands Ghostty the next batch (at most
     /// `TerminalOutputQueue.frameBudget` bytes) when the previous one is
     /// parsed, applying alternate screen switches in order on the way.
+    /// Output waits only for its burst to end (no display frame may come
+    /// first: the link stops when nothing is in flight): look again then.
+    private func armBurstWake() {
+        guard let wake = pacer.wakeTime(at: CACurrentMediaTime()) else { return }
+        if burstWake != nil, burstWakeTime <= wake { return }
+        burstWake?.cancel()
+        let item = DispatchWorkItem { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.burstWake = nil
+                self.pumpOutput()
+            }
+        }
+        burstWake = item
+        burstWakeTime = wake
+        DispatchQueue.main.asyncAfter(deadline: .now() + max(0, wake - CACurrentMediaTime()), execute: item)
+    }
+
     private func pumpOutput() {
+        guard pacer.canFeed(at: CACurrentMediaTime()) else {
+            armBurstWake()
+            return
+        }
         while !feedInFlight, let step = output.next(budget: TerminalOutputQueue.budget(interacting: scroll.isInteracting && !Self.legacyInteraction)) {
             switch step {
             case .alternateScreen(let on):
                 model.ingest(.alternateScreen(on))
                 applyMode(tui: on)
             case .bytes(let data):
-                feedInFlight = true
-                nextFeedAllowed = outputLink?.targetTimestamp ?? CACurrentMediaTime() + frameInterval
+                pacer.started(frameEnd: outputLink?.targetTimestamp ?? CACurrentMediaTime() + frameInterval,
+                              queueEmpty: output.isEmpty)
                 model.scanOutput(data)
+                #if DEBUG
+                devProbe?.fed(data)
+                #endif
                 let transform: (@Sendable (Data) -> Data)?
                 if let remote = model.session.remoteRows {
                     let offset = max(0, surface.grid.rows - remote)
@@ -968,7 +1019,10 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             outputPaused = false
             model.session.setOutputPaused(false)
         }
-        if output.isEmpty, !feedInFlight { stopOutputLink() }
+        if output.isEmpty, !feedInFlight {
+            pacer.drained()
+            stopOutputLink()
+        }
     }
 
     private func stopOutputLink() {
@@ -1107,7 +1161,10 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
 
     /// Ghostty parsed a batch (`raw` session bytes).
     private func outputProcessed(_ raw: Int) {
-        feedInFlight = false
+        pacer.finished()
+        #if DEBUG
+        devProbe?.processed()
+        #endif
         let replayDone = replayGate.parsed(raw)
         if replayGate.isReplaying {
             // A reset's replay is still being fed: no layout, no frame swap
@@ -1117,6 +1174,10 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             return
         }
         if replayDone {
+            if let started = replayStartedAt {
+                sizingLog.notice("replay done bytes=\(self.replayBytes, privacy: .public) ms=\(Int((CACurrentMediaTime() - started) * 1000), privacy: .public)")
+                replayStartedAt = nil
+            }
             outputSinceProbe = true
             // Ghostty's next scrollbar report has the replay's row count.
             if readingMark != nil { readingMarkAwaitsReport = true }
@@ -1524,6 +1585,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     private func surfacePresented() {
         #if DEBUG
         TerminalBenchProbe.shared?.presented()
+        devProbe?.presented()
         #endif
         // A TUI's screen has no scroll: the held frame goes once the replay drew.
         if model.isTUI, freezeView != nil, heldFrameMayGo() { unfreeze() }

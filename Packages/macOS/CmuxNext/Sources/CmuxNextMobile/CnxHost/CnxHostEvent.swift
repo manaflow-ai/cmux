@@ -17,6 +17,9 @@ public enum CnxHostEvent: Sendable, Equatable {
     case phoneUp(CnxPhoneLink)
     /// A phone's link moved to another path (`direct`, `relay`, `turn`).
     case phonePath(sessionID: String, path: String)
+    /// The WebRTC media session beside a phone's WireGuard link came up over
+    /// `mediaPath` (`direct`, `turn`), or went away (nil).
+    case phoneMedia(sessionID: String, mediaPath: String?)
     /// A phone's link ended.
     case phoneDown(sessionID: String, reason: String)
     /// A phone proved keys this Mac has not approved: ask the user (``CnxPairedDevices``).
@@ -56,6 +59,9 @@ public enum CnxHostEvent: Sendable, Equatable {
         case "phone_path":
             guard let session = wire.sessionId, let path = wire.path else { return nil }
             self = .phonePath(sessionID: session, path: path)
+        case "phone_media":
+            guard let session = wire.sessionId, let media = wire.mediaPath else { return nil }
+            self = .phoneMedia(sessionID: session, mediaPath: media == "none" ? nil : media)
         case "phone_down":
             guard let session = wire.sessionId else { return nil }
             self = .phoneDown(sessionID: session, reason: wire.reason ?? "")
@@ -91,6 +97,7 @@ public enum CnxHostEvent: Sendable, Equatable {
         var phoneDeviceId: String?
         var transport: String?
         var path: String?
+        var mediaPath: String?
         var name: String?
         var identityKey: String?
         var approvalKey: String?

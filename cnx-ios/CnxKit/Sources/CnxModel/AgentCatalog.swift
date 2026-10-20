@@ -60,6 +60,14 @@ public struct AgentHarnessChoice: Identifiable, Hashable, Sendable {
     }
 
     public var canStart: Bool { unavailableReason == nil }
+
+    /// ``defaultModel`` when this Mac's account offers it: a harness that lists its models
+    /// and leaves the default out can't run it (full verify D4), so Default is not named.
+    public var offeredDefaultModel: String? {
+        guard let defaultModel else { return nil }
+        guard !models.isEmpty else { return defaultModel }
+        return models.contains { $0.id == defaultModel } ? defaultModel : nil
+    }
 }
 
 /// The agents a Mac offers a phone: the Mac's catalog (`_acpmux/harnesses`, `_acpmux/models`)
@@ -102,7 +110,13 @@ public struct AgentCatalog: Hashable, Sendable {
             }
         }
         guard let harness = start.harness.map({ harness($0) }) ?? defaultChoice, harness.canStart else { return nil }
-        guard let model = start.model, model != harness.defaultModel, model != "default" else { return (harness, nil) }
+        guard let model = start.model, model != "default" else {
+            // Default on a named agent: the Mac's own pick for that agent (in `folder`, else
+            // anywhere), so a phone's chat runs the model the Mac's chats do (full verify D4).
+            let picked = lastPicks?.picks(in: folder).first { $0.harness == harness.id }?.model
+            return (harness, picked.flatMap { $0 == harness.defaultModel || $0 == "default" ? nil : $0 })
+        }
+        guard model != harness.defaultModel else { return (harness, nil) }
         return (harness, model)
     }
 
