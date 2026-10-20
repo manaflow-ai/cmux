@@ -128,7 +128,9 @@ extension PaneHandlers {
 
     private static func bindUnported(_ registry: ActionRegistry) {
         let simulator = RefusalStrings.simulatorUnported
-        for id: ActionID in ["palette.newSimulatorPane", "simulatorHome", "simulatorRotateLeft", "simulatorRotateRight",
+        // palette.newSimulatorPane opens the phone tab (PhoneHandlers). The keyboard-only simulator
+        // actions wait for a focused-phone context (simulatorFocused; plans/cmux-next/simulators-DESIGN.md).
+        for id: ActionID in ["simulatorHome", "simulatorRotateLeft", "simulatorRotateRight",
                              "simulatorToggleAppearance", "simulatorToggleSoftwareKeyboard"] {
             registry.bindUnavailable(id, reason: simulator)
         }
