@@ -11,8 +11,8 @@ import Testing
             == "Not sent: mini is offline. Send again when it's back.")
         #expect(TerminalConnectionState.reattaching(mac: "mini").composerNotSentNotice
             == "Not sent: reconnecting to mini. Send again when it's back.")
-        #expect(TerminalConnectionState.connecting(mac: nil).composerNotSentNotice
-            == "Not sent: connecting to your Mac. Send again when it's connected.")
+        // A first attach: sent through the session's short hold, not refused.
+        #expect(TerminalConnectionState.connecting(mac: nil).composerNotSentNotice == nil)
     }
 
     @Test func droppedKeysAreSaidOnce() {

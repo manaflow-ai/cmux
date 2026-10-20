@@ -19,6 +19,8 @@ public final class LinkController {
     public private(set) var lastFailure: String?
 
     @ObservationIgnored private var machine: LinkMachine
+    /// Bumped by every dial, close and wait the machine starts.
+    public var dialGeneration: Int { machine.generation }
     @ObservationIgnored private let dialer: any MacLinkDialer
     /// Resolves a Mac id to a dial endpoint (nil until the phone is registered).
     @ObservationIgnored public var endpoint: @MainActor (String) -> LinkEndpoint? = { _ in nil }

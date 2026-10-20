@@ -478,6 +478,7 @@ impl Dialer for WebRtcDialer {
                     opened = &mut open_rx => break opened.map_err(|_| DialError::Transport("data channel never opened".into()))?,
                     () = &mut answer_deadline, if !answered => {
                         timeline.mark("answer_timeout");
+                        let _ = pc.close().await;
                         return Err(DialError::Timeout);
                     }
                     event = events.next(), if signaling_up => {

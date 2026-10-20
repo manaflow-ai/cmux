@@ -380,6 +380,40 @@ final class FakeTerminalDaemon: @unchecked Sendable {
         #expect(sends.first?["bytes"] as? String == Data("x".utf8).base64EncodedString())
     }
 
+    /// r13 review: keys typed over more than the hold limit while detached
+    /// are dropped all together, and input is refused until the next attach:
+    /// never only the last 2 s of a command (`mp\r` of `ls -la /tmp\r`).
+    @Test func noFragmentOfACommandRunsAfterAnOutage() async throws {
+        let daemon = FakeTerminalDaemon()
+        let link = MockMacLink { service, line in daemon.respond(service, line) }
+        let channels = ChannelLog()
+        let session = DaemonTerminalSession(surface: 7) {
+            let channel = try await link.openChannel(service: "daemon", args: [:])
+            channels.append(channel)
+            return DaemonClient(channel: channel)
+        }
+        var clock: TimeInterval = 1000
+        session.now = { clock }
+        var events: [TerminalSessionEvent] = []
+        session.start { events.append($0) }
+        try await waitUntil { session.isAttached }
+        await channels.last?.close(code: "link_closed", reason: "link dropped")
+        try await waitUntil { !session.isAttached }
+
+        session.send(Data("ls -la /t".utf8))
+        clock += DaemonTerminalSession.inputHoldLimit + 1
+        session.send(Data("mp\r".utf8))
+        session.reconnect()
+        try await waitUntil { session.isAttached }
+        try await waitUntil { events.contains(.inputNotSent(bytes: 12)) }
+        #expect(!daemon.recorded.contains { $0["cmd"] as? String == "send" }, "a fragment of the command ran on the Mac")
+
+        // Attached again: typing works.
+        session.send(Data("x".utf8))
+        try await waitUntil { daemon.recorded.contains { $0["cmd"] as? String == "send" } }
+        #expect(daemon.recorded.filter { $0["cmd"] as? String == "send" }.first?["bytes"] as? String == Data("x".utf8).base64EncodedString())
+    }
+
     /// termqa D3: right after the Mac's host restarts, a reattach can be refused
     /// ("unknown surface") for a moment. The screen keeps its last frame: no
     /// mirror reset and no error line until an attach succeeds, then the

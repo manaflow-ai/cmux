@@ -487,11 +487,15 @@ public final class LiveCoordinator {
             let device = MacDevice(id: mac.deviceId, name: mac.name, isOnline: mac.online, lastSeenAt: mac.lastSeenDate)
             if let index = current.firstIndex(where: { $0.id == mac.deviceId }) { current[index] = device } else { current.append(device) }
             store.setMacs(current, teamID: teamID)
+            let generationBefore = link.dialGeneration
             retarget()
             // The linked Mac's signaling socket is up (again): its host may
             // have restarted under the live link. Probe it now instead of at
             // the next heartbeat (termfix-r13 D2b), or dial now if waiting.
-            if mac.online, mac.deviceId == link.target?.macID { link.send(.macSignaled) }
+            // Only when retarget() did not just dial (a Mac back from offline):
+            // a second dial at once would abandon the first, whose offer the
+            // host may already be answering (r13 review).
+            if mac.online, mac.deviceId == link.target?.macID, link.dialGeneration == generationBefore { link.send(.macSignaled) }
         }
     }
 
@@ -1282,8 +1286,9 @@ public final class LiveCoordinator {
         }
         offlineTask?.cancel()
         offlineTask = nil
-        guard !offline, linkDownSince != nil, down < LinkMachine.Phase.offlineAfter else { return }
-        let wait = LinkMachine.Phase.offlineAfter - down
+        guard !offline, linkDownSince != nil, down < LinkMachine.Phase.offlineAfter * 2 else { return }
+        // Look again when the next bound is reached (a retry or redial, then a first dial's longer one).
+        let wait = (down < LinkMachine.Phase.offlineAfter ? LinkMachine.Phase.offlineAfter : LinkMachine.Phase.offlineAfter * 2) - down
         offlineTask = Task { [weak self] in
             guard let clock = self?.clock else { return }
             do { try await clock.sleep(for: wait) } catch { return }

@@ -191,7 +191,9 @@ import Testing
         #expect(connecting.showsTerminalsOffline(notConnectedFor: LinkMachine.Phase.offlineAfter))
         #expect(LinkMachine.Phase.offlineAfter <= .seconds(4))
         // A first dial under way is not "offline" (a slow connect is not a dead Mac).
-        #expect(!LinkMachine.Phase.connecting(.webRTC, attempt: 1).showsTerminalsOffline(notConnectedFor: .seconds(60)))
+        #expect(!LinkMachine.Phase.connecting(.webRTC, attempt: 1).showsTerminalsOffline(notConnectedFor: .seconds(7)))
+        // ...but not forever: a redial after a lost link can last its whole timeout.
+        #expect(LinkMachine.Phase.connecting(.webRTC, attempt: 1).showsTerminalsOffline(notConnectedFor: LinkMachine.Phase.offlineAfter * 2))
         let failed = LinkMachine.Phase.waiting(.webRTC, attempt: 2, reason: "ICE timed out", retryIn: .seconds(1))
         #expect(!failed.showsTerminalsOffline(notConnectedFor: .seconds(1)))
         #expect(failed.showsTerminalsOffline(notConnectedFor: .seconds(4)))

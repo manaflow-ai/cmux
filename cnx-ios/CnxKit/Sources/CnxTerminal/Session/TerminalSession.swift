@@ -97,7 +97,10 @@ public enum TerminalConnectionState: Sendable, Equatable {
         switch self {
         case .attached: return nil
         case .offline(let mac): return "Not sent: \(named(mac)) is offline. Send again when it's back."
-        case .connecting(let mac): return "Not sent: connecting to \(named(mac)). Send again when it's connected."
+        // A first attach usually lands within a few hundred ms: the send
+        // goes to the session, which holds it that long and says so if the
+        // terminal never came (r13 review: a quick Send on a new tab was refused).
+        case .connecting: return nil
         case .reattaching(let mac): return "Not sent: reconnecting to \(named(mac)). Send again when it's back."
         }
     }

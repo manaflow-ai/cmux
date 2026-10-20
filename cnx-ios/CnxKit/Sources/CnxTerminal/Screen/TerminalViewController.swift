@@ -972,9 +972,11 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         if burstWake != nil, burstWakeTime <= wake { return }
         burstWake?.cancel()
         let item = DispatchWorkItem { [weak self] in
-            guard let self else { return }
-            self.burstWake = nil
-            self.pumpOutput()
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.burstWake = nil
+                self.pumpOutput()
+            }
         }
         burstWake = item
         burstWakeTime = wake
@@ -1017,7 +1019,10 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             outputPaused = false
             model.session.setOutputPaused(false)
         }
-        if output.isEmpty, !feedInFlight { stopOutputLink() }
+        if output.isEmpty, !feedInFlight {
+            pacer.drained()
+            stopOutputLink()
+        }
     }
 
     private func stopOutputLink() {

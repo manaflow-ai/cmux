@@ -92,6 +92,13 @@ public struct TerminalFeedPacer: Sendable, Equatable {
 
     public mutating func finished() { inFlight = false }
 
+    /// The queue is empty and nothing is in flight (the last step may have
+    /// been an alternate screen switch): the next chunk starts a new burst.
+    public mutating func drained() {
+        guard !inFlight else { return }
+        burst.fed(queueEmpty: true)
+    }
+
     /// A new display frame: one more batch may go.
     public mutating func newFrame() { nextAllowed = 0 }
 }

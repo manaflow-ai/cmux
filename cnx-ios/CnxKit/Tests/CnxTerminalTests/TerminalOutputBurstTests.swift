@@ -97,3 +97,19 @@ import Testing
         #expect(Self.run(arrivals, pacer: TerminalFeedPacer(holdsBursts: false)) == ["row|", "live|"])
     }
 }
+
+/// r13 review: after a drain that ended on an alternate screen switch, the
+/// next chunk still waits for its burst.
+@Suite struct TerminalFeedPacerDrainTests {
+    @Test func aDrainedQueueStartsANewBurst() {
+        var pacer = TerminalFeedPacer()
+        pacer.arrived(at: 1.0)
+        pacer.started(frameEnd: 1.016, queueEmpty: false)  // an alternate screen step was left
+        pacer.finished()
+        pacer.drained()
+        pacer.newFrame()
+        pacer.arrived(at: 5.0)
+        #expect(!pacer.canFeed(at: 5.0))
+        #expect(pacer.canFeed(at: 5.0 + TerminalOutputBurst.quiet))
+    }
+}

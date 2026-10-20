@@ -209,7 +209,10 @@ extension LinkMachine.Phase {
         case .idle, .connected: false
         case .macOffline: true
         case .waiting(_, _, let reason, _) where reason == LinkController.reason(LinkError(code: "offline", message: "")): true
-        case .connecting(_, let attempt) where attempt <= 1: false
+        // A first dial gets longer (a slow connect is not a dead Mac), but
+        // never unbounded: one after a lost link can wait out its whole dial
+        // timeout (r13 review).
+        case .connecting(_, let attempt) where attempt <= 1: down >= Self.offlineAfter * 2
         case .connecting, .waiting: down >= Self.offlineAfter
         }
     }

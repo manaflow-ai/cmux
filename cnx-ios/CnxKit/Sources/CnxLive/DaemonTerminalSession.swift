@@ -49,7 +49,11 @@ public final class DaemonTerminalSession: TerminalSession {
     /// `send` while none is out. Keys older than `inputHoldLimit` when the
     /// terminal can take them are dropped, never sent late (termfix-r13 D5:
     /// a command typed during an outage ran 15.4 minutes later).
-    private var input: [(bytes: Data, at: TimeInterval)] = []
+    private var input: [(bytes: Data, at: TimeInterval, detached: Bool)] = []
+    /// Keys queued while detached expired: everything typed until the next
+    /// attach is refused, so no fragment of a command (its last 2 s) can
+    /// reach the shell after the rest was dropped (r13 review).
+    private var refusingInput = false
     /// How long typed keys may wait for the terminal (a blip) before they
     /// are dropped and the screen is told (seconds).
     public static let inputHoldLimit: TimeInterval = 2
@@ -139,7 +143,12 @@ public final class DaemonTerminalSession: TerminalSession {
 
     public func send(_ bytes: Data) {
         guard !bytes.isEmpty else { return }
-        input.append((bytes, now()))
+        if refusingInput, !attached {
+            log.notice("surface \(self.surface, privacy: .public): \(bytes.count, privacy: .public) typed bytes refused (earlier keys were already dropped)")
+            handler?(.inputNotSent(bytes: bytes.count))
+            return
+        }
+        input.append((bytes, now(), !attached))
         if attached {
             drainInput()
         } else {
@@ -153,13 +162,29 @@ public final class DaemonTerminalSession: TerminalSession {
         }
     }
 
-    /// Drops keys older than `inputHoldLimit` and tells the screen.
+    /// The terminal is unreachable: every key still queued now waits for a
+    /// detached terminal, from when it was typed.
+    private func markInputDetached() {
+        input = input.map { ($0.bytes, $0.at, true) }
+        guard !input.isEmpty else { return }
+        let limit = Self.inputHoldLimit
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(limit))
+            self?.expireInput()
+        }
+    }
+
+    /// Keys that waited for a detached terminal longer than
+    /// `inputHoldLimit`: all queued keys are dropped (never only the oldest:
+    /// the rest of a command must not run alone), input is refused until the
+    /// next attach, and the screen is told. Keys typed while attached (a
+    /// slow but live link) never expire here.
     private func expireInput() {
         let cutoff = now() - Self.inputHoldLimit
-        let stale = input.prefix { $0.at <= cutoff }
-        guard !stale.isEmpty else { return }
-        let bytes = stale.reduce(0) { $0 + $1.bytes.count }
-        input.removeFirst(stale.count)
+        guard input.contains(where: { $0.detached && $0.at <= cutoff }) else { return }
+        let bytes = input.reduce(0) { $0 + $1.bytes.count }
+        input.removeAll()
+        if !attached { refusingInput = true }
         log.notice("surface \(self.surface, privacy: .public): \(bytes, privacy: .public) typed bytes dropped (the terminal was unreachable for longer than \(Self.inputHoldLimit, privacy: .public) s)")
         handler?(.inputNotSent(bytes: bytes))
     }
@@ -301,6 +326,7 @@ public final class DaemonTerminalSession: TerminalSession {
             for event in held { apply(event) }
             attachRetries = 0
             attached = true
+            refusingInput = false
             everAttached = true
             handler?(.connection(.attached))
             lastError = nil
@@ -338,6 +364,7 @@ public final class DaemonTerminalSession: TerminalSession {
         self.client = nil
         dropInputLane()
         attached = false
+        markInputDetached()
         draining = false
         guard handler != nil, !ended else { return }
         handler?(.connection(connectionState))
@@ -525,7 +552,8 @@ public final class DaemonTerminalSession: TerminalSession {
                 // Keep the keystrokes: retry on the attach channel when the
                 // lane failed, or after the reattach when the link dropped.
                 lastError = LinkController.reason(error)
-                input.insert((batch, typedAt), at: 0)
+                input.insert((batch, typedAt, true), at: 0)
+                markInputDetached()
                 if inputClient === target {
                     dropInputLane()
                 } else if self.client === target {

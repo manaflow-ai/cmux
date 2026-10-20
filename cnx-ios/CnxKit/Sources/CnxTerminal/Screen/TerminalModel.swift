@@ -87,6 +87,8 @@ public final class TerminalModel {
         didSet { cardScreenTextAt = CACurrentMediaTime() }
     }
     @ObservationIgnored private var cardScreenTextAt: CFTimeInterval = 0
+    /// The Mac's screen still reads `cardScreenText`: date it now without a redraw.
+    public func confirmCardScreenText() { cardScreenTextAt = CACurrentMediaTime() }
     /// When `snapshot` was last taken from the live page.
     @ObservationIgnored private var cardSnapshotAt: CFTimeInterval = 0
 

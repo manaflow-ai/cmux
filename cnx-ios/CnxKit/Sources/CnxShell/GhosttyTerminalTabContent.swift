@@ -303,7 +303,9 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
             // A slower older reply never replaces a newer card text (A6).
             guard self.screenTextRefresh.finished(tab.id, request: request) else { return }
             guard let model, live || !model.pageStarted else { return }
-            if model.cardScreenText != text || live { model.cardScreenText = text }
+            // Unchanged text is only re-dated (still the Mac's screen now), so
+            // an unchanged card is not redrawn every second (r13 review).
+            if model.cardScreenText != text { model.cardScreenText = text } else if live { model.confirmCardScreenText() }
         }
     }
 
