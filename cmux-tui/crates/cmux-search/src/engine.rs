@@ -179,6 +179,13 @@ pub struct SealJob {
 /// The in-memory segment a seal replaced; dropping it frees its memory.
 pub struct Retired(Option<Segment>);
 
+impl Retired {
+    /// Whether a segment was retired (the seal replaced a frozen one).
+    pub fn is_some(&self) -> bool {
+        self.0.is_some()
+    }
+}
+
 /// A sealed segment ready to replace its frozen one.
 pub struct SealDone {
     id: u64,
