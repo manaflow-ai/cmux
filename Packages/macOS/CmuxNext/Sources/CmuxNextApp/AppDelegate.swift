@@ -393,6 +393,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services?.viewers.markdownPages.terminate()
         services?.viewers.editorPages.terminate()
         services?.home.applicationWillTerminate()
+        services?.vscodeServeWeb.terminateForAppExit()
         cloudContext?.cancel()
         services?.cloud.stop()
         for session in services?.machines.cloud ?? [] { session.disconnect() }
