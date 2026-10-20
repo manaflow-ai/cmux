@@ -23,6 +23,22 @@ struct WorkspaceHoverCardContent: Equatable {
         var lines: Int = 1
         /// The field it shows (`SidebarCardFacts.Fact.kind`), for a custom card.
         var kind = "status"
+        /// A colored word ahead of the text (a pull request's "Merged" or "Conflict").
+        var status: String?
+        var statusTone: HoverCardTone = .secondary
+        /// A pull request's added and removed lines.
+        var additions: Int?
+        var deletions: Int?
+        /// The trailing mark: a machine's online dot, a context ring.
+        var accessory: HoverCardAccessory?
+        /// The text's own ink, over the message or metadata ink (an offline machine's warning).
+        var ink: HoverCardTone?
+
+        /// The row the shared hover card row draws (`HoverCardRowView`).
+        var row: HoverCardRowContent {
+            HoverCardRowContent(text: text, ink: ink ?? (isMessage ? .primary : .secondary), lines: lines, status: status,
+                                statusTone: statusTone, additions: additions, deletions: deletions, accessory: accessory)
+        }
 
         /// What someone said or asked (a waiting reason, a notification, the task, the last
         /// reply): it reads in the primary ink. Every other row is metadata in the secondary ink,
@@ -72,8 +88,15 @@ struct WorkspaceHoverCardContent: Equatable {
         if let branch = workspace.branch, !branch.isEmpty { facts.append(Fact(icon: .gitBranch, text: branch, kind: "branch")) }
         if let pr = workspace.pullRequest, !pr.isEmpty { facts.append(Fact(icon: .gitPullrequest, text: pr, kind: "pullRequest")) }
         if let remote {
+            // The machine and whether it is reachable, as a dot (Codex's sidebar card); a machine
+            // that is not connected says how, in its color, under it.
             let own = ownIcon(remote.icon)
-            facts.append(Fact(icon: hostIcon(remote), text: remote.name, mark: own.mark, image: own.image, kind: "machine"))
+            let tone = connectionTone(remote.status)
+            facts.append(Fact(icon: hostIcon(remote), text: remote.name, mark: own.mark, image: own.image, kind: "machine",
+                              accessory: .dot(tone)))
+            if let word = connectionWord(remote.status) {
+                facts.append(Fact(icon: .statusDisconnected, text: word, kind: "machineStatus", ink: tone))
+            }
         }
         // As many entries as the row shows, then how many more (the daemon keeps up to 64).
         let entries = workspace.reported?.entries ?? []
@@ -138,6 +161,39 @@ struct WorkspaceHoverCardContent: Equatable {
         guard let total = report?.total,
               (total.cpu ?? 0) >= notableCPU || total.memoryBytes >= notableMemoryBytes else { return nil }
         return ResourceFormat.line(total)
+    }
+
+    /// The resource row: CPU and memory with the last seconds of CPU as bars, warm when hot
+    /// (Leo 2026-10-19: "the CPU related stuff, I think people want to know"); nil while the
+    /// workspace is quiet. `history` is the CPU of each sample since the card showed, newest last.
+    static func resourceRow(_ report: ResourceReport?, history: [Double]) -> HoverCardRowContent? {
+        guard let line = resourceLine(report), let total = report?.total else { return nil }
+        let cpu = total.cpu ?? 0
+        let tone: HoverCardTone = cpu >= 2 ? .danger : cpu >= 1 ? .attention : .secondary
+        // Each bar against the busiest sample, at least one core, so a quiet second reads low.
+        let peak = max(1, history.max() ?? 0)
+        let bars = history.isEmpty ? nil : HoverCardAccessory.bars(history.map { $0 / peak }, tone: tone)
+        return HoverCardRowContent(text: line, ink: tone == .secondary ? .secondary : tone, accessory: bars)
+    }
+
+    /// A machine's link as a color: green connected, yellow on its way, red when it cannot connect.
+    static func connectionTone(_ status: SidebarMachine.Status) -> HoverCardTone {
+        switch status {
+        case .connected, .updateAvailable: .success
+        case .connecting, .reconnecting, .installing, .updateRequired, .installRequired: .attention
+        case .offline, .authFailed, .unreachable, .failed: .danger
+        }
+    }
+
+    /// What a machine that is not plainly connected is doing, nil when connected.
+    static func connectionWord(_ status: SidebarMachine.Status) -> String? {
+        switch status {
+        case .connected, .updateAvailable: nil
+        case .offline: Strings.statusOffline
+        case .connecting: Strings.statusConnecting
+        case .installing: Strings.statusInstalling
+        default: Strings.attentionStatus(status)
+        }
     }
 
     /// The folder's own name: "~/Projects/site" reads "site", and the home
