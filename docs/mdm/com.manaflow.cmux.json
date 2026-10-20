@@ -1328,6 +1328,12 @@
       "title" : "Address Bar Shadow",
       "type" : "boolean"
     },
+    "browser.omnibar.showFullURLs" : {
+      "default" : false,
+      "description" : "Shows the whole address, with https:// and www., when you are not editing it.",
+      "title" : "Always Show Full URLs",
+      "type" : "boolean"
+    },
     "browser.openLinksInCmuxBrowser" : {
       "default" : true,
       "description" : "When off, links you click in terminals, agent chats, Home and cmux pages open in your default browser. Shift-Command-click opens a link in the other browser.",
@@ -3053,6 +3059,12 @@
       "default" : true,
       "description" : "sidebar.showSpaces",
       "title" : "Show Spaces",
+      "type" : "boolean"
+    },
+    "sidebar.showTimestamps" : {
+      "default" : false,
+      "description" : "Workspace rows show when they last changed: a time today, else an age such as 3d. Off, rows show no times; the hover card still does.",
+      "title" : "Show Timestamps",
       "type" : "boolean"
     },
     "sidebar.showWorkspaceTabs" : {
