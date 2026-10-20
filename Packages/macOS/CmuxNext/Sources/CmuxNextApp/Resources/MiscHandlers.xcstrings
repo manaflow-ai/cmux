@@ -2490,137 +2490,6 @@
         }
       }
     },
-    "handlers.misc.unavailable.agentChat": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Agent chat views are not ported to cmux-next yet."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "エージェントチャット表示はまだ cmux-next に移植されていません。"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "لم تُنقل عروض محادثة الوكيل إلى cmux-next بعد."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Prikazi razgovora s agentom još nisu preneseni u cmux-next."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Agentchatvisninger er endnu ikke porteret til cmux-next."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Agent-Chat-Ansichten sind noch nicht nach cmux-next portiert."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Las vistas de chat con agentes aún no están portadas a cmux-next."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Les vues de chat d’agent ne sont pas encore portées dans cmux-next."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Le viste chat degli agenti non sono ancora portate in cmux-next."
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ទិដ្ឋភាពជជែកភ្នាក់ងារមិនទាន់បានផ្ទេរទៅ cmux-next នៅឡើយទេ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "에이전트 채팅 보기는 아직 cmux-next로 이식되지 않았습니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Agentsamtalevisninger er ikke overført til cmux-next ennå."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Widoków czatu z agentem nie przeniesiono jeszcze do cmux-next."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "As visualizações de chat com agente ainda não foram portadas para o cmux-next."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Чаты с агентами еще не перенесены в cmux-next."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "มุมมองแชทเอเจนต์ยังไม่ได้พอร์ตมายัง cmux-next"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ajan sohbet görünümleri henüz cmux-next’e taşınmadı."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Подання чату з агентом ще не перенесено в cmux-next."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chế độ xem trò chuyện agent chưa được chuyển sang cmux-next."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "代理聊天视图尚未移植到 cmux-next。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "代理程式聊天檢視尚未移植至 cmux-next。"
-          }
-        }
-      }
-    },
     "handlers.misc.unavailable.agentTeams": {
       "extractionState": "manual",
       "localizations": {
@@ -2879,137 +2748,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "cmux-next 尚未儲存瀏覽器記錄。"
-          }
-        }
-      }
-    },
-    "handlers.misc.unavailable.browserToggle": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "The cmux browser is always on in cmux-next; there is no setting to turn it off yet."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux-next ではブラウザは常に有効です。無効にする設定はまだありません。"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "متصفح cmux مفعّل دائمًا في cmux-next؛ لا يوجد إعداد لإيقافه بعد."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux preglednik je uvijek uključen u cmux-next; još ne postoji postavka za njegovo isključivanje."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux-browseren er altid slået til i cmux-next. Der er endnu ingen indstilling til at slå den fra."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Der cmux-Browser ist in cmux-next immer aktiv; es gibt noch keine Einstellung zum Deaktivieren."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "El navegador de cmux siempre está activo en cmux-next; aún no hay ningún ajuste para desactivarlo."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Le navigateur cmux est toujours actif dans cmux-next ; aucun réglage ne permet encore de le désactiver."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Il browser cmux è sempre attivo in cmux-next; non c’è ancora un’impostazione per disattivarlo."
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "កម្មវិធីរុករក cmux តែងតែបើកក្នុង cmux-next។ មិនទាន់មានការកំណត់ដើម្បីបិទវានៅឡើយទេ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux-next에서는 cmux 브라우저가 항상 켜져 있으며, 아직 끄는 설정이 없습니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux-nettleseren er alltid på i cmux-next. Det finnes ingen innstilling for å slå den av ennå."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Przeglądarka cmux jest w cmux-next zawsze włączona; nie ma jeszcze ustawienia, by ją wyłączyć."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "O navegador do cmux está sempre ativo no cmux-next; ainda não há ajuste para desativá-lo."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "В cmux-next браузер cmux всегда включен; настройки для его отключения пока нет."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "เบราว์เซอร์ cmux เปิดอยู่เสมอใน cmux-next ยังไม่มีการตั้งค่าสำหรับปิด"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux-next’te cmux tarayıcısı her zaman açık; henüz kapatmak için bir ayar yok."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "У cmux-next браузер cmux завжди увімкнений; параметра для його вимкнення поки немає."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Trình duyệt cmux luôn bật trong cmux-next; chưa có cài đặt để tắt."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "在 cmux-next 中 cmux 浏览器始终开启，目前还没有关闭它的设置。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux-next 中的 cmux 瀏覽器一律啟用；目前還沒有可關閉的設定。"
           }
         }
       }
@@ -3403,137 +3141,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "網址列目前還無法隱藏。"
-          }
-        }
-      }
-    },
-    "handlers.misc.unavailable.vscodeServer": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "The inline VS Code server is not ported to cmux-next yet."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "インライン VS Code サーバーはまだ cmux-next に移植されていません。"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "لم يُنقل خادم VS Code المضمّن إلى cmux-next بعد."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ugrađeni VS Code server još nije prenesen u cmux-next."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Den indlejrede VS Code-server er endnu ikke porteret til cmux-next."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Der integrierte VS Code-Server ist noch nicht nach cmux-next portiert."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "El servidor integrado de VS Code aún no está portado a cmux-next."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Le serveur VS Code intégré n’est pas encore porté dans cmux-next."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Il server VS Code inline non è ancora portato in cmux-next."
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ម៉ាស៊ីនមេ VS Code ក្នុងជួរមិនទាន់បានផ្ទេរទៅ cmux-next នៅឡើយទេ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "인라인 VS Code 서버는 아직 cmux-next로 이식되지 않았습니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Den innebygde VS Code-serveren er ikke overført til cmux-next ennå."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Wbudowanego serwera VS Code nie przeniesiono jeszcze do cmux-next."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "O servidor VS Code embutido ainda não foi portado para o cmux-next."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Встроенный сервер VS Code еще не перенесен в cmux-next."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "เซิร์ฟเวอร์ VS Code ในตัวยังไม่ได้พอร์ตมายัง cmux-next"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Satır içi VS Code sunucusu henüz cmux-next’e taşınmadı."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Вбудований сервер VS Code ще не перенесено в cmux-next."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Máy chủ VS Code nội tuyến chưa được chuyển sang cmux-next."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "内联 VS Code 服务器尚未移植到 cmux-next。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "內嵌 VS Code 伺服器尚未移植至 cmux-next。"
           }
         }
       }
@@ -11456,6 +11063,3675 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "%lld 則未讀"
+          }
+        }
+      }
+    },
+    "handlers.misc.failed.terminalChatHarness": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Only Claude Code and Codex sessions can open as a chat."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يمكن فتح جلسات Claude Code وCodex فقط كمحادثة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Samo Claude Code i Codex sesije se mogu otvoriti kao chat."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kun Claude Code- og Codex-sessioner kan åbnes som chat."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nur Claude Code- und Codex-Sitzungen lassen sich als Chat öffnen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solo las sesiones de Claude Code y Codex se pueden abrir como chat."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seules les sessions Claude Code et Codex peuvent s’ouvrir comme discussion."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solo le sessioni di Claude Code e Codex possono essere aperte come chat."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チャットとして開けるのは Claude Code と Codex のセッションだけです。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មានតែវគ្គ Claude Code និង Codex ប៉ុណ្ណោះដែលអាចបើកជាការជជែកបាន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code 및 Codex 세션만 채팅으로 열 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bare Claude Code- og Codex-økter kan åpnes som chat."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jako czat można otworzyć tylko sesje Claude Code i Codex."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Somente sessões do Claude Code e do Codex podem ser abertas como chat."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Как чат можно открыть только сеансы Claude Code и Codex."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เปิดเป็นแชตได้เฉพาะเซสชัน Claude Code และ Codex เท่านั้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yalnızca Claude Code ve Codex oturumları sohbet olarak açılabilir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Як чат можна відкрити лише сеанси Claude Code і Codex."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chỉ các phiên Claude Code và Codex mới có thể mở dưới dạng trò chuyện."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "只有 Claude Code 和 Codex 会话可以作为聊天打开。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "只有 Claude Code 與 Codex 工作階段可以作為聊天開啟。"
+          }
+        }
+      }
+    },
+    "handlers.misc.failed.terminalChatNoSession": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The focused terminal runs no agent session to open as a chat."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا تشغّل الطرفية المركّز عليها أي جلسة وكيل يمكن فتحها كمحادثة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fokusirani terminal ne pokreće sesiju agenta koja se može otvoriti kao chat."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den fokuserede terminal kører ingen agentsession, der kan åbnes som chat."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Im fokussierten Terminal läuft keine Agentensitzung, die sich als Chat öffnen lässt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El terminal enfocado no ejecuta ninguna sesión de agente que se pueda abrir como chat."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le terminal actif n’exécute aucune session d’agent à ouvrir comme discussion."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il terminale attivo non esegue alcuna sessione agente da aprire come chat."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォーカスされたターミナルでは、チャットとして開けるエージェントセッションが実行されていません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទែមីណាល់ដែលកំពុងផ្ដោតមិនដំណើរការវគ្គភ្នាក់ងារណាមួយដែលអាចបើកជាការជជែកបានទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "포커스된 터미널에서 채팅으로 열 수 있는 에이전트 세션이 실행되고 있지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den fokuserte terminalen kjører ingen agentøkt som kan åpnes som chat."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "W aktywnym terminalu nie działa żadna sesja agenta, którą można otworzyć jako czat."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O terminal em foco não executa nenhuma sessão de agente para abrir como chat."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В активном терминале не запущен сеанс агента, который можно открыть как чат."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เทอร์มินัลที่โฟกัสอยู่ไม่ได้เรียกใช้เซสชันเอเจนต์ที่เปิดเป็นแชตได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Odaktaki terminalde sohbet olarak açılabilecek bir ajan oturumu çalışmıyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В активному терміналі не запущено сеансу агента, який можна відкрити як чат."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal đang được chọn không chạy phiên tác tử nào để mở dưới dạng trò chuyện."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当前聚焦的终端没有运行可作为聊天打开的代理会话。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "目前聚焦的終端機沒有執行可作為聊天開啟的代理工作階段。"
+          }
+        }
+      }
+    },
+    "handlers.screenshot.outNeedsValue": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out (--out) needs a file path, or - for the image inline"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يحتاج out ‏(--out) إلى مسار ملف، أو - لإرجاع الصورة مضمّنة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out (--out) treba putanju datoteke ili - za sliku u odgovoru"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out (--out) kræver en filsti eller - for at få billedet direkte i svaret"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out (--out) braucht einen Dateipfad oder - für das Bild direkt in der Antwort"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out (--out) necesita una ruta de archivo, o - para devolver la imagen en línea"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out (--out) attend un chemin de fichier, ou - pour renvoyer l’image en ligne"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out (--out) richiede un percorso di file, oppure - per restituire l’immagine in linea"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out（--out）にはファイルパスを指定するか、画像をそのまま返す場合は - を指定してください"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out (--out) ត្រូវការផ្លូវឯកសារ ឬ - ដើម្បីបញ្ជូនរូបភាពក្នុងចម្លើយ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out(--out)에는 파일 경로가 필요하며, 이미지를 응답에 바로 담으려면 -를 지정하세요"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out (--out) trenger en filbane, eller - for å få bildet direkte i svaret"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out (--out) wymaga ścieżki pliku albo - aby zwrócić obraz bezpośrednio w odpowiedzi"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out (--out) precisa de um caminho de arquivo, ou - para retornar a imagem embutida"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Для out (--out) нужен путь к файлу или - для изображения прямо в ответе"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out (--out) ต้องระบุพาธไฟล์ หรือ - เพื่อส่งภาพกลับมาในคำตอบโดยตรง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out (--out) bir dosya yolu ya da görüntüyü yanıtın içinde almak için - bekler"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Для out (--out) потрібен шлях до файлу або - для зображення прямо у відповіді"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out (--out) cần đường dẫn tệp, hoặc - để trả ảnh ngay trong phản hồi"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out（--out）需要文件路径，或用 - 直接在结果中返回图像"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out（--out）需要檔案路徑，或用 - 直接在結果中傳回影像"
+          }
+        }
+      }
+    },
+    "handlers.screenshot.outRelative": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out (--out) needs an absolute path or -, not “%@”"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يحتاج out ‏(--out) إلى مسار مطلق أو -، وليس “%@”"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out (--out) treba apsolutnu putanju ili -, a ne “%@”"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out (--out) kræver en absolut sti eller -, ikke “%@”"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out (--out) braucht einen absoluten Pfad oder -, nicht „%@“"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out (--out) necesita una ruta absoluta o -, no “%@”"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out (--out) attend un chemin absolu ou -, pas « %@ »"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out (--out) richiede un percorso assoluto o -, non “%@”"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out（--out）には絶対パスか - を指定してください（「%@」は使えません）"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out (--out) ត្រូវការផ្លូវដាច់ខាត ឬ - មិនមែន “%@” ទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out(--out)에는 절대 경로나 -가 필요합니다. “%@”는 사용할 수 없습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out (--out) trenger en absolutt bane eller -, ikke «%@»"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out (--out) wymaga ścieżki bezwzględnej albo -, a nie „%@”"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out (--out) precisa de um caminho absoluto ou -, não “%@”"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Для out (--out) нужен абсолютный путь или -, а не «%@»"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out (--out) ต้องเป็นพาธแบบสัมบูรณ์หรือ - ไม่ใช่ “%@”"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out (--out) mutlak bir yol ya da - bekler, “%@” değil"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Для out (--out) потрібен абсолютний шлях або -, а не «%@»"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out (--out) cần đường dẫn tuyệt đối hoặc -, không phải “%@”"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out（--out）需要绝对路径或 -，而不是“%@”"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out（--out）需要絕對路徑或 -，而不是「%@」"
+          }
+        }
+      }
+    },
+    "handlers.screenshot.outIsFolder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out (--out) names a folder, not a file: “%@”"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يشير out ‏(--out) إلى مجلد وليس إلى ملف: “%@”"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out (--out) navodi folder, a ne datoteku: “%@”"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out (--out) angiver en mappe, ikke en fil: “%@”"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out (--out) nennt einen Ordner, keine Datei: „%@“"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out (--out) indica una carpeta, no un archivo: “%@”"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out (--out) désigne un dossier, pas un fichier : « %@ »"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out (--out) indica una cartella, non un file: “%@”"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out（--out）がファイルではなくフォルダを指しています：「%@」"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out (--out) ចង្អុលទៅថត មិនមែនឯកសារទេ៖ “%@”"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out(--out)이 파일이 아닌 폴더를 가리킵니다: “%@”"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out (--out) peker på en mappe, ikke en fil: «%@»"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out (--out) wskazuje folder, a nie plik: „%@”"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out (--out) indica uma pasta, não um arquivo: “%@”"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out (--out) указывает на папку, а не на файл: «%@»"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out (--out) ระบุโฟลเดอร์ ไม่ใช่ไฟล์: “%@”"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out (--out) bir dosyayı değil bir klasörü gösteriyor: “%@”"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out (--out) вказує на папку, а не на файл: «%@»"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out (--out) chỉ đến một thư mục, không phải tệp: “%@”"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out（--out）指向的是文件夹而不是文件：“%@”"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "out（--out）指向的是資料夾而不是檔案：「%@」"
+          }
+        }
+      }
+    },
+    "handlers.screenshot.notOnScreen": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The window is not on screen (the app is hidden or the window is closed)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "النافذة ليست على الشاشة (التطبيق مخفي أو النافذة مغلقة)"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prozor nije na ekranu (aplikacija je sakrivena ili je prozor zatvoren)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vinduet er ikke på skærmen (appen er skjult, eller vinduet er lukket)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Fenster ist nicht auf dem Bildschirm (die App ist ausgeblendet oder das Fenster geschlossen)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La ventana no está en pantalla (la app está oculta o la ventana está cerrada)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La fenêtre n’est pas à l’écran (l’app est masquée ou la fenêtre est fermée)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La finestra non è sullo schermo (l’app è nascosta o la finestra è chiusa)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ウインドウが画面上にありません（アプリが非表示か、ウインドウが閉じています）"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្អួចមិននៅលើអេក្រង់ទេ (កម្មវិធីត្រូវបានលាក់ ឬបង្អួចត្រូវបានបិទ)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "윈도우가 화면에 없습니다(앱이 가려져 있거나 윈도우가 닫혔습니다)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vinduet er ikke på skjermen (appen er skjult, eller vinduet er lukket)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Okno nie jest na ekranie (aplikacja jest ukryta albo okno jest zamknięte)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A janela não está na tela (o app está oculto ou a janela está fechada)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Окна нет на экране (приложение скрыто или окно закрыто)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "หน้าต่างไม่อยู่บนหน้าจอ (แอปถูกซ่อนหรือหน้าต่างถูกปิด)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pencere ekranda değil (uygulama gizli ya da pencere kapalı)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вікна немає на екрані (програму приховано або вікно закрито)"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cửa sổ không có trên màn hình (ứng dụng đang ẩn hoặc cửa sổ đã đóng)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "窗口不在屏幕上（应用已隐藏或窗口已关闭）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "視窗不在螢幕上（App 已隱藏或視窗已關閉）"
+          }
+        }
+      }
+    },
+    "handlers.screenshot.minimized": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The window is minimized in the Dock; cmux does not restore it for a screenshot"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "النافذة مصغّرة في Dock؛ لا يستعيدها cmux من أجل لقطة شاشة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prozor je minimiziran u Dock; cmux ga ne vraća radi snimka ekrana"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vinduet er minimeret i Dock; cmux gendanner det ikke for at tage et skærmbillede"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Fenster ist im Dock minimiert; cmux stellt es für einen Screenshot nicht wieder her"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La ventana está minimizada en el Dock; cmux no la restaura para hacer una captura"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La fenêtre est réduite dans le Dock ; cmux ne la restaure pas pour une capture d’écran"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La finestra è ridotta nel Dock; cmux non la ripristina per uno screenshot"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ウインドウは Dock にしまわれています。cmux はスクリーンショットのために元に戻しません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្អួចត្រូវបានបង្រួមក្នុង Dock; cmux មិនស្ដារវាសម្រាប់ការថតអេក្រង់ទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "윈도우가 Dock으로 최소화되어 있습니다. cmux는 스크린샷을 위해 윈도우를 복원하지 않습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vinduet er minimert i Dock; cmux gjenoppretter det ikke for et skjermbilde"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Okno jest zminimalizowane w Docku; cmux nie przywraca go dla zrzutu ekranu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A janela está minimizada no Dock; o cmux não a restaura para uma captura de tela"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Окно свёрнуто в Dock; cmux не разворачивает его ради снимка"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "หน้าต่างถูกย่อไว้ใน Dock และ cmux จะไม่คืนหน้าต่างเพื่อถ่ายภาพหน้าจอ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pencere Dock’a küçültülmüş; cmux ekran görüntüsü için onu geri açmaz"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вікно згорнуто в Dock; cmux не розгортає його заради знімка"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cửa sổ đang thu nhỏ trong Dock; cmux không khôi phục nó để chụp ảnh màn hình"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "窗口已最小化到程序坞；cmux 不会为截图而恢复它"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "視窗已縮到 Dock；cmux 不會為了截圖而還原它"
+          }
+        }
+      }
+    },
+    "handlers.screenshot.blank": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The window server gave no image of the window"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يقدّم خادم النوافذ أي صورة للنافذة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Server prozora nije dao sliku prozora"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vinduesserveren gav intet billede af vinduet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Fensterserver lieferte kein Bild des Fensters"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El servidor de ventanas no devolvió ninguna imagen de la ventana"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le serveur de fenêtres n’a fourni aucune image de la fenêtre"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il window server non ha fornito alcuna immagine della finestra"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ウインドウサーバからウインドウの画像を取得できませんでした"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ម៉ាស៊ីនមេបង្អួចមិនបានផ្ដល់រូបភាពនៃបង្អួចទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "윈도우 서버가 윈도우 이미지를 제공하지 않았습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vindustjeneren ga ikke noe bilde av vinduet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Serwer okien nie zwrócił obrazu okna"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O servidor de janelas não forneceu nenhuma imagem da janela"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Оконный сервер не вернул изображение окна"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เซิร์ฟเวอร์หน้าต่างไม่ได้ให้ภาพของหน้าต่างนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pencere sunucusu pencerenin görüntüsünü vermedi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Віконний сервер не повернув зображення вікна"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Máy chủ cửa sổ không trả về ảnh nào của cửa sổ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "窗口服务器未提供该窗口的图像"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "視窗伺服器未提供該視窗的影像"
+          }
+        }
+      }
+    },
+    "handlers.screenshot.paneNotShown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The pane is not on screen: no window shows its workspace"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الجزء ليس على الشاشة: لا تعرض أي نافذة مساحة العمل الخاصة به"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Okno nije na ekranu: nijedan prozor ne prikazuje njegov radni prostor"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ruden er ikke på skærmen: intet vindue viser dens arbejdsområde"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Teilfenster ist nicht auf dem Bildschirm: Kein Fenster zeigt seinen Workspace"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El panel no está en pantalla: ninguna ventana muestra su espacio de trabajo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le panneau n’est pas à l’écran : aucune fenêtre n’affiche son espace de travail"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il riquadro non è sullo schermo: nessuna finestra mostra il suo workspace"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペインが画面上にありません。そのワークスペースを表示しているウインドウがありません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ទាំងមិននៅលើអេក្រង់ទេ៖ គ្មានបង្អួចណាបង្ហាញកន្លែងធ្វើការរបស់វាទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "분할 창이 화면에 없습니다. 해당 작업 공간을 표시하는 윈도우가 없습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ruten er ikke på skjermen: ingen vinduer viser arbeidsområdet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Panelu nie ma na ekranie: żadne okno nie pokazuje jego obszaru roboczego"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O painel não está na tela: nenhuma janela mostra o espaço de trabalho dele"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Панели нет на экране: ни одно окно не показывает её рабочее пространство"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "บานหน้าต่างไม่อยู่บนหน้าจอ: ไม่มีหน้าต่างใดแสดงพื้นที่ทำงานของบานหน้าต่างนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bölme ekranda değil: hiçbir pencere çalışma alanını göstermiyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Панелі немає на екрані: жодне вікно не показує її робочий простір"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Khung không có trên màn hình: không cửa sổ nào hiển thị không gian làm việc của nó"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "窗格不在屏幕上：没有窗口显示它的工作区"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "窗格不在螢幕上：沒有視窗顯示它的工作區"
+          }
+        }
+      }
+    },
+    "handlers.screenshot.outsideWindow": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The pane is outside the window's visible area"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الجزء خارج المنطقة المرئية من النافذة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Okno je izvan vidljivog dijela prozora"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ruden er uden for vinduets synlige område"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Teilfenster liegt außerhalb des sichtbaren Fensterbereichs"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El panel está fuera del área visible de la ventana"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le panneau est hors de la zone visible de la fenêtre"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il riquadro è fuori dall’area visibile della finestra"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペインがウインドウの表示範囲の外にあります"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ទាំងនៅក្រៅផ្ទៃដែលមើលឃើញរបស់បង្អួច"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "분할 창이 윈도우의 보이는 영역 밖에 있습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ruten er utenfor vinduets synlige område"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Panel jest poza widocznym obszarem okna"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O painel está fora da área visível da janela"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Панель находится за пределами видимой области окна"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "บานหน้าต่างอยู่นอกพื้นที่ที่มองเห็นได้ของหน้าต่าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bölme pencerenin görünür alanının dışında"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Панель поза видимою областю вікна"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Khung nằm ngoài vùng hiển thị của cửa sổ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "窗格位于窗口可见区域之外"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "窗格位於視窗可見區域之外"
+          }
+        }
+      }
+    },
+    "handlers.screenshot.terminalNotShown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The terminal tab is not on screen. Read its text with `cmux terminal <id> screen read`, or show its workspace and retry"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "علامة تبويب الطرفية ليست على الشاشة. اقرأ نصها باستخدام `cmux terminal <id> screen read`، أو اعرض مساحة العمل الخاصة بها وأعد المحاولة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kartica terminala nije na ekranu. Pročitajte njen tekst pomoću `cmux terminal <id> screen read` ili prikažite njen radni prostor i pokušajte ponovo"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminalfanen er ikke på skærmen. Læs dens tekst med `cmux terminal <id> screen read`, eller vis dens arbejdsområde og prøv igen"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Terminal-Tab ist nicht auf dem Bildschirm. Lies seinen Text mit `cmux terminal <id> screen read` oder zeige seinen Workspace und versuche es erneut"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La pestaña de terminal no está en pantalla. Lee su texto con `cmux terminal <id> screen read`, o muestra su espacio de trabajo y vuelve a intentarlo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’onglet de terminal n’est pas à l’écran. Lisez son texte avec `cmux terminal <id> screen read`, ou affichez son espace de travail et réessayez"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La scheda del terminale non è sullo schermo. Leggine il testo con `cmux terminal <id> screen read`, oppure mostra il suo workspace e riprova"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルタブが画面上にありません。`cmux terminal <id> screen read` でテキストを読むか、そのワークスペースを表示してからやり直してください"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ថេបទែមីណាល់មិននៅលើអេក្រង់ទេ។ អានអត្ថបទរបស់វាដោយ `cmux terminal <id> screen read` ឬបង្ហាញកន្លែងធ្វើការរបស់វា ហើយព្យាយាមម្ដងទៀត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널 탭이 화면에 없습니다. `cmux terminal <id> screen read`로 텍스트를 읽거나, 해당 작업 공간을 표시한 뒤 다시 시도하세요"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminalfanen er ikke på skjermen. Les teksten med `cmux terminal <id> screen read`, eller vis arbeidsområdet og prøv igjen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Karty terminala nie ma na ekranie. Odczytaj jej tekst za pomocą `cmux terminal <id> screen read` albo pokaż jej obszar roboczy i spróbuj ponownie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A aba do terminal não está na tela. Leia o texto dela com `cmux terminal <id> screen read`, ou mostre o espaço de trabalho dela e tente de novo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вкладки терминала нет на экране. Прочитайте её текст командой `cmux terminal <id> screen read` или покажите её рабочее пространство и повторите"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แท็บเทอร์มินัลไม่อยู่บนหน้าจอ อ่านข้อความด้วย `cmux terminal <id> screen read` หรือแสดงพื้นที่ทำงานของแท็บนี้แล้วลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal sekmesi ekranda değil. Metnini `cmux terminal <id> screen read` ile okuyun ya da çalışma alanını gösterip yeniden deneyin"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вкладки термінала немає на екрані. Прочитайте її текст командою `cmux terminal <id> screen read` або покажіть її робочий простір і повторіть"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tab terminal không có trên màn hình. Hãy đọc văn bản của nó bằng `cmux terminal <id> screen read`, hoặc hiển thị không gian làm việc của nó rồi thử lại"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "终端标签页不在屏幕上。可用 `cmux terminal <id> screen read` 读取其文本，或显示其工作区后重试"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "終端機標籤頁不在螢幕上。可用 `cmux terminal <id> screen read` 讀取其文字，或顯示其工作區後重試"
+          }
+        }
+      }
+    },
+    "handlers.screenshot.tabNotShown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The tab is not on screen. Show its workspace and select the tab, then retry"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "علامة التبويب ليست على الشاشة. اعرض مساحة العمل الخاصة بها وحدد علامة التبويب، ثم أعد المحاولة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kartica nije na ekranu. Prikažite njen radni prostor i odaberite karticu, pa pokušajte ponovo"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fanen er ikke på skærmen. Vis dens arbejdsområde, vælg fanen, og prøv igen"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Tab ist nicht auf dem Bildschirm. Zeige seinen Workspace, wähle den Tab aus und versuche es erneut"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La pestaña no está en pantalla. Muestra su espacio de trabajo, selecciona la pestaña y vuelve a intentarlo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’onglet n’est pas à l’écran. Affichez son espace de travail et sélectionnez l’onglet, puis réessayez"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La scheda non è sullo schermo. Mostra il suo workspace e seleziona la scheda, poi riprova"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブが画面上にありません。そのワークスペースを表示してタブを選択してから、やり直してください"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ថេបមិននៅលើអេក្រង់ទេ។ បង្ហាញកន្លែងធ្វើការរបស់វា ហើយជ្រើសថេបនោះ រួចព្យាយាមម្ដងទៀត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "탭이 화면에 없습니다. 해당 작업 공간을 표시하고 탭을 선택한 뒤 다시 시도하세요"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fanen er ikke på skjermen. Vis arbeidsområdet, velg fanen og prøv igjen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Karty nie ma na ekranie. Pokaż jej obszar roboczy i wybierz kartę, a potem spróbuj ponownie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A aba não está na tela. Mostre o espaço de trabalho dela e selecione a aba, depois tente de novo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вкладки нет на экране. Покажите её рабочее пространство, выберите вкладку и повторите"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แท็บไม่อยู่บนหน้าจอ แสดงพื้นที่ทำงานของแท็บและเลือกแท็บนั้น แล้วลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sekme ekranda değil. Çalışma alanını gösterip sekmeyi seçin, sonra yeniden deneyin"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вкладки немає на екрані. Покажіть її робочий простір, виберіть вкладку й повторіть"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tab không có trên màn hình. Hãy hiển thị không gian làm việc của nó và chọn tab, rồi thử lại"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "标签页不在屏幕上。请显示其工作区并选择该标签页，然后重试"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "標籤頁不在螢幕上。請顯示其工作區並選取該標籤頁，然後重試"
+          }
+        }
+      }
+    },
+    "handlers.screenshot.pageFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The page could not be captured off screen (%@)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر التقاط الصفحة وهي خارج الشاشة (%@)"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stranicu nije moguće snimiti izvan ekrana (%@)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Siden kunne ikke optages uden for skærmen (%@)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Seite konnte außerhalb des Bildschirms nicht aufgenommen werden (%@)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo capturar la página fuera de pantalla (%@)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de capturer la page hors écran (%@)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile catturare la pagina fuori dallo schermo (%@)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "画面外のページをキャプチャできませんでした（%@）"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនអាចថតទំព័រនៅក្រៅអេក្រង់បានទេ (%@)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "화면 밖의 페이지를 캡처할 수 없습니다(%@)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Siden kunne ikke fanges utenfor skjermen (%@)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie udało się przechwycić strony poza ekranem (%@)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível capturar a página fora da tela (%@)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось снять страницу вне экрана (%@)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่สามารถจับภาพหน้าเว็บที่อยู่นอกหน้าจอได้ (%@)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sayfa ekran dışındayken yakalanamadı (%@)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не вдалося зняти сторінку поза екраном (%@)"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không thể chụp trang khi nó ở ngoài màn hình (%@)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法在屏幕外截取该页面（%@）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法在螢幕外擷取該頁面（%@）"
+          }
+        }
+      }
+    },
+    "handlers.layoutTemplate.delete": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "حذف"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Izbriši"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Slet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Löschen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Eliminar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Supprimer"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Elimina"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "削除"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "លុប"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "삭제"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Slett"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Usuń"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Apagar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Удалить"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ลบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sil"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Видалити"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Xóa"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "删除"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "刪除"
+          }
+        }
+      }
+    },
+    "handlers.layoutTemplate.managePlaceholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ابحث في قوالب التخطيط"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pretražite predloške rasporeda"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Søg i layoutskabeloner"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Layoutvorlagen durchsuchen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Search layout templates"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Buscar plantillas de diseño"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rechercher des modèles de disposition"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cerca modelli di layout"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "レイアウトテンプレートを検索"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ស្វែងរកគំរូប្លង់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "레이아웃 템플릿 검색"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Søk i layoutmaler"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Szukaj szablonów układu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Buscar modelos de layout"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Поиск шаблонов макета"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ค้นหาเทมเพลตเลย์เอาต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yerleşim şablonlarında ara"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Пошук шаблонів макета"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tìm mẫu bố cục"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "搜索布局模板"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "搜尋版面配置範本"
+          }
+        }
+      }
+    },
+    "handlers.layoutTemplate.manageTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "قوالب التخطيط"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Predlošci rasporeda"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Layoutskabeloner"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Layoutvorlagen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Layout Templates"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Plantillas de diseño"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Modèles de disposition"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Modelli di layout"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "レイアウトテンプレート"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "គំរូប្លង់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "레이아웃 템플릿"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Layoutmaler"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Szablony układu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Modelos de layout"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Шаблоны макета"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เทมเพลตเลย์เอาต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yerleşim Şablonları"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Шаблони макета"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mẫu bố cục"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "布局模板"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "版面配置範本"
+          }
+        }
+      }
+    },
+    "handlers.layoutTemplate.namePlaceholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "اسم القالب"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Naziv predloška"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skabelonnavn"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vorlagenname"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Template name"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nombre de la plantilla"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nom du modèle"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nome del modello"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "テンプレート名"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ឈ្មោះគំរូ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "템플릿 이름"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Malnavn"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nazwa szablonu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nome do modelo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Имя шаблона"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ชื่อเทมเพลต"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Şablon adı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Назва шаблону"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tên mẫu"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "模板名称"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "範本名稱"
+          }
+        }
+      }
+    },
+    "handlers.layoutTemplate.nameRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يحتاج قالب التخطيط إلى اسم"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Predložak rasporeda treba naziv"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En layoutskabelon skal have et navn"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Eine Layoutvorlage braucht einen Namen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A layout template needs a name"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Una plantilla de diseño necesita un nombre"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un modèle de disposition doit avoir un nom"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un modello di layout deve avere un nome"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "レイアウトテンプレートには名前が必要です"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "គំរូប្លង់ត្រូវការឈ្មោះ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "레이아웃 템플릿에는 이름이 필요합니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En layoutmal må ha et navn"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Szablon układu wymaga nazwy"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Um modelo de layout precisa de um nome"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Шаблону макета нужно имя"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เทมเพลตเลย์เอาต์ต้องมีชื่อ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bir yerleşim şablonunun adı olmalı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Шаблон макета потребує назви"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mẫu bố cục cần có tên"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "布局模板需要名称"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "版面配置範本需要名稱"
+          }
+        }
+      }
+    },
+    "handlers.layoutTemplate.nameTaken": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يوجد قالب تخطيط آخر باسم “%@”"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Drugi predložak rasporeda već se zove “%@”"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En anden layoutskabelon hedder “%@”"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Eine andere Layoutvorlage heißt bereits „%@“"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Another layout template is named “%@”"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Otra plantilla de diseño ya se llama “%@”"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un autre modèle de disposition s’appelle déjà « %@ »"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un altro modello di layout si chiama già “%@”"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "「%@」という名前のレイアウトテンプレートが既にあります"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មានគំរូប្លង់ផ្សេងទៀតឈ្មោះ “%@” រួចហើយ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“%@” 이름의 다른 레이아웃 템플릿이 있습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En annen layoutmal heter allerede «%@»"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Inny szablon układu ma już nazwę „%@”"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Outro modelo de layout já se chama “%@”"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Другой шаблон макета уже называется «%@»"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "มีเทมเพลตเลย์เอาต์อื่นชื่อ “%@” อยู่แล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Başka bir yerleşim şablonunun adı zaten “%@”"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Інший шаблон макета вже має назву «%@»"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đã có mẫu bố cục khác tên “%@”"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已有另一个布局模板名为“%@”"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已有另一個版面配置範本名為「%@」"
+          }
+        }
+      }
+    },
+    "handlers.layoutTemplate.newWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "مساحة عمل جديدة من قالب"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Novi radni prostor iz predloška"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nyt arbejdsområde fra skabelon"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Neuer Arbeitsbereich aus Vorlage"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Workspace from Template"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nuevo espacio de trabajo desde plantilla"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nouvel espace de travail à partir du modèle"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nuovo spazio di lavoro dal modello"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "テンプレートから新規ワークスペース"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កន្លែងធ្វើការថ្មីពីគំរូ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "템플릿으로 새 워크스페이스"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nytt arbeidsområde fra mal"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nowy obszar roboczy z szablonu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Novo espaço de trabalho a partir do modelo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Новое рабочее пространство из шаблона"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "พื้นที่ทำงานใหม่จากเทมเพลต"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Şablondan Yeni Çalışma Alanı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Новий робочий простір із шаблону"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không gian làm việc mới từ mẫu"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "从模板新建工作区"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "從範本新增工作區"
+          }
+        }
+      }
+    },
+    "handlers.layoutTemplate.noTemplate": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يوجد قالب تخطيط باسم “%@”"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nema predloška rasporeda pod nazivom “%@”"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ingen layoutskabelon med navnet “%@”"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Keine Layoutvorlage mit dem Namen „%@“"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No layout template named “%@”"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No hay ninguna plantilla de diseño llamada “%@”"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aucun modèle de disposition nommé « %@ »"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nessun modello di layout chiamato “%@”"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "「%@」という名前のレイアウトテンプレートはありません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "គ្មានគំរូប្លង់ដែលមានឈ្មោះ “%@” ទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“%@” 이름의 레이아웃 템플릿이 없습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ingen layoutmal med navnet «%@»"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Brak szablonu układu o nazwie „%@”"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nenhum modelo de layout chamado “%@”"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Нет шаблона макета с именем «%@»"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่มีเทมเพลตเลย์เอาต์ชื่อ “%@”"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“%@” adlı bir yerleşim şablonu yok"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Немає шаблону макета з назвою «%@»"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không có mẫu bố cục nào tên “%@”"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "没有名为“%@”的布局模板"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "沒有名為「%@」的版面配置範本"
+          }
+        }
+      }
+    },
+    "handlers.layoutTemplate.noTemplates": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا توجد قوالب تخطيط بعد. احفظ تخطيط مساحة عمل كقالب أولًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Još nema predložaka rasporeda. Prvo sačuvajte raspored radnog prostora kao predložak."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ingen layoutskabeloner endnu. Gem først et arbejdsområdes layout som skabelon."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Noch keine Layoutvorlagen. Sichere zuerst das Layout eines Arbeitsbereichs als Vorlage."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No layout templates yet. Save a workspace’s layout as a template first."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aún no hay plantillas de diseño. Primero guarda el diseño de un espacio de trabajo como plantilla."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aucun modèle de disposition pour l’instant. Enregistrez d’abord la disposition d’un espace de travail comme modèle."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nessun modello di layout per ora. Salva prima il layout di uno spazio di lavoro come modello."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "レイアウトテンプレートはまだありません。まずワークスペースのレイアウトをテンプレートとして保存してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនទាន់មានគំរូប្លង់នៅឡើយទេ។ សូមរក្សាទុកប្លង់កន្លែងធ្វើការជាគំរូជាមុនសិន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "아직 레이아웃 템플릿이 없습니다. 먼저 워크스페이스의 레이아웃을 템플릿으로 저장하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ingen layoutmaler ennå. Lagre først et arbeidsområdes layout som en mal."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Brak szablonów układu. Najpierw zapisz układ obszaru roboczego jako szablon."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ainda não há modelos de layout. Salve primeiro o layout de um espaço de trabalho como modelo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Шаблонов макета пока нет. Сначала сохраните макет рабочего пространства как шаблон."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ยังไม่มีเทมเพลตเลย์เอาต์ บันทึกเลย์เอาต์ของพื้นที่ทำงานเป็นเทมเพลตก่อน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Henüz yerleşim şablonu yok. Önce bir çalışma alanının yerleşimini şablon olarak kaydedin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Шаблонів макета ще немає. Спершу збережіть макет робочого простору як шаблон."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chưa có mẫu bố cục nào. Hãy lưu bố cục của một không gian làm việc thành mẫu trước."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "还没有布局模板。请先将工作区的布局存储为模板。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "尚無版面配置範本。請先將工作區的版面配置儲存為範本。"
+          }
+        }
+      }
+    },
+    "handlers.layoutTemplate.panes": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الأجزاء: %lld"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Okna: %lld"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ruder: %lld"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bereiche: %lld"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Panes: %lld"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Paneles: %lld"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Volets : %lld"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Riquadri: %lld"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ペイン: %lld"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្ទាំង: %lld"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "창: %lld"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ruter: %lld"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Panele: %lld"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Painéis: %lld"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Панели: %lld"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "บานหน้าต่าง: %lld"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bölmeler: %lld"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Панелі: %lld"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ô: %lld"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "窗格：%lld"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "窗格：%lld"
+          }
+        }
+      }
+    },
+    "handlers.layoutTemplate.rename": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إعادة تسمية…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Preimenuj…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Omdøb…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Umbenennen…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rename…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cambiar nombre…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Renommer…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rinomina…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "名前を変更…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ប្ដូរឈ្មោះ…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이름 변경…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gi nytt navn …"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zmień nazwę…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Renomear…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Переименовать…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เปลี่ยนชื่อ…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yeniden Adlandır…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Перейменувати…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đổi tên…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "重命名…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "重新命名…"
+          }
+        }
+      }
+    },
+    "handlers.layoutTemplate.renameTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إعادة تسمية قالب التخطيط"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Preimenuj predložak rasporeda"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Omdøb layoutskabelon"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Layoutvorlage umbenennen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rename Layout Template"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cambiar nombre de la plantilla de diseño"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Renommer le modèle de disposition"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rinomina modello di layout"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "レイアウトテンプレートの名前を変更"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ប្ដូរឈ្មោះគំរូប្លង់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "레이아웃 템플릿 이름 변경"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gi layoutmalen nytt navn"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zmień nazwę szablonu układu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Renomear modelo de layout"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Переименовать шаблон макета"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เปลี่ยนชื่อเทมเพลตเลย์เอาต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yerleşim Şablonunu Yeniden Adlandır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Перейменувати шаблон макета"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đổi tên mẫu bố cục"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "重命名布局模板"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "重新命名版面配置範本"
+          }
+        }
+      }
+    },
+    "handlers.layoutTemplate.renameTo": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إعادة التسمية إلى “%@”"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Preimenuj u “%@”"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Omdøb til “%@”"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Umbenennen in „%@“"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rename to “%@”"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cambiar nombre a “%@”"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Renommer en « %@ »"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rinomina in “%@”"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "「%@」に名前を変更"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ប្ដូរឈ្មោះទៅ “%@”"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“%@”(으)로 이름 변경"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gi nytt navn: «%@»"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zmień nazwę na „%@”"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Renomear para “%@”"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Переименовать в «%@»"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เปลี่ยนชื่อเป็น “%@”"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“%@” olarak yeniden adlandır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Перейменувати на «%@»"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đổi tên thành “%@”"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "重命名为“%@”"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "重新命名為「%@」"
+          }
+        }
+      }
+    },
+    "handlers.layoutTemplate.templateRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "اختر قالب تخطيط"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Odaberite predložak rasporeda"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vælg en layoutskabelon"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wähle eine Layoutvorlage"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose a layout template"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Elige una plantilla de diseño"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Choisissez un modèle de disposition"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Scegli un modello di layout"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "レイアウトテンプレートを選択してください"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ជ្រើសរើសគំរូប្លង់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "레이아웃 템플릿을 선택하세요"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Velg en layoutmal"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wybierz szablon układu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Escolha um modelo de layout"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Выберите шаблон макета"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เลือกเทมเพลตเลย์เอาต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bir yerleşim şablonu seçin"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Виберіть шаблон макета"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chọn một mẫu bố cục"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "选择一个布局模板"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "選擇一個版面配置範本"
+          }
+        }
+      }
+    },
+    "handlers.misc.browserOff": {
+      "comment": "Refusal when a browser tab is asked for while the cmux browser is turned off.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The cmux browser is off. Run Enable cmux Browser to open web pages in cmux."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "متصفح cmux متوقف. شغّل «تفعيل متصفح cmux» لفتح صفحات الويب في cmux."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux preglednik je isključen. Pokrenite Omogući cmux preglednik da otvarate web stranice u cmuxu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-browseren er slået fra. Kør Slå cmux-browser til for at åbne websider i cmux."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der cmux-Browser ist aus. Führe „cmux-Browser aktivieren“ aus, um Webseiten in cmux zu öffnen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El navegador de cmux está desactivado. Ejecuta Activar el navegador de cmux para abrir páginas web en cmux."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le navigateur cmux est désactivé. Lancez Activer le navigateur cmux pour ouvrir des pages web dans cmux."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il browser di cmux è disattivato. Esegui Attiva il browser di cmux per aprire pagine web in cmux."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux ブラウザはオフです。cmux で Web ページを開くには「cmux ブラウザを有効にする」を実行してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កម្មវិធីរុករក cmux ត្រូវបានបិទ។ ដំណើរការ បើកកម្មវិធីរុករក cmux ដើម្បីបើកទំព័របណ្ដាញក្នុង cmux។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 브라우저가 꺼져 있습니다. cmux에서 웹 페이지를 열려면 cmux 브라우저 사용을 실행하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-nettleseren er av. Kjør Slå på cmux-nettleser for å åpne nettsider i cmux."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Przeglądarka cmux jest wyłączona. Uruchom Włącz przeglądarkę cmux, aby otwierać strony internetowe w cmux."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O navegador do cmux está desativado. Execute Ativar o navegador do cmux para abrir páginas da web no cmux."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Браузер cmux выключен. Выполните «Включить браузер cmux», чтобы открывать веб-страницы в cmux."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เบราว์เซอร์ cmux ปิดอยู่ เรียกใช้ เปิดใช้เบราว์เซอร์ cmux เพื่อเปิดหน้าเว็บใน cmux"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux tarayıcısı kapalı. Web sayfalarını cmux içinde açmak için cmux Tarayıcısını Etkinleştir’i çalıştırın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Браузер cmux вимкнено. Виконайте «Увімкнути браузер cmux», щоб відкривати вебсторінки в cmux."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trình duyệt cmux đang tắt. Chạy Bật trình duyệt cmux để mở trang web trong cmux."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 浏览器已关闭。运行“启用 cmux 浏览器”即可在 cmux 中打开网页。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 瀏覽器已關閉。執行「啟用 cmux 瀏覽器」即可在 cmux 中開啟網頁。"
           }
         }
       }

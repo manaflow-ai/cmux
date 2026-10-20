@@ -137,7 +137,7 @@ nonisolated enum WorkspaceActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.editWorkspaceDescription", defaultValue: "Edit Workspace Description…", bundle: .module),
                 keywords: ["notes", "summary"], defaultShortcut: Shortcut("e", modifiers: [.option, .command]),
                 category: .workspace, symbol: "text.alignleft", surfaces: [.palette, .keyboard, .menu, .contextMenu],
-                arguments: [CatalogArgument.descriptionString], targets: [.workspace],
+                arguments: [CatalogArgument.descriptionString.describingTarget], targets: [.workspace],
                 cliName: "workspace edit-description", mainMenu: .file
             ),
             ActionDescriptor(
@@ -178,7 +178,8 @@ nonisolated enum WorkspaceActionCatalog: ActionCatalogGroup {
                 id: "toggleChecklistItemComplete",
                 title: String(localized: "action.toggleChecklistItemComplete", defaultValue: "Toggle Checklist Item Complete", bundle: .module),
                 keywords: ["todo", "task"], defaultShortcut: Shortcut(Shortcut.returnKey, modifiers: [.command]),
-                category: .workspace, symbol: "checkmark.square", surfaces: [.keyboard], targets: [.workspace],
+                category: .workspace, symbol: "checkmark.square", surfaces: [.keyboard], arguments: [CatalogArgument.checklistItem],
+                targets: [.workspace],
                 cliName: "workspace toggle-checklist-item-complete"
             ),
             ActionDescriptor(
