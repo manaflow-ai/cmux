@@ -23,6 +23,8 @@ pub(crate) mod agent_messages;
 pub(crate) mod agent_start;
 pub(crate) mod app_workspaces;
 pub(crate) mod browser_devices;
+#[cfg(test)]
+mod browser_devices_data_tests;
 pub(crate) mod browser_devices_ops;
 #[cfg(test)]
 mod closed_browser_history_tests;
@@ -30,6 +32,8 @@ pub(crate) mod closed_history;
 pub(crate) mod closed_history_delete;
 pub(crate) mod closed_history_privacy;
 pub(crate) mod closed_history_query;
+#[cfg(test)]
+mod closed_history_scrub_tests;
 pub(crate) mod closed_history_store;
 #[cfg(test)]
 mod closed_history_tests;
@@ -103,6 +107,15 @@ pub(crate) mod sidebar_layout_ops;
 #[cfg(test)]
 mod sidebar_layout_protocol_tests;
 pub(crate) mod sidebar_layout_store;
+pub(crate) mod stash;
+#[cfg(test)]
+mod stash_member_tests;
+#[cfg(test)]
+mod stash_protocol_tests;
+#[cfg(test)]
+mod stash_restore_tests;
+pub(crate) mod stash_router;
+pub(crate) mod stash_store;
 pub(crate) mod status_meta;
 pub(crate) mod status_owners;
 pub(crate) mod store;

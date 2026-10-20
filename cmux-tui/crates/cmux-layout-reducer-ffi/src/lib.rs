@@ -1,14 +1,16 @@
 //! Narrow C ABI for `cmux-layout-reducer`'s sidebar drop resolver
 //! (`sidebar_drop`) and sidebar section layout reducer (`sidebar_layout`),
 //! plus `cmux-tasks-core`'s optimistic Tasks preview (`tasks_preview`),
-//! `cmux-focus-core`'s window focus rules (`focus_*`; the app calls them
-//! synchronously on its main thread, once per focus event or queued key),
+//! `cmux-focus-core`'s per-key rules (`focus_type_ahead`,
+//! `focus_child_window_key`), the window focus machine (`cmux_focus_*`,
+//! [`focus`]: a handle per window, typed events and replies, no JSON),
 //! and the sidebar document mirror (`cmux_sidebar_mirror_*`, [`sidebar_mirror`]).
 
 use cmux_layout_reducer::{sidebar_drag, sidebar_drop, sidebar_layout};
 use std::ffi::{CString, c_char};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
+pub mod focus;
 pub mod sidebar_mirror;
 pub mod typed;
 use sidebar_mirror::Mirror;
@@ -133,18 +135,6 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 let request: cmux_tasks_core::preview::Request =
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
                 serde_json::to_vec(&cmux_tasks_core::preview::respond(&request))
-                    .map_err(|_| ERR_INVALID)?
-            }
-            b"focus_reduce" => {
-                let request: cmux_focus_core::wire::ReduceRequest =
-                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
-                serde_json::to_vec(&cmux_focus_core::wire::reduce(&request))
-                    .map_err(|_| ERR_INVALID)?
-            }
-            b"focus_changes_view" => {
-                let request: cmux_focus_core::wire::ChangesViewRequest =
-                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
-                serde_json::to_vec(&cmux_focus_core::wire::changes_view(&request))
                     .map_err(|_| ERR_INVALID)?
             }
             b"focus_type_ahead" => {

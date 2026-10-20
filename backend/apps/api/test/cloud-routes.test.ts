@@ -121,7 +121,7 @@ describe("cloud ops through the Worker", { timeout: 60_000 }, () => {
   it("publishes cloud.machine.upsert and cloud.machine.removed on the cloud wire with revision = stream seq", async () => {
     const { t, team } = await signedIn("cloud-route-3")
     const created = await op(t, "cloud.machine.create", { name: "watched", size: { cpu: 2, memory_mb: 4096, disk_mb: 16384 } })
-    const res = await worker.fetch("https://api.test/v1/wire/cloud", { headers: { Upgrade: "websocket", "Sec-WebSocket-Protocol": `cmux.wire.v1, bearer.${t}` } })
+    const res = await worker.fetch("https://api.test/v1/wire/cloud", { headers: { Upgrade: "websocket", "Sec-WebSocket-Protocol": "cmux.wire.v1", authorization: `Bearer ${t}` } })
     expect(res.status).toBe(101)
     const ws = res.webSocket!
     const frames: Array<any> = []

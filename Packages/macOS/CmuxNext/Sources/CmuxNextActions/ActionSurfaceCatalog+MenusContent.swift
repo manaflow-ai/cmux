@@ -76,6 +76,7 @@ nonisolated extension ActionSurfaceCatalog {
         "inspectBrowserElement": [p(.browserPage, .inspect, 203, folder: .tools)],
         "toggleBrowserFocusMode": [p(.browserPage, .view, 0, folder: .options)],
         "toggleBrowserDesignMode": [p(.browserPage, .view, 1, folder: .options)],
+        "toggleReactGrab": [p(.browserPage, .view, 2, folder: .options)],
         "splitBrowserRight": [p(.pane, .create, 5, folder: .new)],
         "splitBrowserDown": [p(.pane, .create, 6, folder: .new)],
         "palette.browserOpenDefault": [p(.browserPage, .inspect, 101, folder: .tools)],

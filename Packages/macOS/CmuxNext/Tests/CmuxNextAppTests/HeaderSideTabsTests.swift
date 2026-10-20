@@ -54,7 +54,7 @@ struct HeaderSideTabsTests {
 
         private func publish() {
             let layout = panes.dropFirst().reduce(LayoutNode.leaf(panes[0].pane)) { left, pane in
-                .split(id: nil, direction: .right, ratio: 0.5, a: left, b: .leaf(pane.pane))
+                .split(id: nil, resourceID: nil, direction: .right, ratio: 0.5, a: left, b: .leaf(pane.pane))
             }
             let snapshots = panes.map { PaneSnapshot(id: $0.pane, tabs: [TabSnapshot(surface: $0.surface, kind: $0.kind)]) }
             let screen = ScreenSnapshot(id: 1, zoomedPane: zoomed, layout: layout, panes: snapshots)

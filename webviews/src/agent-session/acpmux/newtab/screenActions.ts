@@ -27,7 +27,7 @@ export function newTabScreenActions(deps: {
   const ignore = (result: Promise<unknown>) => void result.catch(() => undefined);
   const remember = (agent: string) => ignore(callNative("newTab.remember", { agent }));
   return {
-    onAsk(harness, text, picked, model, noProject = false) {
+    onAsk(harness, text, picked, model, noProject, attachments) {
       remember(harness);
       deps.leave();
       // The prompt goes in the same turn as the switch: the switch queues it, and a folder trust
@@ -38,15 +38,18 @@ export function newTabScreenActions(deps: {
         ignore(
           callNative("chat.new", {
             harness,
-            ...(noProject ? { noProject: true } : folder ? { cwd: folder } : {}),
+            ...(folder ? { cwd: folder } : noProject ? { noProject: true } : {}),
             ...(model ? { model } : {}),
           }),
         );
-        if (text) ignore(callNative("chat.send", { text }));
+        // Attachments pasted or dropped on the page go with the first prompt, or alone.
+        if (attachments?.length) ignore(callNative("chat.send", { text, attachments }));
+        else if (text) ignore(callNative("chat.send", { text }));
       };
       // The page seeds its project with the inherited folder (`~` in a fresh workspace): that is no
       // pick, so the chat starts in its start folder (the host named it). A real pick goes through
       // the host first (cx-nn3e).
+      // Do not work in a project: no folder at all, so the host starts it in its private folder.
       if (noProject) start();
       else if (picked && picked !== cwd) {
         if (deps.requestFolder) deps.requestFolder(picked, start);
@@ -76,6 +79,7 @@ export function newTabScreenActions(deps: {
     loadChatsPage: (params) => callNative("chats.page", params) as Promise<AllChatsPage | undefined>,
     onShowAll: deps.showAllChats,
     onTouched: () => ignore(callNative("newTab.touched")),
+    onNowPlaying: (command) => ignore(callNative("nowPlaying.command", { command })),
     // A blank terminal in the tab's folder (nothing typed), or a browser tab on the new tab page.
     onCreate: (kind) =>
       ignore(

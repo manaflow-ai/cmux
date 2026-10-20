@@ -76,13 +76,3 @@ enum Strings {
     static var renameConfirm: String { String(localized: "rename.confirm", defaultValue: "Rename", bundle: .module) }
     static var cancel: String { String(localized: "common.cancel", defaultValue: "Cancel", bundle: .module) }
 }
-
-extension Strings {
-    static var daemonConnecting: String { String(localized: "daemon.connecting", defaultValue: "Connecting to cmux-tui…", bundle: .module) }
-    static var daemonServiceUnavailable: String {
-        String(localized: "daemon.serviceUnavailable", defaultValue: "cmux couldn’t start its background service.", bundle: .module)
-    }
-    static var daemonReinstall: String { String(localized: "daemon.reinstall", defaultValue: "Reinstall cmux to fix this.", bundle: .module) }
-    static var daemonCopyDetails: String { String(localized: "daemon.copyDetails", defaultValue: "Copy Details", bundle: .module) }
-    static var daemonRetrying: String { String(localized: "daemon.retrying", defaultValue: "Still retrying in the background.", bundle: .module) }
-}

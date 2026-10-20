@@ -40,13 +40,13 @@ extension SidebarMapping {
     }
 
     /// The row of workspace `id` on `machine` while it is created, as the
-    /// window first lists it: titled by the live rule (`sidebarTitle`: a
-    /// daemon default name such as `name` draws no title), with no folder line yet (the
+    /// window first lists it: titled `name`, as the live rule (`sidebarTitle`)
+    /// will title it, with no folder line yet (the
     /// daemon lists a new workspace before its first tab reports a folder),
     /// an agent row when it opens on the New Tab page (`opensPage`, its first
     /// tab a conversation), else a terminal row.
     public func creatingRow(id: String, machine: MachineID, name: String, opensPage: Bool) -> SidebarWorkspace {
-        SidebarWorkspace(id: SidebarWorkspaceID(id), machineID: machine, title: Self.isDefaultWorkspaceName(name) ? "" : name,
+        SidebarWorkspace(id: SidebarWorkspaceID(id), machineID: machine, title: name,
                          rowKind: opensPage ? .agent : .terminal,
                          kind: opensPage ? .harness : .terminal, rowState: .creating)
     }

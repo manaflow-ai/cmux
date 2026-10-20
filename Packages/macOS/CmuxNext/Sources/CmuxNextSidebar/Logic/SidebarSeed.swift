@@ -6,35 +6,53 @@
 /// does not list yet (pinned, Cloud machines before the machine list
 /// arrives) keep their place. A section that stopped loading spends its
 /// saved rows, so they never come back later. A section given placeholders
-/// at launch keeps them past the launch until its machine connects or
-/// fails, so the end of the launch never empties it in between.
+/// at launch keeps them through the launch grace period. Once the launch has
+/// settled, an empty or unavailable machine section stays empty until live
+/// workspaces arrive. The bars wait out `grace` first, so a machine that
+/// connects at once never shows them.
 public struct SidebarSeed {
     /// Placeholder rows in a loading section with nothing saved, shown from
     /// the launch only (never on a later Cloud reconnect).
     static let placeholderCount = 3
 
     public private(set) var sections: [SidebarSection]
-    /// Sections that showed placeholders at launch and have not stopped
-    /// loading since.
-    private var placeholderSections: Set<SectionID> = []
+    /// Once the launch has settled, a later reconnect must not resurrect the
+    /// launch-only placeholder bars.
+    private var settled = false
+    /// A failed first connection is terminal for this seed. If a transient
+    /// status callback still says `connecting`, it must not re-arm the bars.
+    private var suppressedSections: Set<SectionID> = []
+    public let grace: SidebarPlaceholderGrace
 
-    public init(sections: [SidebarSection] = []) {
+    public init(sections: [SidebarSection] = [], grace: SidebarPlaceholderGrace = SidebarPlaceholderGrace()) {
         self.sections = sections
+        self.grace = grace
     }
 
     /// `live` with loading sections filled in. `launching` is true until the
     /// app restored its windows (or the local daemon is unavailable).
     /// `failed` lists machines whose first connection gave up while their
-    /// header still says connecting: their placeholders end.
+    /// header still says connecting: their placeholders end and do not
+    /// reappear during a later connecting callback.
     public mutating func merge(_ live: [SidebarSection], launching: Bool, failed: Set<MachineID> = []) -> [SidebarSection] {
+        if !launching, !settled {
+            settled = true
+            // Cancel a pending grace callback before it can repopulate rows
+            // from the launch-only projection.
+            grace.keep([])
+        }
         var result: [SidebarSection] = []
         for section in live {
             let loading = Self.isLoading(section, launching: launching)
+            let machineFailed = section.machine.map { failed.contains($0.id) || $0.status.needsAttention } ?? false
+            if machineFailed {
+                suppressedSections.insert(section.id)
+                grace.reset(section.id)
+            }
             if !loading {
                 sections.removeAll { $0.id == section.id }
-                placeholderSections.remove(section.id)
+                grace.reset(section.id)
             }
-            if let machine = section.machine, failed.contains(machine.id) { placeholderSections.remove(section.id) }
             guard loading, section.workspaces.isEmpty else {
                 result.append(section)
                 continue
@@ -42,12 +60,11 @@ public struct SidebarSeed {
             var filled = section
             if let saved = sections.first(where: { $0.id == section.id }) {
                 filled.nodes = saved.nodes
-            } else if let machine = section.machine, machine.kind != .local, !failed.contains(machine.id),
-                      launching || placeholderSections.contains(section.id) {
+            } else if let machine = section.machine, machine.kind != .local, launching, !settled, !machineFailed,
+                      !suppressedSections.contains(section.id) {
                 // Only another machine shows placeholder bars: this Mac's daemon answers within the launch,
                 // so its section stays empty until its rows come, never a loading look (Lawrence 2026-10-16).
-                if launching { placeholderSections.insert(section.id) }
-                filled.nodes = Self.placeholders(machine: machine.id).map(SidebarNode.workspace)
+                if grace.allows(section.id) { filled.nodes = Self.placeholders(machine: machine.id).map(SidebarNode.workspace) }
             }
             result.append(filled)
         }
@@ -58,7 +75,7 @@ public struct SidebarSeed {
             }
         } else {
             sections.removeAll { !listed.contains($0.id) }
-            placeholderSections.formIntersection(listed)
+            grace.keep(listed)
         }
         return result
     }

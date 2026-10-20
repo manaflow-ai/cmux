@@ -17,7 +17,7 @@ final class PaletteShortcutRecorderView: NSView {
     private let current = PaletteKeycapsView()
     private let noneLabel = PaletteText.label(Typography.caption, tone: .tertiary)
     private let recorded = PaletteKeycapsView()
-    private let message = NSTextField(wrappingLabelWithString: "")
+    private let message = ChromeLabel(wrappingLabelWithString: "")
     private var rowViews: [PaletteMenuRow] = []
 
     override init(frame: NSRect) {

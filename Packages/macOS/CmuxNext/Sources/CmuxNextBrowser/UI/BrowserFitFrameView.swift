@@ -35,8 +35,8 @@ public final class BrowserFitFrameView: NSView {
     private var presented: CGRect = .zero
     private var tabID: String?
     private var value = ""
-    private let label = NSTextField(labelWithString: "")
-    private let note = NSTextField(labelWithString: Strings.explain)
+    private let label = ChromeLabel(labelWithString: "")
+    private let note = ChromeLabel(labelWithString: Strings.explain)
     private let choose = NSButton(title: "", target: nil, action: nil)
     private let off = NSButton(title: Strings.turnOff, target: nil, action: nil)
 
@@ -55,6 +55,7 @@ public final class BrowserFitFrameView: NSView {
         }
         choose.action = #selector(showChoices)
         choose.imagePosition = .imageTrailing
+        // chrome-icons: allow the device-frame picker's pop-up chevron, not browser chrome
         choose.image = NSImage(systemSymbolName: "chevron.down", accessibilityDescription: nil)?
             .withSymbolConfiguration(.init(pointSize: 8, weight: .semibold))
         off.action = #selector(turnOff)
@@ -135,7 +136,9 @@ public final class BrowserFitFrameView: NSView {
     private func layoutBar() {
         let strip = CGRect(x: bounds.minX + 8, y: bounds.minY, width: max(0, bounds.width - 16), height: max(0, presented.minY - bounds.minY))
         let spacing: CGFloat = 10
-        for view in [label, note, choose, off] { view.sizeToFit() }
+        label.sizeToFit()
+        note.sizeToFit()
+        for control in [choose, off] { control.sizeToFit() }
         let controls = choose.frame.width + off.frame.width + spacing
         let labelWidth = max(0, min(label.frame.width, strip.width - controls - spacing))
         var noteWidth = !Self.explains ? 0 : min(note.frame.width, strip.width - controls - labelWidth - 2 * spacing)

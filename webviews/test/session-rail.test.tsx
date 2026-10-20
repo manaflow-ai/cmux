@@ -176,3 +176,64 @@ test("with the toggle off there is no toggle button and no rail", async () => {
   expect(rail(container)).toBeNull();
   expect(container.querySelector(".acpmux-rail-card")).toBeNull();
 });
+
+test("an output whose diff narrows the pane under the overlay width closes the rail", async () => {
+  const container = installDom(true);
+  // The pane is the page's viewport: a diff opened beside the chat narrows it.
+  let narrow = false;
+  const listeners = new Set<() => void>();
+  const query = {
+    get matches() {
+      return narrow;
+    },
+    addEventListener: (_: string, listener: () => void) => listeners.add(listener),
+    removeEventListener: (_: string, listener: () => void) => listeners.delete(listener),
+  };
+  dom!.window.matchMedia = (() => query) as unknown as typeof window.matchMedia;
+  const opened = await render(container, localChat);
+  await click(toggle(container)!);
+  const files = [...card(container, "Outputs")!.querySelectorAll<HTMLElement>(".acpmux-rail-output")];
+  await click(files[0]!);
+  expect(opened).toEqual([`${CWD}/src/fetch.ts`]);
+  await act(async () => {
+    narrow = true;
+    for (const listener of listeners) listener();
+  });
+  // Over the chat it would cover the diff's other half; the toggle still opens it.
+  expect(rail(container)).toBeNull();
+  expect(toggle(container)?.getAttribute("aria-pressed")).toBe("false");
+});
+
+test("a harness that reports its MCP servers gets a Connectors card; one that does not, none", async () => {
+  const container = installDom(true);
+  const base = chat([]);
+  await render(container, {
+    ...base,
+    summary: {
+      ...base.summary!,
+      mcpServers: [
+        { name: "github", status: "connected" },
+        { name: "linear", status: "failed" },
+        { name: "sentry", status: "pending" },
+      ],
+    },
+  });
+  await click(toggle(container)!);
+  expect([...container.querySelectorAll(".acpmux-rail-card__title")].map((element) => element.textContent)).toEqual([
+    "Environment",
+    "Context",
+    "Connectors",
+    "Outputs",
+  ]);
+  // Folded to the count of the connected ones; open, each server with its state when not connected.
+  const connectors = card(container, "Connectors")!;
+  expect(connectors.textContent).toContain("1 connected");
+  expect(connectors.querySelector(".acpmux-rail-row")).toBeNull();
+  await click(connectors.querySelector<HTMLElement>("button")!);
+  const rows = [...card(container, "Connectors")!.querySelectorAll(".acpmux-rail-row")].map((row) => row.textContent);
+  expect(rows).toEqual(["github", "linearFailed", "sentryConnecting"]);
+
+  // A harness that reports no servers (every ACP one) has no card, not an empty one.
+  await render(container, base);
+  expect(card(container, "Connectors")).toBeUndefined();
+});

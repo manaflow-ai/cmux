@@ -7,7 +7,8 @@
 # Usage: smoke-dmg.sh <dmg> <channel> [--expect-sha256 HEX] [--require-stapled-app | --stapled-app-fallback ID]
 # The app inside must carry its own ticket (notarize-nightly-dmg.sh
 # CMUX_STAPLE_APP_IN_DMG); --require-stapled-app says so explicitly.
-# --stapled-app-fallback ID: only for the 6 h fallback of notarize-nightly-dmg.sh,
+# --stapled-app-fallback ID: only for the 6 h fallback of notarize-nightly-dmg.sh
+# (or resume-stapled-app-notarization.sh on main's track),
 # which ships the first DMG because Apple has not accepted stapled-app
 # submission ID: the app inside may then lack its own ticket (a warning).
 # Writes "tested <sha256> <dmg name>" to fd 3 (or stdout), for the job that
