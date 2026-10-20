@@ -62,19 +62,24 @@ def test_pull_request_target_jobs_never_receive_oidc() -> None:
 
 def test_cloud_dogfood_keeps_the_public_installer_out_of_the_secret_job() -> None:
     jobs = workflow("cloud-vm-dogfood.yml")["jobs"]
+    smoke = jobs["public-installer-smoke"]
     installer = jobs["installer"]
     journey = jobs["journey"]
+
+    assert smoke.get("environment") is None
+    assert "secrets." not in yaml.dump(smoke)
+    assert "vars." not in smoke["runs-on"]
+    assert "https://cmux.com/tui/install.sh" in run_text(smoke)
 
     assert installer.get("environment") is None
     assert "secrets." not in yaml.dump(installer)
     assert "vars." not in installer["runs-on"]
     installer_script = run_text(installer)
-    assert "https://cmux.com/tui/install.sh" in installer_script
     assert "gh attestation verify" in installer_script
     assert "--source-digest" in installer_script
     assert any("actions/upload-artifact@" in str(step.get("uses", "")) for step in installer["steps"])
 
-    assert journey.get("needs") == "installer"
+    assert journey.get("needs") == ["public-installer-smoke", "installer"]
     assert journey.get("environment") == "cloud-vm-${{ inputs.target }}"
     assert "vars." not in journey["runs-on"]
     assert "STACK_SECRET_SERVER_KEY" not in (journey.get("env") or {})
