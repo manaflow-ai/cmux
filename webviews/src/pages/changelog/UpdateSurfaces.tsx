@@ -11,10 +11,13 @@
 //    (Leo 2026-10-13; the card has Update Ready, the short version and the date): a quiet "What's
 //    new in nightly 3845050" (the full build in its tooltip, Leo 2026-10-19), the top three changes
 //    numbered, each a title, one line and its picture when it has one, and "See all changes", once.
+//    The popover scrolls on to every other change of the update (`rest`, 2026-10-20), with the
+//    shared card scroller and a fade at each edge that has more past it (scrollers.ts).
 //    Under the title, the version it replaces ("Updating from nightly 3801702", Lawrence 2026-10-19:
 //    show at once what is going to change); with no change list, "See release notes" instead.
 // Data: UpdateHighlights (updateHighlights.ts); the host mounts these and wires the actions.
-import { useId, useSyncExternalStore } from "react";
+import { useEffect, useId, useRef, useSyncExternalStore } from "react";
+import { CARD_SCROLL_ATTRIBUTE, installScrollEdges } from "../../scrollers";
 import { getColorScheme, subscribeColorScheme } from "./colorScheme";
 import { distinctSummary } from "./model";
 import type { Strings } from "../shared/i18n";
@@ -86,8 +89,11 @@ export function UpdateReadyHighlights({
   actions: UpdateSurfaceActions;
 }) {
   const titleId = useId();
+  const scroller = useRef<HTMLElement>(null);
+  const rest = data.rest ?? null;
+  useEffect(() => (scroller.current ? installScrollEdges(scroller.current) : undefined), [data]);
   return (
-    <section className="wn-pop" aria-labelledby={titleId}>
+    <section className="wn-pop" aria-labelledby={titleId} ref={scroller} {...{ [CARD_SCROLL_ATTRIBUTE]: "" }}>
       {/* tooltip-allow: the heading shows the short version; the tooltip names the full build (Leo 2026-10-19). */}
       <div className="wn-pop-title" id={titleId} title={data.version}>
         {strings.format("updates.popover.title", cardVersion(data.version))}
@@ -113,8 +119,30 @@ export function UpdateReadyHighlights({
           ))}
         </ol>
       )}
+      {rest && rest.length > 0 && (
+        <div className="wn-pop-rest">
+          {REST_ORDER.map((category) => {
+            const items = rest.filter((item) => item.category === category);
+            if (items.length === 0) return null;
+            return (
+              <section
+                key={category}
+                className="wn-pop-rest-group"
+                aria-label={strings.t(`changelog.group.${category}`)}
+              >
+                <h4>{strings.t(`changelog.group.${category}`)}</h4>
+                <ul>
+                  {items.map((item) => (
+                    <li key={item.id}>{item.title}</li>
+                  ))}
+                </ul>
+              </section>
+            );
+          })}
+        </div>
+      )}
       <div className="wn-pop-foot">
-        {data.moreCount > 0 && (
+        {!rest && data.moreCount > 0 && (
           <span className="wn-pop-more">{strings.format("updates.card.more", String(data.moreCount))}</span>
         )}
         <button type="button" className="wn-pop-all" onClick={actions.openChangelog}>
@@ -125,6 +153,9 @@ export function UpdateReadyHighlights({
     </section>
   );
 }
+
+/** The rest of an update reads as Conductor's release pages do: New, Improved, Fixed, Security. */
+const REST_ORDER = ["new", "improved", "fixed", "security"] as const;
 
 /** A change's picture at the popover's width, in the theme's scheme; a click opens the change's
  * notes, where it shows at the page's width. Only `data:` pictures reach it (the host inlines
