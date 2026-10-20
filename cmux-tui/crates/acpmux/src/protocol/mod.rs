@@ -54,6 +54,17 @@ impl Kind {
     }
 }
 
+/// `_acpmux/protocol` takes no params.
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize, JsonSchema)]
+#[schemars(deny_unknown_fields)]
+pub struct ProtocolParams {}
+
+/// What `_acpmux/protocol` answers: `ir()`, built once per daemon run.
+pub fn served() -> &'static Value {
+    static IR: std::sync::OnceLock<Value> = std::sync::OnceLock::new();
+    IR.get_or_init(ir)
+}
+
 type SchemaFn = fn(&mut SchemaGenerator) -> schemars::Schema;
 
 /// One registry entry.
@@ -265,6 +276,9 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_WEB_TOKEN_ROTATE, Request),
         untyped(method::MUX_RELOAD_CONFIG, Request),
         untyped(method::MUX_SCHEMA, Request),
+        // The result is this IR document (`ir()`), left open: its own
+        // schema would describe itself.
+        request::<ProtocolParams, Value>(method::MUX_PROTOCOL),
         untyped(method::MUX_SHUTDOWN, Request),
         untyped("_acpmux/peers", Request),
         untyped("_acpmux/peer_add", Request),
