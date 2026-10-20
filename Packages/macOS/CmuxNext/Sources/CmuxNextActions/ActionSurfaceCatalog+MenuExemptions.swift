@@ -27,7 +27,7 @@ nonisolated extension ActionSurfaceCatalog {
         ],
         .noObject: [
             "sidebar.profileMenu", "browser.downloads.showFolder",
-            "home.show", "palette.openCloudPane",
+            "home.show",
             "openSettings", "appearance.customize", "newWindow", "newIncognitoWindow", "closeWindow", "minimizeWindow", "toggleFullScreen",
             "closeAllWindows", "window.closeOthers", "workspace.closeAllInAllWindows", "zoomWindow", "selectNextWindow", "selectPreviousWindow",
             "quit", "quitKeepSessions", "quitEndSessions", "quitEndEverything", "globalSearch", "commandPalette",

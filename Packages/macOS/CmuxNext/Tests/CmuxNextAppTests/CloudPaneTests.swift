@@ -130,6 +130,21 @@ struct CloudPaneTests {
         }
     }
 
+    /// The daemon's "needs the cmux Mac app connected" (no provider) is the page's disconnected
+    /// state with Retry, not an error banner over a list that never loads.
+    @Test(arguments: ["provider.unavailable", "unavailable", "cmux.cloud.relay_unavailable"])
+    func aDownLinkIsThePagesTransportError(code: String) async throws {
+        let server = Server(answers: [:])
+        await server.fail(with: CloudAppOpFailure(code: code, message: "needs the cmux Mac app connected"))
+        do {
+            _ = try await Self.provider(server).call("cmux.cloud.auth.status", params: .object([:]), context: Self.page)
+            Issue.record("a down link answered")
+        } catch let error as PageError {
+            #expect(error.code == "cmux.protocol.transport")
+            #expect(error.retryable)
+        }
+    }
+
     @Test func signInRunsTheAppsSignInOnlyAfterTheSheet() async throws {
         let ran = Seen<Bool>()
         let provider = Self.provider(Server(answers: [:])) {

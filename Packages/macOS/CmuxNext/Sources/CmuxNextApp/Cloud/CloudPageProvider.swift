@@ -78,11 +78,17 @@ final class CloudPageProvider: PageProvider {
         do {
             return pageJSON(try await op(server, daemonJSON(args), key, origin))
         } catch let failure as CloudAppOpFailure {
+            // No daemon link or no app provider: the page's "disconnected" state, with Retry.
+            if Self.linkDownCodes.contains(failure.code) {
+                throw PageError(code: "cmux.protocol.transport", message: failure.message, retryable: true)
+            }
             let code = failure.code.isEmpty ? "cmux.cloud.failed" : (failure.code.hasPrefix("cmux.") ? failure.code : "cmux." + failure.code)
-            throw PageError(code: code, message: failure.message, retryable: failure.code == "cmux.cloud.relay_unavailable",
-                            details: failure.details.map(pageJSON))
+            throw PageError(code: code, message: failure.message, details: failure.details.map(pageJSON))
         }
     }
+
+    /// Codes that mean the link to the Cloud app server is down, not that the server refused.
+    static let linkDownCodes: Set<String> = ["cmux.cloud.relay_unavailable", "provider.unavailable", "unavailable"]
 
     /// The watch events of one op's answer.
     private func announce(_ server: String, args: [String: CmuxNextSettings.JSONValue], answer: CmuxNextSettings.JSONValue,
