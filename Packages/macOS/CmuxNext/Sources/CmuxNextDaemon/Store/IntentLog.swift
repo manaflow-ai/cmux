@@ -28,7 +28,7 @@ enum IntentUndo: Equatable {
     case closedTabs([HiddenTab])
     /// A create's guessed daemon tab hidden (``ProvisionalTab/matched(_:in:)``) and its
     /// provisional tab shown, until the daemon names the tab's create.
-    case guessedTab(hidden: HiddenTab, provisional: IntentUndo?)
+    indirect case guessedTab(hidden: HiddenTab, provisional: IntentUndo?)
     /// The provisional screen shown in workspace `key`, and whether the workspace itself was the
     /// provisional one (inserted) rather than the daemon's.
     case createdWorkspace(key: WorkspaceKey, inserted: Bool)
