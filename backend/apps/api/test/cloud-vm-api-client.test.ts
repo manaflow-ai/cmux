@@ -190,6 +190,18 @@ describe("generated VM API Cloud transport", () => {
     await expect(changed.guarded.snapshot(name, { team, machine }, slug)).rejects.toMatchObject({ final: false, outcome: "pending" });
   });
 
+  it("ends a capture whose source VM is gone as verified absent when the VM service admitted none", async () => {
+    const x = fake((r) => {
+      const path = new URL(r.url).pathname;
+      if (path === "/v1/snapshot-creations/by-key") return new Response(null, { status: 404 });
+      if (path === "/v1/snapshot-creations") return json({ items: [], nextCursor: null });
+      expect(r.method).toBe("GET");
+      return json({ items: [], nextCursor: null });
+    });
+    await expect(x.guarded.snapshot(name, { team, machine }, slug)).rejects.toMatchObject({ final: true, outcome: "absent", code: "cloud.provider.vm_missing" });
+    expect(x.calls.some((r) => r.method === "POST")).toBe(false);
+  });
+
   it("recovers a canonical legacy snapshot after its old key expires, without source lookup", async () => {
     const x = fake((r) => {
       const path = new URL(r.url).pathname;

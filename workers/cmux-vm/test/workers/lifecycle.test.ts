@@ -356,12 +356,31 @@ describe("deleteVm", () => {
     expect(response.status).toBe(204);
     expect(t.upstream.callsTo("DELETE", /^\/v5\/vms\//).map((call) => call.path)).toEqual([`/v5/vms/${upstreamId}`]);
     expect((await t.request(`/v1/vms/${vmId}`, bearer(key))).status).toBe(404);
-    expect((await t.request(`/v1/vms/${vmId}`, bearer(key), { method: "DELETE" })).status).toBe(404);
+    const other = await t.addKey(TENANT_B, ["vm:write"]);
+    expect((await t.request(`/v1/vms/${vmId}`, bearer(other), { method: "DELETE" })).status).toBe(404);
     // Refused attempts are audited too, with the public error they got.
     expect(t.audit).toEqual([
       expect.objectContaining({ action: "vm.delete", cmuxId: vmId, outcome: "ok" }),
       expect.objectContaining({ action: "vm.delete", cmuxId: vmId, outcome: "NotFound" }),
     ]);
+  });
+
+  it("answers a repeated delete of the caller's own deleted VM with 204, so a lost answer can be retried", async () => {
+    const t = await harness();
+    const { vmId } = t.addVm(TENANT_A);
+    const key = await t.addKey(TENANT_A, ["vm:read", "vm:write"]);
+    expect((await t.request(`/v1/vms/${vmId}`, bearer(key), { method: "DELETE" })).status).toBe(204);
+    // The first 204 was lost: the retry confirms the delete without another provider call.
+    expect((await t.request(`/v1/vms/${vmId}`, bearer(key), { method: "DELETE" })).status).toBe(204);
+    expect(t.upstream.callsTo("DELETE", /^\/v5\/vms\//)).toHaveLength(1);
+    expect((await t.request(`/v1/vms/${vmId}`, bearer(key))).status).toBe(404);
+    // Still hidden from another tenant, a key whose allowlist excludes it, and a read-only key.
+    const other = await t.addKey(TENANT_B, ["vm:write"]);
+    const listed = await t.addKey(TENANT_A, ["vm:write"], { allowlist: [t.addVm(TENANT_A).vmId] });
+    const reader = await t.addKey(TENANT_A, ["vm:read"]);
+    expect((await t.request(`/v1/vms/${vmId}`, bearer(other), { method: "DELETE" })).status).toBe(404);
+    expect((await t.request(`/v1/vms/${vmId}`, bearer(listed), { method: "DELETE" })).status).toBe(404);
+    expect((await t.request(`/v1/vms/${vmId}`, bearer(reader), { method: "DELETE" })).status).toBe(403);
   });
 
   it("forgets a VM that is already gone upstream", async () => {

@@ -27,6 +27,9 @@ const receiptOf = (record: SnapshotCapture) => new SnapshotSummary({ ...rowOf(re
 const toSnapshot = (record: SnapshotCapture, created: CreatedSnapshot) => new Snapshot({ ...receiptOf(record),
   lastUsedAt: created.snapshot.lastUsedAt ?? null, ttlSeconds: created.snapshot.ttlSeconds ?? null, autoDeleteSeconds: created.snapshot.autoDeleteSeconds ?? null });
 
+/** Errors that prove the capture made nothing; ServiceUnavailable (unknown outcome) keeps it retained. */
+const DEFINITE = new Set(["NotFound", "Conflict", "Forbidden", "PaymentRequired", "QuotaExceeded"]);
+
 const slot = <C>(caller: Named<C, Principal>, resume?: SnapshotId) => Effect.gen(function* () {
   const decision = yield* tenantMayCreate(caller, "snapshot", resume === undefined ? undefined : { snapshotId: resume }).pipe(Effect.mapError(() => unavailable()));
   if (decision._tag === "not_entitled") return yield* Effect.fail(new PaymentRequired({ message: "This team's plan does not include snapshots" }));
@@ -131,7 +134,12 @@ export const createSnapshotCapture = (rawVm: string, payload: CreateSnapshotRequ
       return yield* name(oldId.value, (snapshot) => replay(caller, snapshot, scope));
     }
     if (result.state !== "record") return yield* Effect.fail(unavailable());
-    return yield* name(result.record.intent.id, (snapshot) => audited("snapshot.create", vm.value, resumeSnapshotCapture(caller, vm, snapshot, scope, result), (value) => value.id));
+    return yield* name(result.record.intent.id, (snapshot) => audited("snapshot.create", vm.value, resumeSnapshotCapture(caller, vm, snapshot, scope, result).pipe(
+      // An unkeyed capture can never be retried by its caller: a definite answer (a provider 404/409 after the
+      // exact-slug lookup, or a refusal before send) ends it as cancelled and frees its snapshot slot at once.
+      Effect.tapError((error) => rawKey === undefined && DEFINITE.has(error._tag)
+        ? limits.snapshotCapture(caller.value.tenantId, { op: "cancel", id: snapshot.value }).pipe(Effect.ignore) : Effect.void),
+    ), (value) => value.id));
   }));
 })).pipe(Effect.uninterruptible);
 
