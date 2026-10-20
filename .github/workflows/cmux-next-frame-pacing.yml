@@ -310,6 +310,14 @@ jobs:
             --tag "$CMUX_TAG" --app "$app" --runs 10 --phases idle --out "$out" --json "$out/new-tab.json" || true
           scripts/ci/frame-pacing/console-session.sh /usr/bin/python3 scripts/cmux-next/bench_memory.py --app "$app" \
             --tabs 1,10,20 --urls local --settle 30 --measure 10 --out "$out/memory-tabs-local.json" || true
+          # The same tabs with candidate Chromium switches (DEBUG builds read CMUX_NEXT_CEF_EXTRA_SWITCHES):
+          # no background networking or component updates, no spare renderer; then same-site tabs
+          # sharing one renderer.
+          scripts/ci/frame-pacing/console-session.sh /usr/bin/python3 scripts/cmux-next/bench_memory.py --app "$app" \
+            --tabs 1,10,20 --urls local --settle 30 --measure 10 --out "$out/memory-tabs-local-lean.json" \
+            --cef-switches "disable-background-networking:disable-component-update:disable-features=SpareRendererForSitePerProcess,OptimizationHints,MediaRouter" || true
+          scripts/ci/frame-pacing/console-session.sh /usr/bin/python3 scripts/cmux-next/bench_memory.py --app "$app" \
+            --tabs 1,10,20 --urls real --settle 30 --measure 10 --out "$out/memory-tabs-real.json" || true
       # Warning only: exits 1 (an annotation and a red step) when an animation did not run.
       - name: Judge the golden interactions
         if: always() && steps.gui.outputs.taken == 'true' && contains(env.SUITES, 'golden')
