@@ -67,9 +67,9 @@ struct SidebarGroupFlow {
 
     /// Called after each sidebar update: opens a waiting group editor.
     func openPendingEditor() {
-        guard let pending = editor.pending, bridge.model.group(CmuxNextSidebar.GroupID(pending.rawValue)) != nil else { return }
+        // On the sidebar document the group shows as its item (`itm_g_<id>`).
+        guard let pending = editor.pending, case let id = bridge.model.groupID(personal: pending.rawValue), bridge.model.group(id) != nil else { return }
         editor.pending = nil
-        let id = CmuxNextSidebar.GroupID(pending.rawValue)
         bridge.container.beginRename(group: id)
         // No editor came up (a drag, a row out of view): a group made empty does not wait for one.
         if bridge.container.editingGroup != id { endUnedited(pending) }
@@ -204,7 +204,8 @@ struct SidebarGroupFlow {
         // A group made empty that is about to get a member (New Workspace in
         // Group, or an action from its full menu) does not go when the editor closes.
         // Delete, Ungroup and Close end the group themselves (no second delete).
-        let local = WorkspaceGroupID(rawValue: group.rawValue)
+        // On the sidebar document a group from the personal store shows as its item (`itm_g_<id>`).
+        let local = WorkspaceGroupID(rawValue: SidebarDocStore.personalGroupID(item: group.rawValue))
         // The emoji picker (Set Icon) and the color panel edit it after the editor closes.
         if ["workspaceGroup.newWorkspace", SidebarContainerView.moreActionsItem, SidebarContainerView.keepGroupItem,
             "workspaceGroup.setIcon", "workspaceGroup.delete", "workspaceGroup.ungroup", "workspaceGroup.closeWorkspaces"].contains(item) {

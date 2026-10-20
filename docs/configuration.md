@@ -315,6 +315,21 @@ Off by default: hovering or scrolling over a pane leaves keyboard focus where yo
 
 With it on, focus still stays where it is for momentum (the coast after a flick that started in another pane), for a scroll that moves columns or rows, while a mouse button is held, within a second of typing, and over a window that is not active. A pointer that stays inside one pane does not undo a keyboard move to another pane. Change it in **Settings > General > Columns**, with **Focus Follows Mouse** in the command palette (Cmd+Shift+P), or with `cmux settings set layout.focusFollowsMouse true`. It replaces `layout.focusPaneOnScroll`, which was on by default.
 
+## `layout.scrollAreas`
+
+Side-by-side panes that do not fit scroll sideways instead of shrinking below **Minimum Pane Width** (`layout.minimumPaneWidth`). This works in docked columns, in columns of the strip and on a screen without columns.
+
+```json
+{
+  "layout": { "scrollAreas": true }
+}
+```
+
+- `false` (default): today's layout. A column widens to fit its splits, and a docked column refuses a split that has no room.
+- `true`: a column keeps its width, and its splits scroll inside it. Each pane keeps the minimum width. Swipe sideways with two fingers, or use Shift with the mouse wheel, over the panes. Focus (Cmd-Opt-arrows, a click, the CLI with focus) scrolls the focused pane into view. Cmd-Opt-Left and Cmd-Opt-Right step through the panes, then go on to the next column.
+
+Change it in **Settings > General > Columns** or with `cmux settings set layout.scrollAreas true`. The design is in `plans/cmux-next/scroll-areas-DESIGN.md`.
+
 ## `workspaces.newPlacement`
 
 Where a new workspace goes in the sidebar when you do not pick a place: Cmd-N, New Workspace in the palette or menu, the sidebar's +, `cmux workspace new`, Home, a tab moved to a new workspace, a link opened in a new workspace, and a workspace an agent opens.
@@ -526,6 +541,10 @@ The panel can also open while another app is in front. This system-wide key is o
 ```
 
 Turn it on in Settings > General > Start Agent from Any App. Its key is a separate row, Start Agent from Any App (default Ctrl+Option+Cmd+Space), rebound from Settings > Keyboard Shortcuts or with `shortcuts.bindings["palette.startAgentFromAnyApp"]`. When another app (or another cmux global key) already holds the key, the Keyboard Shortcuts row shows a warning and the key works only inside cmux.
+
+## Message the Chief from any app
+
+Message the Chief (command palette) shows the floating Chief pet with its reply box open, turning the pet on first when it is off. Its system-wide key is a separate Keyboard Shortcuts row, Message the Chief from Any App (default Ctrl+Option+Cmd+C), rebound with `shortcuts.bindings["home.messageChiefFromAnyApp"]`. It works from any app, cmux included, while the Chief pet is on (`home.chiefPetEnabled`, Settings > Home > Show Chief Pet or View > Show Chief Pet). With the pet off, cmux leaves the key to other apps; use Message the Chief in the command palette, which turns the pet on. When another app already holds the key, the Keyboard Shortcuts row shows a warning and the key works only inside cmux.
 
 ## `palette.scopes.<scope>.prefix`
 

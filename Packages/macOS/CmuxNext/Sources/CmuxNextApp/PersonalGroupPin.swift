@@ -38,7 +38,8 @@ struct PersonalGroupPin {
             return true
         case let .closeGroup(group):
             guard isServed, let pinned = bridge.model.group(group)?.isPinned else { return false }
-            let id = group.rawValue
+            // The personal group: a sidebar-document row names its item (`itm_g_<id>`).
+            let id = PersonalStore.legacyGroupID(item: group.rawValue)?.rawValue ?? group.rawValue
             if pinned {
                 send("update-personal-group") { try await $0.state.updateWorkspaceGroup(id, collapsed: true) }
             } else {
