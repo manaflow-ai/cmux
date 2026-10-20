@@ -93,7 +93,7 @@ Actions (registered once in the action catalog, `cli: true`, palette-visible):
 `phone.screenshot`, `phone.record.start`, `phone.record.stop`,
 `phone.feedback.send` (stop + send clip to Chief), `phone.input.tap`,
 `phone.input.swipe`, `phone.input.text`, `phone.openurl`, `phone.list`.
-CLI: `cmux phone list|open|boot|screenshot|record start|record stop|feedback|tap X Y|swipe X1 Y1 X2 Y2|type TEXT|open-url URL`
+CLI: `cmux phone open|boot|screenshot|record|stop|feedback|open-url|paste` (two words each; tap, swipe and type come with phase 2)
 maps 1:1 onto those actions (Rust CLI forwards to `action.run`). MCP: the same
 actions appear in the `phone` tool family through the action catalog, so agents
 drive the phone exactly like a person.
