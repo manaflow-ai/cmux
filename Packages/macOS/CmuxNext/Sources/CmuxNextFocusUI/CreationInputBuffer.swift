@@ -22,6 +22,8 @@ public final class CreationInputBuffer {
     public var isResolved: Bool { pending.isEmpty }
     /// A creation opened in this hold: only its reply (or the request timeout) ends it.
     public var holdsCreation: Bool { nextID > 0 }
+    /// A creation of this hold still waits for its reply.
+    public var hasPendingCreation: Bool { holdsCreation }
     public var isEmpty: Bool { events.isEmpty }
 
     /// `earlyTab`: the tab of the new terminal's view when that view takes keys before the reply
@@ -88,7 +90,7 @@ public final class CreationInputBuffer {
     /// Whether this hold keeps `event`. A creation's hold keeps every key until its reply; one that
     /// only waits for a selected terminal's surface ends after `limit` (`expiring`), and lets a
     /// chord through while it holds nothing (held Ctrl-Tab makes no surface for a tab it passed).
-    public func holds(_ event: NSEvent, limit: Duration, expiring: Bool) -> Bool {
+    public func holds(_ event: NSEvent, limit: Duration, expiring: Bool, closes: Bool = false) -> Bool {
         guard !holdsCreation else { return true }
         if expiring, ContinuousClock.now - began >= limit { return false }
         return !(isEmpty && !event.modifierFlags.intersection([.command, .control]).isEmpty)
