@@ -23,7 +23,7 @@ import re
 import sys
 
 
-TOUR_ORDER = ("new-tab", "agent-pane", "now-playing", "pinned-tabs", "hover-card", "chief-settings", "glass", "core")
+TOUR_ORDER = ("new-tab", "agent-pane", "now-playing", "pinned-tabs", "hover-card", "update-card", "chief-settings", "glass", "core")
 UI_ROOTS = (
     re.compile(r"^(?:Packages/macOS/CmuxNext/Sources|webviews/(?:src|apps)|agent-chat/(?:src|app|components?)/)"),
     re.compile(r"^(?:Packages/macOS/CmuxNext/(?:Resources|Tests?)/|webviews/|agent-chat/)"),
@@ -37,6 +37,8 @@ NOW_PLAYING = re.compile(r"(?:now.?playing|music)", re.IGNORECASE)
 PINNED_TABS = re.compile(r"(?:Pinned|PinCommands|/Pins/)")
 # The sidebar's workspace hover card (its surface and content), in dark, light and over art.
 HOVER_CARD = re.compile(r"(?:WorkspaceHoverCard|HoverCards/HoverCardPanel)")
+# The sidebar's native Update Ready card and its popup window (the popup's React page is gallery work).
+UPDATE_CARD = re.compile(r"(?:SidebarUpdateCard|SidebarUpdateNotes|UpdateReadyCard|UpdateSurfaceIsland)")
 # The Chief's settings popover and the Home view that opens it.
 CHIEF_SETTINGS = re.compile(r"(?:HomeChiefSettings|HomeHostView|HomeEngineStrings)")
 # Themes, glass and background art: the glass tour shows them over art and opaque.
@@ -74,6 +76,8 @@ def tours_for_path(path: str) -> list[str]:
         selected.append("pinned-tabs")
     if HOVER_CARD.search(normalized):
         selected.append("hover-card")
+    if UPDATE_CARD.search(normalized):
+        selected.append("update-card")
     if CHIEF_SETTINGS.search(normalized):
         selected.append("chief-settings")
     if GLASS.search(normalized):
