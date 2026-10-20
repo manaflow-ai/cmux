@@ -64,22 +64,41 @@ CHECK_INPUTS = {
 }
 
 
+INTEGRATION_BRANCH = "feat-cmux-next"
+
+
 def automatic_scope(repo, environ):
     """Use local Git metadata only; CI keeps the full static recipe."""
     if any(environ.get(key, "").lower() not in ("", "0", "false", "no")
            for key in ("CI", "GITHUB_ACTIONS")):
         return {"mode": "ci_full", "base_ref": None, "reason": "CI: full static recipe"}
+    candidates = []
     for remote in ("upstream", "origin"):
         try:
             base = subprocess.run(
                 ["git", "-C", str(repo), "symbolic-ref", "-q", f"refs/remotes/{remote}/HEAD"],
                 capture_output=True, text=True, check=True, timeout=5).stdout.strip()
-            subprocess.run(["git", "-C", str(repo), "merge-base", base, "HEAD"],
-                           capture_output=True, check=True, timeout=5)
         except (OSError, subprocess.SubprocessError):
             continue
-        return {"mode": "affected", "base_ref": base,
-                "reason": f"Local default-branch reference: {base} (no fetch)"}
+        candidates.append((base, f"Local default-branch reference: {base} (no fetch)"))
+    # feat-cmux-next split from main long ago, so main's merge base with one of its branches is that
+    # old split and would select every check. The base HEAD is fewest commits past wins.
+    for remote in ("upstream", "origin"):
+        base = f"refs/remotes/{remote}/{INTEGRATION_BRANCH}"
+        candidates.append((base, f"Local integration-branch reference: {base} (no fetch)"))
+    best = None
+    for order, (base, reason) in enumerate(candidates):
+        try:
+            subprocess.run(["git", "-C", str(repo), "merge-base", base, "HEAD"],
+                           capture_output=True, check=True, timeout=5)
+            ahead = int(subprocess.run(["git", "-C", str(repo), "rev-list", "--count", f"{base}..HEAD"],
+                                       capture_output=True, text=True, check=True, timeout=20).stdout)
+        except (OSError, ValueError, subprocess.SubprocessError):
+            continue
+        if best is None or ahead < best[0]:
+            best = (ahead, base, reason)
+    if best is not None:
+        return {"mode": "affected", "base_ref": best[1], "reason": best[2]}
     return {"mode": "full_fallback", "base_ref": None,
             "reason": "No usable local remote-default reference: full static recipe; parse local Swift edits"}
 
