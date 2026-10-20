@@ -7,6 +7,18 @@
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 tag="tabswitch"
+# A fleet step checks out no submodules (only their empty gitlink directories): the app build needs
+# Ghostty's headers and the ghostty-next tree, and GhosttyKit.xcframework (a prebuilt download).
+for sub in ghostty ghostty-next; do
+  [ -e "$sub/.git" ] || git submodule update --init --depth 1 "$sub"
+done
+if [ ! -f GhosttyKit.xcframework/Info.plist ]; then
+  rm -rf GhosttyKit.xcframework
+  if [ -z "${GHOSTTYKIT_ARCHIVE_CACHE_DIR:-}" ] && [ -n "${CI_SHARED_CACHE_DIR:-}" ]; then
+    export GHOSTTYKIT_ARCHIVE_CACHE_DIR="$CI_SHARED_CACHE_DIR/ghosttykit-archives"
+  fi
+  ./scripts/download-prebuilt-ghosttykit.sh
+fi
 out="$(mktemp -d)"
 CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag "$tag" 2>&1 | tee "$out/reload.log" | tail -n 40
 app="$(sed -n '/^App path:/{n;s/^ *//;p;}' "$out/reload.log" | tail -n 1)"

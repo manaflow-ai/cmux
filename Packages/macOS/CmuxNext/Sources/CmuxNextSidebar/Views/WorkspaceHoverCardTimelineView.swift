@@ -28,7 +28,8 @@ final class WorkspaceHoverCardTimelineView: NSView {
         rowsStack.alignment = .leading
         rowsStack.spacing = Metrics.space2
         rowsStack.translatesAutoresizingMaskIntoConstraints = false
-        document.translatesAutoresizingMaskIntoConstraints = false
+        // The document is sized by frame in `configure`, so a wheel right after the card shows
+        // scrolls it before any layout pass (a constraint-sized one is zero high until then).
         document.addSubview(rowsStack)
         scrollView.documentView = document
         scrollView.drawsBackground = false
@@ -50,9 +51,6 @@ final class WorkspaceHoverCardTimelineView: NSView {
             scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
             scrollView.bottomAnchor.constraint(equalTo: bottomAnchor),
             height,
-            document.leadingAnchor.constraint(equalTo: scrollView.contentView.leadingAnchor),
-            document.trailingAnchor.constraint(equalTo: scrollView.contentView.trailingAnchor),
-            document.topAnchor.constraint(equalTo: scrollView.contentView.topAnchor),
             rowsStack.topAnchor.constraint(equalTo: document.topAnchor),
             rowsStack.leadingAnchor.constraint(equalTo: document.leadingAnchor),
             rowsStack.trailingAnchor.constraint(equalTo: document.trailingAnchor),
@@ -89,6 +87,7 @@ final class WorkspaceHoverCardTimelineView: NSView {
             row.text.preferredMaxLayoutWidth = textWidth
         }
         let content = rowsStack.fittingSize.height
+        document.frame = CGRect(x: 0, y: 0, width: width, height: content)
         heightConstraint?.constant = min(content, maxHeight)
         if changed { scrollView.contentView.scroll(to: .zero) }
         applyColors()

@@ -81,6 +81,11 @@ DAEMON_PATHS = (
     "scripts/cmux-next/check-daemon-capabilities.sh",
     "scripts/cmux-next/cmux-tui.pin",
     PACKAGE + "Tests/CmuxNextAppTests/FirstLaunchTests.swift",
+    # The classic import and migration suites start the live daemon too.
+    PACKAGE + "Tests/CmuxNextAppTests/ClassicImportTests.swift",
+    PACKAGE + "Tests/CmuxNextAppTests/ClassicMigrationTests.swift",
+    PACKAGE + "Sources/CmuxNextApp/Onboarding/AppOnboardingServices+ClassicSessions.swift",
+    PACKAGE + "Sources/CmuxNextApp/Onboarding/AppOnboardingServices+ClassicMigration.swift",
 )
 
 # Scripts the swift test job runs before the package tests.

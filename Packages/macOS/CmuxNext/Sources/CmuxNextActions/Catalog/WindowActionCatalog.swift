@@ -75,6 +75,16 @@ nonisolated enum WindowActionCatalog: ActionCatalogGroup {
                 keywords: ["dock", "hide", "miniaturize"], category: .window, symbol: "minus.rectangle",
                 surfaces: [.palette], cliName: "app minimize-window"
             ),
+            // A PNG of the window as on screen, never focusing or raising it
+            // (agents read the app without Screen Recording; ScreenshotHandlers).
+            ActionDescriptor(
+                id: "window.screenshot",
+                title: String(localized: "action.window.screenshot", defaultValue: "Screenshot Window", bundle: .module),
+                keywords: ["screenshot", "capture", "image", "png", "picture"], category: .window, symbol: "camera",
+                surfaces: [.palette], arguments: [CatalogArgument.screenshotOut], targets: [.window],
+                cliName: "window screenshot",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noTargetSurface)
+            ),
             ActionDescriptor(
                 id: "toggleFullScreen",
                 title: String(localized: "action.toggleFullScreen", defaultValue: "Toggle Full Screen", bundle: .module),

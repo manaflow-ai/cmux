@@ -1184,6 +1184,13 @@ export default agentPaneEntry({
         await ctx.click({ role: "button", name: "Provide" });
         await ctx.waitFor(() => !ctx.document.querySelector(".acpmux-secret-card"));
       },
+      checks: {
+        layoutShiftMax: {
+          value: 0.08,
+          reason:
+            "The card leaves the bottom stack, which lies over the transcript's foot (bottomStack.css): the stack's unpainted wrapper (div.acpmux-dock, the only source) shrinks from its top, 0.062 measured; the composer and the rows do not move.",
+        },
+      },
     },
     queued: {
       note: "Prompts queued behind a running turn.",

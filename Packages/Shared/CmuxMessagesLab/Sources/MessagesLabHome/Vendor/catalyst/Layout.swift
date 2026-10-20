@@ -131,6 +131,7 @@ struct TextLayout: Hashable {
             }
             if r.detected != nil { a.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: range) }
         }
+        HomeLinkChip.reserve(in: a, runs: runs, kern: kern)
         return a
     }
 
