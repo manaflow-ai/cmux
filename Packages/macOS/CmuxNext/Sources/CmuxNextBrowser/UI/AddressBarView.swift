@@ -25,7 +25,10 @@ public final class AddressBarView: NSView {
     public var pageInfoAnchor: NSView { chip }
 
     public var suggestionEngine: OmniboxSuggestionEngine {
-        didSet { controller.send(.searchEngineChanged) }
+        didSet {
+            controller.send(.searchEngineChanged)
+            if suggestionEngine !== oldValue { followDisplay() }
+        }
     }
 
     let pill = OmnibarPillView()
@@ -50,6 +53,15 @@ public final class AddressBarView: NSView {
     private var cursorTextArea = NSRect.zero
     /// The page's title, for a drag of the address out of the bar.
     public var pageTitle: (() -> String?)?
+    /// The site icon of a page suggestion row, fetched as the tab fetches
+    /// favicons (the App names the site's icon address). Nil: kind glyphs.
+    public var rowFavicon: ((URL) async -> NSImage?)? {
+        get { panel.faviconSource }
+        set { panel.faviconSource = newValue }
+    }
+    /// Enter loads typed text over https that may fall back to http
+    /// (`HTTPSUpgradeFallback`); the chrome watches the load.
+    public var onTypedHTTPSUpgrade: ((URL) -> Void)?
     /// The page's URL changed (the host refreshes the bookmark star).
     public var onPageURLChange: ((URL?) -> Void)?
     /// Bench marks (`debug.omnibar_bench`): the press path's stages, nil
@@ -62,6 +74,8 @@ public final class AddressBarView: NSView {
     }
     /// Set by `focus()` for the responder change it causes.
     var pendingFocusSource: OmnibarInput.FocusSource?
+    /// `beginSearch()` ran before the field had focus: the next focus starts the search.
+    private var pendingSearch = false
     private var security: BrowserSecurityState = .none
     /// Built in init, where `onEffect` is set (no IUO; lazy because its closures capture self).
     private(set) lazy var controller = OmnibarController(
@@ -129,7 +143,9 @@ public final class AddressBarView: NSView {
     var resolver: OmniboxResolver {
         var resolver = suggestionEngine.resolver
         resolver.urlResolver.allowsChromiumSchemes = allowsChromiumSchemes
-        resolver.keywords = keywordSource()
+        // Extension keywords first (an extension's own keyword wins), then
+        // the search engines' (Chrome's tab to search).
+        resolver.keywords = keywordSource() + OmnibarKeyword.searchEngines(default: resolver.searchEngine)
         return resolver
     }
 
@@ -152,6 +168,7 @@ public final class AddressBarView: NSView {
         field.onFocus = { [weak self] in self?.fieldDidFocus() }
         field.onPasteAndGo = { [weak self] in self?.pasteAndGo() }
         field.pasteAndGoTitle = { [weak self] in self?.pasteAndGoTitle() }
+        field.extraMenuItems = { [weak self] in self?.omnibarMenuItems() ?? [] }
         field.setAccessibilityLabel(Strings.omnibarPlaceholder)
         // A long URL truncates; it never widens the toolbar or the pane
         // (BrowserToolbarLayout decides the omnibar's width).
@@ -209,6 +226,7 @@ public final class AddressBarView: NSView {
             updateChrome()
         }
         density.start()
+        followDisplay()
     }
 
     @available(*, unavailable)
@@ -296,6 +314,18 @@ public final class AddressBarView: NSView {
         window?.makeFirstResponder(field)
     }
 
+    /// Opt-Cmd-F (Chrome's Search the Web): a search with the default
+    /// engine in the focused field ("Search Google" in the chip, empty text).
+    /// Called after the focus coordinator focused the field; a focus that
+    /// lands later (a Chromium page window giving key back) starts it then.
+    public func beginSearch() {
+        guard controller.state.hasFocus else {
+            pendingSearch = true
+            return
+        }
+        controller.send(.key(.searchWithDefaultEngine))
+    }
+
     /// Return with a disposition while the field is editing (the
     /// `omnibar.openIn…Tab` actions, Cmd-Return): commits the highlighted
     /// row or the typed text to `disposition`, as the field's own Return
@@ -343,6 +373,10 @@ public final class AddressBarView: NSView {
 
     private func fieldDidFocus() {
         controller.send(.focusGained(pendingFocusSource ?? (isMouseDownInField(NSApp.currentEvent) ? .mouse : .programmatic)))
+        if pendingSearch {
+            pendingSearch = false
+            controller.send(.key(.searchWithDefaultEngine))
+        }
     }
 
     /// A press in the bar focused it (not a click elsewhere, such as a
@@ -382,6 +416,7 @@ public final class AddressBarView: NSView {
         case .deleteSuggestion(let url): suggestionEngine.deleteSuggestion(url)
         case .typedNavigation(let url): suggestionEngine.noteTyped(url)
         case .hostTypoFixed(let host): suggestionEngine.resolver.hostTypoMemory.recordFix(of: host)
+        case .typedHTTPSUpgrade(let url): onTypedHTTPSUpgrade?(url)
         case .copyAnswer(let answer):
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(answer, forType: .string)

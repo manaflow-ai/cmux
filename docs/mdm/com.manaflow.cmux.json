@@ -1128,6 +1128,12 @@
       "title" : "Default Engine",
       "type" : "string"
     },
+    "browser.enabled" : {
+      "default" : true,
+      "description" : "When off, cmux opens no browser tabs for web pages and every link opens in your default browser.",
+      "title" : "Enable cmux Browser",
+      "type" : "boolean"
+    },
     "browser.freezeHiddenTabs" : {
       "default" : 30,
       "description" : "Saves power: a hidden Chromium tab stops running until you show it. Pinned tabs and Never Hibernate hosts stay awake. Also accepts a number from 5 to 3600 in a raw profile.",
@@ -2176,6 +2182,17 @@
         "rowMajor"
       ],
       "title" : "Dock Corners",
+      "type" : "string"
+    },
+    "layout.linkPlacement" : {
+      "default" : "split-right",
+      "description" : "Where a link or file you open from a terminal, an agent chat, Home or a page appears. Split Right uses the pane on the right, or makes one.",
+      "enum" : [
+        "split-right",
+        "new-column",
+        "same-pane"
+      ],
+      "title" : "Open Links and Files",
       "type" : "string"
     },
     "layout.minimumPaneHeight" : {

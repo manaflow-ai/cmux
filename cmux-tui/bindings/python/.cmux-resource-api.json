@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "bf79d8966e3a216b0586665da4ca359fc95b284f313b2d9ad638aaf6b006d569",
+  "catalog_sha256": "3a990b8105dffa288982bb9d6f91867c07b752fb52f0c34d7b7d9de84f98bcb3",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -872,6 +872,18 @@
       "class": "mutation"
     },
     "workspace.update": {
+      "class": "mutation"
+    },
+    "workspace_checklist.add": {
+      "class": "mutation"
+    },
+    "workspace_checklist.list": {
+      "class": "read"
+    },
+    "workspace_checklist.remove": {
+      "class": "mutation"
+    },
+    "workspace_checklist.update": {
       "class": "mutation"
     },
     "workspace_group.create": {

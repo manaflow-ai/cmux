@@ -1765,6 +1765,22 @@
       "scope": "window_record:write",
       "class": "mutation"
     },
+    "workspace_checklist.add": {
+      "scope": "workspace_checklist:write",
+      "class": "mutation"
+    },
+    "workspace_checklist.list": {
+      "scope": "workspace_checklist:read",
+      "class": "read"
+    },
+    "workspace_checklist.remove": {
+      "scope": "workspace_checklist:write",
+      "class": "mutation"
+    },
+    "workspace_checklist.update": {
+      "scope": "workspace_checklist:write",
+      "class": "mutation"
+    },
     "workspace_group.create": {
       "scope": "workspace_group:write",
       "class": "mutation"

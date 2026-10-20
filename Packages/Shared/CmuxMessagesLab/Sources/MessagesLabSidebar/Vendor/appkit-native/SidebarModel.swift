@@ -268,6 +268,10 @@ struct SidebarMetrics: Equatable {
     static let pinBottomPad: CGFloat = 8
     static let pinSelectionRadius: CGFloat = 12
     static let pinSectionBottom: CGFloat = 6
+    /// cmux: the compact list's pinned ring, this far outside the avatar (inside the 4 pt
+    /// selection-disc margin) and this thick.
+    static let compactPinRingGap: CGFloat = 2.5
+    static let compactPinRingWidth: CGFloat = 1.5
 
     var width: CGFloat
 
@@ -286,20 +290,22 @@ struct SidebarMetrics: Equatable {
     }
     var tileWidth: CGFloat { ((width - 2 * Self.pinInsetX) / CGFloat(columns)).rounded(.down) }
     /// Grows with the tile in the 3-column grid, from 52 pt at its narrowest to 76 pt; with fewer
-    /// columns it stays at 52 pt, so a column change moves tiles but never resizes them.
+    /// columns it stays at 52 pt, so a column change moves tiles but never resizes them. In the
+    /// compact list it is the row avatar: pinned and unpinned avatars are one size there.
     var pinAvatar: CGFloat {
         let fit = (tileWidth - 2 * Self.pinAvatarSideInset).rounded()
-        if compact { return min(Self.pinMinAvatar, max(36, width - 24)).rounded() }
+        if compact { return Self.avatar }
         return columns == Self.pinColumns ? min(Self.pinMaxAvatar, max(Self.pinMinAvatar, fit)) : Self.pinMinAvatar
     }
+    /// A row's height in the compact list, so pinned and unpinned avatars keep one rhythm.
     var tileHeight: CGFloat {
-        compact ? Self.pinTopPad / 2 + pinAvatar + Self.pinBottomPad
+        compact ? Self.rowHeight
             : Self.pinTopPad + pinAvatar + Self.pinNameGap + Self.pinNameHeight + Self.pinBottomPad
     }
     func pinnedHeight(count: Int) -> CGFloat {
         guard count > 0 else { return 0 }
         let rows = (count + columns - 1) / columns
-        return CGFloat(rows) * tileHeight + Self.pinSectionBottom
+        return CGFloat(rows) * tileHeight + (compact ? 0 : Self.pinSectionBottom)
     }
     func tileRect(_ i: Int) -> CGRect {
         let cols = columns

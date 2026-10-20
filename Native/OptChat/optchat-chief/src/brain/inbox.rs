@@ -244,6 +244,7 @@ impl Brain {
             return;
         }
         self.handled = message.seq;
+        self.note_main_message(&message);
         let Some(summary) = self.summary.as_ref() else {
             return;
         };

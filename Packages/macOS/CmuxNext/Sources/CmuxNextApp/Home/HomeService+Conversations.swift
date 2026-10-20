@@ -12,17 +12,19 @@ extension HomeService {
     }
 
     /// The people New Message offers: team members, then people of the
-    /// user's DMs. The cloud source learns their names for new groups.
+    /// user's DMs, then the user's Chiefs. The cloud source learns their
+    /// names for new groups.
     func contacts() -> [HomeContact] {
         let me = homeStore.me?.id ?? homeSource.me.id
         let team = directory.teamMembers
         cloudSource.remember(team.map { Participant(id: $0.id, kind: .human, displayName: $0.name) })
-        return HomeContact.merged(team: team, connections: HomeContact.connections(in: homeStore.rows, me: me))
+        return HomeContact.merged(team: team, connections: HomeContact.connections(in: homeStore.rows, me: me),
+                                  agents: HomeContact.agents(in: homeStore.rows, me: me))
     }
 
     /// Starts a DM or a group; the page shows it once the inbox lists it.
-    func startConversation(_ recipients: [HomeRecipient], title: String) async -> HomeComposeOutcome {
-        let outcome = await composer.start(recipients, title: title)
+    func startConversation(_ recipients: [HomeRecipient], title: String, firstMessage: [MessagePart] = []) async -> HomeComposeOutcome {
+        let outcome = await composer.start(recipients, title: title, firstMessage: firstMessage)
         if case .opened(let id) = outcome { pendingSelection = id }
         return outcome
     }
@@ -77,6 +79,12 @@ extension HomeService {
         return directory.chief(for: agent.id)
     }
 
+    /// The one path for managing a DM or group: the group info sheet, the Home row menu and the
+    /// `home.*` group actions (AppActions+HomeGroups) all run it.
+    var groupActions: HomeGroupActions {
+        HomeGroupActions(store: homeStore, muting: groupMuting, contacts: { [weak self] in self?.contacts() ?? [] })
+    }
+
     /// The Home sidebar's data source (the vendored MessagesLab sidebar reads it):
     /// choosing a row shows its conversation on the Home page, a person starts a DM.
     func makeSidebarSource() -> HomeSidebarSource {
@@ -103,13 +111,13 @@ extension HomeService {
     }
 
     /// Reads the Chief's avatar for its tile (profile.json's picture, else
-    /// its text, else the bundled cat), as the Chief header does.
+    /// its text, else 🫡), as the Chief header does.
     func refreshChiefAvatar() {
         let files = HomeChiefFiles(muxHome: HomeBrainHost.muxHome(tag: services.environment.tag))
         // task-owner: one profile read off the main actor; ends when it is set
         Task { [weak self] in
             let avatar = await Task.detached { files.tileAvatar() }.value
-            self?.directory.chiefAvatar = avatar ?? HomeHostView.defaultTileAvatar
+            self?.directory.chiefAvatar = HomeChiefAvatar.resolved(avatar)
         }
     }
 }

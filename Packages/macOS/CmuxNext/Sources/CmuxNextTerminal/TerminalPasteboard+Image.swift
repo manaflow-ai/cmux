@@ -20,16 +20,12 @@ extension TerminalPasteboard {
         pasteboard.canReadObject(forClasses: [NSImage.self], options: nil)
     }
 
-    /// The image on the pasteboard as file bytes and an extension: PNG or
-    /// JPEG as is, any other image (TIFF from screenshots) converted to PNG.
-    static func imageData(from pasteboard: NSPasteboard) -> (data: Data, fileExtension: String)? {
-        let png = NSPasteboard.PasteboardType(UTType.png.identifier)
-        let jpeg = NSPasteboard.PasteboardType(UTType.jpeg.identifier)
-        if let data = pasteboard.data(forType: png), !data.isEmpty { return (data, "png") }
-        if let data = pasteboard.data(forType: jpeg), !data.isEmpty { return (data, "jpg") }
-        guard pasteboard.canReadObject(forClasses: [NSImage.self], options: nil),
-              let image = NSImage(pasteboard: pasteboard),
-              let tiff = image.tiffRepresentation,
+    /// The image as file bytes and an extension: PNG or JPEG as is, any other
+    /// image (TIFF from screenshots) converted to PNG.
+    static func imageData(from contents: TerminalPasteboardContents) -> (data: Data, fileExtension: String)? {
+        if let data = contents.png, !data.isEmpty { return (data, "png") }
+        if let data = contents.jpeg, !data.isEmpty { return (data, "jpg") }
+        guard let tiff = contents.tiff, !tiff.isEmpty,
               let rep = NSBitmapImageRep(data: tiff),
               let data = rep.representation(using: .png, properties: [:]), !data.isEmpty else { return nil }
         return (data, "png")
@@ -38,14 +34,19 @@ extension TerminalPasteboard {
     /// Text a paste delivers: the pasteboard's text, or, with no text, the
     /// shell-escaped path of the clipboard image saved to a temporary file.
     static func pasteTextSavingImage(from pasteboard: NSPasteboard, directory: URL = imageDirectory) -> String? {
-        if let text = pasteText(from: pasteboard), !text.isEmpty { return text }
-        return saveImage(from: pasteboard, directory: directory).map { shellEscaped($0.path) }
+        pasteTextSavingImage(from: TerminalPasteboardContents(pasteboard: pasteboard), directory: directory)
+    }
+
+    /// ``pasteTextSavingImage(from:directory:)`` on contents already read.
+    static func pasteTextSavingImage(from contents: TerminalPasteboardContents, directory: URL = imageDirectory) -> String? {
+        if let text = pasteText(from: contents), !text.isEmpty { return text }
+        return saveImage(from: contents, directory: directory).map { shellEscaped($0.path) }
     }
 
     /// Writes the pasteboard's image to `directory`. Nil without an image,
     /// over the size limit, or when the write fails.
-    static func saveImage(from pasteboard: NSPasteboard, directory: URL = imageDirectory) -> URL? {
-        guard let image = imageData(from: pasteboard), image.data.count <= maxClipboardImageBytes else { return nil }
+    static func saveImage(from contents: TerminalPasteboardContents, directory: URL = imageDirectory) -> URL? {
+        guard let image = imageData(from: contents), image.data.count <= maxClipboardImageBytes else { return nil }
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd-HHmmss"
         formatter.locale = Locale(identifier: "en_US_POSIX")

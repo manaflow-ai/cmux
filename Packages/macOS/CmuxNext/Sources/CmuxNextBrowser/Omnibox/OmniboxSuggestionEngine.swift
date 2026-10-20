@@ -54,6 +54,8 @@ public final class OmniboxSuggestionEngine {
     public var revealTab: (String) -> Void = { _ in }
     /// Phase B: remote search suggestions (off until the App gives a fetcher).
     public var remote = OmniboxRemoteConfiguration()
+    /// How this engine's omnibars show addresses, and their menu's settings hooks.
+    public let display = OmnibarDisplay()
     public let local: OmniboxLocalIndex
     public private(set) var history: (any OmniboxHistorySource)?
     var now: () -> Date = Date.init
@@ -175,6 +177,7 @@ public final class OmniboxSuggestionEngine {
         inlineAutocomplete = configuration.inlineAutocomplete
         maxResults = configuration.maxRows
         sources = OmniboxSource.defaultOrder + (configuration.calculator ? [.calculator] : [])
+        if display.showsFullURLs != configuration.showFullURLs { display.showsFullURLs = configuration.showFullURLs }
     }
 
     /// Enter loaded typed text as `url`.
