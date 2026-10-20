@@ -1,5 +1,5 @@
 import Darwin
-import Foundation
+package import Foundation
 
 /// Descriptor-relative private storage for `downloads.json`.
 ///
@@ -7,13 +7,15 @@ import Foundation
 /// symlinks, require this user as owner, have extended ACLs removed, and receive private POSIX
 /// modes through their descriptors. Writes prepare a private same-directory file and publish it
 /// with `renameat`, so a path swap cannot redirect chmod or content outside this directory.
-nonisolated struct BrowserDownloadHistoryStorage: Sendable {
+package nonisolated struct BrowserDownloadHistoryStorage: BrowserDownloadHistoryStoring {
     let url: URL
+
+    package init(url: URL) { self.url = url }
 
     private var directory: URL { url.deletingLastPathComponent() }
     private var filename: String { url.lastPathComponent }
 
-    func read() throws -> Data? {
+    package func read() throws -> Data? {
         let directoryDescriptor = try openDirectory(create: true)
         defer { Darwin.close(directoryDescriptor) }
         let descriptor = filename.withCString {
@@ -25,10 +27,11 @@ nonisolated struct BrowserDownloadHistoryStorage: Sendable {
         }
         defer { Darwin.close(descriptor) }
         try Self.secure(descriptor, mode: 0o600, kind: S_IFREG)
+        // concurrency-allow: the App history model calls this repository only from its detached I/O task.
         return try FileHandle(fileDescriptor: descriptor, closeOnDealloc: false).readToEnd()
     }
 
-    func write(_ data: Data) throws {
+    package func write(_ data: Data) throws {
         let directoryDescriptor = try openDirectory(create: true)
         defer { Darwin.close(directoryDescriptor) }
         let temporary = ".\(filename).\(UUID().uuidString).tmp"
@@ -54,7 +57,7 @@ nonisolated struct BrowserDownloadHistoryStorage: Sendable {
         guard renamed == 0 else { throw Self.error() }
     }
 
-    func remove() throws {
+    package func remove() throws {
         guard let directoryDescriptor = try optionalDirectory() else { return }
         defer { Darwin.close(directoryDescriptor) }
         let result = filename.withCString { unlinkat(directoryDescriptor, $0, 0) }

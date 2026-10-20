@@ -7,7 +7,7 @@ import os
 /// row's name, source, file, how it ended and its size. A download of an
 /// incognito tab is never written; one still running is not either.
 final class BrowserDownloadHistory {
-    private let storage: BrowserDownloadHistoryStorage
+    private let storage: any BrowserDownloadHistoryStoring
     private var written: [Row]?
     /// The latest write; the next one waits for it, so writes land in order.
     private var lastWrite: Task<Void, Never>?
@@ -17,12 +17,18 @@ final class BrowserDownloadHistory {
         storage = BrowserDownloadHistoryStorage(url: url)
     }
 
+    init(storage: any BrowserDownloadHistoryStoring) {
+        self.storage = storage
+    }
+
     /// `<Application Support>/<bundle id>/downloads.json`.
     static func forApplication(bundleIdentifier: String?) -> BrowserDownloadHistory {
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? URL(filePath: NSTemporaryDirectory())
         let bundle = bundleIdentifier.flatMap { $0.isEmpty ? nil : $0 } ?? "com.cmuxterm.app.next"
-        return BrowserDownloadHistory(url: support.appending(path: bundle).appending(path: "downloads.json"))
+        return BrowserDownloadHistory(storage: BrowserDownloadHistoryStorage(
+            url: support.appending(path: bundle).appending(path: "downloads.json")
+        ))
     }
 
     /// One ended download.

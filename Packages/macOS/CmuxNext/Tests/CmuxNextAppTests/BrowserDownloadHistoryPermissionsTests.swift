@@ -97,8 +97,8 @@ import Testing
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         let file = root.appendingPathComponent("downloads.json")
         try Data(#"{"downloads":[]}"#.utf8).write(to: file)
-        try addEveryoneReadACL(to: root)
-        try addEveryoneReadACL(to: file)
+        try await addEveryoneReadACL(to: root)
+        try await addEveryoneReadACL(to: file)
         defer { try? FileManager.default.removeItem(at: root) }
         #expect(try extendedACLSize(of: root) > 0)
         #expect(try extendedACLSize(of: file) > 0)
@@ -118,13 +118,16 @@ import Testing
         return value?.intValue ?? -1
     }
 
-    private func addEveryoneReadACL(to url: URL) throws {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/chmod")
-        process.arguments = ["+a", "everyone allow read", url.path]
-        try process.run()
-        process.waitUntilExit()
-        guard process.terminationStatus == 0 else { throw POSIXError(.EACCES) }
+    private nonisolated func addEveryoneReadACL(to url: URL) async throws {
+        try await Task.detached {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/bin/chmod")
+            process.arguments = ["+a", "everyone allow read", url.path]
+            try process.run()
+            // concurrency-allow: test-only child process wait runs in this detached task.
+            process.waitUntilExit()
+            guard process.terminationStatus == 0 else { throw POSIXError(.EACCES) }
+        }.value
     }
 
     private func extendedACLSize(of url: URL) throws -> Int {
