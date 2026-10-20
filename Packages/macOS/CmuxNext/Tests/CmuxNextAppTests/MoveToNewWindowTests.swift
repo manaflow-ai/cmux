@@ -3,6 +3,7 @@ import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextDaemon
 import CmuxNextLayout
+import CmuxNextSidebar
 import Foundation
 import Testing
 
@@ -116,9 +117,15 @@ struct MoveToNewWindowTests {
                                               invocation: ActionInvocation(target: ActionTargetRef(kind: .workspace, id: workspace.id),
                                                                            arguments: ["name": .string(name)], origin: .user)))
             let personal = services.daemon.store.personal
-            try await PinnedPageTests.until({ personal.groups.contains { $0.name == name } && workspace.group != nil },
-                                            report: { "groups \(personal.groups.map(\.name)), workspace group \(String(describing: workspace.group))" })
-            let group = try #require(workspace.group)
+            // A personal group's members are its sidebar rows (not `WorkspaceModel.group`).
+            func group() -> WorkspaceGroupID? {
+                personal.groups.first { $0.name == name }.flatMap { group in
+                    let rows = services.windows.active?.sidebar.model.group(CmuxNextSidebar.GroupID(group.id.rawValue))?.workspaces ?? []
+                    return rows.contains { $0.id.rawValue == workspace.id } ? group.id : nil
+                }
+            }
+            try await PinnedPageTests.until({ group() != nil }, report: { "groups \(personal.groups.map(\.name))" })
+            let group = try #require(group())
             let moving = workspace.screens.flatMap(\.panes).flatMap(\.tabs).map { Live($0, services) }
             let source = try Self.window(ofTab: moving[0].tab, services)
             let frame = services.windows.controller(for: source)?.window?.frame
