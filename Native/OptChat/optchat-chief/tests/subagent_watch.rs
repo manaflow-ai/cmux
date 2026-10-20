@@ -87,6 +87,10 @@ fn say(text: &str, t: u64) -> Value {
     )
 }
 
+fn started(t: u64) -> Value {
+    json!({"dir": "mux", "kind": "turn_started", "at": t, "msg": {}})
+}
+
 fn prompt(prompt_id: &str, t: u64) -> Value {
     json!({"dir": "mux", "kind": "user_message", "at": t, "msg": {"promptId": prompt_id}})
 }
@@ -329,6 +333,7 @@ fn status_names_the_task_the_work_and_the_pushes() {
     let t0 = now_ms();
     let mut s = setup(vec![
         prompt("optchat-sub:a1", t0),
+        started(t0),
         bash("p", "git push origin HEAD:feat-cmux-next", t0 + 1000),
         result(
             "p",
@@ -395,7 +400,7 @@ fn a_stopped_report_says_where_it_stopped() {
         json!({"dir": "mux", "kind": "turn_end", "at": t0 + 4000, "msg": {"stopReason": "cancelled"}}),
     ]);
     s.idle();
-    s.at(t0 + 5 * MIN);
+    s.at(t0 + 10 * MIN);
     s.tick();
     let report = s.sub().report.unwrap_or_default();
     assert!(report.starts_with("(stopped by the user)"), "{report}");
@@ -430,8 +435,10 @@ fn an_ack_to_a_chief_tell_is_quiet() {
     let t0 = now_ms();
     let mut s = setup(vec![
         prompt("optchat-sub:a1", t0),
+        started(t0),
         json!({"dir": "mux", "kind": "turn_end", "at": t0 + 500, "msg": {"stopReason": "end_turn"}}),
         prompt(&format!("optchat-tell:a1:{t0}"), t0 + 1000),
+        started(t0 + 1000),
         say(
             "Understood: no more force pushes. I'm stopping now.",
             t0 + 2000,
@@ -439,7 +446,7 @@ fn an_ack_to_a_chief_tell_is_quiet() {
         json!({"dir": "mux", "kind": "turn_end", "at": t0 + 3000, "msg": {"stopReason": "end_turn"}}),
     ]);
     s.idle();
-    s.at(t0 + 5 * MIN);
+    s.at(t0 + 10 * MIN);
     s.tick();
     let sub = s.sub();
     assert!(

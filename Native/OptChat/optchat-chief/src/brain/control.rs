@@ -15,6 +15,13 @@
 //!
 //! Pushed to the Chief, never polled: reports (spawns.rs), prompts
 //! (`permission_note`), stuck runs (`sub_tick`) and delivered inboxes.
+//!
+//! Stuck runs (acp-chief-issues.md #4/#5, a204): `sub_tick` reads a quiet
+//! subagent's events (sub_watch.rs). One alive in a wait or a tool (Claude
+//! Code beats every 30 s) is left alone; one silent for
+//! [`crate::sub_watch::STALL_AFTER`] is continued automatically (interrupt,
+//! then a continue prompt that names its fleet runs), and the Chief hears of
+//! it only when that did not help, or when one wait runs past its limit.
 
 use std::time::Duration;
 
@@ -25,9 +32,17 @@ use super::{Brain, Source};
 use crate::state::{SubRecord, SubStatus};
 use crate::tools::ControlCall;
 
-/// A running subagent whose session did not change for this long gets one
-/// stuck note per run.
-pub(super) const STUCK_AFTER: Duration = Duration::from_secs(15 * 60);
+/// A running subagent whose session did not change for this long has its
+/// events read (`sub_tick`).
+pub(super) const QUIET_AFTER: Duration = Duration::from_secs(5 * 60);
+/// Automatic continues of one silent run before the Chief hears of it.
+pub(super) const AUTO_CONTINUES: u32 = 2;
+/// A session idle this long after its run began, with no turn end since its
+/// last report, is done (#7); younger, its first prompt may not have started.
+pub(super) const IDLE_GRACE: Duration = Duration::from_secs(2 * 60);
+/// A tool heartbeat this recent means the tool is alive: a restart steers
+/// instead of killing it (#16).
+pub(super) const ALIVE_BEAT: Duration = Duration::from_secs(3 * 60);
 /// How often the brain checks for stuck subagents.
 pub(super) const TICK: Duration = Duration::from_secs(60);
 /// The prompt `restart` sends when it is given none.
@@ -59,34 +74,46 @@ pub(super) fn state_name(sub: &SubRecord, now: u64) -> &'static str {
         SubStatus::Queued => "queued",
         SubStatus::Starting => "starting",
         SubStatus::Running if sub.permission.is_some() => "waiting-on-permission",
-        SubStatus::Running if stuck(sub, now) => "stuck",
+        SubStatus::Running if quiet(sub, now) => "quiet",
         SubStatus::Running => "running",
         SubStatus::Done | SubStatus::Reported => {
             let report = sub.report.as_deref().unwrap_or("");
             if report.starts_with("(failed") || report.starts_with("(did not start") {
                 "failed"
-            } else if sub.stopped {
+            } else if sub.stopped && report.starts_with("(stopped") {
                 "stopped"
             } else {
-                "idle"
+                "done"
             }
         }
     }
 }
 
-fn stuck(sub: &SubRecord, now: u64) -> bool {
+/// Its session summary has not changed for [`QUIET_AFTER`]: its events
+/// say whether it waits, works or stalled.
+fn quiet(sub: &SubRecord, now: u64) -> bool {
     let since = sub.active_ms.max(sub.run_ms);
-    since > 0 && now.saturating_sub(since) >= STUCK_AFTER.as_millis() as u64
+    since > 0 && now.saturating_sub(since) >= QUIET_AFTER.as_millis() as u64
 }
 
 fn minutes(ms: u64) -> String {
-    let s = ms / 1000;
-    if s < 60 {
-        format!("{s}s")
-    } else if s < 3600 {
-        format!("{}m", s / 60)
+    crate::sub_watch::minutes(ms)
+}
+
+fn busy(status: cmux_chief::acp::SessionStatus) -> bool {
+    use cmux_chief::acp::SessionStatus;
+    matches!(status, SessionStatus::Running | SessionStatus::Waiting)
+}
+
+/// `text` on one line, at most `n` characters.
+fn one_line(text: &str, n: usize) -> String {
+    let line: String = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    if line.chars().count() <= n {
+        line
     } else {
-        format!("{}h{:02}m", s / 3600, (s % 3600) / 60)
+        let mut cut: String = line.chars().take(n).collect();
+        cut.push('…');
+        cut
     }
 }
 
@@ -181,7 +208,11 @@ impl Brain {
             .emit("control", json!({"action": call.action, "id": id}));
         let message = call.message.as_deref();
         match call.action.as_str() {
-            "status" => Ok(self.status_line(&sub, true)),
+            "status" => {
+                let watch = self.refresh_watch(id).cloned().unwrap_or_default();
+                let sub = self.state.sub(id).map_or(sub, |(_, s)| s.clone());
+                Ok(self.status_line(&sub, Some(&watch)))
+            }
             "interrupt" => self.control_interrupt(&sub, message),
             "answer" => self.control_answer(&sub, call.option.as_deref().unwrap_or("deny")),
             "pause" => self.control_pause(&sub),
@@ -194,7 +225,7 @@ impl Brain {
     }
 
     fn status_all(&self) -> String {
-        let now = now_ms();
+        let now = self.now();
         let mut subs: Vec<&SubRecord> = self
             .state
             .spawns
@@ -211,7 +242,7 @@ impl Brain {
         let mut lines: Vec<String> = subs
             .into_iter()
             .take(STATUS_MAX)
-            .map(|s| self.status_line(s, false))
+            .map(|s| self.status_line(s, None))
             .collect();
         if total > STATUS_MAX {
             lines.push(format!("(and {} older)", total - STATUS_MAX));
@@ -220,9 +251,32 @@ impl Brain {
             Some(n) => format!("cap {n}"),
             None => "no cap".to_owned(),
         };
+        // #19: how many of those at work only wait on the fleet (or another
+        // run): with many waiting, a lower cap frees no Mac, more spawns
+        // only lengthen the queue.
+        let mut by_state: std::collections::BTreeMap<&str, usize> = Default::default();
+        for sub in self
+            .state
+            .spawns
+            .values()
+            .flat_map(|r| r.subs.iter())
+            .filter(|s| matches!(s.status, SubStatus::Starting | SubStatus::Running))
+        {
+            *by_state.entry(self.state_of(sub, now)).or_default() += 1;
+        }
+        let states = by_state
+            .iter()
+            .map(|(k, n)| format!("{n} {k}"))
+            .collect::<Vec<_>>()
+            .join(", ");
         let head = format!(
-            "outcome: done. {} at work ({cap}); subagents of the last 2 h, newest first:",
-            self.live_subs()
+            "outcome: done. {} at work ({cap}{}); subagents of the last 2 h, newest first:",
+            self.live_subs(),
+            if states.is_empty() {
+                String::new()
+            } else {
+                format!("; {states}")
+            }
         );
         if lines.is_empty() {
             return "outcome: done. No subagents in the last 2 h.".to_owned();
@@ -230,10 +284,52 @@ impl Brain {
         format!("{head}\n{}", lines.join("\n"))
     }
 
-    /// One subagent's status; `full` adds its last output and prompt.
-    fn status_line(&self, sub: &SubRecord, full: bool) -> String {
-        let now = now_ms();
-        let state = state_name(sub, now);
+    /// The state a subagent is in: its watch's (thinking, running-tool,
+    /// waiting, stalled, done) while it runs, else `state_name`.
+    fn state_of(&self, sub: &SubRecord, now: u64) -> &'static str {
+        let plain = state_name(sub, now);
+        if !matches!(plain, "running" | "quiet") {
+            return plain;
+        }
+        match self.watches.get(&sub.id) {
+            Some(w) => w.doing(now).state(),
+            None => plain,
+        }
+    }
+
+    /// The current watch of running subagent `id`: its events since the
+    /// last read are folded in (#6). None for one with no session.
+    pub(super) fn refresh_watch(&mut self, id: &str) -> Option<&crate::sub_watch::Watch> {
+        let (session, floor) = {
+            let (_, sub) = self.state.sub(id)?;
+            (sub.session_id.clone()?, sub.floor)
+        };
+        let watch = self
+            .watches
+            .entry(id.to_owned())
+            .or_insert_with(|| crate::sub_watch::Watch::after(floor));
+        if watch.seq() < floor {
+            *watch = crate::sub_watch::Watch::after(floor);
+        }
+        match self.agents.events(&session, watch.seq()) {
+            Ok(events) => {
+                for e in &events {
+                    watch.apply(e);
+                }
+            }
+            Err(e) => (self.log)(&format!("subagent {id}: reading its events: {e}")),
+        }
+        self.watches.get(id)
+    }
+
+    /// One subagent's status. With `watch` (a full status): its task, what
+    /// it does now, its last line, its pushes and its last report (#6).
+    fn status_line(&self, sub: &SubRecord, watch: Option<&crate::sub_watch::Watch>) -> String {
+        let now = self.now();
+        let state = match watch {
+            Some(w) if matches!(state_name(sub, now), "running" | "quiet") => w.doing(now).state(),
+            _ => self.state_of(sub, now),
+        };
         let mut line = format!(
             "- {} [{state}] {} for {}",
             sub.id,
@@ -251,29 +347,40 @@ impl Brain {
         if sub.priority != 0 {
             line.push_str(&format!("; priority {}", sub.priority));
         }
-        if !full {
+        if sub.auto_continues > 0 {
+            line.push_str(&format!("; auto-continued {}x", sub.auto_continues));
+        }
+        let Some(watch) = watch else {
             return line;
+        };
+        let mut out = format!("outcome: done. {line}");
+        if !sub.task.is_empty() {
+            out.push_str(&format!("\ntask: {}", one_line(&sub.task, 240)));
+        }
+        let running = sub.status == SubStatus::Running;
+        for l in watch.summary(now) {
+            // A finished run's "doing" is its state; its report says more.
+            if !running && l.starts_with("doing:") {
+                continue;
+            }
+            out.push_str(&format!("\n{l}"));
         }
         let summary: Option<SessionSummary> = sub
             .session_id
             .as_deref()
             .and_then(|s| self.agents.session(s).ok().flatten());
-        let mut out = format!("outcome: done. {line}");
         if let Some(s) = &summary {
             out.push_str(&format!("\nsession: {} ({:?})", s.session_id, s.status));
-            if let Some(m) = &s.last_message {
-                out.push_str(&format!("\nlast {}: {}", m.role, clip(&m.text)));
-            } else if let Some(p) = &s.preview {
-                out.push_str(&format!("\nlast: {}", clip(p)));
-            }
-            if let Some(p) = &s.last_prompt {
+            // The first prompt is the Chief's view and the task (shown
+            // above); a later one is a tell or the user's message.
+            if let Some(p) = s.last_prompt.as_deref().filter(|p| !p.contains("</chat>")) {
                 out.push_str(&format!("\nlast prompt: {}", clip(p)));
             }
         } else if sub.session_id.is_none() {
             out.push_str("\nno session yet");
         }
-        if let Some(r) = sub.report.as_deref().filter(|_| state != "running") {
-            out.push_str(&format!("\nlast report: {}", clip(r)));
+        if let Some(r) = sub.report.as_deref().filter(|_| !running) {
+            out.push_str(&format!("\nlast report: {}", one_line(r, 400)));
         }
         if let Some(p) = &sub.permission {
             out.push('\n');
@@ -304,8 +411,16 @@ impl Brain {
             };
         }
         let session = sub.session_id.clone().unwrap_or_default();
+        // #16: the follow-up says what the cut turn was in and which fleet
+        // runs to wait on again, so nothing is lost or run twice.
+        let now = self.now();
+        let note = self.refresh_watch(id).map(|w| w.resume_note(now));
+        let follow = message.map(|m| match &note {
+            Some(note) => format!("{m}\n\n{note}"),
+            None => m.to_owned(),
+        });
         if let Some(sub) = self.state.sub_mut(id) {
-            sub.after_stop = message.map(str::to_owned);
+            sub.after_stop = follow;
         }
         self.save();
         if let Err(e) = self.agents.cancel(&session) {
@@ -534,6 +649,27 @@ impl Brain {
         }
         self.save();
         if Self::running(sub) {
+            // #16: one alive in a wait or a tool (a recent heartbeat) keeps
+            // it; the message is steered in and read when that call ends.
+            // `interrupt` still cuts it.
+            let now = self.now();
+            let alive = self.refresh_watch(id).and_then(|w| {
+                let doing = w.doing(now);
+                let beat = match &doing {
+                    crate::sub_watch::Doing::Waiting { beat_ago_ms, .. }
+                    | crate::sub_watch::Doing::Tool { beat_ago_ms, .. } => *beat_ago_ms,
+                    _ => None,
+                };
+                beat.filter(|ms| *ms < ALIVE_BEAT.as_millis() as u64)
+                    .map(|_| doing.label())
+            });
+            if let Some(label) = alive {
+                return self.tell_keyed(id, &text, None).map(|_| {
+                    format!(
+                        "outcome: done. {id} is alive, {label}. A restart would kill that call and run it again, so your message is steered in instead; it reads it when the call ends. To cut it now: control(action: \"interrupt\", id: \"{id}\", message: ...)."
+                    )
+                });
+            }
             return self
                 .control_interrupt(sub, Some(&text))
                 .map(|a| a.replacen("is interrupted", "restarts: its turn is interrupted", 1));
@@ -662,11 +798,20 @@ impl Brain {
         ))
     }
 
-    /// Once a minute: a running subagent whose session did not change for
-    /// [`STUCK_AFTER`] gets one note per run.
+    /// The clock the watch reads (ms since the epoch).
+    pub(super) fn now(&self) -> u64 {
+        (self.clock)()
+    }
+
+    /// Once a minute: each running subagent whose session summary has not
+    /// changed for [`QUIET_AFTER`] has its events read (sub_watch.rs). A
+    /// session acpmux no longer runs is settled (#7); one alive in a wait
+    /// or a tool is left alone (#4); a silent one is continued
+    /// automatically, and the Chief hears of it only when the continues did
+    /// not help (#5); one wait or tool past its limit gets one note.
     pub(super) fn sub_tick(&mut self) {
-        let now = now_ms();
-        let stuck_ids: Vec<(String, u64)> = self
+        let now = self.now();
+        let quiet_ids: Vec<String> = self
             .state
             .spawns
             .values()
@@ -675,26 +820,179 @@ impl Brain {
                 Self::running(s)
                     && !s.stuck_noted
                     && !s.paused
+                    && !s.cancelled
                     && s.permission.is_none()
-                    && stuck(s, now)
+                    && !s.awaiting_task
+                    && quiet(s, now)
             })
-            .map(|s| (s.id.clone(), now.saturating_sub(s.active_ms.max(s.run_ms))))
+            .map(|s| s.id.clone())
             .collect();
-        for (id, idle) in stuck_ids {
-            if let Some(s) = self.state.sub_mut(&id) {
-                s.stuck_noted = true;
+        for id in quiet_ids {
+            self.watch_sub(&id, now);
+        }
+        let state = &self.state;
+        self.watches.retain(|id, _| {
+            state
+                .sub(id)
+                .is_some_and(|(_, s)| s.status == SubStatus::Running)
+        });
+    }
+
+    fn watch_sub(&mut self, id: &str, now: u64) {
+        let Some(session) = self.state.sub(id).and_then(|(_, s)| s.session_id.clone()) else {
+            return;
+        };
+        // #7: acpmux no longer runs it; the host missed (or never got) its end.
+        if let Ok(Some(summary)) = self.agents.session(&session)
+            && !busy(summary.status)
+        {
+            self.sub_changed(&summary);
+            return;
+        }
+        let Some(watch) = self.refresh_watch(id) else {
+            return;
+        };
+        let alarm = watch.alarm(now);
+        let last_event = watch.last_event_ms();
+        let note = watch.resume_note(now);
+        let lines = watch.summary(now);
+        let Some((_, sub)) = self.state.sub(id) else {
+            return;
+        };
+        let (continues, continued) = (sub.auto_continues, sub.continued_ms);
+        match alarm {
+            crate::sub_watch::Alarm::None => {}
+            crate::sub_watch::Alarm::Stalled { silent_ms } => {
+                let stall = crate::sub_watch::STALL_AFTER.as_millis() as u64;
+                // A new stall: it did something after the last continue.
+                let fresh = continued == 0 || last_event > continued;
+                if fresh && continues < AUTO_CONTINUES && self.resume_policy.is_some() {
+                    self.auto_continue(id, &session, silent_ms, &note, now);
+                } else if now.saturating_sub(continued) >= stall || continued == 0 {
+                    let tried = if continues > 0 {
+                        format!(
+                            ", and {} automatic continue(s) did not help (the last {} ago)",
+                            continues,
+                            minutes(now.saturating_sub(continued))
+                        )
+                    } else {
+                        String::new()
+                    };
+                    self.stuck_note(
+                        id,
+                        format!(
+                            "[{id}] is stuck: no event for {}{tried}.",
+                            minutes(silent_ms)
+                        ),
+                        &lines,
+                        json!({"id": id, "idle_ms": silent_ms, "after_continue": continues > 0}),
+                    );
+                }
+            }
+            crate::sub_watch::Alarm::Overdue { what, for_ms } => {
+                self.stuck_note(
+                    id,
+                    format!(
+                        "[{id}] has been {what} for {} (it is alive). The fleet queue: http://100.89.225.106:18765/status. Tell it to stop waiting, or leave it.",
+                        minutes(for_ms)
+                    ),
+                    &lines,
+                    json!({"id": id, "overdue_ms": for_ms, "what": what}),
+                );
+            }
+        }
+    }
+
+    /// Interrupts silent subagent `id` and sends it a continue prompt that
+    /// carries `note` (sub_watch `resume_note`); no note to the Chief.
+    fn auto_continue(&mut self, id: &str, session: &str, silent_ms: u64, note: &str, now: u64) {
+        let text = format!(
+            "[auto-continue] Nothing came from you for {}: no tool ran and nothing streamed, so the host stopped that turn. Continue your task from where you stopped. {note}",
+            minutes(silent_ms)
+        );
+        let attempt = if let Some(sub) = self.state.sub_mut(id) {
+            sub.after_stop = Some(text);
+            sub.auto_continues += 1;
+            sub.continued_ms = now;
+            sub.auto_continues
+        } else {
+            return;
+        };
+        self.save();
+        if let Err(e) = self.agents.cancel(session) {
+            (self.log)(&format!(
+                "subagent {id}: its automatic continue failed: {e}"
+            ));
+            if let Some(sub) = self.state.sub_mut(id) {
+                sub.after_stop = None;
             }
             self.save();
-            self.trace
-                .emit("subagent.stuck", json!({"id": id, "idle_ms": idle}));
-            self.queue(
-                format!(
-                    "[{id}] looks stuck: no progress for {}. See control(action: \"status\", id: \"{id}\"); interrupt or restart it if needed.",
-                    minutes(idle)
-                ),
-                Source::Note,
-            );
+            return;
         }
+        (self.log)(&format!("subagent {id}: silent, continued automatically"));
+        self.trace.emit(
+            "subagent.auto_continue",
+            json!({"id": id, "silent_ms": silent_ms, "attempt": attempt}),
+        );
+    }
+
+    /// One note to the Chief about subagent `id`, once per run, with what
+    /// it does (`lines`) and how to act.
+    fn stuck_note(&mut self, id: &str, head: String, lines: &[String], trace: Value) {
+        if let Some(s) = self.state.sub_mut(id) {
+            s.stuck_noted = true;
+        }
+        self.save();
+        self.trace.emit("subagent.stuck", trace);
+        let task = self
+            .state
+            .sub(id)
+            .map(|(_, s)| one_line(&s.task, 160))
+            .filter(|t| !t.is_empty())
+            .map(|t| format!("\ntask: {t}"))
+            .unwrap_or_default();
+        self.queue(
+            format!(
+                "{head}{task}\n{}\nAct: control(action: \"restart\", id: \"{id}\", message: ...) or control(action: \"cancel\", id: \"{id}\").",
+                lines.join("\n")
+            ),
+            Source::Note,
+        );
+    }
+
+    /// Subagent `id`'s session is idle with no turn end since its last
+    /// report (#7: a51, a60, a62 stayed "at work" for 15 h): it is done,
+    /// quietly. A follow-up the Chief queued (`after_stop`) is sent when
+    /// fresh and dropped when the run has been quiet for an hour.
+    pub(super) fn settle_idle(&mut self, id: &str) {
+        let now = self.now();
+        let Some((_, sub)) = self.state.sub(id) else {
+            return;
+        };
+        if sub.status != SubStatus::Running
+            || sub.awaiting_task
+            || now.saturating_sub(sub.run_ms) < IDLE_GRACE.as_millis() as u64
+        {
+            return;
+        }
+        let stale = now.saturating_sub(sub.active_ms.max(sub.run_ms)) >= 3600 * 1000;
+        if stale
+            && let Some(s) = self.state.sub_mut(id)
+            && let Some(dropped) = s.after_stop.take()
+        {
+            (self.log)(&format!(
+                "subagent {id}: dropped a follow-up an hour old: {}",
+                one_line(&dropped, 120)
+            ));
+        }
+        self.trace.emit("subagent.settled_idle", json!({"id": id}));
+        self.sub_done(
+            id,
+            "(idle: its session went idle with no new reply since its last report)".into(),
+            true,
+            None,
+            None,
+        );
     }
 }
 
@@ -742,13 +1040,16 @@ mod tests {
             ..SubRecord::default()
         };
         assert_eq!(state_name(&sub, now), "running");
-        sub.active_ms = now - STUCK_AFTER.as_millis() as u64 - 1;
+        // Quiet only: its events (sub_watch.rs) say whether it is stuck.
+        sub.active_ms = now - QUIET_AFTER.as_millis() as u64 - 1;
         sub.run_ms = sub.active_ms;
-        assert_eq!(state_name(&sub, now), "stuck");
+        assert_eq!(state_name(&sub, now), "quiet");
         sub.permission = Some(crate::state::PendingPermission::default());
         assert_eq!(state_name(&sub, now), "waiting-on-permission");
         sub.status = SubStatus::Done;
         sub.permission = None;
+        sub.report = Some("all landed".into());
+        assert_eq!(state_name(&sub, now), "done");
         sub.report = Some("(failed: boom)".into());
         assert_eq!(state_name(&sub, now), "failed");
         sub.paused = true;
