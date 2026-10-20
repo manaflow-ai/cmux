@@ -376,4 +376,117 @@ mod agent_message_pump {
         assert_eq!(state(&delivered, "acp:b"), "delivered", "{delivered}");
         assert_eq!(prompts_of(&daemon, &message), 2, "one refused, one taken");
     }
+
+    #[test]
+    fn an_unsend_commits_acpmux_answer_after_an_unrelated_change() {
+        let (daemon, a) = two_agents("unsend-revision");
+        let message = id(&delivered_to_b(&daemon, &a, "take it back"));
+        daemon.withdraw_answers("b", "retracted");
+        daemon.hold_withdraws("b");
+        // The person's message to a session acpmux does not run: the pump
+        // commits nothing for it, so this is the current revision.
+        let before = daemon.send(None, to("acp:gone", "first"));
+        let revision = before["result"]["revision"].as_str().unwrap().to_owned();
+        let params = json!({"message_id": message, "expected_revision": revision});
+        let reply = std::thread::scope(|scope| {
+            let unsending = scope.spawn(|| daemon.mutate("agent.message.unsend", params, Some(&a)));
+            let deadline = Instant::now() + Duration::from_secs(20);
+            while daemon.withdrawals().is_empty() {
+                assert!(Instant::now() < deadline, "acpmux was never asked");
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            // Another change commits while acpmux withdraws the message.
+            let other = daemon.send(None, to("acp:gone", "meanwhile"));
+            assert_ne!(other["result"]["revision"], json!(revision), "{other}");
+            daemon.release_withdraws("b");
+            unsending.join().unwrap()
+        });
+        // acpmux withdrew it: that answer commits.
+        assert_eq!(outcome(&reply, "acp:b"), "retracted", "{reply}");
+        assert_eq!(state(&reply["result"]["value"]["message"], "acp:b"), "retracted", "{reply}");
+    }
+
+    #[test]
+    fn a_prompt_acpmux_may_still_take_is_never_called_unsent() {
+        let (daemon, a, (_, alpha)) = two_agents_in("unsend-in-flight");
+        daemon.place_session("slow", &alpha);
+        daemon.silent("slow", 1000);
+        let message = id(&daemon.sent(Some(&a), to("acp:slow", "are you there")));
+        let waited = daemon.wait_for(&message, "a noted attempt", |m| {
+            delivery(m, "acp:slow")["attempts"] != "0" || state(m, "acp:slow") != "queued"
+        });
+        assert_eq!(state(&waited, "acp:slow"), "queued", "{waited}");
+        // acpmux holds no such prompt yet, but a hand-over may still reach it.
+        let reply = unsend(&daemon, Some(&a), &message);
+        let pending = entry(&reply, "acp:slow");
+        assert_eq!(pending["outcome"], "failed", "{reply}");
+        assert_eq!(pending["error"]["reason"], "acpmux_unavailable", "{reply}");
+        assert_eq!(reply["result"]["value"]["outcome"], "failed", "{reply}");
+        assert_eq!(state(&reply["result"]["value"]["message"], "acp:slow"), "queued", "{reply}");
+        assert!(!daemon.withdrawals().is_empty(), "acpmux was never asked");
+    }
+
+    #[test]
+    fn a_session_waiting_on_one_prompt_gets_no_later_message_first() {
+        let daemon = Daemon::start_owner_with_acpmux("pump-order");
+        let (_, alpha) = daemon.workspace("alpha");
+        // The person's messages wait: acpmux runs no session `slow` yet.
+        let first = id(&daemon.sent(None, to("acp:slow", "first")));
+        let second = id(&daemon.sent(None, to("acp:slow", "second")));
+        // Then it does, and never accepts the first hand-over.
+        daemon.silent("slow", 1);
+        daemon.place_session("slow", &alpha);
+        daemon.wait_for(&first, "a noted attempt", |m| delivery(m, "acp:slow")["attempts"] != "0");
+        daemon.wait_for(&second, "the second delivery", |m| state(m, "acp:slow") == "delivered");
+        daemon.wait_for(&first, "the first delivery", |m| state(m, "acp:slow") == "delivered");
+        let order: Vec<String> = daemon
+            .prompts()
+            .iter()
+            .filter_map(|p| p["_meta"]["acpmux"]["promptId"].as_str().map(str::to_owned))
+            .collect();
+        let last_first = order.iter().rposition(|p| *p == first);
+        let first_second = order.iter().position(|p| *p == second);
+        assert!(last_first < first_second, "the second went out before the first: {order:?}");
+    }
+
+    #[test]
+    fn a_long_acpmux_refusal_fits_the_unsend_result() {
+        let (daemon, a) = two_agents("unsend-long-reason");
+        let message = id(&delivered_to_b(&daemon, &a, "long"));
+        let reason = format!("withdraw.{}", "\u{e9}".repeat(300));
+        daemon.withdraw_answers("b", &format!("refuse:{reason}"));
+        let reply = unsend(&daemon, Some(&a), &message);
+        let refused = entry(&reply, "acp:b");
+        assert_eq!(refused["outcome"], "failed", "{reply}");
+        let acpmux_reason = refused["error"]["acpmux_reason"].as_str().unwrap_or_default();
+        // The catalog's limits count UTF-8 bytes; the cut keeps whole characters.
+        assert!((125..=128).contains(&acpmux_reason.len()), "{reply}");
+        assert!(reason.starts_with(acpmux_reason), "{reply}");
+        let text = refused["error"]["message"].as_str().unwrap_or_default();
+        assert!(!text.is_empty() && text.len() <= 1024, "{reply}");
+    }
+
+    #[test]
+    fn the_cli_unsend_exits_1_when_it_failed() {
+        let (daemon, a) = two_agents("unsend-cli-exit");
+        let message = id(&delivered_to_b(&daemon, &a, "from the cli"));
+        let args = ["agent", "message", "unsend", message.as_str()];
+        let run = |expected: i32, outcome: &str| {
+            let output = daemon.cli_started(&args, &a).wait_with_output().unwrap();
+            let shown = format!(
+                "{}{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            assert_eq!(output.status.code(), Some(expected), "{shown}");
+            let printed: Value = serde_json::from_slice(&output.stdout)
+                .unwrap_or_else(|error| panic!("{error}: {shown}"));
+            assert_eq!(printed["value"]["outcome"], outcome, "{shown}");
+        };
+        // acpmux hangs up: failed, still printed, and the command fails.
+        daemon.withdraw_answers("b", "hang-up");
+        run(1, "failed");
+        daemon.withdraw_answers("b", "too_late");
+        run(0, "too_late");
+    }
 }

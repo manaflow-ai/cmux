@@ -2642,133 +2642,133 @@
       }
     },
     "argument.home.view.messages": {
-      "comment": "Value of the Switch Home View argument: the native Messages view.",
+      "comment": "Value of the Switch Home View argument: the Home entry (the native Messages view).",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Messages"
+            "value": "Home"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "الرسائل"
+            "value": "الرئيسية"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Poruke"
+            "value": "Početna"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Beskeder"
+            "value": "Hjem"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nachrichten"
+            "value": "Start"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mensajes"
+            "value": "Inicio"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Messages"
+            "value": "Accueil"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Messaggi"
+            "value": "Home"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "メッセージ"
+            "value": "ホーム"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "សារ"
+            "value": "ទំព័រដើម"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "메시지"
+            "value": "홈"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Meldinger"
+            "value": "Hjem"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Wiadomości"
+            "value": "Start"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mensagens"
+            "value": "Início"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Сообщения"
+            "value": "Главная"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ข้อความ"
+            "value": "หน้าแรก"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mesajlar"
+            "value": "Ana Sayfa"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Повідомлення"
+            "value": "Головна"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tin nhắn"
+            "value": "Trang chủ"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "信息"
+            "value": "主页"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "訊息"
+            "value": "首頁"
           }
         }
       }
@@ -2901,6 +2901,270 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "頻道"
+          }
+        }
+      }
+    },
+    "action.home.enableChannels": {
+      "comment": "Action (command palette): show the Channels entry after Home in the sidebar (the home.channelsEnabled setting).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enable Channels"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تفعيل القنوات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uključi kanale"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Slå kanaler til"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kanäle aktivieren"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Activar canales"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Activer les canaux"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Attiva canali"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "チャンネルを有効にする"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បើកឆានែល"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "채널 켜기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Slå på kanaler"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Włącz kanały"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ativar canais"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Включить каналы"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เปิดใช้ช่อง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kanalları Etkinleştir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Увімкнути канали"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bật kênh"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "启用频道"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "啟用頻道"
+          }
+        }
+      }
+    },
+    "action.home.disableChannels": {
+      "comment": "Action (command palette): hide the Channels entry after Home in the sidebar; Home is selected when Channels was shown.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disable Channels"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعطيل القنوات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Isključi kanale"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Slå kanaler fra"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kanäle deaktivieren"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Desactivar canales"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Désactiver les canaux"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Disattiva canali"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "チャンネルを無効にする"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បិទឆានែល"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "채널 끄기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Slå av kanaler"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wyłącz kanały"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Desativar canais"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Отключить каналы"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ปิดใช้ช่อง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kanalları Devre Dışı Bırak"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Вимкнути канали"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tắt kênh"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "停用频道"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "停用頻道"
           }
         }
       }

@@ -105,13 +105,23 @@ thread_local! {
     /// registry to start the brain).
     static PENDING_BRAIN: std::cell::RefCell<Option<crate::chief_brains::BrainPending>> =
         const { std::cell::RefCell::new(None) };
+    /// A renamed Chief (id, new name, rev) from `mutate`, whose own
+    /// conversation `answer` retitles once the registry lock is released.
+    static PENDING_RETITLE: std::cell::RefCell<Option<(String, String, u64)>> =
+        const { std::cell::RefCell::new(None) };
 }
 
 /// The answer, with a new Chief's `brain` (what happened to its brain, from
 /// the supervisor's real state) in the created record.
 fn answer(mux: &Mux, client: u64, request: &ParsedResourceRequest) -> Result<Value, ResourceError> {
     PENDING_BRAIN.with(|slot| slot.borrow_mut().take());
+    PENDING_RETITLE.with(|slot| slot.borrow_mut().take());
     let result = answer_locked(mux, client, request);
+    if let Some((chief, name, rev)) = PENDING_RETITLE.with(|slot| slot.borrow_mut().take())
+        && result.is_ok()
+    {
+        retitle_own_conversation(mux, &chief, &name, rev);
+    }
     let pending = PENDING_BRAIN.with(|slot| slot.borrow_mut().take());
     match (result, pending) {
         (Ok(mut value), Some(pending)) => {
@@ -297,12 +307,13 @@ fn mutate(
         _ => None,
     };
     // An edit that changes nothing keeps the rev: no chief-changed for it.
-    let rev_before = match operation {
+    // The name before an update: only a changed name retitles (cx-di8pd).
+    let (rev_before, name_before) = match operation {
         Op::ChiefProfileUpdate | Op::ChiefProfileAvatarSet => store
             .get(chief_field(fields))
             .map_err(|e| internal(operation, &e))?
-            .map(|record| record.rev),
-        _ => None,
+            .map_or((None, None), |record| (Some(record.rev), Some(record.display_name))),
+        _ => (None, None),
     };
     let picture_before = match operation {
         Op::ChiefProfileAvatarSet => store
@@ -386,6 +397,14 @@ fn mutate(
                     chief: record.id.clone(),
                     change,
                 })));
+                if operation == Op::ChiefProfileUpdate
+                    && name_before.as_deref() != Some(record.display_name.as_str())
+                {
+                    PENDING_RETITLE.with(|slot| {
+                        *slot.borrow_mut() =
+                            Some((record.id.clone(), record.display_name.clone(), record.rev));
+                    });
+                }
             }
             if !replayed
                 && let Some(pending) = mux.chiefs().brains.chief_written(
@@ -554,6 +573,53 @@ fn caller(mux: &Mux, client: u64, store: &ChiefStore) -> Result<Caller, Resource
         }
         _ => Err(forbidden()),
     }
+}
+
+/// cx-di8pd: a renamed Chief's own conversation takes its new name as its
+/// title, so every reader of the title (Home's header and list, the CLI, a
+/// page) follows the registry; the brain titled it with the old name when it
+/// made it. Its own conversation is the brain's rule (optchat-chief
+/// `select_chief_of`): the default Chief's oldest conversation, another
+/// Chief's oldest DM with the person (paired devices of the person count as
+/// the person). A later conversation with the Chief (a channel, a group)
+/// keeps its title. One `title.set` by the person, keyed by the record's
+/// rev, published like any op. Best effort: a failure is logged and the
+/// rename stands.
+fn retitle_own_conversation(mux: &Mux, chief: &str, name: &str, rev: u64) {
+    let listed = mux.with_conversations(|store| store.list());
+    let own = match listed {
+        Ok(listed) => own_conversation(listed, chief),
+        Err(error) => {
+            eprintln!("cmux-tui: Chief {chief} renamed; listing its conversations: {error:#}");
+            return;
+        }
+    };
+    let Some(own) = own.filter(|own| own.title != name) else { return };
+    let op = cmux_conversation::Op::TitleSet { title: name.to_owned() };
+    let key = format!("chief-rename-{chief}-{rev}");
+    if let Err(error) = super::conversations::commit_op(mux, &own.id, &key, LOCAL_USER, &op, &None)
+    {
+        eprintln!("cmux-tui: Chief {chief} renamed; retitling {}: {error:#}", own.id);
+    }
+}
+
+/// The conversation `chief` answers in (see [`retitle_own_conversation`]).
+fn own_conversation(
+    listed: Vec<cmux_conversation::Summary>,
+    chief: &str,
+) -> Option<cmux_conversation::Summary> {
+    let person = |p: &cmux_conversation::Participant| {
+        p.id == LOCAL_USER || p.person.as_deref() == Some(LOCAL_USER)
+    };
+    listed
+        .into_iter()
+        .filter(|c| c.participants.iter().any(|p| p.id == chief))
+        .filter(|c| {
+            chief == chief_registry::DEFAULT_CHIEF
+                || (c.participants.iter().any(|p| p.id == LOCAL_USER)
+                    && c.participants.iter().all(|p| p.id == chief || person(p)))
+        })
+        .min_by(|a, b| (&a.created_at, &a.id).cmp(&(&b.created_at, &b.id)))
 }
 
 /// Every Chief's current name by participant id, for the Home rows

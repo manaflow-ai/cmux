@@ -5291,6 +5291,9 @@ mod upgrade;
 #[path = "terminal_host_recovery/program_status_restart.rs"]
 mod program_status_restart;
 
+#[path = "terminal_host_recovery/shell_activity_restart.rs"]
+mod shell_activity_restart;
+
 #[path = "terminal_host_recovery/bell_notification.rs"]
 mod bell_notification;
 
@@ -5318,3 +5321,7 @@ mod parallel_new_tabs;
 
 #[path = "terminal_host_recovery/host_scrollback.rs"]
 mod host_scrollback;
+
+#[cfg(target_os = "macos")]
+#[path = "terminal_host_recovery/slim_host.rs"]
+mod slim_host;

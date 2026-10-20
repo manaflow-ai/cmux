@@ -54,12 +54,17 @@ final class DebugHomeNativeFixture: InternalPageProvider {
     /// never key. `tab` (a key from `debug.home` page.tabs) drives that Home tab.
     static func drive(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
         if params["action"]?.stringValue == "list" { return DebugHome.driveDockList(params, services: services) }
+        if params["action"]?.stringValue == "legacy_pins" { return DebugHome.legacyPins(params, services: services) }
+        if params["action"]?.stringValue == "permalink" { return permalink(params, services: services) }
         let view: HomeNativeTranscriptView?
         if let tab = params["tab"]?.stringValue {
             view = (services.pages.provider(.homeTab) as? HomePageTab)?.tabs.first { $0.key == tab }?.view.host
                 .flatMap(HomePageTab.transcript(in:))
         } else {
-            view = HomeNativeTranscriptView.shown(in: services.windows.active?.window)
+            // `window`: the Home view shown in that window (default: the active window's).
+            let id = params["window"]?.stringValue, window = id.flatMap { services.windows.controller(for: $0)?.window }
+            if let id, window == nil { return .object(["error": .string("no window \(id)")]) }
+            view = HomeNativeTranscriptView.shown(in: window ?? services.windows.active?.window)
         }
         guard let view else {
             return .object(["error": .string("no Home conversation is shown")])
@@ -131,10 +136,23 @@ final class DebugHomeNativeFixture: InternalPageProvider {
             return .object(["ok": .bool(true), "geometry": .object(view.debugGeometry().mapValues { .number($0) })])
         case "texts":
             // What the transcript view itself holds (its MessagesLab store), oldest first, to compare
-            // with the HomeStore transcript and the owner's snapshot (a message in both but not here is hidden).
-            let texts = view.debugMessageTexts(limit: params["limit"]?.intValue ?? 50)
+            // with the HomeStore transcript and the owner's snapshot (a message in both but not here is hidden); a stream (ask 11) last.
+            let texts = view.debugMessageTexts(limit: params["limit"]?.intValue ?? 50) + view.debugStreamTexts
             return .object(["ok": .bool(true), "texts": .array(texts.map { .string($0) }),
-                            "statusLine": view.debugStatusLine.map { .string($0) } ?? .null])
+                            "statusLine": view.debugStatusLine.map { .string($0) } ?? .null, "rebuilds": .number(Double(view.debugRebuilds)), "streams": .number(Double(view.debugStreamTexts.count)), "lineCloseAfterHandOffFires": view.debugLineCloseAfterHandOffFires.map { .number(Double($0)) } ?? .null])
+        case "engine_set", "chief_control":
+            // One pick in the shown conversation's Chief settings panel (`key`: harness, model or effort;
+            // no `value`: default), as its popup does (scripts/cmux-next/chief-home-fixes-live.py).
+            // "chief_control": the named Chief the shown view's controls name (null: the default Chief).
+            guard let host = sequence(first: view as NSView, next: \.superview).lazy.compactMap({ $0 as? HomeHostView }).first else {
+                return .object(["error": .string("no Home host view")])
+            }
+            if params["action"]?.stringValue == "chief_control" {
+                return .object(["ok": .bool(true), "named": host.debugNamedChief.map { .string($0) } ?? .null])
+            }
+            guard let key = params["key"]?.stringValue else { return .object(["error": .string("engine_set needs key")]) }
+            host.debugPickEngine(key, params["value"]?.stringValue)
+            ok = true
         case "focus": ok = view.window?.makeFirstResponder(view.primaryInput) ?? false
         case "type":
             guard let field = view.primaryInput as? NSTextView else { return .object(["error": .string("no field")]) }
@@ -147,8 +165,8 @@ final class DebugHomeNativeFixture: InternalPageProvider {
         case "thread", "escape":
             // "thread": a click on the newest "N Replies" or thread preview; "escape": Esc in the field.
             // Both answer with the open thread's root (null: no thread is open).
-            let root = params["action"]?.stringValue == "thread" ? view.debugOpenNewestThread() : { view.debugEscape(); return view.debugOpenThread }()
-            return .object(["ok": .bool(true), "open_thread": root.map { .string($0) } ?? .null])
+            if params["action"]?.stringValue == "thread" { _ = view.debugOpenNewestThread() } else { view.debugEscape() }
+            return treeReply(view, ok: true)
         case "reply", "post_escape", "thread_state":
             // "reply": Reply… in the newest text bubble's menu; "post_escape": a real Esc key press
             // (`outside`: the key focus on the window, not the pane); "thread_state": no input.
@@ -157,13 +175,31 @@ final class DebugHomeNativeFixture: InternalPageProvider {
             case "post_escape": view.debugPostEscape(outside: params["outside"]?.boolValue ?? false)
             default: break
             }
-            return .object(["ok": .bool(true), "open_thread": view.debugOpenThread.map { .string($0) } ?? .null])
+            return treeReply(view, ok: true)
+        case "reply_text", "branch":
+            // Tree threads: Reply… on the bubble whose text is `text`, or a click on "N Replies" under it.
+            let text = params["text"]?.stringValue ?? ""
+            return treeReply(view, ok: (params["action"]?.stringValue == "branch" ? view.debugOpenBranch(text: text) : view.debugReply(text: text)) != nil)
         case "tapback": ok = view.debugTapbackNewestIncoming(mine: params["mine"]?.boolValue ?? false)
         case "video": ok = view.debugToggleNewestVideo()
         case "scroll": view.debugScroll(by: CGFloat(params["dy"]?.doubleValue ?? -400)); ok = true
-        default: return .object(["error": .string("action must be focus, type, send, tapback, video, scroll, menu, geometry, link, texts, typing, nudge, thread, escape, reply, post_escape or thread_state")])
+        default:
+            if let out = view.debugTreeDrive(params["action"]?.stringValue ?? "", params.compactMapValues(\.stringValue)) { return .object(out.mapValues { .string($0) }) }
+            return .object(["error": .string("action must be focus, type, send, tapback, video, scroll, menu, geometry, link, texts, typing, nudge, thread, escape, reply, post_escape, thread_state, reply_text, branch or permalink")])
         }
         return .object(["ok": .bool(ok)])
+    }
+
+    /// Tree threads: `ok`, the open thread (transcript id), the drill path and shown message (owner ids).
+    static func treeReply(_ view: HomeNativeTranscriptView, ok: Bool) -> JSONValue {
+        let s: (String?) -> JSONValue = { $0.map { .string($0) } ?? .null }
+        return .object(["ok": .bool(ok), "open_thread": s(view.openThreadRoot), "thread_path": .array(view.debugOpenThreadPath.map(s)), "thread_message": s(view.openThreadMessage)])
+    }
+    /// `permalink {url}`: opens a message link as the docked Home's hand-off does.
+    static func permalink(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
+        guard let link = HomeDockSelection(link: params["url"]?.stringValue ?? "") else { return .object(["error": .string("not a link")]) }
+        if !services.home.dock.isClassic, let dock = HomeDockTab.view(services) { dock.open(link) } else { (services.windows.active?.topPages.views[.home] as? TopHomePageView)?.show(link) }
+        return .object(["ok": .bool(true)])
     }
 
     static func open(services: AppServices, attachments: Bool = false, fresh: Bool = false) -> JSONValue {

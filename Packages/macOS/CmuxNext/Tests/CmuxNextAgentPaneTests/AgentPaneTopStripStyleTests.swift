@@ -1,3 +1,4 @@
+import CmuxNextSettings
 import Testing
 @testable import CmuxNextAgentPane
 
@@ -9,7 +10,7 @@ struct AgentPaneTopStripStyleTests {
         #expect(AgentPaneTunables.attributes(foldLongThoughts: false, topStripStyle: .default).isEmpty)
     }
 
-    @Test(arguments: [AgentPaneTopStripStyle.bump, .plain])
+    @Test(arguments: [AgentPaneTopStripStyle.bump, .plain, .tray])
     func variantSetsItsAttribute(style: AgentPaneTopStripStyle) {
         #expect(AgentPaneTunables.attributes(foldLongThoughts: false, topStripStyle: style) == ["top-strip": style.rawValue])
         #expect(AgentPaneTunables.attributes(foldLongThoughts: true, topStripStyle: style)
@@ -18,5 +19,52 @@ struct AgentPaneTopStripStyleTests {
 
     @Test func listedInDebugSettings() {
         #expect(AgentPaneTunables.all.contains { $0.key == "agentPane.debug.topStripStyle" })
+    }
+}
+
+extension AgentPaneTopStripStyleTests {
+    /// The Debug menu offers the four values in order, the default first and unchanged.
+    @Test func offersTrayAfterTheOthers() {
+        #expect(AgentPaneTopStripStyle.allCases.map(\.rawValue) == ["default", "bump", "plain", "tray"])
+        #expect(AgentPaneTunables.topStripStyle.descriptor.key == "agentPane.debug.topStripStyle")
+    }
+}
+
+struct AgentPaneReasoningSliderStyleTests {
+    @Test func offersAccentAndMinimalWithAccentAsTheDefault() {
+        #expect(AgentPaneReasoningSliderStyle.allCases.map(\.rawValue) == ["accent", "minimal"])
+        #expect(AgentPaneTunables.reasoningSliderStyle.descriptor.key == "agent.reasoningSliderStyle")
+        #expect(AgentPaneTunables.reasoningSliderStyle.value == .accent)
+        #expect(AgentPaneTunables.all.contains { $0.key == "agent.reasoningSliderStyle" })
+    }
+}
+
+struct AgentPaneModelMenuStyleTests {
+    @Test func offersCompactAndFullWithCompactAsTheDefault() {
+        #expect(AgentPaneModelMenuStyle.allCases.map(\.rawValue) == ["compact", "full"])
+        #expect(AgentPaneTunables.modelMenu.descriptor.key == "agent.modelMenu")
+        #expect(AgentPaneTunables.modelMenu.value == .compact)
+        #expect(AgentPaneTunables.all.contains { $0.key == "agent.modelMenu" })
+    }
+
+    /// The choice rides the `composer` event beside the settings, read pane-side as the event is made
+    /// (as `plainFooter` is), so the page opens the compact menu unless Debug Settings says `full`.
+    @Test func theComposerEventCarriesTheModelMenuChoice() {
+        let value = AgentPageEvent.composer(.fallback).value.objectValue
+        #expect(value?["modelMenu"]?.stringValue == AgentPaneTunables.modelMenu.value.rawValue)
+        #expect(value?["plainFooter"]?.boolValue == AgentPaneTunables.composerPlainFooter.value)
+        #expect(value?["showContextUsage"]?.boolValue == true)
+    }
+}
+
+/// Debug Settings' "Allow switching harness in a started chat": off by default, so a started
+/// chat's model menu lists its own harness alone; it rides the `composer` event as `harnessSwitch`.
+struct AgentPaneHarnessSwitchTunableTests {
+    @Test func isOffByDefaultAndRidesTheComposerEvent() {
+        #expect(AgentPaneTunables.harnessSwitchInStartedChat.descriptor.key == "agent.harnessSwitchInStartedChat")
+        #expect(AgentPaneTunables.harnessSwitchInStartedChat.value == false)
+        #expect(AgentPaneTunables.all.contains { $0.key == "agent.harnessSwitchInStartedChat" })
+        let value = AgentPageEvent.composer(.fallback).value.objectValue
+        #expect(value?["harnessSwitch"]?.boolValue == AgentPaneTunables.harnessSwitchInStartedChat.value)
     }
 }

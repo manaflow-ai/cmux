@@ -12,7 +12,7 @@ final class TerminalFindBarView: NSView {
     private let find: TerminalFindController
     /// Themes its caret, selection and placeholder in the bar's scope, focused or not.
     private let field = ThemedTextField()
-    private let countLabel = NSTextField(labelWithString: "")
+    private let countLabel = ChromeLabel(labelWithString: "")
     private let icon = NSImageView()
     private var buttons: [NSButton] = []
     private var shownFocusRequest = 0
@@ -122,7 +122,11 @@ final class TerminalFindBarView: NSView {
         let focusRequest = find.focusRequest
 
         if field.stringValue != query { field.stringValue = query }
-        countLabel.stringValue = Self.text(for: count)
+        let text = Self.text(for: count)
+        if countLabel.stringValue != text {
+            countLabel.stringValue = text
+            superview?.needsLayout = true // the host frames the bar to its fitting width
+        }
         setPresented(presented)
         if presented, focusRequest != shownFocusRequest {
             shownFocusRequest = focusRequest

@@ -3,6 +3,7 @@ import CmuxNextAgentCursor
 import CmuxNextAgentPane
 import CmuxNextActions
 import CmuxNextCompat
+import CmuxNextDaemonRecovery
 import CmuxNextHistory
 import CmuxNextBridge
 import CmuxNextBrowser
@@ -25,19 +26,20 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     /// Built in init (lazy because it holds self; no IUO).
     private(set) lazy var focusApplier = FocusEffectApplier(controller: self)
     private(set) var content: WorkspaceContentController?
-    /// Recently shown workspaces kept mounted and paused, oldest first
-    /// (plans/cmux-next/tab-lifecycle.md): switching back to one swaps its
-    /// view in within the frame, with no surface re-attach or blank frame.
-    private(set) var parked: [WorkspaceContentController] = []
-    private var parkedBudget = WarmSetBudget.standard
+    /// Every workspace this window showed, by id, kept mounted and paused (plans/cmux-next/tab-lifecycle.md):
+    /// a switch back swaps its view in within the frame. Only its GPU surfaces leave, under the one memory
+    /// budget (`SurfaceLedger`'s LRU of hidden surfaces); the tree, panes and strips stay (perf I6).
+    private(set) var parked: [String: WorkspaceContentController] = [:]
+    /// Orders `parked` by when each was parked (`mountedContents`).
+    private var parkSerial: UInt64 = 0
     unowned let services: AppServices
     private var workspaceObservation: Task<Void, Never>?
     private var titleObservation: Task<Void, Never>?
     private var startupObservation: Task<Void, Never>?
     /// The room theme: every workspace without its own theme. The window's
     /// own chrome (sidebar, titlebar, backdrop) draws in the shown
-    /// workspace's colors when they share the room's light/dark mode, so it
-    /// matches the content beside it without ever flipping the window light.
+    /// workspace's colors at any light/dark, so it matches the content beside
+    /// it (with the color transition).
     let themeScope = ThemeScope(level: .room)
     private var roomObservation: Task<Void, Never>?
     /// Shown while the window has no workspace (first connect, or failure).
@@ -52,7 +54,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         self.services = services
         let sidebar = SidebarBridge(services: services, state: state)
         self.sidebar = sidebar
-        SidebarProfileControl(services: services).install(model: sidebar.model, sidebar: sidebar.container.sidebarView)
+        SidebarProfileControl(services: services, state: state).install(model: sidebar.model, sidebar: sidebar.container.sidebarView)
         root = WindowRootView(sidebar: sidebar.container)
         // The static toggle runs the same action as the shortcut, palette and menu (R68).
         root.toolbarBand.onToggleSidebar = { [weak registry = services.registry] in
@@ -107,7 +109,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         roomObservation?.cancel()
         content?.teardown()
         content = nil
-        parked.forEach { $0.teardown() }
+        parked.values.forEach { $0.teardown() }
         parked.removeAll()
         topPages.teardown()
         sidebar.teardown()
@@ -126,8 +128,21 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         }
     }
 
-    /// The shown workspace and the parked ones, each with its theme scope.
-    var mountedContents: [WorkspaceContentController] { (content.map { [$0] } ?? []) + parked }
+    /// The shown workspace, then the parked ones from the most recently shown, each with its theme scope.
+    var mountedContents: [WorkspaceContentController] {
+        (content.map { [$0] } ?? []) + parked.values.sorted { $0.parkedSerial > $1.parkedSerial }
+    }
+
+    /// Critical memory pressure: the parked workspaces leave (views, panes, observations; their
+    /// terminal surfaces already left the warm set) and mount again when shown, with their
+    /// view-only state (strip and screen bar scroll) reset. The one under a top page stays: it is
+    /// this window's workspace.
+    func releaseParked() {
+        for (id, controller) in parked where content != nil || id != state.workspaceID {
+            parked[id] = nil
+            controller.teardown()
+        }
+    }
 
     private func observeWorkspace() {
         let machines = services.machines
@@ -135,15 +150,18 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         let windows = services.windows
         let state = state
         workspaceObservation = Task { [weak self] in
-            for await _ in ObservationStream({ () -> [String] in
-                // Re-run when the request or any machine's workspace list changes.
-                [state.workspaceID ?? "", state.page?.rawValue ?? "", state.machineID, String(cloud.hasLoadedMachines), Self.creationKey(state, cloud, machines)]
-                    + windows.registry.members(of: state.id)
-                    + machines.daemons.map { "\($0.machineID):\($0.store.isLoaded):\($0.store.workspaces.map(\.id))" }
-            }) {
+            for await _ in ObservationStream({ Self.readShowInputs(state, cloud: cloud, machines: machines, windows: windows) }) {
                 self?.showWorkspace(requested: state.workspaceID)
             }
         }
+    }
+
+    /// Reads what `showWorkspace` depends on (the request, each machine's workspace list): O(machines), no id list.
+    private static func readShowInputs(_ state: WindowState, cloud: CloudService, machines: MachineRegistry, windows: WindowManager) {
+        _ = (state.workspaceID, state.page, state.machineID, cloud.hasLoadedMachines)
+        _ = creationKey(state, cloud, machines)
+        _ = windows.registry.members(of: state.id)
+        for daemon in machines.daemons { _ = (daemon.store.isLoaded, daemon.store.workspaces.count) }
     }
 
     /// Shows the requested workspace on whichever machine holds it. While
@@ -155,11 +173,11 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     /// (launch, a Cloud machine reconnecting) the connecting state shows.
     func showWorkspace(requested: String?) {
         let machines = services.machines
-        // A parked workspace that closed (or whose machine left) goes now.
-        parked.removeAll { controller in
-            guard machines.workspace(id: controller.workspace.id)?.0 !== controller.workspace else { return false }
+        // A parked workspace that closed, whose machine left, or that moved to another window goes now.
+        let listed = Set(services.windows.registry.members(of: state.id))
+        for (id, controller) in parked where !listed.contains(id) || machines.workspace(id: id)?.0 !== controller.workspace {
+            parked[id] = nil
             controller.teardown()
-            return true
         }
         if state.page.map(showTopPage) == true || showCreation() { return }
         if let requested, let (workspace, daemon) = machines.workspace(id: requested) {
@@ -177,10 +195,9 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         if content == nil { showConnecting() }
     }
 
-    /// The connecting (or unavailable) state of the local daemon's first
-    /// connection, until a workspace can be shown.
+    /// The local daemon's first connection, connecting or unavailable, until a workspace shows.
     private func showConnecting() {
-        let view = connectingView ?? DaemonConnectingView(frame: .zero)
+        let view = connectingView ?? DaemonConnectingView(frame: .zero, recovery: services.daemon.recovery)
         if connectingView == nil { DebugTimings.markLaunch("connecting_view_shown") }
         connectingView = view
         root.show(view)
@@ -207,23 +224,24 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         if state.machineID != daemon.machineID { state.machineID = daemon.machineID }
         guard content?.workspace !== workspace else { return }
         if let current = content { park(current) }
-        let controller: WorkspaceContentController, index = parked.firstIndex { $0.workspace === workspace && $0.daemon === daemon }
-        if let index {
-            controller = parked.remove(at: index)
+        let controller: WorkspaceContentController, kept = parked.removeValue(forKey: workspace.id)
+        if let kept, kept.workspace === workspace, kept.daemon === daemon {
+            controller = kept
             controller.unpark()
         } else {
+            kept?.teardown()
             controller = WorkspaceContentController(workspace: workspace, daemon: daemon, services: services, state: state)
         }
         content = controller
         // One synchronous swap: the old view leaves (its panes stay mounted, paused) and the new
         // one draws in the same frame, its sidebar row already listed (a parked one's is) and selected.
-        sidebar.sameTurn.syncNow(rows: index == nil)
+        sidebar.sameTurn.syncNow(rows: controller !== kept)
         root.show(controller.contentView)
-        // The workspace's theme first, so the chrome repaints once; no
-        // crossfade, which would fade the swap itself.
+        // The workspace's theme first, so the chrome repaints once: only the room's own views (sidebar,
+        // titlebar, backdrop) run their theme hook, and their layer colors blend from the ones on
+        // screen (appearance.colorTransition); the content swap itself never blends.
         services.themes.contentDidShow(controller)
-        themeScope.show(controller.themeScope)
-        trimParked()
+        themeScope.show(controller.themeScope, animated: true)
         startupObservation?.cancel()
         startupObservation = nil
         if connectingView != nil { DebugTimings.markLaunch("connecting_view_left") }
@@ -234,7 +252,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
             for await title in ObservationStream({ workspace.displayName }) { self?.root.titlebar.title = title }
         }
         // The new workspace's panes: the coordinator restores its pane and, now that the content is installed, re-applies it.
-        controller.sendTopology()
+        controller.didShow()
         if let pane = focus.state.pane { focus.send(.contentPresented(pane: pane)) }
         services.windows.recordSaver.stateDidChange(state)
         services.cloudContextDidChange()
@@ -253,25 +271,9 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     // MARK: Parked workspaces
 
     private func park(_ controller: WorkspaceContentController) {
-        controller.park()
-        parked.removeAll { $0 === controller }
-        parked.append(controller)
-    }
-
-    /// Memory pressure or the budget changed.
-    func setParkedBudget(_ budget: WarmSetBudget) {
-        parkedBudget = budget
-        trimParked()
-    }
-
-    /// Drops the least recently shown parked workspaces until both the
-    /// workspace count and their total panes fit the budget.
-    private func trimParked() {
-        var panes = parked.reduce(0) { $0 + $1.panes.count }
-        while let oldest = parked.first, parked.count > parkedBudget.parkedWorkspaces || panes > parkedBudget.parkedPanes {
-            panes -= oldest.panes.count
-            parked.removeFirst().teardown()
-        }
+        parkSerial &+= 1
+        controller.park(serial: parkSerial)
+        parked[controller.workspace.id] = controller
     }
 
     // MARK: NSWindowDelegate
@@ -350,6 +352,15 @@ final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionPr
     /// (`WindowPlacement.containedOnTestScreen`), whichever path sets it.
     override func setFrame(_ frameRect: NSRect, display flag: Bool) {
         super.setFrame(WindowPlacement.containedOnTestScreen(frameRect), display: flag)
+    }
+
+    /// The traffic lights, found once (`StandardWindowButtons`, cx-8w027.25).
+    private var standardButtons = StandardWindowButtons()
+    override func standardWindowButton(_ b: NSWindow.ButtonType) -> NSButton? {
+        if let button = standardButtons.cached(b, in: self) { return button }
+        let button = super.standardWindowButton(b)
+        standardButtons.store(button, for: b, in: self)
+        return button
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {

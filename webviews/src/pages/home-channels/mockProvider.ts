@@ -361,6 +361,7 @@ function rawChief(c: HomeChief): Record<string, unknown> {
     rev: c.rev,
     created_at: c.createdAt,
     avatar: c.avatar ? { sha256: c.avatar, media_type: "image/png", bytes: 0 } : null,
+    ...(c.engine ? { engine: c.engine } : {}),
   };
 }
 
@@ -756,9 +757,11 @@ export class MockHomeProvider implements PageClient {
       }
       case HomeOps.chiefAvatarSet: {
         const old = this.chief(String(params.chief));
-        const changed = { ...old, avatar: `pic-${old.rev + 1}`, rev: old.rev + 1 };
+        const clear = params.clear === true;
+        const changed = { ...old, avatar: clear ? "" : `pic-${old.rev + 1}`, rev: old.rev + 1 };
         this.chiefs.set(changed.id, changed);
-        this.pictures.set(changed.id, { mediaType: String(params.mediaType), data: String(params.data) });
+        if (clear) this.pictures.delete(changed.id);
+        else this.pictures.set(changed.id, { mediaType: String(params.mediaType), data: String(params.data) });
         return { chief: changed } as R;
       }
       case HomeOps.chiefAvatar:
@@ -779,6 +782,9 @@ export class MockHomeProvider implements PageClient {
           instructions: String(params.instructions ?? ""),
           ...(Array.isArray(params.tools) ? { tools: params.tools as string[] } : {}),
           ...(Array.isArray(params.harnesses) ? { harnesses: params.harnesses as string[] } : {}),
+          ...(typeof params.harness === "string" && params.harness !== "default"
+            ? { engine: { harness: params.harness } }
+            : {}),
         });
         return { value: rawChief(made) } as R;
       }

@@ -221,6 +221,11 @@ pub mod method {
     pub const MUX_PROMPT_WITHDRAW: &str = "_acpmux/prompt_withdraw";
     pub const MUX_INFO: &str = "_acpmux/info";
     pub const MUX_EVENTS: &str = "_acpmux/events";
+    /// Durable inter-session mailbox: send, page/wait, and recipient-only ack.
+    pub const MUX_MAIL_SEND: &str = "_acpmux/mail/send";
+    pub const MUX_MAIL_READ: &str = "_acpmux/mail/read";
+    pub const MUX_MAIL_WAIT: &str = "_acpmux/mail/wait";
+    pub const MUX_MAIL_ACK: &str = "_acpmux/mail/ack";
     /// An image a session's prompt sent, by its id (`hub/prompt_images.rs`).
     pub const MUX_ATTACHMENT: &str = "_acpmux/attachment";
     pub const MUX_PERMISSION_RESPOND: &str = "_acpmux/permission_respond";
@@ -289,6 +294,14 @@ pub mod method {
     /// Agent CLI health (hq #1875; `hub/health_view.rs`): the unix socket
     /// and the local app.
     pub const MUX_HARNESS_HEALTH: &str = "_acpmux/harness/health";
+    /// Local socket only: bounded, cached inventory snapshots; no health control.
+    pub const MUX_HARNESS_INVENTORY_WATCH: &str = "_acpmux/harness/inventory/watch";
+    /// Local socket only: refresh registries for cached installs, never run CLIs or updates.
+    pub const MUX_HARNESS_INVENTORY_REFRESH: &str = "_acpmux/harness/inventory/refresh";
+    pub const MUX_HARNESS_UPDATE_PLAN: &str = "_acpmux/harness/update/plan";
+    pub const MUX_HARNESS_UPDATE_PREPARE: &str = "_acpmux/harness/update/prepare";
+    /// A complete partial-cache replacement on an explicitly subscribed local connection.
+    pub const MUX_HARNESS_INVENTORY: &str = "_acpmux/harness_inventory";
     /// One cheap completion through the user's own harness login, for
     /// naming chats and workspaces (hq#1957, `crate::complete`): no chat
     /// session, tools, MCP, hooks or session file. The unix socket only.
@@ -329,6 +342,15 @@ pub mod method {
     /// the person accepts or dismisses with `offer_respond`.
     pub const MUX_OFFER_SESSION: &str = "_acpmux/offer_session";
     pub const MUX_OFFER_RESPOND: &str = "_acpmux/offer_respond";
+    /// Sub-sessions (`hub/subsessions.rs`, `server/subsessions.rs`): an agent
+    /// session's own children, with the caller proven by its token.
+    pub const MUX_SUBSESSION_START: &str = "_acpmux/subsession/start";
+    pub const MUX_SUBSESSION_LIST: &str = "_acpmux/subsession/list";
+    pub const MUX_SUBSESSION_GET: &str = "_acpmux/subsession/get";
+    pub const MUX_SUBSESSION_SEND: &str = "_acpmux/subsession/send";
+    pub const MUX_SUBSESSION_STOP: &str = "_acpmux/subsession/stop";
+    /// Sets a session's limits: the person, or an ancestor session.
+    pub const MUX_SUBSESSION_LIMITS: &str = "_acpmux/subsession/limits";
     /// The background-process registry (`hub/processes.rs`): list a chat's
     /// (or every chat's) background processes, read one's output, and stop
     /// one.

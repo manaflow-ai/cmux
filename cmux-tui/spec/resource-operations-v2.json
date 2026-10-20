@@ -36,7 +36,8 @@
     "setting",
     "keybinding",
     "browser_device",
-    "browser_profile"
+    "browser_profile",
+    "stash"
   ],
   "types": {
     "BrowserDeviceList": {
@@ -2268,6 +2269,32 @@
         "Clients never read or expand $SHELL. To choose an executable, send argv [executable, \"-lc\", script]."
       ]
     },
+    "MachinePlatform": {
+      "kind": "object",
+      "fields": {
+        "os": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        },
+        "arch": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        }
+      },
+      "extra": false
+    },
     "MachineSnapshot": {
       "kind": "object",
       "fields": {
@@ -2290,7 +2317,10 @@
           "type": {
             "kind": "enum",
             "values": [
-              "local"
+              "local",
+              "cloud",
+              "ssh",
+              "server"
             ]
           }
         },
@@ -2338,12 +2368,33 @@
             }
           },
           "description": "Explicit forward-compatible data. Unknown sibling fields remain forbidden."
+        },
+        "platform": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "ref",
+              "name": "MachinePlatform"
+            }
+          }
+        },
+        "capabilities": {
+          "required": false,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
         }
       },
       "extra": false,
       "constraints": [
-        "This endpoint returns the one local machine that owns its mux session.",
-        "Cross-machine discovery, lifecycle, and provider metadata are reserved for a later broker protocol."
+        "The native local owner remains first and authoritative.",
+        "A verified app may publish a bounded, connection-scoped projection of its admitted remote routes. Catalog membership does not confer session or execution authority.",
+        "Optional platform and capability metadata is non-secret. Legacy owners may omit it."
       ]
     },
     "SessionSnapshot": {
@@ -2455,7 +2506,7 @@
               "name": "JsonValue"
             }
           },
-          "description": "Explicit forward-compatible data. Optional title, color, and icon carry the shared workspace identity; ephemeral is true for a workspace the daemon closes at its next start; agent_folder is the folder new agent chats start in (workspace.agent_folder.set). Unknown sibling fields remain forbidden."
+          "description": "Explicit forward-compatible data. Optional title, color, and icon carry the shared workspace identity; ephemeral is true for a workspace the daemon closes at its next start; agent_folder is the folder new agent chats start in (workspace.agent_folder.set); key is the workspace key its terminals and agent chats carry as CMUX_WORKSPACE_ID. name_source (user or auto) and name_revision (decimal) carry the name provenance (workspace-name-source-v1). Unknown sibling fields remain forbidden."
         }
       },
       "extra": false
@@ -4498,6 +4549,22 @@
             "name": "boolean"
           },
           "description": "True when the dock cannot be undocked or closed. Absent when false."
+        },
+        "pinned": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "pinned-dock-v1: true for a pinned column (the Home dock). Its first tab stays (no close, move out or reorder away from the first place), the column is never removed, undocked or unpinned, and it takes no other tab unless allow_tabs is true. Absent when false."
+        },
+        "allow_tabs": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "pinned-dock-v1: true when a pinned column takes more tabs. Absent when false (the default)."
         }
       },
       "extra": false,
@@ -7213,6 +7280,14 @@
             "kind": "primitive",
             "name": "boolean"
           }
+        },
+        "scrollback_not_kept": {
+          "required": false,
+          "description": "True when the closed terminal's archived screen was dropped to keep the archive byte budget: the tab reopens in its directory without its old scrollback. Absent otherwise.",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
         }
       },
       "extra": false
@@ -7627,6 +7702,34 @@
             }
           },
           "description": "At level `workspace`: the workspaces the selector chose; else empty."
+        },
+        "closed_ids": {
+          "required": false,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "StateId"
+            }
+          },
+          "description": "The `closed.list` groups this call stored, oldest first; `closed.reopen` of each restores exactly what it closed. Absent only on a replay of a call committed before the field existed."
+        }
+      },
+      "extra": false
+    },
+    "WorkspaceCloseResult": {
+      "kind": "object",
+      "fields": {
+        "closed_ids": {
+          "required": false,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "StateId"
+            }
+          },
+          "description": "With `report_closed_ids`: the `closed.list` groups this close stored, oldest first (empty for an ephemeral workspace); `closed.reopen` of each restores exactly what it closed. Absent without `report_closed_ids`, and on a replay of a close committed before the groups were recorded."
         }
       },
       "extra": false
@@ -8254,7 +8357,8 @@
         "sidebar_layout",
         "sidebar_item",
         "sidebar_section",
-        "sidebar_doc"
+        "sidebar_doc",
+        "stash"
       ]
     },
     "StateEntitySnapshot": {
@@ -8311,6 +8415,10 @@
         {
           "kind": "ref",
           "name": "SidebarDocChange"
+        },
+        {
+          "kind": "ref",
+          "name": "StashSnapshot"
         }
       ],
       "constraints": [
@@ -12593,6 +12701,322 @@
         }
       },
       "extra": false
+    },
+    "StashTab": {
+      "kind": "object",
+      "fields": {
+        "id": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "StateId"
+          },
+          "description": "The member's stable id; stash.restore and stash.delete name members by it."
+        },
+        "url": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "The page; secret-looking query keys are stripped."
+        },
+        "title": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "The page title when it was stashed or imported."
+        },
+        "browser_profile_id": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "The browser profile the page reopens in; null is the default profile."
+        },
+        "workspace_id": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "resource_id",
+              "resource": "workspace"
+            }
+          },
+          "description": "The workspace the page was stashed from; null for an imported page."
+        }
+      },
+      "extra": false
+    },
+    "StashSnapshot": {
+      "kind": "object",
+      "fields": {
+        "id": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "StateId"
+          }
+        },
+        "name": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "The name of the workspace the pages left, or of the imported group."
+        },
+        "created_at_ms": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          },
+          "description": "Unix time in milliseconds of the stash (or the imported group's own time)."
+        },
+        "member_count": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          }
+        },
+        "members": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "StashTab"
+            }
+          },
+          "description": "The pages in restore order; stash.restore and stash.delete name them by id."
+        }
+      },
+      "extra": false
+    },
+    "StashCreateResult": {
+      "kind": "object",
+      "fields": {
+        "stash_id": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "StateId"
+          }
+        },
+        "tab_ids": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "resource_id",
+              "resource": "tab"
+            }
+          },
+          "description": "The tabs that closed into the stash, in member order."
+        },
+        "skipped": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "resource_id",
+              "resource": "tab"
+            }
+          },
+          "description": "With workspace: its tabs that stayed open (not web pages, pinned, or incognito)."
+        }
+      },
+      "extra": false
+    },
+    "StashRestoreResult": {
+      "kind": "object",
+      "fields": {
+        "stash_id": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "StateId"
+          }
+        },
+        "workspace_id": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "resource_id",
+              "resource": "workspace"
+            }
+          },
+          "description": "The first workspace a page reopened in."
+        },
+        "workspace_ids": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "resource_id",
+              "resource": "workspace"
+            }
+          }
+        },
+        "screen_ids": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "resource_id",
+              "resource": "screen"
+            }
+          },
+          "description": "The screens the pages reopened in."
+        },
+        "tab_ids": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "resource_id",
+              "resource": "tab"
+            }
+          },
+          "description": "The reopened tabs in member order."
+        },
+        "remaining": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "Members still in the stash; 0 means the stash is gone."
+        }
+      },
+      "extra": false
+    },
+    "StashDeleteResult": {
+      "kind": "object",
+      "fields": {
+        "stash_id": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "StateId"
+          }
+        },
+        "remaining": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "Members still in the stash; 0 means the stash is gone."
+        }
+      },
+      "extra": false
+    },
+    "StashImportTab": {
+      "kind": "object",
+      "fields": {
+        "url": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 8192
+          },
+          "description": "Only http and https pages are kept."
+        },
+        "title": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "max_length": 1024
+          }
+        }
+      },
+      "extra": false
+    },
+    "StashImportGroup": {
+      "kind": "object",
+      "fields": {
+        "name": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "max_length": 256
+          },
+          "description": "The group's name (OneTab's group title)."
+        },
+        "created_ms": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          },
+          "description": "Unix time in milliseconds the group was made; default now."
+        },
+        "tabs": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "StashImportTab"
+            },
+            "min_items": 1,
+            "max_items": 1000
+          }
+        }
+      },
+      "extra": false
+    },
+    "StashImportResult": {
+      "kind": "object",
+      "fields": {
+        "stash_ids": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "StateId"
+            }
+          },
+          "description": "One stash per group that kept a page, in request order."
+        },
+        "imported_tabs": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          }
+        },
+        "skipped_tabs": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "Pages that are not http(s) URLs, or repeat a URL of their group."
+        }
+      },
+      "extra": false
     }
   },
   "generics": {
@@ -12994,7 +13418,8 @@
                 "closed",
                 "window_record",
                 "git_checkpoint",
-                "conversation"
+                "conversation",
+                "stash"
               ]
             }
           },
@@ -17149,6 +17574,22 @@
             },
             "description": "Column width as a fraction of the viewport. Omit to leave the width unchanged."
           },
+          "pinned": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "pinned-dock-v1: true makes the docked column pinned (the Home dock). One way: false fails with validation.invalid."
+          },
+          "allow_tabs": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "pinned-dock-v1: whether a pinned column takes more tabs (new tabs, moves in). Default false. Needs a pinned column."
+          },
           "expected_revision": {
             "required": false,
             "type": {
@@ -17182,7 +17623,8 @@
         "validation.invalid"
       ],
       "constraints": [
-        "At least one of dock or width is required. edge and mode require the dock field and apply only when dock is true.",
+        "At least one of dock, width, pinned or allow_tabs is required. edge and mode require the dock field and apply only when dock is true.",
+        "pinned-dock-v1: a change that would close, move out or reorder the first tab of a pinned column, add a tab to a pinned column whose allow_tabs is false, or remove, undock or unpin a pinned column fails with operation.failed, reason_code dock-column-pinned. This holds for every operation, not only column.update.",
         "width is finite, at least 0.1, and at most 1.",
         "A screen keeps at most one docked column per edge (pinning an edge another column holds unpins that column) and at least one scrolling column; a change that would leave none fails with validation.invalid.",
         "The layout document of the resulting ScreenSnapshot does not carry dock flags; the JSON-lines Screen.columns[].dock does."
@@ -20629,7 +21071,13 @@
         "selectors": {
           "machine": "required"
         },
-        "fields": {},
+        "fields": {
+          "catalog": {
+            "required": false,
+            "type": {"kind": "primitive", "name": "boolean"},
+            "description": "Opt in to owner metadata and admitted remote records. Omitted or false preserves the original local-only shape; this grants no execution authority."
+          }
+        },
         "extra": false
       },
       "result": {
@@ -20652,7 +21100,13 @@
       "ancestors": [],
       "params": {
         "selectors": {},
-        "fields": {},
+        "fields": {
+          "catalog": {
+            "required": false,
+            "type": {"kind": "primitive", "name": "boolean"},
+            "description": "Opt in to owner metadata and admitted remote records. Omitted or false preserves the original local-only shape; this grants no execution authority."
+          }
+        },
         "extra": false
       },
       "result": {
@@ -24771,7 +25225,8 @@
         "selectors": {"machine": "required", "session": "required"},
         "fields": {
           "event": {"required": true, "type": {"kind": "ref", "name": "JournalIngressEvent"}},
-          "live_prompt": {"required": false, "description": "An agent hook's turn prompt for the hover card task line: kept in daemon memory only (at most 200 characters), never journaled, persisted or logged.", "type": {"kind": "primitive", "name": "string"}}
+          "live_prompt": {"required": false, "description": "An agent hook's turn prompt for the hover card task line: kept in daemon memory only (at most 200 characters), never journaled, persisted or logged.", "type": {"kind": "primitive", "name": "string"}},
+          "live_reply": {"required": false, "description": "A finished or failed turn's last agent message for its banner preview: kept in daemon memory only (at most 200 characters) until the turn's notification event carries it as preview, never journaled, persisted or logged.", "type": {"kind": "primitive", "name": "string"}}
         },
         "extra": false
       },
@@ -27411,6 +27866,327 @@
         "validation.invalid"
       ]
     },
+    "stash.create": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "stash",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "tabs": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "resource_id",
+                "resource": "tab"
+              },
+              "min_items": 1,
+              "max_items": 256
+            },
+            "description": "Browser tabs to stash. Name exactly one of tabs or workspace."
+          },
+          "workspace": {
+            "required": false,
+            "type": {
+              "kind": "resource_id",
+              "resource": "workspace"
+            },
+            "description": "Stash this workspace's unpinned web pages; its other tabs stay open and are reported as skipped."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "The tabs close in one commit and form one stash named after the workspace of the first; they are not recorded in the closed history (closed.list).",
+          "With tabs, a tab that is not a web page (a terminal, a conversation or a remote terminal) or is in an incognito workspace refuses the whole request with validation.invalid; nothing closes.",
+          "A workspace the stash leaves without a tab closes, as any last-tab close does."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "StashCreateResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "stash.delete": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "stash",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "stash": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "StateId"
+            },
+            "description": "The stash to delete from."
+          },
+          "members": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "ref",
+                "name": "StateId"
+              },
+              "min_items": 1,
+              "max_items": 1000
+            },
+            "description": "Ids of the stash's members to delete; an unknown id is resource.not_found and nothing changes. Omit to delete the whole stash."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "Deletion is permanent."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "StashDeleteResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "stash.import": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "stash",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "source": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "onetab"
+              ]
+            },
+            "description": "Where the groups come from."
+          },
+          "groups": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "ref",
+                "name": "StashImportGroup"
+              },
+              "min_items": 1,
+              "max_items": 1000
+            },
+            "description": "The groups, each becoming one stash."
+          },
+          "engine": {
+            "required": false,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "webkit",
+                "cef"
+              ]
+            },
+            "description": "The browser engine imported pages reopen in. Omit for a daemon-rendered browser."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "Each group with at least one kept page becomes one stash; only http(s) URLs are kept, once per group, with secret-looking query keys stripped.",
+          "A retry with the same key replays and imports nothing twice."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "StashImportResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "stash.list": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "stash",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {},
+        "extra": false,
+        "constraints": [
+          "Newest first. Stashes are kept until restored or deleted; there is no retention pruning."
+        ]
+      },
+      "result": {
+        "kind": "array",
+        "items": {
+          "kind": "ref",
+          "name": "StashSnapshot"
+        }
+      },
+      "errors": [
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "stash.restore": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "stash",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "stash": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "StateId"
+            },
+            "description": "The stash to restore from."
+          },
+          "members": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "ref",
+                "name": "StateId"
+              },
+              "min_items": 1,
+              "max_items": 1000
+            },
+            "description": "Ids of the stash's members to restore; an unknown id is resource.not_found and nothing changes. Omit to restore every member; the rest stay."
+          },
+          "target": {
+            "required": false,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "here",
+                "new_workspace"
+              ]
+            },
+            "description": "here (default): each page reopens in its pane at its index when that pane is live, else in its workspace's focused pane, else in the session's focused pane. new_workspace: every page opens, in order, in one new workspace named after the stash."
+          },
+          "pane": {
+            "required": false,
+            "type": {
+              "kind": "resource_id",
+              "resource": "pane"
+            },
+            "description": "With here: the pane a page opens in (at its end) when its own pane is gone, normally the focused pane of the window the user acted from. An unknown pane is resource.not_found."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "Restored members leave the stash in the commit that stores the result; the stash is removed with its last member. A retry with the same key replays.",
+          "All or nothing: when a member cannot reopen, or the commit fails, the pages this call opened close again (unrecorded), every member stays in the stash, and the error is returned; a retry opens each page once.",
+          "A page reopens with its back/forward history, its browser profile and its engine."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "StashRestoreResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
     "stream.cancel": {
       "class": "connection_control",
       "idempotency": "forbidden",
@@ -28194,6 +28970,14 @@
               }
             },
             "description": "The tab's user icon: an SF Symbol name or one emoji (the shared icon string); null clears it. Shown as the tab's extra.icon on every client."
+          },
+          "marked_unread": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "tab-mark-unread-v1: true marks the tab unread by hand (no notification needed), false clears the mark. Shown as the tab's extra.marked_unread (present only while marked) on every client; a client clears it when the person views the tab."
           },
           "expected_revision": {
             "required": false,
@@ -30557,6 +31341,14 @@
               "name": "decimal"
             },
             "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          },
+          "report_closed_ids": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "When true, the result value names the closed groups the close stored (`closed_ids`). Omitted or false: the value is empty, as before."
           }
         },
         "extra": false
@@ -30567,7 +31359,7 @@
         "arguments": [
           {
             "kind": "ref",
-            "name": "EmptyResult"
+            "name": "WorkspaceCloseResult"
           }
         ]
       },
@@ -31218,12 +32010,12 @@
         },
         "fields": {
           "name": {
-            "required": true,
+            "required": false,
             "type": {
               "kind": "primitive",
               "name": "string"
             },
-            "description": "Exact name bytes. Empty, whitespace, and Unicode strings are preserved."
+            "description": "Exact name bytes. Empty, whitespace, and Unicode strings are preserved. Required unless release is true."
           },
           "expected_revision": {
             "required": false,
@@ -31232,9 +32024,50 @@
               "name": "decimal"
             },
             "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          },
+          "source": {
+            "required": false,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "user",
+                "auto"
+              ]
+            },
+            "default": "user",
+            "description": "Who chose the name. An automatic name never replaces a user name; a user rename pins the name (workspace-name-source-v1). A refused automatic rename is operation.failed with extra.reason_code name_pinned (over a user name) or name_empty (an empty name)."
+          },
+          "expected_generation": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "expected_name_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "The workspace's extra.name_revision the caller read; a rename since then is revision.conflict."
+          },
+          "release": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "default": false,
+            "description": "With source auto, a person hands the current name back to the automatic namer: the text stays, name_source becomes auto and name_revision advances. Needs no expected_name_revision; name, when present, must equal the current name (workspace-name-source-v1)."
           }
         },
-        "extra": false
+        "extra": false,
+        "constraints": [
+          "source auto requires expected_generation and expected_name_revision unless release is true.",
+          "release requires source auto.",
+          "name is required unless release is true."
+        ]
       },
       "result": {
         "kind": "apply",
