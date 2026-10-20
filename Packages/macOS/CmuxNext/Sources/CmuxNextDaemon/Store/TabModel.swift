@@ -21,7 +21,14 @@ public final class TabModel: Identifiable {
     public internal(set) var terminalResourceID: ResourceID?
     public internal(set) var kind: TabKind
     public internal(set) var name: String?
+    /// The title as the program or page set it, raw (a terminal's OSC 0/2, a page's `<title>`).
+    /// Views show ``displayTitle``; reading this one redraws on every spinner frame.
     public internal(set) var title: String
+    /// The title's text without a terminal's leading status glyphs (``TerminalTitle``);
+    /// a browser's title as is. Assigned only when the words change.
+    public internal(set) var titleText: String
+    /// What a terminal title's leading glyph said (a spinner: working); nil for none.
+    public internal(set) var titleActivity: TerminalTitle.Activity?
     public internal(set) var size: CellSize?
     public internal(set) var dead: Bool
     /// Whether the terminal's shell runs (R41); nil for browsers and older daemons.
@@ -96,7 +103,7 @@ public final class TabModel: Identifiable {
     @ObservationIgnored private var observedCwd: String?
     public var displayTitle: String {
         if let name, !name.isEmpty { return name }
-        return title
+        return titleText
     }
 
     public var hasUnread: Bool { notification?.unread == true }
@@ -143,6 +150,9 @@ public final class TabModel: Identifiable {
         kind = s.kind
         name = s.name
         title = s.title
+        let parsed = Self.parsedTitle(s.title, kind: s.kind)
+        titleText = parsed.text
+        titleActivity = parsed.activity
         size = s.size
         dead = s.dead
         terminalState = s.terminalState
@@ -185,7 +195,7 @@ public final class TabModel: Identifiable {
         if terminalResourceID != s.terminalResourceID { terminalResourceID = s.terminalResourceID }
         if kind != s.kind { kind = s.kind }
         if name != s.name { name = s.name }
-        if title != s.title { title = s.title }
+        applyTitle(s.title)
         if size != s.size { size = s.size }
         if dead != s.dead { dead = s.dead }
         if terminalState != s.terminalState { terminalState = s.terminalState }
@@ -238,8 +248,25 @@ public final class TabModel: Identifiable {
 
     /// Point updates from surface events (no full snapshot).
     func setTitle(_ value: String) {
-        if title != value { title = value }
+        applyTitle(value)
         snapshot.title = value
+    }
+
+    /// Assigns the raw title, and its text and activity only when they changed, so a
+    /// spinner frame invalidates no view that reads ``displayTitle``.
+    private func applyTitle(_ value: String) {
+        if title != value { title = value }
+        let parsed = Self.parsedTitle(value, kind: kind)
+        if titleText != parsed.text { titleText = parsed.text }
+        if titleActivity != parsed.activity { titleActivity = parsed.activity }
+    }
+
+    /// A terminal's title loses its leading status glyphs; a page's stays as the page wrote it.
+    static func parsedTitle(_ raw: String, kind: TabKind) -> TerminalTitle {
+        switch kind {
+        case .pty, .remoteTerminal: TerminalTitle(raw: raw)
+        default: TerminalTitle(text: raw)
+        }
     }
 
     func setSize(_ value: CellSize) {
