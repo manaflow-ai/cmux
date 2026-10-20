@@ -27,7 +27,8 @@ public nonisolated enum CmuxDialogField: Equatable, Sendable {
 public nonisolated struct CmuxDialogOption: Equatable, Sendable {
     public var label: String
     public var value: String
-    public init(label: String, value: String) {
+    public var isEnabled = true
+    public init(label: String, value: String, isEnabled: Bool = true) {
         self.label = label
         self.value = value
     }
