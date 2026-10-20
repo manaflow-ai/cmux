@@ -54,6 +54,13 @@ public struct FileInfoReader: Sendable {
         return total
     }
 
+    /// The space free for new files on `url`'s volume (the status line's "X available").
+    @concurrent
+    public func availableCapacity(of url: URL) async -> Int64? {
+        let values = try? url.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey, .volumeAvailableCapacityKey])
+        return values?.volumeAvailableCapacityForImportantUsage ?? values?.volumeAvailableCapacity.map(Int64.init)
+    }
+
     /// Sets the Locked box.
     @concurrent
     public func setLocked(_ locked: Bool, for url: URL) async throws {

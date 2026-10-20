@@ -20,11 +20,11 @@ Priority: P0 = first slice, P1 = next, P2 = later, P3 = only if asked.
 | 1.5 | List view disclosure triangles (expand folders inline) | Right / Left, Opt+Right recursive | P1 | [ ] |
 | 1.6 | Extra list columns (Date Created, Last Opened, Date Added, Version, Comments, Tags) | View > Show View Options | P2 | [ ] |
 | 1.7 | Show View Options panel (icon size, grid spacing, text size, label position, show item info, show icon preview, "Always open in", "Browse in", relative dates, calculate all sizes) | Cmd+J | P1 | [ ] |
-| 1.8 | Per-folder view settings persisted (.DS_Store-like, ours in app storage) | | P1 | [ ] |
+| 1.8 | Per-folder view settings persisted (.DS_Store-like, ours in app storage) | | P1 | [~] view and sort per folder, newest 500 folders in defaults; not icon size |
 | 1.9 | Clean Up / Clean Up By / Sort By (icon view) | | P2 | [ ] |
 | 1.10 | Group By (None, Name, Kind, Application, Date Last Opened/Added/Modified/Created, Size, Tags) "Use Groups" | Ctrl+Cmd+0 | P1 | [ ] |
 | 1.11 | Calculate folder sizes in list view | | P2 | [ ] |
-| 1.12 | Zoom icons (Cmd+= / Cmd+-) | | P1 | [ ] |
+| 1.12 | Zoom icons (Cmd+= / Cmd+-) | | P1 | [~] status-bar slider; Cmd+= / Cmd+- only when the app menu does not take them |
 
 ## 2. Navigation
 
@@ -62,7 +62,7 @@ Priority: P0 = first slice, P1 = next, P2 = later, P3 = only if asked.
 | # | Feature | Shortcut | Pri | Status |
 |---|---|---|---|---|
 | 4.1 | Tabs (cmux pane tabs already do this) | Cmd+T | P0 | [x] (host) |
-| 4.2 | Status bar (N items, X available, selection count, icon-size slider) | Cmd+/ | P1 | [~] |
+| 4.2 | Status bar (N items, X available, selection count, icon-size slider) | Cmd+/ | P1 | [x] |
 | 4.3 | Toolbar: back/forward, view switcher, group, share, tags, action menu, search | Opt+Cmd+T | P1 | [ ] |
 | 4.4 | Preview pane (right side, metadata, Quick Actions) | Shift+Cmd+P | P1 | [ ] |
 | 4.5 | Customize toolbar | | P3 | [ ] |
@@ -194,8 +194,8 @@ Notes:
   menu's Duplicate), Cmd+1/2/3 (workspaces; Files uses Ctrl+Cmd+1/2/3 for
   icons/list/columns), Cmd+[ and Cmd+] (cmux page history, which the pane
   plugs into, so they do step through folders).
-- Of 88 countable items (90 rows, 2 n/a): `[x]` 27, `[~]` 22. Parity by
-  weight (`[~]` = half): (27 + 11) / 88 = 43%. P0 rows only (32): (21 + 5.5) / 32 = 83%.
+- Of 88 countable items (90 rows, 2 n/a): `[x]` 28, `[~]` 23. Parity by
+  weight (`[~]` = half): (28 + 11.5) / 88 = 45%. P0 rows only (32): (21 + 5.5) / 32 = 83%.
   `[x]` means built and unit-tested in the model; none is verified in a running app yet.
 
 ## Shared core for the Screenshots pane

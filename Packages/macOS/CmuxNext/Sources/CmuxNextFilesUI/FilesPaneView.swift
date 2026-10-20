@@ -36,6 +36,8 @@ public final class FilesPaneView: NSView {
     private let filterField = NSSearchField()
     private let content = NSView()
     private let status = NSTextField(labelWithString: "")
+    let zoomSlider = NSSlider(value: 96, minValue: 32, maxValue: 256, target: nil, action: nil)
+    private var available: (folder: URL, bytes: Int64?)?
     private var views: [FileViewMode: any FileContentView] = [:]
     private var shown: (any FileContentView)?
     private var observation: Task<Void, Never>?
@@ -123,6 +125,8 @@ public final class FilesPaneView: NSView {
         layoutControl.selectedSegment = FileViewMode.allCases.firstIndex(of: model.viewMode) ?? 1
         if filterField.stringValue != model.filterText { filterField.stringValue = model.filterText }
         status.stringValue = statusText()
+        zoomSlider.isHidden = model.viewMode != .icons
+        if available?.folder != model.folder { loadAvailable(model.folder) }
         quickLook.urls = model.selectedEntries.map(\.url)
         quickLook.refresh()
     }
@@ -135,9 +139,21 @@ public final class FilesPaneView: NSView {
         case .loading: return FilesStrings.loading
         case .failed(let message): return FilesStrings.cannotOpen + " " + message
         case .ready:
-            if model.entries.isEmpty { return FilesStrings.empty }
-            if model.selection.isEmpty { return FilesStrings.items(model.entries.count) }
-            return FilesStrings.selected(model.selection.count, of: model.entries.count)
+            let free = available?.bytes.map { FilesStrings.available(ByteCountFormatter.string(fromByteCount: $0, countStyle: .file)) }
+            let counts = model.entries.isEmpty ? FilesStrings.empty
+                : model.selection.isEmpty ? FilesStrings.items(model.entries.count)
+                : FilesStrings.selected(model.selection.count, of: model.entries.count)
+            return [counts, free].compactMap { $0 }.joined(separator: ", ")
+        }
+    }
+
+    private func loadAvailable(_ folder: URL) {
+        available = (folder, nil)
+        Task { [weak self] in
+            let bytes = await FileInfoReader().availableCapacity(of: folder)
+            guard let self, self.available?.folder == folder else { return }
+            self.available = (folder, bytes)
+            self.status.stringValue = self.statusText()
         }
     }
 
@@ -146,7 +162,7 @@ public final class FilesPaneView: NSView {
         let actions = makeActions()
         let made: any FileContentView = switch mode {
         case .list: FileListView(actions: actions, icons: icons)
-        case .icons: FileIconGridView(actions: actions, icons: icons)
+        case .icons: FileIconGridView(actions: actions, icons: icons, tileSize: CGFloat(zoomSlider.doubleValue))
         case .columns: FileColumnsView(actions: actions, icons: icons, lister: DirectoryLister())
         }
         views[mode] = made
@@ -198,7 +214,11 @@ public final class FilesPaneView: NSView {
         status.font = Typography.system(size: TypeScale.caption)
         status.textColor = .secondaryLabelColor
         status.alignment = .center
-        for view in [toolbar, sidebarView.view, content, status] as [NSView] {
+        zoomSlider.target = self
+        zoomSlider.action = #selector(zoomChanged)
+        zoomSlider.controlSize = .small
+        zoomSlider.toolTip = FilesStrings.iconSize
+        for view in [toolbar, sidebarView.view, content, status, zoomSlider] as [NSView] {
             view.translatesAutoresizingMaskIntoConstraints = false
             addSubview(view)
         }
@@ -214,7 +234,10 @@ public final class FilesPaneView: NSView {
             content.trailingAnchor.constraint(equalTo: trailingAnchor),
             status.topAnchor.constraint(equalTo: content.bottomAnchor, constant: 2),
             status.leadingAnchor.constraint(equalTo: sidebarView.view.trailingAnchor, constant: 8),
-            status.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
+            status.trailingAnchor.constraint(equalTo: zoomSlider.leadingAnchor, constant: -8),
+            zoomSlider.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
+            zoomSlider.centerYAnchor.constraint(equalTo: status.centerYAnchor),
+            zoomSlider.widthAnchor.constraint(equalToConstant: 100),
             status.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -3),
         ])
         let width = sidebarView.view.widthAnchor.constraint(equalToConstant: 170)
@@ -236,6 +259,15 @@ public final class FilesPaneView: NSView {
             window?.makeFirstResponder(focusTarget)
         }
     }
+    @objc private func zoomChanged() { setIconSize(CGFloat(zoomSlider.doubleValue)) }
+
+    /// Sets the icon layout's tile size (slider, Cmd+= / Cmd+-), 32 to 256 points.
+    func setIconSize(_ size: CGFloat) {
+        let clamped = min(256, max(32, size))
+        zoomSlider.doubleValue = Double(clamped)
+        (views[.icons] as? FileIconGridView)?.tileSize = clamped
+    }
+
     @objc private func filterChanged() { model.filterText = filterField.stringValue }
 
     // MARK: Quick Look (responder chain)

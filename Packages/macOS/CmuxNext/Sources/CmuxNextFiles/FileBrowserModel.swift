@@ -40,13 +40,13 @@ public final class FileBrowserModel {
     /// The name of the item keyboard moves start from (the last clicked or moved to).
     public internal(set) var cursor: String?
     /// The order of ``entries``. Changing it sorts again.
-    public var sortOrder: FileSortOrder { didSet { if oldValue != sortOrder { resort() } } }
+    public var sortOrder: FileSortOrder { didSet { if oldValue != sortOrder { resort(); rememberView() } } }
     /// Show dot files and `UF_HIDDEN` items (Cmd+Shift+.).
     public var showHidden: Bool { didSet { if oldValue != showHidden { refilter() } } }
     /// Only names containing this (case- and accent-insensitive) show; empty shows all.
     public var filterText: String = "" { didSet { if oldValue != filterText { refilter() } } }
     /// Icons, list or columns.
-    public var viewMode: FileViewMode
+    public var viewMode: FileViewMode { didSet { if oldValue != viewMode { rememberView() } } }
     /// The last operation's failure, for the pane to show; nil after a success.
     public internal(set) var lastError: FileBrowserError?
     /// A running copy or move.
@@ -81,6 +81,7 @@ public final class FileBrowserModel {
     @ObservationIgnored let files: any FileOperating
     @ObservationIgnored private let now: @Sendable () -> Date
     @ObservationIgnored private let resolver: GoToFolderResolver
+    @ObservationIgnored private let memory: FolderViewMemory?
 
     /// Makes a model on `folder`; call ``reload()`` (or ``open(_:)``) to list it.
     /// - Parameters:
@@ -93,10 +94,12 @@ public final class FileBrowserModel {
     ///   - files: Makes changes. Defaults to ``FileOperator``.
     ///   - resolver: Resolves Go to Folder text. Defaults to the real file system.
     ///   - now: The clock type-select reads (a seam for tests).
+    ///   - memory: Each folder's remembered view and order; nil keeps one for all.
     public init(folder: URL, viewMode: FileViewMode = .list, sortOrder: FileSortOrder = FileSortOrder(),
                 showHidden: Bool = false, lister: any DirectoryListing = DirectoryLister(),
                 watcher: any FolderWatching = FolderWatcher(), files: any FileOperating = FileOperator(),
-                resolver: GoToFolderResolver = GoToFolderResolver(), now: @escaping @Sendable () -> Date = { Date() }) {
+                resolver: GoToFolderResolver = GoToFolderResolver(), now: @escaping @Sendable () -> Date = { Date() },
+                memory: FolderViewMemory? = nil) {
         self.folder = folder.standardizedFileURL
         self.viewMode = viewMode
         self.sortOrder = sortOrder
@@ -106,6 +109,11 @@ public final class FileBrowserModel {
         self.files = files
         self.resolver = resolver
         self.now = now
+        self.memory = memory
+        if let prefs = memory?.prefs(for: self.folder) {
+            self.viewMode = prefs.viewMode
+            self.sortOrder = prefs.sortOrder
+        }
     }
 
     // MARK: Navigation
@@ -175,6 +183,10 @@ public final class FileBrowserModel {
             selection = []
             cursor = nil
             filterText = ""
+            if let prefs = memory?.prefs(for: target) {
+                viewMode = prefs.viewMode
+                sortOrder = prefs.sortOrder
+            }
         }
         phase = .loading
         startWatching(target, token: token)
@@ -196,6 +208,10 @@ public final class FileBrowserModel {
             guard token == generation else { return }
             phase = .failed(error.localizedDescription)
         }
+    }
+
+    private func rememberView() {
+        memory?.remember(.init(viewMode: viewMode, sortOrder: sortOrder), for: folder)
     }
 
     @concurrent

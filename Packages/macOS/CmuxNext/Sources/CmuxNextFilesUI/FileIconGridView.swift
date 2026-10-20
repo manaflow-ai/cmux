@@ -9,7 +9,13 @@ final class FileIconGridView: NSObject, FileContentView, NSCollectionViewDataSou
     let view: NSView
     var focusView: NSView { collection }
     /// Tile edge in points (the icon-size slider).
-    var tileSize: CGFloat = 96 { didSet { layout.itemSize = NSSize(width: tileSize, height: tileSize + 32) } }
+    var tileSize: CGFloat = 96 {
+        didSet {
+            guard oldValue != tileSize else { return }
+            layout.itemSize = NSSize(width: tileSize, height: tileSize + 32)
+            collection.reloadData()
+        }
+    }
     private let scroll = NSScrollView()
     private let collection = FileCollectionView()
     private let layout = NSCollectionViewFlowLayout()
@@ -19,9 +25,10 @@ final class FileIconGridView: NSObject, FileContentView, NSCollectionViewDataSou
     private var folder: URL?
     private var applyingSelection = false
 
-    init(actions: FilesPaneActions, icons: FileIconProvider) {
+    init(actions: FilesPaneActions, icons: FileIconProvider, tileSize: CGFloat = 96) {
         self.actions = actions
         self.icons = icons
+        self.tileSize = tileSize
         view = scroll
         super.init()
         layout.itemSize = NSSize(width: tileSize, height: tileSize + 32)

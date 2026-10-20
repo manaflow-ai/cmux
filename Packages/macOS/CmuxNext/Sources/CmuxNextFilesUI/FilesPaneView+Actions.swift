@@ -151,6 +151,8 @@ extension FilesPaneView {
             case ("f", false, false): window?.makeFirstResponder(filterFieldForFocus); return true
             case ("r", false, false): revealInFinder(); return true
             case ("i", false, false): getInfo(); return true
+            case ("=", _, false), ("+", _, false): setIconSize(CGFloat(zoomSlider.doubleValue) + 16); return true
+            case ("-", false, false): setIconSize(CGFloat(zoomSlider.doubleValue) - 16); return true
             default: return false
             }
         }

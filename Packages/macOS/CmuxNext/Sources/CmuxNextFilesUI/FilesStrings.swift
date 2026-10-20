@@ -91,6 +91,12 @@ nonisolated enum FilesStrings {
     static var renameStartAt: String { t("files.rename.startAt", "Start numbers at:") }
     static var renameCaseSensitive: String { t("files.rename.caseSensitive", "Match case") }
 
+    static var iconSize: String { t("files.iconSize", "Icon size") }
+
+    static func available(_ size: String) -> String {
+        String(format: t("files.status.available", "%@ available"), size)
+    }
+
     static func infoTitle(_ name: String) -> String {
         String(format: t("files.info.title", "%@ Info"), name)
     }
