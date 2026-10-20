@@ -11,7 +11,7 @@ const marker: PersonalTenantMarker = { version: 1, project, team: personalTeamId
 const e = { ...(env as Env), STACK_PROJECT_ID: project, STACK_SECRET_SERVER_KEY: "test-server-secret" }
 const team = { id: tenant, server_metadata: { cmuxVmPersonalTenant: marker } }
 
-it("uses server metadata and the exact creator for one create, with no automatic POST retry", async () => {
+it("creates the team with server metadata and no creator, then adds the owner as a plain member", async () => {
   const calls: Request[] = []
   const stack = personalTenantStack(e, async (r) => {
     calls.push(r.clone())
@@ -19,12 +19,32 @@ it("uses server metadata and the exact creator for one create, with no automatic
     expect(r.headers.get("x-stack-access-type")).toBe("server")
     expect(r.headers.get("x-stack-project-id")).toBe(project)
     expect(r.headers.get("x-stack-secret-server-key")).toBe(e.STACK_SECRET_SERVER_KEY)
-    expect(await r.json()).toEqual({ display_name: "Personal", creator_user_id: stackUser, server_metadata: { cmuxVmPersonalTenant: marker } })
-    return Response.json(team)
+    if (calls.length === 1) {
+      // No creator_user_id: Stack would grant the creator its admin defaults, including invites.
+      expect(await r.json()).toEqual({ display_name: "Personal", server_metadata: { cmuxVmPersonalTenant: marker } })
+      return Response.json(team)
+    }
+    expect(await r.json()).toEqual({})
+    return Response.json({ team_id: tenant, user_id: stackUser })
   })!
   expect(await stack.create(marker)).toEqual({ id: tenant, marker })
-  expect(calls).toHaveLength(1)
-  expect(calls[0]!.url).toBe("https://api.stack-auth.com/api/v1/teams")
+  expect(calls.map((r) => `${r.method} ${r.url}`)).toEqual(["POST https://api.stack-auth.com/api/v1/teams", `POST https://api.stack-auth.com/api/v1/team-memberships/${tenant}/${stackUser}`])
+})
+
+it("deletes a created team whose owner could not be added, so a later create may start clean", async () => {
+  for (const removed of [true, false]) {
+    const calls: string[] = []
+    const stack = personalTenantStack(e, async (r) => {
+      calls.push(`${r.method} ${new URL(r.url).pathname}`)
+      if (r.method === "POST" && calls.length === 1) return Response.json(team)
+      if (r.method === "POST") return Response.json({}, { status: 503 })
+      return removed ? Response.json({}) : Response.json({}, { status: 503 })
+    })!
+    const error: unknown = await stack.create(marker).catch((value: unknown) => value)
+    expect(error).toBeInstanceOf(PersonalTenantIdentityError)
+    if (error instanceof PersonalTenantIdentityError) expect(error.definitelyUnsent).toBe(removed)
+    expect(calls).toEqual(["POST /api/v1/teams", `POST /api/v1/team-memberships/${tenant}/${stackUser}`, `DELETE /api/v1/teams/${tenant}`])
+  }
 })
 
 it("ignores client-selected metadata and follows all discovery and membership pages", async () => {
