@@ -181,8 +181,12 @@ Rules:
    first focus is recorded. Incognito entries are never written.
 
 Mouse: the side buttons (button 4 and 5) and the two-finger swipe follow the
-same split, page history over a page and location history elsewhere
-(follow-up; needs `debug.mouse` coverage first).
+same split, page history over a page and location history elsewhere. The side
+buttons are built (`MouseSideButtons`): over a browser tab they walk its
+history (`browserBack`'s command), anywhere else they run `focusHistoryBack` /
+`focusHistoryForward`; a remote desktop in control mode keeps them for its
+host. Debug Settings `navigation.mouseSideButtons` (on) turns them off. The
+swipe is a follow-up.
 
 ### 4.2b One Back: page history first, then the trail (Leo 2026-10-06)
 
@@ -397,5 +401,5 @@ export-and-forget policy removes them. The `cmux-history` crate's
 (H3) must read the `terminal_commands` rows (`list-terminal-commands`) instead
 when it wires commands into the merged read model.
 
-Not built: mouse side buttons and swipe for either axis; a daemon list of
+Not built: the swipe for either axis; a daemon list of
 closed workspaces (`closed-history-v1`; the app lists what it saw close).

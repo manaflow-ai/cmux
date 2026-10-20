@@ -7,3 +7,15 @@ public extension WindowBackdrop {
         WindowBackdrop(tokens, reduceTransparency: reduceTransparency, selection: ThemeContext.activeBackdropSelection)
     }
 }
+
+public extension ThemeScope {
+    /// The window opacity this scope's window paints, where Settings' unset Opacity slider rests:
+    /// the theme's opacity, or over a background picture the tint the picture and the legibility
+    /// floor resolve (an unset slider sat at Ghostty's 100% while the window showed the work's 35%).
+    var shownWindowOpacity: Double {
+        guard backdropSelection != nil else { return input.backgroundOpacity }
+        let backdrop = WindowBackdrop(tokens, art: backdropArt, selection: backdropSelection,
+                                      tuning: appearanceTuning, tintOpacity: backdropTintOpacity)
+        return backdrop.isOpaque ? input.backgroundOpacity : backdrop.tintOpacity
+    }
+}
