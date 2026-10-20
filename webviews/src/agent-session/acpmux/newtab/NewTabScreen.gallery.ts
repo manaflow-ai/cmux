@@ -225,7 +225,8 @@ export default agentPaneEntry({
           note: width
             ? "The New Tab composer squeezed to 300 px: the mic and Send stay in the box, the prompt shrinks; the quiet row under it keeps the mode, model and effort."
             : "The New Tab composer: the box holds the prompt, the mic and Send; under it the quiet row with the permission mode on the left and the model and effort on the right.",
-          ready: newTab(),
+          // The Default template, whose box holds the mic and Send (Cards puts its row under the pill).
+          ready: newTab({ template: "default" }),
           snapshot: reasoningChat(),
           play: async (ctx: PlayContext) => {
             await ctx.waitFor(() => ctx.document.querySelector(".nt-field") !== null);

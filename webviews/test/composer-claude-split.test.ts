@@ -87,10 +87,11 @@ await requireBrowserLane("composer-claude-split.test.ts", async () => {
     {
       name: "New Tab composer",
       entry: "agent-pane.new-tab",
-      variant: "reasoning-chip",
+      // The Default template (composer-mic pins it): Cards draws its chips and mic under the pill.
+      variant: "composer-mic",
       composer: ".nt-composer",
       box: ".nt-box",
-      // The New Tab page attaches nothing yet: its box has no +.
+      // The New Tab page has no + button (it takes pastes and drops): its box has no +.
       plus: false,
     },
   ];
