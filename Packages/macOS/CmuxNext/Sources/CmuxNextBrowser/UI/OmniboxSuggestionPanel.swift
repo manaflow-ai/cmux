@@ -29,18 +29,33 @@ final class OmniboxSuggestionPanel {
     /// The card view (tests draw it).
     var cardView: NSView { content }
 
+    /// Row views made so far (tests: typing reuses them).
+    private(set) var rowViewsMade = 0
+
     /// Shows `suggestions` under `anchor` (the bar), clipped to `pane`.
+    /// Rows already on the card take the new matches in place, so typing
+    /// never rebuilds the card (no flash, hover tracking kept); only a
+    /// longer list adds rows and a shorter one removes the extra ones.
     func show(_ suggestions: [BrowserSuggestion], highlighted: Int?, below anchor: NSView, pane: NSView, in window: NSWindow) {
-        rows.forEach { $0.removeFromSuperview() }
-        rows = suggestions.enumerated().map { index, suggestion in
-            let row = SuggestionRowView(suggestion: suggestion)
-            row.onClick = { [weak self] flags in self?.onPick?(index, flags) }
-            row.onPointer = { [weak self] inside, pointer in self?.onHover?(inside ? index : nil, pointer) }
-            row.isHighlighted = index == highlighted
-            return row
+        let count = rows.count
+        if count > suggestions.count {
+            rows[suggestions.count...].forEach { $0.removeFromSuperview() }
+            rows.removeLast(count - suggestions.count)
         }
-        rows.forEach { content.card.addSubview($0) }
-        content.setAccessibilityRows(rows)
+        for (index, suggestion) in suggestions.enumerated() {
+            if index < rows.count {
+                rows[index].show(suggestion)
+            } else {
+                let row = SuggestionRowView(suggestion: suggestion)
+                rowViewsMade += 1
+                row.onClick = { [weak self] flags in self?.onPick?(index, flags) }
+                row.onPointer = { [weak self] inside, pointer in self?.onHover?(inside ? index : nil, pointer) }
+                rows.append(row)
+                content.card.addSubview(row)
+            }
+            rows[index].isHighlighted = index == highlighted
+        }
+        if rows.count != count { content.setAccessibilityRows(rows) }
         place(below: anchor, pane: pane, in: window)
     }
 
@@ -108,6 +123,7 @@ final class OmniboxSuggestionPanel {
     var rowViews: [SuggestionRowView] { rows }
 
     func dismiss() {
+        // The rows stay (the card fades out with them; the next show reuses them).
         let presented = overlay
         overlay = nil
         placedAnchor = nil

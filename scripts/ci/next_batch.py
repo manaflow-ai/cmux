@@ -8,7 +8,7 @@
             login (until the batch App exists): poll, debounce, run batches
   run       the batch: select eligible PRs, stack them on feat-cmux-next,
             validate the stack once (every cmux-next tier plus a fleet
-            production build), land each PR with gh-merge-green, or bisect a
+            production build), land each PR through GitHub's merge API at that head, or bisect a
             red stack down to the PR that broke it
   stack     stack PRs locally and print the result (no pushes, no GitHub writes)
   select    print which open PRs are eligible and why the others are not
@@ -38,6 +38,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import base_red_excuse  # noqa: E402
 import merge_main_resolver as mmr  # noqa: E402
 
 TOOLS_ROOT = Path(__file__).resolve().parents[2]
@@ -84,6 +85,14 @@ HEAVY_CHECKS = frozenset({
     "cmux-next generated files",
     "wait for the same-tree cmux-tui",
 })
+# One job, many static checks. Its last step lists each red one; the queue
+# compares those, not the job, with the base (one base red never hides another).
+CHECKS_JOB = "cmux-next checks (god files, concurrency, crash safety, l10n)"
+# How long a red stack waits for the base probe to finish (it started with the
+# first stack, so it is usually done), and the conclusions that count as red
+# in the base's own push run when the probe gave nothing.
+BASE_PROBE_GRACE = 60 * 60
+OUTRIGHT_RED = frozenset({"failure", "timed_out"})
 # Web formatting and lint autofix (`bun run check:fix` in webviews). The queue
 # fixes these on the PR's own branch before landing, so they never block one.
 FORMAT_CHECKS = frozenset({"web / react-apps-check", "web / Web status"})
@@ -115,6 +124,7 @@ SWIFT_GENERATED = (
     "docs/mdm/com.manaflow.cmux.plist",
     "docs/mdm/com.manaflow.cmux.intune.plist",
     "docs/mdm/managed-preferences.md",
+    "schemas/settings-export/settings-schema.sources.sha256",
     "Packages/macOS/CmuxNext/ci-target-graph.json",
 )
 # cmux-tui/bindings/codegen/generate.py output.
@@ -132,6 +142,22 @@ SDK_GENERATED = tuple("cmux-tui/bindings/" + glob for glob in (
 # merge key by key, and the SDK output is then regenerated.
 SPEC_JSON = ("cmux-tui/spec/*.json",)
 TUI_PATHS = ("cmux-tui/", "ghostty", "ghostty-next", "scripts/cmux-next/build-layout-reducer-ffi.sh")
+# The cmux-tui tree key's inputs, listed in the stack's own checkout.
+TREE_INPUTS = "scripts/cmux-next/cmux-tui-tree-inputs.txt"
+
+
+def touches_tree(changed: list[str], root: Path) -> bool:
+    """Whether the stack changes a cmux-tui tree-key input (so its tree is not the base's)."""
+    inputs = list(TUI_PATHS)
+    try:
+        for line in (root / TREE_INPUTS).read_text(encoding="utf-8").splitlines():
+            parts = line.split()
+            if len(parts) == 2 and not line.startswith("#"):
+                inputs.append(parts[1] + ("/" if parts[0] == "tree" else ""))
+    except OSError:
+        pass
+    return any(path == item or (item.endswith("/") and path.startswith(item)) or path.startswith(TUI_PATHS)
+               for path in changed for item in inputs)
 SECRET_ENV = re.compile(r"(TOKEN|SECRET|KEY|PASSWORD|CREDENTIAL)", re.I)
 
 
@@ -440,6 +466,42 @@ def red_fast_checks(pr: PullRequest) -> list[str]:
                    if status == "completed" and conclusion in RED and name not in HEAVY_CHECKS | fixable})
 
 
+# Never waived by an override label: risk evidence judges the PR's own description and merge freeze its
+# own paths, and neither runs on the stack, so the batch can't judge them for it.
+NEVER_WAIVED = frozenset({"risk evidence", "merge freeze"})
+
+
+def freeze_check(repo: str, number: int, env: dict[str, str]) -> tuple[int, str]:
+    """merge_freeze.py's verdict right before the merge: 0 clear, 1 frozen, 2 unreadable (never clear).
+
+    A freeze opened after the PR's own `merge freeze` check ran still stops it here."""
+    try:
+        done = subprocess.run([sys.executable, str(TOOLS_ROOT / "scripts/ci/merge_freeze.py"), "check", "--repo", repo,
+                               "--pr", str(number), "--base", BASE], capture_output=True, text=True, env=env, timeout=120)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        return 2, str(error)
+    return (done.returncode if done.returncode in (0, 1) else 2), (done.stdout + done.stderr).strip()[-300:]
+
+
+def drop_frozen(prs: list[PullRequest], check: Callable[[int], tuple[int, str]]
+                ) -> tuple[list[PullRequest], dict[int, str]]:
+    """Leave out PRs a merge freeze covers (or whose freeze state can't be read) before stacking, so one
+    frozen PR never stops every batch at its place in the stack until the freeze lapses."""
+    kept, skipped = [], {}
+    for pr in prs:
+        code, detail = check(pr.number)
+        if code == 0:
+            kept.append(pr)
+        else:
+            skipped[pr.number] = (f"frozen: {detail}" if code == 1 else f"freeze state unreadable: {detail}")[:200]
+    return kept, skipped
+
+
+# A transient GitHub or network error, from gh's message (as GitHub.graphql retries).
+TRANSIENT = re.compile(r"HTTP 5\d\d|Base branch was modified|unexpected end of JSON input|TLS handshake timeout|"
+                       r"connection reset|i/o timeout|timed out|EOF", re.I)
+
+
 def red_format_checks(pr: PullRequest) -> list[str]:
     return sorted({name for name, status, conclusion in pr.checks
                    if status == "completed" and conclusion in RED and name in FORMAT_CHECKS})
@@ -568,6 +630,9 @@ def ineligible_reason(pr: PullRequest, at: dt.datetime, stale_days: int = STALE_
     if pr.number in coordinator_prs():
         return "coord-2 lands it (listed in its merge-ready file)"
     red = red_fast_checks(pr)
+    never = sorted(name for name in red if name.lower() in NEVER_WAIVED)
+    if never:
+        return "red check " + ", ".join(never)
     # A trusted `queue: known base red` lets the batch judge it: a job red on
     # feat-cmux-next itself never counts against the stack.
     if red and OVERRIDE_BASE_RED not in trusted_labels(pr):
@@ -993,6 +1058,27 @@ def build_stack(worktree: Path, base_sha: str, prs: list[PullRequest], tools_roo
 # --- validation ---------------------------------------------------------------
 
 
+CHECKS_FAILED_HEADER = re.compile(r"Z ### \d+ cmux-next check\(s\) failed\s*$")
+CHECKS_FAILED_ITEM = re.compile(r"Z - (.+) \(([a-z_ ]+)\)\s*$")
+
+
+def red_subchecks(log: str) -> list[str]:
+    """The checks CHECKS_JOB's last step names as red (`- name (outcome)`
+    under its `### N cmux-next check(s) failed` header)."""
+    names, listing = [], False
+    for line in log.splitlines():
+        if CHECKS_FAILED_HEADER.search(line):
+            listing, names = True, []
+            continue
+        if listing:
+            found = CHECKS_FAILED_ITEM.search(line)
+            if found:
+                names.append(found.group(1))
+            elif names:
+                listing = False
+    return names
+
+
 @dataclass
 class Validation:
     name: str
@@ -1049,6 +1135,14 @@ class Controller:
         self.started = time.monotonic()
         self.base_failures: set[str] | None = None
         self.base_sha = ""
+        # The base itself, validated on its own next-batch branch alongside the
+        # first stack: base pushes skip CHECKS_JOB, and base dispatches (DEV
+        # daily, same-tree) route jobs away, so neither records what a stack
+        # would find red on the base.
+        self.base_probe: threading.Thread | None = None
+        self.base_probe_result: dict = {}
+        self.base_probe_stop = threading.Event()
+        self.base_tree_waited = False
 
     # git in the trusted checkout. The token goes on the command line of this
     # process only, never into .git/config, which the generators could read.
@@ -1124,18 +1218,142 @@ class Controller:
         return sorted({job["name"] for job in jobs
                        if job.get("conclusion") == "success" and any(job["name"].endswith(name) for name in HEAVY_CHECKS)})
 
-    def failed_jobs(self, run_id: int) -> list[str]:
+    def failed_jobs(self, run_id: int, reds: frozenset[str] = RED, detail: bool = False) -> list[str]:
+        """Red jobs, with CHECKS_JOB as `CHECKS_JOB: <check>` for each red check in it.
+
+        `detail` (comparing with the base) splits every other red job too, into
+        `<job>: step <name>`, `<job>: test <name>` and, when no test failed,
+        `<job>: error <line>`: a job red on the base then excuses only the same
+        failures, never a stack that breaks another test in it."""
         jobs = self.gh.api(f"repos/{self.args.repo}/actions/runs/{run_id}/jobs?per_page=100&filter=latest")["jobs"]
-        return sorted({job["name"] for job in jobs if (job.get("conclusion") or "") in RED})
+        failed: set[str] = set()
+        for job in jobs:
+            if (job.get("conclusion") or "") in reds:
+                failed |= self.expand_job(job["name"], job["id"], job if detail else None)
+        return sorted(failed)
+
+    def job_log(self, job_id: int | str) -> str | None:
+        # The job's log, readable while the rest of its run still goes.
+        got = self.gh.gh("api", "--allow-escape-sequences", f"repos/{self.args.repo}/actions/jobs/{job_id}/logs",
+                         check=False)
+        return got.stdout if got.returncode == 0 else None
+
+    def expand_job(self, name: str, job_id: int | str, job: dict | None = None) -> set[str]:
+        if name.endswith(CHECKS_JOB):
+            log = self.job_log(job_id) or ""
+            return {f"{name}: {check}" for check in red_subchecks(log)} or {name}
+        if job is None:
+            return {name}
+        log = self.job_log(job_id)
+        if log is None:
+            return {name}
+        steps, tests, errors = base_red_excuse.signature(job, log)
+        crashes = base_red_excuse.crash_signals(log)
+        if not tests and not errors and not crashes:
+            # Only failed steps (a timeout, unparsed output): nothing to compare, as
+            # base_red_excuse.judge refuses. The bare name matches only a base job just as opaque.
+            return {name}
+        parts = {f"{name}: step {step}" for step in steps} | {f"{name}: test {test}" for test in tests}
+        parts |= {f"{name}: crash signal {signal}" for signal in crashes}
+        if not tests:
+            parts |= {f"{name}: error {error}" for error in errors}
+        return parts
+
+    def wait_base_tree(self) -> None:
+        """Wait (once a batch) for the base's own cmux-tui artifacts runs.
+
+        A stack that changes no tree input shares the base's tree. Pushed
+        while the base still publishes it, the stack branch's artifacts run
+        defers to that publisher and cmux-next reads it as never published
+        (same-tree cmux-tui red, daemon tests and scheme compile skipped)."""
+        if self.base_tree_waited:
+            return
+        self.base_tree_waited = True
+        try:
+            runs = self.gh.runs(TUI_WORKFLOW, f"head_sha={self.base_sha}&per_page=10")
+        except RuntimeError as error:
+            log(f"could not list the base's cmux-tui runs: {error}")
+            return
+        deadline = time.monotonic() + 60 * 60  # in all, not per run
+        for run in runs:
+            left = int(deadline - time.monotonic())
+            if run.get("head_branch") == BASE and run.get("status") != "completed" and left > 0:
+                log(f"waiting for the base's cmux-tui tree: {run.get('html_url')}")
+                try:
+                    self.wait_run(run["id"], timeout=left)
+                except RuntimeError as error:
+                    log(f"could not wait for the base's cmux-tui run: {error}")
+                    return
+
+    def start_base_probe(self) -> None:
+        if self.base_probe is None:
+            self.base_probe = threading.Thread(target=self.probe_base, name="base-probe", daemon=True)
+            self.base_probe.start()
+
+    def probe_base(self) -> None:
+        """Run every cmux-next tier on the base head, the way a stack runs them,
+        with one rerun of failed jobs. Its failures are the batch's inherited reds."""
+        branch = f"{BRANCH_PREFIX}{self.batch_id}-base"
+        try:
+            self.push(self.base_sha, branch)
+            self.base_probe_result["branch"] = branch
+            dispatched = now()
+            self.gh.dispatch(HEAVY_WORKFLOW, branch)
+            heavy = self.find_run(HEAVY_WORKFLOW, branch, lambda item: item["head_sha"] == self.base_sha, dispatched)
+            self.base_probe_result["url"] = heavy["html_url"]
+            self.base_probe_result["run"] = heavy["id"]
+            log(f"base probe: {heavy['html_url']}")
+            if self.base_probe_stop.is_set():
+                # The batch ended while this looked for its run: stop_base_probe had no run to cancel.
+                self.gh.gh("run", "cancel", str(heavy["id"]), "-R", self.args.repo, check=False)
+                if not getattr(self.args, "keep_branches", False):
+                    self.delete_branch(branch)
+                return
+            run = self.wait_run(heavy["id"], timeout=180 * 60)
+            if run["status"] != "completed":
+                raise RuntimeError("the base probe did not finish")
+            failed = self.failed_jobs(heavy["id"], detail=True)
+            if self.base_probe_stop.is_set() or run.get("conclusion") == "cancelled":
+                return  # the batch ended and cancelled it: no rerun, no result
+            if failed:
+                self.gh.gh("run", "rerun", str(heavy["id"]), "--failed", "-R", self.args.repo, check=False)
+                time.sleep(30)
+                if self.wait_run(heavy["id"], timeout=120 * 60)["status"] != "completed":
+                    # The first attempt's list still holds its flakes: record nothing (push-run fallback).
+                    log("base probe: its rerun did not finish; no result")
+                    return
+                failed = self.failed_jobs(heavy["id"], detail=True)
+            self.base_probe_result["failed"] = set(failed)
+            log("base probe: " + (", ".join(failed) or "green"))
+        except Exception as error:  # the base runs' own record is the fallback
+            log(f"base probe: {type(error).__name__}: {error}")
 
     def failing_on_base(self, base_sha: str) -> set[str]:
-        """Jobs already red on the base head's own cmux-next run (inherited, not the batch's)."""
+        """Checks already red on the base head (inherited, not the batch's).
+
+        The base probe's reds when it finished in time. Otherwise the jobs that
+        failed outright in the base's newest completed push run: a cancelled
+        job there was superseded by a newer push, not red, and dispatches at
+        the base sha (same-tree, DEV daily) may test something else.
+        """
         if self.base_failures is not None:
             return self.base_failures
-        runs = self.gh.runs(HEAVY_WORKFLOW, f"head_sha={base_sha}&per_page=10")
+        if self.base_probe is not None:
+            self.base_probe.join(timeout=BASE_PROBE_GRACE)
+        if "failed" in self.base_probe_result:
+            self.base_failures = set(self.base_probe_result["failed"])
+            return self.base_failures
+        log("base probe gave no result; falling back to the base's push run")
+        runs = self.gh.runs(HEAVY_WORKFLOW, f"head_sha={base_sha}&event=push&per_page=10")
         done = [run for run in runs if run["status"] == "completed" and run["head_branch"] == BASE]
-        self.base_failures = set(self.failed_jobs(done[0]["id"])) if done else set()
+        self.base_failures = set(self.failed_jobs(done[0]["id"], OUTRIGHT_RED, detail=True)) if done else set()
         return self.base_failures
+
+    def stop_base_probe(self) -> None:
+        """A batch that ends before its probe does cancels the probe's run."""
+        self.base_probe_stop.set()
+        if self.base_probe is not None and self.base_probe.is_alive() and self.base_probe_result.get("run"):
+            self.gh.gh("run", "cancel", str(self.base_probe_result["run"]), "-R", self.args.repo, check=False)
 
     def mini(self, mode: str, branch: str, sha: str, extra: dict[str, str]) -> tuple[dict, dict]:
         """`mini_once`, dispatched once more when the job wrote no result.
@@ -1279,6 +1497,8 @@ class Controller:
         if not stack.included or stack.error:
             validation.seconds = int(time.monotonic() - started)
             return validation
+        self.wait_base_tree()
+        self.start_base_probe()
         branch = f"{BRANCH_PREFIX}{self.batch_id}-{len(self.validations)}"
         validation.branch = branch
         self.push(stack.head, branch)
@@ -1289,7 +1509,8 @@ class Controller:
         sha = stack.head
         changed = self.git("diff", "--name-only", base_sha, sha).splitlines()
         pin = ""
-        if any(path.startswith(TUI_PATHS) for path in changed):
+        tree = touches_tree(changed, self.worktree)
+        if tree:
             pin = f"cmux-tui-pin-{sha[:12]}"
             self.push(sha, pin)
             if not self.local:  # the job token's push starts no workflow
@@ -1300,17 +1521,17 @@ class Controller:
         validation.heavy_url = heavy["html_url"]
         log(f"{name}: heavy tier {heavy['html_url']}")
         validation.build = self.fleet_build(branch, sha, f"nb-{self.batch_id}-{len(self.validations)}")
-        log(f"{name}: fleet build {'ok' if validation.build.get('ok') else 'failed'}")
+        log(f"{name}: fleet build " + ("ok" if validation.build.get("ok") else f"failed: {validation.build.get('error')}"))
         run = self.wait_run(heavy["id"], timeout=180 * 60)
-        failed = self.failed_jobs(heavy["id"]) if run["status"] == "completed" else ["(timed out waiting)"]
+        failed = self.failed_jobs(heavy["id"], detail=True) if run["status"] == "completed" else ["(timed out waiting)"]
         if failed and run["status"] == "completed" and not validation.rerun:
             # One rerun of the failed jobs before blaming a PR: flakes are not culprits.
             validation.rerun = True
             self.gh.gh("run", "rerun", str(heavy["id"]), "--failed", "-R", self.args.repo, check=False)
             time.sleep(30)
             run = self.wait_run(heavy["id"], timeout=120 * 60)
-            failed = self.failed_jobs(heavy["id"])
-        inherited = self.failing_on_base(base_sha)
+            failed = self.failed_jobs(heavy["id"], detail=True)
+        inherited = self.failing_on_base(base_sha) if failed else set()
         validation.inherited = sorted(set(failed) & inherited)
         validation.heavy_failed = sorted(set(failed) - inherited)
         if run["status"] == "completed":
@@ -1366,17 +1587,8 @@ class Controller:
             f"{failing}\n\nNext: fix, push."))
 
     # -- landing
-    def merge_green(self) -> Path:
-        path = Path(tempfile.gettempdir()) / "gh-merge-green"
-        if not path.exists():
-            self.git("fetch", "--quiet", "--no-tags", "origin", "+refs/heads/main:refs/remotes/origin/main")
-            path.write_text(self.git("show", "refs/remotes/origin/main:scripts/gh-merge-green") + "\n")
-            path.chmod(0o755)
-        return path
-
     def land(self, validation: Validation) -> list[tuple[PullRequest, str]]:
         landed = []
-        helper = self.merge_green()
         fresh = {pr.number: pr for pr in open_prs(self.gh, fresh=True)}
         landing = getattr(self.args, "land", True) and not self.args.dry_run and not self.args.no_land
         stop = 0
@@ -1434,7 +1646,7 @@ class Controller:
                 f"Batch queue: landing. [Batch]({self.run_url}), stack `{validation.stack.head[:12]}` "
                 f"on `{validation.stack.base[:12]}`, [heavy tier]({validation.heavy_url}), "
                 f"build: {validation.build.get('link', 'n/a')}."))
-            outcome = self.merge_one(helper, pr, validation)
+            outcome = self.merge_one(pr, validation)
             landed.append((pr, outcome))
             if "GitHub refused to merge" in outcome:
                 self.comment_once(pr, "refused", (
@@ -1454,34 +1666,50 @@ class Controller:
                 f"`{stack.base[:12]}` with " + " ".join(f"#{item.number}" for item in stack.included) + ". "
                 f"Fleet production build: job `{build.get('job_id', 'n/a')}` ({build.get('link', 'n/a')}). "
                 f"{heavy}. Validated this PR at `{pr.sha[:12]}`.\n\n"
-                "Next: land it yourself on this receipt (`gh pr merge --squash --match-head-commit`; gh-merge-green is optional).")
+                "Next: land it yourself on this receipt (`gh pr merge --squash --match-head-commit`).")
 
-    def merge_one(self, helper: Path, pr: PullRequest, validation: Validation) -> str:
-        ref = f"{self.args.repo}#{pr.number}"
-        env = {**self.writer.env, "GH_MERGE_GREEN_NO_AUTO_UPDATE": "1"}
-        reason = (f"cmux-next batch {self.run_url} validated this exact head in stack "
-                  f"{validation.stack.head[:12]}: every cmux-next tier and the fleet production build passed")
-        deadline = time.monotonic() + 30 * 60
-        override = False
-        while True:
-            # Trailing flags reach gh pr merge after gh-merge-green's own: GitHub
-            # merges only the head this batch validated, never a newer push.
-            command = [str(helper), ref, *(["--override", reason] if override else []), "--squash",
-                       "--match-head-commit", pr.sha]
-            completed = subprocess.run(command, capture_output=True, text=True, env=env)
-            output = (completed.stdout + completed.stderr).strip()
-            if completed.returncode == 0:
-                return "landed" + (" (override: own heavy check red, batch green)" if override else "")
-            line = next((item for item in output.splitlines() if item.startswith("not green")), output[-300:])
-            pending = re.search(r"is (queued|in_progress|waiting|pending|requested)/", line) or "has not run" in line
-            heavy_red = any(name in line for name in HEAVY_CHECKS) and "is not successful" in line
-            if heavy_red and not override:
-                override = True  # the batch ran that tier on this head's stack
-                continue
-            if pending and time.monotonic() < deadline:
-                time.sleep(120)
-                continue
-            return f"not landed: {line}"
+    def merge_one(self, pr: PullRequest, validation: Validation) -> str:
+        """Squash-merge the exact head this batch validated through GitHub's merge API.
+
+        The batch already ran every tier on the stack, so checks aren't re-judged here, except the two the
+        stack can't run: a `risk evidence` check on the head must have finished green (an edited description
+        regrades it), and the merge freezes are read again, since one may have opened after the PR's own
+        check ran. GitHub's default squash body is kept, with every commit's Co-authored-by trailer. A
+        transient error (5xx, network, "Base branch was modified") is retried once, after checking whether
+        GitHub merged anyway; it never marks the PR refused. A real refusal (the head moved, a conflict)
+        does, and the PR waits for a push."""
+        try:
+            runs = self.gh.api(f"repos/{self.args.repo}/commits/{pr.sha}/check-runs?check_name=risk%20evidence&per_page=100") or {}
+        except RuntimeError as error:
+            return f"not landed: risk evidence unreadable ({str(error)[-120:]}); the next batch tries again"
+        for run in runs.get("check_runs", []):
+            if run.get("status") != "completed" or (run.get("conclusion") or "") not in PASS:
+                return "not landed: risk evidence has not passed on this head; the next batch tries again"
+        code, detail = freeze_check(self.args.repo, pr.number, getattr(self.gh, "env", None) or dict(os.environ))
+        if code == 1:
+            return f"not landed: frozen ({detail})"
+        if code != 0:
+            return f"not landed: the merge freeze state is unreadable ({detail})"
+        path = f"repos/{self.args.repo}/pulls/{pr.number}/merge"
+        for attempt in (1, 2):
+            try:
+                self.writer.api(path, method="PUT", body={"sha": pr.sha, "merge_method": "squash"})
+                return "landed"
+            except RuntimeError as error:
+                text = str(error)
+                if not TRANSIENT.search(text):
+                    return f"not landed: GitHub refused to merge {self.args.repo}#{pr.number}: {text[-200:]}"
+                # A timeout can come back after GitHub merged: look before trying again.
+                try:
+                    state = self.gh.api(f"repos/{self.args.repo}/pulls/{pr.number}") or {}
+                except RuntimeError:
+                    state = {}
+                if state.get("merged") and (state.get("head") or {}).get("sha") == pr.sha:
+                    return "landed"
+                if attempt == 2:
+                    return f"not landed: GitHub was unreachable or busy ({text[-160:]}); the next batch tries again"
+                time.sleep(15)
+        return "not landed"
 
     def after_landing(self) -> None:
         """Merges by the job token start no push workflows; start the base ones.
@@ -1532,6 +1760,8 @@ class Controller:
             result = "green" if validation.green else "red: " + "; ".join(validation.failures())[:300]
             prs = " ".join(f"#{pr.number}" for pr in validation.stack.included)
             lines.append(f"| {validation.name} | {prs} | {result} | {validation.seconds // 60}m{validation.seconds % 60:02d}s |")
+        if url := self.base_probe_result.get("url"):
+            lines += ["", f"Base probe (feat-cmux-next `{self.base_sha[:12]}` alone): {url}"]
         if final and final.inherited:
             lines += ["", "Red on feat-cmux-next itself (not counted): " + ", ".join(f"`{j}`" for j in final.inherited)]
         if final and final.stack.resolved:
@@ -1561,6 +1791,15 @@ class Controller:
             log(f"could not update the sticky issue: {error}")
 
     # -- the whole batch
+    def cleanup(self) -> None:
+        """Delete the batch's branches and stop its base probe."""
+        for validation in self.validations:
+            if validation.branch and not self.args.keep_branches:
+                self.delete_branch(validation.branch)
+        self.stop_base_probe()
+        if self.base_probe_result.get("branch") and not self.args.keep_branches:
+            self.delete_branch(self.base_probe_result["branch"])
+
     def run(self) -> int:
         only = {int(item) for item in re.split(r"[\s,#]+", self.args.prs) if item} if self.args.prs else None
         eligible, skipped = select(open_prs(self.gh), now(), only)
@@ -1580,6 +1819,10 @@ class Controller:
         landing = (getattr(self.args, "land", True) and not self.args.dry_run and not self.args.no_land
                    and not landing_refusal())
         eligible, waiting = admit_reviewed(eligible, self.gh, landing)
+        if landing:
+            env = getattr(self.gh, "env", None) or dict(os.environ)
+            eligible, frozen = drop_frozen(eligible, lambda number: freeze_check(self.args.repo, number, env))
+            waiting.update(frozen)
         skipped.update(waiting)
         if not eligible:
             write_summary("Nothing reviewed to land.\n\n" + "\n".join(
@@ -1594,36 +1837,38 @@ class Controller:
             self.comment_once(candidates[0], "alone", "Batch queue: validating this PR on its own (`queue: land alone`).")
         culprits: list[PullRequest] = []
         landed: list[tuple[PullRequest, str]] = []
-        while candidates:
-            validation = self.validate(candidates, "batch" if not culprits else f"rerun {len(culprits)}")
-            for pr, blocking in validation.stack.dropped:
-                self.report_drop(pr, blocking)
-            if not validation.stack.included:
-                break
-            if validation.green:
-                landed = self.land(validation)
-                if any(text.startswith("landed") for _, text in landed):
-                    self.after_landing()
-                break
-            if not validation.heavy_failed and not validation.stack.error:
-                # Every tier passed and only the fleet build failed: the
-                # compiles already ran, so blame the fleet, not a PR.
-                log("fleet build failed on a green stack; not bisecting, not landing")
-                break
-            if len(culprits) >= MAX_CULPRITS:
-                log("too many culprits in one batch; stopping")
-                break
-            included = validation.stack.included
-            culprit = included[0] if len(included) == 1 else self.bisect(validation)
-            prefix = next((v for v in reversed(self.validations)
-                           if v.stack.included and v.stack.included[-1].number == culprit.number and not v.green), None)
-            self.report_culprit(culprit, validation, prefix)
-            culprits.append(culprit)
-            log(f"culprit #{culprit.number}")
-            candidates = [pr for pr in included if pr.number != culprit.number]
-        for validation in self.validations:
-            if validation.branch and not self.args.keep_branches:
-                self.delete_branch(validation.branch)
+        try:
+            while candidates:
+                validation = self.validate(candidates, "batch" if not culprits else f"rerun {len(culprits)}")
+                for pr, blocking in validation.stack.dropped:
+                    self.report_drop(pr, blocking)
+                if not validation.stack.included:
+                    break
+                if validation.green:
+                    landed = self.land(validation)
+                    if any(text.startswith("landed") for _, text in landed):
+                        self.after_landing()
+                    break
+                if not validation.heavy_failed and not validation.stack.error:
+                    # Every tier passed and only the fleet build failed: the
+                    # compiles already ran, so blame the fleet, not a PR.
+                    log("fleet build failed on a green stack; not bisecting, not landing")
+                    break
+                if len(culprits) >= MAX_CULPRITS:
+                    log("too many culprits in one batch; stopping")
+                    break
+                included = validation.stack.included
+                culprit = included[0] if len(included) == 1 else self.bisect(validation)
+                prefix = next((v for v in reversed(self.validations)
+                               if v.stack.included and v.stack.included[-1].number == culprit.number and not v.green), None)
+                self.report_culprit(culprit, validation, prefix)
+                culprits.append(culprit)
+                log(f"culprit #{culprit.number}")
+                candidates = [pr for pr in included if pr.number != culprit.number]
+        finally:
+            # Also when a batch raises (a 502 GitHub never retried): under serve the
+            # process lives on, and a leaked probe would keep its heavy run going.
+            self.cleanup()
         text = self.report(eligible, skipped, landed, culprits)
         write_summary(text)
         self.post_sticky(text)
