@@ -30,6 +30,10 @@ pub struct ChiefSettings {
     /// gets a `<show>` block for the Chief to open them in the column right of
     /// its chat (`show.afterReport`, crate::show). Default true.
     pub show_after_report: bool,
+    /// Seconds a cloud VM waits with no live cloud subagent before the host
+    /// pauses it (`cloud.autoPauseIdleSeconds`, cloud-subagents-DESIGN.md
+    /// B4). Default 60.
+    pub cloud_auto_pause_idle_secs: u64,
 }
 
 /// `replies.thread`: when a Chief reply in its DM is threaded under the user
@@ -73,6 +77,7 @@ impl Default for ChiefSettings {
             cache_ttl: None,
             reply_threads: ReplyThreads::Auto,
             show_after_report: true,
+            cloud_auto_pause_idle_secs: 60,
         }
     }
 }
@@ -89,6 +94,9 @@ pub const REPLY_THREADS: &str = "replies.thread";
 /// The key of `ChiefSettings::show_after_report`.
 pub const SHOW_AFTER_REPORT: &str = "show.afterReport";
 
+/// The key of `ChiefSettings::cloud_auto_pause_idle_secs`.
+pub const CLOUD_AUTO_PAUSE_IDLE_SECONDS: &str = "cloud.autoPauseIdleSeconds";
+
 impl ChiefSettings {
     /// The settings in `path`; a missing or unreadable file is the defaults.
     pub fn load(path: &Path) -> ChiefSettings {
@@ -104,6 +112,9 @@ impl ChiefSettings {
                 .and_then(ReplyThreads::parse)
                 .unwrap_or_default(),
             show_after_report: value["show"]["afterReport"].as_bool().unwrap_or(true),
+            cloud_auto_pause_idle_secs: value["cloud"]["autoPauseIdleSeconds"]
+                .as_u64()
+                .unwrap_or(60),
         }
     }
 
@@ -114,6 +125,7 @@ impl ChiefSettings {
         }
         value["replies"] = json!({"thread": self.reply_threads.as_str()});
         value["show"] = json!({"afterReport": self.show_after_report});
+        value["cloud"] = json!({"autoPauseIdleSeconds": self.cloud_auto_pause_idle_secs});
         value
     }
 
@@ -135,6 +147,18 @@ impl ChiefSettings {
         file.sync_all()?;
         std::fs::rename(&tmp, path)
     }
+}
+
+/// A `cloud.autoPauseIdleSeconds` value: whole seconds, 0 to 86400.
+pub fn parse_idle_secs(value: &str) -> Result<u64, String> {
+    value
+        .trim()
+        .parse::<u64>()
+        .ok()
+        .filter(|n| *n <= 86_400)
+        .ok_or_else(|| {
+            format!("{CLOUD_AUTO_PAUSE_IDLE_SECONDS}: whole seconds 0..86400, not {value:?}")
+        })
 }
 
 /// A cache TTL setting value: `5m` or `1h`.
