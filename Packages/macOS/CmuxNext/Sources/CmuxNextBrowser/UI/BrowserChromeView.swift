@@ -76,6 +76,8 @@ public final class BrowserChromeView: NSView {
     var httpsFallback = HTTPSUpgradeFallback()
     private var showsStop = false
     var isToolbarHidden = false
+    /// The person hid this tab's address bar row (Toggle Omnibar).
+    public internal(set) var isOmnibarHidden = false
     private let density = DensityBinding()
     lazy var extensionToolbar: ExtensionActionToolbar = {
         let toolbar = ExtensionActionToolbar(slot: extensionSlot)
@@ -360,7 +362,7 @@ public final class BrowserChromeView: NSView {
 
         renderPrompt()
 
-        setToolbarHidden(state.isContentFullscreen)
+        setToolbarHidden(state.isContentFullscreen || isOmnibarHidden)
         updateOcclusion()
     }
 
