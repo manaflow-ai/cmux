@@ -16,6 +16,8 @@ export interface Env {
   /** Private P-256 JWK (JSON) for session tickets. */
   TICKET_KEY?: string;
   TURN_KEY_ID?: string;
+  /** Provisional window (ms) for socket-close end reasons; default 3000. */
+  CLOSE_GRACE_MS?: string;
   TURN_KEY_API_TOKEN?: string;
 }
 

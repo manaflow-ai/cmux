@@ -24,6 +24,8 @@ export default defineConfig({
           PAID_USER_IDS: `${TEST_STACK_PROJECT}:paid-user`,
           TURN_KEY_ID: "turn-key",
           TURN_KEY_API_TOKEN: "turn-token",
+          // Short provisional window for socket-close end reasons (default 3 s).
+          CLOSE_GRACE_MS: "300",
         },
       },
     }),
