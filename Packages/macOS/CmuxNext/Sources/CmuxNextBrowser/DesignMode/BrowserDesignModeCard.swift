@@ -14,4 +14,15 @@ public nonisolated struct BrowserDesignModeCard: Sendable, Equatable {
     public let bounds: CGRect
     /// The viewport's width in CSS pixels when the page measured `bounds`.
     public let viewportWidth: Double
+    /// The gallery variation the highlight picks (a `cmux-variation-<n>` tile), nil for any other element.
+    public var pickedVariation: Int?
+
+    public init(id: String, name: String, text: String, bounds: CGRect, viewportWidth: Double, pickedVariation: Int? = nil) {
+        self.id = id
+        self.name = name
+        self.text = text
+        self.bounds = bounds
+        self.viewportWidth = viewportWidth
+        self.pickedVariation = pickedVariation
+    }
 }

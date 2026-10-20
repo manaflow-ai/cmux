@@ -69,6 +69,10 @@ pub fn tools_granted(subagent: bool, grant: &crate::chief_profile::Grant) -> Val
         json!({"name": "version", "description": VERSION_DESCRIPTION,
      "inputSchema": {"type": "object", "properties": {}, "additionalProperties": false}}),
     );
+    // Moving itself to another machine (migrate.rs): the Chief's own home.
+    if !subagent {
+        list.push(move_tool());
+    }
     // The Chief's own words in its conversation: never a grant to withhold.
     if !subagent {
         list.push(json!({"name": "react", "description": REACT_DESCRIPTION,
@@ -85,6 +89,10 @@ pub trait Backend {
     /// A subagent's server: zoom and date only.
     fn subagent(&self) -> bool {
         false
+    }
+    /// The Chief home this server belongs to (the move tool), if known.
+    fn home(&self) -> Option<PathBuf> {
+        None
     }
     /// The model tools this Chief may use (asked of the host at tools/list).
     fn grant(&self) -> crate::chief_profile::Grant {
@@ -107,6 +115,11 @@ impl Backend for SocketBackend {
 
     fn subagent(&self) -> bool {
         self.1
+    }
+
+    /// `<home>/optchat/tools.sock`: the home is two levels up.
+    fn home(&self) -> Option<PathBuf> {
+        self.0.parent()?.parent().map(Path::to_path_buf)
     }
 
     /// The live host's grant. A host that does not answer the question (an
@@ -154,6 +167,12 @@ pub fn handle(message: &Value, backend: &dyn Backend) -> Option<Value> {
             let args = params.get("arguments").cloned().unwrap_or(json!({}));
             let answer = if name == "version" {
                 backend.version()
+            } else if name == "move" {
+                match (backend.subagent(), backend.home()) {
+                    (true, _) => Err(format!("unknown tool {name}")),
+                    (false, None) => Err("move: this server does not know its Chief home".into()),
+                    (false, Some(home)) => move_call(&home, &args),
+                }
             } else {
                 Call::parse(name, &args).and_then(|call| match call {
                     Call::Spawn { .. }
@@ -218,4 +237,84 @@ pub fn run(socket: &Path, subagent: bool) -> std::io::Result<()> {
         std::io::stdout().lock(),
         &SocketBackend(socket.to_owned(), subagent),
     )
+}
+
+/// The `move` tool (plans/cmux-next/chief-migration-DESIGN.md section 8):
+/// the Chief moves itself. `dry_run` checks the target and answers at once;
+/// a real move runs `optchat-chief move --detach`, which waits for this turn
+/// to end, stops the host, and writes its report to `state/move.json`.
+/// `status` reads that report, `reach` probes what this home reached before
+/// a move, `rollback` lets the old copy answer again.
+pub const MOVE_DESCRIPTION: &str = "Move yourself (your memory, conversations, settings, subagent transcripts and grants) to another machine, or back. action move (default): to = ssh:HOST[:DIR] (a Mac mini or a Linux VM you reach over SSH), local:DIR, or cloud / cloud:staging (the hosted Cloud Chief; needs the person's cloud session token file). Run dry_run true first and tell the person what it found; a real move starts when this turn ends, stops you here and keeps this copy for rollback, so say goodbye in this turn. status: the last move's report. reach: after a move, which SSH hosts, tailnet, fleet and model route answer from this machine. rollback: the old copy answers again. Keys and tokens are never copied: missing ones come back as blockers to give the person.";
+
+/// The move tool's schema.
+pub fn move_tool() -> Value {
+    json!({"name": "move", "description": MOVE_DESCRIPTION,
+     "inputSchema": {"type": "object", "properties": {
+        "action": {"type": "string", "enum": ["move", "status", "reach", "rollback"]},
+        "to": {"type": "string", "minLength": 1},
+        "dry_run": {"type": "boolean"},
+        "without_transcripts": {"type": "boolean", "description": "Leave subagent transcripts behind (smaller move)."},
+        "remote_bin": {"type": "string", "minLength": 1, "description": "The target's optchat-chief, when it is not on its PATH and the target's OS differs from this one."},
+        "session_token_file": {"type": "string", "minLength": 1, "description": "cloud: the person's session token file (0600); never read it aloud."},
+        "name": {"type": "string", "minLength": 1, "description": "cloud: the hosted Chief's name (default Chief)."}},
+      "additionalProperties": false}})
+}
+
+/// Runs the move tool for the Chief of `home` with this binary.
+pub fn move_call(home: &Path, args: &Value) -> Result<String, String> {
+    let action = args["action"].as_str().unwrap_or("move");
+    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    let mut argv: Vec<String> = vec!["move".into()];
+    match action {
+        "status" => {
+            return std::fs::read_to_string(home.join("state").join("move.json"))
+                .map_err(|_| "no move has run from this home".to_owned());
+        }
+        "reach" => argv.push("reach".into()),
+        "rollback" => argv.push("rollback".into()),
+        "move" => {
+            let to = args["to"].as_str().ok_or("move needs `to`")?;
+            argv.extend(["--to".into(), to.into()]);
+            argv.push(
+                if args["dry_run"] == true {
+                    "--dry-run"
+                } else {
+                    "--detach"
+                }
+                .into(),
+            );
+            if args["without_transcripts"] == true {
+                argv.push("--without-transcripts".into());
+            }
+            if let Some(name) = args["name"].as_str() {
+                argv.extend(["--name".into(), name.into()]);
+            }
+        }
+        other => return Err(format!("unknown move action {other}")),
+    }
+    for (key, flag) in [
+        ("remote_bin", "--remote-bin"),
+        ("session_token_file", "--session-token-file"),
+    ] {
+        if let Some(v) = args[key].as_str() {
+            argv.extend([flag.into(), v.into()]);
+        }
+    }
+    argv.extend(["--home".into(), home.to_string_lossy().into_owned()]);
+    let out = std::process::Command::new(exe)
+        .args(&argv)
+        .stdin(std::process::Stdio::null())
+        .output()
+        .map_err(|e| e.to_string())?;
+    let text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    if out.status.success() {
+        Ok(text)
+    } else {
+        Err(text)
+    }
 }

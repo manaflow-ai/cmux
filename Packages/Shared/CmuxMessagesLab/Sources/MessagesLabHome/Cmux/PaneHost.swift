@@ -54,6 +54,8 @@ final class HostView: NSView {
     let scrollView: TranscriptScrollView = (ProcessInfo.processInfo.arguments.contains("--scroll-trace") || ProcessInfo.processInfo.arguments.contains("--probe-live-scroll"))
         ? TraceableTranscriptScrollView(frame: .zero) : TranscriptScrollView(frame: .zero)
     let fieldChrome = FieldChrome()
+    /// cmux: the field's send button (the waveform's slot when the field has text; ComposeSendButton).
+    let sendButton = ComposeSendButton(frame: .zero)
     /// The blurred, darkened transcript under the header controls.
     let headerBackdrop = HeaderBackdropView(frame: .zero)
     /// cmux: the in-pane header controls (HeaderBar's avatar and name pill).
@@ -104,6 +106,8 @@ final class HostView: NSView {
         // The field's clip, its scroll view and the text view (ComposeTextView, as Host.swift):
         // the text view is the scroll view's document, so the clip is what the pane holds.
         addSubview(demo.compose.textView.clip)
+        // cmux: above the text view's clip (the text leaves its slot free).
+        addSubview(sendButton)
         addSubview(paneHeader)
         addSubview(above)
         // The in-pane header replaces the shared drawn header (fitted blur,
@@ -168,6 +172,7 @@ final class HostView: NSView {
         if paneHeader.frame != ph { paneHeader.frame = ph }
         if headerZoneArea?.rect.width != bounds.width { updateHeaderZone() }
         placeRowsUnderHeaderMask()
+        controller?.placeSendButton(animated: false)
         fieldChrome.place(field: demo.compose.fieldRect, plus: demo.compose.plusRect,
                           emoji: CGRect(x: bounds.width - Fixture.windowWidth + 586.5, y: demo.compose.plusRect.minY, width: 31, height: 30))
     }
@@ -326,6 +331,9 @@ final class ChatController: NSObject, NSTextViewDelegate {
     /// event monitor tracks the rest), with no text selection, click or tapback hold here. Nil (or
     /// false): the press selects text as before.
     var onDragLink: ((_ url: URL, _ screenPoint: CGPoint) -> Bool)?
+    /// cmux: where attachments open and what their right-click menu offers (HomeFileHost); nil
+    /// keeps the system open.
+    weak var fileHost: HomeFileHost?
     /// cmux: one-shot wake-ups on the host's timer (CmuxNext: DemandTimer).
     let wake: ChatWakeScheduler
     private var wakeAt = Double.infinity
@@ -458,6 +466,9 @@ final class ChatController: NSObject, NSTextViewDelegate {
         let tv = demo.compose.textView
         tv.view.delegate = self
         tv.onSend = { [weak self] in self?.send() }
+        // cmux: the send button sends as Return does, and follows the field and the draft.
+        host.sendButton.onSend = { [weak self] in self?.send(); self?.focusCompose() }
+        demo.compose.onSlotChange = { [weak self] in self?.placeSendButton(animated: true) }
         tv.onEscape = { [weak self] in self?.escape() }
         // cmux: files and pictures go through the host's intake (Home's type
         // rule, prepared by HomeStore); a picture it refuses is not attached.

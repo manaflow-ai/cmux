@@ -624,28 +624,30 @@ final class HomeProjection: @preconcurrency ChatIntents {
     }
 
     func openAttachment(_ message: ID, _ attachment: ID) {
-        guard let ref = item(message)?.parts.lazy.compactMap({ p -> AttachmentRef? in
-            if case .attachment(let r) = p, r.hash == attachment { return r }
-            return nil
-        }).first else { return }
-        let media = self.media
-        // cmux: in the app the click opens it in cmux beside Home (the host's path-link opener);
-        // without a host it goes to the system as before.
-        let open = controller.onAppLink
-        let opener = HomeAttachmentOpen(folder: HomeMedia.directory)
-        // Without a host, a received script, installer or HTML page is shown in Finder, never run.
-        let reveal = HomeAttachmentPolicy.revealsInsteadOfOpening(name: ref.name)
+        // cmux: the host's file host opens it in cmux beside Home (never Finder); else the
+        // host's path-link opener; without a host it goes to the system as before.
+        let fileHost = controller.fileHost, appLink = controller.onAppLink
+        let reveal = attachmentRef(message, attachment).map { HomeAttachmentPolicy.revealsInsteadOfOpening(name: $0.name) } ?? false
         // task-owner: one fetch; ends when the file opens
-        Task {
-            guard let url = try? await media.original(ref) else { return }
-            if let open, let named = try? opener.namedCopy(of: url, name: ref.name, hash: ref.hash) {
-                open(named)
-            } else if reveal || HomeAttachmentPolicy.revealsInsteadOfOpening(name: url.lastPathComponent) {
+        Task { [weak self] in
+            guard let self, let url = await self.attachmentFile(message, attachment) else { return }
+            if fileHost == nil, appLink == nil, reveal || HomeAttachmentPolicy.revealsInsteadOfOpening(name: url.lastPathComponent) {
+                // Without a host, a received script, installer or HTML page is shown in Finder, never run.
                 NSWorkspace.shared.activateFileViewerSelecting([url])
-            } else {
-                NSWorkspace.shared.open(url)
+                return
             }
+            HomeAttachmentOpen.open(url, host: fileHost, appLink: appLink)
         }
+    }
+
+    func attachmentFile(_ message: ID, _ attachment: ID) async -> URL? {
+        guard let ref = attachmentRef(message, attachment), let blob = try? await media.original(ref) else { return nil }
+        let name = ref.name, hash = ref.hash
+        let opener = HomeAttachmentOpen(folder: HomeMedia.directory)
+        // The store names its copy by hash; the viewer and Open With read the attachment's name.
+        return await Task.detached(priority: .userInitiated) {
+            (try? opener.namedCopy(of: blob, name: name, hash: hash)) ?? blob
+        }.value
     }
 
     /// Test seams for the alias table.

@@ -550,14 +550,49 @@ await requireBrowserLane("editor-page.test.ts", async () => {
         await openEditor(page, target);
         // The find field has focus: getting the keyboard back keeps it there.
         await page.keyboard.press("Meta+f");
-        await page.waitForFunction(() => document.activeElement?.closest(".find-widget") != null);
+        await page.waitForFunction(() => document.activeElement?.closest(".find-pill") != null);
         await page.evaluate(() => window.dispatchEvent(new FocusEvent("focus")));
         expect(await focusContent(page)).toBe(true);
         await page.waitForTimeout(100);
-        expect(await page.evaluate(() => document.activeElement?.closest(".find-widget") != null)).toBe(true);
+        expect(await page.evaluate(() => document.activeElement?.closest(".find-pill") != null)).toBe(true);
         // Nothing has focus: the window's focus (WebKit's first responder) lands in Monaco.
         await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
         await page.evaluate(() => window.dispatchEvent(new FocusEvent("focus")));
+        await page.waitForFunction(() => window.__cmuxEditor!.view()!.monacoEditor.hasTextFocus(), null, {
+          timeout: 5_000,
+        });
+      });
+
+      test("Cmd-F shows the shared find pill, never Monaco's find widget", async () => {
+        await fresh();
+        const target = file("pill.ts", "alpha beta\nalpha gamma\nAlpha delta\n");
+        await openEditor(page, target);
+        await page.keyboard.press("Meta+f");
+        await page.waitForFunction(() => document.activeElement?.closest(".find-pill") != null);
+        await page.keyboard.type("alpha");
+        await page.waitForFunction(() => document.querySelector(".find-pill__count")?.textContent === "1 of 3");
+        // Monaco's own widget never shows.
+        expect(
+          await page.evaluate(() => {
+            const widget = document.querySelector<HTMLElement>(".find-widget");
+            return widget != null && widget.classList.contains("visible") && widget.offsetParent != null;
+          }),
+        ).toBe(false);
+        // Return steps and selects the next match in the editor.
+        await page.keyboard.press("Enter");
+        await page.waitForFunction(() => document.querySelector(".find-pill__count")?.textContent === "2 of 3");
+        expect(
+          await page.evaluate(() => window.__cmuxEditor!.view()!.monacoEditor.getSelection()?.startLineNumber),
+        ).toBe(2);
+        // Match Case drops "Alpha".
+        await page.click(".find-pill__button[aria-pressed]");
+        await page.waitForFunction(() =>
+          (document.querySelector(".find-pill__count")?.textContent ?? "").endsWith("of 2"),
+        );
+        // Escape hides the pill and gives Monaco the keyboard back.
+        await page.focus(".find-pill__field");
+        await page.keyboard.press("Escape");
+        await page.waitForFunction(() => document.querySelector(".find-pill") == null);
         await page.waitForFunction(() => window.__cmuxEditor!.view()!.monacoEditor.hasTextFocus(), null, {
           timeout: 5_000,
         });
@@ -618,15 +653,19 @@ await requireBrowserLane("editor-page.test.ts", async () => {
         );
         // Find (the dispatcher's `find` page command) announces its result in a live region.
         await page.keyboard.press("Meta+f");
-        await page.waitForFunction(() => document.activeElement?.closest(".find-widget") != null);
+        await page.waitForFunction(() => document.activeElement?.closest(".find-pill") != null);
         await page.keyboard.type("second");
         await page.waitForFunction(
-          () => /2/.test(document.querySelector(".find-widget .matchesCount")?.textContent ?? ""),
+          () => /2/.test(document.querySelector(".find-pill__count")?.textContent ?? ""),
           null,
           { timeout: 10_000 },
         );
         const announced = await page.evaluate(() =>
-          [...document.querySelectorAll(".monaco-aria-container [role], .monaco-alert, .monaco-status")]
+          [
+            ...document.querySelectorAll(
+              ".find-pill__count[aria-live], .monaco-aria-container [role], .monaco-alert, .monaco-status",
+            ),
+          ]
             .map((node) => node.textContent ?? "")
             .join(" | "),
         );

@@ -9,7 +9,7 @@ import AppKit
 extension ChatController {
     // MARK: Context menu
 
-    func menu(at p: CGPoint) -> NSMenu? {
+    @MainActor func menu(at p: CGPoint) -> NSMenu? {
         guard let hit = demo?.hit(p) else { return nil }
         let ref = hit.row.ref
         let current = hit.row.reactions.first { $0.senderId == store?.state.me }?.kind
@@ -25,6 +25,13 @@ extension ChatController {
         menu.delegate = hl
         menuHighlight = hl
         hl.start()
+        // cmux: a path link (an agent's `file:///…`) leads with the host's file menu (Open in Right
+        // Pane, Open With, Reveal, Copy Path, Quick Look, Share).
+        if let fileHost, let link = linkURL(at: p), link.isFileURL, link.path.hasPrefix("/") {
+            let file = URL(fileURLWithPath: link.path)
+            fileHost.menuItems(forFileNamed: file.lastPathComponent) { file }.forEach(menu.addItem)
+            menu.addItem(.separator())
+        }
         // cmux: tapbacks only while the owner takes them (`canReact`, false offline).
         let canReact = intents?.canReact == true
         if canReact {
@@ -60,9 +67,12 @@ extension ChatController {
                 menu.addItem(MenuAction(title: playing ? CmuxStrings.pauseVideo : CmuxStrings.playVideo,
                                         symbol: playing ? "pause.fill" : "play.fill") { [weak self] in self?.intents?.toggleVideo(ref, a.id) })
             }
-            menu.addItem(MenuAction(title: CmuxStrings.openInDefaultApp, symbol: "arrow.up.forward.app") { [weak self] in
+            // cmux: the host's file menu (Open in Right Pane, Open With, Reveal, Copy Path, Quick
+            // Look, Share); without a host, Open in Default App.
+            let resolve: @MainActor @Sendable () async -> URL? = { [weak self] in await self?.intents?.attachmentFile(ref.messageId, a.id) }
+            HomeAttachmentOpen.menuItems(name: a.fileName, host: fileHost, resolve: resolve) { [weak self] in
                 self?.intents?.openAttachment(ref.messageId, a.id)
-            })
+            }.forEach(menu.addItem)
             menu.addItem(.separator())
         }
         // cmux: my "Not Delivered" message: Try Again and Delete (Messages' pair); else lane 16's
