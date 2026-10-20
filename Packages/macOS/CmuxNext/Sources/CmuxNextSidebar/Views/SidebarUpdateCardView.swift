@@ -79,6 +79,8 @@ final class SidebarUpdateCardView: NSView {
     /// Set by the hover owner (`PointerHover`, cx-3wu5).
     private(set) var isHovered = false
     private var pointerHover: PointerHover?
+    /// The pointer on screen, read by every popup check (tests place it).
+    var screenPointer: () -> CGPoint = { NSEvent.mouseLocation }
     /// Shows and hides the card with its entrance and exit (``SidebarCardTransition``).
     private(set) lazy var presence = SidebarCardPresence(self, policy: motionPolicy)
     /// The motion settings the card's transitions follow (`Motion.policy`; tests set their own before the first card).

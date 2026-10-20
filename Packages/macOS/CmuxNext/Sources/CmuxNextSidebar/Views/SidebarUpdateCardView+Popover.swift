@@ -45,14 +45,14 @@ extension SidebarUpdateCardView {
     /// the gap between card and popup).
     func pointerIsOverNotes() -> Bool {
         guard let panel = notesPanel, panel.isPresented else { return false }
-        return panel.cardFrame.insetBy(dx: -Metrics.space2, dy: -Metrics.space2).contains(NSEvent.mouseLocation)
+        return panel.cardFrame.insetBy(dx: -Metrics.space2, dy: -Metrics.space2).contains(screenPointer())
     }
 
     /// Whether the pointer is over the card now.
-    private func pointerIsOverCard() -> Bool {
+    func pointerIsOverCard() -> Bool {
         guard let window else { return false }
         let card = window.convertToScreen(convert(bounds, to: nil))
-        return card.insetBy(dx: -Metrics.space1, dy: -Metrics.space1).contains(NSEvent.mouseLocation)
+        return card.insetBy(dx: -Metrics.space1, dy: -Metrics.space1).contains(screenPointer())
     }
 
     /// The pointer left the popup: it closes unless the pointer is back
