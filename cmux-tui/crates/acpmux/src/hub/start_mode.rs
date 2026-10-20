@@ -99,7 +99,10 @@ impl DefaultMode {
             None => (Self::FullAccess, Source::Default),
             Some(value) => {
                 let level = Self::parse(value).unwrap_or_else(|| {
-                    tracing::warn!(value, "{SETTING}: unknown pushed value; new chats keep the harness's own mode");
+                    tracing::warn!(
+                        value,
+                        "{SETTING}: unknown pushed value; new chats keep the harness's own mode"
+                    );
                     Self::Standard
                 });
                 (level, Source::Settings)

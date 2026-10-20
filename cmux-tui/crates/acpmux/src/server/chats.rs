@@ -245,8 +245,12 @@ pub(super) async fn route(
                 Some(Value::String(mode)) if mode.len() <= 64 => Some(mode.clone()),
                 None | Some(Value::Null) => None,
                 Some(other) => {
-                    let kind = if other.is_string() { "an over-long string" } else { "not a string" };
-                    tracing::warn!(managed, "chat_settings permissionMode is {kind}; read as no value");
+                    let kind =
+                        if other.is_string() { "an over-long string" } else { "not a string" };
+                    tracing::warn!(
+                        managed,
+                        "chat_settings permissionMode is {kind}; read as no value"
+                    );
                     None
                 }
             };
