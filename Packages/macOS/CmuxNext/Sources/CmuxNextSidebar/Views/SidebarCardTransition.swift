@@ -25,7 +25,7 @@ struct SidebarCardTransition {
     /// The motion settings the card follows (`Motion.policy` by default).
     var policy: MotionPolicy
 
-    init(policy: MotionPolicy = Motion.policy) {
+    init(policy: MotionPolicy = Motion.overlays.policy) {
         self.policy = policy
     }
 

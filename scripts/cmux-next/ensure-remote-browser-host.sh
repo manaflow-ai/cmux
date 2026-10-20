@@ -98,11 +98,22 @@ store_download() {
   signed="$(curl --fail --silent --show-error --connect-timeout 5 --max-time 30 \
       -A cmux-ensure-cef "${controller%/}/v1/artifacts/sha256:$sha/url" 2>/dev/null |
     /usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin).get("url", ""))' 2>/dev/null || true)"
-  case "$signed" in https://*|http://*|file://*) ;; *) return 1 ;; esac
-  echo "==> downloading $asset from the controller artifact store" >&2
-  curl --fail --silent --show-error --location --retry 3 --retry-delay 2 --connect-timeout 15 \
-    --max-time 900 -A cmux-ensure-cef -o "$out" "$signed" 2>/dev/null || { rm -f "$out"; return 1; }
-  check "the controller artifact store"
+  case "$signed" in https://*|http://*|file://*)
+    echo "==> downloading $asset from the controller artifact store" >&2
+    if curl --fail --silent --show-error --location --retry 3 --retry-delay 2 --connect-timeout 15 \
+        --max-time 900 -A cmux-ensure-cef -o "$out" "$signed" 2>/dev/null; then
+      check "the controller artifact store"
+      return 0
+    fi
+    rm -f "$out" ;;
+  esac
+  # A fleet step's artifact sits in the controller cache, not the store: the
+  # signed URL 404s, and the controller's own GET serves it from the cache.
+  echo "==> downloading $asset from the controller" >&2
+  curl --fail --silent --show-error --retry 3 --retry-delay 2 --connect-timeout 5 \
+    --max-time 900 -A cmux-ensure-cef -o "$out" "${controller%/}/v1/artifacts/sha256:$sha" 2>/dev/null ||
+    { rm -f "$out"; return 1; }
+  check "the controller"
 }
 
 load_r2_env_file() {
