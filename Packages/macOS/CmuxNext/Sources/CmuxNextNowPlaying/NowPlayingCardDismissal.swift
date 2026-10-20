@@ -1,4 +1,4 @@
-import Observation
+public import Observation
 public import CmuxNextSidebar
 
 /// Whether the sidebar's Now Playing card is put away (u2437): its x and its
