@@ -289,13 +289,10 @@ impl MessageWriter {
         if !self.is_open() {
             return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
         }
-        let result = self
-            .render_service
-            .serialize_control(value)
-            .and_then(|text| {
-                self.sink
-                    .send_control(self.project_api_revision(self.project_conversation_tabs(text)?)?)
-            });
+        let result = self.render_service.serialize_control(value).and_then(|text| {
+            self.sink
+                .send_control(self.project_api_revision(self.project_conversation_tabs(text)?)?)
+        });
         if result.is_err() {
             self.close();
         }
