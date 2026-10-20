@@ -510,7 +510,6 @@
     "setting.phone.keepAwake": "pluggedIn",
     "setting.phone.startSessions": true,
     "setting.picker.pinned": [],
-    "setting.remoteHosting.enabled": false,
     "setting.sessions.keepAwake": "pluggedIn",
     "setting.shortcuts.showModifierHoldHints": true,
     "setting.sidebar.border": false,
