@@ -94,8 +94,8 @@ impl InstallChannel {
 /// tree builds the cmux-next app bundles, stamped `0.0.0-r2.sha-<commit>`)
 /// names the cmux-next version, the crate version from cmux-tui/Cargo.toml
 /// [workspace.package], so the app's CLI says what the app says (1.0.0).
-pub(crate) fn release_version<'a>(distribution: &'a str, _crate_version: &'a str) -> &'a str {
-    distribution
+pub(crate) fn release_version<'a>(distribution: &'a str, crate_version: &'a str) -> &'a str {
+    if distribution.starts_with("0.0.0-") { crate_version } else { distribution }
 }
 
 /// `cmux --version`'s line after `cmux `.
