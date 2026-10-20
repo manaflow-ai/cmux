@@ -1182,7 +1182,7 @@ let package = Package(
         ),
         .target(
             name: "CmuxNextLayout",
-            dependencies: ["CmuxNextCompat", "CmuxNextWakeups", "CmuxNextDesign", "CmuxNextIcons", "CmuxNextRemoteFetch"],
+            dependencies: ["CmuxNextCompat", "CmuxNextWakeups", "CmuxNextDesign", "CmuxNextIcons"],
             resources: [
                 .process("Resources"),
             ],
@@ -1190,7 +1190,7 @@ let package = Package(
         ),
         .target(
             name: "CmuxNextBrowser",
-            dependencies: ["CmuxNextCompat", "CmuxNextWakeups", "CmuxNextDesign", "CmuxNextIcons"],
+            dependencies: ["CmuxNextCompat", "CmuxNextWakeups", "CmuxNextDesign", "CmuxNextIcons", "CmuxNextRemoteFetch"],
             // The CEF shim's C header: its SHA-256 is the shim ABI identity
             // (CEFShimABI, scripts/cmux-next/build-cef-shim.sh).
             resources: [.copy("CEF/Shim/cmux_cef_shim.h"), .process("Resources")],
