@@ -41,6 +41,18 @@ public final class ShortcutHintOverlayView: NSView {
 
     /// Chips are reused while a modifier is held; a release removes them.
     private var badges: [ShortcutHintChipView] = []
+    private let fader: any ShortcutHintChipFading
+
+    /// Creates an empty overlay.
+    ///
+    /// - Parameter fader: Brings chips in and out; the motion tokens by default.
+    public init(fader: any ShortcutHintChipFading = MotionShortcutHintChipFader()) {
+        self.fader = fader
+        super.init(frame: .zero)
+    }
+
+    @available(*, unavailable)
+    public required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     public override func hitTest(_ point: NSPoint) -> NSView? { nil }
 

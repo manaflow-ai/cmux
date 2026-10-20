@@ -2,16 +2,17 @@ public import AppKit
 import CmuxNextDesign
 
 extension SidebarViewComponents {
-    /// Visible workspace rows in sidebar coordinates, keyed by the selection target.
-    public var shortcutHintWorkspaceFrames: [WorkspaceID: CGRect] {
+    /// Every fully visible sidebar destination in sidebar coordinates, keyed by
+    /// the ``SidebarItem`` that Cmd-digit selects (``SidebarItemOrder/number(for:_:)``).
+    public var shortcutHintItemFrames: [SidebarItem: CGRect] {
         guard !isHiddenOrHasHiddenAncestor, bounds.width > 1 else { return [:] }
-        var result: [WorkspaceID: CGRect] = [:]
+        var result: [SidebarItem: CGRect] = [:]
         for (key, row) in list.rowViews {
             guard case let .workspace(id) = key, row.alphaValue > 0.9 else { continue }
             let rect = row.convert(row.bounds, to: self)
             let viewport = scrollViewFrameForHints
             guard viewport.contains(rect) else { continue }
-            result[id] = rect
+            result[.workspace(id)] = rect
         }
         return result
     }
