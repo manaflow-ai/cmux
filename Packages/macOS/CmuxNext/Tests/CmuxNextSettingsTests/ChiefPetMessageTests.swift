@@ -74,7 +74,7 @@ import Testing
         let refusal = registry.capturingRefusal {
             _ = registry.perform(HomeChiefPetSetting.messageAction, invocation: ActionInvocation(origin: .mcp))
         }
-        #expect(refusal != nil)
+        #expect(refusal?.contains("home.chiefPetEnabled") == true, "the settings layer's user-only words, not Home not ready")
         #expect(summons.count == 0)
         #expect(settings.snapshot.homeChiefPetEnabled == false)
     }

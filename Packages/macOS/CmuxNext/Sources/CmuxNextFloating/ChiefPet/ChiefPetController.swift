@@ -95,10 +95,12 @@ public final class ChiefPetController {
     /// else as soon as `home.chiefPetEnabled` turns it on (the action writes that first). An open box
     /// stays open.
     public func summon() {
-        guard isOn, isShown else {
+        guard isOn, let panel else {
             summoned = true
             return
         }
+        // On but ordered out (the app hidden): it comes back now, not on some later sync.
+        if !panel.isVisible { panel.present() }
         openReply()
     }
 

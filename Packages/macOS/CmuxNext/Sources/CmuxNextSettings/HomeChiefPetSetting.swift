@@ -77,8 +77,12 @@ extension HomeChiefPetSetting {
     @MainActor public func bindMessage(into registry: ActionRegistry, settings: @escaping @MainActor () -> SettingsController?,
                                        unavailable: String, summon: @escaping @MainActor () -> Void) {
         registry.bind(Self.messageAction, invoke: { invocation in
-            // The control socket refuses a person-only action first; an in-app run from elsewhere stops here.
-            guard invocation.origin == .user, let settings = settings() else { return registry.refuse(unavailable) }
+            // The control socket refuses a person-only action first; an in-app run from elsewhere stops here,
+            // with the settings layer's own words for a user-only key.
+            guard invocation.origin == .user else {
+                return registry.refuse(SettingUserOnly(key: Self.configPath.joined(separator: "."), writer: SettingWriter(invocation.origin)).description)
+            }
+            guard let settings = settings() else { return registry.refuse(unavailable) }
             guard !settings.snapshot.homeChiefPetEnabled else { return summon() }
             // task-owner: one write; ends with the reload, then the summon
             let work = ActionWork { @MainActor in
