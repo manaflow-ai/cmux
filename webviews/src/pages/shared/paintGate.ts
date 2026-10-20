@@ -49,9 +49,7 @@ export function holdPaintUntil(
 }
 
 /** The host claimed this parked document: the next paint report waits for its first screen. */
-export function holdPaintForClaim(
-  target: Record<string, unknown> = globalThis as unknown as Record<string, unknown>,
-) {
+export function holdPaintForClaim(target: Record<string, unknown> = globalThis as unknown as Record<string, unknown>) {
   const firstScreen = target[CLAIM_READY_NAME];
   if (typeof firstScreen === "function")
     void holdFirstPaint((firstScreen as () => Promise<unknown>)(), PAINT_AFTER_LIMIT_MS, target);

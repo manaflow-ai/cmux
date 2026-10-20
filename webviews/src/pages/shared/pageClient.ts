@@ -15,12 +15,7 @@ export interface PageError extends Error {
   details?: unknown;
 }
 
-export function pageError(
-  code: string,
-  message: string,
-  retryable = false,
-  details?: unknown,
-): PageError {
+export function pageError(code: string, message: string, retryable = false, details?: unknown): PageError {
   const error = new Error(message) as PageError;
   error.name = "PageError";
   error.code = code;
@@ -119,10 +114,7 @@ interface ClaimLocation {
  */
 export class BridgePageClient implements PageClient {
   private nextId = 1;
-  private readonly listeners = new Map<
-    number,
-    (data: unknown, seq: number, meta?: PageEventMeta) => void
-  >();
+  private readonly listeners = new Map<number, (data: unknown, seq: number, meta?: PageEventMeta) => void>();
   private readonly lastSeq = new Map<number, number>();
   private readonly handlers = new Map<string, PageHandler>();
   /** Events for a sub id whose subscribe reply the page has not read yet, replayed on registration. */
@@ -162,9 +154,7 @@ export class BridgePageClient implements PageClient {
         // A held call is dropped before the host sees it; else the host cancels the op, and its
         // late answer for this id is ignored.
         if (!this.drop(envelope.id))
-          void this.handler
-            .postMessage({ t: "cancel", id: envelope.id } satisfies Envelope)
-            .catch(() => undefined);
+          void this.handler.postMessage({ t: "cancel", id: envelope.id } satisfies Envelope).catch(() => undefined);
         reject(cancelled());
       };
       signal.addEventListener("abort", onAbort, { once: true });
@@ -191,8 +181,7 @@ export class BridgePageClient implements PageClient {
       : { t: "sub", id: this.nextId++, stream };
     const value = (await this.post(envelope)) as { sub?: unknown } | undefined;
     const sub = value?.sub;
-    if (typeof sub !== "number")
-      throw pageError("cmux.protocol.invalid_result", `subscribe ${stream}: no sub id`);
+    if (typeof sub !== "number") throw pageError("cmux.protocol.invalid_result", `subscribe ${stream}: no sub id`);
     const listener = onEvent as (data: unknown, seq: number, meta?: PageEventMeta) => void;
     this.listeners.set(sub, listener);
     const held = this.early.get(sub) ?? [];
@@ -232,18 +221,12 @@ export class BridgePageClient implements PageClient {
   private claim(params: unknown): unknown {
     if (!this.parked) throw pageError("cmux.page.not_parked", "the document already ran");
     const route = (params as { route?: unknown } | null)?.route;
-    if (
-      typeof route === "string" &&
-      route.startsWith("#") &&
-      this.location &&
-      this.location.hash !== route
-    )
+    if (typeof route === "string" && route.startsWith("#") && this.location && this.location.hash !== route)
       this.location.replace(route);
     this.parked = false;
     const held = this.held;
     this.held = [];
-    for (const { envelope, resolve, reject } of held)
-      this.handler.postMessage(envelope).then(resolve, reject);
+    for (const { envelope, resolve, reject } of held) this.handler.postMessage(envelope).then(resolve, reject);
     // The host's next paint report (its pane's hold) waits for the claimed page's first screen.
     holdPaintForClaim();
     return { claimed: true };
@@ -254,15 +237,10 @@ export class BridgePageClient implements PageClient {
     try {
       reply = await this.transmit(envelope);
     } catch (error) {
-      throw pageError(
-        "cmux.protocol.closed",
-        error instanceof Error ? error.message : String(error),
-        true,
-      );
+      throw pageError("cmux.protocol.closed", error instanceof Error ? error.message : String(error), true);
     }
     const message = reply as Partial<Envelope> | null;
-    if (message?.t === "ok" && message.id === envelope.id)
-      return (message as { value?: unknown }).value;
+    if (message?.t === "ok" && message.id === envelope.id) return (message as { value?: unknown }).value;
     if (message?.t === "err") {
       const err = message as {
         code?: string;
@@ -352,12 +330,8 @@ export class BridgePageClient implements PageClient {
 }
 
 /** The WebKit handler of the page bridge, when the page runs in the app. */
-export function findReplyHandler(
-  name = "cmuxPage",
-  target: unknown = globalThis,
-): ReplyHandler | null {
-  const handlers = (target as { webkit?: { messageHandlers?: Record<string, unknown> } }).webkit
-    ?.messageHandlers;
+export function findReplyHandler(name = "cmuxPage", target: unknown = globalThis): ReplyHandler | null {
+  const handlers = (target as { webkit?: { messageHandlers?: Record<string, unknown> } }).webkit?.messageHandlers;
   const handler = handlers?.[name] as ReplyHandler | undefined;
   return handler && typeof handler.postMessage === "function" ? handler : null;
 }

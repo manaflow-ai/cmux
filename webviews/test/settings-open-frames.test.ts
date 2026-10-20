@@ -84,19 +84,12 @@ await requireBrowserLane("settings-open-frames.test.ts", async () => {
       else show();
     };
     (window as unknown as { showAfterGate: () => void }).showAfterGate = showAfterGate;
-    if (document.readyState === "loading")
-      document.addEventListener("DOMContentLoaded", showAfterGate);
+    if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", showAfterGate);
     const sample = () => {
-      const rows = [...document.querySelectorAll<HTMLElement>("[data-row-key]")].filter(
-        (row) => !row.inert,
-      );
+      const rows = [...document.querySelectorAll<HTMLElement>("[data-row-key]")].filter((row) => !row.inert);
       const first = rows.slice(0, 40);
       const controlState = (row: HTMLElement) =>
-        [
-          ...row.querySelectorAll<HTMLElement>(
-            ".row-control input, .row-control button, .row-control [role]",
-          ),
-        ]
+        [...row.querySelectorAll<HTMLElement>(".row-control input, .row-control button, .row-control [role]")]
           .map((node) => {
             const input = node as HTMLInputElement;
             return `${input.checked ? "x" : ""}${input.value ?? ""}${node.getAttribute("aria-checked") ?? ""}${node.textContent?.trim().slice(0, 24) ?? ""}`;
@@ -108,15 +101,12 @@ await requireBrowserLane("settings-open-frames.test.ts", async () => {
         shown,
         sig: {
           rows: rows.length,
-          disabled: document.querySelectorAll(
-            ".row-control :disabled, .row-control [aria-disabled='true']",
-          ).length,
+          disabled: document.querySelectorAll(".row-control :disabled, .row-control [aria-disabled='true']").length,
           values: first.map((row) => `${row.dataset.rowKey}=${controlState(row)}`).join(";"),
           tops: first.map((row) => row.offsetTop).join(","),
           section:
-            document.querySelector(
-              "[aria-current='page'], [aria-selected='true'], .section-item.selected",
-            )?.textContent ?? "",
+            document.querySelector("[aria-current='page'], [aria-selected='true'], .section-item.selected")
+              ?.textContent ?? "",
           height: content?.scrollHeight ?? 0,
           cards: document.querySelectorAll(".card, section").length,
         },
@@ -143,15 +133,12 @@ await requireBrowserLane("settings-open-frames.test.ts", async () => {
     await page.close();
     const final = JSON.stringify(frames.at(-1)!.sig);
     // A frame before anything is drawn (a cold open's first paint) is the page loading, not a flicker.
-    const drawn = frames.filter(
-      (frame) => Number(frame.sig.rows) > 0 || Number(frame.sig.cards) > 0,
-    );
+    const drawn = frames.filter((frame) => Number(frame.sig.rows) > 0 || Number(frame.sig.cards) > 0);
     const off = drawn.filter((frame) => JSON.stringify(frame.sig) !== final);
     const changed: Record<string, number> = {};
     for (let index = 1; index < drawn.length; index++)
       for (const key of Object.keys(drawn[index].sig))
-        if (drawn[index].sig[key] !== drawn[index - 1].sig[key])
-          changed[key] = (changed[key] ?? 0) + 1;
+        if (drawn[index].sig[key] !== drawn[index - 1].sig[key]) changed[key] = (changed[key] ?? 0) + 1;
     const span = off.length ? off.at(-1)!.at - off[0].at : 0;
     const hidden = all.length - frames.length;
     return {
@@ -183,9 +170,7 @@ await requireBrowserLane("settings-open-frames.test.ts", async () => {
         `changed: ${JSON.stringify(result.changed)}; rows ${result.final.rows}`,
     );
     if (process.env.SETTINGS_FRAMES_DEBUG)
-      console.log(
-        JSON.stringify({ first: result.firstOff, final: result.final }, null, 1).slice(0, 6000),
-      );
+      console.log(JSON.stringify({ first: result.firstOff, final: result.final }, null, 1).slice(0, 6000));
     expect(Number(result.final.rows)).toBeGreaterThan(0);
     expect(result.off).toBe(0);
   });
