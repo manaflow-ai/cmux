@@ -117,18 +117,14 @@ struct MoveToNewWindowTests {
                                               invocation: ActionInvocation(target: ActionTargetRef(kind: .workspace, id: workspace.id),
                                                                            arguments: ["name": .string(name)], origin: .user)))
             let personal = services.daemon.store.personal
-            // A personal group's members are its sidebar rows (not `WorkspaceModel.group`), in
-            // whichever window lists the workspace.
-            @MainActor func groups() -> [SidebarGroup] {
-                services.windows.controllers.flatMap(\.sidebar.model.sections).flatMap(\.nodes).compactMap {
-                    if case .group(let group) = $0 { group } else { nil }
+            // A personal group's members are in the personal store (not on `WorkspaceModel.group`).
+            @MainActor func group() -> WorkspaceGroupID? {
+                personal.groups.first { $0.name == name }.flatMap { group in
+                    personal.workspaces.contains { $0.workspaceKey.rawValue == workspace.id && $0.group == group.id } ? group.id : nil
                 }
             }
-            @MainActor func group() -> WorkspaceGroupID? {
-                groups().first { $0.workspaces.contains { $0.id.rawValue == workspace.id } }.map { WorkspaceGroupID(rawValue: $0.id.rawValue) }
-            }
             try await PinnedPageTests.until({ group() != nil }, within: .seconds(40), report: {
-                "daemon groups \(personal.groups.map(\.name)); sidebar groups \(groups().map { ($0.name, $0.workspaces.map(\.id.rawValue)) }); workspace \(workspace.id)"
+                "daemon groups \(personal.groups.map { ($0.name, $0.id.rawValue) }); placements \(personal.workspaces.map { ($0.workspaceKey.rawValue, $0.group?.rawValue ?? "-") }); workspace \(workspace.id)"
             })
             let group = try #require(group())
             let moving = workspace.screens.flatMap(\.panes).flatMap(\.tabs).map { Live($0, services) }

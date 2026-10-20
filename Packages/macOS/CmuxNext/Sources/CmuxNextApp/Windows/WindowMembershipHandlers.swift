@@ -39,12 +39,14 @@ enum WindowMembershipHandlers {
         return models.isEmpty ? [workspace] : models
     }
 
-    /// Every workspace of the targeted group, in sidebar order: the rows Close Workspaces closes
-    /// (`WorkspaceGroupClose.members`). A personal group's membership lives in the personal
-    /// store, not on `WorkspaceModel.group`, which reading the daemon's workspaces missed.
+    /// Every workspace of the targeted group: its sidebar rows in order (`WorkspaceGroupClose.members`),
+    /// then any other the personal store places in it. A personal group's membership lives in the
+    /// personal store, not on `WorkspaceModel.group`, which reading the daemon's workspaces missed.
     static func groupMembers(_ invocation: ActionInvocation, _ context: AppActionContext) throws -> [String] {
         let group = try context.group(invocation)
-        let members = WorkspaceGroupClose.members(of: group, context).map(\.0.id)
+        let personal = context.services.machines.local.store.personal.workspaces.filter { $0.group == group.id }.map(\.workspaceKey.rawValue)
+        var seen = Set<String>()
+        let members = (WorkspaceGroupClose.members(of: group, context).map(\.0.id) + personal).filter { seen.insert($0).inserted }
         guard !members.isEmpty else { throw ActionFailure.invalidTarget(RefusalStrings.workspaceNotInGroup) }
         return members
     }
