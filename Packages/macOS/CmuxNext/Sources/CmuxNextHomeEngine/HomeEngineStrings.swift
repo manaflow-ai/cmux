@@ -142,7 +142,7 @@ public nonisolated enum HomeEngineStrings {
     static func lastTurn(_ turn: HomeEngineTurn) -> String {
         let engine = [turn.harness, turn.model].compactMap { $0 }.joined(separator: ", ")
         // Numbers in the reader's own format (decimal mark, percent sign, currency).
-        let hit = turn.hitRate.map { $0.formatted(.percent.precision(.fractionLength(0))) } ?? "-"
+        let hit = turn.hitRate.map { $0.formatted(.percent.precision(.fractionLength(0)).rounded(rule: .toNearestOrAwayFromZero)) } ?? "-"
         let cost = turn.cost.map { $0.formatted(.currency(code: "USD").precision(.fractionLength(3))) } ?? "-"
         let (tools, errors) = (turn.tools, turn.toolErrors)
         let calls = String(localized: "home.engine.toolCalls", defaultValue: "\(tools) tool calls", table: "Home", bundle: .module)

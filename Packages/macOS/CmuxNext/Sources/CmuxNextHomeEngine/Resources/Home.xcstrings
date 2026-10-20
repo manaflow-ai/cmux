@@ -2081,7 +2081,7 @@
               "one": {
                 "stringUnit": {
                   "state": "translated",
-                  "value": "%lld llamada a herramientas"
+                  "value": "%lld llamada a herramienta"
                 }
               },
               "many": {
@@ -2734,25 +2734,25 @@
               "one": {
                 "stringUnit": {
                   "state": "translated",
-                  "value": "с ошибкой %lld"
+                  "value": "%lld с ошибкой"
                 }
               },
               "few": {
                 "stringUnit": {
                   "state": "translated",
-                  "value": "с ошибкой %lld"
+                  "value": "%lld с ошибкой"
                 }
               },
               "many": {
                 "stringUnit": {
                   "state": "translated",
-                  "value": "с ошибкой %lld"
+                  "value": "%lld с ошибкой"
                 }
               },
               "other": {
                 "stringUnit": {
                   "state": "translated",
-                  "value": "с ошибкой %lld"
+                  "value": "%lld с ошибкой"
                 }
               }
             }
@@ -2794,25 +2794,25 @@
               "one": {
                 "stringUnit": {
                   "state": "translated",
-                  "value": "з помилкою %lld"
+                  "value": "%lld з помилкою"
                 }
               },
               "few": {
                 "stringUnit": {
                   "state": "translated",
-                  "value": "з помилкою %lld"
+                  "value": "%lld з помилкою"
                 }
               },
               "many": {
                 "stringUnit": {
                   "state": "translated",
-                  "value": "з помилкою %lld"
+                  "value": "%lld з помилкою"
                 }
               },
               "other": {
                 "stringUnit": {
                   "state": "translated",
-                  "value": "з помилкою %lld"
+                  "value": "%lld з помилкою"
                 }
               }
             }
@@ -3410,7 +3410,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "最高"
+            "value": "非常に高い"
           }
         },
         "bs": {
