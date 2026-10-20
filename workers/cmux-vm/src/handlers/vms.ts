@@ -33,7 +33,7 @@ import { VmImageList } from "../api/images.ts";
 import { visibleVmImages, vmImageAllowed, vmImageEvidenceOf, type VmImageAllowed } from "../proofs/vm-image.ts";
 import { CmuxVmApi, CreatedVm, Vm, VmList, type CreateVmRequest, type ForkVmRequest, type VmState } from "../api.ts";
 import { OwnershipStore } from "../db/stores.ts";
-import { actorRef, carriesRequiredLabels, type Principal } from "../domain/principal.ts";
+import { actorRef, carriesRequiredLabels, CurrentPrincipal, type Principal } from "../domain/principal.ts";
 import {
   badRequest,
   conflict,
@@ -55,7 +55,7 @@ import { resolveIdleTimeout, TenantPolicy } from "../policy.ts";
 import type { KeyHasScope } from "../proofs/key-has-scope.ts";
 import { vmNetworkAllowed, vmNetworkEvidenceOf, type VmNetworkAllowed } from "../proofs/vm-network.ts";
 import { tenantMayCreate, type TenantMayCreate } from "../proofs/tenant-may-create.ts";
-import { tenantOwnsSnapshot, tenantOwnsVm, visitOwnedVms, type TenantOwnsResource } from "../proofs/tenant-owns-resource.ts";
+import { tenantDeletedVm, tenantOwnsSnapshot, tenantOwnsVm, visitOwnedVms, type TenantOwnsResource } from "../proofs/tenant-owns-resource.ts";
 import { UpstreamClient, UpstreamError, type SizeRequest } from "../upstream/client.ts";
 import { audited, auditableVmId, withCaller, withOwnedVm } from "./common.ts";
 
@@ -412,7 +412,7 @@ const forkVm = (rawVmId: string, payload: ForkVmRequest, idempotencyKey: string 
                       receipt: { id: vmId, displayName: spec.displayName, labels: spec.labels, idleTimeoutSeconds: spec.idleTimeoutSeconds } };
                     yield* limits.advance(principal.tenantId, keyed, parent).pipe(Effect.mapError(() => unavailable()));
                   }
-                  snapshotId = yield* acquireForkSnapshot(caller, source, scope, keyed, parent);
+                  snapshotId = yield* acquireForkSnapshot(caller, source, scope, keyed, parent, generated !== undefined);
                   resumeFrom = parent;
                 }
                 const parsed = parseSnapshotId(snapshotId);
@@ -518,6 +518,15 @@ const listVms = (params: {
       });
     }),
   );
+
+/** Whether the caller's tenant already deleted this VM (same allowlist and service-label rules as a live one). */
+const deletedEarlier = (rawId: string) =>
+  Effect.gen(function* () {
+    const principal = yield* CurrentPrincipal;
+    const parsed = parseVmId(rawId);
+    if (Option.isNone(parsed)) return false;
+    return yield* name(principal, parsed.value, (caller, vm) => tenantDeletedVm(caller, vm)).pipe(Effect.mapError(() => unavailable()));
+  });
 
 export const vmsHandlers = HttpApiBuilder.group(CmuxVmApi, "vms", (handlers) =>
   handlers
@@ -641,6 +650,11 @@ export const vmsHandlers = HttpApiBuilder.group(CmuxVmApi, "vms", (handlers) =>
               .markDeleted(TenantId.make(caller.value.tenantId), "vm", vm.value, now)
               .pipe(Effect.mapError(() => unavailable()));
           }),
+        ).pipe(
+          // Idempotent: the caller's own already-deleted VM answers 204 again, so a lost 204 never wedges the retry.
+          Effect.catchTag("NotFound", (missing) =>
+            deletedEarlier(path.vmId).pipe(Effect.flatMap((gone) => (gone ? Effect.void : Effect.fail(missing)))),
+          ),
         ),
       ),
     ),

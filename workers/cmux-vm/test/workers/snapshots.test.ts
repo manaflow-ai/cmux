@@ -259,6 +259,18 @@ describe("create", () => {
     expect(h.audit).toMatchObject([{ action: "snapshot.create", cmuxId: vmId, outcome: "Conflict" }]);
   });
 
+  it("frees the snapshot slot after an unkeyed capture the provider refuses", async () => {
+    const limited = await makeHarness({ maxSnapshots: 1 });
+    try {
+      const stopped = limited.addVm(TENANT_A, "stopped"), running = limited.addVm(TENANT_A);
+      const key = await limited.addKey(TENANT_A, ["snapshot:write", "snapshot:read"]);
+      expect((await limited.request(`/v1/vms/${stopped.vmId}/snapshots`, bearer(key), { method: "POST", body: {} })).status).toBe(409);
+      expect((await limited.request(`/v1/vms/${running.vmId}/snapshots`, bearer(key), { method: "POST", body: {} })).status).toBe(201);
+    } finally {
+      await limited.dispose();
+    }
+  });
+
   it("retains the captured snapshot for reconciliation when its ownership row cannot be written", async () => {
     const { vmId } = h.addVm(TENANT_A);
     const key = await h.addKey(TENANT_A, ["snapshot:write"]);

@@ -1,10 +1,11 @@
 import { env } from "cloudflare:workers"
 import { MemoryRows, type ReduceContext } from "@cmux/ownership"
 import { describe, expect, it } from "vitest"
-import { cloudConfig } from "../src/cloud-driver.ts"
+import { cloudConfig, GuardedCloudDriver } from "../src/cloud-driver.ts"
 import type { Env } from "../src/env.ts"
 import { cloudDomain, publicMachine, TABLE_LEDGER, TABLE_MACHINE, TABLE_SNAPSHOT, type CloudState, type LedgerRow, type MachineRow } from "../src/domains/cloud.ts"
-import { publicSnapshot, type SnapshotRow } from "../src/domains/cloud-snapshot.ts"
+import { emptyFenceSettles, publicSnapshot, type SnapshotRow } from "../src/domains/cloud-snapshot.ts"
+import { VmApiCloudDriver } from "../src/cloud-vm-api.ts"
 import { personalTeamIdFor } from "../src/domains/user.ts"
 
 const user = `user_${"a".repeat(20)}`
@@ -141,6 +142,48 @@ describe("Cloud transport ownership", () => {
     const done = domain.reduce(deleting.state as CloudState, "cloud.driver_result", { key: deletion.key, ok: true }, context(rows, "old-failure-cleaned"));
     if (!done.ok) throw new Error(done.code);
     expect((done.state as CloudState).saved).toBe(0);
+  });
+
+  it("releases the saved slot when a capture ends before any send was admitted", () => {
+    const { rows, state } = created(), domain = cloudDomain(config);
+    const admitted = domain.reduce(state, "cloud.snapshot.create", { machine }, context(rows, "capture"));
+    if (!admitted.ok) throw new Error(admitted.code);
+    rows.apply(admitted.writes ?? []);
+    expect((admitted.state as CloudState).saved).toBe(1);
+    const key = rows.range<LedgerRow>(TABLE_LEDGER, { limit: 10 }).find((r) => r.row.op === "snapshot")?.key;
+    if (!key) throw new Error("capture ledger missing");
+    const closed = domain.reduce(admitted.state as CloudState, "cloud.driver_result", { key, ok: false, final: true, snapshot_outcome: "absent",
+      error: { code: "cloud.provider.vm_missing", message: "snapshot: no VM under the recorded name" } }, context(rows, "absent"));
+    if (!closed.ok) throw new Error(closed.code);
+    rows.apply(closed.writes ?? []);
+    expect((closed.state as CloudState).saved).toBe(0);
+    expect((closed.state as CloudState).pending[key]).toBeUndefined();
+    expect(rows.get<SnapshotRow>(TABLE_SNAPSHOT, snapshot)?.row.status).toBe("failed");
+  });
+
+  it("finishes deleting a legacy failed capture whose key the VM service never admitted", async () => {
+    const { rows, state } = created(), domain = cloudDomain(apiConfig);
+    const slug = "cmuxnp-test-cld-snap-cccccccccccccccccccc";
+    rows.apply([{ table: TABLE_SNAPSHOT, op: "upsert", key: snapshot, n: 2, row: { id: snapshot, machine, name: null, size_mb: 16384,
+      status: "failed", created_at: 1000, revision: "2", provider_name: slug, creator: user, size, transport: "vm-api" } }]);
+    const deleting = domain.reduce({ ...state, saved: 0 }, "cloud.snapshot.delete", { snapshot }, context(rows, "legacy-failed-delete"));
+    if (!deleting.ok) throw new Error(deleting.code);
+    rows.apply(deleting.writes ?? []);
+    const deletion = rows.range<LedgerRow>(TABLE_LEDGER, { limit: 20 }).find((r) => r.row.op === "snapshot_delete")!.row;
+    // The legacy row predates capture_protocol; by-key is 404, the fence comes back empty and nothing is owned.
+    const fetchFn: typeof fetch = async (input, init) => {
+      const path = new URL(new Request(input, init).url).pathname;
+      if (path === "/v1/snapshot-creations/by-key/cancel") return Response.json({ state: "fenced", id: null });
+      if (path === "/v1/snapshots") return Response.json({ items: [], nextCursor: null });
+      return new Response(null, { status: 404 });
+    };
+    const driver = new GuardedCloudDriver(new VmApiCloudDriver({ origin: "https://vm.test", key: "test-only-key", image: { id: "cloud-agent", revision: "v1" } }, "stack-team", team, fetchFn), "cmuxnp-test-cld-");
+    await expect(driver.removeSnapshot(slug, { team, machine }, emptyFenceSettles(deletion))).resolves.toBeUndefined();
+    const done = domain.reduce(deleting.state as CloudState, "cloud.driver_result", { key: deletion.key, ok: true }, context(rows, "legacy-failed-cleaned"));
+    if (!done.ok) throw new Error(done.code);
+    rows.apply(done.writes ?? []);
+    expect((done.state as CloudState).saved).toBe(0);
+    expect(rows.get(TABLE_SNAPSHOT, snapshot)).toBeUndefined();
   });
 
   it("keeps private transport fields out of public machine and snapshot projections", () => {
