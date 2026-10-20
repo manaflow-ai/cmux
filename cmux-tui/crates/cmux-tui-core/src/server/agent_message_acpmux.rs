@@ -127,7 +127,44 @@ impl crate::mux::Mux {
             json!({"sessionId": session, "msgId": message_id}),
             WITHDRAW_TIMEOUT,
         );
+        let withdrawn = Self::withdraw_answer(answer);
+        // acpmux answers a withdraw on its own daemon only, but forwards a
+        // peer's session's `_acpmux/info` and prompts: a session it still
+        // names may run the prompt, so only one it cannot name is gone.
+        let withdrawn = match withdrawn {
+            Ok(Withdrawn::NoSession) => {
+                let info = link.call("_acpmux/info", json!({"sessionId": session}), INFO_TIMEOUT);
+                match info {
+                    Ok(info) if info.get("sessionId").and_then(Value::as_str) == Some(session) => {
+                        Ok(Withdrawn::NotFound)
+                    }
+                    // acpmux names another session, or its own lookup
+                    // (`Hub::resolve`) knows none here or on a peer.
+                    Ok(_) => Ok(Withdrawn::NoSession),
+                    Err(LinkError::Rpc(message, _))
+                        if message.starts_with("no session matches") =>
+                    {
+                        Ok(Withdrawn::NoSession)
+                    }
+                    // A forward to a peer that failed, or no answer: the
+                    // peer may hold the prompt.
+                    Err(
+                        LinkError::Rpc(..)
+                        | LinkError::MethodNotFound(_)
+                        | LinkError::Closed
+                        | LinkError::Timeout
+                        | LinkError::Busy,
+                    ) => Err(WithdrawError::Unavailable),
+                }
+            }
+            other => other,
+        };
         link.close();
+        withdrawn
+    }
+
+    /// acpmux's answer to `_acpmux/prompt_withdraw`.
+    fn withdraw_answer(answer: Result<Value, LinkError>) -> Result<Withdrawn, WithdrawError> {
         match answer {
             Ok(reply) => match reply.get("outcome").and_then(Value::as_str) {
                 Some("unsent") => Ok(Withdrawn::Unsent),
@@ -154,8 +191,12 @@ fn withdraw_refusal(message: &str, data: &Value) -> Result<Withdrawn, WithdrawEr
         || message.split(':').next().unwrap_or_default().trim().to_owned(),
         str::to_owned,
     );
-    if reason == "withdraw.not_found" || message.starts_with("no session matches") {
+    if reason == "withdraw.not_found" {
         Ok(Withdrawn::NotFound)
+    } else if message.starts_with("no session matches") {
+        // acpmux's session lookup (`Hub::resolve`) names no reason; its
+        // message is the stable part.
+        Ok(Withdrawn::NoSession)
     } else if reason.is_empty() {
         Err(WithdrawError::Refused("withdraw.refused".to_owned()))
     } else {

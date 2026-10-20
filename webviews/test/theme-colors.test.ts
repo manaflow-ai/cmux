@@ -49,7 +49,7 @@ function files(dir: string, ext: RegExp): string[] {
 
 /** Page stylesheets: gallery fixtures and prototypes never ship. */
 const pageCSS = files(SRC, /\.css$/).filter(
-  (file) => !/\/(gallery|prototype)\//.test(file) && !file.endsWith(".gallery.css"),
+  (file) => !/\/(gallery|prototypes?)\//.test(file) && !file.endsWith(".gallery.css"),
 );
 
 /** Every custom property a stylesheet, the page scripts or the native theme payloads set. */
@@ -58,7 +58,7 @@ function definedVariables(): { names: Set<string>; prefixes: string[] } {
   const prefixes: string[] = [];
   // The gallery sets variables for its fixtures; the app never does.
   const pages = files(SRC, /\.(css|ts|tsx)$/).filter(
-    (file) => !/\/(gallery|prototype)\//.test(file) && !/\.gallery\./.test(file),
+    (file) => !/\/(gallery|prototypes?)\//.test(file) && !/\.gallery\./.test(file),
   );
   const sources = [...pages, ...files(NATIVE, /\.swift$/)];
   for (const file of sources) {
