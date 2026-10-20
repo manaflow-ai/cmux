@@ -49,6 +49,39 @@ import Testing
         #expect(request["params"]?["permissionMode"]?.stringValue == "standard", "\(request)")
         #expect(request["params"]?["permissionModeManaged"]?.boolValue == false, "\(request)")
     }
+
+    /// A forced value that is not a string still goes out forced, as a value the daemon does not
+    /// know (`""`), which it treats as the harness's own mode: never dropped, which would let the
+    /// file or a pick choose full access.
+    @Test func aForcedValueThatIsNotAStringIsPushedForcedAndUnknown() {
+        let file: JSONValue = .object(["agents": .object(["defaultPermissionMode": .string("fullAccess")])])
+        for forced: JSONValue in [.number(1), .bool(true), .null, .object([:])] {
+            let managed = ManagedPreferences(forced: ["agents.defaultPermissionMode": forced])
+            let effective = EffectiveSettings.merge(file: file, managed: managed, team: .none)
+            let chat = ChatSettings(effective: effective.root, file: file, managedRoots: [], managedKeys: effective.managedKeys)
+            #expect(chat.params["permissionMode"]?.stringValue == "", "\(forced): \(chat.params)")
+            #expect(chat.params["permissionModeManaged"]?.boolValue == true, "\(forced): \(chat.params)")
+        }
+    }
+
+    /// The team policy's enforced value is forced like MDM's; its default, under a file with no
+    /// key, goes out unforced so the daemon starts new chats in what Settings shows.
+    @Test func theTeamPolicyEnforcedValueIsPushedForcedAndItsDefaultUnforced() {
+        let empty: JSONValue = .object(["agents": .object([:])])
+        let enforced = EffectiveSettings.merge(
+            file: empty, managed: ManagedPreferences(),
+            team: TeamPolicyLayer(teamName: "Acme", enforced: ["agents.defaultPermissionMode": .string("ask")]))
+        let forced = ChatSettings(effective: enforced.root, file: empty, managedRoots: [], managedKeys: enforced.managedKeys)
+        #expect(forced.params["permissionMode"]?.stringValue == "ask", "\(forced.params)")
+        #expect(forced.params["permissionModeManaged"]?.boolValue == true, "\(forced.params)")
+
+        let defaulted = EffectiveSettings.merge(
+            file: empty, managed: ManagedPreferences(),
+            team: TeamPolicyLayer(teamName: "Acme", defaults: ["agents.defaultPermissionMode": .string("ask")]))
+        let unforced = ChatSettings(effective: defaulted.root, file: empty, managedRoots: [], managedKeys: defaulted.managedKeys)
+        #expect(unforced.params["permissionMode"]?.stringValue == "ask", "\(unforced.params)")
+        #expect(unforced.params["permissionModeManaged"]?.boolValue == false, "\(unforced.params)")
+    }
 }
 
 /// A unix socket standing in for acpmux: it reads one connection's lines and answers the
@@ -60,6 +93,7 @@ private nonisolated final class FakeDaemon: @unchecked Sendable {
     init() throws {
         path = NSTemporaryDirectory() + "push-\(UUID().uuidString.prefix(8)).sock"
         descriptor = socket(AF_UNIX, SOCK_STREAM, 0)
+        guard descriptor >= 0 else { throw POSIXError(.EMFILE) }
         var address = sockaddr_un()
         address.sun_family = sa_family_t(AF_UNIX)
         withUnsafeMutableBytes(of: &address.sun_path) { buffer in
@@ -70,27 +104,20 @@ private nonisolated final class FakeDaemon: @unchecked Sendable {
                 bind(descriptor, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
             }
         }
-        guard descriptor >= 0, bound == 0, listen(descriptor, 4) == 0 else {
+        guard bound == 0, listen(descriptor, 4) == 0 else {
+            Darwin.close(descriptor)
+            unlink(path)
             throw POSIXError(.EADDRNOTAVAIL)
         }
     }
 
-    /// The first `_acpmux/chat_settings` request a client sends, within 20 seconds.
+    /// The first `_acpmux/chat_settings` request a client sends, within 20 seconds. The serving
+    /// thread waits with `poll` against the deadline, so a push that never comes ends the test.
     func firstUpdate() async throws -> JSONValue {
         let descriptor = descriptor
-        let line: Data? = try await withThrowingTaskGroup(of: Data?.self) { group in
-            group.addTask {
-                await withCheckedContinuation { continuation in
-                    Thread.detachNewThread { continuation.resume(returning: Self.serve(descriptor)) }
-                }
-            }
-            group.addTask {
-                try await Task.sleep(for: .seconds(20))
-                return nil
-            }
-            let first = try await group.next() ?? nil
-            group.cancelAll()
-            return first
+        let deadline = Date().addingTimeInterval(20)
+        let line: Data? = await withCheckedContinuation { continuation in
+            Thread.detachNewThread { continuation.resume(returning: Self.serve(descriptor, until: deadline)) }
         }
         guard let line, let request = try? JSONValue.parse(line) else {
             Issue.record("the push never reached the socket")
@@ -99,8 +126,21 @@ private nonisolated final class FakeDaemon: @unchecked Sendable {
         return request
     }
 
-    /// Accepts one connection, reads until the id-2 line, answers it applied.
-    private static func serve(_ listener: Int32) -> Data? {
+    /// Whether `descriptor` becomes readable before `deadline`.
+    private static func readable(_ descriptor: Int32, until deadline: Date) -> Bool {
+        while true {
+            let left = deadline.timeIntervalSinceNow
+            guard left > 0 else { return false }
+            var entry = pollfd(fd: descriptor, events: Int16(POLLIN), revents: 0)
+            let ready = poll(&entry, 1, Int32(min(left, 1) * 1000))
+            if ready > 0 { return true }
+            if ready < 0, errno != EINTR { return false }
+        }
+    }
+
+    /// Accepts one connection, reads until the id-2 line, answers it applied; nil past `deadline`.
+    private static func serve(_ listener: Int32, until deadline: Date) -> Data? {
+        guard readable(listener, until: deadline) else { return nil }
         let client = accept(listener, nil, nil)
         guard client >= 0 else { return nil }
         defer { Darwin.close(client) }
@@ -116,6 +156,7 @@ private nonisolated final class FakeDaemon: @unchecked Sendable {
                     return Data(line)
                 }
             }
+            guard readable(client, until: deadline) else { return nil }
             let count = recv(client, &chunk, chunk.count, 0)
             guard count > 0 else { return nil }
             buffer.append(contentsOf: chunk[0..<count])
