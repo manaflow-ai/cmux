@@ -4,6 +4,11 @@
 //! of either as `_acpmux/chat_changed {kind: "activity"}`. Synthetic temp
 //! homes only.
 
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+// This process runs stand-in agents (the fake agents under tests/).
+const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
+
 use acpmux::adopt::HarnessHomes;
 use acpmux::chats::ChatSources;
 use acpmux::config::{Config, StoreMode};

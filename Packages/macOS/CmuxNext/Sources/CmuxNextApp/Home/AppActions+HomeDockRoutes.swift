@@ -1,10 +1,12 @@
 import CmuxNextActions
+import CmuxNextHome
 import CmuxNextHomeEngine
 
-/// Home as the home workspace with its left dock (classic off, cx-ebm.59.5): Home's actions open a
-/// route of the docked `home-channels` page, hq-ec's page, which draws its own sheets on the daemon
-/// ops (COORD.md, 2026-10-14: no Swift adapter). The host only shows Home, focuses the dock's page
-/// tab and sets the page's URL hash, which the page follows (store.followHash).
+/// Home as the home workspace with its left dock (classic off, cx-ebm.59.5): Home's actions run in
+/// the dock's shown view. In Messages (the default) they do what classic Home does (the native
+/// list, its sheets); in Channels they open a route of hq-ec's page, which draws its own sheets on
+/// the daemon ops (COORD.md, 2026-10-14: no Swift adapter). The host only shows Home, focuses the
+/// dock tab, and selects or sets the page's URL hash, which the page follows (store.followHash).
 extension AppActions {
     /// Page routes (hq-ec's page contract in .cmux-scratch/left-dock/COORD.md).
     enum HomeDockRoute {
@@ -32,17 +34,44 @@ extension AppActions {
         return true
     }
 
-    /// Opens `route` in the docked Home page: Home shown, the dock's page tab selected with the
-    /// keyboard, the page at `#<route>`. Refused (Home not ready) while the dock has no page tab yet.
-    static func openDockRoute(_ route: String, _ services: AppServices) {
+    /// Runs `body` on the docked Home's view: Home shown, the dock tab selected, the view made
+    /// (at once, or when the tab first shows). Refused (Home not ready) while the dock has no tab yet.
+    static func withDock(_ services: AppServices, _ body: @escaping @MainActor (HomeDockView) -> Void) {
         guard ActionRunScope.viewChangeAllowed() else { return services.registry.refuse(RefusalStrings.homeNeedsFocus) }
         guard showHome(services) else { return }
         guard let tab = services.home.homeWorkspace.flatMap(HomeDock.pageTab(in:))?.tab,
               services.revealTab(tab.id),
-              let pages = services.pages.provider(.homeChannels) as? HomeChannelsPageTab else {
+              let provider = services.pages.provider(.homeDock) as? HomeDockTab else {
             return services.registry.refuse(RefusalStrings.homeNotReady)
         }
-        pages.open(route: route, tabID: tab.id, services: services)
+        provider.whenShown(tab.id, services: services, body)
+    }
+
+    /// Opens `route` in the docked Home: in Channels the page goes to `#<route>`; in Messages
+    /// `messages` runs on the native view instead (the classic sheet, the list selection).
+    static func openDockRoute(_ route: String, _ services: AppServices, messages: @escaping @MainActor (TopHomePageView) -> Void) {
+        withDock(services) { dock in
+            if dock.mode == .messages, let page = dock.messages {
+                messages(page)
+            } else {
+                dock.open(route: route)
+                dock.focusPrimaryInput()
+            }
+        }
+    }
+
+    /// `home.switchView {view?}`: selects the sidebar's Home entry (`messages`) or Channels entry
+    /// (`channels`, the other one when absent): the docked Home shows that view, with the selection
+    /// handed over. The one path of the sidebar's Channels entry, the palette, the CLI and MCP. Refused
+    /// for Channels while it is off, and in classic Home (one view).
+    static func switchHomeView(_ services: AppServices, _ invocation: ActionInvocation) {
+        guard !services.home.dock.isClassic else { return services.registry.refuse(HomeDockMode.classicMessage) }
+        let named = invocation["view"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
+        let view = named.flatMap(HomeDockView.Mode.init(rawValue:))
+        guard named == nil || view != nil else { return services.registry.refuse(HomeDockMode.invalidViewMessage) }
+        let target = view ?? services.home.dockMode.other
+        guard target.isEnabled else { return services.registry.refuse(HomeDockMode.channelsOffMessage) }
+        withDock(services) { $0.switchTo(target) }
     }
 }
 

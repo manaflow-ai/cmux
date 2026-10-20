@@ -46,4 +46,11 @@ public protocol HoverCardSource: AnyObject {
     func hoverCardActivated(_ id: HoverTargetID)
     /// `id`'s card is no longer pending or shown.
     func hoverCardDeactivated(_ id: HoverTargetID)
+    /// Whether `screenPoint`, on none of the source's targets, is between them
+    /// (a gap in a tab strip): a card that hides on leave then waits for the next.
+    func hoverCardBridges(at screenPoint: CGPoint) -> Bool
+}
+
+public extension HoverCardSource {
+    func hoverCardBridges(at screenPoint: CGPoint) -> Bool { false }
 }

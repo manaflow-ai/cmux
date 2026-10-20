@@ -60,6 +60,8 @@ impl MachineRuntime {
                     name: current_name,
                     subtitle: "local".to_string(),
                     status: MachineStatus::Running,
+                    platform: None,
+                    capabilities: Vec::new(),
                 },
                 target: MachineTargetConfig::Unix { socket: current_socket },
             }],
@@ -118,6 +120,8 @@ impl MachineRuntime {
                 name: machine.name,
                 subtitle: machine.subtitle,
                 status: MachineStatus::Running,
+                platform: None,
+                capabilities: Vec::new(),
             },
             target: machine.target,
         });

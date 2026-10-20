@@ -37,7 +37,7 @@ pub fn ease_in_ease_out(t: f32) -> f32 {
 
 /// A CSS / Core Animation timing curve through (0, 0), (x1, y1), (x2, y2),
 /// (1, 1) at time fraction `t` (0..=1; x1 and x2 within 0..=1).
-fn cubic_bezier(t: f64, x1: f64, y1: f64, x2: f64, y2: f64) -> f64 {
+pub(crate) fn cubic_bezier(t: f64, x1: f64, y1: f64, x2: f64, y2: f64) -> f64 {
     if t <= 0. {
         return 0.;
     }

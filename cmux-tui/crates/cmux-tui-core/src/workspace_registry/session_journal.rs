@@ -196,6 +196,17 @@ impl SessionJournalReader {
         query_session_journal_after(&self.connection, sequence, limit)
     }
 
+    /// The resource events after `revision`, read on this reader's own
+    /// read-only connection (no registry lock). `generation` is the
+    /// registry's, which never changes while it is open.
+    pub(crate) fn resource_events_after(
+        &self,
+        generation: &str,
+        revision: u64,
+    ) -> anyhow::Result<ResourceEventPage> {
+        resource_store::query_resource_events_after(&self.connection, generation, revision)
+    }
+
     pub(crate) fn after_subjects(
         &self,
         sequence: u64,

@@ -44,7 +44,7 @@ The script first checks `$HOME/.cache/cmux-web-dev/acpmux/<git-sha>/acpmux`. If 
 `cmux-ci run --class light --script scripts/cmux-next/build-acpmux.sh` on a macOS worker and
 downloads the verified artifact into that cache. If the fleet client or artifact is unavailable,
 it warns and uses `~/.local/bin/acpmux`; it never runs Cargo on the laptop. Ctrl-C asks that exact
-daemon to run `acpmux daemon shutdown`, then terminates only the recorded Vite and index PIDs.
+daemon to run `acpmux daemon shutdown --end-agents`, then terminates only the recorded Vite and index PIDs.
 
 The browser host lives in `webviews/src/dev-host/host.ts`. It is imported only by the Vite
 `dev.tsx` entry. The shim hands ACP frames to the real WebSocket transport, opens files in the

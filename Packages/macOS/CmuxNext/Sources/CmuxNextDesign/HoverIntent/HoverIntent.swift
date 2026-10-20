@@ -4,7 +4,9 @@ public import Foundation
 /// cards appeared at once everywhere). Tooltips wait before the first one
 /// shows, then a neighbor's shows at once while the group is warm; hover
 /// cards wait longer, stay while the pointer heads into them, and linger a
-/// moment after it leaves. Pages use the same numbers
+/// moment after it leaves. The native sidebar row and tab cards wait
+/// the default delay or the user's (`HoverCardTiming`, `sidebar.hoverCards.delay`).
+/// Pages use the same numbers
 /// (webviews/src/ui/hoverIntent.ts, `HOVER_INTENT`; a web test reads this
 /// file and fails when they drift).
 ///
@@ -22,32 +24,28 @@ public nonisolated struct HoverIntentTiming: Hashable, Sendable {
     public var tooltipDelay: Duration
     /// After the last tooltip hid, how long the next one still shows at once.
     public var tooltipWarm: Duration
-    /// Pointer rest on a sidebar row before its hover card shows.
-    public var cardDwell: Duration
     /// How long a card stays after the pointer leaves its target and the card.
     public var cardGrace: Duration
     /// How long a pointer heading for a shown card may pause on another
     /// target it crosses before that target's card takes over.
     public var cardAim: Duration
 
-    public init(tooltipDelay: Duration, tooltipWarm: Duration, cardDwell: Duration, cardGrace: Duration, cardAim: Duration) {
+    public init(tooltipDelay: Duration, tooltipWarm: Duration, cardGrace: Duration, cardAim: Duration) {
         self.tooltipDelay = tooltipDelay
         self.tooltipWarm = tooltipWarm
-        self.cardDwell = cardDwell
         self.cardGrace = cardGrace
         self.cardAim = cardAim
     }
 
     /// The defaults (`HOVER_INTENT` in webviews/src/ui/hoverIntent.ts mirrors these).
     public static let standard = HoverIntentTiming(
-        tooltipDelay: .milliseconds(450), tooltipWarm: .milliseconds(500), cardDwell: .milliseconds(1_000),
-        cardGrace: .milliseconds(200), cardAim: .milliseconds(300))
+        tooltipDelay: .milliseconds(450), tooltipWarm: .milliseconds(500), cardGrace: .milliseconds(200), cardAim: .milliseconds(300))
 
     /// The values now, with any tunable override.
     public static var current: HoverIntentTiming {
         HoverIntentTiming(
             tooltipDelay: duration(MotionTunables.tooltipDelay.value), tooltipWarm: duration(MotionTunables.tooltipWarm.value),
-            cardDwell: duration(MotionTunables.hoverCardDwell.value), cardGrace: duration(MotionTunables.hoverCardGrace.value),
+            cardGrace: duration(MotionTunables.hoverCardGrace.value),
             cardAim: duration(MotionTunables.hoverCardAim.value))
     }
 

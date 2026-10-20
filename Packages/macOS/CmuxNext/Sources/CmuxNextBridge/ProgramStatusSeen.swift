@@ -122,3 +122,22 @@ public final class ProgramStatusSeenStore {
         defaults.set(data, forKey: Self.defaultsKey)
     }
 }
+
+/// One viewed tab, its OSC 7501 records and whether it holds an unread
+/// notification (NotificationCenterService `viewedFacts`).
+public struct ViewedProgramStatus: Equatable, Sendable {
+    public var tab: String
+    public var records: [ProgramStatusRecord]
+    public var unread: Bool
+    public init(tab: String, records: [ProgramStatusRecord], unread: Bool = false) {
+        (self.tab, self.records, self.unread) = (tab, records, unread)
+    }
+}
+
+/// The viewed tabs' facts and the revision of which tabs are viewed (bumped
+/// when a window's settled focus changes).
+public struct ViewedTabsFacts: Equatable, Sendable {
+    public var revision: UInt64
+    public var tabs: [ViewedProgramStatus]
+    public init(revision: UInt64, tabs: [ViewedProgramStatus]) { (self.revision, self.tabs) = (revision, tabs) }
+}

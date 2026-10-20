@@ -125,11 +125,12 @@ public struct ChiefControlClient: Sendable {
         self.connection = connection
     }
 
-    /// `chief.engine.get`: the brain's engine report.
-    public func chiefEngine() async throws(ChiefControlError) -> ChiefEngineReport {
+    /// `chief.engine.get`: the brain's engine report. `chief` names a Chief
+    /// that is not the default (chief-brains-v1); nil: the default Chief.
+    public func chiefEngine(chief: String? = nil) async throws(ChiefControlError) -> ChiefEngineReport {
         do {
             return try await connection.resourceRequest({ id in
-                ResourceRequestEnvelope(id: id, operation: "chief.engine.get", params: [:])
+                ResourceRequestEnvelope(id: id, operation: "chief.engine.get", params: Self.naming(chief, [:]))
             }, as: ChiefEngineReport.self)
         } catch {
             throw ChiefControlError(error)
@@ -137,11 +138,11 @@ public struct ChiefControlClient: Sendable {
     }
 
     /// `chief.engine.set`: absent fields stay, "default" clears one; the
-    /// report after the write.
+    /// report after the write. `chief` as in `chiefEngine(chief:)`.
     public func setChiefEngine(harness: String? = nil, model: String? = nil,
-                               effort: String? = nil) async throws(ChiefControlError) -> ChiefEngineReport {
+                               effort: String? = nil, chief: String? = nil) async throws(ChiefControlError) -> ChiefEngineReport {
         let fields = [("harness", harness), ("model", model), ("effort", effort)]
-        let params = Dictionary(uniqueKeysWithValues: fields.compactMap { key, value in value.map { (key, JSONValue.string($0)) } })
+        let params = Self.naming(chief, Dictionary(uniqueKeysWithValues: fields.compactMap { key, value in value.map { (key, JSONValue.string($0)) } }))
         let key = "cmux-next-chief-engine-" + UUID().uuidString.lowercased()
         do {
             return try await connection.resourceRequest({ id in
@@ -152,16 +153,24 @@ public struct ChiefControlClient: Sendable {
         }
     }
 
-    /// `chief.stop`: true when a running turn was stopped.
-    public func stopChief() async throws(ChiefControlError) -> Bool {
+    /// `chief.stop`: true when a running turn was stopped. `chief` as in
+    /// `chiefEngine(chief:)`.
+    public func stopChief(chief: String? = nil) async throws(ChiefControlError) -> Bool {
         struct Stopped: Decodable, Sendable { var stopped: Bool }
         let key = "cmux-next-chief-stop-" + UUID().uuidString.lowercased()
+        let params = Self.naming(chief, [:])
         do {
             return try await connection.resourceRequest({ id in
-                ResourceRequestEnvelope(id: id, operation: "chief.stop", params: [:], idempotencyKey: key)
+                ResourceRequestEnvelope(id: id, operation: "chief.stop", params: params, idempotencyKey: key)
             }, as: ResourceMutationResult<Stopped>.self).value.stopped
         } catch {
             throw ChiefControlError(error)
         }
+    }
+
+    /// `params` with the `chief` field when `chief` names a Chief.
+    static func naming(_ chief: String?, _ params: [String: JSONValue]) -> [String: JSONValue] {
+        guard let chief, !chief.isEmpty else { return params }
+        return params.merging(["chief": .string(chief)]) { _, named in named }
     }
 }

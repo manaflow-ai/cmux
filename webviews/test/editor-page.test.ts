@@ -23,6 +23,7 @@ import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
+import { stopDevServer } from "./support/devServer";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmDevServer } from "./support/warmDevServer";
 
@@ -96,7 +97,7 @@ await requireBrowserLane("editor-page.test.ts", async () => {
   }, 240_000);
 
   afterAll(() => {
-    server?.kill();
+    stopDevServer(server);
     fs.rmSync(root, { recursive: true, force: true });
   });
 
@@ -250,6 +251,55 @@ await requireBrowserLane("editor-page.test.ts", async () => {
         await save(page);
         expect(fs.statSync(target).mtimeMs).toBe(before);
         expect(bytesOf(target).equals(utf8("﻿keep\r\nme\r"))).toBe(true);
+      });
+
+      // Lawrence 2026-10-19: "All the web views should not have a built-in Cmd-P or Cmd-Shift-P.
+      // They should all use the Swift version". Monaco's own command palette (F1, the context menu's
+      // Command Palette) asks the host for the app's native palette and never shows its widget.
+      test("Monaco's command palette opens the app's native palette, never its own", async () => {
+        await fresh();
+        const target = file("palette.ts", "const a = 1;\n");
+        await openEditor(page, target);
+        await caret(page, 1, 1);
+        const asked = () =>
+          page.evaluate(
+            () => (window as unknown as { __cmuxEditorDev: { appActions: unknown[] } }).__cmuxEditorDev.appActions,
+          );
+        const monacoPalette = () =>
+          page.evaluate(() => {
+            const widget = document.querySelector<HTMLElement>(".quick-input-widget");
+            return !!widget && widget.style.display !== "none" && widget.offsetHeight > 0;
+          });
+        await page.keyboard.press("F1");
+        await page.waitForFunction(
+          () =>
+            (window as unknown as { __cmuxEditorDev: { appActions: unknown[] } }).__cmuxEditorDev.appActions.length > 0,
+          null,
+          { timeout: 10_000 },
+        );
+        expect(await asked()).toEqual(["commandPalette"]);
+        expect(await monacoPalette()).toBe(false);
+        expect(await editorText(page)).toBe("const a = 1;\n");
+        // The context menu's Command Palette item (its last row) runs the same command. Chosen from
+        // the keyboard: Monaco's menu did not take a synthetic mouse-up on its row here.
+        await page.click(".monaco-editor .view-lines", { button: "right" });
+        await page
+          .locator('.monaco-menu [role="menuitem"]', { hasText: "Command Palette" })
+          .first()
+          .waitFor({ timeout: 10_000 });
+        await page.keyboard.press("ArrowUp");
+        expect(
+          await page.evaluate(() => document.activeElement?.shadowRoot?.activeElement?.textContent ?? ""),
+        ).toContain("Command Palette");
+        await page.keyboard.press("Enter");
+        await page.waitForFunction(
+          () =>
+            (window as unknown as { __cmuxEditorDev: { appActions: unknown[] } }).__cmuxEditorDev.appActions.length > 1,
+          null,
+          { timeout: 10_000 },
+        );
+        expect(await asked()).toEqual(["commandPalette", "commandPalette"]);
+        expect(await monacoPalette()).toBe(false);
       });
 
       test("a stale save is refused with the conflict banner; Keep My Changes writes mine", async () => {

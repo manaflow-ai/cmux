@@ -21,10 +21,13 @@
 //! agent that is not a Chief) is refused with `origin.forbidden`.
 //! The owner may do everything except delete the default Chief. A Chief
 //! may read every record, and may change only its own fields that its
-//! record lists in `self_edit` (the person's rule): never its tools,
-//! harnesses, engine or `self_edit`, never another Chief, never create or
-//! delete. Such a request is refused with `operation.failed` reason
-//! `chief_self_edit_denied` before anything is written.
+//! record lists in `self_edit` (the person's rule): never its own tools,
+//! harnesses, engine or `self_edit`. Such a request is refused with
+//! `operation.failed` reason `chief_self_edit_denied` before anything is
+//! written. A Chief whose record holds the `chiefs` tool may also create
+//! Chiefs and change other Chiefs within its own grant, never delete one
+//! (chief_manage.rs); without it every write on another
+//! Chief is `chief_manage_denied`.
 //!
 //! `chief.profile.avatar.set` / `.get` are thin aliases of
 //! `participant.avatar.*` for a Chief (participant_avatars.rs): the same
@@ -96,7 +99,46 @@ pub(super) fn handle(
     send_resource_response(writer, id, operation, result)
 }
 
+thread_local! {
+    /// A new Chief's brain outcome from `mutate`, waited for by `answer`
+    /// after the registry lock is released (the supervisor reads the
+    /// registry to start the brain).
+    static PENDING_BRAIN: std::cell::RefCell<Option<crate::chief_brains::BrainPending>> =
+        const { std::cell::RefCell::new(None) };
+    /// A renamed Chief (id, new name, rev) from `mutate`, whose own
+    /// conversation `answer` retitles once the registry lock is released.
+    static PENDING_RETITLE: std::cell::RefCell<Option<(String, String, u64)>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// The answer, with a new Chief's `brain` (what happened to its brain, from
+/// the supervisor's real state) in the created record.
 fn answer(mux: &Mux, client: u64, request: &ParsedResourceRequest) -> Result<Value, ResourceError> {
+    PENDING_BRAIN.with(|slot| slot.borrow_mut().take());
+    PENDING_RETITLE.with(|slot| slot.borrow_mut().take());
+    let result = answer_locked(mux, client, request);
+    if let Some((chief, name, rev)) = PENDING_RETITLE.with(|slot| slot.borrow_mut().take())
+        && result.is_ok()
+    {
+        retitle_own_conversation(mux, &chief, &name, rev);
+    }
+    let pending = PENDING_BRAIN.with(|slot| slot.borrow_mut().take());
+    match (result, pending) {
+        (Ok(mut value), Some(pending)) => {
+            if let Some(record) = value.get_mut("value").and_then(Value::as_object_mut) {
+                record.insert("brain".into(), pending.resolve().wire());
+            }
+            Ok(value)
+        }
+        (result, _) => result,
+    }
+}
+
+fn answer_locked(
+    mux: &Mux,
+    client: u64,
+    request: &ParsedResourceRequest,
+) -> Result<Value, ResourceError> {
     let operation = request.envelope.operation;
     let fields = &request.fields;
     // The participant an adopt names, read before the registry lock (the
@@ -245,7 +287,7 @@ fn mutate(
             "a mutation needs an idempotency key",
         ));
     }
-    let profile: Map<String, Value> = fields
+    let mut profile: Map<String, Value> = fields
         .iter()
         .filter(|(k, _)| {
             !matches!(
@@ -265,12 +307,13 @@ fn mutate(
         _ => None,
     };
     // An edit that changes nothing keeps the rev: no chief-changed for it.
-    let rev_before = match operation {
+    // The name before an update: only a changed name retitles (cx-di8pd).
+    let (rev_before, name_before) = match operation {
         Op::ChiefProfileUpdate | Op::ChiefProfileAvatarSet => store
             .get(chief_field(fields))
             .map_err(|e| internal(operation, &e))?
-            .map(|record| record.rev),
-        _ => None,
+            .map_or((None, None), |record| (Some(record.rev), Some(record.display_name))),
+        _ => (None, None),
     };
     let picture_before = match operation {
         Op::ChiefProfileAvatarSet => store
@@ -280,9 +323,22 @@ fn mutate(
             .map(|avatar| avatar.sha256),
         _ => None,
     };
-    if let Caller::Chief(me) = caller {
-        self_edit_allowed(store, operation, me, &chief, &profile)?;
-    }
+    // A Chief on itself keeps the person's self_edit rule; on another Chief
+    // or a create, its `chiefs` grant and ceiling (chief_manage.rs).
+    let manages = match caller {
+        Caller::Chief(me)
+            if matches!(operation, Op::ChiefProfileUpdate | Op::ChiefProfileAvatarSet)
+                && chief == *me =>
+        {
+            self_edit_allowed(store, operation, me, &chief, &profile)?;
+            false
+        }
+        Caller::Chief(me) => {
+            super::chief_manage::check(store, operation, me, &chief, &mut profile)?;
+            true
+        }
+        _ => false,
+    };
     if *caller == Caller::Page
         && (matches!(operation, Op::ChiefProfileCreate | Op::ChiefProfileDelete)
             || chief_registry::names_gesture_field(&profile))
@@ -292,11 +348,17 @@ fn mutate(
             json!({"derived": "agent", "required": "user", "reason": "gesture_required"}),
         ));
     }
-    let actor = audit_actor(mux, client, caller);
+    let actor = match caller {
+        Caller::Chief(me) if manages => super::chief_manage::actor(me),
+        _ => audit_actor(mux, client, caller),
+    };
     let body = json!({"operation": operation.wire_name(), "fields": Value::Object(fields.clone())});
     let outcome = store
         .mutate(&actor, &key, operation.wire_name(), &body, |tx| match operation {
-            Op::ChiefProfileCreate => chief_registry::create(tx, &profile),
+            Op::ChiefProfileCreate => match caller {
+                Caller::Chief(me) if manages => chief_registry::create_by_chief(tx, &profile, me),
+                _ => chief_registry::create(tx, &profile),
+            },
             Op::ChiefProfileAdopt => match adoptee {
                 Some(Adoptee { id, display_name: Some(name) }) => {
                     chief_registry::adopt(tx, id, name, &profile, || {
@@ -335,13 +397,24 @@ fn mutate(
                     chief: record.id.clone(),
                     change,
                 })));
+                if operation == Op::ChiefProfileUpdate
+                    && name_before.as_deref() != Some(record.display_name.as_str())
+                {
+                    PENDING_RETITLE.with(|slot| {
+                        *slot.borrow_mut() =
+                            Some((record.id.clone(), record.display_name.clone(), record.rev));
+                    });
+                }
             }
-            if !replayed {
-                mux.chiefs().brains.chief_written(
+            if !replayed
+                && let Some(pending) = mux.chiefs().brains.chief_written(
                     &record,
                     matches!(operation, Op::ChiefProfileCreate | Op::ChiefProfileAdopt),
                     operation == Op::ChiefProfileDelete,
-                );
+                )
+            {
+                // Resolved by `answer` once the registry lock is released.
+                PENDING_BRAIN.with(|slot| *slot.borrow_mut() = Some(pending));
             }
             let (_, generation) = mux.registry_identity();
             Ok(json!({"value": chief_registry::wire(&record), "generation": generation,
@@ -500,6 +573,64 @@ fn caller(mux: &Mux, client: u64, store: &ChiefStore) -> Result<Caller, Resource
         }
         _ => Err(forbidden()),
     }
+}
+
+/// cx-di8pd: a renamed Chief's own conversation takes its new name as its
+/// title, so every reader of the title (Home's header and list, the CLI, a
+/// page) follows the registry; the brain titled it with the old name when it
+/// made it. Its own conversation is the brain's rule (optchat-chief
+/// `select_chief_of`): the default Chief's oldest conversation, another
+/// Chief's oldest DM with the person (paired devices of the person count as
+/// the person). A later conversation with the Chief (a channel, a group)
+/// keeps its title. One `title.set` by the person, keyed by the record's
+/// rev, published like any op. Best effort: a failure is logged and the
+/// rename stands.
+fn retitle_own_conversation(mux: &Mux, chief: &str, name: &str, rev: u64) {
+    let listed = mux.with_conversations(|store| store.list());
+    let own = match listed {
+        Ok(listed) => own_conversation(listed, chief),
+        Err(error) => {
+            eprintln!("cmux-tui: Chief {chief} renamed; listing its conversations: {error:#}");
+            return;
+        }
+    };
+    let Some(own) = own.filter(|own| own.title != name) else { return };
+    let op = cmux_conversation::Op::TitleSet { title: name.to_owned() };
+    let key = format!("chief-rename-{chief}-{rev}");
+    if let Err(error) = super::conversations::commit_op(mux, &own.id, &key, LOCAL_USER, &op, &None)
+    {
+        eprintln!("cmux-tui: Chief {chief} renamed; retitling {}: {error:#}", own.id);
+    }
+}
+
+/// The conversation `chief` answers in (see [`retitle_own_conversation`]).
+fn own_conversation(
+    listed: Vec<cmux_conversation::Summary>,
+    chief: &str,
+) -> Option<cmux_conversation::Summary> {
+    let person = |p: &cmux_conversation::Participant| {
+        p.id == LOCAL_USER || p.person.as_deref() == Some(LOCAL_USER)
+    };
+    listed
+        .into_iter()
+        .filter(|c| c.participants.iter().any(|p| p.id == chief))
+        .filter(|c| {
+            chief == chief_registry::DEFAULT_CHIEF
+                || (c.participants.iter().any(|p| p.id == LOCAL_USER)
+                    && c.participants.iter().all(|p| p.id == chief || person(p)))
+        })
+        .min_by(|a, b| (&a.created_at, &a.id).cmp(&(&b.created_at, &b.id)))
+}
+
+/// Every Chief's current name by participant id, for the Home rows
+/// (`home-inbox`). Best effort: a registry that cannot open gives none, and
+/// the rows fall back to the conversations' titles.
+pub(super) fn chief_names(mux: &Mux) -> std::collections::BTreeMap<String, String> {
+    with_store(mux, Op::ChiefProfileList, |store| {
+        store.list().map_err(|error| internal(Op::ChiefProfileList, &error))
+    })
+    .map(|records| records.into_iter().map(|record| (record.id, record.display_name)).collect())
+    .unwrap_or_default()
 }
 
 fn with_store<T>(

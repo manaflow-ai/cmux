@@ -49,7 +49,7 @@ final class WorkspaceContentView: NSView {
         }
     }
 
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
 
     /// Shows the workspace action surface in place of an empty layout.
     func showEmpty(_ view: NSView?) {
@@ -92,9 +92,22 @@ final class WorkspaceContentView: NSView {
         return true
     }
 
+    /// A parked workspace (hidden in its window, `WindowRootView.show`) takes no shortcut, and its
+    /// subtree is not walked for one.
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        guard !isHidden else { return false }
         if let emptyView, emptyView.performKeyEquivalent(with: event) { return true }
         return super.performKeyEquivalent(with: event)
+    }
+
+    /// A parked workspace lists nothing to VoiceOver or the window's hint targets: AppKit unwraps an
+    /// ignored (hidden) view into its children, so the subtree is cut here.
+    override func accessibilityChildren() -> [Any]? { isHidden ? [] : super.accessibilityChildren() }
+
+    /// Counts window entries (`debug.layout_counters`): a switch to a parked workspace adds none.
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window != nil { DebugLayoutCounters.workspaceWindowEntries &+= 1 }
     }
 
     override func layout() {

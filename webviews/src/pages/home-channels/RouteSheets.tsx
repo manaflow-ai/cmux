@@ -6,6 +6,7 @@ import { useState } from "react";
 import type { Strings } from "../shared/i18n";
 import { ChiefSheet } from "./ChiefSheet";
 import { InviteSheet, NewMessageSheet } from "./ConversationSheets";
+import { DialogButton } from "../../ui/DialogButton";
 import { FormDialog } from "./FormDialog";
 import { conversationName } from "./model";
 import type { HomeSheets, SheetsSnapshot } from "./sheets";
@@ -98,12 +99,12 @@ function ArchiveChiefSheet({ sheets, strings, chief }: { sheets: HomeSheets; str
       busy={busy}
       actions={
         <>
-          <button type="button" className="hc-text-button" onClick={() => sheets.close()}>
+          <DialogButton dialogKey="escape" className="hc-text-button" onClick={() => sheets.close()}>
             {t("edit.cancel")}
-          </button>
-          <button type="submit" className="hc-text-button danger" disabled={busy}>
+          </DialogButton>
+          <DialogButton dialogKey="return" type="submit" className="hc-text-button danger" disabled={busy}>
             {t("sheet.archive.confirm")}
-          </button>
+          </DialogButton>
         </>
       }
     />
@@ -120,9 +121,9 @@ function Notice({ sheets, strings, body }: { sheets: HomeSheets; strings: String
       onClose={() => sheets.close()}
       onSubmit={() => sheets.close()}
       actions={
-        <button type="submit" className="hc-text-button primary">
+        <DialogButton dialogKey="return" type="submit" className="hc-text-button primary">
           {t("sheet.close")}
-        </button>
+        </DialogButton>
       }
     />
   );

@@ -38,9 +38,9 @@ final class SidebarTabRowView: SidebarRowView {
     func configure(_ tab: SidebarTab, row: SidebarRow) {
         let content = Content(tab: tab, group: row.group, groupColor: row.groupColor)
         guard needsConfigure(content) else { return }
-        title.stringValue = tab.title
+        title.setString(tab.title)
         // Regular weight and the primary text color, read or unread (Lawrence 2026-10-14).
-        title.font = SidebarStyle.subtitleFont
+        title.setFont(SidebarStyle.subtitleFont)
         // Only a page's favicon draws, as is; no kind or agent glyph.
         let side = SidebarStyle.tabIconSize
         icon.image = tab.favicon.map { NSImage(cgImage: $0.image, size: NSSize(width: side, height: side)) }
@@ -64,7 +64,7 @@ final class SidebarTabRowView: SidebarRowView {
 
     override func updateLayer() {
         performWithTheme {
-            title.textColor = Palette.textPrimary
+            title.setColor(Palette.textPrimary)
             paintFill(isHovered ? Palette.hoverFill : nil)
         }
     }

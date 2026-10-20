@@ -229,7 +229,7 @@ def run_engine(engine, url):
     listed = [p.get("name") for p in find(daemon("browser", "profile", "list")[1], "browser_profiles") or []]
     check(a_name in listed and b_name in listed, f"{engine}: profile list names A and B")
     code, opened = daemon("browser", "profile", "open", url + "?set=a", "--profile", a_name, "--engine", engine)
-    tab = find(opened, "tab_resource_id")
+    tab = find(opened, "tab_id")
     check(code == 0 and bool(tab), f"{engine}: tab opened in A: {tab}")
     if not tab:
         return
@@ -270,7 +270,7 @@ def run_engine(engine, url):
           f"{engine}: back in A shows a/a/a, sessionStorage empty: {back}")
 
     code, opened = daemon("browser", "profile", "open", url, "--profile", b, "--engine", engine)
-    other = find(opened, "tab_resource_id")
+    other = find(opened, "tab_id")
     check(code == 0 and bool(other), f"{engine}: new tab opened straight in B: {other}")
     if other:
         seen = profiles_match(other, b)

@@ -46,6 +46,14 @@ const baseProps = {
   onConnect: () => undefined,
 };
 
+// Sample favicons (drawn here, public-safe) the host would read from the projects' folders.
+const projectIcons = {
+  "/Users/you/src/atlas-web":
+    "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAzMiAzMiI+PHJlY3Qgd2lkdGg9IjMyIiBoZWlnaHQ9IjMyIiByeD0iNyIgZmlsbD0iIzI1NjNlYiIvPjxjaXJjbGUgY3g9IjE2IiBjeT0iMTYiIHI9IjkiIGZpbGw9Im5vbmUiIHN0cm9rZT0iI2ZmZiIgc3Ryb2tlLXdpZHRoPSIyLjUiLz48cGF0aCBkPSJNNyAxNmgxOE0xNiA3Yy00IDUtNCAxMyAwIDE4TTE2IDdjNCA1IDQgMTMgMCAxOCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjZmZmIiBzdHJva2Utd2lkdGg9IjIiLz48L3N2Zz4=",
+  "/Users/you/src/relay":
+    "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAzMiAzMiI+PHJlY3Qgd2lkdGg9IjMyIiBoZWlnaHQ9IjMyIiByeD0iNyIgZmlsbD0iI2Y5NzMxNiIvPjxwYXRoIGQ9Ik04IDIwbDgtOSA4IDkiIGZpbGw9Im5vbmUiIHN0cm9rZT0iI2ZmZiIgc3Ryb2tlLXdpZHRoPSIzLjUiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCIvPjwvc3ZnPg==",
+};
+
 const openFolder: Play = async (ctx) => {
   await ctx.click({ role: "button", name: "Folder" });
   await ctx.waitFor(() => ctx.document.querySelector('.acpmux-location-menu [role="option"]'));
@@ -68,7 +76,7 @@ const worktreeProps = {
 };
 
 const openComputer: Play = async (ctx) => {
-  await ctx.click({ role: "button", name: "Computer" });
+  await ctx.click({ role: "button", name: /^Computer/ });
   await ctx.waitFor(() => ctx.document.querySelector('[role="menu"] [role="menuitemradio"]'));
 };
 
@@ -79,6 +87,8 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
   covers: [
     "agent-session/acpmux/ComposerContext.tsx#ComposerContext",
     "agent-session/acpmux/FolderPopover.tsx#FolderPopover",
+    "agent-session/acpmux/EnvironmentPicker.tsx#EnvironmentPicker",
+    "agent-session/acpmux/EnvironmentPicker.tsx#EnvironmentIcon",
   ],
   styles: () => Promise.all([import("./styles.css"), import("./composerLocation.css")]),
   load: () => import("./ComposerContext").then((module) => module.ComposerContext),
@@ -109,6 +119,12 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       props: baseProps,
       play: openFolder,
     },
+    "folder-favicons": {
+      note: "Projects with a favicon (public/, app/, the folder itself) show it in their tile; cmux has none and keeps its letters.",
+      props: baseProps,
+      chipHost: { projectIcons },
+      play: openFolder,
+    },
     "duplicate-worktrees": {
       note: "Three checkouts named cmux: each row adds its lane, the path shows on hover, the current one is checked.",
       props: worktreeProps,
@@ -133,6 +149,19 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       note: "The computer menu keeps local and Cloud destinations together with SSH and cmux Cloud actions.",
       props: baseProps,
       play: openComputer,
+    },
+    "environment-picker": {
+      note: "Preview: the computer is the environment picker, one searchable list in Local, SSH and Cloud sections with ⌥⌘1–9 and New environment last.",
+      props: {
+        ...baseProps,
+        environments: true,
+        peers: ["gpu-box", "Cloud machine"],
+        peerKinds: { "gpu-box": "ssh", "Cloud machine": "cloud" },
+      },
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: /^Environment/ });
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [role="option"]'));
+      },
     },
     "ssh-chat": {
       note: "A chat on an SSH machine names that machine as its Computer, not this Mac (cx-7ooz).",

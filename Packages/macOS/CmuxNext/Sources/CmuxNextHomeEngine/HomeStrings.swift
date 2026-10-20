@@ -21,6 +21,11 @@ public nonisolated enum HomeStrings {
                defaultValue: "Agents are disabled in this build session. The Chief does not answer.",
                table: "Home", bundle: .module)
     }
+    /// The Chief conversation's system notice while the compactor cannot build summaries (cx-oqnw3).
+    static var chiefMemoryPaused: String {
+        String(localized: "home.chief.memoryPaused", defaultValue: "Chief memory summaries are paused. The Chief still answers.",
+               table: "Home", bundle: .module)
+    }
     /// The Chief conversation's notice while a turn waits for the compactor.
     static func chiefOrganizing(built: Int, total: Int) -> String {
         String(format: String(localized: "home.chief.organizing", defaultValue: "Organizing Chief history: %1$lld of %2$lld",
