@@ -351,7 +351,7 @@ use resource_content::ensure_screen_split_public_ids;
 pub(crate) use resource_topology::AgentCLIJobBusy;
 pub(crate) use resource_topology::{
     BatchCloseOutcome, BatchCloseTarget, CloseReason, PANE_BROWSER_URL_FIELD,
-    PANE_SPLIT_FOCUS_FIELD, RoomClose,
+    PANE_SPLIT_FOCUS_FIELD, RoomClose, WORKSPACE_CREATE_FOCUS_FIELD,
 };
 pub use rows::{RowHeightsOutcome, RowsError};
 pub(crate) use screen_groups::workspace_screen_groups;

@@ -31865,6 +31865,14 @@
             },
             "description": "An ephemeral workspace is closed by the daemon at its next start."
           },
+          "focus": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "Make the new workspace the focused one. Default false: the focused workspace stays."
+          },
           "cwd": {
             "required": false,
             "type": {
