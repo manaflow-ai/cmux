@@ -96,6 +96,13 @@ final class HomeProjection: @preconcurrency ChatIntents {
     /// Rebuilds and applied (changed) updates, for tests.
     private(set) var rebuilds = 0
     private(set) var appliedUpdates = 0
+    /// Store reads of this conversation (`refresh`), changed or not (tests: traffic for other conversations costs none).
+    private(set) var refreshPasses = 0
+    /// This conversation's store inputs at the last observed pass (HomeProjection+Observe.swift): a
+    /// change to another conversation wakes the observation, not the transcript.
+    var observedInputs: HomeProjectionInputs?
+    /// A store pass waits for the next display frame (a keystroke's frame is open); one at a time.
+    var heldPass = false
 
     /// Link card previews (LinkPresentation, MessagesLab's LinkPreviews): fetched
     /// once per URL for links this Mac sends or the user taps; nil keeps domain cards.
@@ -122,6 +129,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
 
     func start() {
         refresh()
+        noteObservedInputs()
         observe()
     }
 
@@ -136,6 +144,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
     // MARK: HomeStore -> projection
 
     func refresh() {
+        refreshPasses += 1
         if sendWhenConfirmed, homeStore.isConfirmed(conversation) {
             sendWhenConfirmed = false
             sendNotice = nil

@@ -3134,11 +3134,13 @@ function AcpmuxPane() {
             const tool = item.tool;
             if (!tool) return false;
             if (tool.diffs?.length || tool.kind === "fetch" || tool.kind === "think") return true;
+            // Wakeups and cron jobs arrive as kind "other", named by their title (the summary's
+            // scheduled() list reads them the same way).
+            if (/^(?:ScheduleWakeup|CronCreate)\b/.test(tool.title) && tool.status !== "failed") return true;
             if (tool.kind !== "execute") return false;
+            // Claude's raw input arrives as JSON (`"run_in_background":true`).
             const command = `${tool.command ?? ""} ${tool.inputSummary ?? ""}`;
-            return /run_in_background\s*[=:]\s*true|gh\s+pr\s+(?:create|merge|close)|(?:ScheduleWakeup|CronCreate)\b/.test(
-              command,
-            );
+            return /run_in_background["']?\s*[=:]\s*true|gh\s+pr\s+(?:create|merge|close)/.test(command);
           })),
     );
   }, [snapshot.rows]);

@@ -33,7 +33,7 @@ nonisolated extension ActionSurfaceCatalog {
         "workspace.duplicate", "workspace.duplicateTerminalsOnly", "workspace.setIcon",
         "workspace.clearIcon", "workspace.toggleTop", "workspace.moveToBottom", "workspace.moveToNewGroup", "workspace.closeOthersInGroup",
         "workspace.sortByName", "workspace.sortByLastUsed", "workspace.sortByDirectory", "workspaceGroup.collapseAll",
-        "workspaceGroup.expandAll", "workspace.mergeInto", "pane.moveToNewWorkspace", "newWorkspaceGroup",
+        "workspaceGroup.expandAll", "workspace.mergeInto", "pane.moveToNewWorkspace", "pane.moveToNewWindow", "newWorkspaceGroup",
         "moveWorkspaceToGroup", "removeWorkspaceFromGroup", "workspaceGroup.setColor", "workspaceGroup.setIcon", "workspaceGroup.clearIcon", "workspaceGroup.collapse",
         "workspaceGroup.expand", "workspaceGroup.moveUp", "workspaceGroup.moveDown", "workspaceGroup.moveToWindow",
         "workspaceGroup.closeWorkspaces", "workspaceGroup.moveToNewWindow", "workspaceGroup.addToSection",

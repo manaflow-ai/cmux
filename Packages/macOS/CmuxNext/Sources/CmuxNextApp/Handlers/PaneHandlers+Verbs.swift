@@ -45,7 +45,19 @@ extension PaneHandlers {
             if invocation.target == nil, let content = ctx.focusedContent, case .tab(let id)? = content.focus.state.expectation?.key, content.daemon.cancelSplit(showing: id) { return ctx.services.keyRouter.creationInputCoordinator.drop(tab: id, in: content.contentView.window) }
             guard let pane = ctx.daemonPane(invocation), !ctx.services.daemon(for: pane).cancelCreation(pane: pane.handle) else { return }
             let handle = pane.handle
-            ctx.send("close-pane") { try await $0.closePane(handle) }
+            // The pane leaves its window now and its neighbours spring into its space
+            // (close-animation DESIGN.md); a refused close brings it back.
+            let controller = ctx.services.paneController(for: pane)
+            let shown = ctx.services.activeDaemon.connection == nil ? nil : controller?.showPaneClose()
+            ctx.send("close-pane") { connection in
+                do {
+                    try await connection.closePane(handle)
+                    await MainActor.run { controller?.finishPaneClose(shown, failed: false) }
+                } catch {
+                    await MainActor.run { controller?.finishPaneClose(shown, failed: true) }
+                    throw error
+                }
+            }
         })
         // Every other pane of the right-clicked pane's screen closes with its
         // tabs, as a user's tab close does: no question, the closed history
@@ -128,7 +140,9 @@ extension PaneHandlers {
 
     private static func bindUnported(_ registry: ActionRegistry) {
         let simulator = RefusalStrings.simulatorUnported
-        for id: ActionID in ["palette.newSimulatorPane", "simulatorHome", "simulatorRotateLeft", "simulatorRotateRight",
+        // palette.newSimulatorPane opens the phone tab (PhoneHandlers). The keyboard-only simulator
+        // actions wait for a focused-phone context (simulatorFocused; plans/cmux-next/simulators-DESIGN.md).
+        for id: ActionID in ["simulatorHome", "simulatorRotateLeft", "simulatorRotateRight",
                              "simulatorToggleAppearance", "simulatorToggleSoftwareKeyboard"] {
             registry.bindUnavailable(id, reason: simulator)
         }
