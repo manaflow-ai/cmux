@@ -1,8 +1,9 @@
 // l10n-allow-file: test fixture prompts and subagent names, not shipped UI.
 // A subagent's own view opens under a "Subagent of <chat>" pill (subagents/SubagentGroup.tsx
-// SubagentOfRow). A chat with no title yet still names something there: the chat's own fallback
-// name, as the pane's header and its label use, never "Subagent of" with nothing after it. The page
-// is the pane's dev entry with its browser host, talking JSON-RPC to a stand-in acpmux daemon.
+// SubagentOfRow). It names the chat as the chat list does (sessionList.ts `sessionTitle`): a chat
+// with no title yet reads "New chat", never "Subagent of" with nothing after it, and acpmux's
+// generated name (`claude-2`) never shows. The page is the pane's dev entry with its browser host,
+// talking JSON-RPC to a stand-in acpmux daemon.
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -25,6 +26,8 @@ await requireBrowserLane("agent-pane-subagent-of-untitled.test.ts", async () => 
 
   const UNTITLED = "0190a000-0000-7000-8000-0000000000c1";
   const TITLED = "0190a000-0000-7000-8000-0000000000c2";
+  /// Untitled, with the name acpmux generated after its agent.
+  const GENERATED = "0190a000-0000-7000-8000-0000000000c3";
   const START = Date.now() - 90_000;
   const update = (update: Record<string, unknown>, meta?: Record<string, unknown>) => ({
     method: "session/update",
@@ -62,6 +65,7 @@ await requireBrowserLane("agent-pane-subagent-of-untitled.test.ts", async () => 
     sessionId,
     cwd: "/home/dev/uploader",
     ...(sessionId === TITLED ? { title: "Release review" } : {}),
+    ...(sessionId === GENERATED ? { name: "claude-2" } : {}),
     harness: "claude",
     family: "claude",
     status: "idle",
@@ -74,9 +78,9 @@ await requireBrowserLane("agent-pane-subagent-of-untitled.test.ts", async () => 
       case "initialize":
         return { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [], operations: [] } } };
       case "_acpmux/watch":
-        return { sessions: [session(UNTITLED), session(TITLED)] };
+        return { sessions: [session(UNTITLED), session(TITLED), session(GENERATED)] };
       case "_acpmux/attach": {
-        const id = params.sessionId === TITLED ? TITLED : UNTITLED;
+        const id = params.sessionId === TITLED || params.sessionId === GENERATED ? params.sessionId : UNTITLED;
         return { session: session(id), lastSeq: steps.length, events: events(id) };
       }
       case "_acpmux/events":
@@ -140,7 +144,11 @@ await requireBrowserLane("agent-pane-subagent-of-untitled.test.ts", async () => 
     expect(await parentShown(TITLED)).toBe("Release review");
   });
 
-  test("an untitled chat's pill names the chat's fallback, not nothing", async () => {
-    expect(await parentShown(UNTITLED)).toBe("Agent Chat");
+  test("an untitled chat's pill names it as the chat list does, not nothing", async () => {
+    expect(await parentShown(UNTITLED)).toBe("New chat");
+  });
+
+  test("a name acpmux generated after the agent never shows in the pill", async () => {
+    expect(await parentShown(GENERATED)).toBe("New chat");
   });
 });
