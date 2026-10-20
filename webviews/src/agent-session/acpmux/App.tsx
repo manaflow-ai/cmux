@@ -264,7 +264,7 @@ import { checkpointStrings } from "./checkpoints/strings";
 import { QUICK_MESSAGES, readSurface, useEscapeToDismiss, type PaneSurface } from "./paneSurface";
 import { QuickSurface } from "./QuickSurface";
 import { contextAttachment, floatingStatus, type QuickFloating } from "./FloatingChat";
-import { designSelectionChips } from "./designSelection";
+import { designSelectionChips, designSelectionRemovals } from "./designSelection";
 import { setFloatingState, useFloatingState } from "./floatingState";
 import { FailedPrompt } from "./FailedPrompt";
 import { ReplayScreen } from "./replay/ReplayScreen";
@@ -680,7 +680,8 @@ const WorkingRow = memo(
     a.row.id === b.row.id &&
     a.row.version === b.row.version &&
     a.row.at === b.row.at &&
-    a.row.durationMs === b.row.durationMs,
+    a.row.durationMs === b.row.durationMs &&
+    a.row.doing === b.row.doing,
 );
 
 /// How many turns back the header's Preview looks for a page.
@@ -4157,6 +4158,8 @@ function AcpmuxPane() {
         deliverDictation(update);
       },
       designSelection(selection) {
+        const removals = designSelectionRemovals(selection);
+        if (removals.length) composerHandle.current?.detach(removals);
         for (const chip of designSelectionChips(selection)) composerHandle.current?.attach(chip);
       },
     };

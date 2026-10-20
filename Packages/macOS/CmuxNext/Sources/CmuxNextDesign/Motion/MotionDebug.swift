@@ -65,13 +65,15 @@ public struct MotionDebug {
     }
 
     private static var report: [String: Any] {
-        let policy = Motion.policy
+        let policy = Motion.basePolicy
         return [
             "recording": MotionTrace.isEnabled,
             "speed": policy.speed.rawValue,
             "reduce_motion": policy.reduceMotion,
             "bounce": policy.bounce.rawValue,
             "enabled_kinds": policy.enabledKinds.map(\.rawValue).sorted(),
+            "animations_enabled": policy.animationsEnabled,
+            "disabled_categories": policy.disabledCategories.map(\.rawValue).sorted(),
             "pane_animations": DesignSettings.shared.paneAnimations,
             "display_links": FrameScheduler.all.filter(\.hasLink).count,
             "active_clients": FrameScheduler.all.flatMap(\.activeClients),

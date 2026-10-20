@@ -20,4 +20,9 @@ grep -q 'src="1-calm.html"' "$page" || { echo 'design-variations: tile 1 frame' 
 # Running it again does not turn its own page into a tile.
 python3 -I "$ROOT/scripts/cmux-next/design-variations.py" "$dir" >/dev/null
 ! grep -q 'src="index.html"' "$page" || { echo 'design-variations: the gallery framed itself' >&2; exit 1; }
+# --open shows the page right of the Home chat through `cmux browser right navigate`.
+printf '#!/bin/sh\nprintf "%%s\\n" "$@" > "%s/args"\n' "$TMP" > "$TMP/cmux"; chmod +x "$TMP/cmux"
+CMUX_BIN="$TMP/cmux" python3 -I "$ROOT/scripts/cmux-next/design-variations.py" "$dir" --open --agent "Chief" >/dev/null
+[[ "$(tr '\n' ' ' < "$TMP/args")" == "browser right navigate file://$dir/index.html --agent Chief " ]] \
+  || { cat "$TMP/args" >&2; echo 'design-variations: --open did not navigate the right column' >&2; exit 1; }
 echo 'design-variations: ok'

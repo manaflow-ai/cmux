@@ -14,15 +14,16 @@ import QuartzCore
 /// near-black, whichever reads better (`GroupTint.headerChip`, 4.5:1 also on
 /// hover, drop and pressed). The + and the
 /// more button show only on hover, keyboard focus or while the editor is
-/// open, in slots that are always reserved, so nothing moves; a hover fades
-/// them in and out (opacity only, `MotionFade.hoverReveal`, u2397). Hover and a
+/// open; a hover fades them in and out (opacity only, `MotionFade.hoverReveal`,
+/// u2397). Hover and a
 /// drop take tonal steps over the bar's color. Type and glyphs scale with the row height
-/// (the sidebar density setting). A collapsed group shows its member count
-/// after the name (cg-design-judge 2026-10-14), and its members' activity and
-/// unread total. Minimal mode keeps the bar, only shorter: a hairline header
-/// read as a stray line, not a group (Lawrence 2026-10-18, over #19936). The name and the more button open
-/// the group editor (cx-rcby, Lawrence 2026-10-08); a right-click shows the
-/// group's full menu (cx-a9h6); the chevron and the rest of the row collapse.
+/// (the sidebar density setting). A collapsed group shows its loading spinner on the
+/// chevron's column at rest and beside the + and more on hover; its member count and
+/// unread total only when their settings are on (Lawrence 2026-10-20). Minimal mode keeps
+/// the bar, only shorter: a hairline header read as a stray line, not a group (Lawrence
+/// 2026-10-18, over #19936). The more button opens the group editor (cx-rcby); a right-click
+/// shows the group's menu (cx-a9h6); a plain click anywhere else only collapses or expands
+/// (Lawrence 2026-10-20).
 final class GroupHeaderRowView: SidebarRowView {
     private let name = SidebarRowView.label(font: SidebarStyle.headerFont)
     /// A collapsed group's member count, after the name.
@@ -193,8 +194,8 @@ final class GroupHeaderRowView: SidebarRowView {
         let text = ceil((label.stringValue as NSString).size(withAttributes: [.font: font]).width)
         return max(ceil(label.intrinsicContentSize.width), text + 2 * Metrics.space2)
     }
-    /// The group's name and icon: a click here opens the editor; the rest
-    /// of the bar and the chevron collapse (the Chrome header toggles).
+    /// The group's name and icon: the editor opened by Return or Rename lines up under it (a
+    /// plain click here only collapses or expands, as on the rest of the bar).
     var nameHitFrame: NSRect {
         let start = hasIcon ? glyph.frame.minX : name.frame.minX
         return NSRect(x: start - Metrics.space2, y: 0, width: name.frame.maxX - start + 2 * Metrics.space2, height: bounds.height)
@@ -221,7 +222,7 @@ final class GroupHeaderRowView: SidebarRowView {
             // text contrast on every state above and the buttons' fills.
             let ink = chip.ink.nsColor
             name.textColor = ink
-            count.textColor = ink
+            count.textColor = ink.withAlphaComponent(SidebarStyle.groupHeaderCountInkAlpha)
             glyph.symbolInk = ink
             pin.contentTintColor = ink
             chevron.contentTintColor = ink
@@ -241,9 +242,6 @@ final class GroupHeaderRowView: SidebarRowView {
         }
     }
 
-    /// The chevron and the space around it: a click here collapses or expands.
-    var disclosureFrame: NSRect { chevronFrame.insetBy(dx: -Metrics.space1, dy: -Metrics.space2) }
-
     override func layout() {
         super.layout()
         let b = layoutBounds
@@ -262,7 +260,7 @@ final class GroupHeaderRowView: SidebarRowView {
         let lead = SidebarStyle.horizontalInset
         name.isHidden = renaming
         name.font = SidebarStyle.groupHeaderFont(barHeight: barHeight)
-        count.font = name.font
+        count.font = SidebarStyle.groupHeaderCountFont(name: name.font ?? SidebarStyle.headerFont)
         // The chevron sits where a workspace row's disclosure does, at its size (cx-fo2t), centered
         // on the trailing column every row's dot and spinner share (SidebarStyle+TrailingColumn).
         let chevronSide = min(b.height, SidebarStyle.trailingSlotSide)
@@ -288,6 +286,12 @@ final class GroupHeaderRowView: SidebarRowView {
         let offersAdd = onAdd != nil && !isEmpty
         setHoverShown(addButton, offersAdd && showsActions, fades: fades, token: .hoverReveal)
         addButton.setAccessibilityElement(offersAdd && showsActions)
+        // Lawrence 2026-10-20: at rest a loading spinner takes the chevron's place, on the trailing
+        // column every row's dot and spinner share (a296); a hover brings the chevron back and
+        // slides the spinner left beside the + and more (a translation, instant under Reduce Motion).
+        let loading = activity.showsGlyph && !activityEnding && !renaming
+        let onColumn = loading && !showsActions
+        setHoverShown(chevron, !onColumn, fades: fades || fadesNextActivity, token: .hoverReveal)
         var trailing = (showsActions ? (offersAdd ? addButton.frame.minX : moreButton.frame.minX) : chevronFrame.minX) - Metrics.space2
         if badge.state.isUnread {
             badge.isHidden = false
@@ -299,15 +303,15 @@ final class GroupHeaderRowView: SidebarRowView {
         }
         // The spinner fades and its slot collapses as loading stops (grows as it starts): the
         // items around it close up with no hole (`setHoverSlotShown`, instant under Reduce Motion).
-        let loading = activity.showsGlyph && !activityEnding && !renaming
         let ind = SidebarStyle.indicatorSize
-        let slotFrame = NSRect(x: trailing - ind, y: (b.height - ind) / 2, width: ind, height: ind)
+        let slotFrame = onColumn ? SidebarStyle.trailingColumnFrame(rowWidth: b.width, centerY: b.height / 2, side: ind)
+            : NSRect(x: trailing - ind, y: (b.height - ind) / 2, width: ind, height: ind)
         setHoverSlotShown(activitySlot, loading, frame: slotFrame, fades: fadesNextActivity || fades) { [weak self] in
             guard let self, self.activityEnding else { return }
             self.activityEnding = false
             self.activity.configure(.idle)
         }
-        if loading { trailing -= ind + Metrics.space2 }
+        if loading, !onColumn { trailing -= ind + Metrics.space2 }
         let glyphSide = min(SidebarStyle.iconBox, barHeight)
         glyph.isHidden = !hasIcon
         glyph.frame = NSRect(x: lead, y: (b.height - glyphSide) / 2, width: glyphSide, height: glyphSide)

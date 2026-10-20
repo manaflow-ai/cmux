@@ -9,9 +9,10 @@ use std::path::{Path, PathBuf};
 use serde_json::{Value, json};
 
 use crate::prompt::{
-    CONTROL_DESCRIPTION, DATE_DESCRIPTION, REACT_DESCRIPTION, REPLY_DESCRIPTION,
-    SPAWN_CWD_DESCRIPTION, SPAWN_DESCRIPTION, TELL_DESCRIPTION, VERSION_DESCRIPTION,
-    ZOOM_AGENT_DESCRIPTION, ZOOM_DESCRIPTION,
+    CONTROL_DESCRIPTION, DATE_DESCRIPTION, ESCALATE_AUTH_DESCRIPTION, PEER_TELL_DESCRIPTION,
+    PEERS_DESCRIPTION, REACT_DESCRIPTION, REPLY_DESCRIPTION, SEND_DESCRIPTION, SLEEP_DESCRIPTION,
+    SPAWN_CWD_DESCRIPTION, SPAWN_DESCRIPTION, STOP_DESCRIPTION, TELL_DESCRIPTION,
+    VERSION_DESCRIPTION, ZOOM_AGENT_DESCRIPTION, ZOOM_DESCRIPTION,
 };
 use crate::tools::{self, Call};
 
@@ -41,6 +42,21 @@ pub fn tools_granted(subagent: bool, grant: &crate::chief_profile::Grant) -> Val
         json!({"name": "date", "description": DATE_DESCRIPTION,
          "inputSchema": {"type": "object", "properties": {"id": int}, "required": ["id"], "additionalProperties": false}}),
     ];
+    // A subagent asks its Chief to drive a sign-in, lists the other
+    // subagents and tells one (acp-chief-issues.md #11).
+    if subagent {
+        list.push(json!({"name": "escalate_auth", "description": ESCALATE_AUTH_DESCRIPTION,
+         "inputSchema": {"type": "object", "properties": {
+            "site": {"type": "string", "minLength": 1, "description": "The site's host name, for example npmjs.com."},
+            "url": {"type": "string", "minLength": 1, "description": "The http(s) page where the sign-in starts."},
+            "reason": {"type": "string", "minLength": 1, "description": "One line: what you need the sign-in for."},
+            "kind": {"type": "string", "enum": crate::tools::AUTH_KINDS, "description": "password, passkey, 2fa (a code or security key after the password) or oauth (a Sign in with ... page)."}},
+          "required": ["site", "url", "reason", "kind"], "additionalProperties": false}}));
+        list.push(json!({"name": "peers", "description": PEERS_DESCRIPTION,
+         "inputSchema": {"type": "object", "properties": {}, "additionalProperties": false}}));
+        list.push(json!({"name": "tell", "description": PEER_TELL_DESCRIPTION,
+         "inputSchema": {"type": "object", "properties": {"id": text, "message": text, "key": {"type": "string", "minLength": 1, "description": "Optional idempotency key: a repeat with the same key is not sent again."}}, "required": ["id", "message"], "additionalProperties": false}}));
+    }
     if !subagent && grant.allows("spawn") {
         list.push(json!({"name": "spawn", "description": SPAWN_DESCRIPTION,
          "inputSchema": {"type": "object", "properties": {"tasks": {"type": "array", "items": text, "minItems": 1}, "cwd": {"type": "string", "minLength": 1, "description": SPAWN_CWD_DESCRIPTION}, "effort": {"type": "string", "enum": crate::tools::EFFORTS, "description": "How hard they think; by default, as hard as you."}, "place": {"type": "string", "enum": crate::tools::PLACES, "description": "cloud: on the cloud VM peer (code, tests through the fleet); local: on this Mac (its app, UI, computer use). By default: the `control cloud` setting."}}, "required": ["tasks"], "additionalProperties": false}}));
@@ -79,6 +95,20 @@ pub fn tools_granted(subagent: bool, grant: &crate::chief_profile::Grant) -> Val
          "inputSchema": {"type": "object", "properties": {"id": int, "reaction": {"type": "string", "description": crate::prompt::REACT_REACTION_DESCRIPTION}}, "required": ["id", "reaction"], "additionalProperties": false}}));
         list.push(json!({"name": "reply", "description": REPLY_DESCRIPTION,
          "inputSchema": {"type": "object", "properties": {"id": int, "text": text}, "required": ["id", "text"], "additionalProperties": false}}));
+        list.push(json!({"name": "send", "description": SEND_DESCRIPTION,
+         "inputSchema": {"type": "object", "properties": {
+            "text": {"type": "string", "description": "The message, in Markdown."},
+            "attachments": {"type": "array", "items": text, "maxItems": crate::tools::MAX_SEND_ATTACHMENTS, "description": "Files to attach: local paths (/abs, ~/rel, file://; images and videos show inline, any other file as a file, up to 50 MB each) or http(s) URLs (a link card)."},
+            "reply_to": {"type": "integer", "minimum": 0, "description": "A user message's line id: the message goes into its thread. Without it: the top level."}},
+          "additionalProperties": false}}));
+        list.push(json!({"name": "stop", "description": STOP_DESCRIPTION,
+         "inputSchema": {"type": "object", "properties": {}, "additionalProperties": false}}));
+        list.push(json!({"name": "sleep", "description": SLEEP_DESCRIPTION,
+         "inputSchema": {"type": "object", "properties": {
+            "seconds": {"type": "integer", "minimum": 0, "maximum": crate::tools::SLEEP_MAX_SECONDS, "description": "30 to 86400 seconds until the wake; 0 clears every pending wake."},
+            "note": {"type": "string", "description": "What to do when you wake: shown to you in the wake message."},
+            "until": {"type": "string", "enum": ["time", "event"], "description": "time (default): wake at the time whatever happens. event: a user message or subagent report that comes first replaces the wake."}},
+          "required": ["seconds"], "additionalProperties": false}}));
     }
     Value::Array(list)
 }
@@ -176,9 +206,11 @@ pub fn handle(message: &Value, backend: &dyn Backend) -> Option<Value> {
             } else {
                 Call::parse(name, &args).and_then(|call| match call {
                     Call::Spawn { .. }
-                    | Call::Tell { .. }
                     | Call::React { .. }
                     | Call::Reply { .. }
+                    | Call::Send(_)
+                    | Call::Stop
+                    | Call::Sleep(_)
                     | Call::Control(_)
                     | Call::Profile { .. }
                     | Call::Chiefs { .. }

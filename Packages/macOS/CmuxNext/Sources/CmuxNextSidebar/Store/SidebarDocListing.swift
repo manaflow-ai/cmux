@@ -32,7 +32,11 @@ extension SidebarDocProjection {
                 }
                 return true
             }
-            if section.machine != nil { section.nodes = Self.machineNodes(section, projection, drag: drag) }
+            if section.machine != nil {
+                section.nodes = Self.machineNodes(section, projection, drag: drag)
+                // A machine section the person made a remote group keeps its header in one list.
+                section.isHostGroup = drag.section(section.id).flatMap { projection.hostGroups.contains($0) } ?? false
+            }
             return section
         }
         // Every section of the document in its order: the sections before the machine lists (Pinned,
@@ -128,8 +132,9 @@ extension SidebarDocProjection {
     }
 
     /// A kept group with no open member (Pinned keeps it): its header alone.
-    private static func emptyGroup(_ group: Group) -> SidebarGroup {
-        var made = SidebarGroup(id: GroupID(group.id), name: group.name, isCollapsed: group.collapsed,
+    @MainActor private static func emptyGroup(_ group: Group) -> SidebarGroup {
+        // The confirmed fold (a fold's echo rebuilds no projection, `SidebarDocStore.groupFolds`).
+        var made = SidebarGroup(id: GroupID(group.id), name: group.name, isCollapsed: SidebarDocStore.current?.groupFolds[group.id] ?? group.collapsed,
                                 icon: group.icon.flatMap { WorkspaceIcon.parse($0) }, workspaces: [])
         if let color = group.color, let tint = GroupTint(wire: color) { made.tint = tint }
         return made

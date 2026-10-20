@@ -30,6 +30,9 @@ enum MiscHandlerStrings {
     /// A shortcut the key window's kind does not support (`WindowKeyTable`).
     static var notInThisWindow: String { String(localized: "handlers.misc.unavailable.windowKind", defaultValue: "Not available in this window.", table: "MiscHandlers", bundle: .module) }
     static var noPane: String { String(localized: "handlers.misc.failed.noPane", defaultValue: "No pane is focused.", table: "MiscHandlers", bundle: .module) }
+    /// The sheet that asks for a terminal's resume command (Set/Edit Resume Command).
+    static var resumeCommandTitle: String { String(localized: "handlers.misc.resumeCommand.title", defaultValue: "Resume Command", table: "MiscHandlers", bundle: .module) }
+    static var resumeCommandSave: String { String(localized: "handlers.misc.resumeCommand.save", defaultValue: "Save", table: "MiscHandlers", bundle: .module) }
     static var daemonOffline: String { String(localized: "handlers.misc.failed.daemonOffline", defaultValue: "The cmux-tui daemon is not connected.", table: "MiscHandlers", bundle: .module) }
     static var printUnavailable: String { String(localized: "handlers.misc.failed.printUnavailable", defaultValue: "This page can't be printed now.", table: "MiscHandlers", bundle: .module) }
     static var noPageURL: String { String(localized: "handlers.misc.failed.noPageURL", defaultValue: "The page has no URL.", table: "MiscHandlers", bundle: .module) }

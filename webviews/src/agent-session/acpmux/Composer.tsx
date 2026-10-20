@@ -29,7 +29,8 @@ import { FileSearch } from "./FileSearch";
 import { FastToggle, SpeedToggleHost, type SpeedTiers } from "./FastToggle";
 import { ComposerFoot } from "./ComposerFoot";
 import { Icon } from "./icons/Icon";
-import { MentionMenu, mentionQuery, mentionResults, mentionText, useMentionSearch } from "./MentionMenu";
+import { MentionMenu, mentionQuery, mentionResults, useMentionSearch } from "./MentionMenu";
+import { hasOtherChats, mentionInsert, mentionItems, mentionSelection, type MentionItem } from "./mentionItems";
 import { ContextMenu, type ContextMenuItem } from "../../ui/ContextMenu";
 import { openChipMenu } from "./composerChipMenu";
 import type { Choice } from "./ComposerPickers";
@@ -54,6 +55,7 @@ import { useComposerChrome } from "./composerChrome";
 import { useMenuPressGuard } from "./menuPressGuard";
 import { useRowFit } from "./composerRowFit";
 import { useComposerSettings } from "./composerSettings";
+import { ESCAPE_STOP_WINDOW_MS, escapeStopPress } from "./escapeStop";
 import { usePromptHistory } from "./composer/promptHistory";
 import { AttachmentStrip, attachmentErrorText, useAttachmentIntake } from "./composer/attachmentIntake";
 import type { SendBlock } from "./useFolderTrustAsk";
@@ -80,6 +82,7 @@ export const COMPOSER_LABELS = {
   prompt: "composer.prompt",
   send: "composer.send",
   stop: "composer.stop",
+  escapeAgainToStop: "composer.escapeAgainToStop",
   commands: "composer.commands",
   noCommands: "composer.noCommands",
   noMatchingCommands: "composer.noMatchingCommands",
@@ -110,6 +113,8 @@ export type ComposerHandle = {
   /// Adds a chip after the ones held, leaving the prompt as typed (the floating chat's Include
   /// focused tab); one with the same id is replaced. Nothing changes when it holds the most it can.
   attach(attachment: ComposerAttachment): void;
+  /// Takes out the chips with these ids, leaving the prompt as typed (a design mode highlight removed on the page).
+  detach(ids: readonly string[]): void;
   /// Sends what is typed now, as Enter would, even while `blocked` is still drawn (the user just
   /// answered Trust for the prompt the composer held). False when nothing went.
   send(): boolean;
@@ -304,8 +309,8 @@ export function Composer({
   const [caret, setCaret] = useState(0);
   const [active, setActive] = useState(0);
   const [dismissed, setDismissed] = useState<string | undefined>();
-  // The @ file picker (MentionMenu.tsx): its highlight, and the prompt text Esc closed it on.
-  const [mentionActive, setMentionActive] = useState(0);
+  // The @ picker (MentionMenu.tsx): the row moved to, by its key, and the prompt text Esc closed it on.
+  const [mentionActive, setMentionActive] = useState<string | undefined>();
   const [mentionDismissed, setMentionDismissed] = useState<string | undefined>();
   const field = useRef<MarkdownFieldHandle>(null);
   const fieldRef = useCallback(
@@ -340,10 +345,18 @@ export function Composer({
   const bar = useRef<HTMLDivElement>(null);
   // The session's speed option, which the chips hand up: the bolt left of the mic (FastToggle.tsx).
   const [speed, setSpeed] = useState<SpeedTiers | undefined>(undefined);
-  // Debug Settings' plain footer look (composerSettings.ts plainFooter, composerLocation.css).
-  const { plainFooter, showContextUsage } = useComposerSettings();
+  // Debug Settings' plain footer look (composerSettings.ts plainFooter, composerLocation.css), and
+  // whether Esc stops a turn on a double press (escapeStop.ts).
+  const { plainFooter, showContextUsage, escapeDoublePress } = useComposerSettings();
   useRowFit(bar, plainFooter);
   const usage = snapshot.summary?.usage;
+  /// The first Esc of a double press that stops the turn, while its window is open (escapeStop.ts).
+  const escapeArmedAt = useRef<number | undefined>(undefined);
+  const [escapeArmed, setEscapeArmed] = useState<number | undefined>(undefined);
+  const disarmEscape = () => {
+    escapeArmedAt.current = undefined;
+    setEscapeArmed(undefined);
+  };
   /// Set while the host has not yet taken a prompt the composer still holds: Enter sends no copy.
   const sending = useRef(false);
   /// The newest submit, for the handle's `send` (rendered after the trust answer lands).
@@ -410,6 +423,9 @@ export function Composer({
           const held = current.filter((chip) => chip.id !== attachment.id);
           return held.length >= MAX_ATTACHMENTS ? current : [...held, attachment];
         });
+      },
+      detach(ids) {
+        setAttachments((current) => current.filter((chip) => !ids.includes(chip.id)));
       },
       send: () => submitNow.current(true),
       focus: () => field.current?.focus(),
@@ -533,15 +549,32 @@ export function Composer({
   const matches = useMemo(() => (open ? matchCommands(commands ?? [], query ?? "") : []), [commands, open, query]);
 
   useEffect(() => setActive(0), [query]);
-  // Typing @ at a word start lists the chat's files that match what follows (cx-ncc.68).
-  const mentionAt =
-    !open && !recalling && searchFiles && mentionDismissed !== text
+  // Typing @ at a word start lists other chats, then the chat's folders and files that match what
+  // follows (cx-ncc.68, mentionItems.ts).
+  const chatId = snapshot.summary?.sessionId;
+  const otherChats = useMemo(() => hasOtherChats(snapshot.sessions, chatId), [snapshot.sessions, chatId]);
+  const mentionTyped =
+    !open && !recalling && (searchFiles || otherChats) && mentionDismissed !== text
       ? mentionQuery(text, markdownOffset(text, caret))
       : undefined;
-  const mentionState = useMentionSearch(searchFiles, mentionAt?.query);
-  const mentionFiles = mentionResults(mentionState);
-  const mentionSelected = Math.min(mentionActive, Math.max(mentionFiles.length - 1, 0));
-  useEffect(() => setMentionActive(0), [mentionAt?.query]);
+  const mentionWord = mentionTyped?.query;
+  const mentionSearch = useMentionSearch(searchFiles, mentionWord);
+  const mentionFiles = mentionResults(mentionSearch);
+  const mentions = useMemo(
+    () =>
+      mentionWord === undefined
+        ? []
+        : mentionItems({ query: mentionWord, files: mentionFiles, sessions: snapshot.sessions, chatId }),
+    [mentionWord, mentionFiles, snapshot.sessions, chatId],
+  );
+  // A chat whose folder cannot be searched (a remote chat) opens the picker only on a matching
+  // chat; it never hints at a file search.
+  const mentionAt = searchFiles || mentions.length > 0 ? mentionTyped : undefined;
+  // The word's files are still on their way: asked, or about to be once typing settles.
+  const mentionPending =
+    !!searchFiles && !!mentionWord?.trim() && (mentionSearch.kind === "idle" || mentionSearch.kind === "searching");
+  const mentionSelected = mentionSelection(mentions, mentionActive, mentionPending);
+  useEffect(() => setMentionActive(undefined), [mentionWord]);
   // A live command update can shrink the list under the selection.
   const selected = Math.min(active, Math.max(matches.length - 1, 0));
   useLayoutEffect(() => {
@@ -577,10 +610,10 @@ export function Composer({
     const plus = plusDraft.current;
     return plus && plus.written === text ? plus.original : text;
   };
-  /// Writes `@path ` over the `@word` being typed.
-  const pickMention = (path: string) => {
+  /// Writes the picked chat, folder or file over the `@word` being typed.
+  const pickMention = (item: MentionItem) => {
     if (!mentionAt) return;
-    const { markdown, shown } = mentionText(path);
+    const { markdown, shown } = mentionInsert(item);
     // Markdown doesn't show trailing whitespace, so what follows an end-of-prompt caret is dropped.
     const after = text.slice(markdownOffset(text, caret)).replace(/^\s+$/, "");
     const at = caret - 1 - mentionAt.query.length + shown.length;
@@ -764,6 +797,8 @@ export function Composer({
   const keyDown = (event: KeyboardEvent) => {
     // Every key belongs to the input method while it composes, not only Enter.
     if (event.isComposing || event.keyCode === 229) return;
+    // Any other key between the two presses of Esc starts the double press over.
+    if (event.key !== "Escape" && escapeArmedAt.current !== undefined) disarmEscape();
     if (interrupt(event)) return;
     const plain = !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey;
     // ⌘Return while a turn runs steers: the prompt goes in now instead of after the turn. (The
@@ -805,14 +840,15 @@ export function Composer({
           : (event.key === "ArrowUp" && plain) || (control && (event.key === "p" || event.key === "k"))
             ? -1
             : 0;
-      if (step && mentionFiles.length > 0) {
+      if (step && mentions.length > 0) {
         event.preventDefault();
-        setMentionActive((mentionSelected + step + mentionFiles.length) % mentionFiles.length);
+        const next = mentionSelected < 0 ? (step > 0 ? 0 : mentions.length - 1) : mentionSelected + step;
+        setMentionActive(mentions[(next + mentions.length) % mentions.length]!.key);
         return;
       }
-      if ((event.key === "Enter" || event.key === "Tab") && plain && mentionFiles[mentionSelected]) {
+      if ((event.key === "Enter" || event.key === "Tab") && plain && mentions[mentionSelected]) {
         event.preventDefault();
-        pickMention(mentionFiles[mentionSelected].path);
+        pickMention(mentions[mentionSelected]);
         return;
       }
     }
@@ -851,10 +887,17 @@ export function Composer({
         return;
       }
     }
-    // Esc on an empty prompt stops the turn, as Stop does.
+    // Esc on an empty prompt stops the turn, as Stop does: by default the second of two presses
+    // does (escapeStop.ts), and the first only says so in the placeholder. Menus, pickers and the
+    // @ list take their Esc above, so one press still closes them.
     if (event.key === "Escape" && plain && !open && stop && !quick) {
       event.preventDefault();
-      stopTurn();
+      // Holding Esc down is one press: its auto-repeat is not the second.
+      if (event.repeat) return;
+      const press = escapeStopPress(escapeArmedAt.current, Date.now(), escapeDoublePress);
+      escapeArmedAt.current = press.armedAt;
+      setEscapeArmed(press.armedAt);
+      if (press.stop) stopTurn();
       return;
     }
     // ⌘Return sends whatever is typed, even over an open command menu, then opens the window.
@@ -918,13 +961,36 @@ export function Composer({
   // Mid-turn it teaches both keys, as Claude's composer does (Leo 2026-10-18): Return queues and
   // ⌘Return steers or interrupts. The Quick Composer's ⌘Return opens the window, and ⌘Return needs
   // typed text, so with only attachments staged it says just that Return queues.
-  const placeholder = !queues
-    ? COMPOSER_LABELS.placeholder
-    : onOpenInWindow || attachments.length > 0
-      ? COMPOSER_LABELS.placeholderQueued
-      : steerKind === "steer"
-        ? COMPOSER_LABELS.placeholderSteer
-        : COMPOSER_LABELS.placeholderInterrupt;
+  // The hint lasts the double press's window, and only while there is a turn to stop. Any other
+  // key disarms it at once, in keyDown.
+  const escapeHint = escapeArmed !== undefined && stop;
+  // A turn that ends (or a prompt typed) takes the arm with it, and so does a switch to another
+  // chat (the composer stays mounted across sessions): the next turn, or chat, starts unarmed.
+  const escapeArmedSession = useRef(sessionId);
+  useEffect(() => {
+    const switched = escapeArmedSession.current !== sessionId;
+    escapeArmedSession.current = sessionId;
+    if ((stop && !switched) || escapeArmedAt.current === undefined) return;
+    escapeArmedAt.current = undefined;
+    setEscapeArmed(undefined);
+  }, [stop, sessionId]);
+  useEffect(() => {
+    if (escapeArmed === undefined) return;
+    const timer = window.setTimeout(() => {
+      if (escapeArmedAt.current === escapeArmed) escapeArmedAt.current = undefined;
+      setEscapeArmed((current) => (current === escapeArmed ? undefined : current));
+    }, ESCAPE_STOP_WINDOW_MS);
+    return () => window.clearTimeout(timer);
+  }, [escapeArmed]);
+  const placeholder = escapeHint
+    ? COMPOSER_LABELS.escapeAgainToStop
+    : !queues
+      ? COMPOSER_LABELS.placeholder
+      : onOpenInWindow || attachments.length > 0
+        ? COMPOSER_LABELS.placeholderQueued
+        : steerKind === "steer"
+          ? COMPOSER_LABELS.placeholderSteer
+          : COMPOSER_LABELS.placeholderInterrupt;
   // Focus leaving the composer closes the menu and takes back what + wrote.
   const blur = (event: React.FocusEvent<HTMLFormElement>) => {
     if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
@@ -1134,7 +1200,13 @@ export function Composer({
           />
         )}
         {mentionAt && (
-          <MentionMenu state={mentionState} active={mentionSelected} onHover={setMentionActive} onPick={pickMention} />
+          <MentionMenu
+            state={searchFiles ? mentionSearch : undefined}
+            items={mentions}
+            active={mentionSelected}
+            onHover={(index) => setMentionActive(mentions[index]?.key)}
+            onPick={pickMention}
+          />
         )}
         <AttachmentStrip
           attachments={attachments}
@@ -1164,7 +1236,7 @@ export function Composer({
               "aria-activedescendant":
                 open && matches.length > 0
                   ? `acpmux-slash-${selected}`
-                  : mentionAt && mentionFiles.length > 0
+                  : mentionAt && mentionSelected >= 0
                     ? `acpmux-mention-${mentionSelected}`
                     : undefined,
             }}

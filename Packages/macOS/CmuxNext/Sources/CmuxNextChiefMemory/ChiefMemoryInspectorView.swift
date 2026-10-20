@@ -56,6 +56,7 @@ public struct ChiefMemoryInspectorView: View {
             Spacer()
             TextField(ChiefMemoryStrings.search, text: $model.query)
                 .textFieldStyle(.roundedBorder)
+                .focusEffectDisabled()
                 .frame(maxWidth: 260)
                 .onSubmit { Task { await model.search() } }
             Button { Task { await model.reload() } } label: { Image(systemName: "arrow.clockwise") }

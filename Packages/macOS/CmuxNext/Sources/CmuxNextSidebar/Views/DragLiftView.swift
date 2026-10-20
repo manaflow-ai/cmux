@@ -88,7 +88,7 @@ final class DragLiftView: NSView {
         guard let layer else { return }
         // The shadow keeps the card's shape: `morph` springs it with the size.
         // The model always holds the current shape; a running spring (morph) keeps showing its own path until it ends there.
-        Motion.transaction(nil) { layer.shadowPath = shadowPath(bounds) }
+        Motion.sidebar.transaction(nil) { layer.shadowPath = shadowPath(bounds) }
     }
 
     private func shadowPath(_ rect: CGRect) -> CGPath {
@@ -126,7 +126,7 @@ final class DragLiftView: NSView {
         let radius = elevation.layerRadius
         let offset = elevation.layerOffset(flipped: true)
         guard animated else {
-            Motion.transaction(nil) {
+            Motion.sidebar.transaction(nil) {
                 layer.shadowOpacity = opacity
                 layer.shadowRadius = radius
                 layer.shadowOffset = offset
@@ -136,9 +136,9 @@ final class DragLiftView: NSView {
         // Each property fades from what is on screen, so a quick drop during
         // the lift continues from the current shadow.
         // The card stays its size and in place: only the shadow lifts (u5506 dropped the 1.03 scale).
-        Motion.set(layer, "shadowOpacity", to: opacity, fade: .lift)
-        Motion.set(layer, "shadowRadius", to: radius, fade: .lift)
-        Motion.set(layer, "shadowOffset", to: NSValue(size: offset), fade: .lift)
+        Motion.sidebar.set(layer, "shadowOpacity", to: opacity, fade: .lift)
+        Motion.sidebar.set(layer, "shadowRadius", to: radius, fade: .lift)
+        Motion.sidebar.set(layer, "shadowOffset", to: NSValue(size: offset), fade: .lift)
     }
 
     /// Springs the card to `frame` (the shape the drop will take: a list row,
@@ -158,21 +158,21 @@ final class DragLiftView: NSView {
             self.frame = frame
             layoutSubtreeIfNeeded()
         }
-        guard Motion.policy.animatesMovement else {
-            if let layer { Motion.set(layer, "opacity", to: Float(alphaValue), fade: .crossfade, from: Float(alphaValue) * 0.4) }
+        guard Motion.sidebar.policy.animatesMovement else {
+            if let layer { Motion.sidebar.set(layer, "opacity", to: Float(alphaValue), fade: .crossfade, from: Float(alphaValue) * 0.4) }
             return
         }
         morphs += 1
         // The shadow's shape springs with the card's size (one spring, from the shape on screen).
         if let layer, frame.size != oldBounds.size {
-            Motion.set(layer, "shadowPath", to: shadowPath(CGRect(origin: .zero, size: frame.size)), spring: .move,
+            Motion.sidebar.set(layer, "shadowPath", to: shadowPath(CGRect(origin: .zero, size: frame.size)), spring: .move,
                        from: startPath ?? shadowPath(oldBounds))
         }
         for (layer, position, size) in before {
             let dp = NSValue(point: NSPoint(x: position.x - layer.position.x, y: position.y - layer.position.y))
             let ds = NSValue(size: NSSize(width: size.width - layer.bounds.width, height: size.height - layer.bounds.height))
             for (path, delta, zero) in [("position", dp, NSValue(point: .zero)), ("bounds.size", ds, NSValue(size: .zero))] {
-                let animation = Motion.springAnimation(.move, path, from: delta, to: zero)
+                let animation = Motion.sidebar.springAnimation(.move, path, from: delta, to: zero)
                 animation.isAdditive = true
                 layer.add(animation, forKey: "morph.\(path).\(morphs)")
             }
@@ -185,6 +185,6 @@ final class DragLiftView: NSView {
     func setRefused(_ refused: Bool) {
         let target: CGFloat = refused ? 0.55 : 1
         guard alphaValue != target else { return }
-        Motion.animate(.hover, in: self) { animator().alphaValue = target }
+        Motion.feedback.animate(.hover, in: self) { animator().alphaValue = target }
     }
 }
