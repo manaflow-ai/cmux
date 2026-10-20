@@ -62,6 +62,8 @@ pub struct ReceivedFrame {
     pub complete_us: u64,
     /// Some of its packets came back after a NACK.
     pub recovered: bool,
+    /// The carrier it came on (set by the lane; None from a bare core).
+    pub carrier: Option<super::CarrierKind>,
 }
 
 #[derive(Debug, Clone)]
@@ -237,6 +239,7 @@ impl ReceiverCore {
                 packets: payloads.len() as u16,
                 complete_us,
                 recovered,
+                carrier: None,
             },
         ))
     }
@@ -386,10 +389,12 @@ impl ReceiverCore {
 }
 
 /// Drives a [`ReceiverCore`] on `carrier` until the carrier ends.
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn run(
     carrier: Arc<dyn MediaCarrier>,
     config: ReceiverConfig,
     inner: Arc<InInner>,
+    source: u64,
     mut keyframes: mpsc::UnboundedReceiver<()>,
     stats: watch::Sender<ReceiverStats>,
     rtt: Option<watch::Receiver<Option<std::time::Duration>>>,
@@ -435,7 +440,13 @@ pub(crate) async fn run(
         if !frames.is_empty() {
             let mut subscribers = inner.subscribers.lock().await;
             let mut overflow = false;
-            for frame in frames {
+            for mut frame in frames {
+                frame.carrier = Some(carrier.kind());
+                // Another source carries the video now (the Mac moves only
+                // at a keyframe): this source's late frames do not pass.
+                if !inner.admit(source, frame.keyframe) {
+                    continue;
+                }
                 subscribers.retain(|tx| match tx.try_send(frame.clone()) {
                     Ok(()) => true,
                     Err(mpsc::error::TrySendError::Full(_)) => {
@@ -455,7 +466,9 @@ pub(crate) async fn run(
         }
         stats.send_replace(core.stats());
     }
-    inner.subscribers.lock().await.clear();
+    if inner.source_ended(source) {
+        inner.subscribers.lock().await.clear();
+    }
 }
 
 #[cfg(test)]

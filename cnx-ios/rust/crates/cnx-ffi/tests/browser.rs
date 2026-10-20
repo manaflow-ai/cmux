@@ -93,6 +93,7 @@ async fn stream_over(transport: Transport, video_lane: bool) {
             relay_only: false,
             block_udp: false,
             video_lane,
+            webrtc_media: false,
         },
         None,
     )
@@ -182,6 +183,98 @@ async fn browser_stream_over_wireguard() {
     stream_over(Transport::WireGuard, false).await;
 }
 
+/// WireGuard for the link, a WebRTC media session for the tab's video
+/// (verify/hybrid-link.md): the shown tab opens the session, video moves
+/// onto its track, falls back into the tunnel when it dies, and comes back
+/// when the phone's next session is up. hostd answers the session
+/// (`media_session.rs`) exactly as in production.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn browser_video_rides_the_media_session_beside_wireguard() {
+    let server = FakeSignaling::start(FakeOptions::default()).await;
+    let sockets = tempfile::tempdir().unwrap();
+    let launches = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let services = ServiceConfig {
+        tui_socket_dir: sockets.path().to_path_buf(),
+        default_session: "main".into(),
+        default_socket: None,
+        file_roots: Vec::new(),
+        acpmux: AcpmuxTarget::Fixed { url: "ws://127.0.0.1:1/".into(), token: None },
+        browser: cnx_hostd::browser::BrowserConfig::new(Some(fake_rb_host::launcher(launches)), 2),
+        chief_socket: None,
+        agent_tab_host: None,
+        uploads_dir: sockets.path().join("uploads"),
+        upload_max_bytes: 1024 * 1024,
+        pairing: None,
+    };
+    let mac_id = uuid::Uuid::new_v4().to_string();
+    let mac = SignalingClient::connect(&server.base_url, "user:alice", "team", &mac_id).await.unwrap();
+    tokio::spawn(serve_signaling(
+        mac,
+        AnswerContext {
+            owner_user_id: "alice".into(),
+            services: Arc::new(services),
+            ice: IceSource::Fixed(Vec::new()),
+            include_loopback: true,
+            exclude_cgnat: false,
+        },
+    ));
+    let handle = connect_inner(
+        ConnectRequest {
+            base_url: server.base_url.clone(),
+            token: "user:alice".into(),
+            team_id: "team".into(),
+            device_id: uuid::Uuid::new_v4().to_string(),
+            mac_device_id: mac_id,
+            transport: Transport::WireGuard,
+            include_loopback: true,
+            relay_only: false,
+            block_udp: false,
+            video_lane: true,
+            webrtc_media: true,
+        },
+        None,
+    )
+    .await
+    .expect("connect");
+    // Nothing opens before a tab wants video.
+    assert_eq!(handle.media_state(), cnx_ffi::MediaState::Off);
+    let recorder = Arc::new(Recorder::default());
+    let stream = handle
+        .open_browser(r#"{"tab":"s3","url":"https://example.com/"}"#.into(), recorder.clone())
+        .await
+        .unwrap();
+    recorder.until("welcome", |r| r.has("welcome", "encoder", "fake")).await;
+    stream
+        .send_message(
+            serde_json::json!({"t": "rb.open", "tab": "s3", "profile": "default", "viewer": "phone",
+                "screen": {"css_width": 402, "css_height": 760, "scale": 2.0, "refresh_hz": 60, "color_space": "srgb"},
+                "caps": {"codecs": ["h264"], "tile_codecs": [], "max_fps": 60}})
+            .to_string(),
+        )
+        .unwrap();
+    let carrier = |want: &'static str| {
+        let stream = Arc::clone(&stream);
+        move |_: &Recorder| stream.stats().video_carrier == want
+    };
+    recorder.until("video on the media session", carrier("webrtc-track")).await;
+    assert!(matches!(handle.media_state(), cnx_ffi::MediaState::Up { .. }), "{:?}", handle.media_state());
+    let before = recorder.frames.lock().unwrap().len();
+    // The session dies: video falls back into the tunnel and keeps coming.
+    handle.kill_media();
+    recorder.until("video back in the tunnel", carrier("wireguard-udp")).await;
+    recorder.until("frames after the fallback", |r| r.frames.lock().unwrap().len() > before + 10).await;
+    // The next session takes it back.
+    for _ in 0..3 {
+        if stream.stats().video_carrier == "webrtc-track" {
+            break;
+        }
+        recorder.until("video on the next media session", carrier("webrtc-track")).await;
+    }
+    assert_eq!(stream.stats().video_carrier, "webrtc-track");
+    stream.close();
+    recorder.until("closed", |r| r.closed.lock().unwrap().is_some()).await;
+}
+
 /// The real CEF browser host (`CNX_RB_HOST_EXE`, e.g. a DEV app's
 /// `Contents/Helpers/cmux-remote-browser-host.app/Contents/MacOS/...`) over
 /// the WebRTC video track, with a page from `CNX_RB_URL`. Measurement support,
@@ -235,6 +328,7 @@ async fn real_host_over_the_track() {
             relay_only: false,
             block_udp: false,
             video_lane,
+            webrtc_media: false,
         },
         None,
     )
