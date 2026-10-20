@@ -107,6 +107,12 @@ await requireBrowserLane("agent-pane-history-paging.test.ts", async () => {
   }
 
   const requests: { method: string; params: Record<string, any>; sent: number }[] = [];
+  /// The pane's read of the prompt that opened the turn its tail starts in: user_message records only.
+  const isOpenerRead = (request: (typeof requests)[number]) =>
+    request.method === "_acpmux/events" &&
+    Array.isArray(request.params.kinds) &&
+    request.params.kinds.length === 1 &&
+    request.params.kinds[0] === "user_message";
   let inflight = 0;
   function answer(method: string, params: Record<string, any>): unknown {
     switch (method) {
@@ -182,7 +188,16 @@ await requireBrowserLane("agent-pane-history-paging.test.ts", async () => {
     // remote session's open downloads.
     const attach = requests.find((request) => request.method === "_acpmux/attach")!;
     expect(attach.sent).toBeLessThanOrEqual(400);
-    expect(requests.filter((request) => request.method === "_acpmux/events" && request.params.limit > 1)).toEqual([]);
+    // The only other read at open is the turn opener's (direct.ts fetchTurnOpener): the tail starts
+    // mid-turn, so the pane asks for a few prompt records before it to show what that turn was asked.
+    const openerReads = requests.filter(isOpenerRead);
+    expect(openerReads.length).toBeLessThanOrEqual(1);
+    expect(openerReads.every((request) => request.params.limit <= 16)).toBe(true);
+    expect(
+      requests.filter(
+        (request) => request.method === "_acpmux/events" && request.params.limit > 1 && !isOpenerRead(request),
+      ),
+    ).toEqual([]);
     expect(attach.params.maxBytes).toBeLessThanOrEqual(128 * 1024);
     expect(await page.getByText("Question 1", { exact: true }).count()).toBe(0);
 
@@ -254,7 +269,11 @@ await requireBrowserLane("agent-pane-history-paging.test.ts", async () => {
     await page.waitForTimeout(500);
 
     const older = requests.filter(
-      (request) => request.method === "_acpmux/events" && request.params.beforeSeq && request.params.limit > 1,
+      (request) =>
+        request.method === "_acpmux/events" &&
+        request.params.beforeSeq &&
+        request.params.limit > 1 &&
+        !isOpenerRead(request),
     );
     expect(errors).toEqual([]);
     expect(reachedFirst).toBe(true);

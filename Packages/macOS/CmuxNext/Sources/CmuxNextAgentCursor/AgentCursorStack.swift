@@ -1,4 +1,5 @@
 public import CmuxAgentCursor
+public import CmuxNextDesign
 public import QuartzCore
 
 /// The agent cursor parts for one content area, wired once: the publisher
@@ -10,11 +11,13 @@ public final class AgentCursorStack {
     public let model: AgentCursorOverlayModel
     public let host: AgentCursorLayerHost
     public init(
-        hostLayer: CALayer, resolver: AgentCursorTargetResolving,
-        color: @escaping AgentCursorLayerHost.Coloring = AgentCursorStack.sessionColor,
-        label: @escaping AgentCursorLayerHost.Labeling = { AgentCursorSessionLabel(sessionID: $0).text }
+        hostLayer: CALayer, glassLayer: CALayer? = nil, resolver: AgentCursorTargetResolving,
+        color: @escaping AgentCursorLayerHost.Coloring = { _ in AgentCursorLayer.gray },
+        label: @escaping AgentCursorLayerHost.Labeling = { AgentCursorSessionLabel(sessionID: $0).text },
+        reduceTransparency: ReduceTransparency = .shared
     ) {
-        let host = AgentCursorLayerHost(hostLayer: hostLayer, color: color, label: label)
+        let host = AgentCursorLayerHost(hostLayer: hostLayer, glassLayer: glassLayer, color: color, label: label,
+                                        reduceTransparency: reduceTransparency)
         let model = AgentCursorOverlayModel(resolver: resolver, host: host)
         self.host = host
         self.model = model

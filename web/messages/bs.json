@@ -1,4 +1,5 @@
 {
+  "guestCLI": { "useReasonSharedMachine": "obavezno: ova mašina se dijeli s timom" },
   "agentHarness": {
     "title": "Otkrivena konfiguracija harnessa",
     "selectionNotice": "Odabir provajdera ne pokreće niti omogućava ove harness-e.",

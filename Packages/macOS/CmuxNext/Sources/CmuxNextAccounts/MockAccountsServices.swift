@@ -21,6 +21,8 @@ public final class MockAccountsServices: AccountsServices {
     ]
     public var isSignedInToCmux = true
     public var failure: (any Error)?
+    /// Fails only the account list (CodeRouter answered the add or remove, then not the reload).
+    public var linkedFailure: (any Error)?
     public private(set) var calls: [String] = []
 
     public init() {}
@@ -36,9 +38,27 @@ public final class MockAccountsServices: AccountsServices {
         isSignedInToCmux = true
     }
 
+    /// What cmux's row shows while signed out (a sign-in in progress, a failure).
+    public var cmuxSignInState = CmuxAccountState.signedOut
+    public var cmuxAccount: CmuxAccountState {
+        var account = cmuxSignInState
+        if isSignedInToCmux { account.signedIn = true; account.label = "d…@e…" }
+        return account
+    }
+
+    public func runCmuxAccount(_ action: CmuxAccountAction) {
+        calls.append("cmux:\(action.rawValue)")
+        switch action {
+        case .signIn, .switchAccount: signInToCmux()
+        case .signOut: isSignedInToCmux = false
+        case .cancelSignIn: cmuxSignInState = .signedOut
+        case .continueInBrowser: break
+        }
+    }
+
     public func linkedAccounts() async throws -> [LinkedAccount] {
         calls.append("linked")
-        if let failure { throw failure }
+        if let failure = failure ?? linkedFailure { throw failure }
         return linked
     }
 
