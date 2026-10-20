@@ -2,36 +2,34 @@ import AppKit
 import CmuxNextBrowser
 import WebKit
 
-/// Developer tools for a page (Cmd-Opt-I, Cmd-Opt-J, Cmd-Opt-C).
+/// Developer tools for the focused web view (Cmd-Opt-I, Cmd-Opt-J, Cmd-Opt-C):
+/// a browser tab of either engine or any other `WKWebView` (`WebInspectorTarget`).
 /// Chromium tabs show DevTools docked in the pane (`BrowserDevToolsHosting`);
-/// WebKit's inspector (`_WKInspector`) supports toggling and the console
-/// view; other engines only open their DevTools.
+/// WebKit web views show Safari's Web Inspector (`WebKitInspector`), which
+/// every build allows; other engines only open their DevTools.
 enum WebInspector {
-    static func toggle(_ tab: any BrowserTab) {
-        if let devTools = tab as? any BrowserDevToolsHosting { return devTools.performDevTools(.toggle) }
-        guard let inspector = inspector(of: tab) else { return tab.showDevTools() }
-        let isVisible = inspector.responds(to: Selector(("isVisible"))) && (inspector.value(forKey: "visible") as? Bool ?? false)
-        let selector = isVisible ? Selector(("close")) : Selector(("show"))
-        if inspector.responds(to: selector) { inspector.perform(selector) }
+    static func toggle(_ target: WebInspectorTarget) {
+        if case .browser(let tab) = target, let devTools = tab as? any BrowserDevToolsHosting { return devTools.performDevTools(.toggle) }
+        guard let webView = target.webKitView else { return fallback(target) }
+        WebKitInspector(webView: webView).toggle()
     }
 
-    static func showConsole(_ tab: any BrowserTab) {
-        if let devTools = tab as? any BrowserDevToolsHosting { return devTools.performDevTools(.console) }
-        guard let inspector = inspector(of: tab), inspector.responds(to: Selector(("showConsole"))) else {
-            return tab.showDevTools()
+    static func showConsole(_ target: WebInspectorTarget) {
+        if case .browser(let tab) = target, let devTools = tab as? any BrowserDevToolsHosting { return devTools.performDevTools(.console) }
+        guard let webView = target.webKitView else { return fallback(target) }
+        WebKitInspector(webView: webView).show(.console)
+    }
+
+    /// Chromium's element picker; WebKit shows its inspector and starts element selection.
+    static func inspectElement(_ target: WebInspectorTarget) {
+        if case .browser(let tab) = target, let devTools = tab as? any BrowserDevToolsHosting {
+            return devTools.performDevTools(.inspectElement)
         }
-        inspector.perform(Selector(("showConsole")))
+        guard let webView = target.webKitView else { return fallback(target) }
+        WebKitInspector(webView: webView).inspectElement()
     }
 
-    /// Chromium's element picker; WebKit shows its inspector.
-    static func inspectElement(_ tab: any BrowserTab) {
-        if let devTools = tab as? any BrowserDevToolsHosting { return devTools.performDevTools(.inspectElement) }
-        guard let inspector = inspector(of: tab), inspector.responds(to: Selector(("show"))) else { return tab.showDevTools() }
-        inspector.perform(Selector(("show")))
-    }
-
-    private static func inspector(of tab: any BrowserTab) -> NSObject? {
-        guard let webView = (tab as? WebKitTab)?.webView, webView.responds(to: Selector(("_inspector"))) else { return nil }
-        return webView.perform(Selector(("_inspector")))?.takeUnretainedValue() as? NSObject
+    private static func fallback(_ target: WebInspectorTarget) {
+        if case .browser(let tab) = target { tab.showDevTools() }
     }
 }

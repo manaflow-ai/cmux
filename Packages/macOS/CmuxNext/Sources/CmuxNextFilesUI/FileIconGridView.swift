@@ -37,6 +37,7 @@ final class FileIconGridView: NSObject, FileContentView, NSCollectionViewDataSou
         layout.sectionInset = NSEdgeInsets(top: 10, left: 10, bottom: 10, right: 10)
         collection.collectionViewLayout = layout
         collection.isSelectable = true
+        collection.focusRingType = .none
         collection.allowsMultipleSelection = true
         collection.backgroundColors = [.clear]
         collection.dataSource = self

@@ -9,8 +9,8 @@ import CmuxNextCompat
 /// Colors go through the sidebar bridge (optimistic row update, then
 /// `set-workspace-metadata`), the same path as the row's context menu.
 /// Pin goes through the one pin path (`PinCommands`).
-/// Description and task status are `WorkspaceNotesHandlers`; the checklist,
-/// which the daemon tree does not have, reports the missing capability.
+/// Description and task status are `WorkspaceNotesHandlers`; the checklist is
+/// `WorkspaceChecklistHandlers`.
 enum WorkspaceMetadataHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         registry.bind("palette.clearWorkspaceName", requires: DaemonCapabilities.shared.workspaceMetadata, daemon: context.services.activeDaemon, run: { invocation in
@@ -69,14 +69,6 @@ enum WorkspaceMetadataHandlers {
             try context.require(DaemonCapabilities.shared.notificationMarkUnread)
             WorkspaceUnreadMark.set(true, on: [try context.workspace(invocation).model], machines: context.services.machines)
         })
-        let missing: [(ActionID, String)] = [
-            ("palette.addWorkspaceChecklistItem", "workspace-checklist-v1"),
-            ("toggleChecklistItemComplete", "workspace-checklist-v1"),
-            ("palette.openWorkspaceTodoPane", "workspace-checklist-v1"),
-        ]
-        for (id, capability) in missing {
-            registry.bindUnavailable([id], ActionFailure.needsDaemonCapability(capability))
-        }
     }
 
     private static func setColor(_ color: GroupColor?, _ invocation: ActionInvocation, _ context: AppActionContext) throws {
@@ -102,9 +94,13 @@ enum WorkspaceMetadataHandlers {
         where daemon.supports(DaemonCapabilities.shared.notificationAck) {
             let tabs = workspace.screens.flatMap(\.panes).flatMap(\.tabs)
             let unread = tabs.filter(\.hasUnread)
-            let surfaces = (unread.isEmpty && workspace.unreadCount > 0 ? tabs : unread).map(\.surface)
-            for surface in surfaces {
-                daemon.send("ack-tab-notifications") { _ = try await $0.acknowledgeNotifications(of: surface) }
+            for tab in unread.isEmpty && workspace.unreadCount > 0 ? tabs : unread {
+                let surface = tab.surface
+                // Read now (dots, badges, unread count); the tree's echo settles it, a failed ack rolls it back.
+                tab.expectNotificationRead()
+                daemon.send("ack-tab-notifications", onFailure: { _ in tab.dropExpectedNotificationRead() }) {
+                    _ = try await $0.acknowledgeNotifications(of: surface)
+                }
             }
         }
     }

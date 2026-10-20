@@ -111,7 +111,7 @@ import Testing
         let popup = try #require(h.window.childWindows?.first, "no popup beside the card")
         #expect(popup.isVisible, "the popup is not on screen")
         let card = h.window.convertToScreen(h.card.convert(h.card.bounds, to: nil))
-        let surface = try #require(popup as? SidebarUpdateNotesPanel, "the popup is not the update hover card").cardFrame
+        let surface = try #require(popup as? HoverCardPanel, "the popup is not the app's one hover card").cardFrame
         #expect(surface.minX >= card.maxX - 0.5, "the popup \(surface) covers the card \(card)")
         #expect(abs(surface.maxY - card.maxY) <= 1, "the popup's top \(surface.maxY) is not the card's \(card.maxY)")
         #expect(abs(surface.height - 120) <= 1, "the popup is not the page's height: \(surface.height)")
@@ -204,7 +204,7 @@ import Testing
         PointerHover.setDebugPointer(start.window, in: h.window)
         try #require(h.card.notesAreShown, "hovering the card opened no popup")
         let popup = try #require(h.window.childWindows?.first)
-        let surface = try #require(popup as? SidebarUpdateNotesPanel, "the popup is not the update hover card").cardFrame
+        let surface = try #require(popup as? HoverCardPanel, "the popup is not the app's one hover card").cardFrame
         let card = h.window.convertToScreen(h.card.convert(h.card.bounds, to: nil))
         // Past the card's top or bottom edge on the way to the popup's far part (a diagonal): off
         // the card, short of the popup and of its margin. It used to close the popup at once.
@@ -250,7 +250,7 @@ import Testing
         PointerHover.setDebugPointer(start.window, in: h.window)
         try #require(h.card.notesAreShown, "hovering the card opened no popup")
         let popup = try #require(h.window.childWindows?.first)
-        let surface = try #require(popup as? SidebarUpdateNotesPanel, "the popup is not the update hover card").cardFrame
+        let surface = try #require(popup as? HoverCardPanel, "the popup is not the app's one hover card").cardFrame
         let card = h.window.convertToScreen(h.card.convert(h.card.bounds, to: nil))
         // Off the card on the diagonal toward the popup, and parked there.
         let parked = CGPoint(x: card.maxX - 20, y: surface.maxY > card.maxY + 24 ? card.maxY + 16 : card.minY - 16)
@@ -310,9 +310,53 @@ import Testing
         h.card.highlights = page
         h.card.showNotes()
         let popup = try #require(h.window.childWindows?.first, "no popup beside the card")
-        let surface = try #require(popup as? SidebarUpdateNotesPanel, "the popup is not the update hover card").cardFrame
+        let surface = try #require(popup as? HoverCardPanel, "the popup is not the app's one hover card").cardFrame
         #expect(surface.height <= ceil(h.window.frame.height * 0.6) + 1,
                 "the popup is \(surface.height) pt tall in a \(h.window.frame.height) pt window")
         #expect((320...360).contains(surface.width), "the popup is \(surface.width) pt wide")
+    }
+
+    /// Lawrence 2026-10-20: "the hover on update ready thing to show the changelog new features
+    /// only shows once, if i leave hover, and then hover comes back, then it doesnt work?" A close
+    /// that finished (faded out, ordered out, page parked) left the popup window at alpha 0; the
+    /// next show read `isVisible` after `addChildWindow` had already ordered it in, took it for a
+    /// popup still showing, and skipped its fade-in: an invisible popup. Every return to the card
+    /// shows the page again, also after a close from inside the popup (an action, See all changes).
+    @Test func everyReturnToTheCardShowsThePopupAgain() async throws {
+        // Every fade ends at once (a display that draws no frames), so each close has finished,
+        // window ordered out, before the pointer comes back. One process per suite keeps it here.
+        DisplaySleep.asleepOverride = true
+        defer { DisplaySleep.asleepOverride = nil }
+        let h = try await make()
+        defer {
+            h.card.hideNotes()
+            PointerHover.setDebugPointer(nil, in: h.window)
+            h.window.close()
+        }
+        try #require(!h.card.isHidden, "the staged update shows no card")
+        h.window.orderFront(nil)
+        let page = Highlights()
+        h.card.highlights = page
+        let clock = manualClose(h)
+        let point = cardPoint(h, fraction: 0.5)
+        let away = CGPoint(x: -50_000, y: -50_000)
+        for round in 1...4 {
+            h.card.screenPointer = { point.screen }
+            PointerHover.setDebugPointer(point.window, in: h.window)
+            try #require(h.card.isHovered, "round \(round): the card is not hovered with the pointer on it")
+            let popup = try #require(h.card.notesPanel, "round \(round): hovering the card made no popup")
+            #expect(h.card.notesAreShown, "round \(round): coming back to the card opened no popup")
+            #expect(popup.isVisible, "round \(round): the popup is not on screen")
+            #expect(popup.alphaValue > 0.99, "round \(round): the popup is on screen but invisible (alpha \(popup.alphaValue))")
+            #expect(page.view.window === popup, "round \(round): the page is not in the popup")
+            // Round 3 closes from inside the popup while the pointer is still on the card.
+            let closedInside = round == 3
+            if closedInside { h.card.hideNotes() }
+            h.card.screenPointer = { away }
+            PointerHover.setDebugPointer(nil, in: h.window)
+            if !closedInside { try await passCloseDelay(clock, h) }
+            #expect(await eventually { !popup.isVisible }, "round \(round): the popup never finished closing")
+            #expect(page.view.superview === h.card.parking, "round \(round): the closed popup kept the page")
+        }
     }
 }

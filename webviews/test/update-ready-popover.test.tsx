@@ -72,8 +72,8 @@ test("the popup names the full build, lists the highlights and has See all chang
   expect(text.split("See all changes").length - 1).toBe(1);
 });
 
-// The "Updated to" card (Leo 2026-10-13): the short build ("nightly 3845050", the long one
-// truncated), the terse fallback headline, and no Share cmux text link (it is the palette's).
+// The "Updated to" card (Leo 2026-10-13; version and date in words since 2026-10-20): "Nightly · Oct 13",
+// the terse fallback headline when no change is known, and no Share cmux text link (it is the palette's).
 test("the Updated card names the short build, says What's new in this build and has no Share link", async () => {
   const { createRoot } = await import("react-dom/client");
   const { UpdatedCard } = await import("../src/pages/changelog/UpdateSurfaces");
@@ -102,7 +102,7 @@ test("the Updated card names the short build, says What's new in this build and 
       />,
     ),
   );
-  expect(host.querySelector(".wn-card-eyebrow")?.textContent).toBe("Updated to nightly 3845050");
+  expect(host.querySelector(".wn-card-eyebrow")?.textContent).toBe("Updated to Nightly · Oct 13");
   expect(host.querySelector(".wn-card-headline")?.textContent).toBe("What's new in this build");
   const buttons = [...host.querySelectorAll("button")].map((b) => b.textContent || b.getAttribute("aria-label"));
   expect(buttons).toEqual(["Close", "See What's New"]);

@@ -191,6 +191,54 @@ import Testing
         #expect(opened.1 == .backgroundTab)
     }
 
+    // MARK: Chrome omnibar keys and sessions in a popup (PARITY.md)
+
+    @Test func cmdLFocusesThePopupOmnibarWithTheAddressSelected() throws {
+        let (popups, _, window, _) = open("https://accounts.example.com/signin")
+        defer { popups.closeAll() }
+        #expect(!window.addressBar.isEditing)
+        window.focusAddressBar()
+        #expect(window.addressBar.isEditing, "Cmd-L puts the keyboard in the popup's omnibar")
+        let editor = try #require(window.firstResponder as? NSTextView)
+        #expect(editor.selectedRange() == NSRange(location: 0, length: (editor.string as NSString).length), "the whole address is selected")
+    }
+
+    @Test func aSignInWindowTakesCmdL() {
+        let tab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://accounts.example.com/signin")))
+        let window = BrowserPopupWindow(page: tab, frame: CGRect(x: 0, y: 0, width: 480, height: 600), readOnlyAddress: true)
+        defer { window.close() }
+        window.focusAddressBar()
+        #expect(window.addressBar.isEditing, "the address can still be selected and copied")
+        #expect(window.addressBar.isReadOnly)
+    }
+
+    @Test func anExtensionKeywordInAPopupGoesToTheExtension() throws {
+        let (popups, tab, window, _) = open("https://accounts.example.com/signin")
+        defer { popups.closeAll() }
+        tab.omniboxKeywordsFake = [OmnibarKeyword(extensionID: "ext.notes", keyword: "nt", name: "Notes")]
+        #expect(window.addressBar.debugTypeAndCommit("nt buy milk"))
+        let entered = try #require(tab.enteredOmniboxKeywords.first)
+        #expect(entered.extensionID == "ext.notes")
+        #expect(entered.text == "buy milk")
+        #expect(!tab.commands.contains { if case .load(let url) = $0 { url.host() != "accounts.example.com" } else { false } },
+                "the popup's page loads nothing")
+    }
+
+    @Test func aTypedHostThatRefusesHTTPSLoadsOverHTTPInAPopup() async throws {
+        let (popups, tab, window, _) = open("https://accounts.example.com/signin")
+        defer { popups.closeAll() }
+        tab.completesNavigationsImmediately = false
+        #expect(window.addressBar.debugTypeAndCommit("example.com"))
+        let https = try #require(tab.commands.compactMap { if case .load(let url) = $0, url.host() == "example.com" { url } else { nil } }.last)
+        #expect(https.scheme == "https")
+        let id = tab.makeNavigationID()
+        tab.simulate(.started(id, url: https))
+        tab.simulate(.failed(id, BrowserLoadError(domain: NSURLErrorDomain, code: NSURLErrorCannotConnectToHost, message: "", failingURL: https)))
+        func loadedHTTP() -> Bool { tab.commands.contains { if case .load(let url) = $0 { url.scheme == "http" && url.host() == "example.com" } else { false } } }
+        try await waitUntil(loadedHTTP)
+        #expect(loadedHTTP(), "the popup omnibar falls back to http as a tab's does")
+    }
+
     @Test func fullscreenHidesTheLocationBar() {
         let (popups, _, window, _) = open("https://example.com")
         defer { popups.closeAll() }

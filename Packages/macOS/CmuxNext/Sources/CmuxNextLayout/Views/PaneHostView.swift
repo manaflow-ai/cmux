@@ -61,6 +61,20 @@ final class PaneHostView: NSView, RestingPlacement {
         didSet { if restOffset == .zero, oldValue != .zero, window != nil { reporter?.paneFrameInWindowDidChange() } }
     }
 
+    /// Whether the host's frame is on a layout spring (`RestingPlacement`): set before the frame of
+    /// each moving display frame and cleared after the frame it lands at, so content resized on the
+    /// landing frame still sees the motion, then hears it end once (`PaneMotionSettling`): a
+    /// terminal reports its grid there, one PTY resize per zoom instead of one per frame.
+    var isOnLayoutSpring = false {
+        didSet { if oldValue, !isOnLayoutSpring { content.notifyPaneMotionSettled() } }
+    }
+
+    /// A host taken out of the layout mid-spring is at rest: its content reports what it holds.
+    override func viewDidMoveToSuperview() {
+        super.viewDidMoveToSuperview()
+        if superview == nil { isOnLayoutSpring = false }
+    }
+
     /// Whether the pane sits in a docked column: it then shows the
     /// user's docks background under its content (`appearance.surfaces.docks`).
     var isDocked = false {
@@ -163,6 +177,16 @@ final class PaneHostView: NSView, RestingPlacement {
     /// reaches (`StripClipMaskLayer.cutouts`).
     /// Returns true when the clip changed: a Chromium page in this pane then
     /// re-reads its clip shape, which carries this mask (`CEFClipShape`).
+    /// The part of this host (own coordinates) that takes clicks while it sits in a scroll area
+    /// (scroll-areas-DESIGN.md): what scrolled out of the area's window is masked away and must
+    /// not take clicks meant for the view beside the area. Nil outside an area.
+    var areaHitClip: CGRect?
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        if let areaHitClip, !areaHitClip.contains(convert(point, from: superview)) { return nil }
+        return super.hitTest(point)
+    }
+
     @discardableResult
     func setStripClip(_ rect: CGRect?, cutouts: [CGRect] = []) -> Bool {
         guard let layer else { return false }
