@@ -7,6 +7,7 @@ import CmuxNextBrowserAutomation
 import CmuxNextDaemon
 import CmuxNextHistory
 import CmuxNextRemoteView
+import CmuxNextScreenshots
 import Foundation
 import os
 #if DEBUG
@@ -141,6 +142,7 @@ extension TabContentCache {
 
     static func isAppPage(_ url: URL?) -> Bool {
         HistoryPageAddress.matches(url) || BookmarkPageAddress.matches(url) || AgentActivityPageAddress.matches(url)
+            || ScreenshotsPageAddress.matches(url)
             || RemoteViewTabRecord.matches(url) || isRemoteBrowserPage(url) || MachineBrowserRecord.matches(url)
     }
 
@@ -169,6 +171,11 @@ extension TabContentCache {
         #endif
         if AgentActivityPageAddress.matches(url) {
             let page = services.agentActivityPage.makePage(key: key, engine: engine, profile: profile)
+            page.onNavigate = { [weak self] target in self?.leaveAppPage(key, to: target) }
+            return page
+        }
+        if ScreenshotsPageAddress.matches(url) {
+            let page = services.screenshotsPage.makePage(key: key, engine: engine, profile: profile)
             page.onNavigate = { [weak self] target in self?.leaveAppPage(key, to: target) }
             return page
         }

@@ -793,14 +793,16 @@ impl Mux {
 
     /// Fill a fresh screen whose first terminal tab `first` already exists.
     /// The first terminal record reuses it (it started in that record's
-    /// directory); every other record becomes a new tab in order.
+    /// directory); every other record becomes a new tab, in the splits the
+    /// screen had when its record has them, else in order in one pane.
+    /// Answers the pane the screen focuses.
     fn fill_screen(
         self: &Arc<Self>,
         actor: &Actor,
         first: SurfaceId,
         screen: &Value,
         reopened: &mut Reopened,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<PaneId> {
         let pane =
             self.with_state(|state| state.pane_of(first)).context("new screen has no pane")?;
         let (workspace, screen_id) = self.public_screen_of_pane(pane)?;
@@ -817,9 +819,22 @@ impl Mux {
         }
         let tabs = screen["tabs"].as_array().cloned().unwrap_or_default();
         let reused = tabs.iter().position(|tab| tab["kind"] == "terminal");
+        if let Some(reused) = reused {
+            self.restore_tab_details(actor, first, &tabs[reused])?;
+        }
+        // A record with its layout comes back in its splits.
+        if let Some(shape) = super::closed_screen_layout::Shape::of(screen) {
+            let (made, focus) = self.rebuild_screen(actor, first, reused, screen, &shape)?;
+            for (tab, surface) in made {
+                reopened.note_tab(&tabs[tab], self.public_tab_of(surface)?);
+            }
+            if reused.is_none() {
+                reopened.tabs.push(self.public_tab_of(first)?);
+            }
+            return Ok(focus.unwrap_or(pane));
+        }
         for (index, tab) in tabs.iter().enumerate() {
             let surface = if Some(index) == reused {
-                self.restore_tab_details(actor, first, tab)?;
                 first
             } else {
                 self.reopen_tab_record(actor, pane, tab, false)?
@@ -829,7 +844,7 @@ impl Mux {
         if reused.is_none() {
             reopened.tabs.push(self.public_tab_of(first)?);
         }
-        Ok(())
+        Ok(pane)
     }
 
     /// How the first terminal of a reopened screen starts: as its first
@@ -874,7 +889,23 @@ impl Mux {
             }
             None => self.new_workspace_with_spawn_as(actor, None, spawn, size)?,
         };
-        self.fill_screen(actor, first.id, screen, reopened)
+        let pane = self.fill_screen(actor, first.id, screen, reopened)?;
+        // Back in its workspace, the screen takes its old place.
+        let slot = self.with_state(|state| {
+            let (workspace, index) = state.screen_of(pane)?;
+            Some(state.workspaces[workspace].screens[index].id)
+        });
+        if workspace.is_some()
+            && let (Some(slot), Some(index)) = (slot, recorded_index(record))
+            && let Err(error) = self.move_screen_as(
+                actor,
+                slot,
+                ScreenDestination::Workspace { workspace: None, index: Some(index) },
+            )
+        {
+            eprintln!("cmux-tui: a reopened screen could not take its old place: {error:#}");
+        }
+        Ok(())
     }
 
     fn reopen_closed_workspace(
@@ -903,6 +934,7 @@ impl Mux {
         if let Some(closed_key) = record["workspace_key"].as_str() {
             reopened.placements.push((closed_key.to_string(), key));
         }
+        let mut focus = Vec::with_capacity(screens.len());
         for (index, screen) in screens.iter().enumerate() {
             let surface = if index == 0 {
                 first.clone()
@@ -910,8 +942,17 @@ impl Mux {
                 let (spawn, _seed, size) = self.first_terminal_spawn(screen);
                 self.new_screen_named_as(actor, Some(workspace), None, spawn, size)?
             };
-            self.fill_screen(actor, surface.id, screen, reopened)?;
+            focus.push(self.fill_screen(actor, surface.id, screen, reopened)?);
         }
+        // The screen that was shown is shown again, with its focused pane.
+        if let Some(pane) = record["active_screen"]
+            .as_u64()
+            .and_then(|index| usize::try_from(index).ok())
+            .and_then(|index| focus.get(index))
+        {
+            self.focus_pane_as(actor, *pane);
+        }
+        self.restore_workspace_presentation(actor, workspace, &record["presentation"]);
         if screens.is_empty() {
             let pane = self
                 .with_state(|state| state.pane_of(first.id))
@@ -922,6 +963,39 @@ impl Mux {
             reopened.tabs.push(self.public_tab_of(first.id)?);
         }
         Ok(())
+    }
+}
+
+impl Mux {
+    /// Set the closed workspace's shared color, icon, custom title and pin
+    /// (`presentation`, its record's) on the workspace that reopened it.
+    /// Its group and sidebar place come back with its personal row.
+    fn restore_workspace_presentation(
+        &self,
+        actor: &Actor,
+        workspace: WorkspaceId,
+        presentation: &Value,
+    ) {
+        if !presentation.is_object() {
+            return;
+        }
+        let text = |field: &str| presentation[field].as_str().map(str::to_string);
+        let update = crate::workspace_registry::WorkspacePresentationUpdate {
+            color: text("color").map(Some),
+            icon: text("icon").map(Some),
+            title: text("title").map(Some),
+            pinned: presentation["pinned"].as_bool().filter(|pinned| *pinned),
+            ..Default::default()
+        };
+        if update == Default::default() {
+            return;
+        }
+        let mutation = WorkspaceMutation::local("cmux-tui-closed-reopen", actor.clone());
+        if let Err(error) =
+            self.set_workspace_metadata(Some(workspace), None, update, None, None, &mutation)
+        {
+            eprintln!("cmux-tui: a reopened workspace lost its color, icon or title: {error:#}");
+        }
     }
 }
 

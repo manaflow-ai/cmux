@@ -217,3 +217,8 @@ jobs:
       # nothing failed (Lawrence 2026-10-14: "my groups UI is lost").
       - name: The group rows stay at the top of the right-click menus
         run: python3 scripts/cmux-next/check-group-menus.py
+      # Lawrence 2026-10-19: right-click New Tab Group failed while the palette
+      # path worked. A menu row with its own selector is a second path beside
+      # the registered action; new ones fail here.
+      - name: Menu rows run registered actions, not inline selectors
+        run: python3 scripts/cmux-next/check-menu-actions.py

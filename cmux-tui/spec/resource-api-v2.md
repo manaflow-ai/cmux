@@ -81,7 +81,7 @@ lowercase hexadecimal digits. Older records keep the IDs they already have
 
 | Resource | Owner | Operations |
 | --- | --- | --- |
-| Workspace identity (title, color, icon) | shared | `workspace.update`, `workspace.create` |
+| Workspace identity (title, color, icon), description, manual task status | shared | `workspace.update`, `workspace.create` |
 | Workspace `ephemeral` flag (set only at creation) | shared | `workspace.create`, moves into a new workspace |
 | Home workspace (`workspace-kind-v1`, one per store, created by the store) | shared | `workspace.ensure_home` |
 | App workspaces (`app-screens-v1`, one per installed app), app tabs | shared | `workspace.ensure_app` |
@@ -117,7 +117,9 @@ workspaces.
 Fields that belong to an existing snapshot travel in its `extra` map, so a
 restated workspace, screen, tab, or terminal from any operation carries them:
 workspace `title`, `color`, `icon`, `ephemeral`, `kind` (`home` for the home
-workspace, absent for a normal one), `agent_folder` (absent until set); tab `pinned`,
+workspace, absent for a normal one), `agent_folder` (absent until set), `description`
+(`workspace-description-v1`, absent until set), `task_status` (`todo`, `working`,
+`needs-attention`, `review` or `done`, `workspace-status-v1`; absent while automatic); tab `pinned`,
 `tab_group_id`, `zoom`, `icon` (the user icon, absent until set), `marked_unread`
 (`true` while the person marked the tab unread by hand, `tab-mark-unread-v1`; absent otherwise), `back`, `forward`, `owner` (the install id of the app
 that hosts a frontend-rendered browser, its record's only writer), `relaunch`
@@ -823,9 +825,17 @@ back now (nothing changes). An acpmux recipient's outcome is acpmux's
 `_acpmux/prompt_withdraw` answer. When acpmux does not answer for a delivery a
 hand-over may have reached, the outcome is `failed` with `error.reason`
 `acpmux_unavailable`; a withdraw acpmux refuses is `failed` with
-`error.reason` `withdraw_refused` and `error.acpmux_reason`. The other
+`error.reason` `withdraw_refused` and `error.acpmux_reason` (`withdraw.refused`
+when acpmux names none). A queued delivery a pump hand-over went out for,
+which acpmux never accepted, is asked too: when acpmux holds no such prompt
+the outcome is `failed` with `error.reason` `acpmux_unavailable` (the
+hand-over may still reach it, so try again), and when acpmux no longer knows
+the session (it was deleted, and no peer daemon runs it) it is `unsent` (no
+session can take it late). The other
 deliveries' outcomes still commit. A retry under the same key replays, and a
-reused key or stale `expected_revision` is refused, before acpmux is asked.
+reused key or stale `expected_revision` is refused, before acpmux is asked;
+acpmux's answers then commit even when other state changed while it
+answered.
 The result names each delivery's outcome and the message; `outcome` is
 `failed` when any delivery failed, else `too_late` when any was too late, else
 `retracted` when any was retracted, else `unsent`. An unsend runs on this machine only; the remote CLI

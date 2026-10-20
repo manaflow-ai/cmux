@@ -10,6 +10,10 @@ final class AddressField: ChromeTextField, OmnibarFieldSurface {
     weak var sink: (any OmnibarFieldEditorSink)? {
         didSet { (cell as? AddressFieldCell)?.editor.sink = sink }
     }
+    /// Bench marks (`debug.omnibar_bench`): nil outside a bench run.
+    var probe: ((String) -> Void)? {
+        didSet { (cell as? AddressFieldCell)?.editor.probe = probe }
+    }
 
     override class var cellClass: AnyClass? {
         get { AddressFieldCell.self }
@@ -35,7 +39,9 @@ final class AddressField: ChromeTextField, OmnibarFieldSurface {
     private var lastStyle: OmnibarPresentation.Style = .plain
 
     override func becomeFirstResponder() -> Bool {
+        probe?("field.becomeFirstResponder")
         let accepted = super.becomeFirstResponder()
+        probe?("field.becameFirstResponder")
         if accepted {
             performWithTheme {
                 (currentEditor() as? NSTextView)?.selectedTextAttributes = [.backgroundColor: OmnibarStyle.selection]
@@ -50,9 +56,12 @@ final class AddressField: ChromeTextField, OmnibarFieldSurface {
         // editor (which reports the up); the focus coordinator sees the
         // responder change. Select-all on the focusing click is a state
         // machine rule.
+        probe?("field.mouseDown")
         sink?.fieldEditorMouseDown(clickCount: event.clickCount, button: .left, word: nil)
         super.mouseDown(with: event)
+        probe?("field.tracked")
         sink?.fieldEditorMouseUp()
+        probe?("field.mouseUpDone")
     }
 
     /// A right-click on the unfocused omnibar focuses it and
