@@ -215,6 +215,7 @@ extension AccountsModel {
         guard let detection = row.detection else { return nil }
         let display = detection.account?.display
         let parts = [display, detection.plan == display ? nil : detection.plan, detection.detail,
+                     detection.note.map(AccountsStrings.note),
                      detection.sources.first.map { AccountsStrings.source($0.label) }]
         let text = parts.compactMap { $0 }.joined(separator: " · ")
         return text.isEmpty ? nil : text
