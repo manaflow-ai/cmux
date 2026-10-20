@@ -164,7 +164,7 @@ def test_environment_secret_rollout_keeps_untrusted_jobs_secretless() -> None:
     assert promotion.get("environment") == "cloud-vm-image-promotion"
 
     backend_jobs = workflow("backend.yml")["jobs"]
-    for job_name in ("preview", "preview-cleanup"):
+    for job_name in ("migrations-development", "preview", "preview-cleanup"):
         assert "vars.CMUX_NEXT_PREVIEW_BROKER_ENABLED == '1'" in backend_jobs[job_name].get("if", ""), (
             f"backend {job_name} must skip before its protected environment is evaluated"
         )
