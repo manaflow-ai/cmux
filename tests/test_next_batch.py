@@ -343,6 +343,20 @@ class ServeDebounce(unittest.TestCase):
         debouncer.ran(heads)
         self.assertFalse(debouncer.observe(heads, self.at(600)))
 
+    def test_a_batch_that_raised_retries_the_same_set_after_the_quiet(self):
+        # A rate limit or a 502 inside a batch must not mark its set as run:
+        # the set would then wait for an unrelated push to be tried again.
+        debouncer = nb.Debouncer()
+        heads = ((1, "a"), (2, "b"))
+        debouncer.observe(heads, self.at(0))
+        self.assertTrue(debouncer.observe(heads, self.at(120)))
+        debouncer.ran(heads)
+        debouncer.failed(heads, self.at(150))
+        self.assertFalse(debouncer.observe(heads, self.at(210)))
+        self.assertTrue(debouncer.observe(heads, self.at(270)))
+        debouncer.ran(heads)
+        self.assertFalse(debouncer.observe(heads, self.at(900)))
+
     def test_constant_pushes_still_run_at_the_hard_max(self):
         debouncer = nb.Debouncer()
         fired = [seconds for seconds in range(0, 900, 60)
