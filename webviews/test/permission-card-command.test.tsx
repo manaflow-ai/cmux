@@ -43,3 +43,25 @@ test("a command ask titled with its command shows it without the Run", () => {
   const html = card(ask({ title: "Run npm test", kind: "execute" }));
   expect(commandBlock(html)).toContain("<code>npm test</code>");
 });
+
+test("a command given as an argv array reads as the shell command", async () => {
+  const { permissionFromMessage } = await import("../src/agent-session/acpmux/direct");
+  const permission = permissionFromMessage(
+    {
+      sessionId: "s1",
+      permissionId: "p1",
+      request: {
+        toolCall: {
+          toolCallId: "t1",
+          title: "Run tests",
+          kind: "execute",
+          rawInput: { command: ["bash", "-lc", "npm test"] },
+        },
+        options: [{ optionId: "allow", name: "Allow", kind: "allow_once" }],
+      },
+    },
+    "s1",
+  );
+  expect(permission?.command).toBe("npm test");
+  expect(commandBlock(card(permission!))).toContain("<code>npm test</code>");
+});
