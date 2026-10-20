@@ -2490,137 +2490,6 @@
         }
       }
     },
-    "handlers.misc.unavailable.agentChat": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Agent chat views are not ported to cmux-next yet."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "エージェントチャット表示はまだ cmux-next に移植されていません。"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "لم تُنقل عروض محادثة الوكيل إلى cmux-next بعد."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Prikazi razgovora s agentom još nisu preneseni u cmux-next."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Agentchatvisninger er endnu ikke porteret til cmux-next."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Agent-Chat-Ansichten sind noch nicht nach cmux-next portiert."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Las vistas de chat con agentes aún no están portadas a cmux-next."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Les vues de chat d’agent ne sont pas encore portées dans cmux-next."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Le viste chat degli agenti non sono ancora portate in cmux-next."
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ទិដ្ឋភាពជជែកភ្នាក់ងារមិនទាន់បានផ្ទេរទៅ cmux-next នៅឡើយទេ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "에이전트 채팅 보기는 아직 cmux-next로 이식되지 않았습니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Agentsamtalevisninger er ikke overført til cmux-next ennå."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Widoków czatu z agentem nie przeniesiono jeszcze do cmux-next."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "As visualizações de chat com agente ainda não foram portadas para o cmux-next."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Чаты с агентами еще не перенесены в cmux-next."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "มุมมองแชทเอเจนต์ยังไม่ได้พอร์ตมายัง cmux-next"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ajan sohbet görünümleri henüz cmux-next’e taşınmadı."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Подання чату з агентом ще не перенесено в cmux-next."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chế độ xem trò chuyện agent chưa được chuyển sang cmux-next."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "代理聊天视图尚未移植到 cmux-next。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "代理程式聊天檢視尚未移植至 cmux-next。"
-          }
-        }
-      }
-    },
     "handlers.misc.unavailable.agentTeams": {
       "extractionState": "manual",
       "localizations": {
@@ -11456,6 +11325,268 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "%lld 則未讀"
+          }
+        }
+      }
+    },
+    "handlers.misc.failed.terminalChatHarness": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Only Claude Code and Codex sessions can open as a chat."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يمكن فتح جلسات Claude Code وCodex فقط كمحادثة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Samo Claude Code i Codex sesije se mogu otvoriti kao chat."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kun Claude Code- og Codex-sessioner kan åbnes som chat."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nur Claude Code- und Codex-Sitzungen lassen sich als Chat öffnen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solo las sesiones de Claude Code y Codex se pueden abrir como chat."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seules les sessions Claude Code et Codex peuvent s’ouvrir comme discussion."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solo le sessioni di Claude Code e Codex possono essere aperte come chat."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チャットとして開けるのは Claude Code と Codex のセッションだけです。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មានតែវគ្គ Claude Code និង Codex ប៉ុណ្ណោះដែលអាចបើកជាការជជែកបាន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code 및 Codex 세션만 채팅으로 열 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bare Claude Code- og Codex-økter kan åpnes som chat."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jako czat można otworzyć tylko sesje Claude Code i Codex."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Somente sessões do Claude Code e do Codex podem ser abertas como chat."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Как чат можно открыть только сеансы Claude Code и Codex."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เปิดเป็นแชตได้เฉพาะเซสชัน Claude Code และ Codex เท่านั้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yalnızca Claude Code ve Codex oturumları sohbet olarak açılabilir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Як чат можна відкрити лише сеанси Claude Code і Codex."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chỉ các phiên Claude Code và Codex mới có thể mở dưới dạng trò chuyện."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "只有 Claude Code 和 Codex 会话可以作为聊天打开。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "只有 Claude Code 與 Codex 工作階段可以作為聊天開啟。"
+          }
+        }
+      }
+    },
+    "handlers.misc.failed.terminalChatNoSession": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The focused terminal runs no agent session to open as a chat."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا تشغّل الطرفية المركّز عليها أي جلسة وكيل يمكن فتحها كمحادثة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fokusirani terminal ne pokreće sesiju agenta koja se može otvoriti kao chat."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den fokuserede terminal kører ingen agentsession, der kan åbnes som chat."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Im fokussierten Terminal läuft keine Agentensitzung, die sich als Chat öffnen lässt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El terminal enfocado no ejecuta ninguna sesión de agente que se pueda abrir como chat."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le terminal actif n’exécute aucune session d’agent à ouvrir comme discussion."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il terminale attivo non esegue alcuna sessione agente da aprire come chat."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォーカスされたターミナルでは、チャットとして開けるエージェントセッションが実行されていません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទែមីណាល់ដែលកំពុងផ្ដោតមិនដំណើរការវគ្គភ្នាក់ងារណាមួយដែលអាចបើកជាការជជែកបានទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "포커스된 터미널에서 채팅으로 열 수 있는 에이전트 세션이 실행되고 있지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den fokuserte terminalen kjører ingen agentøkt som kan åpnes som chat."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "W aktywnym terminalu nie działa żadna sesja agenta, którą można otworzyć jako czat."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O terminal em foco não executa nenhuma sessão de agente para abrir como chat."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В активном терминале не запущен сеанс агента, который можно открыть как чат."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เทอร์มินัลที่โฟกัสอยู่ไม่ได้เรียกใช้เซสชันเอเจนต์ที่เปิดเป็นแชตได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Odaktaki terminalde sohbet olarak açılabilecek bir ajan oturumu çalışmıyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В активному терміналі не запущено сеансу агента, який можна відкрити як чат."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal đang được chọn không chạy phiên tác tử nào để mở dưới dạng trò chuyện."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当前聚焦的终端没有运行可作为聊天打开的代理会话。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "目前聚焦的終端機沒有執行可作為聊天開啟的代理工作階段。"
           }
         }
       }
