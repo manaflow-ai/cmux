@@ -109,7 +109,13 @@ import Foundation
     /// reported replaces its provisional one (``ProvisionalTab/created(_:surface:in:)``).
     static func restore(_ pending: PendingIntent, to store: DaemonStore) -> IntentUndo? {
         if pending.closeWhenCreated { return CancelledCreation.hide(pending, in: store) }
-        if let created = pending.createdSurface, store.tabsBySurface[created] != nil { return nil }
+        if let created = pending.createdSurface, store.tabsBySurface[created] != nil {
+            guard !pending.createdConfirmed else { return nil }
+            // A guess: the daemon's tab stays out of sight and the stand-in keeps its place, so
+            // a wrong guess never shows a tab under another create (tab-spam-race).
+            guard let hidden = CancelledCreation.hideTab(created, in: store) else { return nil }
+            return .guessedTab(hidden: hidden, provisional: apply(pending.kind, to: store))
+        }
         // The daemon's pane under the split's public pane id replaces the provisional one
         // (ProvisionalSplit.apply places it until the daemon's layout does).
         return apply(pending.kind, to: store)
@@ -152,6 +158,9 @@ import Foundation
             CancelledCreation.unhide(undo, in: store)
         case .closedTabs(let hidden):
             TabCloseOverlay(store: store).undo(hidden)
+        case .guessedTab(let hidden, let provisional):
+            if let provisional { self.undo(provisional, in: store) }
+            CancelledCreation.unhide(.hiddenTab(hidden), in: store)
         case .splitPane(let screen, let layout, let columns, let pane):
             ProvisionalSplit.undo(screen: screen, layout: layout, columns: columns, pane: pane, in: store)
         case .createdWorkspace(let key, let inserted):

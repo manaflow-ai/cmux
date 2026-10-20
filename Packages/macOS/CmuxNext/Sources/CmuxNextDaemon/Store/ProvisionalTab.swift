@@ -53,7 +53,7 @@ public struct ProvisionalTab: Sendable, Hashable {
         guard case .tabAdded(let delta) = event,
               let entry = store.intentLog.entries.first(where: { $0.transaction == transaction }),
               let provisional = createdTab(of: entry.kind), let tab = store.tabsBySurface[delta.surface] else { return }
-        let paired = entry.createdSurface == delta.surface // `matched` paired it already: now it is sure
+        let paired = entry.createdConfirmed && entry.createdSurface == delta.surface // the reply named it already
         store.intentLog.noteCreated(transaction, surface: delta.surface)
         guard !paired else { return }
         guard !entry.closeWhenCreated else { return } // closed first: nothing moves to it
@@ -89,16 +89,18 @@ public struct ProvisionalTab: Sendable, Hashable {
     /// came, the store listed the daemon's tab BESIDE the provisional one until the reply, and the
     /// strip grew one in while the other closed on every Cmd-T (hq-1d 2026-10-14).
     /// Nothing on the event names its create. The daemon runs this client's requests in the
-    /// order it sent them, so the tab is the OLDEST pending create of the pane that has no tab
-    /// yet and asks for the same record (agent session host and session, page, route), when the
-    /// tab is the newest in the pane. A cancelled create counts (its tab is then hidden, never
-    /// shown). The old rule took it only when exactly one create waited; with two quick Cmd-T,
-    /// or a Cmd-T, Cmd-W, Cmd-T, the tab showed as it came: beside the stand-in, or a tab the
-    /// person had closed came back until its echo (tab-spam-race). Should the guess ever be
-    /// wrong, the echo or reply naming each tab corrects it (`echoed`, `created`).
+    /// order it sent them, so the tab is most likely the OLDEST pending create of the pane that
+    /// has no tab yet and asks for the same record (agent session host and session, page,
+    /// route), when the tab is the newest in the pane. That is a guess (a create the daemon
+    /// refused, whose reply is still on its way, is older), so the tab is only hidden and the
+    /// stand-in keeps showing until the echo or the reply names the tab's create; a guess is
+    /// never shown and never closed. The old rule showed the tab (replacing the stand-in) when
+    /// exactly one create waited, and else as it came: with two quick Cmd-T, or a Cmd-T, Cmd-W,
+    /// Cmd-T, the tab showed beside the stand-in, or a tab the person closed came back
+    /// (tab-spam-race).
     @MainActor static func matched(_ event: DaemonEvent, in store: DaemonStore) {
         guard case .tabAdded(let delta) = event, delta.clientTransactionID == nil, delta.entity.kind == .conversation,
-              let tab = store.tabsBySurface[delta.surface],
+              store.tabsBySurface[delta.surface] != nil,
               !store.intentLog.entries.contains(where: { $0.createdSurface == delta.surface }) else { return }
         let asked = delta.entity.conversation
         let waiting = store.intentLog.entries.first { entry in
@@ -107,13 +109,12 @@ public struct ProvisionalTab: Sendable, Hashable {
             return wanted.agentSession?.host == asked?.agentSession?.host && wanted.agentSession?.session == asked?.agentSession?.session
                 && wanted.page == asked?.page && wanted.route == asked?.route
         }
-        guard let entry = waiting, case .createTab(_, let provisional) = entry.kind else { return }
+        guard let entry = waiting else { return }
         // The newest daemon tab of the pane (daemon surfaces count up; provisional ones live above them).
         let daemonTabs = store.pane(delta.pane)?.tabs.filter { !isProvisional(surface: $0.surface) } ?? []
         guard daemonTabs.allSatisfy({ $0.surface.rawValue <= delta.surface.rawValue }) else { return }
+        // Hidden, with the stand-in still shown, until the echo or the reply names its create
+        // (`echoed`, `created`): view state moves then, to the right tab.
         store.intentLog.noteCreated(entry.transaction, surface: delta.surface, confirmed: false)
-        guard !entry.closeWhenCreated else { return }
-        let id = provisional.tabResourceID?.rawValue ?? ""
-        if provisional.conversation?.page != nil { store.onPageTabCreated?(id, tab) } else { store.onTabCreated?(id, tab) }
     }
 }

@@ -26,6 +26,9 @@ enum IntentUndo: Equatable {
     case hiddenPane(HiddenPane)
     /// The daemon tabs a close intent took out of the visible records, in removal order.
     case closedTabs([HiddenTab])
+    /// A create's guessed daemon tab hidden (``ProvisionalTab/matched(_:in:)``) and its
+    /// provisional tab shown, until the daemon names the tab's create.
+    case guessedTab(hidden: HiddenTab, provisional: IntentUndo?)
     /// The provisional screen shown in workspace `key`, and whether the workspace itself was the
     /// provisional one (inserted) rather than the daemon's.
     case createdWorkspace(key: WorkspaceKey, inserted: Bool)
@@ -48,7 +51,8 @@ struct PendingIntent {
     /// the provisional tab is no longer shown.
     var createdSurface: SurfaceID?
     /// `createdSurface` came from the daemon naming this transaction (its echo or reply), not
-    /// from ``ProvisionalTab/matched(_:in:)``'s guess. Only a confirmed surface is ever closed.
+    /// from ``ProvisionalTab/matched(_:in:)``'s guess. A guessed tab is only hidden (the
+    /// provisional tab shows meanwhile); only a confirmed one replaces it or is ever closed.
     var createdConfirmed = false
     /// Due, but what it shows has not reached the daemon's records yet (a split's pane, cx-ry0y):
     /// it leaves the log once they hold it, or with the next snapshot.
