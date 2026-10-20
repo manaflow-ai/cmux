@@ -28,8 +28,11 @@ public nonisolated struct BackdropCatalog: Sendable {
         let apple = wallpapers.pictures(assets: assets, fileManager: fileManager)
         appleWallpapers = Dictionary(apple.map { ($0.path, $0) }, uniquingKeysWith: { first, _ in first })
         let yours = userImages?.list(fileManager: fileManager) ?? []
+        // Collages live beside the person's own images (backgrounds plan phase 7).
+        let collages = userImages.map { BackdropCollages(folder: $0.folder.appendingPathComponent("Collages", isDirectory: true)) }?
+            .list(fileManager: fileManager) ?? []
         let moving = wallpapers.videos(fileManager: fileManager)
-        choices = Self.bundled + yours.filter { !$0.isVideo } + [.desktop] + apple.map { BackdropSelection.system(path: $0.path) }
+        choices = Self.bundled + yours.filter { !$0.isVideo } + collages + [.desktop] + apple.map { BackdropSelection.system(path: $0.path) }
             + moving + yours.filter(\.isVideo)
     }
 }
