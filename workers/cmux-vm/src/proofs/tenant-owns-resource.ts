@@ -11,7 +11,7 @@ import { defineProof, name, type Named, type NameOf, type Proof } from "@gdp-ts/
 import { Effect, Option } from "effect";
 import { OwnershipStore, type OwnedResource, type PagePosition } from "../db/stores.ts";
 import type { StoreError } from "../db/sql.ts";
-import { carriesRequiredLabels, type Principal } from "../domain/principal.ts";
+import { actorRef, carriesRequiredLabels, type Principal } from "../domain/principal.ts";
 import { parseVmId, type DeviceId, type MeshId, type ResourceId, type ResourceKind, type SnapshotId, type TunnelId, type UpstreamId, type VmId } from "../lib/ids.ts";
 
 const TenantOwnsResource = defineProof("TenantOwnsResource");
@@ -61,6 +61,19 @@ const mint = <C, R>(caller: Named<C, Principal>, resource: Named<R, unknown>, ro
 
 export const tenantOwnsVm = <C, R>(caller: Named<C, Principal>, vm: Named<R, VmId>) => owns(caller, vm, "vm");
 
+/**
+ * Whether the caller's tenant owned this VM and it is already deleted, under the same allowlist and
+ * service-label rules as a live one. Grants nothing: only a repeated delete may answer success from it.
+ */
+export const tenantDeletedVm = <C, R>(caller: Named<C, Principal>, vm: Named<R, VmId>): Effect.Effect<boolean, StoreError, OwnershipStore> =>
+  Effect.gen(function* () {
+    const principal = caller.value;
+    if (principal.resourceAllowlist !== null && !principal.resourceAllowlist.has(vm.value)) return false;
+    const store = yield* OwnershipStore;
+    const found = yield* store.findDeleted(principal.tenantId, "vm", vm.value);
+    return Option.isSome(found) && found.value.tenantId === principal.tenantId && carriesRequiredLabels(principal, found.value.labels);
+  });
+
 export const tenantOwnsSnapshot = <C, R>(caller: Named<C, Principal>, snapshot: Named<R, SnapshotId>) =>
   owns(caller, snapshot, "snapshot");
 
@@ -94,7 +107,12 @@ export interface OwnedVmPage<A> {
  */
 export const visitOwnedVms = <C, A, E, R>(
   caller: Named<C, Principal>,
-  page: { readonly limit: number; readonly after: PagePosition | null; readonly labels: Readonly<Record<string, string>> | null },
+  page: {
+    readonly limit: number;
+    readonly after: PagePosition | null;
+    readonly labels: Readonly<Record<string, string>> | null;
+    readonly createdByCaller?: boolean;
+  },
   visit: OwnedVmVisitor<C, A, E, R>,
   concurrency = 8,
 ): Effect.Effect<OwnedVmPage<A>, E | StoreError, R | OwnershipStore> =>
@@ -106,10 +124,19 @@ export const visitOwnedVms = <C, A, E, R>(
       return { fetched: 0, last: null, results: [] };
     }
     const labels = required === undefined ? page.labels : { ...page.labels, ...required };
+    const createdBy = page.createdByCaller === true ? actorRef(principal.actor) : undefined;
     const store = yield* OwnershipStore;
-    const rows = yield* store.listPage(principal.tenantId, "vm", { ...page, labels, only: principal.resourceAllowlist });
+    const rows = yield* store.listPage(principal.tenantId, "vm", {
+      limit: page.limit,
+      after: page.after,
+      labels,
+      only: principal.resourceAllowlist,
+      ...(createdBy === undefined ? {} : { createdBy }),
+    });
     const results = yield* Effect.forEach(
-      rows.filter((row) => row.tenantId === principal.tenantId && row.kind === "vm" && carriesRequiredLabels(principal, row.labels)),
+      rows.filter((row) =>
+        row.tenantId === principal.tenantId && row.kind === "vm" &&
+        carriesRequiredLabels(principal, row.labels) && (createdBy === undefined || row.createdBy === createdBy)),
       (row) => {
         const parsed = parseVmId(row.cmuxId);
         if (Option.isNone(parsed)) return Effect.succeed(Option.none<A>());

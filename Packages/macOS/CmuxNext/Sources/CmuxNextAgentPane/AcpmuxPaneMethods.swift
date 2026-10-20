@@ -87,12 +87,21 @@ nonisolated enum AcpmuxPaneMethods {
         case string
         case object([String: ReplyShape])
         case list(ReplyShape)
+        /// Only the scheme of the URL in the sibling field `source` (`ssh`, `ws`, `wss`), so the
+        /// page learns a peer's transport without its URL (which can carry a user or a token).
+        case scheme(from: String)
     }
 
+    /// The URL schemes a `.scheme` field may report; any other scheme is dropped.
+    static let reportedSchemes: Set<String> = ["ssh", "ws", "wss"]
+
     /// Replies filtered to the fields the pane renders; everything else is dropped, at every depth.
-    /// `_acpmux/status`: the pane reads only `peers[].name` (direct.ts, after initialize).
+    /// `_acpmux/status`: the pane reads only `peers[].name` and each peer's `transport`, the
+    /// scheme of its `url` (direct.ts, after initialize; environments.ts peerKindsFromStatus).
     public static let replyShapes: [String: ReplyShape] = [
-        "_acpmux/status": .object(["peers": .list(.object(["name": .string]))]),
+        "_acpmux/status": .object([
+            "peers": .list(.object(["name": .string, "transport": .scheme(from: "url")])),
+        ]),
     ]
 
     /// `value` cut to `shape`: nil when it does not fit (a list keeps only the items that fit).
@@ -100,11 +109,19 @@ nonisolated enum AcpmuxPaneMethods {
         switch shape {
         case .string:
             return value as? String
+        case .scheme:
+            guard let scheme = (value as? String).flatMap({ URLComponents(string: $0)?.scheme?.lowercased() }),
+                  reportedSchemes.contains(scheme) else { return nil }
+            return scheme
         case .list(let item):
             return (value as? [Any])?.compactMap { filtered($0, to: item) }
         case .object(let fields):
             guard let object = value as? [String: Any] else { return nil }
-            let kept = fields.compactMap { key, field in object[key].flatMap { filtered($0, to: field) }.map { (key, $0) } }
+            let kept = fields.compactMap { key, field -> (String, Any)? in
+                let source: String
+                if case .scheme(let from) = field { source = from } else { source = key }
+                return object[source].flatMap { filtered($0, to: field) }.map { (key, $0) }
+            }
             // An object with none of its fields is dropped (a peer with no name renders nothing).
             return kept.isEmpty ? nil : Dictionary(uniqueKeysWithValues: kept)
         }
