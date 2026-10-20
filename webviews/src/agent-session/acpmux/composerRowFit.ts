@@ -206,7 +206,9 @@ function nameIcons(bar: HTMLElement, forms: Forms): void {
   }
 }
 
-export function useRowFit(bar: RefObject<HTMLElement | null>): void {
+/// `row` names which element `bar` points at (the box's row or the quiet row under it): a change
+/// re-attaches the fit to the element the ref holds now, so a footer look toggled live still fits.
+export function useRowFit(bar: RefObject<HTMLElement | null>, row?: unknown): void {
   useLayoutEffect(() => {
     const element = bar.current;
     if (!element) return;
@@ -236,5 +238,5 @@ export function useRowFit(bar: RefObject<HTMLElement | null>): void {
       resize.disconnect();
       mutation.disconnect();
     };
-  }, [bar]);
+  }, [bar, row]);
 }

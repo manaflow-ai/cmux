@@ -286,7 +286,7 @@ export function NewTabScreen(props: Props) {
   const { plainFooter } = useComposerSettings();
   // The quiet row's labels step down with the composer's width, as the chat's (composerRowFit.ts).
   const foot = useRef<HTMLDivElement>(null);
-  useRowFit(foot);
+  useRowFit(foot, plainFooter && props.chips !== undefined);
   // A press outside an open chip menu only closes it (menuPressGuard.ts).
   useMenuPressGuard();
   const pushed = useDeviceChats();

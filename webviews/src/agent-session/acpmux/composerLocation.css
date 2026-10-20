@@ -726,6 +726,8 @@
 @container composer (max-width: 297px) {
   .acpmux-composer-bar { --acpmux-row-group-gap: 8px; }
   .acpmux-composer:not(.acpmux-quick .acpmux-composer) > .acpmux-composer-box { margin-inline: -8px; }
+  /* The quiet row widens with the box, so the mode text stays on the prompt's 16 px edge. */
+  .acpmux-composer:not(.acpmux-quick .acpmux-composer) .acpmux-composer-foot { margin-inline: -8px; }
 }
 /* Keep the complete control rail usable in a very narrow pane: preserve every action and only
    tighten their rhythm. */
@@ -1079,6 +1081,6 @@
 /* The context ring ends the quiet row, as Claude Code's does: the row's soft pill on hover and
    while its details are open, the row's outline under keyboard focus. */
 .acpmux-composer-foot .acpmux-context-ring { width: 24px; height: 24px; margin-inline-start: 4px; }
-.acpmux-composer-foot .acpmux-context-ring:hover,
+.acpmux-composer-foot .acpmux-context-ring:not(:disabled):hover,
 .acpmux-composer-foot .acpmux-context-ring[aria-expanded="true"] { background: var(--acpmux-pill-hover); }
 .acpmux-composer-foot .acpmux-context-ring:focus-visible { outline-offset: 0; }

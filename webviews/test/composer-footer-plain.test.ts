@@ -202,6 +202,28 @@ await requireBrowserLane("composer-footer-plain.test.ts", async () => {
     return problems;
   };
 
+  // The fit follows the row the look draws: turned off after the composer shows (the Debug toggle
+  // flipped live), the box's own row still steps down as the pane narrows (composerRowFit.ts).
+  test("off after mount, the box's row still fits as the pane narrows", async () => {
+    const page = await open(760, "light");
+    await plain(page, false);
+    const fit = () =>
+      page.evaluate(() => {
+        const bar = document.querySelector<HTMLElement>(".acpmux-composer-box .acpmux-composer-bar")!;
+        return [...bar.attributes]
+          .filter(({ name }) => name.startsWith("data-fit-"))
+          .map(({ name, value }) => `${name}=${value}`)
+          .sort()
+          .join(" ");
+      });
+    const wide = await fit();
+    await page.setViewportSize({ width: 300, height: 300 });
+    await settle(page);
+    const narrow = await fit();
+    await page.close();
+    expect(narrow).not.toBe(wide);
+  });
+
   for (const width of [760, 480, 340])
     for (const scheme of ["light", "dark"]) {
       test(`at ${width} px (${scheme}): plain by default; off, the chips draw as before`, async () => {
