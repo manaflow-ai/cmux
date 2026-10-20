@@ -39,6 +39,7 @@ import { acpWire, redactEndpoint, type AcpWireLog } from "./wire";
 import { acpmuxPerf } from "./perf";
 import { translate } from "./i18n";
 import { OFFER_RESULT, offersShown } from "./offer/offersShown";
+import { startedCardsShown } from "./started/startedSessions";
 import { OfferChildren } from "./offer/offerChildren";
 import { errorMessage } from "./transportErrors";
 import { SessionPager, type SessionPage } from "./sessionPages";
@@ -1677,7 +1678,8 @@ export class AcpmuxDirectClient {
       // A change that doesn't carry the queue keeps the one already mapped.
       if (session.queue) this.queue = mergeQueue(this.queue, session.queue);
     }
-    if (this.offerChildIds().includes(session.sessionId)) this.childChanged(session.sessionId);
+    if (this.offerChildIds().includes(session.sessionId) || this.isStartedChild(session))
+      this.childChanged(session.sessionId);
     // The picker lists every session, so a change elsewhere still needs a snapshot.
     this.emit("session changed");
   }
@@ -2951,6 +2953,10 @@ export class AcpmuxDirectClient {
     return [...new Set(this.offerRows.values())].flatMap(
       (id) => this.rows.get(id)?.offers?.flatMap((offer) => (offer.childSessionId ? [offer.childSessionId] : [])) ?? [],
     );
+  }
+  /// A chat the shown chat's agent started, while started session cards draw (started/startedSessions.ts).
+  private isStartedChild(session: Session): boolean {
+    return !!this.selectedSessionId && session.spawnedBy === this.selectedSessionId && startedCardsShown();
   }
   /// Attaches to the started chats that run, for their rows' subtitles (offer/offerChildren.ts).
   private watchOfferChildren(): void {
