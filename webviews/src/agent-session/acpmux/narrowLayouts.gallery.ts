@@ -328,6 +328,17 @@ export default agentPaneEntry({
       }),
       play: check,
     },
+    "new-tab-stage": {
+      note: "The New Tab page's Default template, the stage layout: the composer at the foot, its footer (folder, mode, model, effort) under the box.",
+      ready: {
+        newTab: { layout: "b", kind: "agent", cwd: CWD, home: "/Users/you", lastAgent: "claude", template: "default" },
+        newSession: true,
+      },
+      snapshot: noChat([session({ sessionId: "older", title: "Add retry with exponential backoff to the uploader" })], {
+        summary: { sessionId: "", cwd: CWD, harness: "claude", ...controls },
+      }),
+      play: check,
+    },
     // CI plays these in Linux Chromium, whose fallback fonts set the chips' labels wider than macOS
     // does: the New Tab row at 280 px passed on a Mac with half a pixel of overlap and failed in CI
     // ("Mode overlaps Dictate"). Spacing the page's letters out by half a pixel stands in for those
