@@ -1386,6 +1386,14 @@ path = "tests/test_ci_media_module_cache_stamp.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_media_app_cache.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_next_media_tree_fallback.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cmux_tui_feat_publish_order.py"
 lane = "linux-guard"
 

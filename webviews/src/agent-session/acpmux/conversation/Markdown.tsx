@@ -681,7 +681,9 @@ function Block({
     case "code": {
       if (code === "open") return <PlainCode code={block.code} lang={block.lang} open />;
       if (code === "plain") return <PlainCode code={block.code} lang={block.lang} />;
-      if (isChart(block.lang, block.code)) return <DiagramBlock lang={block.lang} code={block.code} />;
+      // A diagram draws once its fence closes; a Mermaid source still streaming stays code.
+      if (isChart(block.lang, block.code) && !(block.open && block.lang.toLowerCase() === "mermaid"))
+        return <DiagramBlock lang={block.lang} code={block.code} />;
       // A page in a closed ```cmux-render fence runs in the render frame; the dev server has none.
       const render = canRender() && !block.open ? renderFence(block.lang, block.code) : undefined;
       if (render) return <RenderCard call={render} />;
