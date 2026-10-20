@@ -73,10 +73,15 @@ fn command(dir: &Path) -> Command {
 
 impl Owner {
     fn start(dir: &Path, session: &'static str, dsn: &str) -> Owner {
+        Owner::start_with(dir, session, dsn, &[])
+    }
+
+    fn start_with(dir: &Path, session: &'static str, dsn: &str, env: &[(&str, &str)]) -> Owner {
         let child = command(dir)
             .args(["--headless", "--session", session, "--socket"])
             .arg(dir.join("mux.sock"))
             .env("CMUX_TUI_TEST_SENTRY_DSN", dsn)
+            .envs(env.iter().copied())
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
@@ -175,6 +180,42 @@ fn crash_forward_sends_nothing_with_telemetry_off() {
     let outcome = owner.outcome(0);
     assert!(outcome.contains("off") && outcome.contains("app.sendAnonymousTelemetry"), "{outcome}");
     assert!(requests.try_recv().is_err(), "nothing may be sent with telemetry off");
+    drop(owner);
+    let _ = fs::remove_dir_all(&dir);
+}
+
+/// Tester rollout #9: classic reports of 30-70+ GB (and one of 190 GB) show
+/// memory that grows without bound. The owner samples its own memory; past a
+/// threshold (4 GiB, then each doubling) it writes one line to
+/// `owner-memory-<session>.jsonl` and sends it to Sentry at once, under the
+/// same consent as crashes. Debug builds take the threshold and the sampling
+/// interval from the environment, so this test needs no real growth.
+#[test]
+fn crash_forward_memory_guard_reports_growth_past_the_threshold() {
+    let (dsn, requests) = sentry();
+    let dir = temp_dir("mem");
+    let session = "cf-mem";
+    let owner = Owner::start_with(
+        &dir,
+        session,
+        &dsn,
+        &[
+            ("CMUX_TUI_TEST_MEMORY_THRESHOLD_BYTES", "1"),
+            ("CMUX_TUI_TEST_MEMORY_INTERVAL_MS", "50"),
+        ],
+    );
+    let (path, body) = requests.recv_timeout(Duration::from_secs(30)).expect("a memory envelope");
+    assert_eq!(path, "/api/42/envelope/");
+    assert!(body.contains("MemoryGrowth"), "{body}");
+    assert!(body.contains(r#""process":"cmux-tui""#), "{body}");
+    assert!(body.contains(r#""level":"warning""#), "{body}");
+    let log = fs::read_to_string(dir.join("state").join(format!("owner-memory-{session}.jsonl")))
+        .unwrap();
+    let record: serde_json::Value = serde_json::from_str(log.lines().next().unwrap()).unwrap();
+    assert_eq!(record["kind"], "memory", "{record}");
+    assert!(record["memory_bytes"].as_u64().unwrap_or_default() >= 1, "{record}");
+    // The next alert waits for the next doubling, so one growth is one event.
+    assert_eq!(record["threshold_bytes"], 1, "{record}");
     drop(owner);
     let _ = fs::remove_dir_all(&dir);
 }
