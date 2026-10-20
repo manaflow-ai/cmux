@@ -131,11 +131,11 @@ final class FakeOpener: BrowserStreamOpening, @unchecked Sendable {
         }
         await show(model, on: opener)
         let stream = try #require(opener.stream("s1"))
-        #expect(stream.sent == ["rb.open"])
+        #expect(stream.sent == ["rb.open", "rb.visibility"], "a new viewer says it is shown (the host keeps the last one's state)")
         model.setVisible(false)
         model.setVisible(true)
-        #expect(stream.sent == ["rb.open", "rb.visibility", "rb.visibility"])
-        #expect(stream.lock.withLock { stream.messages.compactMap { $0["visible"] as? Bool } } == [false, true])
+        #expect(stream.sent == ["rb.open", "rb.visibility", "rb.visibility", "rb.visibility"])
+        #expect(stream.lock.withLock { stream.messages.compactMap { $0["visible"] as? Bool } } == [true, false, true])
     }
 
     /// Review finding 3: a hidden page never opens by itself (an open takes

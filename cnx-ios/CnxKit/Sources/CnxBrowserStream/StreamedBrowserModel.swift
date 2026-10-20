@@ -297,11 +297,11 @@ public final class StreamedBrowserModel: BrowserTabState {
             if let screen, let connection {
                 screenSeq = 0
                 try? connection.send(message: wire.open(tab: tab, viewer: "phone", screen: screen))
-                // Streams start shown on the Mac.
-                if !visible {
-                    try? connection.send(message: wire.visibility(false))
-                    openedHidden?()
-                }
+                // The host keeps its last viewer's visibility: a page hidden on
+                // the last link (the person went to Settings to switch the
+                // transport) would stay hidden, blank, under this new viewer.
+                try? connection.send(message: wire.visibility(visible))
+                if !visible { openedHidden?() }
             }
         case "refused", "ended":
             phase = .waiting(json["reason"] as? String ?? "The Mac ended the page")

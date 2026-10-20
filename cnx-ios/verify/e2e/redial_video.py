@@ -7,7 +7,7 @@ on this Mac, over the real link (dev Worker signaling, Cloudflare TURN).
     python3 -u redial_video.py --mac-app APP --app CnxApp.app --out DIR setup
     python3 -u redial_video.py ... browser kill:wg-only|kill:hybrid|kill:rtc-only
     python3 -u redial_video.py ... browser switch:wg-only|switch:hybrid|switch:rtc-only
-    python3 -u redial_video.py ... terminal quit|crash
+    python3 -u redial_video.py ... terminal quit|crash|daemon
     python3 -u redial_video.py ... analyze DIR
 
 Browser row: open two browser workspaces from the phone (A, then B, both the
@@ -21,7 +21,8 @@ on WireGuard and switches to WebRTC.
 
 Terminal row: the phone shows the seeded terminal; the Mac app quits
 gracefully (`quit`) or is killed (`crash`, as the DEBUG watchdog abort did) and
-starts again; then a command typed on the phone must reach the Mac.
+starts again (`daemon`: the app and its daemon are killed, so surfaces are
+numbered again); then a command typed on the phone must reach the Mac.
 """
 import datetime
 import json
@@ -163,10 +164,7 @@ class Redial(tv.TV):
         return [int(x) for x in r.stdout.split()]
 
     def surfaces(self):
-        out = {}
-        for t in self.mac.cmux("terminal", "list", json_out=True) or []:
-            out[t.get("id")] = t.get("surface") or t.get("surface_id")
-        return out
+        return sorted(t.get("id") for t in self.mac.cmux("terminal", "list", json_out=True) or [])
 
     def terminal_row(self, how):
         self.up()
@@ -186,8 +184,11 @@ class Redial(tv.TV):
         try:
             time.sleep(3)
             ev_t = time.time()
-            if how == "crash":
-                for p in self.mac.main_pids():
+            if how in ("crash", "daemon"):
+                # `daemon`: the app and its cmux-tui daemon die together, so the
+                # relaunched app starts a new daemon that restores every
+                # workspace with new surface numbers.
+                for p in self.mac.main_pids() + (self.daemon_pids() if how == "daemon" else []):
                     os.kill(p, signal.SIGKILL)
                 deadline = time.time() + 20
                 while time.time() < deadline and (self.mac.main_pids() or self.mac.hostd_pids()):
