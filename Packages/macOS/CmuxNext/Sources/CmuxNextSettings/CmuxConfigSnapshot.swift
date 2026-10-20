@@ -77,6 +77,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     /// `ui.animationSpeed`; "fast" when unset or invalid.
     public var animationSpeed: MotionSpeed = AnimationSpeedSetting.fallback
     public var animationKinds = AnimationKindsSetting()
+    /// `ui.animations.enabled` and `ui.animations.<category>` (``MotionCategoriesSetting``).
+    public var motionCategories = MotionCategoriesSetting()
     /// `ui.paneAnimations`; on when unset or invalid.
     public var paneAnimations: Bool = PaneAnimationsSetting.fallback
     /// `layout.centerFocusedColumn`; "never" when unset or invalid.
@@ -276,6 +278,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.animationSpeed = speed
         if let speedDiagnostic { snapshot.diagnostics.append(speedDiagnostic) }
         snapshot.take(AnimationKindsSetting.parse(root), \.animationKinds)
+        snapshot.take(MotionCategoriesSetting.parse(root), \.motionCategories)
         snapshot.take(PaneAnimationsSetting.parse(root), \.paneAnimations)
         let (centering, centeringDiagnostic) = CenterFocusedColumnSetting.parse(root)
         snapshot.centerFocusedColumn = centering

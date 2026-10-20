@@ -167,7 +167,7 @@ public final class BrowserChromeView: NSView {
         if findBar.isHidden {
             findBar.isHidden = false
             findBar.alphaValue = 0
-            Motion.animate(.fadeIn, in: findBar) { self.findBar.animator().alphaValue = 1 }
+            Motion.overlays.animate(.fadeIn, in: findBar) { self.findBar.animator().alphaValue = 1 }
             updateOcclusion()
         }
         findBar.focus()
@@ -175,7 +175,7 @@ public final class BrowserChromeView: NSView {
 
     public func hideFindBar() {
         guard !findBar.isHidden else { return }
-        Motion.animate(.fadeOut, in: findBar, { self.findBar.animator().alphaValue = 0 }, completion: {
+        Motion.overlays.animate(.fadeOut, in: findBar, { self.findBar.animator().alphaValue = 0 }, completion: {
             self.findBar.isHidden = true
             self.updateOcclusion()
         })
