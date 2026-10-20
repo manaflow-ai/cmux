@@ -22,6 +22,14 @@ describe("Run failure stage", () => {
     expect(runFailureDetail(error)).toBe(" (guest-command, exit 1)");
   });
 
+  test("a frozen error passes through unchanged", async () => {
+    class Pending extends Error {}
+    const frozen = Object.freeze(new Pending("later"));
+    const error = await labelRunStage("vm-create", async () => { throw frozen; }).catch((caught) => caught);
+    expect(error).toBe(frozen);
+    expect(runFailureDetail(error)).toBe("");
+  });
+
   test("keeps the first, innermost stage", async () => {
     const error = await labelRunStage("execute", () => labelRunStage("source-receipt", async () => {
       throw new Error("receipt mismatch");
