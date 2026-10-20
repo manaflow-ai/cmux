@@ -22,10 +22,10 @@ parser.add_argument("--reduce-motion", action="store_true")
 opts = parser.parse_args()
 os.makedirs(opts.out, exist_ok=True)
 
-binary = next(os.path.join(opts.app, "Contents/MacOS", n) for n in os.listdir(os.path.join(opts.app, "Contents/MacOS"))
-              if n.startswith("cmux"))
-tag = os.path.basename(opts.app).removesuffix(".app").split(" ")[-1]
-SOCKET = f"/tmp/cmux-debug-{tag}.sock"
+APP = opts.app
+TAG = os.environ.get("NX_APP_TAG") or os.path.basename(APP).removesuffix(".app").split(" ")[-1]
+SOCKET = os.environ.get("NX_APP_SOCKET") or f"/tmp/cmux-debug-{TAG}.sock"
+STOP = os.environ.get("NX_APP_STOP")
 
 
 def rpc(method, params=None, timeout=30):
@@ -61,12 +61,11 @@ if os.path.exists(SOCKET):
 config = tempfile.NamedTemporaryFile("w", suffix=".json", delete=False)
 config.write("{}")
 config.close()
-env = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
-       "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation",
-       "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_NEXT_CONFIG_FILE": config.name, "ACPMUX_AGENT_LAUNCH": "deny",
-       "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,900,820", "CMUX_NEXT_CLASSIC_HOME": "1", "NX_REMOTE": "1"}
-log = open(os.path.join(opts.out, "app.log"), "a")
-app = subprocess.Popen([binary], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
+pairs = ["CMUX_NEXT_NO_ACTIVATE=1", "CMUX_NEXT_SOCKET_MODE=automation", "CMUX_NEXT_TEST_WINDOW_SCREEN=last",
+         f"CMUX_NEXT_CONFIG_FILE={config.name}", "ACPMUX_AGENT_LAUNCH=deny", "CMUX_NEXT_TEST_WINDOW_FRAME=40,40,900,820",
+         "CMUX_NEXT_CLASSIC_HOME=1", "NX_REMOTE=1"]
+# `open` (Launch Services), as the other nx-remote scripts: a direct exec of the bundle is refused its sandbox extension.
+subprocess.run(["open", "-n", APP, *[arg for pair in pairs for arg in ("--env", pair)]], check=True)
 code = 1
 try:
     if not wait(lambda: os.path.exists(SOCKET) and (rpc("debug.surfaces") or {}).get("windows"), 180):
@@ -123,9 +122,6 @@ try:
     print("frames:", len(frames), flush=True)
     code = 0 if frames else 1
 finally:
-    app.terminate()
-    try:
-        app.wait(10)
-    except subprocess.TimeoutExpired:
-        app.kill()
+    if STOP:
+        subprocess.run(["/bin/sh", "-c", STOP], check=False)
 sys.exit(code)
