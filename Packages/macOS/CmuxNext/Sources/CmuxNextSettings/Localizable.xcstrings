@@ -1,6 +1,138 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "settings.appearance.backgroundBlur.summary": {
+      "comment": "One-line summary of the window Material setting (Frosted, Glass, Clear Glass, None) in the wallpaper card.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clear Glass shows the desktop through the wallpaper"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يُظهر الزجاج الشفاف سطح المكتب عبر الخلفية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prozirno staklo prikazuje radnu površinu kroz pozadinu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klart glas viser skrivebordet gennem baggrunden"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klares Glas zeigt den Schreibtisch durchs Hintergrundbild"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El vidrio claro muestra el escritorio a través del fondo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le verre clair montre le bureau à travers le fond"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il vetro chiaro mostra la scrivania attraverso lo sfondo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クリアガラスでは壁紙越しにデスクトップが見えます"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កញ្ចក់ថ្លាបង្ហាញផ្ទៃតុតាមរយៈផ្ទាំងរូបភាព"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "투명 유리는 배경화면 너머로 데스크탑을 보여 줍니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klart glass viser skrivebordet gjennom bakgrunnen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przezroczyste szkło pokazuje biurko przez tapetę"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O vidro claro mostra a mesa através do papel de parede"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Прозрачное стекло показывает рабочий стол сквозь обои"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "กระจกใสจะแสดงเดสก์ท็อปผ่านภาพพื้นหลัง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Şeffaf Cam, masaüstünü duvar kâğıdının ardından gösterir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Прозоре скло показує робочий стіл крізь шпалери"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kính trong cho thấy màn hình nền qua hình nền"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "透明玻璃会透过墙纸显示桌面"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "透明玻璃會透過桌布顯示桌面"
+          }
+        }
+      }
+    },
     "settings.group.chiefChat": {
       "comment": "Settings group in Agents: how the Chief chat looks.",
       "extractionState": "manual",
