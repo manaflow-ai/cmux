@@ -1,7 +1,7 @@
 public import CmuxNextDesign
 import CmuxNextPages
 
-extension AgentPaneTunables {
+nonisolated extension AgentPaneTunables {
     public static let liveRender = Tunable<Bool>.toggle(
         "agentPane.labs.liveRender", PageTunables.section, "Live render cards in chat",
         help: "Render cards draw inline as they are written and can talk back to the chat. New agent tabs.",

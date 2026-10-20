@@ -1,6 +1,6 @@
 public import CmuxNextDesign
 
-extension AgentPaneTunables {
+nonisolated extension AgentPaneTunables {
     /// Panels open as tabs on the right (Lucas 2026-10-17): with a panel beside the chat, the header's
     /// Terminal and Browser open a tab in that panel's pane instead of another split, and the header
     /// drops its quick-action buttons into "..." (the page's header/ChatHeaderTools.tsx), so the right
