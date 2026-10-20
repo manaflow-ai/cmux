@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 package import CmuxNextActions
 
 /// Thread title and local editor actions shared by the chat header.
@@ -61,7 +62,7 @@ package struct AgentChatThreadActions {
             if pick.bundle != nil, let at = appURL(pick.bundle) {
                 workspace.open([url], withApplicationAt: at, configuration: NSWorkspace.OpenConfiguration())
             } else {
-                workspace.open(url)
+                workspace.openInBackground(url)
             }
         }
         return installed.map { editor in

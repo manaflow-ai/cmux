@@ -25,23 +25,6 @@ public nonisolated enum AgentPaneTopStripStyle: String, Sendable, CaseIterable, 
     }
 }
 
-/// How the agent pane draws thoughts, for comparing designs: `agentPane.debug.thoughtStyle`
-/// (webviews conversation/thoughtStyle.ts).
-public nonisolated enum AgentPaneThoughtStyle: String, Sendable, CaseIterable, TunableChoice {
-    /// Today's: a muted "Thought" beside its text; notes between steps draw as replies.
-    case plain
-    /// A brain and the thought's first line, which opens to "Thoughts" over the whole text; notes
-    /// between steps in an open "Worked for" draw the same way (Lucas 2026-10-17).
-    case brain
-
-    public var tunableTitle: String {
-        switch self {
-        case .plain: "Plain (Thought beside its text)"
-        case .brain: "Brain (one line that opens to Thoughts)"
-        }
-    }
-}
-
 /// What a folded long thought's one line reads (webviews conversation/ThoughtRow.tsx):
 /// `agentPane.debug.thoughtHeader`. `duration` sets nothing on the page.
 public nonisolated enum AgentPaneThoughtHeader: String, Sendable, CaseIterable, TunableChoice {
@@ -159,34 +142,6 @@ public nonisolated struct AgentPaneTunables {
         help: "Each click of an agent chat's Terminal button opens a new terminal right of the last one and focuses it, instead of closing the terminal it opened.",
         default: false, code: "AgentPaneTunables.terminalButtonAdds")
 
-    /// Panels open as tabs on the right (Lucas 2026-10-17): with a panel beside the chat, the header's
-    /// Terminal and Browser open a tab in that panel's pane instead of another split, and the header
-    /// drops its quick-action buttons into "..." (the page's header/ChatHeaderTools.tsx), so the right
-    /// side's own tab strip is where new tabs go. Off keeps every split and button as before.
-    public static let panelTabs = Tunable<Bool>.toggle(
-        "agentChat.panelTabs", .panes, "Panels open as tabs on the right",
-        help: "With a panel beside an agent chat, Terminal and Browser add a tab to it instead of another split, and the chat header keeps its tools in its ... menu.",
-        default: false, code: "AgentPaneTunables.panelTabs")
-
-    /// The agent chat's side column on Opt-Cmd-B (Lucas 2026-10-17, after T3 Code's surface panel): Toggle
-    /// Right Sidebar runs the focused chat's New tab / Hide tabs, so a column of panes opens beside the
-    /// chat (a New Tab page whose tiles open a terminal, browser, files or changes there) and hides
-    /// again, closing nothing. Off, Toggle Right Sidebar reports that cmux-next has no right sidebar.
-    /// Read on every press.
-    public static let sideColumn = Tunable<Bool>.toggle(
-        "agentChat.sideColumn", .panes, "Opt-Cmd-B opens the chat's side column",
-        help: "Toggle Right Sidebar shows and hides a column of panes beside the focused agent chat, starting with a page of tiles for a terminal, browser, files or changes.",
-        default: false, code: "AgentPaneTunables.sideColumn")
-
-    /// A chat that shares its pane with other tabs docks left when Files, Changes or Preview opens
-    /// beside it, as a chat alone in its pane does (Lucas 2026-10-17): the view lands on its right and
-    /// the other tabs stay with it. Off, such a chat keeps its pane and the view takes a new column,
-    /// which on a screen without columns filled the window and scrolled the chat out of view.
-    public static let dockBesideTabs = Tunable<Bool>.toggle(
-        "agentChat.dockBesideTabs", .panes, "Chat docks left beside other tabs",
-        help: "Files, Changes or Preview opened from a chat that shares its pane with other tabs docks the chat left and opens on its right, as for a chat alone in its pane.",
-        default: false, code: "AgentPaneTunables.dockBesideTabs")
-
     /// How wide the chat's column draws on a wide pane (cx-ncc.107, a trial before real Settings).
     /// The page gets it with the theme (`AgentPaneTheme`, `chatWidth`), again on each change.
     public static let chatWidth = Tunable<ChatWidth>.choice(
@@ -249,63 +204,6 @@ public nonisolated struct AgentPaneTunables {
 
     /// Chat trials also set in layout.json (webviews acpmux/labs.ts). New tabs read these choices
     /// at document start; an explicit layout value wins (Lucas 2026-10-18).
-    public static let liveRender = Tunable<Bool>.toggle(
-        "agentPane.labs.liveRender", PageTunables.section, "Live render cards in chat",
-        help: "Render cards draw inline as they are written and can talk back to the chat. New agent tabs.",
-        default: true, code: "AgentPaneTunables.liveRender")
-    /// Teach the agent once per session while live render is on (Lucas 2026-10-19).
-    public static let renderGuide = Tunable<Bool>.toggle(
-        "agentPane.labs.renderGuide", PageTunables.section, "Teach agents to draw in chat",
-        help: "Send inline render guidance with the first prompt of each agent session while live render is on. New agent tabs.",
-        default: true, code: "AgentPaneTunables.renderGuide")
-    /// Native defaults stay scoped to live render frames (Lucas 2026-10-19).
-    public static let renderKit = Tunable<Bool>.toggle(
-        "agentPane.labs.renderKit", PageTunables.section, "Native styles for chat renders",
-        help: "Native controls, charts and follow-ups in live chat renders. New agent tabs.",
-        default: true, code: "AgentPaneTunables.renderKit")
-    /// Agent preview and wide-table trials share the pane's live layout overrides.
-    public static let renderPreview = Tunable<Bool>.toggle(
-        "agentPane.labs.renderPreview", PageTunables.section, "Let agents preview chat renders",
-        help: "Capture sandboxed renders with diagnostics before showing them. New agent tabs.",
-        default: true, code: "AgentPaneTunables.renderPreview")
-    public static let renderExpand = Tunable<Bool>.toggle(
-        "agentPane.labs.renderExpand", PageTunables.section, "Open chat renders larger",
-        help: "A quiet hover control opens a render in a larger dialog. New agent tabs.",
-        default: true, code: "AgentPaneTunables.renderExpand")
-    public static let tableScroll = Tunable<Bool>.toggle(
-        "agentPane.labs.tableScroll", PageTunables.section, "Scroll wide chat tables",
-        help: "Keep wide tables within the reply column. New agent tabs.",
-        default: true, code: "AgentPaneTunables.tableScroll")
-    public static let contextMeter = Tunable<Bool>.toggle(
-        "agentPane.labs.contextMeter", PageTunables.section, "Context ring beside the model",
-        help: "A ring beside the model shows context use and opens its token details. New agent tabs.",
-        default: false, code: "AgentPaneTunables.contextMeter")
-    public static let promptCollapse = Tunable<Bool>.toggle(
-        "agentPane.labs.promptCollapse", PageTunables.section, "Fold long prompts",
-        help: "Long prompts fold to eight lines and open for Find. New agent tabs.",
-        default: false, code: "AgentPaneTunables.promptCollapse")
-    public static let messageTimes = Tunable<Bool>.toggle(
-        "agentPane.labs.messageTimes", PageTunables.section, "Prompt send times on hover",
-        help: "Prompts show their send time on hover or focus. New agent tabs.",
-        default: false, code: "AgentPaneTunables.messageTimes")
-    public static let codeWrap = Tunable<Bool>.toggle(
-        "agentPane.labs.codeWrap", PageTunables.section, "One wrap choice for all code blocks",
-        help: "One remembered wrap choice applies to every code block in the pane. New agent tabs.",
-        default: false, code: "AgentPaneTunables.codeWrap")
-    public static let planProgress = Tunable<Bool>.toggle(
-        "agentPane.labs.planProgress", PageTunables.section, "Plan progress above the composer",
-        help: "The running plan's current step stays above the composer. New agent tabs.",
-        default: false, code: "AgentPaneTunables.planProgress")
-    public static let shortcutsHelp = Tunable<Bool>.toggle(
-        "agentPane.labs.shortcutsHelp", PageTunables.section, "Keyboard shortcuts in the chat menu",
-        help: "The chat menu shows the keyboard shortcuts available in the pane. New agent tabs.",
-        default: false, code: "AgentPaneTunables.shortcutsHelp")
-
-    static let labTunables: [String: Tunable<Bool>] = [
-        "live-render": liveRender, "render-guide": renderGuide, "render-kit": renderKit, "render-preview": renderPreview, "render-expand": renderExpand, "table-scroll": tableScroll, "context-meter": contextMeter, "prompt-collapse": promptCollapse,
-        "message-times": messageTimes, "code-wrap": codeWrap, "plan-progress": planProgress,
-        "shortcuts-help": shortcutsHelp
-    ]
     /// What a folded long thought's line reads: how long the agent thought, or its first line.
     /// Only a folded thought shows it (``foldLongThoughts``). New agent tabs read it.
     public static let thoughtHeader = Tunable<AgentPaneThoughtHeader>.choice(

@@ -1796,9 +1796,11 @@ export class AcpmuxDirectClient {
         this.queuedSends.add(id);
         this.promptAccepts.get(id)?.();
       }
-    } else if (event.kind === "queue_removed" || event.kind === "dequeued")
-      this.queue = this.queue.filter((entry) => entry.id !== String(msg.promptId ?? ""));
-    else if (event.kind === "permission_request") {
+    } else if (event.kind === "queue_removed" || event.kind === "dequeued") {
+      const id = String(msg.promptId ?? "");
+      if (event.kind === "queue_removed" && event.sessionId) this.forgetQueuedRenderGuide(event.sessionId, id);
+      this.queue = this.queue.filter((entry) => entry.id !== id);
+    } else if (event.kind === "permission_request") {
       this.openQuestions.add(String(msg.permissionId ?? `permission-${event.seq}`));
       this.markAwaitingPermission(msg.request?.toolCall?.toolCallId);
       this.applyPermission({ ...msg, sessionId: event.sessionId });
@@ -2716,7 +2718,9 @@ export class AcpmuxDirectClient {
   async removeQueued(promptId: string): Promise<{ removed: boolean }> {
     const sessionId = this.actingSessionId;
     if (!sessionId) return { removed: false };
-    return this.request("_acpmux/queue_remove", { sessionId, promptId });
+    const result = await this.request("_acpmux/queue_remove", { sessionId, promptId });
+    if (result.removed) this.forgetQueuedRenderGuide(sessionId, promptId);
+    return result;
   }
   /// Archive has acpmux tag the selected chat `archived` (the lists hide it; acpmux values it with
   /// when); Unarchive removes the tag. The page sends it on its own connection (cx-jlzsf).
@@ -2931,7 +2935,7 @@ export class AcpmuxDirectClient {
     if (result.ok && edit.op === "update") this.forgetQueuedRenderGuide(sessionId, promptId);
     return result;
   }
-  /// Replacing queued text strips its hidden context marks (Lucas 2026-10-19).
+  /// Withdrawing or replacing queued text leaves the unsent guide for the next prompt.
   private forgetQueuedRenderGuide(sessionId: string, promptId: string): void {
     if (this.renderGuides.get(sessionId)?.promptId === promptId) this.renderGuides.delete(sessionId);
   }
