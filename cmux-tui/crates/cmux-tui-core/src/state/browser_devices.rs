@@ -5,7 +5,10 @@
 //! in (`data/emulated-devices.json`): Chrome DevTools' own list, verbatim
 //! (Chrome's JSONV1 keys, Chrome's order; `scripts/cmux-next/
 //! import-chrome-devices.py` refreshes it), then newer devices Chrome does not
-//! list yet (`"origin": "cmux"`, each with its `sources`). Custom devices
+//! list yet (`"origin": "cmux"`, each with its `sources`). `chrome-annotations`
+//! gives Chrome's rows the menu fields cmux rows carry themselves (`released`,
+//! `brand`, `group`: phone, foldable, tablet, laptop, desktop, smart-display).
+//! Custom devices
 //! (`browser.devices.add_custom`) are rows of the home session's store, in
 //! the same format. `browser.tab.emulate` keeps the chosen device and
 //! orientation on the tab (`tab_state.emulation_json`), and every tab
@@ -60,10 +63,16 @@ fn built_in() -> &'static BuiltIn {
         let chrome = file.get("chrome").cloned().unwrap_or(Value::Null);
         let chromium =
             chrome.get("chromium").and_then(Value::as_str).unwrap_or_default().to_string();
+        let notes = file.get("chrome-annotations").and_then(Value::as_object);
         let devices = file
             .get("devices")
             .and_then(Value::as_array)
-            .map(|list| list.iter().filter(|device| check(device).is_ok()).cloned().collect())
+            .map(|list| {
+                list.iter()
+                    .filter(|device| check(device).is_ok())
+                    .map(|device| annotate(device, notes))
+                    .collect()
+            })
             .unwrap_or_default();
         BuiltIn { chrome, chromium, devices }
     })
@@ -110,15 +119,18 @@ fn custom(connection: &Connection) -> anyhow::Result<Vec<Value>> {
     Ok(devices)
 }
 
-/// `browser.devices.list`: the custom devices, then the built-in ones.
+/// `browser.devices.list`: the custom devices, then the built-in ones, each
+/// with Chrome's menu `category` and cmux's finer `group` and `brand`.
 pub(crate) fn list(connection: &Connection) -> anyhow::Result<Value> {
     let list = built_in();
     let mut devices = custom(connection)?;
     devices.extend(list.devices.iter().cloned());
     for device in &mut devices {
-        let category = category(device);
+        let (category, group, brand) = (category(device), group(device), brand(device));
         if let Some(object) = device.as_object_mut() {
             object.insert("category".into(), json!(category));
+            object.insert("group".into(), json!(group));
+            object.insert("brand".into(), json!(brand));
         }
     }
     Ok(json!({"chrome": list.chrome, "devices": devices}))
@@ -136,6 +148,53 @@ fn category(device: &Value) -> &'static str {
         "tablet-desktop"
     } else {
         "mobile"
+    }
+}
+
+/// The groups of cmux's device menu, in menu order (finer than Chrome's
+/// `category`: laptops and desktops apart from tablets).
+pub(crate) const GROUPS: [&str; 6] = ["phone", "foldable", "tablet", "laptop", "desktop", "smart-display"];
+
+/// A Chrome row with the fields the data file's `chrome-annotations` give it
+/// by title (`released`, `brand`, `group`): Chrome's own rows stay verbatim
+/// in `devices`, so `import-chrome-devices.py` can rewrite them.
+fn annotate(device: &Value, notes: Option<&Map<String, Value>>) -> Value {
+    let mut device = device.clone();
+    let title = device["title"].as_str().unwrap_or_default().to_string();
+    if let (Some(extra), Some(object)) =
+        (notes.and_then(|notes| notes.get(&title)).and_then(Value::as_object), device.as_object_mut())
+    {
+        for (key, value) in extra {
+            object.entry(key.clone()).or_insert_with(|| value.clone());
+        }
+    }
+    device
+}
+
+/// The menu group of `device`: its own `group` when it names one of
+/// `GROUPS`, else from Chrome's `type` and its spanned screens.
+fn group(device: &Value) -> &'static str {
+    if let Some(named) = device.get("group").and_then(Value::as_str)
+        && let Some(group) = GROUPS.iter().find(|group| **group == named)
+    {
+        return group;
+    }
+    match device.get("type").and_then(Value::as_str).unwrap_or_default() {
+        _ if spans(device) => "foldable",
+        "foldable" => "foldable",
+        "smart-display" => "smart-display",
+        "tablet" => "tablet",
+        "notebook" => "laptop",
+        "desktop" => "desktop",
+        _ => "phone",
+    }
+}
+
+/// The maker the menu files `device` under ("Other" when the row names none).
+fn brand(device: &Value) -> String {
+    match device.get("brand").and_then(Value::as_str).map(str::trim) {
+        Some(brand) if !brand.is_empty() => brand.to_string(),
+        _ => "Other".to_string(),
     }
 }
 

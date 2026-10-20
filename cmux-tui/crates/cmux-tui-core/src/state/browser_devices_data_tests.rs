@@ -10,10 +10,9 @@ use std::collections::HashSet;
 use rusqlite::Connection;
 use serde_json::Value;
 
-use super::browser_devices::{create_schema, list};
+use super::browser_devices::{GROUPS, create_schema, list};
 
 const DATA: &str = include_str!("../../data/emulated-devices.json");
-const GROUPS: [&str; 6] = ["phone", "foldable", "tablet", "laptop", "desktop", "smart-display"];
 
 fn served() -> Vec<Value> {
     let mut connection = Connection::open_in_memory().unwrap();
@@ -69,12 +68,17 @@ fn sizes_ratios_and_user_agents_are_sane() {
 }
 
 #[test]
-fn every_device_has_a_group_a_brand_and_a_release_month() {
+fn every_device_has_a_group_a_brand_and_a_release_month_but_generic_screens() {
     for device in served() {
         let name = title(&device);
         let group = device["group"].as_str().unwrap_or_default();
         assert!(GROUPS.contains(&group), "{name}: group {group:?}");
-        assert!(!device["brand"].as_str().unwrap_or_default().is_empty(), "{name}: no brand");
+        let brand = device["brand"].as_str().unwrap_or_default();
+        assert!(!brand.is_empty() && brand != "Other", "{name}: no brand");
+        // Generic screens ("Desktop 1080p", Chrome's "Laptop with ...") have no release month.
+        if brand == "Generic" {
+            continue;
+        }
         let released = device["released"].as_str().unwrap_or_default();
         let ok = released.len() == 7
             && released[..4].parse::<u32>().is_ok_and(|y| (2010..=2030).contains(&y))
