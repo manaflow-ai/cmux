@@ -231,6 +231,9 @@ public final class HomeChiefSettingsView: NSView {
     /// Return, or the end of an edit: a new, non-empty name renames the Chief.
     @objc func renamed() {
         let name = nameField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        // A blank name renames nothing, so the field shows the name the Chief keeps; a kept
+        // name shows as it is saved, without the spaces around it.
+        nameField.stringValue = name.isEmpty ? shownName : name
         guard !name.isEmpty, name != shownName else { return }
         shownName = name
         onRename(name)
