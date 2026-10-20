@@ -7,6 +7,7 @@ import { EMPTY_OMNIBAR, type OmnibarContext } from "../omnibar";
 import { ComposerContext } from "../ComposerContext";
 import type { Project } from "../ProjectChooser";
 import { isAgentHome, mostRecentProject } from "../sessionList";
+import { WorktreeFailure } from "../startFolder";
 import type { ComposerAttachment } from "../attachments";
 import { AttachmentStrip, useAttachmentIntake } from "../composer/attachmentIntake";
 import { AllChatsList, type LoadChatsPage } from "./AllChatsList";
@@ -85,6 +86,14 @@ export type NewTabScreenActions = {
   /// The machine the page runs on and its chat starts on (the host's name for it), for the
   /// location row's computer.
   machineName?: string;
+  /// Preview features on: the location row's computer is the environment picker (ComposerContext).
+  environments?: boolean;
+  /// The environment picker's New environment: the host's SSH and cmux Cloud connect flows.
+  onConnect?(kind: "ssh" | "cloud"): void;
+  /// With `environments`, New Worktree beside the folder: the host makes a worktree of `cwd` and
+  /// this resolves to the folder the chat starts in (startFolder.tsx newWorktree); rejects with the
+  /// host's reason.
+  onNewWorktree?(cwd: string): Promise<string | undefined>;
   /// New terminal / New browser tab (cx-ag5.7): the host replaces this tab with a blank one.
   onCreate?(kind: "terminal" | "browser"): void;
   /// The Now Playing player's controls (`nowPlaying.command`); without it the page shows no player.
@@ -679,7 +688,10 @@ export function NewTabScreen(props: Props) {
       else input.blur();
     }
   };
+  // Each folder choice takes a number; a worktree reply applies only while its choice is the latest.
+  const projectChoice = useRef(0);
   const pickProject = (cwd?: string) => {
+    projectChoice.current += 1;
     touch();
     setPicked(true);
     setNone(cwd === undefined);
@@ -693,6 +705,23 @@ export function NewTabScreen(props: Props) {
     () => snapshot.sessions.filter((session) => !session.peer && session.hostKind !== "cloud"),
     [snapshot.sessions],
   );
+  const [worktreeError, setWorktreeError] = useState<string>();
+  const newWorktreeHere =
+    props.environments && props.onNewWorktree
+      ? (cwd: string) => {
+          setWorktreeError(undefined);
+          const choice = ++projectChoice.current;
+          void props.onNewWorktree!(cwd).then(
+            (folder) => {
+              if (folder && choice === projectChoice.current) pickProject(folder);
+            },
+            (error: unknown) => {
+              if (choice === projectChoice.current)
+                setWorktreeError((error instanceof Error && error.message) || String(error));
+            },
+          );
+        }
+      : undefined;
   const browseProject = props.onBrowseProject
     ? () => {
         void props.onBrowseProject?.().then((cwd) => {
@@ -701,12 +730,68 @@ export function NewTabScreen(props: Props) {
       }
     : undefined;
   const Chips = props.chips;
+  /// The Cards template (u2851): the field is a pill of its own and the chips sit under it.
+  const pill = template === "cards";
+  // Where the chat starts: the folder Enter asks in (askFolder), picked as in the agent composer's
+  // location strip; never the home ~ the tab inherited (cx-7fje0).
+  const folderStrip = (
+    <div className="nt-location" data-project-pending={projectPending || undefined} onPointerDownCapture={touch}>
+      <ComposerContext
+        summary={{
+          ...chipSnapshot.summary,
+          sessionId: chipSnapshot.summary?.sessionId ?? "",
+          ...(askFolder ? { cwd: askFolder } : { cwd: undefined }),
+        }}
+        // A New Tab chat starts where the page runs (screenActions onAsk sends no peer): the
+        // row lists only this machine's chats, so its Computer menu offers no other.
+        sessions={localSessions}
+        {...(props.machineName ? { localName: props.machineName } : {})}
+        projectChoices={props.projects ?? []}
+        onProject={(cwd) => pickProject(cwd)}
+        onNoProject={() => pickProject(undefined)}
+        noProject={none}
+        {...(browseProject ? { onBrowseProject: browseProject } : {})}
+        {...(props.environments ? { environments: true } : {})}
+        {...(newWorktreeHere ? { onNewWorktree: newWorktreeHere } : {})}
+        {...(props.environments && props.onConnect ? { onConnect: props.onConnect } : {})}
+      />
+    </div>
+  );
+  // The button row: a right-click here shows the mic hidden from its own (composerChrome.tsx);
+  // this page draws no context ring.
+  const pickers = (
+    <ChromeArea className="acpmux-chrome-area" items={[chrome.dictation]}>
+      <div className="nt-pickers" data-footer-look={plainFooter ? "plain" : undefined} onPointerDownCapture={touch}>
+        {/* The folder Enter asks in (screenActions: the picked project, else the tab's), so a pick's
+        switch is the one Enter reuses. */}
+        {Chips && <Chips snapshot={chipSnapshot} {...(chatFolder ? { cwd: chatFolder } : {})} />}
+        <span className="acpmux-composer-actions">
+          {props.accessory}
+          {/* Send: a click does what Return does (a prompt, a row, or a shell command). Cards draws
+              none, as Aside's New Tab: Return sends. */}
+          {!pill && (
+            <button
+              type="button"
+              className={text.trim() ? "acpmux-send acpmux-send-ready nt-send" : "acpmux-send nt-send"}
+              aria-label={t("composer.send")}
+              title={t("composer.sendTooltip")}
+              disabled={!text.trim()}
+              onClick={send}
+            >
+              <ArrowUpIcon />
+            </button>
+          )}
+        </span>
+      </div>
+    </ChromeArea>
+  );
   return (
     <div
       ref={screen}
       className="nt-screen"
       data-shell={shell || undefined}
       data-template={template}
+      data-mode={mode}
       data-all-chats={allChats || undefined}
     >
       {/* One card, the agent composer's (Composer.tsx; Leo 2026-10-13): the field on top, then the
@@ -714,26 +799,8 @@ export function NewTabScreen(props: Props) {
           chat starts in heads it, as text over the card (ComposerContext, the composer's own; hq#1957
           composer location strip; newtab/screen.css). */}
       <div className="nt-composer">
-        {/* Where the chat starts: the folder Enter asks in (askFolder), picked as in the agent
-            composer's location strip; never the home ~ the tab inherited (cx-7fje0). */}
-        <div className="nt-location" data-project-pending={projectPending || undefined} onPointerDownCapture={touch}>
-          <ComposerContext
-            summary={{
-              ...chipSnapshot.summary,
-              sessionId: chipSnapshot.summary?.sessionId ?? "",
-              ...(askFolder ? { cwd: askFolder } : { cwd: undefined }),
-            }}
-            // A New Tab chat starts where the page runs (screenActions onAsk sends no peer): the
-            // row lists only this machine's chats, so its Computer menu offers no other.
-            sessions={localSessions}
-            {...(props.machineName ? { localName: props.machineName } : {})}
-            projectChoices={props.projects ?? []}
-            onProject={(cwd) => pickProject(cwd)}
-            onNoProject={() => pickProject(undefined)}
-            noProject={none}
-            {...(browseProject ? { onBrowseProject: browseProject } : {})}
-          />
-        </div>
+        {worktreeError && <WorktreeFailure error={worktreeError} onDismiss={() => setWorktreeError(undefined)} />}
+        {!pill && folderStrip}
         <div ref={setBox} className="nt-box">
           {/* What was pasted on the field or dropped on the page, as a chat's composer shows it. */}
           <AttachmentStrip
@@ -819,34 +886,16 @@ export function NewTabScreen(props: Props) {
               </span>
             )}
           </div>
-          {/* The button row: a right-click here shows the mic hidden from its own (composerChrome.tsx);
-            this page draws no context ring. */}
-          <ChromeArea className="acpmux-chrome-area" items={[chrome.dictation]}>
-            <div
-              className="nt-pickers"
-              data-footer-look={plainFooter ? "plain" : undefined}
-              onPointerDownCapture={touch}
-            >
-              {/* The folder Enter asks in (screenActions: the picked project, else the tab's), so a pick's
-              switch is the one Enter reuses. */}
-              {Chips && <Chips snapshot={chipSnapshot} {...(chatFolder ? { cwd: chatFolder } : {})} />}
-              <span className="acpmux-composer-actions">
-                {props.accessory}
-                {/* Send: a click does what Return does (a prompt, a row, or a shell command). */}
-                <button
-                  type="button"
-                  className={text.trim() ? "acpmux-send acpmux-send-ready nt-send" : "acpmux-send nt-send"}
-                  aria-label={t("composer.send")}
-                  title={t("composer.sendTooltip")}
-                  disabled={!text.trim()}
-                  onClick={send}
-                >
-                  <ArrowUpIcon />
-                </button>
-              </span>
-            </div>
-          </ChromeArea>
+          {!pill && pickers}
         </div>
+        {/* Cards (u2851): the project, the agent's chips and the mic are a row under the field, as
+            Aside's New Tab draws them; it steps aside while Search shows its suggestions. */}
+        {pill && (
+          <div className="nt-toolbar">
+            {folderStrip}
+            {pickers}
+          </div>
+        )}
       </div>
       {rows.length > 0 && box && (
         <Popover
@@ -905,7 +954,9 @@ export function NewTabScreen(props: Props) {
       {/* The create actions (cx-ag5.7, dogfood call K2): a blank terminal in the tab's folder, a
           browser tab on the new tab page, or this page as an empty chat with the agent Return asks.
           Not beside All chats: that list takes the room under the field (new-tab-scroll). */}
-      {!allChats && (
+      {/* Cards draws no create row (u2851, as Aside's New Tab): New Terminal, New Browser Tab and
+          New Chat stay in the palette and the pane's + menu. */}
+      {!allChats && !pill && (
         // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
         <div className="nt-create ui-ghost-row" role="group" aria-label={nt("create.label")}>
           {props.onCreate && (

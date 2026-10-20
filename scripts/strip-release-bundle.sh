@@ -121,6 +121,17 @@ if [ -d "$APP_PATH/Contents/Library/SystemExtensions" ]; then
   done < <(find "$APP_PATH/Contents/Library/SystemExtensions" -path '*/Contents/MacOS/*' -type f -print0)
 fi
 
+# Mergeable frameworks (Sentry.framework) carry LC_ATOM_INFO, data that only a
+# static link into another image reads, never dyld: 6.6 MB of Sentry's 9.7 MB
+# binary (nightly-next, 2026-10-20). Remove it and the debug stabs (-S); every
+# symbol stays, so the framework's own frames still symbolicate.
+if [ -d "$APP_PATH/Contents/Frameworks" ]; then
+  while IFS= read -r -d '' binary; do
+    echo "removing LC_ATOM_INFO: $binary"
+    "$STRIP_TOOL" -S -no_atom_info -no_code_signature_warning "$binary"
+  done < <(python3 -I "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/find-atom-info-macho.py" "$APP_PATH/Contents/Frameworks")
+fi
+
 # Compiled String Catalogs ship as binary property lists. Xcode re-encodes them
 # with STRINGS_FILE_OUTPUT_ENCODING, and the project's binary setting does not
 # reach SwiftPM package targets, so the resource bundles' tables arrive as

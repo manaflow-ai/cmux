@@ -203,13 +203,6 @@ wire_enum! {
     }
 }
 
-wire_enum! {
-    HomeParticipantRole {
-        Owner = "owner",
-        Member = "member",
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct HomeParticipantInput {
     pub id: ParticipantId,
@@ -232,6 +225,15 @@ wire_enum! {
     HomeParticipantInputAgentClass {
         Mux = "mux",
         Agent = "agent",
+    }
+}
+
+wire_enum! {
+    HomeParticipantRole {
+        Owner = "owner",
+        Admin = "admin",
+        Member = "member",
+        ReadOnly = "read_only",
     }
 }
 
