@@ -476,6 +476,16 @@ body {
   height: auto;
 }
 
+/* Ondine's monochrome diagrams take the page's colors (its defaults are black on white). */
+.md-diagram svg.ondine {
+  --ondine-fg: var(--page-text);
+  --ondine-bg: var(--page-elevated);
+  --ondine-muted: var(--page-text-2);
+  --ondine-line: var(--page-text-2);
+  --ondine-border: var(--page-text-2);
+  --ondine-surface-alt: color-mix(in srgb, var(--page-text) 8%, var(--page-elevated));
+}
+
 .md-code-diagram pre {
   display: none;
   border-top: 1px solid var(--cmux-md-border-color);
