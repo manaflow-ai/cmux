@@ -413,6 +413,7 @@ enum Fixtures {
     static let enrollmentJSON = """
     {"tunnelId":"tun_1","provider":"freestyle","deviceFingerprint":"ios-abc",
      "clientConfig":"[Interface]\\nPrivateKey =\\nAddress = 100.64.0.7/32\\nMTU = 1200\\n\\n[Peer]\\nPublicKey = spk\\nAllowedIPs = 10.0.0.0/8, fd00::/8\\nEndpoint = [2600:1f18::1]:51820\\n",
+     "mtu":1200,
      "clientPublicKey":"cpk","serverPublicKey":"spk","endpointHost":"2600:1f18::1","endpointPort":51820,
      "routes":["10.0.0.0/8","fd00::/8"],"address":{"ipv4":"100.64.0.7","ipv6":"fd7a:7570:6c6b::7"},
      "network":{"cidr":"10.100.0.0/16","cidrV6":"fd7a:7570:6c6b::/64"},"created":true,"rotated":false}

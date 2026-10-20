@@ -504,8 +504,27 @@ export function mapFreestyleNetwork(data: VpcData): ProviderNetwork {
   };
 }
 
+/** Reads the interface MTU from provider-owned wg-quick text for the client contract. */
+export function wireGuardInterfaceMtu(clientConfig: string): number | undefined {
+  let inInterface = false;
+  for (const line of clientConfig.split(/\r?\n/)) {
+    const section = line.match(/^\s*\[([^\]]+)\]\s*$/)?.[1]?.trim().toLowerCase();
+    if (section) {
+      inInterface = section === "interface";
+      continue;
+    }
+    if (!inInterface) continue;
+    const match = line.match(/^\s*mtu\s*=\s*(\d+)\s*$/i);
+    if (!match) continue;
+    const mtu = Number(match[1]);
+    return Number.isInteger(mtu) && mtu > 0 && mtu <= 65_535 ? mtu : undefined;
+  }
+  return undefined;
+}
+
 export function mapFreestyleTunnel(data: TunnelData, networkId: string): ProviderTunnel {
   const attachment = data.attachments.find((entry) => entry.vpcId === networkId);
+  const mtu = wireGuardInterfaceMtu(data.clientConfig);
   return {
     id: data.tunnelId ?? data.id,
     clientConfig: data.clientConfig,
@@ -513,6 +532,7 @@ export function mapFreestyleTunnel(data: TunnelData, networkId: string): Provide
     serverPublicKey: data.serverPublicKey,
     endpointHost: data.endpointHost ?? null,
     endpointPort: data.endpointPort,
+    ...(mtu === undefined ? {} : { mtu }),
     routes: data.routes ?? [],
     addressV4: attachment?.ipv4 ?? null,
     addressV6: attachment?.ipv6 ?? null,

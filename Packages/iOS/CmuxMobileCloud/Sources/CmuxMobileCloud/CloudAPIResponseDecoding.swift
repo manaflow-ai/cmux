@@ -104,6 +104,7 @@ public struct CloudAPIResponseDecoding: Sendable {
             serverPublicKey: serverPublicKey,
             endpointHost: object["endpointHost"] as? String,
             endpointPort: endpointPort,
+            mtu: Self.positiveInt(object["mtu"]),
             routes: (object["routes"] as? [String]) ?? [],
             addressV4: address?["ipv4"] as? String,
             addressV6: address?["ipv6"] as? String,

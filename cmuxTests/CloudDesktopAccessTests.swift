@@ -1,5 +1,6 @@
 import CmuxCloudBannerCore
 import CmuxCloud
+import CmuxFoundation
 import CmuxSettings
 import CmuxSurfaceCatalogModel
 import Foundation
@@ -477,6 +478,14 @@ struct CloudDesktopAccessTests {
             wake: {}, startForward: { _ in 48000 }, stopForward: {}, route: .loopback)
         state.configure(model: model, url: URL(string: "http://10.0.0.7:7042/vnc.html")!, desktopPort: 7042)
         #expect(state.isDesktop)
+    }
+
+    @Test("Desktop healing follows runtime capability and keeps the legacy provider fallback")
+    func desktopHealingUsesRuntimeCapability() {
+        #expect(CmuxTuiSurfaceProvider.desktopHealingPort(providerID: "future-provider", advertisedDesktopPort: 7042) == 7042)
+        #expect(CmuxTuiSurfaceProvider.desktopHealingPort(providerID: ManagedCloudVMConstants.legacyProviderID, advertisedDesktopPort: 7042) == 7042)
+        #expect(CmuxTuiSurfaceProvider.desktopHealingPort(providerID: ManagedCloudVMConstants.legacyProviderID, advertisedDesktopPort: nil) == CmuxTuiSnapshotParser.desktopPort)
+        #expect(CmuxTuiSurfaceProvider.desktopHealingPort(providerID: "future-provider", advertisedDesktopPort: nil) == nil)
     }
 
     @Test("An arbitrary resource-less VNC page is not a desktop")

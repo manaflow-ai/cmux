@@ -5,6 +5,19 @@ import CmuxSurfaceCatalogModel
 import Foundation
 
 extension CmuxTuiSurfaceProvider {
+    /// Returns the port whose unreachable browser proxy may be healed by the
+    /// control plane. New images advertise this capability through `runtime`;
+    /// only a metadata-less legacy Freestyle machine uses the shipped image
+    /// port as a migration fallback.
+    nonisolated static func desktopHealingPort(providerID: String, advertisedDesktopPort: Int?) -> Int? {
+        if let advertisedDesktopPort, (1...65_535).contains(advertisedDesktopPort) {
+            return advertisedDesktopPort
+        }
+        return providerID == ManagedCloudVMConstants.legacyProviderID
+            ? CmuxTuiSnapshotParser.desktopPort
+            : nil
+    }
+
     /// Rebind active browser panes when the VM private address changes.
     func refreshCloudBrowserRoutes() {
         for resource in catalog.snapshot.resources(on: machine) where resource.kind != .terminal {
@@ -324,7 +337,10 @@ extension CmuxTuiSurfaceProvider {
                 // that timed out (a busy carrier) used to start this repair, a guest
                 // exec of about 12s, on a healthy desktop: display 1 then showed
                 // "Loading Cloud page" for 20s or more.
-                if self.providerID == ManagedCloudVMConstants.legacyProviderID, port == (self.info.desktopPort ?? CmuxTuiSnapshotParser.desktopPort),
+                if let desktopPort = Self.desktopHealingPort(
+                    providerID: self.providerID,
+                    advertisedDesktopPort: self.info.desktopPort
+                ), port == desktopPort,
                    try await CloudBrowserRouting.desktopReachability(endpoint: endpoint, address: address, port: port) == .unreachable {
                     try Task.checkCancellation()
                     guard self.isCurrentLifecycleGeneration(generation), self.isRegisteredInCatalog() else { throw CancellationError() }
