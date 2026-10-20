@@ -44,6 +44,21 @@ end of that turn, which can take an hour.
   still delays it. A deadline that converts a pending steer into an
   interrupt is possible follow-up work.
 
+## Follow-up (a298, 2026-10-20)
+
+- acpmux interrupts by default: a `session/prompt` sent while a turn runs
+  stops that turn and runs next unless it asks to queue (`_meta.acpmux.queue`,
+  `acpmux send --queue`, config `busyPrompt: "queue"`). A `queue` tell skips
+  the steer and is sent as queued (`AgentPort::start_prompt_queued`).
+- Gap 2 closed: a steer Claude Code has not read within
+  `steerReadDeadlineMs` (default 500) stops its running tool
+  (`_acpmux/steer_now`); the turn goes on and Claude reads every waiting
+  message, in order. Codex takes a steer at once.
+  `cmux-tui/crates/acpmux/tests/hub_integration/tell_delivery.rs` checks that
+  tells sent during a 30 s tool are read within 1 s, in order.
+- The human composers keep their keys: the agent pane's Enter and the acpmux
+  TUI's Enter mid-turn now send `queue: true`, so they still queue.
+
 ## Tests
 
 `Native/OptChat/optchat-chief/tests/subagent_control.rs`:
