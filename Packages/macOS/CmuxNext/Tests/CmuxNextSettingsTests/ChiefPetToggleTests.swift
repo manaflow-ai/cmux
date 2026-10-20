@@ -6,7 +6,7 @@ import Testing
 
 /// Show Chief Pet / Hide Chief Pet (`home.toggleChiefPet`): the View menu item and palette row
 /// flip `home.chiefPetEnabled` and read as the change they make. It is person-only with no CLI
-/// verb, and an agent cannot turn the pet on.
+/// verb (the control socket refuses an agent's run); an agent sets the key itself instead.
 @MainActor @Suite(.serialized) struct ChiefPetToggleTests {
     static func make() throws -> (ActionRegistry, SettingsController, URL) {
         let home = FileManager.default.temporaryDirectory.appending(path: "cn-chief-pet-toggle-\(UUID().uuidString)")
@@ -56,13 +56,14 @@ import Testing
         #expect(action.targetTitle?(ActionInvocation()) == nil)
     }
 
-    @Test func anAgentCannotTurnThePetOn() async throws {
+    /// `home.chiefPetEnabled` is agent-settable (ChiefPetSettingTests), so a write as an agent
+    /// lands; the toggle itself stays person-only at the control socket (`isPersonOnly` above).
+    @Test func anAgentOriginWriteTurnsThePetOn() async throws {
         let (registry, settings, home) = try Self.make()
         defer { try? FileManager.default.removeItem(at: home) }
         await settings.reload()
-        let failures = await Self.run(registry, origin: .mcp)
-        #expect(failures.count == 1)
-        #expect(settings.snapshot.homeChiefPetEnabled == false)
+        #expect(await Self.run(registry, origin: .mcp).isEmpty)
+        #expect(settings.snapshot.homeChiefPetEnabled)
     }
 
     /// Two runs before the first write lands (a double-click on the menu item): the second flips
