@@ -163,6 +163,9 @@ describe("Cloud Chief on the Claude Code route", { timeout: 120_000 }, () => {
     expect(runs.map((r) => r.status)).toEqual(["done", "done"])
     const run = (await http("GET", `/v1/chiefs/${chief.id}/runs/${runs[1].id}?conversation=${chief.main_conversation}`, token)).json.value
     expect(run.steps.filter((s: any) => s.kind === "talk").map((s: any) => s.text)).toEqual(["The launch code word is TANGERINE."])
+    // Run.timing as a pi run has it: the request at the submit, the first token at the first streamed delta.
+    expect(run.run.timing?.request_at).toBeGreaterThan(0)
+    expect(run.run.timing?.first_token_at).toBeGreaterThanOrEqual(run.run.timing?.request_at)
     // Neither the tailnet key nor the turn token reaches a reply or a run.
     const all = JSON.stringify([await history(token, chief.main_conversation), runs, run])
     for (const secret of [...cloud.keys, ...cloud.started.map((s) => s.input.token)]) expect(all).not.toContain(secret)

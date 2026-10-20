@@ -67,6 +67,9 @@ export const tail = (text: string, max: number): string => {
   return `[... the oldest part of the view is cut here ...]\n${text.slice(text.length - lo)}`
 }
 const clipBytes = (text: string, max: number) => (enc.encode(text).length <= max ? text : new TextDecoder().decode(enc.encode(text).slice(0, max)))
+/** Run.timing (cb_timing, as a pi turn's gateway calls write it): the turn's request, and its first streamed token as the Worker got it. */
+const timing = (b: ChiefBrainDO, id: string, mark: "request" | "first_token") =>
+  void b.sql.exec(`INSERT INTO cb_timing (turn, ${mark}_at) VALUES (?, ?) ON CONFLICT (turn) DO UPDATE SET ${mark}_at = COALESCE(${mark}_at, excluded.${mark}_at)`, id, Date.now())
 const markAt = (b: ChiefBrainDO, id: string, m: string) => b.sql.exec<{ at: number }>(`SELECT at FROM cb_marks WHERE turn = ? AND mark = ?`, id, m).toArray()[0]?.at
 
 /**
@@ -149,6 +152,7 @@ export async function ccTurn(b: ChiefBrainDO, id: string, blocks: ReadonlyArray<
       if (started.exit !== 0) throw new CcError(`the turn did not start (exit ${started.exit})`)
       b.sql.exec(`UPDATE cb_turn SET submitted = 1 WHERE id = ?`, id)
       mark("submit")
+      timing(b, id, "request")
       genOf(b).set(id, 0)
       liveOf(b.doCtx).request(`${id}.0`)
     }
@@ -226,7 +230,7 @@ export async function ccNotes(b: ChiefBrainDO, token: string, body: { run?: unkn
         break
       case "text_delta":
       case "thinking_delta":
-        if (typeof e.delta === "string") ev({ type: e.type, delta: e.delta })
+        if (typeof e.delta === "string") [timing(b, run, "first_token"), ev({ type: e.type, delta: e.delta })]
         break
       case "text_done":
         if (typeof e.text === "string" && e.text.trim()) b.announce(run, [upsertStep(b.sql, run, { id: `talk:${run}.${gen}`, kind: "talk", ...clip(e.text), ended_at: Date.now() }, Date.now())])
