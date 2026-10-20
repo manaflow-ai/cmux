@@ -10,7 +10,9 @@ public import QuartzCore
 public final class AgentCursorWindowSlot: AgentCursorRendering {
     private let resolver: AgentCursorTargetResolving
     private let color: AgentCursorLayerHost.Coloring
+    private let label: AgentCursorLayerHost.Labeling
     private let hostLayer: () -> CALayer
+    private let glassLayer: () -> CALayer?
     public private(set) var stack: AgentCursorStack?
     /// A target no cursor in this window follows any more.
     public var onUntrack: ((String) -> Void)?
@@ -28,11 +30,15 @@ public final class AgentCursorWindowSlot: AgentCursorRendering {
     }
 
     public init(
-        resolver: AgentCursorTargetResolving, color: @escaping AgentCursorLayerHost.Coloring = AgentCursorStack.sessionColor,
+        resolver: AgentCursorTargetResolving, color: @escaping AgentCursorLayerHost.Coloring = { _ in AgentCursorLayer.gray },
+        label: @escaping AgentCursorLayerHost.Labeling = { AgentCursorSessionLabel(sessionID: $0).text },
+        glassLayer: @escaping () -> CALayer? = { nil },
         hostLayer: @escaping () -> CALayer
     ) {
+        self.glassLayer = glassLayer
         self.resolver = resolver
         self.color = color
+        self.label = label
         self.hostLayer = hostLayer
     }
 
@@ -46,7 +52,7 @@ public final class AgentCursorWindowSlot: AgentCursorRendering {
         let pending = pendingTyping.removeValue(forKey: event.sessionID)
         if stack == nil {
             guard resolver.placement(forTarget: event.targetID) != .elsewhere else { return }
-            let made = AgentCursorStack(hostLayer: hostLayer(), resolver: resolver, color: color)
+            let made = AgentCursorStack(hostLayer: hostLayer(), glassLayer: glassLayer(), resolver: resolver, color: color, label: label)
             made.model.onUntrack = { [weak self] target in self?.onUntrack?(target) }
             stack = made
         }

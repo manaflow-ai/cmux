@@ -87,6 +87,11 @@ impl Mux {
         size: Option<(u16, u16)>,
         extra_fields: Map<String, Value>,
     ) -> anyhow::Result<Arc<Surface>> {
+        if let Some(dock) = pane
+            && self.with_state(|state| lone_pinned_dock_taking_no_tabs(state, dock))
+        {
+            return self.new_browser_column_beside_lone_dock(actor, url, dock, size, extra_fields);
+        }
         let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
         let selectors = {
             let state = self.state.lock().unwrap();
@@ -672,5 +677,39 @@ impl Mux {
     ) -> anyhow::Result<ResourcePatchCommit> {
         let mutation = WorkspaceMutation::local("cmux-tui", actor.clone());
         self.commit_resource_topology_operation(operation, selectors, fields, None, &mutation)
+    }
+}
+
+impl Mux {
+    /// `pinned-dock-alone-v1`: a browser or conversation tab made in Home's
+    /// pinned dock alone (which takes no tab) opens in a new column right of
+    /// the dock, in one `pane.split` commit, as wide as a link Home opens
+    /// there. A background tab (`frontend-browser-activate-v1`) leaves the
+    /// focus where it was.
+    fn new_browser_column_beside_lone_dock(
+        self: &Arc<Self>,
+        actor: &Actor,
+        url: String,
+        dock: PaneId,
+        size: Option<(u16, u16)>,
+        mut fields: Map<String, Value>,
+    ) -> anyhow::Result<Arc<Surface>> {
+        let background =
+            fields.remove(browser_tab_create::ACTIVATE_FIELD) == Some(Value::Bool(false));
+        fields.remove(browser_tab_create::AFTER_FIELD);
+        fields.insert(PANE_BROWSER_URL_FIELD.into(), Value::String(url));
+        let focused = self.with_state(|state| state.active_pane());
+        let surface = self.split_browser_pane_with_fields_as(
+            actor,
+            dock,
+            "right",
+            Some(LONE_DOCK_NEIGHBOR_WIDTH),
+            fields,
+            size,
+        )?;
+        if background && let Some(focused) = focused {
+            self.focus_pane_as(actor, focused);
+        }
+        Ok(surface)
     }
 }

@@ -271,6 +271,27 @@ extension Motion {
         return animation
     }
 
+    /// Sets `layer.keyPath` to `value` over `duration` seconds on the fade
+    /// curve, from the current presentation value: a spring token's
+    /// perceived duration (``duration(_:)-swift.type.method``) for a pair of
+    /// changes that must end together, as a popup's fade and shrink on close.
+    @discardableResult
+    static func set(_ layer: CALayer, _ keyPath: String, to value: Any, duration: TimeInterval, from: Any? = nil) -> CAAnimation? {
+        let start = from ?? presentationValue(layer, keyPath)
+        setModel(layer, keyPath, value)
+        guard duration > 0, let start else {
+            layer.removeAnimation(forKey: keyPath)
+            return nil
+        }
+        let animation = CABasicAnimation(keyPath: keyPath)
+        animation.duration = duration
+        animation.timingFunction = fadeCurve
+        animation.fromValue = start
+        animation.toValue = value
+        add(animation, to: layer, keyPath: keyPath, trace: "layer.\(keyPath).timed")
+        return animation
+    }
+
     /// A movement (scale, position) timed with a fade token, as a panel's
     /// shrink while it fades out. When movement does not animate (Reduce
     /// Motion, speed "off") the value stays as it is, so only the opacity
@@ -294,12 +315,13 @@ extension Motion {
 
     // MARK: Loops
 
-    /// A continuous rotation for a busy spinner, or nil when loops are off.
-    public static func spinAnimation(backward: Bool = false) -> CAAnimation? {
+    /// A continuous clockwise rotation for a busy spinner, or nil when loops are off. Clockwise
+    /// only: every spinner turns the same way.
+    public static func spinAnimation() -> CAAnimation? {
         guard let period = period(.spinner) else { return nil }
         let spin = CABasicAnimation(keyPath: "transform.rotation.z")
         spin.fromValue = 0
-        spin.toValue = (backward ? 2 : -2) * CGFloat.pi
+        spin.toValue = -2 * CGFloat.pi
         spin.duration = period
         spin.repeatCount = .infinity
         spin.isRemovedOnCompletion = false

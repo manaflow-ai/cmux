@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR a453986b67d167174f384a45b851ba6779b4ecfde280ba17c07ea656ab7e84b0. */
+/* cmux-tui mux protocol 12, IR 799b8337576dcd8bee3b1fe1fd6fd45ca0838886c6e828df95369ebbfa1dd913. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "a453986b67d167174f384a45b851ba6779b4ecfde280ba17c07ea656ab7e84b0" as const;
+export const SDK_IR_SHA256 = "799b8337576dcd8bee3b1fe1fd6fd45ca0838886c6e828df95369ebbfa1dd913" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -1666,6 +1666,17 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "See spec/commands.md for the result object."
+    ]
+  },
+  "move-column": {
+    "authority": "control",
+    "since": 12,
+    "capability": "column-move-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "pane names any pane of the column that moves; the whole column (every pane, split and row) trades places with its neighbor in direction.",
+      "A docked column never moves and is never crossed. See spec/commands.md for the result object and error codes."
     ]
   },
   "move-personal-group": {
@@ -5245,6 +5256,13 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       "kind": "scalar",
       "name": "string"
     }
+  },
+  "ColumnMoveDirection": {
+    "kind": "enum",
+    "values": [
+      "left",
+      "right"
+    ]
   },
   "ColumnPin": {
     "additional_properties": false,
@@ -20060,6 +20078,34 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "scalar",
             "name": "uint64"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "move-column": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "direction": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "ColumnMoveDirection"
+          }
+        },
+        "pane": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
           }
         }
       },

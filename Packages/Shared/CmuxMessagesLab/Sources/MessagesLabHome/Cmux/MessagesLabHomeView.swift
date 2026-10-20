@@ -39,6 +39,11 @@ public final class MessagesLabHomeView: NSView {
 
     /// The Reduce Motion observers (weak: a closed view's turn is a no-op).
     private var motionObservers: [any NSObjectProtocol] = []
+    /// An open came before the message field existed: the field takes the keyboard when it is
+    /// installed, if the keyboard is still on `openKeyboardFrom` (the responder then) or nowhere.
+    private var openKeyboardWaits = false
+    private weak var openKeyboardFrom: NSResponder?
+    private var opensOnInstall = false
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { nil }
@@ -147,11 +152,44 @@ public final class MessagesLabHomeView: NSView {
         set { controller.onAppLink = newValue }
     }
 
+    /// cmux: the pointer moved over the transcript, in screen coordinates (nil: it left). The
+    /// host's hover cards for link chips follow it (``linkChip(atScreenPoint:)``).
+    public var onPointerMoved: ((CGPoint?) -> Void)? {
+        get { controller.onPointerMoved }
+        set { controller.onPointerMoved = newValue }
+    }
+
+    /// cmux: the link chip under `screenPoint` with its pill's frame on screen, or nil (no chip
+    /// there, or the transcript is not in a window). The same hit test as a click.
+    public func linkChip(atScreenPoint screenPoint: CGPoint) -> HomeLinkChipHit? {
+        let host = controller.host
+        guard let window = host.window else { return nil }
+        let p = host.convert(window.convertPoint(fromScreen: screenPoint), from: nil)
+        guard var hit = controller.linkChip(at: p) else { return nil }
+        hit.rect = window.convertToScreen(host.convert(hit.rect, to: nil))
+        return hit
+    }
+
+    /// cmux: a press on a link that moved past the drag slop, with the pointer's screen point; true
+    /// when the host took the drag (it drops the link into a split or a pane). Nil: such a press
+    /// selects text, as before.
+    public var onDragLink: ((_ url: URL, _ screenPoint: CGPoint) -> Bool)? {
+        get { controller.onDragLink }
+        set { controller.onDragLink = newValue }
+    }
+
     /// cmux: a click on any other link in the transcript (`otherTarget`: Shift-Command held).
     /// Defaults to the system; the host routes it (cmux: its link setting).
     public var onOpenLink: (_ url: URL, _ otherTarget: Bool) -> Void {
         get { controller.onOpenLink }
         set { controller.onOpenLink = newValue }
+    }
+
+    /// cmux: where an attachment opens and what its right-click menu offers (held weakly).
+    /// Nil: the system opens it ("Open in Default App").
+    public var fileHost: HomeFileHost? {
+        get { controller.fileHost }
+        set { controller.fileHost = newValue }
     }
 
     /// A click (or Space/Return with the keyboard) on the header's name
@@ -237,6 +275,35 @@ public final class MessagesLabHomeView: NSView {
         controller.recallHistoryFromOutside(older ? .older : .newer)
     }
 
+    /// The person opened this conversation (a click on its row or pinned tile, Return in the list,
+    /// a switch key): the message field takes the keyboard, as in Messages. While the first page
+    /// is still loading the field does not exist yet; it takes the keyboard once installed, unless
+    /// the keyboard moved somewhere else in between (a click in another field, a text selection).
+    /// Never brings the window forward.
+    public func takeKeyboardOnOpen() {
+        guard !ChatController.noFocus, let window else { return }
+        if let field = controller.demo?.compose.textView.view {
+            openKeyboardWaits = false
+            if window.firstResponder !== field { window.makeFirstResponder(field) }
+            return
+        }
+        openKeyboardWaits = true
+        openKeyboardFrom = window.firstResponder
+        guard !opensOnInstall else { return }
+        opensOnInstall = true
+        controller.onInstalled.append { [weak self] _ in self?.finishOpenKeyboard() }
+    }
+
+    /// The field is installed: it takes the keyboard for an open that waited, if nothing else took it.
+    private func finishOpenKeyboard() {
+        guard openKeyboardWaits else { return }
+        openKeyboardWaits = false
+        guard let window, let field = controller.demo?.compose.textView.view else { return }
+        let now = window.firstResponder
+        guard now == nil || now === window || (openKeyboardFrom != nil && now === openKeyboardFrom) else { return }
+        window.makeFirstResponder(field)
+    }
+
     /// Puts text in the field (first-run suggestions).
     public func setDraft(_ text: String) {
         guard controller.store != nil else { return }
@@ -257,6 +324,27 @@ public final class MessagesLabHomeView: NSView {
         get { projection.onRefusal }
         set { projection.onRefusal = newValue }
     }
+
+    /// Forward… in a bubble's context menu: the host routes the bubble's text to another chat
+    /// (cmux-next's `home.sendSelectionTo`); nil leaves Forward… out of the menu.
+    public var onForward: ((String) -> Void)? {
+        get { projection.onForward }
+        set { projection.onForward = newValue }
+    }
+
+    /// Automation and tests: chooses `title` in the context menu of the shown bubble whose text
+    /// is `text`, built and chosen by the right-click's path. False when no such bubble or row shows.
+    public func debugChooseMenuItem(_ title: String, onBubble text: String) -> Bool {
+        guard let hit = debugBubble(text: text), let menu = controller.menu(at: CGPoint(x: hit.body.midX, y: hit.body.midY)) else { return false }
+        controller.menuHighlight?.discard(); controller.menuHighlight = nil // never shown
+        guard let item = menu.items.first(where: { ($0 as? MenuAction)?.label == title || $0.title == title }),
+              let action = item.action else { return false }
+        NSApp.sendAction(action, to: item.target, from: item)
+        return true
+    }
+
+    /// The localized title of a bubble's Forward… row.
+    public static var forwardMenuTitle: String { CmuxStrings.forward }
 
     // MARK: Attachments (lane 16)
 

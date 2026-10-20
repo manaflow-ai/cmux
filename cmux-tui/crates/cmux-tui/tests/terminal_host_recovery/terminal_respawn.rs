@@ -289,10 +289,52 @@ fn a_host_that_ended_at_the_orphan_grace_is_respawned_at_the_next_start() {
     wait_for_screen(&harness.socket, surface, MARKER);
 }
 
-/// c. An agent session the terminal ran is typed on the new prompt for the
-/// user to resume; it does not run.
+/// b4. #21088: after an update the new daemon cannot adopt a host of the
+/// earlier build (here: a record version it cannot read), and that host then
+/// dies without recording its shell's end (a SIGTERM from the Dock, a kill).
+/// The tab must respawn like any other host loss, not stay on
+/// "Terminal, Failed" until the user restarts the shell by hand.
 #[test]
-fn a_respawned_terminal_offers_its_agent_session_for_resume_without_running_it() {
+fn an_unadoptable_host_that_dies_without_a_record_is_respawned() {
+    let _exclusive = exclusive_process_test();
+    let mut harness = RecoveryHarness::start("respawn-unadoptable");
+    let (terminal_id, incarnation, _) = start_default_shell(&harness, "unadoptable");
+    let (record_path, record) = wait_for_host_records(&harness.host_root(), 1).remove(0);
+    harness.sigkill();
+    let mut future: serde_json::Value =
+        serde_json::from_slice(&fs::read(&record_path).unwrap()).unwrap();
+    future["record_version"] = serde_json::json!(99);
+    fs::write(&record_path, serde_json::to_vec(&future).unwrap()).unwrap();
+    harness.restart();
+    let resolved = request(
+        &harness.socket,
+        serde_json::json!({"cmd":"resolve-terminal","terminal_id":terminal_id}),
+    );
+    assert_ne!(resolved["lifecycle"], "exited", "{resolved}");
+
+    // The host and its shell die with no exit record.
+    let host_pid = record.host_pid as libc::pid_t;
+    let _ = std::process::Command::new("/usr/bin/pkill")
+        .args(["-KILL", "-P", &host_pid.to_string()])
+        .status();
+    // SAFETY: the record PID is the harness-owned terminal host.
+    unsafe { libc::kill(host_pid, libc::SIGKILL) };
+    wait_for_process_and_group_absent(host_pid);
+
+    wait_for_respawn(&harness, &terminal_id, &incarnation);
+    let tab = tab_named(&harness, "unadoptable");
+    assert_eq!(tab["dead"], false, "{tab}");
+    let lines = wait_for_respawn_lines(&harness, &terminal_id, 1);
+    assert_eq!(lines.len(), 1, "{lines:?}");
+    assert_eq!(lines[0]["cause"], "unadoptable_host_ended");
+}
+
+/// c. An agent session the terminal ran resumes by itself in the new shell
+/// (#22292): its resume command is typed and run, so an agent in a
+/// workspace nobody opened yet runs again at launch, not once its tab is
+/// shown and someone presses Return.
+#[test]
+fn a_respawned_terminal_resumes_its_agent_session() {
     let _exclusive = exclusive_process_test();
     let harness = RecoveryHarness::start("respawn-agent");
     let (terminal_id, incarnation, surface) = start_default_shell(&harness, "agent");
@@ -343,15 +385,26 @@ fn a_respawned_terminal_offers_its_agent_session_for_resume_without_running_it()
             .unwrap_or_default()
     };
     let command = "claude--resumeabc-123";
-    let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
+    // The respawn waits up to 10 s for the new prompt before it types, so
+    // a loaded host needs more than that to show the command.
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(20));
     while !after_marker(&screen(&harness, surface)).contains(command) {
         assert!(Instant::now() < deadline, "no resume offer: {}", screen(&harness, surface));
         std::thread::sleep(Duration::from_millis(50));
     }
-    std::thread::sleep(Duration::from_secs(1));
-    let text = screen(&harness, surface);
-    assert!(!text.contains("not found"), "the resume command ran: {text}");
-    assert!(after_marker(&text).trim_end().ends_with(command), "not on the prompt line: {text}");
+    // It ran: the shell answered it (this host has no `claude`, so it
+    // reports the command missing) and the command is no longer waiting at
+    // the end of the prompt line.
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
+    loop {
+        let text = screen(&harness, surface);
+        let tail = after_marker(&text);
+        if !tail.trim_end().ends_with(command) && tail.contains(command) {
+            break;
+        }
+        assert!(Instant::now() < deadline, "the resume command did not run: {text}");
+        std::thread::sleep(Duration::from_millis(50));
+    }
     let lines = wait_for_respawn_lines(&harness, &terminal_id, 1);
     assert_eq!(lines.first().map(|line| line["prefilled"].clone()), Some("harness".into()));
 }

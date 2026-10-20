@@ -207,7 +207,7 @@ impl HostedReader {
                 continue;
             }
             self.title_changed.store(false, Ordering::Relaxed);
-            let title = replacement_term.title().unwrap_or_default();
+            let title = crate::terminal_title::read(&replacement_term);
             let pwd = replacement_term.pwd();
             let generation = {
                 let mut term = pty.term.lock().unwrap();

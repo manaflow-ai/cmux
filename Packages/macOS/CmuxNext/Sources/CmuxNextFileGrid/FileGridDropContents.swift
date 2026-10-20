@@ -1,7 +1,6 @@
 public import AppKit
 
-/// What a drop offers a ``FileGridDropImporter``: its file URLs, else a
-/// picture. `NSPasteboard` is the app's; tests pass a value (a fleet ci-step
+/// What a drop on a grid offers its owner: its file URLs, else a picture. `NSPasteboard` is the app's; tests pass a value (a fleet ci-step
 /// Mac has no pasteboard server, so a test cannot write a real pasteboard).
 @MainActor
 public protocol FileGridDropContents {

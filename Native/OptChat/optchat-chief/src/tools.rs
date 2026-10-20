@@ -54,12 +54,37 @@ pub trait Orchestrator: Send + Sync {
         let _ = effort;
         self.spawn(tasks, cwd)
     }
+    /// `spawn` at `effort` and `place` (`"cloud"`: on the cloud peer,
+    /// `"local"`: on this host; None: the saved default
+    /// (`control cloud`), else `OPTCHAT_SUBAGENT_PEER`, else local).
+    fn spawn_placed(
+        &self,
+        tasks: Vec<String>,
+        cwd: Option<String>,
+        effort: Option<String>,
+        place: Option<String>,
+    ) -> Result<String, String> {
+        let _ = place;
+        self.spawn_with_effort(tasks, cwd, effort)
+    }
     /// Sends `message` to subagent `id`.
     fn tell(&self, id: &str, message: &str) -> Result<String, String>;
     /// `tell` with an idempotency key: a repeat of `key` is not sent again.
     fn tell_keyed(&self, id: &str, message: &str, key: Option<&str>) -> Result<String, String> {
         let _ = key;
         self.tell(id, message)
+    }
+    /// `tell_keyed` with `queue`: true waits for the running turn (a
+    /// low-priority FYI) instead of interrupting it.
+    fn tell_with(
+        &self,
+        id: &str,
+        message: &str,
+        key: Option<&str>,
+        queue: bool,
+    ) -> Result<String, String> {
+        let _ = queue;
+        self.tell_keyed(id, message, key)
     }
     /// `control(action, ...)`: see, interrupt, answer, pause, resume,
     /// cancel, restart, reorder subagents and set the live cap.
@@ -70,6 +95,169 @@ pub trait Orchestrator: Send + Sync {
     /// Subagent `id`'s whole chat (`zoom("a<N>")`), one page from
     /// character `at`.
     fn agent_chat(&self, id: &str, at: u64) -> Result<String, String>;
+    /// `react(id, reaction)`: a tapback on the user message of view line `id`.
+    fn react(&self, id: u64, reaction: &str) -> Result<String, String> {
+        let _ = (id, reaction);
+        Err("this Chief host cannot react".into())
+    }
+    /// `reply(id, text)`: `text` now, in the thread of the user message of
+    /// view line `id`.
+    fn reply(&self, id: u64, text: &str) -> Result<String, String> {
+        let _ = (id, text);
+        Err("this Chief host cannot reply in a thread".into())
+    }
+    /// `send(text, attachments, reply_to)`: one message posted now.
+    fn send(&self, call: SendCall) -> Result<String, String> {
+        let _ = call;
+        Err("this Chief host cannot send".into())
+    }
+    /// `stop()`: ends the running turn now; its final text is not posted.
+    fn stop_turn(&self) -> Result<String, String> {
+        Err("this Chief host cannot stop a turn".into())
+    }
+    /// `sleep(seconds, note, until)`: ends the turn and wakes the Chief later.
+    fn sleep(&self, call: SleepCall) -> Result<String, String> {
+        let _ = call;
+        Err("this Chief host cannot sleep".into())
+    }
+}
+
+/// One `send` call (plans/cmux-next/chief-tools-DESIGN.md).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SendCall {
+    /// The message's Markdown text.
+    pub text: Option<String>,
+    /// Local paths (`/abs`, `~/rel`, `file://`) uploaded as attachments, or
+    /// `http(s)` URLs added as their own lines.
+    pub attachments: Vec<String>,
+    /// The view line id of the user message whose thread it goes into.
+    pub reply_to: Option<u64>,
+}
+
+impl SendCall {
+    fn parse(args: &Value) -> Result<SendCall, String> {
+        let text = args
+            .get("text")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|t| !t.is_empty())
+            .map(str::to_owned);
+        let attachments: Vec<String> = match args.get("attachments") {
+            None | Some(Value::Null) => Vec::new(),
+            Some(Value::Array(items)) => items
+                .iter()
+                .map(|v| {
+                    v.as_str()
+                        .map(str::trim)
+                        .filter(|t| !t.is_empty())
+                        .map(str::to_owned)
+                        .ok_or("send: each attachment must be a path or URL text")
+                })
+                .collect::<Result<_, _>>()?,
+            Some(Value::String(one)) if !one.trim().is_empty() => vec![one.trim().to_owned()],
+            Some(_) => return Err("send: `attachments` must be a list of paths or URLs".into()),
+        };
+        if attachments.len() > MAX_SEND_ATTACHMENTS {
+            return Err(format!(
+                "send: at most {MAX_SEND_ATTACHMENTS} attachments per message"
+            ));
+        }
+        if text.is_none() && attachments.is_empty() {
+            return Err("send: give `text`, `attachments` or both".into());
+        }
+        let reply_to = match args.get("reply_to") {
+            None | Some(Value::Null) => None,
+            Some(v) => Some(
+                v.as_u64()
+                    .or_else(|| v.as_str().and_then(|s| s.trim().parse().ok()))
+                    .ok_or("send: `reply_to` must be a message's line id")?,
+            ),
+        };
+        Ok(SendCall {
+            text,
+            attachments,
+            reply_to,
+        })
+    }
+
+    fn to_json(&self) -> Value {
+        let mut v = json!({"tool": "send"});
+        if let Some(t) = &self.text {
+            v["text"] = json!(t);
+        }
+        if !self.attachments.is_empty() {
+            v["attachments"] = json!(self.attachments);
+        }
+        if let Some(id) = self.reply_to {
+            v["reply_to"] = json!(id);
+        }
+        v
+    }
+}
+
+/// Most attachments one `send` takes.
+pub const MAX_SEND_ATTACHMENTS: usize = 10;
+
+/// Shortest `sleep` (a turn costs more than a shorter wait saves).
+pub const SLEEP_MIN_SECONDS: u64 = 30;
+/// Longest `sleep`: a day.
+pub const SLEEP_MAX_SECONDS: u64 = 86_400;
+
+impl SleepCall {
+    fn parse(args: &Value) -> Result<SleepCall, String> {
+        let seconds = args
+            .get("seconds")
+            .and_then(|v| {
+                v.as_u64()
+                    .or_else(|| v.as_str().and_then(|s| s.trim().parse().ok()))
+            })
+            .ok_or("sleep: `seconds` must be a non-negative integer")?;
+        if seconds != 0 && !(SLEEP_MIN_SECONDS..=SLEEP_MAX_SECONDS).contains(&seconds) {
+            return Err(format!(
+                "sleep: `seconds` is {SLEEP_MIN_SECONDS} to {SLEEP_MAX_SECONDS} (0 clears every pending wake)"
+            ));
+        }
+        let text = |key: &str| {
+            args.get(key)
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|t| !t.is_empty())
+                .map(str::to_owned)
+        };
+        let until = text("until");
+        if let Some(u) = until.as_deref()
+            && !matches!(u, "time" | "event")
+        {
+            return Err("sleep: `until` is time or event".into());
+        }
+        Ok(SleepCall {
+            seconds,
+            note: text("note"),
+            until,
+        })
+    }
+
+    fn to_json(&self) -> Value {
+        let mut v = json!({"tool": "sleep", "seconds": self.seconds});
+        if let Some(n) = &self.note {
+            v["note"] = json!(n);
+        }
+        if let Some(u) = &self.until {
+            v["until"] = json!(u);
+        }
+        v
+    }
+}
+
+/// One `sleep` call.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SleepCall {
+    /// How long until the wake; 0 clears every pending wake.
+    pub seconds: u64,
+    /// Why: shown in the wake note.
+    pub note: Option<String>,
+    /// `time` (default) or `event`.
+    pub until: Option<String>,
 }
 
 /// What `chief zoom|date|spawn|tell WORDS` asks: the tool call, its usage
@@ -100,6 +288,29 @@ pub fn command(tool: &str, args: &[&str]) -> Result<Command, String> {
         ("spawn", tasks) if !tasks.is_empty() && tasks[0] != "--cwd" => {
             Call::parse("spawn", &serde_json::json!({"tasks": tasks}))
         }
+        ("react", [id, reaction]) => Call::parse(
+            "react",
+            &serde_json::json!({"id": id, "reaction": reaction}),
+        ),
+        ("reply", [id, text @ ..]) if !text.is_empty() => Call::parse(
+            "reply",
+            &serde_json::json!({"id": id, "text": text.join(" ")}),
+        ),
+        ("send", ["--reply-to", id, text @ ..]) if !text.is_empty() => Call::parse(
+            "send",
+            &serde_json::json!({"reply_to": id, "text": text.join(" ")}),
+        ),
+        ("send", text) if !text.is_empty() && text[0] != "--reply-to" => {
+            Call::parse("send", &serde_json::json!({"text": text.join(" ")}))
+        }
+        ("stop", []) => Call::parse("stop", &serde_json::json!({})),
+        ("sleep", [seconds, note @ ..]) => {
+            let mut v = serde_json::json!({"seconds": seconds});
+            if !note.is_empty() {
+                v["note"] = serde_json::json!(note.join(" "));
+            }
+            Call::parse("sleep", &v)
+        }
         ("profile", []) => Call::parse("profile", &serde_json::json!({})),
         ("profile", [args]) => match serde_json::from_str::<Value>(args) {
             Ok(v @ Value::Object(_)) => Call::parse("profile", &v),
@@ -118,6 +329,10 @@ pub fn command(tool: &str, args: &[&str]) -> Result<Command, String> {
         ("control", ["cap", n]) => {
             Call::parse("control", &serde_json::json!({"action": "cap", "n": n}))
         }
+        ("control", ["cloud", peer]) => Call::parse(
+            "control",
+            &serde_json::json!({"action": "cloud", "peer": peer}),
+        ),
         ("control", ["answer", id, option]) => Call::parse(
             "control",
             &serde_json::json!({"action": "answer", "id": id, "option": option}),
@@ -130,6 +345,10 @@ pub fn command(tool: &str, args: &[&str]) -> Result<Command, String> {
             Call::parse("control", &v)
         }
         ("control", [action]) => Call::parse("control", &serde_json::json!({"action": action})),
+        ("tell", ["--queue", id, message @ ..]) if !message.is_empty() => Call::parse(
+            "tell",
+            &serde_json::json!({"id": id, "message": message.join(" "), "queue": true}),
+        ),
         ("tell", [id, message @ ..]) if !message.is_empty() => Call::parse(
             "tell",
             &serde_json::json!({"id": id, "message": message.join(" ")}),
@@ -146,12 +365,18 @@ pub fn usage(tool: &str) -> String {
         match tool {
             "zoom" => "ID N | SUBAGENT [AT]",
             "date" => "ID",
+            "react" => "ID like|love|laugh|emphasize|question|dislike|ack",
+            "reply" => "ID \"text\"",
+            "send" => "[--reply-to ID] \"text\"",
+            "stop" => "",
+            "sleep" => "SECONDS [\"note\"]",
             "spawn" => "[--cwd DIR] \"task\" [\"task\" ...]",
             "profile" => "['{\"role\": \"...\", \"avatar_path\": \"/path/pic.png\"}']",
             "chiefs" =>
                 "['{\"action\": \"create\", \"display_name\": \"...\", \"role\": \"...\"}']",
             "control" =>
-                "status [ID] | interrupt ID [\"message\"] | answer ID OPTION|deny | pause ID | resume ID [\"message\"] | cancel ID | restart ID [\"message\"] | priority ID | cap N",
+                "status [ID] | interrupt ID [\"message\"] | answer ID OPTION|deny | pause ID | resume ID [\"message\"] | cancel ID | restart ID [\"message\"] | priority ID | cap N | cloud [PEER[,PEER...]|off]",
+            "tell" => "[--queue] ID \"message\"",
             _ => "ID \"message\"",
         }
     )
@@ -165,8 +390,11 @@ pub fn agent_id(id: &str) -> bool {
 /// The efforts `spawn` takes (acpmux maps them onto the harness's own).
 pub const EFFORTS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
 
+/// Where `spawn` runs its subagents (`place`).
+pub const PLACES: [&str; 2] = ["cloud", "local"];
+
 /// The `control` tool's actions.
-pub const CONTROL_ACTIONS: [&str; 9] = [
+pub const CONTROL_ACTIONS: [&str; 10] = [
     "status",
     "interrupt",
     "answer",
@@ -176,6 +404,7 @@ pub const CONTROL_ACTIONS: [&str; 9] = [
     "restart",
     "priority",
     "cap",
+    "cloud",
 ];
 
 /// One `control` call.
@@ -186,6 +415,8 @@ pub struct ControlCall {
     pub message: Option<String>,
     pub option: Option<String>,
     pub n: Option<u64>,
+    /// `cloud`: the acpmux peer cloud subagents run on, or `off`.
+    pub peer: Option<String>,
 }
 
 impl ControlCall {
@@ -218,8 +449,9 @@ impl ControlCall {
             message: text("message"),
             option: text("option"),
             n,
+            peer: text("peer"),
         };
-        let needs_id = !matches!(call.action.as_str(), "status" | "cap");
+        let needs_id = !matches!(call.action.as_str(), "status" | "cap" | "cloud");
         if needs_id && call.id.is_none() {
             return Err(format!("control {}: `id` is required", call.action));
         }
@@ -245,6 +477,9 @@ impl ControlCall {
         }
         if let Some(n) = self.n {
             v["n"] = json!(n);
+        }
+        if let Some(p) = &self.peer {
+            v["peer"] = json!(p);
         }
         v
     }
@@ -272,13 +507,37 @@ pub enum Call {
         cwd: Option<String>,
         /// How hard they think; None: as hard as the calling turn.
         effort: Option<String>,
+        /// `cloud` or `local`; None: the saved default (`control cloud`).
+        place: Option<String>,
     },
     Tell {
         id: String,
         message: String,
         /// Idempotency key: a repeat is not sent again.
         key: Option<String>,
+        /// Wait for the running turn instead of interrupting it (a
+        /// low-priority FYI); false: steer, else interrupt.
+        queue: bool,
     },
+    /// `react` (brain/replies.rs): a tapback on the user message of view
+    /// line `id`.
+    React {
+        id: u64,
+        reaction: String,
+    },
+    /// `reply` (brain/replies.rs): `text` now, in the thread of the user
+    /// message of view line `id`.
+    Reply {
+        id: u64,
+        text: String,
+    },
+    /// `send` (brain/send.rs): one message now, with files, optionally in
+    /// a thread.
+    Send(SendCall),
+    /// `stop` (brain/wakes.rs): ends the running turn now.
+    Stop,
+    /// `sleep` (brain/wakes.rs): ends the turn and wakes the Chief later.
+    Sleep(SleepCall),
     /// `control` (brain/control.rs): subagent control.
     Control(ControlCall),
     /// `profile` (chief_profile.rs): read or change the Chief's own record.
@@ -355,7 +614,23 @@ impl Call {
                         EFFORTS.join(", ")
                     ));
                 }
-                Ok(Call::Spawn { tasks, cwd, effort })
+                let place = args
+                    .get("place")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|e| !e.is_empty())
+                    .map(str::to_owned);
+                if let Some(p) = place.as_deref()
+                    && !PLACES.contains(&p)
+                {
+                    return Err(format!("spawn: no place {p}; one of {}", PLACES.join(", ")));
+                }
+                Ok(Call::Spawn {
+                    tasks,
+                    cwd,
+                    effort,
+                    place,
+                })
             }
             "tell" => {
                 let text = |key: &str| {
@@ -370,8 +645,37 @@ impl Call {
                     id: text("id")?,
                     message: text("message")?,
                     key: text("key").ok(),
+                    queue: args.get("queue").and_then(Value::as_bool).unwrap_or(false),
                 })
             }
+            "react" => {
+                let reaction = args
+                    .get("reaction")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|t| !t.is_empty())
+                    .ok_or("react: `reaction` must be one of like, love, laugh, emphasize, question, dislike, ack, or one emoji")?;
+                crate::brain::reaction(reaction)?;
+                Ok(Call::React {
+                    id: num("id")?,
+                    reaction: reaction.to_owned(),
+                })
+            }
+            "reply" => {
+                let text = args
+                    .get("text")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|t| !t.is_empty())
+                    .ok_or("reply: `text` must be a non-empty text")?;
+                Ok(Call::Reply {
+                    id: num("id")?,
+                    text: text.to_owned(),
+                })
+            }
+            "send" => SendCall::parse(args).map(Call::Send),
+            "stop" => Ok(Call::Stop),
+            "sleep" => SleepCall::parse(args).map(Call::Sleep),
             "control" => ControlCall::parse(args).map(Call::Control),
             "profile" => {
                 let mut args = args.as_object().cloned().unwrap_or_default();
@@ -405,6 +709,11 @@ impl Call {
             Call::Date { id } => memory.date(id),
             Call::Spawn { .. }
             | Call::Tell { .. }
+            | Call::React { .. }
+            | Call::Reply { .. }
+            | Call::Send(_)
+            | Call::Stop
+            | Call::Sleep(_)
             | Call::Control(_)
             | Call::ZoomAgent { .. }
             | Call::Profile { .. }
@@ -420,8 +729,16 @@ impl Call {
             Call::Zoom { id, n } => json!({"tool": "zoom", "id": id, "n": n}),
             Call::ZoomAgent { id, at } => json!({"tool": "zoom", "id": id, "at": at}),
             Call::Date { id } => json!({"tool": "date", "id": id}),
-            Call::Spawn { tasks, cwd, effort } => {
+            Call::Spawn {
+                tasks,
+                cwd,
+                effort,
+                place,
+            } => {
                 let mut v = json!({"tool": "spawn", "tasks": tasks});
+                if let Some(place) = place {
+                    v["place"] = json!(place);
+                }
                 if let Some(cwd) = cwd {
                     v["cwd"] = json!(cwd);
                 }
@@ -430,13 +747,28 @@ impl Call {
                 }
                 v
             }
-            Call::Tell { id, message, key } => {
+            Call::Tell {
+                id,
+                message,
+                key,
+                queue,
+            } => {
                 let mut v = json!({"tool": "tell", "id": id, "message": message});
                 if let Some(key) = key {
                     v["key"] = json!(key);
                 }
+                if *queue {
+                    v["queue"] = json!(true);
+                }
                 v
             }
+            Call::React { id, reaction } => {
+                json!({"tool": "react", "id": id, "reaction": reaction})
+            }
+            Call::Reply { id, text } => json!({"tool": "reply", "id": id, "text": text}),
+            Call::Send(c) => c.to_json(),
+            Call::Stop => json!({"tool": "stop"}),
+            Call::Sleep(c) => c.to_json(),
             Call::Control(c) => c.to_json(),
             Call::Profile { args } => {
                 let mut v = args.clone();
@@ -566,6 +898,31 @@ fn connection(conn: UnixStream, served: &Served) {
         let answer = match serde_json::from_str::<Value>(&line) {
             Ok(req) => {
                 let tool = req.get("tool").and_then(Value::as_str).unwrap_or("");
+                // These are owner/host controls, not model tools. A caller
+                // bound to one of this Chief's subagent sessions never gets
+                // them, even if it clears the advisory `from` marker.
+                if matches!(
+                    tool,
+                    "settings"
+                        | "spawn_policy"
+                        | "engine"
+                        | "stop"
+                        | "inspect"
+                        | "grant"
+                        | "browse"
+                ) && role() == crate::turn_caller::Role::Subagent
+                {
+                    if writeln!(
+                        out,
+                        "{}",
+                        json!({"error": "subagents have no owner controls"})
+                    )
+                    .is_err()
+                    {
+                        return;
+                    }
+                    continue;
+                }
                 // Not a model tool: the `browse` command asks the live host.
                 if tool == "settings" || tool == "spawn_policy" {
                     let ask = match req.get("key").and_then(Value::as_str) {
@@ -635,10 +992,16 @@ fn connection(conn: UnixStream, served: &Served) {
                 }
                 if tool == "inspect" {
                     let answer = match &served.inspector {
+                        // Changes only from a caller that is none of the
+                        // Chief's own sessions (the app through its daemon,
+                        // the owner's CLI): the Chief never rewrites its memory.
                         Some(inspector) => crate::inspect::tool_answer(
                             inspector,
                             &req,
                             crate::inspect::INSPECT_MAX_BYTES,
+                            role() == crate::turn_caller::Role::Other
+                                && req.get("from").and_then(Value::as_str) != Some("subagent")
+                                && !peer.is_some_and(crate::turn_caller::under_this_process),
                         ),
                         None => {
                             json!({"status": 503, "error": "the inspector is off on this host"})
@@ -679,12 +1042,18 @@ fn connection(conn: UnixStream, served: &Served) {
                     Ok(
                         Call::Spawn { .. }
                         | Call::Tell { .. }
+                        | Call::React { .. }
+                        | Call::Reply { .. }
+                        | Call::Send(_)
+                        | Call::Stop
+                        | Call::Sleep(_)
                         | Call::Control(_)
                         | Call::Profile { .. }
                         | Call::Chiefs { .. },
-                    ) if subagent => {
-                        Err("subagents have no spawn, tell, control, profile or chiefs".to_owned())
-                    }
+                    ) if subagent => Err(
+                        "subagents have no spawn, tell, react, reply, send, stop, sleep, control, profile or chiefs"
+                            .to_owned(),
+                    ),
                     // `chiefs` only for this host's own turn: the turn key the
                     // host gave its turn sessions alone, from a caller that
                     // runs under one of them (rule C: a subagent, any other
@@ -713,13 +1082,43 @@ fn connection(conn: UnixStream, served: &Served) {
                         Some(chief) => chief.profile_call(&args),
                         None => Err(crate::chief_profile::Grant::refusal("profile")),
                     },
-                    Ok(Call::Spawn { tasks, cwd, effort }) => match &served.orchestrator {
-                        Some(o) => o.spawn_with_effort(tasks, cwd, effort),
+                    Ok(Call::Spawn {
+                        tasks,
+                        cwd,
+                        effort,
+                        place,
+                    }) => match &served.orchestrator {
+                        Some(o) => o.spawn_placed(tasks, cwd, effort, place),
                         None => Err("this Chief host runs no subagents".to_owned()),
                     },
-                    Ok(Call::Tell { id, message, key }) => match &served.orchestrator {
-                        Some(o) => o.tell_keyed(&id, &message, key.as_deref()),
+                    Ok(Call::Tell {
+                        id,
+                        message,
+                        key,
+                        queue,
+                    }) => match &served.orchestrator {
+                        Some(o) => o.tell_with(&id, &message, key.as_deref(), queue),
                         None => Err("this Chief host runs no subagents".to_owned()),
+                    },
+                    Ok(Call::React { id, reaction }) => match &served.orchestrator {
+                        Some(o) => o.react(id, &reaction),
+                        None => Err("this Chief host has no conversation to react in".to_owned()),
+                    },
+                    Ok(Call::Reply { id, text }) => match &served.orchestrator {
+                        Some(o) => o.reply(id, &text),
+                        None => Err("this Chief host has no conversation to reply in".to_owned()),
+                    },
+                    Ok(Call::Send(call)) => match &served.orchestrator {
+                        Some(o) => o.send(call),
+                        None => Err("this Chief host has no conversation to send in".to_owned()),
+                    },
+                    Ok(Call::Stop) => match &served.orchestrator {
+                        Some(o) => o.stop_turn(),
+                        None => Err("this Chief host runs no turns".to_owned()),
+                    },
+                    Ok(Call::Sleep(call)) => match &served.orchestrator {
+                        Some(o) => o.sleep(call),
+                        None => Err("this Chief host runs no turns".to_owned()),
                     },
                     Ok(Call::Control(request)) => match &served.orchestrator {
                         Some(o) => o.control(request),

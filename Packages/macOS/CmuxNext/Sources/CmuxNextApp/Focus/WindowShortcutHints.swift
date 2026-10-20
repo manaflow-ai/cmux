@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextCompat
 import CmuxNextDesign
+import CmuxNextSidebar
 import CmuxNextTabs
 import Observation
 
@@ -52,11 +53,12 @@ final class WindowShortcutHints {
         }
         var hints: [ShortcutHintOverlayView.Hint] = []
         let sidebar = controller.sidebar.container.sidebarView
-        // The digit Cmd-digit selects (SidebarNavigation.select's order), so Home and the App Store count too.
+        // One source of truth: the digit Cmd-digit selects (SidebarItemOrder.pick's inverse), for every
+        // sidebar destination drawn (Home, the App Store, collapsed groups, workspace rows).
         let order = controller.sidebar.model.itemOrder, navigation = SidebarNavigation.settings(controller.services)
-        for (id, rect) in sidebar.shortcutHintWorkspaceFrames.sorted(by: { $0.value.minY < $1.value.minY }) {
-            guard let digit = order.number(for: .workspace(id), navigation), let text = label("selectWorkspaceByNumber", digit: digit) else { continue }
-            hints.append(.init(text: text, rect: root.convert(rect, from: sidebar), target: "workspace:\(id.rawValue)"))
+        for (item, rect) in sidebar.shortcutHintItemFrames.sorted(by: { $0.value.minY < $1.value.minY }) {
+            guard let digit = order.number(for: item, navigation), let text = label("selectWorkspaceByNumber", digit: digit) else { continue }
+            hints.append(.init(text: text, rect: root.convert(rect, from: sidebar), target: Self.target(item)))
         }
         for (index, rect) in sidebar.shortcutHintSpaceFrames.enumerated() where index < 9 {
             if let text = label("space.selectByNumber", digit: index + 1) {
@@ -92,6 +94,15 @@ final class WindowShortcutHints {
             if let rect, let text = label(action) { hints.append(.init(text: text, rect: root.convert(rect, from: nil), row: .titlebar)) }
         }
         overlay.hints = hints
+    }
+
+    /// What a sidebar chip selects, for debug readback (`debug.shortcut_hints`).
+    private static func target(_ item: SidebarItem) -> String {
+        switch item {
+        case .workspace(let id): "workspace:\(id.rawValue)"
+        case .group(let id): "group:\(id.rawValue)"
+        case .topItem(let id): "item:\(id.rawValue)"
+        }
     }
 
     func keyDown() { monitor?.keyDown() }

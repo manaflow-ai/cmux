@@ -62,7 +62,7 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
         let previousSynthetic = currentEventIsSynthetic
         currentEventIsSynthetic = !SyntheticInput.isUserInput(event)
         defer { currentEventIsSynthetic = previousSynthetic }
-        inputObserver?(event)
+        BenchSpans.measure("app.inputObserver") { inputObserver?(event) }
         let previous = handlingSendEvent
         handlingSendEvent = true
         defer { handlingSendEvent = previous }
@@ -71,8 +71,12 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
             (Self.accessibilityWindow(for: keyWindow ?? event.window)?.windowController as? WindowController)?.hideShortcutHintsForKeyDown()
         }
         if event.type == .keyDown, let keyDownInterceptor, keyDownInterceptor(event, keyWindow ?? event.window) { return }
-        super.sendEvent(event)
-        if event.type == .leftMouseDown || event.type == .rightMouseDown || event.type == .otherMouseDown { mouseDownObserver?(event) }
+        if event.type == .leftMouseDown || event.type == .leftMouseUp {
+            BenchSpans.measure(event.type == .leftMouseDown ? "app.sendEvent.down" : "app.sendEvent.up") { super.sendEvent(event) }
+        } else {
+            super.sendEvent(event)
+        }
+        if event.type == .leftMouseDown || event.type == .rightMouseDown || event.type == .otherMouseDown { BenchSpans.measure("app.mouseDownObserver") { mouseDownObserver?(event) } }
         // After AppKit handled the move: a browser toolbar under the pointer in a window that is
         // not key sets its cursor last (`ArrowCursorView.pointerDidMove`).
         if event.type == .mouseMoved { ArrowCursorView.pointerDidMove() }

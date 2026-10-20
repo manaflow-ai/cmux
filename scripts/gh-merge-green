@@ -454,9 +454,11 @@ fi
 # God-file, localization and concurrency lint fail only on the change itself, so
 # they are never waived: --override is for base-red or flaky lanes. Any such
 # check reported on the exact head must complete green, with or without it.
-# So must `risk evidence` (risk-tier.yml on feat-cmux-next): it reads only the
-# description, so it is never base-red, and a maintainer waives it with the
-# risk:waived label instead (docs/ci/risk-tiers.md on feat-cmux-next).
+# So must `risk evidence` (risk-tier.yml on feat-cmux-next): it grades the PR's
+# own diff and description, so it is never base-red. A high-tier PR clears it
+# with an approving review on the head or a maintainer's risk:human-ok label
+# (docs/ci/risk-tiers.md on feat-cmux-next). This script is part of that gate,
+# so a change to it grades high.
 while IFS=$'\t' read -r name st co; do
   [ -n "$name" ] || continue
   lowered=$(tr '[:upper:]' '[:lower:]' <<<"$name")

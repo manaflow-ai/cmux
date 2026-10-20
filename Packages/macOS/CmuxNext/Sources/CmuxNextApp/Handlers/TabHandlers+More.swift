@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextDaemon
+import enum CmuxNextLayout.ChatColumnPlacement
 
 // Tab moves out of the pane (split, column, workspace, window), unread
 // state, per-kind tab verbs, and identifier copies (links: LinkHandlers).
@@ -86,7 +87,13 @@ extension TabHandlers {
             guard let (tab, pane) = ctx.daemonTab(invocation) else { return }
             // A read agent chat: acpmux marks it unread until it is shown again (cx-ncc.78), as the chat menu's row does.
             if !tab.showsUnread, tab.agentSession != nil, let view = ctx.services.agentTabs.existingView(tab.id) {
-                Task { if await !AgentPaneMarkUnread(view.model).run() { ctx.refuse(RefusalStrings.markUnreadUnsupported) } }
+                let daemon = ctx.services.daemon(for: pane)
+                let mark = AgentChatMarkUnread(acpmux: { await AgentPaneMarkUnread(view.model).run() },
+                                               daemon: { try TabUnreadMark.set(true, tab: tab, daemon: daemon) })
+                // task-owner: one mark; ends when acpmux or the daemon answers
+                Task {
+                    do { try await mark.run() } catch { ctx.refuse((error as? ActionFailure)?.message ?? RefusalStrings.describe(error)) }
+                }
                 return
             }
             try TabUnreadMark.toggle(tab, pane: pane, context: ctx)
@@ -98,7 +105,11 @@ extension TabHandlers {
             }
             entry.chrome.perform(.reload)
         })
-        registry.bindUnavailable("palette.toggleFullWidthTab", reason: RefusalStrings.fullWidthTabUnported)
+        // Full Width Tab: the pane's strip shows only the selected tab, across the strip (PaneFullWidthTabs).
+        registry.bind("palette.toggleFullWidthTab", invoke: { invocation in
+            guard let (pane, id) = ctx.tab(invocation) else { return }
+            pane.toggleFullWidthTab(showing: id)
+        })
         bindAudio(registry, ctx)
         registry.bindUnavailable("disconnectRemoteTab", reason: RefusalStrings.needsDaemonCapability("remote-ssh-tabs"))
     }

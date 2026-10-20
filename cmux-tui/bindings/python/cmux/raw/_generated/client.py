@@ -447,6 +447,9 @@ class GeneratedClientMixin:
     def move_browser_profile(self, browser_profile: str, index: int) -> JsonValue:
         return self._invoke_command('move-browser-profile', MoveBrowserProfileRequest(browser_profile=browser_profile, index=index))
 
+    def move_column(self, pane: Id, direction: ColumnMoveDirection) -> JsonValue:
+        return self._invoke_command('move-column', MoveColumnRequest(pane=pane, direction=direction))
+
     def move_personal_group(self, group: str, index: int) -> JsonValue:
         return self._invoke_command('move-personal-group', MovePersonalGroupRequest(group=group, index=index))
 
@@ -992,6 +995,7 @@ GeneratedClientMixin.mint_terminal_renderer.__cmux_command__ = COMMANDS['mint-te
 GeneratedClientMixin.mint_terminal_renderer_by_terminal.__cmux_command__ = COMMANDS['mint-terminal-renderer-by-terminal']
 GeneratedClientMixin.move_bookmark.__cmux_command__ = COMMANDS['move-bookmark']
 GeneratedClientMixin.move_browser_profile.__cmux_command__ = COMMANDS['move-browser-profile']
+GeneratedClientMixin.move_column.__cmux_command__ = COMMANDS['move-column']
 GeneratedClientMixin.move_personal_group.__cmux_command__ = COMMANDS['move-personal-group']
 GeneratedClientMixin.move_profile.__cmux_command__ = COMMANDS['move-profile']
 GeneratedClientMixin.move_screen.__cmux_command__ = COMMANDS['move-screen']
