@@ -31,7 +31,8 @@ fn doc() -> Doc {
     b.order = "b".into();
     let mut items = Vec::new();
     for (session, ws, order) in [(A, "a1", "a"), (A, "a2", "b"), (B, "b1", "a")] {
-        let mut item = Item::workspace(WorkspaceRef::new(session, ws), &machine_section_id(session));
+        let mut item =
+            Item::workspace(WorkspaceRef::new(session, ws), &machine_section_id(session));
         item.order = order.into();
         items.push(item);
     }
@@ -110,7 +111,7 @@ fn moving_a_group_into_its_own_subtree_is_refused() {
     let sec = machine_section_id(A);
     let into_child = Op::Move {
         items: vec!["g_project".into()],
-        to: Target { section: sec.clone(), parent: Some("g_leaf".into()), ..Target::default() },
+        to: Target { section: sec, parent: Some("g_leaf".into()), ..Target::default() },
     };
     assert_eq!(apply(&mut doc, &[into_child]), Err(Refusal::InvalidTarget));
 }
@@ -222,9 +223,21 @@ fn view_rows_carry_depth_and_collapse_hides_the_subtree() {
     let mut doc = doc();
     three_levels(&mut doc);
     let live = vec![
-        LiveWorkspace { session_id: A.into(), workspace_id: "a1".into(), title: Some("one".into()) },
-        LiveWorkspace { session_id: A.into(), workspace_id: "a2".into(), title: Some("two".into()) },
-        LiveWorkspace { session_id: B.into(), workspace_id: "b1".into(), title: Some("bee".into()) },
+        LiveWorkspace {
+            session_id: A.into(),
+            workspace_id: "a1".into(),
+            title: Some("one".into()),
+        },
+        LiveWorkspace {
+            session_id: A.into(),
+            workspace_id: "a2".into(),
+            title: Some("two".into()),
+        },
+        LiveWorkspace {
+            session_id: B.into(),
+            workspace_id: "b1".into(),
+            title: Some("bee".into()),
+        },
     ];
     let rows = view(&doc, &ViewRequest { live: live.clone(), ..ViewRequest::default() });
     let depth = |key: &str| rows.iter().find(|r| r.key == key).map(|r| r.depth);
@@ -280,9 +293,7 @@ fn items_in_order_lists_a_subtree_depth_first() {
 fn repair_lifts_a_chain_that_is_too_deep_or_cycles() {
     let sec = machine_section_id(A);
     let mut items = Vec::new();
-    for (id, parent) in
-        [("g1", None), ("g2", Some("g1")), ("g3", Some("g2")), ("g4", Some("g3"))]
-    {
+    for (id, parent) in [("g1", None), ("g2", Some("g1")), ("g3", Some("g2")), ("g4", Some("g3"))] {
         let mut item = Item::new(
             id,
             &sec,
@@ -318,4 +329,24 @@ fn repair_lifts_a_chain_that_is_too_deep_or_cycles() {
     assert_eq!(doc.item("g3").unwrap().parent.as_deref(), Some("g2"), "within the limit kept");
     assert!(doc.item("g4").is_some(), "repair never deletes a group");
     assert!(doc.item("cyc_a").is_some() && doc.item("cyc_b").is_some());
+}
+
+#[test]
+fn drag_acceptance_allows_a_group_into_a_group_only_within_the_depth() {
+    let mut doc = doc();
+    three_levels(&mut doc);
+    let sec = machine_section_id(A);
+    apply(&mut doc, &[group("g_solo", "solo", &sec, None, vec![ws(A, "a2")])]).unwrap();
+    let live = vec![
+        LiveWorkspace { session_id: A.into(), workspace_id: "a1".into(), title: None },
+        LiveWorkspace { session_id: A.into(), workspace_id: "a2".into(), title: None },
+    ];
+    let rows = view(&doc, &ViewRequest { live, ..ViewRequest::default() });
+    let table = accept::drag_begin(&doc, &rows, &["g_solo".to_string()]);
+    assert!(table["g_project"].into, "one-level group into a level-1 group");
+    assert!(table["g_branch"].into, "into a level-2 group makes level 3");
+    assert!(!table["g_leaf"].into, "into a level-3 group would make level 4");
+    let table = accept::drag_begin(&doc, &rows, &["g_project".to_string()]);
+    assert!(!table["g_solo"].into, "a three-level tree fits nowhere under a group");
+    assert_eq!(table["g_leaf"].refusal.as_deref(), Some("self"), "its own subtree");
 }
