@@ -25,7 +25,9 @@ Look at the checks that judge the change (macOS compile admission plus the
 app-host suites CI selected for it) and skip slow unrelated lanes. Only a red the
 PR causes holds the merge; base reds, flakes and pending checks don't. If you
 merge before the judging checks finish, say on the PR what was not verified; the
-merge receipt (`merge_receipt.py`) records it and labels the PR `merged-unverified`. A
+merge receipt (`merge_receipt.py`) records it and labels the PR `merged-unverified`.
+`gh-merge-green` still waits for the checks it requires; never get around it
+with `--override` or the API merge path. A
 main-regression comment on your PR (`main_regression_attribution.py`) is a
 fix-forward ask.
 

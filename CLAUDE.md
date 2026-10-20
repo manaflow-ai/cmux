@@ -86,6 +86,8 @@ Do not edit `CHANGELOG.md` in feature PRs; release tooling owns it.
   base reds, flakes and pending checks don't hold it. Don't wait for a person. Ship risky
   user-visible behavior behind a setting or Debug toggle and fix a bad default in the next
   nightly. Merge with `gh-merge-green`; [merge freezes](docs/ci/merge-freeze.md) still hold.
+  `gh-merge-green` still waits for the checks it requires; never get around it with
+  `--override` or the API merge path.
   Follow [dogfood and merge receipts](skills/cmux-review/SKILL.md#dogfood-and-merge).
   Notify with `cmux notify` when a socket is available.
 - A red base (`main` doesn't compile, or CI is red on every PR) is priority zero. Fix it
