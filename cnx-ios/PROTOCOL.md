@@ -125,9 +125,14 @@ every team id in the database (devices and team prefs, named as each
 project named its hubs), and requests retire lazily too, the first time an
 isolate serves a team after a membership check (`GET /v1/teams/:teamId/macs`,
 the signal socket, each team of `GET /v1/me/macs`). A retire that fails is
-retried (around a deploy the RPC can reach a hub still on the previous
-class, which answers "does not implement the method"); a retired hub
-remembers it, so later sweeps cost one wake per team. Clients reconnect as
+retried. After a deploy a Durable Object keeps running the previous class
+until it is evicted, and traffic (these retries, a polling phone) can keep
+it warm for minutes; such a hub answers "does not implement the method".
+The Worker then calls the previous class's own `forgetMac` for each device
+the database has in that team, which closes that device's socket with 4001
+`moved` (clients reconnect, into their user hub), and retires the hub for
+good once it runs the new class. A retired hub remembers it, so later
+sweeps cost one wake per team. Clients reconnect as
 after any drop (hostd in under a second) and land in their user's hub.
 A user hub is never retired. A new hub is seeded once from the database
 with the user's Macs (offline until they connect), so `hello` lists a

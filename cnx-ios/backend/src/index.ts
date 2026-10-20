@@ -109,27 +109,42 @@ const userHub = (env: Env, caller: Ctx) =>
  * can reach a hub still on the previous class) is retried: only a success is remembered. Remove both once no
  * team hub holds sockets.
  */
-const retireMemo = new Map<string, { done: boolean; at: number }>()
-const retireOnce = async (env: Env, name: string, via: string): Promise<number> => {
+const retireMemo = new Map<string, { done: boolean; until: number }>()
+/**
+ * After a deploy a Durable Object keeps running the previous class until it is evicted, and steady traffic (a
+ * phone polling, these very retries) keeps it warm for minutes (seen live on 2026-10-20). The previous class has
+ * no `retireTeamHub` ("The RPC receiver does not implement the method"), but every version has `forgetMac`, which
+ * closes one device's sockets with 4001 `moved`; clients reconnect on 4001, now into their user hub. So a hub on
+ * the previous class has the team's devices (from the database) moved out one by one, and is retired for good
+ * once it runs the new class.
+ */
+const retireOnce = async (env: Env, name: string, via: string, deviceIds: ReadonlyArray<string>): Promise<number> => {
   const hit = retireMemo.get(name)
+  if (hit && (hit.done || Date.now() < hit.until)) return 0
   const retryMs = Number(env.TEAM_HUB_RETIRE_RETRY_MS ?? 10_000)
-  if (hit && (hit.done || Date.now() - hit.at < retryMs)) return 0
-  retireMemo.set(name, { done: false, at: Date.now() })
+  retireMemo.set(name, { done: false, until: Date.now() + retryMs })
+  const stub = env.TEAM_HUB.get(env.TEAM_HUB.idFromName(name))
   try {
-    const { closed } = await env.TEAM_HUB.get(env.TEAM_HUB.idFromName(name)).retireTeamHub()
-    retireMemo.set(name, { done: true, at: Date.now() })
+    const { closed } = await stub.retireTeamHub()
+    retireMemo.set(name, { done: true, until: 0 })
     if (closed) console.log(JSON.stringify({ msg: "team hub retired", via, closed }))
     return closed
   } catch (e) {
-    console.log(JSON.stringify({ msg: "team hub retire failed", via, error: String(e) }))
-    throw e
+    if (!String(e).includes("does not implement")) {
+      console.log(JSON.stringify({ msg: "team hub retire failed", via, error: String(e) }))
+      throw e
+    }
+    const previous = stub as unknown as { forgetMac(deviceId: string): Promise<void> }
+    const moved = (await Promise.all(deviceIds.map((id) => previous.forgetMac(id).then(() => 1, () => 0)))).reduce<number>((a, b) => a + b, 0)
+    console.log(JSON.stringify({ msg: "team hub on the previous class; devices moved", via, devices: deviceIds.length, moved }))
+    return 0
   }
 }
-const retireTeamHub = (env: Env, ctx: ExecutionContext, caller: Ctx, teamId: string) => {
+const retireTeamHub = (env: Env, ctx: ExecutionContext, caller: Ctx, teamId: string, deviceIds: ReadonlyArray<string> = []) => {
   const name = scoped(env, caller, teamId)
   const hit = retireMemo.get(name)
   if (hit?.done) return
-  ctx.waitUntil(retireOnce(env, name, "request").catch(() => {}))
+  ctx.waitUntil(retireOnce(env, name, "request", deviceIds).catch(() => {}))
 }
 
 /**
@@ -138,19 +153,24 @@ const retireTeamHub = (env: Env, ctx: ExecutionContext, caller: Ctx, teamId: str
  */
 export const retireAllTeamHubs = async (env: Env): Promise<{ teams: number; closed: number; failed: number }> => {
   const store = await openStore(env)
-  let scopes: Array<{ project: string | null; teamId: string }>
+  let scopes: Array<{ project: string | null; teamId: string; deviceIds: Array<string> }>
   try {
     scopes = await store.listTeamScopes()
   } finally {
     await store.close().catch(() => {})
   }
-  const names = [...new Set(scopes.map((s) => (s.project ? `${s.project}:${s.teamId}` : s.teamId)))]
+  const byName = new Map<string, Array<string>>()
+  for (const s of scopes) {
+    const name = s.project ? `${s.project}:${s.teamId}` : s.teamId
+    byName.set(name, [...(byName.get(name) ?? []), ...s.deviceIds])
+  }
+  const names = [...byName.keys()]
   let closed = 0
   let failed = 0
   for (let i = 0; i < names.length; i += 16)
     await Promise.all(
       names.slice(i, i + 16).map((n) =>
-        retireOnce(env, n, "sweep").then(
+        retireOnce(env, n, "sweep", byName.get(n)!).then(
           (c) => void (closed += c),
           () => void failed++
         )
@@ -432,7 +452,7 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
       }
     }
     const reachable = new Set(teamIds.filter((t) => (t.startsWith(PERSONAL) ? t === personalTeamId(caller.userId) : stackTeams.has(t))))
-    for (const team of reachable) retireTeamHub(env, ctx, caller, team)
+    for (const team of reachable) retireTeamHub(env, ctx, caller, team, rows.filter((d) => d.teamId === team).map((d) => d.deviceId))
     const presence = new Map((await t.span("hub", userHub(env, caller).macs(me))).map((m) => [m.deviceId, m]))
     return json({
       macs: rows.flatMap((d) => {
@@ -486,9 +506,9 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
 
   if (action === "macs" && method === "GET") {
     await requireMember(env, teamId, caller)
-    retireTeamHub(env, ctx, caller, teamId)
     // Only the caller's own Macs in this team (PROTOCOL.md): a teammate's Macs are never listed.
     const [rows, live] = await Promise.all([withStore(env, ctx, (s) => s.listOwnerMacs(me)), t.span("hub", userHub(env, caller).macs(me, teamId))])
+    retireTeamHub(env, ctx, caller, teamId, rows.filter((d) => d.teamId === teamId).map((d) => d.deviceId))
     const byId = new Map(live.map((m) => [m.deviceId, m]))
     return json({
       macs: rows.flatMap((d) => {
