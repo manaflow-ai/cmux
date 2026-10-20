@@ -174,3 +174,19 @@ fn a_missing_or_non_media_file_stays_text_and_is_never_read() {
     assert_eq!(parts, vec![text(&reply)]);
     assert!(h.owner.lock().unwrap().uploads.is_empty());
 }
+
+#[test]
+fn security_a_reply_cannot_attach_an_arbitrary_local_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let private = dir.path().join("private.png");
+    std::fs::write(&private, png(8, 8)).unwrap();
+    let reply = format!("![private]({})", private.display());
+
+    let (parts, h) = turn(reply.clone());
+
+    assert_eq!(parts, vec![text(&reply)]);
+    assert!(
+        h.owner.lock().unwrap().uploads.is_empty(),
+        "a model-authored path outside this turn's media outbox was uploaded"
+    );
+}
