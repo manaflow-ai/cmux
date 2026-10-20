@@ -36,7 +36,7 @@ public nonisolated struct HoverCardEscapeGeometry: Hashable, Sendable {
     }
 
     /// The row's frame.
-    public var anchor: CGRect
+    public private(set) var anchor: CGRect
     /// The card's frame at rest.
     public private(set) var card: CGRect
     /// The empty slot beside the row that the card never covers; empty when the screen left

@@ -19,7 +19,9 @@ import Testing
         let model = SidebarModel(sections: [SidebarSection(kind: .machine(machine), nodes: workspaces.map { .workspace($0) })],
                                  activeWorkspaceID: nil)
         let list = SidebarListView(model: model)
-        let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 240, height: 600), styleMask: [.borderless],
+        // Low on the screen with room above and below, so a small runner's screen never clamps
+        // the card off its row's middle.
+        let window = NSWindow(contentRect: NSRect(x: 200, y: 100, width: 240, height: 400), styleMask: [.borderless],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         let coordinator = HoverCardCoordinator(clock: clock)
@@ -29,7 +31,7 @@ import Testing
         coordinator.pointerLocation = { .zero }
         list.hoverCards = coordinator
         window.contentView = list
-        list.frame = NSRect(x: 0, y: 0, width: 240, height: 600)
+        list.frame = NSRect(x: 0, y: 0, width: 240, height: 400)
         window.orderFrontRegardless()
         list.reload(animated: false)
         let rows = list.displayed.rows.filter { if case .workspace = $0.key { true } else { false } }
@@ -86,7 +88,9 @@ import Testing
         let (list, window, coordinator, rows) = Self.sidebar(clock: clock)
         let (row, card) = try await Self.showSecondRowCard(list, coordinator, clock, rows)
         let shown = try #require(coordinator.machine.shownTarget)
-        let y = row.minY + 4
+        // The row's lower half, below the card's top edge (the screen may have moved the card).
+        let y = min(row.minY + 4, card.maxY - 4)
+        try #require(y >= row.minY, "the card \(card) does not reach its row \(row)")
         var x = row.maxX - 6
         while x < card.minX + 24 {
             coordinator.pointerMoved(to: CGPoint(x: x, y: y))
@@ -95,6 +99,26 @@ import Testing
         }
         coordinator.pointerMoved(to: CGPoint(x: card.midX, y: card.midY))
         #expect(coordinator.isShowing(shown.id), "resting on the card hid it")
+        try await WorkspaceHoverCardScrollTests.tearDown(window, coordinator)
+    }
+
+    /// Resting in the slot inside the sidebar's margin (come from the right): the row's card does
+    /// not show there after the delay.
+    @Test func restingInTheSlotShowsNoCard() async throws {
+        let clock = ManualClock()
+        let (list, window, coordinator, rows) = Self.sidebar(clock: clock)
+        try #require(rows.count >= 2)
+        guard case .workspace(let id) = rows[1].key, let row = list.hoverCardAnchor(for: id) else {
+            Issue.record("the second row has no frame on screen")
+            return
+        }
+        try #require(row.maxX + 2 < window.frame.maxX, "the row reaches the window's edge; no margin to test")
+        list.updateHover(window.convertPoint(fromScreen: CGPoint(x: row.maxX + 2, y: row.maxY - 3)))
+        try await clock.waitForSleeper()
+        clock.advance(by: DesignSettings.shared.hoverCardDelay + .milliseconds(100))
+        for _ in 0..<20 { await Task.yield() }
+        for _ in 0..<30 { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(!(coordinator.panel?.isShowingCard ?? false), "the card showed (\(coordinator.machine.phase)) with the pointer in its slot")
         try await WorkspaceHoverCardScrollTests.tearDown(window, coordinator)
     }
 

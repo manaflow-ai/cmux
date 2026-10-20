@@ -47,11 +47,12 @@ public final class HoverCardCoordinator {
     private var eventPointer: (point: CGPoint, mouse: CGPoint)?
     /// The pointer at the last move, the safe triangle's apex for the next.
     private var lastPointer: CGPoint?
-    /// The escape slot beside the row of the last `.besideRow` card and that row's target
-    /// (`HoverCardEscapeGeometry`): the pointer in it gives that row no card, so moving into the
-    /// slot dismisses the card and moving on inside it never brings the card back. Kept after the
-    /// card hides until the pointer leaves the slot.
-    private var escape: (slot: CGRect, target: HoverTargetID)?
+    /// The escape slot beside the row of the last `.besideRow` card, that row's target, and the
+    /// row's frame and source when the slot was taken (`HoverCardEscapeGeometry`): the pointer in
+    /// it gives that row no card, so moving into the slot dismisses the card and moving on inside
+    /// it never brings the card back. Kept after the card hides until the pointer leaves the
+    /// slot, or the row moves (a scroll).
+    private var escape: (slot: CGRect, target: HoverTargetID, anchor: CGRect, source: WeakSource)?
 
     /// The pointer now: the last pointer event's location while the real
     /// mouse has not moved since (the same point for real events; the
@@ -297,6 +298,11 @@ public final class HoverCardCoordinator {
             self.panel = panel
             panel.present(body: body.view, anchor: anchor, placement: body.placement, parent: parent,
                           themeAnchor: body.themeAnchor, sliding: sliding, applyTheme: body.applyTheme)
+            // A hover card whose row's escape slot already holds the pointer (it rested in the
+            // sidebar's margin beside the row) goes at once: the slot never shows its row's card.
+            if case .shown(let shown) = machine.phase, shown.id == target.id, escapeTarget(at: currentPointer()) == target.id {
+                send(.hit(nil, moved: false))
+            }
         case .hide:
             panel?.dismiss()
         }
@@ -405,10 +411,12 @@ public final class HoverCardCoordinator {
     /// slot is that card's; after it hides, the last one lasts until the pointer leaves it.
     private func escapeTarget(at point: CGPoint) -> HoverTargetID? {
         if let shown = machine.shownTarget, let panel, panel.isShowingCard {
-            escape = panel.escapeGeometry.map { (slot: $0.escapeSlot, target: shown.id) }
+            escape = panel.escapeGeometry.flatMap { geometry in
+                owners[shown.id].map { (slot: geometry.escapeSlot, target: shown.id, anchor: geometry.anchor, source: $0) }
+            }
         }
         guard let escape else { return nil }
-        guard escape.slot.contains(point) else {
+        guard escape.slot.contains(point), escape.source.source?.hoverCardAnchor(for: escape.target) == escape.anchor else {
             self.escape = nil
             return nil
         }

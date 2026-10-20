@@ -90,7 +90,7 @@ final class WorkspaceHoverCardController: HoverCardSource {
         guard let list, let window = list.window, !list.isHiddenOrHasHiddenAncestor,
               let first = list.displayed.rows.first, let last = list.displayed.rows.last else { return false }
         let point = list.convert(window.convertPoint(fromScreen: screenPoint), from: nil)
-        return list.visibleRect.contains(point) && point.y >= first.y && point.y <= last.maxY
+        return list.visibleRect.contains(point) && point.y >= first.y && point.y < last.maxY
     }
 
     func hoverCardAnchor(for id: HoverTargetID) -> CGRect? {
