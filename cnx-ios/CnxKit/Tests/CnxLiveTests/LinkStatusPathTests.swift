@@ -26,3 +26,38 @@ import Testing
         #expect(machine.phase.statusLine(macName: "Studio") == "Connected · WireGuard no path · 40 ms")
     }
 }
+
+/// verify/hybrid-link.md: the status line shows the WireGuard link's path and
+/// the WebRTC media session beside it ("WireGuard direct · video WebRTC (TURN)").
+@Suite struct LinkStatusMediaTests {
+    @Test func theLineShowsTheMediaSessionBesideTheLink() {
+        var machine = LinkMachine(transport: .wireGuard)
+        _ = machine.handle(.target(LinkMachine.Target(macID: "m", name: "Studio", isOnline: true)))
+        _ = machine.handle(.dialSucceeded(generation: machine.generation, path: .direct))
+        _ = machine.handle(.linkUpdated(generation: machine.generation, path: .direct, rttMillis: 14))
+        #expect(machine.phase.statusLine(macName: "Studio", media: machine.media) == "Connected · WireGuard direct · 14 ms")
+        _ = machine.handle(.mediaUpdated(generation: machine.generation, .up(.turn, rttMillis: 16)))
+        #expect(machine.phase.statusLine(macName: "Studio", media: machine.media)
+            == "Connected · WireGuard direct · video WebRTC (TURN) · 14 ms")
+        _ = machine.handle(.mediaUpdated(generation: machine.generation, .up(.direct, rttMillis: 9)))
+        #expect(machine.phase.statusLine(macName: "Studio", media: machine.media)
+            == "Connected · WireGuard direct · video WebRTC (direct) · 14 ms")
+        // The session failed: video rides the tunnel.
+        _ = machine.handle(.mediaUpdated(generation: machine.generation, .failed(reason: "ICE failed")))
+        #expect(machine.phase.statusLine(macName: "Studio", media: machine.media)
+            == "Connected · WireGuard direct · video in the tunnel · 14 ms")
+    }
+
+    @Test func aStaleLinksMediaIsIgnoredAndARedialForgetsIt() {
+        var machine = LinkMachine(transport: .wireGuard)
+        _ = machine.handle(.target(LinkMachine.Target(macID: "m", name: "Studio", isOnline: true)))
+        let first = machine.generation
+        _ = machine.handle(.dialSucceeded(generation: first, path: .direct))
+        _ = machine.handle(.mediaUpdated(generation: first, .up(.direct, rttMillis: nil)))
+        #expect(machine.media == .up(.direct, rttMillis: nil))
+        _ = machine.handle(.linkDropped(generation: first, reason: "gone"))
+        #expect(machine.media == .off)
+        _ = machine.handle(.mediaUpdated(generation: first, .up(.turn, rttMillis: nil)))
+        #expect(machine.media == .off)
+    }
+}

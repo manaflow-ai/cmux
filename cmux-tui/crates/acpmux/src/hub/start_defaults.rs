@@ -280,6 +280,10 @@ impl Hub {
                     .find(|x| x.id == m || x.aliases.iter().flatten().any(|a| a == m))
             })
         };
+        // The catalog default only when the harness offers it: an account that
+        // lacks it (Codex refusing GPT-6.1 Sol at the first prompt) starts on the
+        // harness's own default, its config's model, instead (cnx-ios full verify D4).
+        let reported = self.reported_model_ids(agent);
         let start_model = match model {
             Some(_) => None,
             None => saved
@@ -294,6 +298,10 @@ impl Hub {
                     curated
                         .as_ref()
                         .and_then(|c| c.default_model.clone())
+                        .filter(|m| {
+                            let ids: Vec<String> = c_ids(curated.as_ref());
+                            offers(&reported, &ids, m)
+                        })
                         .map(|value| StartValue { value, source: StartSource::Catalog })
                 }),
         };
@@ -329,6 +337,28 @@ impl Hub {
                     .map(|value| StartValue { value, source: StartSource::Catalog })
             });
         (start_model, start_effort)
+    }
+
+    /// The model ids `agent` itself reported (its last session or probe);
+    /// empty when it reported none (Claude Code, a harness not probed yet).
+    pub(super) fn reported_model_ids(&self, agent: &str) -> Vec<String> {
+        self.known_models
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(agent)
+            .map(|list| list.iter().map(|(id, _)| id.clone()).collect())
+            .unwrap_or_default()
+    }
+
+    /// Whether the catalog start model `model` is one `agent`'s harness offers ([`offers`]).
+    pub(super) fn harness_offers(
+        &self,
+        agent: &str,
+        profile: &HarnessProfile,
+        model: &str,
+    ) -> bool {
+        let curated = super::models_view::curated_for(&self.catalog, agent, profile);
+        offers(&self.reported_model_ids(agent), &c_ids(curated.as_ref()), model)
     }
 
     /// `start` for one `_acpmux/harnesses` row: `{model?, effort?,
@@ -367,4 +397,30 @@ impl Hub {
         }
         Some(v)
     }
+}
+
+/// The curated model ids of a catalog entry.
+fn c_ids(curated: Option<&CatalogHarness>) -> Vec<String> {
+    curated.map(|c| c.models.iter().map(|m| m.id.clone()).collect()).unwrap_or_default()
+}
+
+/// Whether reported id `id` names `model`: the same id, or a DSH route
+/// (`["provider","model"]`) for `model` or `provider/model`, as
+/// `model_catalog::resolve` accepts them.
+fn names(id: &str, model: &str) -> bool {
+    id == model
+        || serde_json::from_str::<Vec<String>>(id)
+            .is_ok_and(|p| p.len() == 2 && (p[1] == model || format!("{}/{}", p[0], p[1]) == model))
+}
+
+/// Whether a harness that reported `reported` offers the catalog's `model`.
+/// Any model when it reported none, or when its ids are not the catalog's
+/// (Claude Code's aliases `default`/`opus`/`sonnet`): then the harness decides,
+/// as before. Otherwise only a model it lists, so an account that lacks the
+/// catalog default (Codex without GPT-6.1 Sol) starts on its own default.
+pub(super) fn offers(reported: &[String], curated: &[String], model: &str) -> bool {
+    if reported.is_empty() || !reported.iter().any(|r| curated.iter().any(|c| names(r, c))) {
+        return true;
+    }
+    reported.iter().any(|r| names(r, model))
 }

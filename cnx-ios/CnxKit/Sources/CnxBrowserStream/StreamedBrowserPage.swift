@@ -29,7 +29,11 @@ public struct StreamedBrowserPage: View {
             if model.phase == .unavailable {
                 unavailable
             } else if case let .waiting(reason) = model.phase {
-                status(reason)
+                if model.canReopen {
+                    reopen(reason)
+                } else {
+                    status(reason)
+                }
             } else if model.phase == .connecting {
                 status("Opening on your Mac…")
             }
@@ -54,7 +58,11 @@ public struct StreamedBrowserPage: View {
         .padding(.top, insets.top)
         .padding(.bottom, insets.bottom)
         .background(Color.black)
-        .onAppear { model.reconnect() }
+        .onAppear {
+            model.setVisible(true)
+            model.reconnect()
+        }
+        .onDisappear { model.setVisible(false) }
     }
 
     /// An honest state, with the page in Safari on this iPhone when it has a web address.
@@ -72,6 +80,23 @@ public struct StreamedBrowserPage: View {
         .padding(20)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityIdentifier("browser.unavailable")
+    }
+
+    /// The Mac stopped the page or another viewer took it: say so, with a
+    /// way back (never a frozen frame).
+    private func reopen(_ text: String) -> some View {
+        VStack(spacing: 10) {
+            Text(text)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+            Button("Reopen") { model.reopen() }
+                .buttonStyle(.glass)
+                .accessibilityIdentifier("browser.reopen")
+        }
+        .padding(.horizontal, 16).padding(.vertical, 12)
+        .glassEffect(.regular, in: .rect(cornerRadius: 18))
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private func status(_ text: String) -> some View {

@@ -17,9 +17,14 @@ Per configuration (carrier x path x loss), from the simulator's recording:
 - input to frame: tap sent (host time) -> first video frame showing that tap's
   count (its phone clock), split at the page's own receipt time.
 
-Configurations: `[wg-]{track,channel}[-relay|-tls][-loss<permille>]`. A `wg-`
-prefix dials WireGuard (`-cnx.settings.transport wireguard`), whose lane is RTP
-inside the tunnel (overlay label `wg-rtp`); without it the link is WebRTC.
+Configurations: `[wg-|hy-]{track,channel}[-relay|-tls][-loss<permille>]`. A
+`wg-` prefix dials WireGuard (`-cnx.settings.transport wireguard`) with no WebRTC
+media session beside it (CNX_DEV_NO_WEBRTC_MEDIA), so its lane is RTP inside the
+tunnel (overlay label `wg-rtp`): the "WireGuard only" baseline. `hy-` dials
+WireGuard as the app does by default (verify/hybrid-link.md): the link rides
+the tunnel and browser video a WebRTC media session's track (`track`), or the
+tunnel's RTP when that session fails (`hy-track-tls`, UDP blocked: `wg-rtp`).
+Without a prefix the link is WebRTC.
 `-relay` is relay only (TURN over UDP); `-tls` (WireGuard only) blocks UDP on
 the phone (CNX_DEV_BLOCK_UDP), so WireGuard rides TURN over TLS on 443. (The
 old `-wss` configuration rode the backend's WebSocket relay, which is retired.)
@@ -171,10 +176,17 @@ class Bench:
         raise RuntimeError("the streamed page never showed (no overlay or page clock)")
 
     def run_config(self, name, mac, sim, j, out, warmup=0.0):
-        wg = name.startswith("wg-")
+        hybrid = name.startswith("hy-")
+        wg = name.startswith("wg-") or hybrid
         base = name[3:] if wg else name
-        carrier = "channel" if base.startswith("channel") else ("wg-rtp" if wg else "track")
         tls = "tls" in base
+        if base.startswith("channel"):
+            carrier = "channel"
+        elif hybrid:
+            # The media session needs UDP; with it blocked video stays in the tunnel.
+            carrier = "wg-rtp" if tls else "track"
+        else:
+            carrier = "wg-rtp" if wg else "track"
         if "wss" in base:
             raise ValueError(f"{name}: the WebSocket relay is retired; use -tls (TURN over TLS)")
         relay = "relay" in base
@@ -185,7 +197,10 @@ class Bench:
         args = ["-cnx.dev.relayOnly", "YES" if relay else "NO",
                 "-cnx.settings.transport", "wireguard" if wg else "webrtc",
                 "-cnx.dev.browserVideoOnChannel", "YES" if carrier == "channel" else "NO"]
-        sim_env = {"CNX_DEV_BLOCK_UDP": "1"} if tls else None
+        sim_env = {"CNX_DEV_BLOCK_UDP": "1"} if tls else {}
+        if wg and not hybrid:
+            sim_env["CNX_DEV_NO_WEBRTC_MEDIA"] = "1"
+        sim_env = sim_env or None
         if self.a.remote:
             # The Mac app runs on a fleet Mac (browser-track-mac.sh); hostd reads the
             # drop share from its state folder at each new link.
@@ -229,7 +244,8 @@ class Bench:
         video = os.path.join(cfg_dir, "screen.mp4")
         sim.record_start(video)
         rec_t0 = time.time()
-        time.sleep(self.a.seconds)
+        events = self.media_faults(mac, rec_t0) if (hybrid and mac is not None) else []
+        time.sleep(max(0.0, rec_t0 + self.a.seconds - time.time()))
         taps = []
         for _ in range(self.a.taps):
             t = time.time()
@@ -246,10 +262,12 @@ class Bench:
         time.sleep(1.5)
         sim.record_stop()
         shot = sim.shot(f"{os.path.basename(cfg_dir)}-end")
-        result = {"config": os.path.basename(cfg_dir), "transport": "wireguard" if wg else "webrtc", "udp_blocked": tls,
+        result = {"config": os.path.basename(cfg_dir), "transport": "wireguard" if wg else "webrtc",
+                  "webrtc_media_session": hybrid, "udp_blocked": tls,
                   "carrier_expected": carrier, "relay_only": relay, "drop_permille": drop,
                   "hostd_env": env, "overlay_at_start": shown[:300], "link_status": status,
-                  "recording_started_host": rec_t0, "taps_host": taps, "screenshot": shot}
+                  "recording_started_host": rec_t0, "taps_host": taps, "screenshot": shot,
+                  "media_faults": events}
         json.dump(result, open(os.path.join(cfg_dir, "capture.json"), "w"), indent=2)
         if self.a.record_only:
             return result
@@ -257,6 +275,28 @@ class Bench:
         json.dump(result, open(os.path.join(cfg_dir, "result.json"), "w"), indent=2)
         self.log(f"    {name}: {json.dumps({k: result.get(k) for k in ('carrier_seen', 'g2g_ms', 'pacing', 'input_to_frame_ms', 'mac_input_to_frame_ms')})}")
         return result
+
+    def media_faults(self, mac, t0):
+        """--kill-at / --blackhole-at (hy- configurations): signal cnx-hostd mid-recording
+        (media_session.rs): SIGUSR2 closes every WebRTC media session (it failed: video
+        falls back into the tunnel, the phone dials a new one); SIGUSR1 toggles a black
+        hole under the sessions' tracks (a path that died silently: no feedback, so the
+        Mac falls back within the stall time and retries after a backoff). Returns the
+        signals sent, in seconds since the recording started."""
+        plan = []
+        if self.a.kill_at is not None:
+            plan.append((self.a.kill_at, "USR2", "kill"))
+        for at in self.a.blackhole_at or []:
+            plan.append((at, "USR1", "blackhole-toggle"))
+        events = []
+        for at, sig, what in sorted(plan):
+            time.sleep(max(0.0, t0 + at - time.time()))
+            pids = mac.hostd_pids()
+            if pids:
+                subprocess.run(["kill", f"-{sig}", str(pids[0])], check=False)
+            events.append({"t": round(time.time() - t0, 3), "signal": sig, "what": what, "hostd": pids[:1]})
+            self.log(f"    {what} at {events[-1]['t']} s (hostd {pids[:1]})")
+        return events
 
     # ---- analysis ------------------------------------------------------------------
     def analyze(self, video, cfg_dir, rec_t0, taps):
@@ -279,6 +319,7 @@ class Bench:
         shots = extract(video, os.path.join(cfg_dir, "frames"), (0, 0, 402, 874), step=1)
         texts = ocr([p for _, p in shots])
         g2g, carriers, tap_frames = [], {}, {}
+        timeline = []  # (t, carrier) at each change of the overlay's carrier
         for t, p in shots:
             text = texts.get(os.path.basename(p), "")
             mac = re.search(r"mac\s+" + CLOCK, text)
@@ -286,6 +327,8 @@ class Bench:
             for c in ("wg-rtp", "track", "channel"):
                 if re.search(rf"\b{c}\b", text):
                     carriers[c] = carriers.get(c, 0) + 1
+                    if not timeline or timeline[-1][1] != c:
+                        timeline.append((round(t, 3), c))
             if mac and phone:
                 d = wrap(ms_of(phone) - ms_of(mac) - self.a.offset_ms)
                 if -50 < d < 5000 and t <= self.a.seconds:
@@ -320,7 +363,7 @@ class Bench:
                         input_legs.append(leg)
         summary = lambda v: {"n": len(v), "p50": pct(v, 50), "p90": pct(v, 90), "max": max(v) if v else None}
         g2g, misread = drop_misreads(g2g)
-        return {"carrier_seen": carriers, "g2g_ms": summary(g2g), "g2g_ocr_misreads": misread, "pacing": pacing,
+        return {"carrier_seen": carriers, "carrier_timeline": timeline, "g2g_ms": summary(g2g), "g2g_ocr_misreads": misread, "pacing": pacing,
                 "input_to_frame_ms": summary(inputs), "mac_input_to_frame_ms": summary(mac_inputs),
                 "tap_to_mac_ms": summary(input_legs), "video_frames": len(fr)}
 
@@ -346,6 +389,8 @@ def main():
     ap.add_argument("--team", help="remote mode: the phone's team id (personal-...)")
     ap.add_argument("--mac-device", help="remote mode: the Mac's cnx-hostd device id")
     ap.add_argument("--remote-bundle", default="com.cmuxterm.app.debug.cnx.rbvideo.b")
+    ap.add_argument("--kill-at", type=float, help="hy- configurations: SIGUSR2 to cnx-hostd this many seconds into the recording")
+    ap.add_argument("--blackhole-at", type=float, nargs="*", help="hy- configurations: SIGUSR1 (toggle) at these seconds")
     ap.add_argument("--offset-ms", type=float, default=0.0, help="Mac clock minus this Mac's clock (clock-offset.py)")
     a = ap.parse_args()
     if a.remote:

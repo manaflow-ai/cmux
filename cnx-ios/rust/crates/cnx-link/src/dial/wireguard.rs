@@ -1341,7 +1341,7 @@ impl Dialer for WireGuardDialer {
                         public_key: b64(&public_key),
                         endpoints,
                         overlay_ip: DIALER_OVERLAY.to_string(),
-                        lanes: super::offered_lanes(options, options.video_lane),
+                        lanes: super::offered_lanes(options, options.video_lane, options.webrtc_media),
                         relayed,
                         relayed_tls,
                         version: WG_VERSION,
@@ -1351,6 +1351,7 @@ impl Dialer for WireGuardDialer {
             options.timeline.mark("wg_init_sent");
             let agreed;
             let video_agreed;
+            let webrtc_media_agreed;
             let (peer_key, peer_endpoints, peer_ip, peer_relayed, peer_relayed_tls, peer_version) = loop {
                 match events.next().await? {
                     SessionEvent::Signal(envelope) => match envelope.payload {
@@ -1369,6 +1370,8 @@ impl Dialer for WireGuardDialer {
                                 .map_err(|_| DialError::Unexpected("wg-resp overlayIP is not IPv4".into()))?;
                             agreed = super::input_lane_agreed(options, &lanes);
                             video_agreed = options.video_lane && super::video_lane_listed(&lanes);
+                            webrtc_media_agreed =
+                                video_agreed && options.webrtc_media && super::webrtc_media_listed(&lanes);
                             break (parse_key(&public_key)?, endpoints, ip, relayed, relayed_tls, version);
                         }
                         SignalPayload::Bye { reason } => return Err(DialError::Bye(reason)),
@@ -1451,7 +1454,16 @@ impl Dialer for WireGuardDialer {
                 });
                 rx
             });
-            Ok(Dialed { stream: Box::new(stream), path: tunnel.path, guard: Box::new(guard), lane, media })
+            // A media session needs the tunnel's lane as its floor.
+            let webrtc_media = webrtc_media_agreed && media.is_some();
+            Ok(Dialed {
+                stream: Box::new(stream),
+                path: tunnel.path,
+                guard: Box::new(guard),
+                lane,
+                media,
+                webrtc_media,
+            })
         })
     }
 
@@ -1477,6 +1489,8 @@ impl Dialer for WireGuardDialer {
             };
             let agreed = super::input_lane_agreed(options, &lanes);
             let video_wanted = options.video_lane && super::video_lane_listed(&lanes);
+            let webrtc_media_wanted =
+                video_wanted && options.webrtc_media && super::webrtc_media_listed(&lanes);
             let peer_key = parse_key(&public_key)?;
             let peer_ip: Ipv4Addr = overlay_ip
                 .parse()
@@ -1558,7 +1572,7 @@ impl Dialer for WireGuardDialer {
                         public_key: b64(&own_public),
                         endpoints,
                         overlay_ip: own_ip.to_string(),
-                        lanes: super::offered_lanes(options, media.is_some()),
+                        lanes: super::offered_lanes(options, media.is_some(), webrtc_media_wanted),
                         relayed: own_relayed,
                         relayed_tls: own_relayed_tls,
                         version: WG_VERSION,
@@ -1579,11 +1593,13 @@ impl Dialer for WireGuardDialer {
                 });
                 rx
             });
+            let webrtc_media = webrtc_media_wanted && media.is_some();
             Ok(Dialed {
                 stream: Box::new(stream),
                 path: tunnel.path,
                 guard: Box::new(guard),
                 lane,
+                webrtc_media,
                 media: media.map(|carrier| {
                     options.timeline.mark("video_lane");
                     super::PendingMedia::Send(carrier)

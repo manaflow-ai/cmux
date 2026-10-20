@@ -55,7 +55,16 @@ public final class ChiefSession {
     public private(set) var isConnected = false
     /// Why Chief is not reachable (no Mac, Chief not started there), set by
     /// whoever swaps the backend; nil when there is nothing to explain.
-    public var status: String?
+    /// Setting it ends a Try Again in flight (the try came back).
+    public var status: String? {
+        didSet { isReconnecting = false }
+    }
+    /// Tries the Mac's Chief again (set by the link's coordinator); nil
+    /// where there is nothing to try (no link).
+    @ObservationIgnored public var reconnect: (@MainActor () -> Void)?
+    /// A Try Again is in flight: the bar shows progress until ``status`` is
+    /// set again or Chief connects.
+    public private(set) var isReconnecting = false
     /// The backend the store runs on.
     public private(set) var backend: any ConversationBackend
     /// Who is in the conversation; the Cloud Chief's ids come with its backend.
@@ -166,9 +175,48 @@ public final class ChiefSession {
     /// else Try Again for a failed newest turn not tried again yet.
     public var barItem: ChiefBarItem? {
         if let question = openQuestion { return .question(question) }
+        // The Mac's Chief refused or is missing (D2): say why, instead of
+        // the conversation's endless first-load spinner.
+        if !isConnected, let status { return .unavailable(reason: status, retrying: isReconnecting) }
         guard let id = lastTurnFailureID, let failure = lastTurnFailure, id != retriedFailureID, isConnected else { return nil }
         return .failure(id: id, failure)
     }
+
+    /// Try Again on the unavailable bar has something to try.
+    public var canRetryConnecting: Bool { reconnect != nil }
+
+    /// Try Again on the unavailable bar: asks the coordinator to open the
+    /// Mac's Chief again. A second tap while one runs does nothing.
+    public func retryConnecting() {
+        guard let reconnect, !isReconnecting else { return }
+        isReconnecting = true
+        reconnect()
+    }
+
+    /// Composer text of a Chief screen that went away, for the screen that replaces it.
+    private var carriedComposerText: String?
+
+    /// The leaving screen's unsent text (empty clears it).
+    public func carryComposerText(_ text: String) {
+        carriedComposerText = text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : text
+    }
+
+    /// The carried text, once.
+    public func takeCarriedComposerText() -> String? {
+        defer { carriedComposerText = nil }
+        return carriedComposerText
+    }
+
+    /// The coordinator's try ended (connected, refused or replaced): Try Again is offered again.
+    public func endReconnect() {
+        if isReconnecting { isReconnecting = false }
+    }
+
+    /// The conversation's own send takes a message now. Before Chief ever
+    /// connected it has no sender and drops the message after clearing the
+    /// composer (D3), so the screen holds the text and sends it through
+    /// ``send(_:)`` (the outbox) instead.
+    public var acceptsSendsNow: Bool { store.meID != nil }
 
     /// What Chief is doing right now (Live frames v1), when its backend
     /// carries live frames (``ChiefLiveSource``); nil when nothing runs.
@@ -454,6 +502,7 @@ public final class ChiefSession {
         if isTyping != typing { isTyping = typing }
         let connected = store.connection == .connected
         if isConnected != connected { isConnected = connected }
+        if connected, isReconnecting { isReconnecting = false }
         if title != store.info?.title { title = store.info?.title }
         // Chief's avatar as the conversation draws it (the Mac's text, live).
         if let drawn = store.info?.participants.first(where: { $0.id == identity.chiefID })?.initials,

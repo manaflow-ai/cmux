@@ -171,6 +171,29 @@ import Testing
         #expect(agentOnly.resolve(.macDefault)?.harness.id == "claude")
     }
 
+    /// Full verify D4: Default on a named agent is the Mac's own pick for that agent, and a
+    /// catalog default the Mac's account doesn't list is not offered by name.
+    @Test func defaultOnANamedAgentIsTheMacsOwnPick() throws {
+        let catalog = AgentCatalog(harnesses: try json(harnesses))
+        #expect(catalog.resolve(AgentChatStart(harness: "codex"), folder: "/Users/p/other")?.model == "gpt-5.5")
+        #expect(catalog.resolve(AgentChatStart(harness: "cmux"), folder: "/Users/p/web")?.model == "z-ai/glm-5.3")
+        // No pick for that agent: the agent's own default (none sent).
+        #expect(catalog.resolve(AgentChatStart(harness: "claude"), folder: "/Users/p/web")?.model == nil)
+        // An explicit model still wins.
+        #expect(catalog.resolve(AgentChatStart(harness: "codex", model: "gpt-6-astra"))?.model == "gpt-6-astra")
+    }
+
+    @Test func aDefaultTheAccountDoesNotListIsNotNamed() {
+        let listed = AgentHarnessChoice(id: "codex", name: "Codex", family: "codex",
+                                        models: [AgentModelChoice(id: "gpt-5.5", name: "GPT-5.5")], defaultModel: "gpt-5.5")
+        #expect(listed.offeredDefaultModel == "gpt-5.5")
+        let unlisted = AgentHarnessChoice(id: "codex", name: "Codex", family: "codex",
+                                          models: [AgentModelChoice(id: "gpt-5.5", name: "GPT-5.5")], defaultModel: "gpt-6.1-sol")
+        #expect(unlisted.offeredDefaultModel == nil)
+        // No list (Claude Code): the default stands.
+        #expect(AgentHarnessChoice(id: "claude", name: "Claude", family: "claude", defaultModel: "opus").offeredDefaultModel == "opus")
+    }
+
     @Test func aPhonePicksOnlyModesThatAsk() {
         let modes = ["default", "acceptEdits", "plan", "bypassPermissions", "ask", "agent", "agent-full-access"]
             .map { ACPMode(id: $0, name: $0) }

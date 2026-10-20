@@ -62,3 +62,31 @@ export const sendTeamInvite = async (env: Env, caller: Caller, teamId: string, e
   if (res.ok) return { ok: true, url: callback }
   return { ok: false, status: res.status, code: res.headers.get("x-stack-known-error") ?? "stack_error" }
 }
+
+export type CreateTeamResult = { ok: true; id: string; name: string } | { ok: false; status: number; code: string }
+
+/**
+ * Creates a Stack team with the caller as its creator (and so its first member). Stack refuses team
+ * creation from the client API in both projects (`client_team_creation_enabled` is false), so this
+ * needs the project's server key; without one it says so instead of pretending.
+ */
+export const createTeam = async (env: Env, caller: Caller, name: string): Promise<CreateTeamResult> => {
+  if (env.ENVIRONMENT === "test") {
+    // Tests have no server key: the primary project stands for one that has it.
+    return caller.projectId === primaryProject(env).id
+      ? { ok: true, id: `team-${crypto.randomUUID()}`, name }
+      : { ok: false, status: 503, code: "team_creation_unavailable" }
+  }
+  if (!usesServerKey(env, caller)) return { ok: false, status: 503, code: "team_creation_unavailable" }
+  const res = await fetch(`${API}/teams`, {
+    method: "POST",
+    headers: headers(env, caller),
+    body: JSON.stringify({ display_name: name, creator_user_id: caller.userId }),
+    signal: AbortSignal.timeout(10_000)
+  })
+  // Never echo Stack's body: it can carry user data.
+  if (!res.ok) return { ok: false, status: res.status, code: res.headers.get("x-stack-known-error") ?? "stack_error" }
+  const body = (await res.json()) as { id?: unknown; display_name?: unknown }
+  if (typeof body.id !== "string") return { ok: false, status: 502, code: "stack_error" }
+  return { ok: true, id: body.id, name: typeof body.display_name === "string" ? body.display_name : name }
+}

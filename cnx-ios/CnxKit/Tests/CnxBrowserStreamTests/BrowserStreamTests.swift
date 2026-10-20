@@ -95,13 +95,14 @@ final class SinkBox: @unchecked Sendable {
             box.lock.withLock { box.sinks.append(sink) }
             return stream
         }
+        model.setVisible(true)
         model.layout(points: CGSize(width: 402, height: 700), screenScale: 3)
         for _ in 0..<200 where box.last == nil { try? await Task.sleep(for: .milliseconds(5)) }
         let sink = try #require(box.last)
         #expect(model.phase == .connecting)
         sink.browserMessage(Data(#"{"t":"welcome","caps":["input.service"]}"#.utf8))
         await settle()
-        #expect(stream.sent == ["rb.open"])
+        #expect(stream.sent == ["rb.open", "rb.visibility"])
         sink.browserMessage(Data(#"{"t":"rb.page","url":"https://example.org/a","title":"A","loading":true,"can_go_back":true,"can_go_forward":false}"#.utf8))
         await settle()
         #expect(model.url?.absoluteString == "https://example.org/a" && model.title == "A" && model.isLoading && model.canGoBack)
@@ -110,9 +111,9 @@ final class SinkBox: @unchecked Sendable {
         model.goBack()
         model.reloadOrStop()
         model.navigate(to: "swift.org")
-        #expect(stream.sent == ["rb.open", "rb.screen", "rb.history", "rb.history", "rb.navigate"])
-        #expect(stream.lock.withLock { stream.messages[3]["op"] as? String } == "stop")
-        #expect(stream.lock.withLock { stream.messages[4]["url"] as? String } == "https://swift.org")
+        #expect(stream.sent == ["rb.open", "rb.visibility", "rb.screen", "rb.history", "rb.history", "rb.navigate"])
+        #expect(stream.lock.withLock { stream.messages[4]["op"] as? String } == "stop")
+        #expect(stream.lock.withLock { stream.messages[5]["url"] as? String } == "https://swift.org")
         let (x, y) = model.css(CGPoint(x: 201, y: 250), in: CGSize(width: 402, height: 500))
         #expect(x == 201 && y == 250)
         // A dropped stream waits, then opens again on the next link.
@@ -126,6 +127,7 @@ final class SinkBox: @unchecked Sendable {
 
     @Test func aRefusedOpenSaysWhy() async {
         let model = StreamedBrowserModel(tab: "s4", url: nil) { _ in throw LinkError(code: "unavailable", message: "browser host: exited") }
+        model.setVisible(true)
         model.layout(points: CGSize(width: 300, height: 600), screenScale: 2)
         for _ in 0..<200 where model.phase == .connecting { try? await Task.sleep(for: .milliseconds(5)) }
         #expect(model.phase == .waiting("browser host: exited"))
@@ -137,6 +139,7 @@ final class SinkBox: @unchecked Sendable {
         for error in [LinkError(code: "no_browser_host", message: "this Mac does not stream browser tabs"),
                       LinkError(code: "unavailable", message: "this build has no browser host")] {
             let model = StreamedBrowserModel(tab: "s5", url: nil) { _ in throw error }
+            model.setVisible(true)
             model.layout(points: CGSize(width: 300, height: 600), screenScale: 2)
             for _ in 0..<200 where model.phase == .connecting { try? await Task.sleep(for: .milliseconds(5)) }
             #expect(model.phase == .unavailable)
@@ -168,6 +171,7 @@ final class SinkBox: @unchecked Sendable {
             box.lock.withLock { box.sinks.append(sink) }
             return stream
         }
+        model.setVisible(true)
         model.layout(points: CGSize(width: 402, height: 700), screenScale: 3)
         for _ in 0..<200 where box.last == nil { try? await Task.sleep(for: .milliseconds(5)) }
         let sink = try #require(box.last)

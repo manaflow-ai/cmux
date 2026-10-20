@@ -1,10 +1,10 @@
 import { authenticate, bearerOf, primaryProject, stackProjects, type Caller } from "./auth.ts"
 import type { Env } from "./env.ts"
 import { iceServers } from "./ice.ts"
-import { sendTeamInvite, userTeams } from "./stack.ts"
+import { createTeam, sendTeamInvite, userTeams } from "./stack.ts"
 import { apnsConfig, apnsTopics, clean, sendApns } from "./push.ts"
 import { openStore, PUSH_KINDS, type Device, type PushKind, type Store } from "./store.ts"
-import type { Attachment } from "./team-hub.ts"
+import { userHubName, type Attachment } from "./team-hub.ts"
 import { Timing, timingFor } from "./timing.ts"
 
 export { TeamHub } from "./team-hub.ts"
@@ -94,8 +94,92 @@ export const locationHintFor = (cf: { continent?: unknown; longitude?: unknown; 
 
 /** The caller's identity plus where a hub created by this request should live. */
 type Ctx = Caller & { readonly hint?: DurableObjectLocationHint; readonly t: Timing }
-const hub = (env: Env, caller: Ctx, teamId: string) =>
-  env.TEAM_HUB.get(env.TEAM_HUB.idFromName(scoped(env, caller, teamId)), caller.hint ? { locationHint: caller.hint } : undefined)
+/**
+ * The caller's own hub (PROTOCOL.md "Signaling WebSocket"): one per user, named by the owner key derived from
+ * the verified token, never from a path or body value. Every hub call passes that key again, and the hub
+ * refuses one that is not its owner's.
+ */
+const userHub = (env: Env, caller: Ctx) =>
+  env.TEAM_HUB.get(env.TEAM_HUB.idFromName(userHubName(ownerKey(env, caller))), caller.hint ? { locationHint: caller.hint } : undefined)
+/**
+ * Migration from team hubs (PROTOCOL.md 0.10.0). Hibernated sockets survive a deploy, so a socket can stay
+ * parked in its old team hub (named by the team, `scoped(teamId)`) while its peers are in the user hub. Two
+ * paths retire team hubs: the minute cron (`retireAllTeamHubs`, every team in the database), and lazily, the
+ * first time an isolate serves a team after a membership check. A retire that failed (around a deploy the RPC
+ * can reach a hub still on the previous class) is retried: only a success is remembered. Remove both once no
+ * team hub holds sockets.
+ */
+const retireMemo = new Map<string, { done: boolean; until: number }>()
+/**
+ * After a deploy a Durable Object keeps running the previous class until it is evicted, and steady traffic (a
+ * phone polling, these very retries) keeps it warm for minutes (seen live on 2026-10-20). The previous class has
+ * no `retireTeamHub` ("The RPC receiver does not implement the method"), but every version has `forgetMac`, which
+ * closes one device's sockets with 4001 `moved`; clients reconnect on 4001, now into their user hub. So a hub on
+ * the previous class has the team's devices (from the database) moved out one by one, and is retired for good
+ * once it runs the new class.
+ */
+const retireOnce = async (env: Env, name: string, via: string, deviceIds: ReadonlyArray<string>): Promise<number> => {
+  const hit = retireMemo.get(name)
+  // The sweep ignores a request's backoff: it carries every device of the team, a request only some.
+  if (hit && (hit.done || (via !== "sweep" && Date.now() < hit.until))) return 0
+  const configured = Number(env.TEAM_HUB_RETIRE_RETRY_MS)
+  const retryMs = Number.isFinite(configured) && configured >= 0 ? configured : 10_000
+  retireMemo.set(name, { done: false, until: Date.now() + retryMs })
+  const stub = env.TEAM_HUB.get(env.TEAM_HUB.idFromName(name))
+  try {
+    const { closed } = await stub.retireTeamHub()
+    retireMemo.set(name, { done: true, until: 0 })
+    if (closed) console.log(JSON.stringify({ msg: "team hub retired", via, closed }))
+    return closed
+  } catch (e) {
+    if (!String(e).includes("does not implement")) {
+      console.log(JSON.stringify({ msg: "team hub retire failed", via, error: String(e) }))
+      throw e
+    }
+    const previous = stub as unknown as { forgetMac(deviceId: string): Promise<void> }
+    const moved = (await Promise.all(deviceIds.map((id) => previous.forgetMac(id).then(() => 1, () => 0)))).reduce<number>((a, b) => a + b, 0)
+    console.log(JSON.stringify({ msg: "team hub on the previous class; devices moved", via, devices: deviceIds.length, moved }))
+    return 0
+  }
+}
+const retireTeamHub = (env: Env, ctx: ExecutionContext, caller: Ctx, teamId: string, deviceIds: ReadonlyArray<string> = []) => {
+  const name = scoped(env, caller, teamId)
+  const hit = retireMemo.get(name)
+  if (hit?.done) return
+  ctx.waitUntil(retireOnce(env, name, "request", deviceIds).catch(() => {}))
+}
+
+/**
+ * Retires the old hub of every team the database knows (devices and team prefs, both projects' naming), a few
+ * at a time. Run by the minute cron; each hub remembers its retirement, so later sweeps cost one wake per team.
+ */
+export const retireAllTeamHubs = async (env: Env): Promise<{ teams: number; closed: number; failed: number }> => {
+  const store = await openStore(env)
+  let scopes: Array<{ project: string | null; teamId: string; deviceIds: Array<string> }>
+  try {
+    scopes = await store.listTeamScopes()
+  } finally {
+    await store.close().catch(() => {})
+  }
+  // Only teams with devices: a team known only from prefs never had a socket (and would create a hub).
+  const byName = new Map(scopes.filter((s) => s.deviceIds.length).map((s) => [s.project ? `${s.project}:${s.teamId}` : s.teamId, s.deviceIds]))
+  const names = [...byName.keys()]
+  let closed = 0
+  let failed = 0
+  for (let i = 0; i < names.length; i += 16)
+    await Promise.all(
+      names.slice(i, i + 16).map((n) =>
+        retireOnce(env, n, "sweep", byName.get(n)!).then(
+          (c) => void (closed += c),
+          () => void failed++
+        )
+      )
+    )
+  // One line a minute: the migration's progress (`retired` = hubs confirmed on the new class and empty).
+  const retired = names.filter((n) => retireMemo.get(n)?.done).length
+  console.log(JSON.stringify({ msg: "team hub sweep", teams: names.length, retired, closed, failed }))
+  return { teams: names.length, closed, failed }
+}
 /**
  * The caller's identity in stored rows (devices.owner_user_id, team_prefs.user_id): the bare sub for the
  * primary project, `<projectId>:<sub>` otherwise. This records the project without a schema change, and the
@@ -116,7 +200,7 @@ const requireMember = async (env: Env, teamId: string, caller: Ctx) => {
   }
   let ok: boolean
   try {
-    ok = await caller.t.span("member", hub(env, caller, teamId).isMember(teamId, { userId: caller.userId, projectId: caller.projectId, token: caller.token }))
+    ok = await caller.t.span("member", userHub(env, caller).isMember(teamId, { userId: caller.userId, projectId: caller.projectId, token: caller.token }, ownerKey(env, caller)))
   } catch (e) {
     console.log(JSON.stringify({ msg: "membership check failed", error: String(e) }))
     throw new HttpError(502, "membership_unavailable", "could not check team membership")
@@ -145,27 +229,12 @@ const colo = (req: Request): string | null => {
 const later = (a: string | null, b: string | null) => (!a ? b : !b ? a : a > b ? a : b)
 
 /**
- * Per-isolate caches for the launch path (Server-Timing showed each costs a round trip to Stack, the
- * database in us-east-1 or Cloudflare's TURN API on every request):
- * - devices the signal socket admits, for a minute (a registration refreshes it, a deletion drops it and
- *   evicts the device's sockets, so a stale entry cannot outlive the device);
+ * Per-isolate caches for the launch path (Server-Timing showed each costs a round trip to Stack or
+ * Cloudflare's TURN API on every request):
  * - the caller's Stack teams for /me/macs, for a minute, one fetch in flight per user;
  * - TURN credentials, for a tenth of their lifetime, one fetch in flight.
+ * (Signal sockets need no device cache: the caller's hub keeps the devices registered to the caller.)
  */
-const DEVICE_TTL_MS = 60_000
-const deviceCache = new Map<string, { device: Device; at: number }>()
-const rememberDevice = (device: Device) => deviceCache.set(device.deviceId, { device, at: Date.now() })
-const signalDevice = async (env: Env, ctx: ExecutionContext, deviceId: string): Promise<Device | undefined> => {
-  const hit = deviceCache.get(deviceId)
-  if (hit && Date.now() - hit.at < DEVICE_TTL_MS) {
-    timingFor(ctx).add("device_cached", 0)
-    return hit.device
-  }
-  const device = await withStore(env, ctx, (s) => s.getDevice(deviceId))
-  if (device) rememberDevice(device)
-  return device
-}
-
 const TEAMS_TTL_MS = 60_000
 const teamsCache = new Map<string, { at: number; teams: Promise<ReadonlyArray<string>> }>()
 const cachedUserTeams = (env: Env, caller: Caller): Promise<ReadonlyArray<string>> => {
@@ -251,18 +320,9 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
   }
 
   if (path === "/v1/me/devices" && method === "GET") {
-    const rows = await withStore(env, ctx, (s) => s.listOwnerDevices(me))
-    // Presence for Macs from each team's hub (only teams the caller can still reach).
-    const macTeams = [...new Set(rows.filter((d) => d.kind === "mac").map((d) => d.teamId))]
-    const live = new Map<string, boolean>()
-    await Promise.all(
-      macTeams.map(async (t) => {
-        try {
-          await requireMember(env, t, caller)
-          for (const m of await hub(env, caller, t).macs()) live.set(m.deviceId, m.online)
-        } catch {}
-      })
-    )
+    const [rows, presence] = await Promise.all([withStore(env, ctx, (s) => s.listOwnerDevices(me)), t.span("hub", userHub(env, caller).macs(me))])
+    // Presence for Macs from the caller's own hub.
+    const live = new Map(presence.map((m) => [m.deviceId, m.online]))
     return json({
       devices: rows.map((d) => ({
         deviceId: d.deviceId,
@@ -281,8 +341,7 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
   if (path === "/v1/me" && method === "DELETE") {
     // Account deletion (PROTOCOL.md): purge everything stored for the caller and evict their sockets.
     const gone = await withStore(env, ctx, (s) => s.deleteOwner(me))
-    for (const d of gone) deviceCache.delete(d.deviceId)
-    await Promise.all(gone.map((d) => hub(env, caller, d.teamId).forgetDevice(d.deviceId).catch(() => {})))
+    await userHub(env, caller).purge(me)
     console.log(JSON.stringify({ msg: "account data deleted", devices: gone.length }))
     return json({ deleted: { devices: gone.length } })
   }
@@ -293,11 +352,10 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
     if (!UUID.test(deviceId)) throw new HttpError(400, "bad_request", "deviceId must be a UUID")
     const sub = dev[2]
     if (!sub && method === "DELETE") {
-      deviceCache.delete(deviceId)
       const r = await withStore(env, ctx, (s) => s.deleteDevice(deviceId, me))
       if (r === "not_owner") throw new HttpError(403, "not_owner", "this device belongs to another user")
       if (!r) throw new HttpError(404, "not_found", "no such device")
-      await hub(env, caller, r.teamId).forgetDevice(deviceId)
+      await userHub(env, caller).forgetDevice(me, deviceId)
       return json({ deleted: true, deviceId })
     }
     if (sub === "push" && (method === "PUT" || method === "DELETE")) {
@@ -371,14 +429,11 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
       s.upsertDevice({ deviceId: deviceId.toLowerCase(), ownerUserId: ownerKey(env, caller), teamId, kind, name: name.trim(), wgPublicKey: (wgPublicKey as string | null | undefined) ?? null })
     )
     if (r === "not_owner") throw new HttpError(403, "not_owner", "this deviceId belongs to another user")
-    rememberDevice(r.device)
-    if (r.previousTeamId) {
-      await hub(env, caller, r.previousTeamId).forgetMac(r.device.deviceId)
-      await hub(env, caller, r.previousTeamId).forgetRegistration(r.device.deviceId)
-    }
-    await t.span("hub", hub(env, caller, teamId).rememberDevice({ deviceId: r.device.deviceId, ownerKey: r.device.ownerUserId, kind: r.device.kind, name: r.device.name }))
-    if (r.device.kind === "mac")
-      await hub(env, caller, teamId).registerMac({ deviceId: r.device.deviceId, name: r.device.name, ownerUserId: caller.userId, ownerProjectId: caller.projectId })
+    // The caller's hub notes the device (and its team; a team move closes its socket with 4001 `moved`).
+    await t.span(
+      "hub",
+      userHub(env, caller).register({ deviceId: r.device.deviceId, ownerKey: r.device.ownerUserId, kind: r.device.kind, name: r.device.name, teamId, userId: caller.userId, projectId: caller.projectId })
+    )
     return json({ device: publicDevice(env, r.device) })
   }
 
@@ -397,18 +452,33 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
         throw new HttpError(502, "membership_unavailable", "could not check team membership")
       }
     }
-    const reachable = teamIds.filter((t) => (t.startsWith(PERSONAL) ? t === personalTeamId(caller.userId) : stackTeams.has(t)))
-    const live = new Map(
-      await t.span("hub", Promise.all(reachable.map(async (team) => [team, new Map((await hub(env, caller, team).macs()).map((m) => [m.deviceId, m]))] as const)))
-    )
+    const reachable = new Set(teamIds.filter((t) => (t.startsWith(PERSONAL) ? t === personalTeamId(caller.userId) : stackTeams.has(t))))
+    for (const team of reachable) retireTeamHub(env, ctx, caller, team, rows.filter((d) => d.teamId === team).map((d) => d.deviceId))
+    const presence = new Map((await t.span("hub", userHub(env, caller).macs(me))).map((m) => [m.deviceId, m]))
     return json({
       macs: rows.flatMap((d) => {
-        const presence = live.get(d.teamId)
-        if (!presence) return []
+        if (!reachable.has(d.teamId)) return []
         const p = presence.get(d.deviceId)
         return [{ deviceId: d.deviceId, name: d.name, teamId: d.teamId, online: p?.online ?? false, lastSeenAt: later(d.lastSeenAt, p?.lastSeenAt ?? null), ownerUserId: caller.userId }]
       })
     })
+  }
+
+  if (path === "/v1/teams" && method === "POST") {
+    // Create team (PROTOCOL.md): Stack's client API refuses it, so the Worker creates the team with the
+    // caller's project server key and the caller as its creator and first member.
+    const b = await readJson(req)
+    const name = typeof b.name === "string" ? b.name.trim() : ""
+    if (!name || name.length > 64 || /\p{Cc}/u.test(name)) throw new HttpError(400, "bad_request", "name must be 1 to 64 characters, no control characters")
+    await limit(env.TEAM_LIMIT, me, "team creations")
+    const r = await createTeam(env, caller, name)
+    if (!r.ok) {
+      if (r.code === "team_creation_unavailable") return fail(503, r.code, "this service can't create teams for your account yet")
+      return fail(r.status === 401 || r.status === 403 ? 403 : 502, "team_create_failed", `Stack refused the team (${r.code})`)
+    }
+    // The caller's cached memberships predate the new team.
+    teamsCache.delete(`${caller.projectId}\u0000${caller.userId}`)
+    return json({ team: { id: r.id, name: r.name } })
   }
 
   const team = path.match(/^\/v1\/teams\/([^/]+)\/(macs|prefs|invites|signal|hub)$/)
@@ -421,44 +491,48 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
     const deviceId = (url.searchParams.get("deviceId") ?? "").toLowerCase()
     if (!UUID.test(deviceId)) throw new HttpError(400, "bad_request", "deviceId must be a UUID")
     await requireMember(env, teamId, caller)
+    retireTeamHub(env, ctx, caller, teamId, [deviceId])
     // Echo only cnx.v1; the bearer subprotocol is never selected (it would echo the token back).
     const subprotocol = bearer?.viaSubprotocol || (req.headers.get("sec-websocket-protocol") ?? "").split(",").some((p) => p.trim() === "cnx.v1")
-    const teamHub = hub(env, caller, teamId)
-    // Fast path: the team's hub knows the devices registered in it, so no database round trip.
-    const claim = { userId: caller.userId, projectId: caller.projectId, deviceId, ownerKey: ownerKey(env, caller) }
+    const hub = userHub(env, caller)
+    // Fast path: the caller's hub knows the devices registered to the caller, so no database round trip.
+    const claim = { userId: caller.userId, projectId: caller.projectId, deviceId, ownerKey: me, teamId }
     const fast = new Headers({ upgrade: "websocket", "x-cnx-claim": JSON.stringify(claim) })
     if (subprotocol) fast.set("x-cnx-subprotocol", "cnx.v1")
-    const res = await t.span("hub", teamHub.fetch("https://team-hub/signal", { headers: fast }))
+    const res = await t.span("hub", hub.fetch("https://team-hub/signal", { headers: fast }))
     if (res.status === 101) return res
     if (res.status === 403) throw new HttpError(403, "not_owner", "register this device first")
-    // The hub has not seen this device (registered before hubs kept devices): check the database.
-    const device = await signalDevice(env, ctx, deviceId)
-    if (!device || device.ownerUserId !== ownerKey(env, caller)) throw new HttpError(403, "not_owner", "register this device first")
+    if (res.status !== 409) throw new HttpError(502, "hub_unavailable", "signaling is unavailable")
+    // The hub has not seen this device, or has no Macs from the database yet (a new hub): check the database.
+    // A 409 can also mean the device moved team since the hub saw it: the database decides.
+    const [device, macs] = await withStore(env, ctx, (s) => Promise.all([s.getDevice(deviceId), s.listOwnerMacs(me)]))
+    if (!device || device.ownerUserId !== me) throw new HttpError(403, "not_owner", "register this device first")
     if (device.teamId !== teamId) throw new HttpError(403, "wrong_team", "device is registered in another team")
-    const att: Attachment = { userId: caller.userId, projectId: caller.projectId, deviceId, kind: device.kind, name: device.name }
-    const headers = new Headers({ upgrade: "websocket", "x-cnx-attachment": JSON.stringify(att), "x-cnx-owner-key": device.ownerUserId })
+    await t.span("hub", hub.seed(me, { userId: caller.userId, projectId: caller.projectId }, macs.map((m) => ({ deviceId: m.deviceId, name: m.name, teamId: m.teamId, lastSeenAt: m.lastSeenAt }))))
+    const att: Attachment = { userId: caller.userId, projectId: caller.projectId, deviceId, kind: device.kind, name: device.name, teamId }
+    const headers = new Headers({ upgrade: "websocket", "x-cnx-attachment": JSON.stringify(att), "x-cnx-owner-key": me })
     if (subprotocol) headers.set("x-cnx-subprotocol", "cnx.v1")
-    return t.span("hub", teamHub.fetch("https://team-hub/signal", { headers }))
+    return t.span("hub", hub.fetch("https://team-hub/signal", { headers }))
   }
 
   if (action === "hub" && method === "GET") {
-    // Diagnostics (PROTOCOL.md): where this request entered Cloudflare and where the team's hub runs.
+    // Diagnostics (PROTOCOL.md): where this request entered Cloudflare and where the caller's hub runs.
     await requireMember(env, teamId, caller)
-    const placed = await hub(env, caller, teamId).placement()
+    const placed = await userHub(env, caller).placement(me)
     return json({ ingressColo: colo(req), hubColo: placed.colo, locationHint: caller.hint ?? null })
   }
 
   if (action === "macs" && method === "GET") {
     await requireMember(env, teamId, caller)
-    const [rows, live] = await Promise.all([withStore(env, ctx, (s) => s.listMacs(teamId)), t.span("hub", hub(env, caller, teamId).macs())])
+    // Only the caller's own Macs in this team (PROTOCOL.md): a teammate's Macs are never listed.
+    const [rows, live] = await Promise.all([withStore(env, ctx, (s) => s.listOwnerMacs(me)), t.span("hub", userHub(env, caller).macs(me, teamId))])
+    retireTeamHub(env, ctx, caller, teamId, rows.filter((d) => d.teamId === teamId).map((d) => d.deviceId))
     const byId = new Map(live.map((m) => [m.deviceId, m]))
     return json({
-      // Only Macs of the caller's project: a team (and a personal space) never spans projects.
       macs: rows.flatMap((d) => {
-        const owner = splitOwner(env, d.ownerUserId)
-        if (owner.projectId !== caller.projectId) return []
+        if (d.teamId !== teamId || d.ownerUserId !== me) return []
         const p = byId.get(d.deviceId)
-        return [{ deviceId: d.deviceId, name: d.name, online: p?.online ?? false, lastSeenAt: later(d.lastSeenAt, p?.lastSeenAt ?? null), ownerUserId: owner.userId }]
+        return [{ deviceId: d.deviceId, name: d.name, online: p?.online ?? false, lastSeenAt: later(d.lastSeenAt, p?.lastSeenAt ?? null), ownerUserId: caller.userId }]
       })
     })
   }
@@ -500,6 +574,9 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
 }
 
 export default {
+  async scheduled(_event: ScheduledController, env: Env): Promise<void> {
+    await retireAllTeamHubs(env).catch((e) => console.log(JSON.stringify({ msg: "team hub sweep failed", error: String(e) })))
+  },
   async fetch(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const t = timingFor(ctx)
     let res: Response

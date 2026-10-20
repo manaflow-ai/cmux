@@ -1,19 +1,43 @@
 import Foundation
 import Observation
 
-/// The link transport (PROTOCOL.md "Transport switch").
+/// The link transport (PROTOCOL.md "Transport switch", verify/hybrid-link.md).
+/// WireGuard (the default) carries the link and opens a WebRTC media session
+/// beside it for browser video; WebRTC carries everything on one peer
+/// connection. The picker lists WireGuard first.
 public enum TransportKind: String, CaseIterable, Identifiable, Sendable, Codable {
-    case webrtc
     case wireguard
+    case webrtc
 
     public var id: String { rawValue }
 
+    /// The short name (the Settings root's value, the status line).
     public var title: String {
         switch self {
-        case .webrtc: "WebRTC"
+        case .webrtc: "WebRTC only"
         case .wireguard: "WireGuard"
         }
     }
+
+    /// The Transport page's row title.
+    public var pickerTitle: String {
+        switch self {
+        case .webrtc: String(localized: "WebRTC only")
+        case .wireguard: String(localized: "WireGuard (recommended)")
+        }
+    }
+
+    /// The Settings root's value with the Developer dial policies that apply
+    /// to this transport: Block UDP is a WireGuard policy (WebRTC ignores it,
+    /// PROTOCOL.md "Transport switch"), Relay only applies to both.
+    public func settingsValue(blockUDP: Bool, relayOnly: Bool) -> String {
+        if blockUDP, self == .wireguard { return "\(title), UDP blocked" }
+        if relayOnly { return "\(title), relay only" }
+        return title
+    }
+
+    /// The transport of an install with no saved choice.
+    public static let fallback: TransportKind = .wireguard
 }
 
 /// The system notification permission as Settings shows it.
@@ -96,7 +120,9 @@ public final class SettingsStore {
         self.defaults = defaults
         func string(_ key: String) -> String? { defaults.string(forKey: "cnx.settings.\(key)") }
         func bool(_ key: String, _ fallback: Bool) -> Bool { defaults.object(forKey: "cnx.settings.\(key)") as? Bool ?? fallback }
-        transport = string("transport").flatMap(TransportKind.init(rawValue:)) ?? .webrtc
+        // A saved choice stays; an install that never chose gets WireGuard
+        // (it used to get WebRTC; verify/hybrid-link.md).
+        transport = string("transport").flatMap(TransportKind.init(rawValue:)) ?? .fallback
         appearance = string("appearance").flatMap(AppearanceMode.init(rawValue:)) ?? .system
         hapticsEnabled = bool("hapticsEnabled", true)
         terminalFontSize = defaults.object(forKey: "cnx.settings.terminalFontSize") as? Int ?? Self.defaultTerminalFontSize

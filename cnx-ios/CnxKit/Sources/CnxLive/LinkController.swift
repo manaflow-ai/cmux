@@ -17,8 +17,12 @@ public final class LinkController {
     public private(set) var link: (any MacLink)?
     /// The last failure, kept while reconnecting (Settings shows it).
     public private(set) var lastFailure: String?
+    /// The WebRTC media session beside the current WireGuard link.
+    public private(set) var media: VideoMediaState = .off
 
     @ObservationIgnored private var machine: LinkMachine
+    /// Bumped by every dial, close and wait the machine starts.
+    public var dialGeneration: Int { machine.generation }
     @ObservationIgnored private let dialer: any MacLinkDialer
     /// Resolves a Mac id to a dial endpoint (nil until the phone is registered).
     @ObservationIgnored public var endpoint: @MainActor (String) -> LinkEndpoint? = { _ in nil }
@@ -36,6 +40,11 @@ public final class LinkController {
     /// After a foreground a link that does not answer within this is redialed:
     /// a phone back from the background must not wait 8 s on a dead link.
     nonisolated static let foregroundProbeTimeout: Duration = .milliseconds(2000)
+    /// A link that does not answer within this after presence changed under
+    /// it (the Mac's signaling socket went or came back) is redialed: its
+    /// host may have restarted (termfix-r13 D2b: the dead link was kept until
+    /// the heartbeat, 26.7 s). A live link answers in milliseconds.
+    nonisolated static let presenceProbeTimeout: Duration = .milliseconds(1500)
     @ObservationIgnored private var quickProbe = false
     @ObservationIgnored public var onLink: (@MainActor ((any MacLink)?) -> Void)?
     /// Runs right after a dial, in the same detached step (no main actor):
@@ -147,6 +156,11 @@ public final class LinkController {
             log.info("link \(String(describing: self.machine.phase), privacy: .public)")
             phase = machine.phase
         }
+        if media != machine.media {
+            log.info("link media \(String(describing: self.machine.media), privacy: .public)")
+            ConnectTimeline.shared.mark("media", detail: String(describing: machine.media))
+            media = machine.media
+        }
         if case .waiting(_, _, let reason, _) = machine.phase { lastFailure = reason }
         if machine.phase.isConnected { lastFailure = nil }
         for effect in effects { run(effect) }
@@ -219,22 +233,28 @@ public final class LinkController {
                 self?.send(.retryDue(generation: generation))
             }
         case .probe(let generation):
-            guard let link else { return }
-            let clock = clock
             let timeout = quickProbe ? Self.foregroundProbeTimeout : Self.probeTimeout
             quickProbe = false
-            Task { [weak self] in
-                // The ping races a timeout: a frozen Mac never answers.
-                let result = await Self.race(timeout: timeout, clock: clock) { try await link.ping() }
-                guard let self else { return }
-                switch result {
-                case .success(let rtt):
-                    ConnectTimeline.shared.mark("link_alive", detail: "\(rtt) ms")
-                    guard case .connected(_, let path, _) = self.phase else { return }
-                    self.send(.linkUpdated(generation: generation, path: path, rttMillis: rtt))
-                case .failure(let error):
-                    self.send(.probeFailed(generation: generation, reason: Self.reason(error)))
-                }
+            probe(generation: generation, timeout: timeout)
+        case .quickProbe(let generation):
+            probe(generation: generation, timeout: Self.presenceProbeTimeout)
+        }
+    }
+
+    private func probe(generation: Int, timeout: Duration) {
+        guard let link else { return }
+        let clock = clock
+        Task { [weak self] in
+            // The ping races a timeout: a frozen Mac never answers.
+            let result = await Self.race(timeout: timeout, clock: clock) { try await link.ping() }
+            guard let self else { return }
+            switch result {
+            case .success(let rtt):
+                ConnectTimeline.shared.mark("link_alive", detail: "\(rtt) ms")
+                guard case .connected(_, let path, _) = self.phase else { return }
+                self.send(.linkUpdated(generation: generation, path: path, rttMillis: rtt))
+            case .failure(let error):
+                self.send(.probeFailed(generation: generation, reason: Self.reason(error)))
             }
         }
     }
@@ -256,6 +276,8 @@ public final class LinkController {
                         self.onLink?(link)
                     }
                     self.send(.linkUpdated(generation: generation, path: path, rttMillis: rtt))
+                case .media(let state):
+                    self.send(.mediaUpdated(generation: generation, state))
                 case .disconnected(let reason):
                     log.info("link dropped: \(reason, privacy: .public)")
                     self.send(.linkDropped(generation: generation, reason: reason))

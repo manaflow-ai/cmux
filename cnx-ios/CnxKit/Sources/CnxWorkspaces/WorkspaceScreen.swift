@@ -108,6 +108,9 @@ public struct WorkspaceScreen: View {
                 set: { shown in if !shown { source.renamingTab = nil } }
             )) {
                 TextField(renamePlaceholder, text: $renameText)
+                    // Names and prompts are code-like: no autocorrect, no capitals (full verify D5).
+                    .autocorrectionDisabled()
+                    .textInputAutocapitalization(.never)
                 Button("Cancel", role: .cancel) {}
                 Button("Rename") {
                     if let id = renameID { Task { await source.rename(id, to: renameText) } }

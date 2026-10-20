@@ -159,7 +159,8 @@ class Journey:
                 if done or inner:
                     self.sim.tap_el((done or inner)[0]); time.sleep(1.0); continue
                 self.sim.drag(201, gy + 10, 201, 870, 0.3, 20, 0.1); time.sleep(1.0); continue
-            grid_done = [e for e in els if e.kind == "Button" and e.label == "Done" and e.frame[1] > 700]
+            # On screen only: a hidden tab grid keeps its Done far below (y 2536).
+            grid_done = [e for e in els if e.kind == "Button" and e.label == "Done" and 700 < e.frame[1] < 874]
             if grid_done:  # the tab grid
                 self.sim.tap_el(grid_done[0]); time.sleep(1.0); continue
             if self.sim.keyboard(els) and kb_tries < 2:

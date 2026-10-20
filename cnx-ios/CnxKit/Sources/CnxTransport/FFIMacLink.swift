@@ -108,6 +108,10 @@ extension FFIMacLink: BrowserStreamOpening {
             throw error.linkError
         }
     }
+
+    func warmMedia() {
+        handle.warmMedia()
+    }
 }
 
 final class BrowserObserverBridge: BrowserObserver, @unchecked Sendable {
@@ -147,6 +151,7 @@ final class FFIBrowserStream: BrowserStreamConnection, @unchecked Sendable {
     }
 
     func requestKeyframe() { handle.requestKeyframe() }
+    func setVisible(_ visible: Bool) { handle.setVisible(visible: visible) }
     func noteDecode(micros: UInt32) { handle.noteDecode(decodeUs: micros) }
     func nowMicros() -> UInt64 { handle.nowUs() }
     func close() { handle.close() }
@@ -161,7 +166,8 @@ final class FFIBrowserStream: BrowserStreamConnection, @unchecked Sendable {
         stats.clockOffsetMicros = raw.clockOffsetUs
         stats.clockRTTMicros = raw.clockRttUs
         stats.videoTrack = raw.videoTrack
-        stats.videoCarrier = BrowserStreamStats.carrier(videoTrack: raw.videoTrack, transport: transport)
+        stats.videoCarrier = BrowserStreamStats.carrier(library: raw.videoCarrier, videoTrack: raw.videoTrack,
+                                                        transport: transport)
         stats.trackFramesDropped = raw.trackFramesDropped
         stats.trackPacketsRecovered = raw.trackPacketsRecovered
         return stats
@@ -230,6 +236,8 @@ final class StateObserver: LinkObserver, @unchecked Sendable {
                 if let (transport, path) = current {
                     continuation.yield(.connected(transport, path, rttMillis: millis))
                 }
+            case .media(let state):
+                continuation.yield(.media(state.videoMedia))
             case .disconnected(let reason):
                 continuation.yield(.disconnected(reason: reason))
             }
@@ -252,6 +260,17 @@ extension LinkPath {
         case .turn: .turn
         case .turnTls: .turnTLS
         case .noPath: .noPath
+        }
+    }
+}
+
+extension MediaState {
+    var videoMedia: VideoMediaState {
+        switch self {
+        case .off: .off
+        case .connecting: .connecting
+        case .up(let path, let rtt): .up(path.kind, rttMillis: rtt)
+        case .failed(let reason, _): .failed(reason: reason)
         }
     }
 }

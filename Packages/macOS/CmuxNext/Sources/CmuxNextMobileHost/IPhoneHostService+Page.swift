@@ -103,6 +103,7 @@ extension IPhoneHostService {
 
     static func subtitle(_ phone: CnxPhoneLink) -> String {
         var parts = [IPhoneHostStrings.transport(phone.transport), IPhoneHostStrings.path(phone.path)]
+        if let media = phone.mediaPath { parts.append(IPhoneHostStrings.videoWebRTC(media)) }
         if let since = phone.since {
             parts.append(IPhoneHostStrings.since(since.formatted(date: .omitted, time: .shortened)))
         }

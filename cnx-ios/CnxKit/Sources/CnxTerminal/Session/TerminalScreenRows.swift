@@ -52,6 +52,17 @@ public struct TerminalScreenRows: Equatable, Sendable {
         }
     }
 
+    /// The text as lines: soft-wrapped rows joined, one line per hard line
+    /// (the rig's text export, G-09).
+    public var logicalText: String {
+        var out = ""
+        for (index, row) in rows.enumerated() {
+            out += row
+            if !wraps[index] { out += "\n" }
+        }
+        return out
+    }
+
     private static func trimmed(_ line: Substring) -> String {
         var line = line
         while let last = line.last, last == " " || last == "\r" { line = line.dropLast() }

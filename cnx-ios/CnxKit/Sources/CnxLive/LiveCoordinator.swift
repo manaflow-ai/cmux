@@ -98,8 +98,19 @@ public final class LiveCoordinator {
     @ObservationIgnored public private(set) var removedFromMacsCount = 0
     /// Terminal tabs handed out, reattached on every new link.
     @ObservationIgnored private var terminals: [WeakTerminal] = []
-    private struct WeakTerminal { weak var session: DaemonTerminalSession? }
+    /// A terminal session and the Mac it belongs to.
+    private struct WeakTerminal {
+        weak var session: DaemonTerminalSession?
+        var macID: String?
+    }
+    /// Whether terminal tabs say their Mac is offline (termfix-r13 D4).
+    @ObservationIgnored private var terminalsOffline = false
+    /// When the link last stopped being connected (nil: connected or idle).
+    @ObservationIgnored private var linkDownSince: ContinuousClock.Instant?
+    @ObservationIgnored private var offlineTask: Task<Void, Never>?
     @ObservationIgnored private var chiefLive = false
+    /// A `startChief` is opening the channel (Try Again does not start a second one).
+    @ObservationIgnored private var chiefStarting = false
     @ObservationIgnored private var discoveryTask: Task<Void, Never>?
     /// Follows the phone's network (Wi-Fi, cellular, airplane mode).
     @ObservationIgnored private var networkTask: Task<Void, Never>?
@@ -482,7 +493,15 @@ public final class LiveCoordinator {
             let device = MacDevice(id: mac.deviceId, name: mac.name, isOnline: mac.online, lastSeenAt: mac.lastSeenDate)
             if let index = current.firstIndex(where: { $0.id == mac.deviceId }) { current[index] = device } else { current.append(device) }
             store.setMacs(current, teamID: teamID)
+            let generationBefore = link.dialGeneration
             retarget()
+            // The linked Mac's signaling socket is up (again): its host may
+            // have restarted under the live link. Probe it now instead of at
+            // the next heartbeat (termfix-r13 D2b), or dial now if waiting.
+            // Only when retarget() did not just dial (a Mac back from offline):
+            // a second dial at once would abandon the first, whose offer the
+            // host may already be answering (r13 review).
+            if mac.online, mac.deviceId == link.target?.macID, link.dialGeneration == generationBefore { link.send(.macSignaled) }
         }
     }
 
@@ -836,10 +855,12 @@ public final class LiveCoordinator {
             // own `daemon` channel of this link; open ones reattach now. Input-lane
             // channels may ride another stream, so they wait for pairing here.
             self.terminals.removeAll { $0.session == nil }
-            let attach = Set(DaemonTerminalSession.surfacesToReattach(self.terminals.compactMap { $0.session?.surface },
-                                                     tree: self.workspaces.tree.map { Set($0.surfaces.values) }))
-            for terminal in self.terminals where terminal.session.map({ attach.contains($0.surface) }) == true {
-                terminal.session?.reconnect()
+            let tree = self.workspaces.tree
+            for terminal in self.terminals {
+                guard let session = terminal.session,
+                      DaemonTerminalSession.shouldReattach(surface: session.surface, terminalID: session.terminalID, tree: tree)
+                else { continue }
+                session.reconnect()
             }
             // Streamed browser tabs that dropped open again on this link.
             StreamedBrowserDirectory.shared.linkChanged()
@@ -1047,7 +1068,8 @@ public final class LiveCoordinator {
         // The daemon titles a shell tab with its folder; the composer says "Send to <program>".
         let program = programName.hasPrefix("/") || programName.hasPrefix("~") || programName.isEmpty ? "terminal" : programName
         let info = ["name": deviceName, "kind": "ios", "device_kind": "iphone", "device_name": deviceName, "device_id": identity.link]
-        let session = DaemonTerminalSession(surface: surface, programName: program, clientInfo: info, open: { [weak self] in
+        let terminalID = workspaces.tree?.terminals[tabID].map { $0.resourceID ?? $0.id }
+        let session = DaemonTerminalSession(surface: surface, terminalID: terminalID, programName: program, clientInfo: info, open: { [weak self] in
             guard let link = await self?.servedLink else { throw LinkError(code: "no-link", message: "Not connected to the Mac") }
             let channel = try await link.openChannel(service: "daemon", args: [:])
             return DaemonClient(channel: channel)
@@ -1060,8 +1082,10 @@ public final class LiveCoordinator {
             return DaemonClient(channel: channel)
         })
         session.macName = link.target?.name
+        let macID = link.target?.macID
+        session.setMacOffline(LinkMachine.terminalOffline(macID: macID, linkedMacID: macID, linkOffline: terminalsOffline))
         terminals.removeAll { $0.session == nil }
-        terminals.append(WeakTerminal(session: session))
+        terminals.append(WeakTerminal(session: session, macID: macID))
         return session
     }
 
@@ -1113,6 +1137,14 @@ public final class LiveCoordinator {
     /// reason; there is no stand-in Chief.
     private func startChief(_ link: any MacLink) async {
         let session = ChiefSession.shared
+        chiefStarting = true
+        // Every way out ends a Try Again in flight, even one for a link replaced meanwhile.
+        defer {
+            chiefStarting = false
+            session.endReconnect()
+        }
+        // Try Again on Chief's unavailable bar opens the channel again on this link.
+        session.reconnect = { [weak self] in self?.retryChief() }
         session.macName = self.link.target?.name
         // Chief's settings show this Mac's last known model until it answers.
         session.macID = self.link.target?.macID
@@ -1162,10 +1194,36 @@ public final class LiveCoordinator {
         } catch {
             // An older hostd without the `chief` service closes it as unknown.
             let reason = LinkController.reason(error)
-            offline(reason.contains("unknown_service") || reason.contains("no service chief")
-                ? String(localized: "This Mac's cmux is too old for Chief on iPhone. Update cmux on the Mac.")
-                : String(localized: "Chief on this Mac: \(reason)"))
+            log.info("chief channel refused: \(reason, privacy: .public)")
+            offline(Self.chiefRefusal(reason, macName: self.link.target?.name))
         }
+    }
+
+    /// Try Again on Chief's unavailable bar: the Chief channel again, on the
+    /// link that is up now. Without one, the bar says so.
+    func retryChief() {
+        // One open at a time: the one running now ends the try.
+        guard !chiefStarting else { return }
+        guard let link = servedLink else {
+            ChiefSession.shared.status = String(localized: "Your Mac isn't connected. Chief comes back when it is.")
+            return
+        }
+        Task { [weak self] in await self?.startChief(link) }
+    }
+
+    /// The bar's sentence for a refused `chief` channel. hostd's own text
+    /// ("cmux-tui session chief: No such file or directory") is for the log.
+    static func chiefRefusal(_ reason: String, macName: String?) -> String {
+        let mac = macName ?? String(localized: "your Mac")
+        if reason.contains("unknown_service") || reason.contains("no service chief") {
+            return String(localized: "This Mac's cmux is too old for Chief on iPhone. Update cmux on the Mac.")
+        }
+        // hostd closes the channel when the owner's socket is missing ("daemon channel closed").
+        if reason.contains("No such file") || reason.contains("not set up") || reason.contains("Connection refused")
+            || reason.contains("channel closed") {
+            return String(localized: "Chief isn't running on \(mac). Open cmux on the Mac to start it, then try again.")
+        }
+        return String(localized: "Chief on \(mac) didn't answer (\(reason)).")
     }
 
     private func apply(_ tree: DaemonTree) {
@@ -1180,6 +1238,11 @@ public final class LiveCoordinator {
         }
         store.replaceWorkspaces(macID: macID, with: tree.workspaces)
         store.handleMacData(.received(count: tree.workspaces.count), macID: macID)
+        // Streamed browser tabs of workspaces closed on the Mac go: a redial
+        // must not open them again (transport-verify-20261019.md defect 7).
+        // This phone's pending workspaces keep theirs.
+        StreamedBrowserDirectory.shared.retain(
+            tabs: Set(tree.surfaces.keys).union(store.workspaces.flatMap { $0.tabs.map(\.id) }))
         ConnectTimeline.shared.mark("workspaces_live", detail: "\(tree.workspaces.count) workspaces")
         scheduleSnapshotSave()
         // History items name their workspace and tab once the tree places their session.
@@ -1216,6 +1279,7 @@ public final class LiveCoordinator {
     private func observeLink() {
         withObservationTracking {
             _ = link.phase
+            _ = link.media
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
                 self?.phaseChanged()
@@ -1253,13 +1317,45 @@ public final class LiveCoordinator {
         scheduleSnapshotSave()
     }
 
+    /// Terminal tabs say the Mac is offline once the link has been down
+    /// for a bounded time, or at once when presence says so (T-LIFE-13:
+    /// offline label ≤ 5 s), never "Reattaching…" for 20 minutes (D4).
+    private func updateTerminalsOffline(_ phase: LinkMachine.Phase) {
+        let now = ContinuousClock.now
+        if phase.isConnected || phase == .idle {
+            linkDownSince = nil
+        } else if linkDownSince == nil {
+            linkDownSince = now
+        }
+        let down = linkDownSince.map { now - $0 } ?? .zero
+        let offline = phase.showsTerminalsOffline(notConnectedFor: down)
+        terminalsOffline = offline
+        terminals.removeAll { $0.session == nil }
+        let linked = link.target?.macID
+        for terminal in terminals {
+            terminal.session?.setMacOffline(LinkMachine.terminalOffline(macID: terminal.macID, linkedMacID: linked, linkOffline: offline))
+        }
+        offlineTask?.cancel()
+        offlineTask = nil
+        guard !offline, linkDownSince != nil, down < LinkMachine.Phase.offlineAfter * 2 else { return }
+        // Look again when the next bound is reached (a retry or redial, then a first dial's longer one).
+        let wait = (down < LinkMachine.Phase.offlineAfter ? LinkMachine.Phase.offlineAfter : LinkMachine.Phase.offlineAfter * 2) - down
+        offlineTask = Task { [weak self] in
+            guard let clock = self?.clock else { return }
+            do { try await clock.sleep(for: wait) } catch { return }
+            guard let self else { return }
+            self.updateTerminalsOffline(self.link.phase)
+        }
+    }
+
     private func phaseChanged() {
         let phase = link.phase
         let target = link.target
         updateMacState(phase, target: target)
+        updateTerminalsOffline(phase)
         var status = store.macLinkStatus
         status = [:]
-        if let target, let line = phase.statusLine(macName: target.name) {
+        if let target, let line = phase.statusLine(macName: target.name, media: link.media) {
             var parts = [line]
             if phase.isConnected, let chatsError { parts.append("Chats: \(chatsError)") }
             if outdatedMacs.contains(target.macID) { parts.append("Update cmux on this Mac") }

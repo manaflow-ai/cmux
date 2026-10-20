@@ -175,6 +175,9 @@ public struct WorkspacesList: View {
             }
             .alert("Rename Workspace", isPresented: isPresented($renaming), presenting: renaming) { ws in
                 TextField("Name", text: $renameText)
+                    // Names and prompts are code-like: no autocorrect, no capitals (full verify D5).
+                    .autocorrectionDisabled()
+                    .textInputAutocapitalization(.never)
                     .submitLabel(.done)
                 Button("Cancel", role: .cancel) {}
                 Button("Rename") { creator.rename(ws, to: renameText) }
@@ -187,6 +190,9 @@ public struct WorkspacesList: View {
         view
             .alert("Move Workspace to New Group", isPresented: isPresented($newGroupFor), presenting: newGroupFor) { (ws: Workspace) in
                 TextField(MacWorkspaceGroup.newGroupName, text: $groupNameText)
+                    // Names and prompts are code-like: no autocorrect, no capitals (full verify D5).
+                    .autocorrectionDisabled()
+                    .textInputAutocapitalization(.never)
                 Button("Cancel", role: .cancel) {}
                 Button("Create") {
                     withAnimation(theme.motion.smooth.animation) { creator.moveToNewGroup(ws, name: groupNameText) }
@@ -194,6 +200,9 @@ public struct WorkspacesList: View {
             }
             .alert("Rename Group", isPresented: isPresented($renamingGroup), presenting: renamingGroup) { (target: GroupTarget) in
                 TextField("Name", text: $groupNameText)
+                    // Names and prompts are code-like: no autocorrect, no capitals (full verify D5).
+                    .autocorrectionDisabled()
+                    .textInputAutocapitalization(.never)
                     .submitLabel(.done)
                 Button("Cancel", role: .cancel) {}
                 Button("Rename") { creator.renameGroup(target.group, on: target.macID, to: groupNameText) }
@@ -375,6 +384,17 @@ public struct WorkspacesList: View {
                     }
                 }
             }
+            // Loading with Mac lines shown: the placeholder rows go below them, never over
+            // them (full verify D7, D11: an overlay drew over the lines and took their
+            // Connect taps).
+            if inbox.isLoading, !inbox.folds.isEmpty {
+                SkeletonList(rows: 4, leadingSquare: nil)
+                    .allowsHitTesting(false)
+                    .listRowInsets(EdgeInsets())
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(Color.clear)
+                    .accessibilityIdentifier("workspaces.loading")
+            }
         }
         .listStyle(.plain)
         .onScrollGeometryChange(for: CGFloat.self) { $0.containerSize.height - $0.contentInsets.bottom } action: { _, height in
@@ -386,7 +406,7 @@ public struct WorkspacesList: View {
         .overlay(alignment: .topLeading) { closeAnchor }
         .overlay {
             if inbox.isLoading {
-                skeleton
+                if inbox.folds.isEmpty { skeleton }
             } else if inbox.isEmpty {
                 emptyState
             }
@@ -1301,7 +1321,7 @@ struct WorkspaceRow: View {
         let line = StatusLine.words(workspace, status: status, macName: macName)
         parts.append(contentsOf: line)
         if workspace.hasActivityTime, status != .creating {
-            parts.append(RelativeDateTimeFormatter().localizedString(for: workspace.lastActivityAt, relativeTo: MinuteClock.shared.now))
+            parts.append(RelativeStamp(now: MinuteClock.shared.now).spoken(for: workspace.lastActivityAt))
         }
         return parts.joined(separator: ", ")
     }
