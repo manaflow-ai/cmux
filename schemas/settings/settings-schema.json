@@ -62,8 +62,7 @@
               "layout.minimumPaneWidth",
               "layout.minimumPaneHeight",
               "layout.newPanePlacement",
-              "layout.tileBrowsers",
-              "layout.linkPlacement"
+              "layout.tileBrowsers"
             ],
             "title" : {
               "key" : "settings.group.columns",
@@ -375,7 +374,6 @@
               "sidebar.minimal",
               "sidebar.density",
               "sidebar.detailedStatusIcons",
-              "sidebar.showTimestamps",
               "sidebar.minimalMode",
               "sidebar.cards.tips",
               "sidebar.side",
@@ -383,13 +381,6 @@
               "sidebar.spacesVisibility",
               "sidebar.hoverCards.enabled",
               "sidebar.hoverCards.delay",
-              "sidebar.hoverCards.layout",
-              "sidebar.hoverCards.sections.timings",
-              "sidebar.hoverCards.sections.prompts",
-              "sidebar.hoverCards.sections.waiting",
-              "sidebar.hoverCards.sections.git",
-              "sidebar.hoverCards.sections.ports",
-              "sidebar.hoverCards.maxRows",
               "sidebar.nowPlaying.enabled",
               "home.channelsEnabled"
             ],
@@ -715,7 +706,8 @@
           {
             "key" : "settings.group.sessions",
             "rows" : [
-              "sessions.keepAwake"
+              "sessions.keepAwake",
+              "sessions.allowFullAccess"
             ],
             "title" : {
               "key" : "settings.group.sessions",
@@ -758,7 +750,6 @@
         "trail" : [
           "harnesses",
           "agentHarnesses",
-          "chiefs",
           "computerUse"
         ]
       },
@@ -884,7 +875,6 @@
               "browser.omnibar.inlineAutocomplete",
               "browser.omnibar.maxRows",
               "browser.omnibar.calculator",
-              "browser.omnibar.showFullURLs",
               "browser.omnibar.glass",
               "browser.omnibar.glassTint",
               "browser.omnibar.glassTintStrength",
@@ -954,7 +944,6 @@
           {
             "key" : "settings.group.openingLinks",
             "rows" : [
-              "browser.enabled",
               "browser.openLinksInCmuxBrowser",
               "browser.hostsToOpenInEmbeddedBrowser",
               "browser.urlsToAlwaysOpenExternally"
@@ -982,8 +971,7 @@
             "rows" : [
               "browser.hibernation",
               "browser.hibernationExclusions",
-              "browser.hibernatePinnedTabs",
-              "browser.freezeHiddenTabs"
+              "browser.hibernatePinnedTabs"
             ],
             "title" : {
               "key" : "settings.group.memory",
@@ -1833,7 +1821,6 @@
     },
     {
       "accepts" : [
-        "cards",
         "default",
         "composer",
         "threads",
@@ -1844,13 +1831,6 @@
       "agent_refusal" : null,
       "agent_settable" : true,
       "choices" : [
-        {
-          "title" : {
-            "key" : "settings.choice.newTabTemplateCards",
-            "text" : "Cards"
-          },
-          "value" : "cards"
-        },
         {
           "title" : {
             "key" : "settings.choice.newTabTemplateDefault",
@@ -1897,7 +1877,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "cards",
+      "default" : "default",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.tabs",
@@ -1918,10 +1898,7 @@
         "classic",
         "composer",
         "threads",
-        "console",
-        "cards",
-        "search",
-        "ask"
+        "console"
       ],
       "kind" : "choice",
       "page_hidden" : false,
@@ -2559,7 +2536,7 @@
       "range" : {
         "max" : 320,
         "min" : 16,
-        "placeholder" : 48,
+        "placeholder" : 32,
         "step" : 1,
         "unit" : "points"
       },
@@ -4042,6 +4019,56 @@
         true,
         false
       ],
+      "agent_refusal" : "destructive",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sessions",
+        "text" : "Agent Sessions"
+      },
+      "help" : {
+        "key" : "settings.sessions.allowFullAccess.help",
+        "text" : "Off, cmux won't switch an agent into a mode that skips approvals."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sessions.allowFullAccess",
+      "keywords" : [
+        "bypass",
+        "permissions",
+        "yolo",
+        "full access",
+        "dangerous",
+        "approve",
+        "safety"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sessions",
+        "allowFullAccess"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sessions.allowFullAccess",
+        "text" : "Allow Full-Access Modes"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
       "agent_refusal" : "network",
       "agent_settable" : false,
       "consumers" : [
@@ -5072,83 +5099,6 @@
       "title" : {
         "key" : "settings.layout.tileBrowsers",
         "text" : "Split for Browsers Too"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        "split-right",
-        "new-column",
-        "same-pane"
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "choices" : [
-        {
-          "title" : {
-            "key" : "settings.choice.linkPlacementSplitRight",
-            "text" : "Split Right"
-          },
-          "value" : "split-right"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.linkPlacementNewColumn",
-            "text" : "New Column on the Right"
-          },
-          "value" : "new-column"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.linkPlacementSamePane",
-            "text" : "Tab in the Same Pane"
-          },
-          "value" : "same-pane"
-        }
-      ],
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : "split-right",
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.columns",
-        "text" : "Columns"
-      },
-      "help" : {
-        "key" : "settings.layout.linkPlacement.help",
-        "text" : "Where a link or file you open from a terminal, an agent chat, Home or a page appears. Split Right uses the pane on the right, or makes one."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "layout.linkPlacement",
-      "keywords" : [
-        "link",
-        "url",
-        "path",
-        "file",
-        "open",
-        "split",
-        "right",
-        "column",
-        "pane",
-        "tab"
-      ],
-      "kind" : "choice",
-      "page_hidden" : false,
-      "path" : [
-        "layout",
-        "linkPlacement"
-      ],
-      "refuses" : [
-        "__not_a_choice__",
-        1,
-        true
-      ],
-      "section" : "general",
-      "summary" : null,
-      "title" : {
-        "key" : "settings.layout.linkPlacement",
-        "text" : "Open Links and Files"
       },
       "validation" : "portable"
     },
@@ -6679,114 +6629,6 @@
       "title" : {
         "key" : "settings.picker.pinned",
         "text" : "Pinned Folders"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        true,
-        false
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : false,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : true,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.screenshots",
-        "text" : "Screenshots"
-      },
-      "help" : {
-        "key" : "settings.screenshots.findTools.help",
-        "text" : "The Screenshots pane also shows the folders of screenshot apps it finds, such as CleanShot X, Shottr and Kap."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "screenshots.findTools",
-      "keywords" : [
-        "screenshots",
-        "screen recording",
-        "cleanshot",
-        "shottr",
-        "kap",
-        "capture"
-      ],
-      "kind" : "toggle",
-      "page_hidden" : false,
-      "path" : [
-        "screenshots",
-        "findTools"
-      ],
-      "refuses" : [
-        "true",
-        1,
-        null
-      ],
-      "section" : "general",
-      "summary" : null,
-      "title" : {
-        "key" : "settings.screenshots.findTools",
-        "text" : "Find Screenshot Apps"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        [
-
-        ],
-        [
-          "/Users/ada/src",
-          "~/notes"
-        ]
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : false,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : [
-
-      ],
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.screenshots",
-        "text" : "Screenshots"
-      },
-      "help" : {
-        "key" : "settings.screenshots.folders.help",
-        "text" : "The Screenshots pane also shows the pictures and videos in these folders. Use full paths or ~/ paths."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "screenshots.folders",
-      "keywords" : [
-        "screenshots",
-        "folders",
-        "pictures",
-        "videos",
-        "recordings"
-      ],
-      "kind" : "folder_list",
-      "page_hidden" : false,
-      "path" : [
-        "screenshots",
-        "folders"
-      ],
-      "refuses" : [
-        "/Users/ada/src",
-        [
-          "relative/path"
-        ],
-        [
-          1
-        ]
-      ],
-      "section" : "general",
-      "summary" : null,
-      "title" : {
-        "key" : "settings.screenshots.folders",
-        "text" : "More Screenshot Folders"
       },
       "validation" : "portable"
     },
@@ -19007,60 +18849,6 @@
     },
     {
       "accepts" : [
-        true,
-        false
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : false,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.sidebar",
-        "text" : "Sidebar"
-      },
-      "help" : {
-        "key" : "settings.sidebar.showTimestamps.help",
-        "text" : "Workspace rows show when they last changed: a time today, else an age such as 3d. Off, rows show no times; the hover card still does."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "sidebar.showTimestamps",
-      "keywords" : [
-        "sidebar",
-        "timestamps",
-        "time",
-        "times",
-        "age",
-        "ago",
-        "elapsed",
-        "duration",
-        "last activity",
-        "clock",
-        "rows"
-      ],
-      "kind" : "toggle",
-      "page_hidden" : false,
-      "path" : [
-        "sidebar",
-        "showTimestamps"
-      ],
-      "refuses" : [
-        "true",
-        1,
-        null
-      ],
-      "section" : "appearance",
-      "summary" : null,
-      "title" : {
-        "key" : "settings.sidebar.showTimestamps",
-        "text" : "Show Timestamps"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
         "off",
         "bottom",
         "top",
@@ -19745,410 +19533,6 @@
       "title" : {
         "key" : "settings.sidebar.hoverCards.delay",
         "text" : "Hover Card Delay"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        "timeline",
-        "compact",
-        "log",
-        "classic",
-        "minimal"
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "choices" : [
-        {
-          "title" : {
-            "key" : "settings.choice.hoverCardTimeline",
-            "text" : "Stats and History"
-          },
-          "value" : "timeline"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.hoverCardCompact",
-            "text" : "Compact"
-          },
-          "value" : "compact"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.hoverCardLog",
-            "text" : "Full History"
-          },
-          "value" : "log"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.hoverCardClassic",
-            "text" : "Details Only"
-          },
-          "value" : "classic"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.hoverCardMinimal",
-            "text" : "Minimal"
-          },
-          "value" : "minimal"
-        }
-      ],
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : "timeline",
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.sidebar",
-        "text" : "Sidebar"
-      },
-      "help" : {
-        "key" : "settings.sidebar.hoverCards.layout.help",
-        "text" : "What a workspace's hover card shows: its history of prompts and waits, its details, or both."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "sidebar.hoverCards.layout",
-      "keywords" : [
-        "hover",
-        "card",
-        "workspace",
-        "layout",
-        "history",
-        "timeline",
-        "prompts"
-      ],
-      "kind" : "choice",
-      "page_hidden" : false,
-      "path" : [
-        "sidebar",
-        "hoverCards",
-        "layout"
-      ],
-      "refuses" : [
-        "__not_a_choice__",
-        1,
-        true
-      ],
-      "section" : "appearance",
-      "summary" : null,
-      "title" : {
-        "key" : "settings.sidebar.hoverCards.layout",
-        "text" : "Workspace Card Layout"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        true,
-        false
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : true,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.sidebar",
-        "text" : "Sidebar"
-      },
-      "help" : {
-        "key" : "settings.sidebar.hoverCards.sections.timings.help",
-        "text" : "How long the workspace has worked or waited, and how long its command has run."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "sidebar.hoverCards.sections.timings",
-      "keywords" : [
-        "hover",
-        "card",
-        "workspace",
-        "timings",
-        "elapsed",
-        "duration"
-      ],
-      "kind" : "toggle",
-      "page_hidden" : false,
-      "path" : [
-        "sidebar",
-        "hoverCards",
-        "sections",
-        "timings"
-      ],
-      "refuses" : [
-        "true",
-        1,
-        null
-      ],
-      "section" : "appearance",
-      "summary" : null,
-      "title" : {
-        "key" : "settings.sidebar.hoverCards.sections.timings",
-        "text" : "Show Running Times in Workspace Cards"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        true,
-        false
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : true,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.sidebar",
-        "text" : "Sidebar"
-      },
-      "help" : {
-        "key" : "settings.sidebar.hoverCards.sections.prompts.help",
-        "text" : "Each prompt you sent and when, in the card's history."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "sidebar.hoverCards.sections.prompts",
-      "keywords" : [
-        "hover",
-        "card",
-        "workspace",
-        "prompts",
-        "history"
-      ],
-      "kind" : "toggle",
-      "page_hidden" : false,
-      "path" : [
-        "sidebar",
-        "hoverCards",
-        "sections",
-        "prompts"
-      ],
-      "refuses" : [
-        "true",
-        1,
-        null
-      ],
-      "section" : "appearance",
-      "summary" : null,
-      "title" : {
-        "key" : "settings.sidebar.hoverCards.sections.prompts",
-        "text" : "Show Prompts in Workspace Cards"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        true,
-        false
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : true,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.sidebar",
-        "text" : "Sidebar"
-      },
-      "help" : {
-        "key" : "settings.sidebar.hoverCards.sections.waiting.help",
-        "text" : "When an agent waited for your input or finished its turn, in the card's history."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "sidebar.hoverCards.sections.waiting",
-      "keywords" : [
-        "hover",
-        "card",
-        "workspace",
-        "waiting",
-        "input",
-        "finished",
-        "done"
-      ],
-      "kind" : "toggle",
-      "page_hidden" : false,
-      "path" : [
-        "sidebar",
-        "hoverCards",
-        "sections",
-        "waiting"
-      ],
-      "refuses" : [
-        "true",
-        1,
-        null
-      ],
-      "section" : "appearance",
-      "summary" : null,
-      "title" : {
-        "key" : "settings.sidebar.hoverCards.sections.waiting",
-        "text" : "Show Waits in Workspace Cards"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        true,
-        false
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : true,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.sidebar",
-        "text" : "Sidebar"
-      },
-      "help" : {
-        "key" : "settings.sidebar.hoverCards.sections.git.help",
-        "text" : "The workspace's branch and pull request."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "sidebar.hoverCards.sections.git",
-      "keywords" : [
-        "hover",
-        "card",
-        "workspace",
-        "git",
-        "branch",
-        "pull request"
-      ],
-      "kind" : "toggle",
-      "page_hidden" : false,
-      "path" : [
-        "sidebar",
-        "hoverCards",
-        "sections",
-        "git"
-      ],
-      "refuses" : [
-        "true",
-        1,
-        null
-      ],
-      "section" : "appearance",
-      "summary" : null,
-      "title" : {
-        "key" : "settings.sidebar.hoverCards.sections.git",
-        "text" : "Show Branch in Workspace Cards"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        true,
-        false
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : true,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.sidebar",
-        "text" : "Sidebar"
-      },
-      "help" : {
-        "key" : "settings.sidebar.hoverCards.sections.ports.help",
-        "text" : "The ports the workspace listens on."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "sidebar.hoverCards.sections.ports",
-      "keywords" : [
-        "hover",
-        "card",
-        "workspace",
-        "ports",
-        "server",
-        "listening"
-      ],
-      "kind" : "toggle",
-      "page_hidden" : false,
-      "path" : [
-        "sidebar",
-        "hoverCards",
-        "sections",
-        "ports"
-      ],
-      "refuses" : [
-        "true",
-        1,
-        null
-      ],
-      "section" : "appearance",
-      "summary" : null,
-      "title" : {
-        "key" : "settings.sidebar.hoverCards.sections.ports",
-        "text" : "Show Ports in Workspace Cards"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        1,
-        100,
-        50.5
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : 20,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.sidebar",
-        "text" : "Sidebar"
-      },
-      "help" : {
-        "key" : "settings.sidebar.hoverCards.maxRows.help",
-        "text" : "The most prompts, waits and finished turns a workspace's card lists. The list scrolls."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "sidebar.hoverCards.maxRows",
-      "keywords" : [
-        "hover",
-        "card",
-        "history",
-        "rows",
-        "lines",
-        "limit"
-      ],
-      "kind" : "number",
-      "page_hidden" : false,
-      "path" : [
-        "sidebar",
-        "hoverCards",
-        "maxRows"
-      ],
-      "range" : {
-        "max" : 100,
-        "min" : 1,
-        "placeholder" : 1,
-        "step" : 1,
-        "unit" : "count"
-      },
-      "refuses" : [
-        -98,
-        199,
-        "1"
-      ],
-      "section" : "appearance",
-      "summary" : null,
-      "title" : {
-        "key" : "settings.sidebar.hoverCards.maxRows",
-        "text" : "Workspace Card History Lines"
       },
       "validation" : "portable"
     },
@@ -25242,74 +24626,6 @@
     },
     {
       "accepts" : [
-        "off",
-        5,
-        3600,
-        1802.5
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "choices" : [
-        {
-          "title" : {
-            "key" : "settings.choice.never",
-            "text" : "Never"
-          },
-          "value" : "off"
-        }
-      ],
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : 30,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.memory",
-        "text" : "Memory"
-      },
-      "help" : {
-        "key" : "settings.browser.freezeHiddenTabs.help",
-        "text" : "Saves power: a hidden Chromium tab stops running until you show it. Pinned tabs and Never Hibernate hosts stay awake."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "browser.freezeHiddenTabs",
-      "keywords" : [
-        "power",
-        "battery",
-        "energy",
-        "sleep",
-        "suspend"
-      ],
-      "kind" : "choice_or_number",
-      "page_hidden" : false,
-      "path" : [
-        "browser",
-        "freezeHiddenTabs"
-      ],
-      "range" : {
-        "max" : 3600,
-        "min" : 5,
-        "placeholder" : 30,
-        "step" : 5,
-        "unit" : "seconds"
-      },
-      "refuses" : [
-        "__not_a_choice__",
-        true,
-        -3590,
-        7195,
-        "1"
-      ],
-      "section" : "browser",
-      "summary" : null,
-      "title" : {
-        "key" : "settings.browser.freezeHiddenTabs",
-        "text" : "Freeze Hidden Tabs"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
         true,
         false
       ],
@@ -25741,56 +25057,6 @@
       "title" : {
         "key" : "settings.browser.omnibar.calculator",
         "text" : "Calculator Answers"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        true,
-        false
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : false,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.addressBar",
-        "text" : "Address Bar"
-      },
-      "help" : {
-        "key" : "settings.browser.omnibar.showFullURLs.help",
-        "text" : "Shows the whole address, with https:// and www., when you are not editing it."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "browser.omnibar.showFullURLs",
-      "keywords" : [
-        "url",
-        "address",
-        "https",
-        "www",
-        "full",
-        "omnibox"
-      ],
-      "kind" : "toggle",
-      "page_hidden" : false,
-      "path" : [
-        "browser",
-        "omnibar",
-        "showFullURLs"
-      ],
-      "refuses" : [
-        "true",
-        1,
-        null
-      ],
-      "section" : "browser",
-      "summary" : null,
-      "title" : {
-        "key" : "settings.browser.omnibar.showFullURLs",
-        "text" : "Always Show Full URLs"
       },
       "validation" : "portable"
     },
@@ -26616,54 +25882,6 @@
       "title" : {
         "key" : "settings.browser.links.middleClick",
         "text" : "Middle-Click"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        true,
-        false
-      ],
-      "agent_refusal" : "userOnly",
-      "agent_settable" : false,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : true,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.openingLinks",
-        "text" : "Opening Links"
-      },
-      "help" : {
-        "key" : "settings.browser.enabled.help",
-        "text" : "When off, cmux opens no browser tabs for web pages and every link opens in your default browser."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "browser.enabled",
-      "keywords" : [
-        "browser",
-        "disable",
-        "turn off",
-        "default browser",
-        "web"
-      ],
-      "kind" : "toggle",
-      "page_hidden" : false,
-      "path" : [
-        "browser",
-        "enabled"
-      ],
-      "refuses" : [
-        "true",
-        1,
-        null
-      ],
-      "section" : "browser",
-      "summary" : null,
-      "title" : {
-        "key" : "settings.browser.enabled",
-        "text" : "Enable cmux Browser"
       },
       "validation" : "portable"
     },
