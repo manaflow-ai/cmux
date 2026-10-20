@@ -150,6 +150,12 @@ public final class LayoutModel {
     /// once the pane's column is in the strip, which may be a later snapshot than the request's.
     public private(set) var revealRequest: ColumnCenterRequest?
 
+    /// Screens shown as a canvas, by screen (plans/cmux-next/canvas-layout.md). Client-local, like
+    /// the strip scroll: the daemon keeps the screen's tree, and this its free-placed presentation.
+    public internal(set) var canvases: [ScreenID: CanvasScreen] = [:]
+    /// Each canvas screen's viewport, reported by its view: fitting and revealing read it.
+    @ObservationIgnored var canvasViewports: [ScreenID: CGSize] = [:]
+
     /// Receives every intent. Set by the App (or `MockLayoutSource`).
     @ObservationIgnored public var intentHandler: (@MainActor (LayoutIntent) -> Void)?
 
@@ -197,6 +203,7 @@ public final class LayoutModel {
         // that changed another workspace) write nothing, so no observer runs.
         let next = overlaid(newScreens)
         if next != screens { screens = next }
+        reconcileCanvases()
         if activeScreenID == nil || !screens.contains(where: { $0.id == activeScreenID }) {
             activeScreenID = screens.first?.id
         }
@@ -293,6 +300,8 @@ public final class LayoutModel {
         }
         lastFocusSource = source
         focusedPane = pane
+        // A keyboard or programmatic focus on a canvas pans to it; a click or a scroll never does.
+        if source != .pointer, source != .scroll { revealOnCanvas(pane, screen: screen.id) }
         if notify { emit(.focus(pane)) }
     }
 

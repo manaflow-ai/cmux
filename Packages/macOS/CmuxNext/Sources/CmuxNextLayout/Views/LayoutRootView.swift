@@ -76,6 +76,7 @@ public final class LayoutRootView: NSView {
         var attention: [PaneID: AttentionMark]
         var scrollbar: StripScrollbarMode
         var rowOps: Bool
+        var canvases: [ScreenID: CanvasScreen]
     }
 
     /// `contentProvider` is held weakly; the App keeps it alive.
@@ -161,7 +162,7 @@ public final class LayoutRootView: NSView {
     /// Displayed frame of `pane` in this view's coordinates (active screen only).
     public func frame(of pane: PaneID) -> CGRect? {
         guard let active = model.activeScreenID, let view = screenViews[active], let rect = view.displayedFrame(of: pane) else { return nil }
-        return rect.offsetBy(dx: view.frame.minX, dy: view.frame.minY)
+        return convert(rect, from: view)
     }
 
     // MARK: Observation
@@ -179,7 +180,8 @@ public final class LayoutRootView: NSView {
             centerMode: model.centerFocusedColumn,
             attention: model.attention,
             scrollbar: model.stripScrollbar,
-            rowOps: model.acceptsRowOps
+            rowOps: model.acceptsRowOps,
+            canvases: model.canvases
         )
     }
 
@@ -199,7 +201,8 @@ public final class LayoutRootView: NSView {
                     centerMode: model.centerFocusedColumn,
                     attention: model.attention,
                     scrollbar: model.stripScrollbar,
-                    rowOps: model.acceptsRowOps
+                    rowOps: model.acceptsRowOps,
+                    canvases: model.canvases
                 )
             }) {
                 guard let self else { return }
@@ -272,14 +275,18 @@ public final class LayoutRootView: NSView {
                 screenFrames[screen.id] = AnimatedFrame(bounds, alpha: isActive ? 1 : 0)
             }
             let old = before[screen.id]
+            // A zoomed pane shows full size over its canvas (canvas-layout.md).
+            let canvas = screen.zoomed ? nil : snapshot.canvases[screen.id]
             let layoutChanged = isNew || old?.layout != screen.layout || old?.zoomed != screen.zoomed || sharedChanged
-                || view.holdsRowDragPreview
+                || view.holdsRowDragPreview || canvas != (old?.zoomed == true ? nil : previous?.canvases[screen.id])
             if layoutChanged {
                 let structureChanged = old.map { !$0.layout.hasSameStructure(as: screen.layout) } ?? true
                 // An explicit equalize (same structure, new ratios) springs whenever motion is allowed (Lawrence
                 // 2026-10-16); the sizing after a split or close, and released drags, follow `ui.paneAnimations`.
                 let reflows = chromeAnimated && !structureChanged && !snapshot.gestureActive && model.animatesReflow
-                if view.update(layout: screen.layout, zoomed: screen.zoomed, animated: animated || reflows) { needsFrames = true }
+                if view.update(layout: screen.layout, zoomed: screen.zoomed, canvas: canvas, animated: animated || reflows) {
+                    needsFrames = true
+                }
                 // The focus ring of a split's new pane appears with the pane.
                 view.updateChrome(focused: snapshot.focused, dimsInactive: snapshot.dimsInactive, attention: snapshot.attention,
                                   animated: chromeAnimated && !structureChanged)
@@ -336,6 +343,7 @@ public final class LayoutRootView: NSView {
         var moving = false
         for view in screenViews.values where !view.isHidden {
             if view.step(dt, policy: policy) { moving = true }
+            if view.stepCanvasCamera(dt, policy: policy) { moving = true }
         }
         let screenSpring = policy.spring(.screen)
         for id in Array(screenFrames.keys) {
@@ -455,7 +463,7 @@ public final class LayoutRootView: NSView {
                 host.adoptPlane(overlayPlane)
             }
             driver.attach(to: self)
-            eventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.scrollWheel, .leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] event in
+            eventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.scrollWheel, .magnify, .leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] event in
                 self?.handleMonitored(event) ?? event
             }
         }

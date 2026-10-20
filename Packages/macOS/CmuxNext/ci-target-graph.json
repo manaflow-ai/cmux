@@ -287,7 +287,8 @@
         "CmuxNextTasks",
         "CmuxNextTerminalGeometry",
         "CmuxNextVSCodeServer",
-        "CmuxNextWakeups"
+        "CmuxNextWakeups",
+        "CmuxNextWorkspaceNaming"
       ],
       "packages": [
         "CmuxAgentQuestion",

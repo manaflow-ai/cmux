@@ -62,6 +62,8 @@ final class ScreenContentView: NSView {
     /// came from scrolling (it flashes the scrollbar).
     var scrollbarOffset: CGFloat?
     var scrollbarFlash = false
+    /// The canvas this screen shows, its camera and a pointer drag (ScreenContentView+Canvas).
+    var canvasState = ScreenCanvasState()
     init(screenID: ScreenID, layout: ScreenLayout, context: LayoutViewContext,
          paneMotionVariant: @escaping () -> PaneMotionVariant = { LayoutTunables.paneMotionVariant.value }) {
         self.screenID = screenID
@@ -115,7 +117,9 @@ final class ScreenContentView: NSView {
     /// divider drag) keep their spring. The strip scroll (including the
     /// spring back after the last column closes) is `syncScroll`'s.
     @discardableResult
-    func update(layout: ScreenLayout, zoomed: Bool = false, animated: Bool) -> Bool {
+    func update(layout: ScreenLayout, zoomed: Bool = false, canvas: CanvasScreen? = nil, animated: Bool) -> Bool {
+        // Into or out of a canvas, frames change coordinate space (the camera is the bounds): they snap.
+        let animated = updateCanvas(canvas, animated: animated) && animated
         let structural = !self.layout.hasSameStructure(as: layout)
         let unzooming = self.zoomed && !zoomed
         let zooming = !self.zoomed && zoomed
@@ -123,7 +127,8 @@ final class ScreenContentView: NSView {
         self.zoomed = zoomed
         // The release's intent is in this layout (or was refused).
         if activeDrag == nil { rowDragPreview = nil }
-        return reconcile(animated: animated, structural: structural, unzooming: unzooming, zooming: zooming)
+        let moving = reconcile(animated: animated, structural: structural, unzooming: unzooming, zooming: zooming)
+        return moving || canvasState.camera.isMoving
     }
 
     @discardableResult
@@ -132,7 +137,8 @@ final class ScreenContentView: NSView {
         let before = geometry
         // One style read per pass: it is resolved from the settings.
         let style = context.style
-        baseGeometry = ScreenGeometry.compute(shown, viewport: bounds.size, style: style, scale: scale)
+        applyCamera()
+        baseGeometry = canvasGeometry ?? ScreenGeometry.compute(shown, viewport: bounds.size, style: style, scale: scale)
         geometry = baseGeometry.shiftingRows(rowOffsets)
         let animate = animated && !context.reduceMotion && bounds.width > 0
         // `ui.paneAnimations` (default on): a split, a close and a released divider spring only with it on.
@@ -260,6 +266,7 @@ final class ScreenContentView: NSView {
         // no frame shows the hole before they move (`leadIfPending`, after `syncScroll`).
         leadsFrame = departing && animateFrames && !covering
         reconcileDock()
+        reconcileCanvasStacking()
         // The scroll follows in `syncScroll`, which the root calls with the
         // focus after every update (ColumnScrollState.reduce).
         applyPresentation()
