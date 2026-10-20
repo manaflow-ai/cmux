@@ -124,6 +124,37 @@ pub struct HostState {
     /// retracts it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub compactor_notice: Option<PostedNotice>,
+    /// The thread root of each user message of the Chief conversation that
+    /// is itself a thread reply, by message id (a top-level message is its
+    /// own root and has no entry): a reply to it, even a subagent's report
+    /// after a restart, goes into that thread. At most
+    /// [`MESSAGE_ROOTS_KEPT`], oldest dropped first.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub message_roots: Vec<(String, String)>,
+}
+
+/// How many thread roots `HostState::message_roots` keeps.
+pub const MESSAGE_ROOTS_KEPT: usize = 512;
+
+impl HostState {
+    /// Records that user message `id` is a reply in the thread of `root`.
+    pub fn note_root(&mut self, id: &str, root: &str) {
+        if id == root || self.message_roots.iter().any(|(m, _)| m == id) {
+            return;
+        }
+        self.message_roots.push((id.to_owned(), root.to_owned()));
+        let extra = self.message_roots.len().saturating_sub(MESSAGE_ROOTS_KEPT);
+        self.message_roots.drain(..extra);
+    }
+
+    /// The thread root of user message `id`: its recorded root, else itself.
+    pub fn root_of(&self, id: &str) -> String {
+        self.message_roots
+            .iter()
+            .find(|(m, _)| m == id)
+            .map(|(_, r)| r.clone())
+            .unwrap_or_else(|| id.to_owned())
+    }
 }
 
 /// A notice the host posted and may take back.
@@ -197,6 +228,19 @@ impl SpawnRecord {
         self.subs
             .iter()
             .any(|s| s.status != SubStatus::Reported && !(s.status == SubStatus::Done && s.stopped))
+    }
+
+    /// A subagent still works for user message `id`: its own `answers` (a
+    /// tell) name it, or it has none and the spawn's do.
+    pub fn working_for(&self, id: &str) -> bool {
+        self.subs.iter().any(|s| {
+            let for_it = if s.answers.is_empty() {
+                self.answers.iter().any(|a| a == id)
+            } else {
+                s.answers.iter().any(|a| a == id)
+            };
+            for_it && s.status != SubStatus::Reported && !(s.status == SubStatus::Done && s.stopped)
+        })
     }
 }
 
@@ -284,6 +328,11 @@ pub struct SubRecord {
     /// Its pending permission request.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub permission: Option<PendingPermission>,
+    /// The user messages the turn that last told it answered (`tell` during
+    /// a turn): its next report answers them, and goes into their thread.
+    /// Empty: the spawn's own (`SpawnRecord::answers`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub answers: Vec<String>,
     /// When its session last changed (ms since the epoch): stuck detection.
     #[serde(default, skip_serializing_if = "is_zero_u64")]
     pub active_ms: u64,

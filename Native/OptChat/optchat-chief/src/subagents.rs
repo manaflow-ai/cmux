@@ -1092,6 +1092,30 @@ impl Orchestrator for Spawner {
             .recv()
             .map_err(|_| "the Chief host is stopping".to_owned())?
     }
+
+    fn react(&self, id: u64, reaction: &str) -> Result<String, String> {
+        let (reply, answer) = channel();
+        self.send(Input::React {
+            id,
+            reaction: reaction.to_owned(),
+            reply,
+        })?;
+        answer
+            .recv()
+            .map_err(|_| "the Chief host is stopping".to_owned())?
+    }
+
+    fn reply(&self, id: u64, text: &str) -> Result<String, String> {
+        let (reply, answer) = channel();
+        self.send(Input::Reply {
+            id,
+            text: text.to_owned(),
+            reply,
+        })?;
+        answer
+            .recv()
+            .map_err(|_| "the Chief host is stopping".to_owned())?
+    }
 }
 
 /// Queued subagent `id`'s launch from the log, `messages` newest first: the
