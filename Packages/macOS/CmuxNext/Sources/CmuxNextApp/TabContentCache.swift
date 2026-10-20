@@ -377,11 +377,14 @@ final class TabContentCache {
 
     /// Replaces `key`'s page (hibernation, restore): the old page closes,
     /// the record write-back follows the new one, and panes showing `key`
-    /// re-show with the new view.
-    func swapPage(_ key: String, with page: any BrowserTab) {
+    /// re-show with the new view. A page woken from hibernation passes the
+    /// state it slept on (`asleep`): its omnibar shows that address from the
+    /// first frame, not the new page's blank one.
+    func swapPage(_ key: String, with page: any BrowserTab, asleep: BrowserTabState? = nil) {
         browserTabs.untrack(key)
         browsers.removeValue(forKey: key)?.close()
         installReplacement(page, for: key)
+        if let asleep { browsers[key]?.chrome.holdAddress(whileWaking: asleep) }
         if !(page is HibernatedBrowserTab) {
             browserTabs.track(page, tabID: key)
         }
