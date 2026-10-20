@@ -2,7 +2,7 @@
 """Bound the cmux-next tour's DerivedData on an owned Mac.
 
     prune_media_derived_data.py --keep-tag TAG [--keep-tag TAG ...]
-        [--root DIR] [--keep-others N] [--min-idle-minutes M]
+        [--root DIR] [--keep-others N] [--min-free-gib G] [--min-idle-minutes M]
 
 Every tour (.github/workflows/cmux-next-media.yml) builds a base and a head app
 with reload.sh --tag, into DerivedData/cmux-ci-media-pr-<N>-{base,head} for a
@@ -12,8 +12,11 @@ tour failed reload.sh's 40 GiB free-space floor (run 38614931315).
 
 Before building, the tour runs this with its own two tags. It removes the
 least recently used cmux-ci-media-* dirs other than those, oldest first, until
-at most --keep-others remain. A later tour of a pruned pull request only pays
-a cold build. A dir is never removed when:
+at most --keep-others remain. While the volume then has less than
+--min-free-gib free, it keeps removing them past --keep-others: ten of
+nineteen failed tours on 2026-10-19/20 built the base and then failed the
+head on reload.sh's 40 GiB floor with 18-39 GiB free. A later tour of a
+pruned pull request only pays a cold build. A dir is never removed when:
 
   - a process has a file in it open (lsof); if lsof cannot list open files,
     nothing is removed,
@@ -132,6 +135,10 @@ def allocated_gib(path: Path) -> float:
     return total / 2**30
 
 
+def free_gib(root: Path) -> float:
+    return shutil.disk_usage(root).free / 2**30
+
+
 def media_dirs(root: Path, keep: set[str]) -> list[Path]:
     found = []
     try:
@@ -157,6 +164,8 @@ def main() -> int:
                         help="a reload.sh tag this run builds; its DerivedData is kept")
     parser.add_argument("--keep-others", type=int, default=2,
                         help="media dirs to keep besides this run's own (default 2, one pair)")
+    parser.add_argument("--min-free-gib", type=int, default=0,
+                        help="below this much free space, remove idle media dirs past --keep-others (default 0: off)")
     parser.add_argument("--lock-dir", type=Path, default=Path.home() / "Library/Caches/cmux-ci-media/locks",
                         help="media_tag_lock.py's lock dir: a dir whose tag a tour holds is kept")
     parser.add_argument("--min-idle-minutes", type=int, default=150,
@@ -165,13 +174,22 @@ def main() -> int:
     for tag in args.keep_tag:
         if not TAG.match(tag):
             parser.error(f"--keep-tag {tag!r} is not a ci-media-* tag")
-    if args.keep_others < 0 or args.min_idle_minutes < 0:
-        parser.error("--keep-others and --min-idle-minutes must not be negative")
+    if args.keep_others < 0 or args.min_idle_minutes < 0 or args.min_free_gib < 0:
+        parser.error("--keep-others, --min-free-gib and --min-idle-minutes must not be negative")
 
     keep = {PREFIX + tag for tag in args.keep_tag}
     candidates = media_dirs(args.root, keep)
     print(f"{len(candidates)} other media DerivedData dir(s) in {args.root}; keeping at most {args.keep_others}")
-    if len(candidates) <= args.keep_others:
+
+    def short_of_space() -> bool:
+        if not args.min_free_gib:
+            return False
+        try:
+            return free_gib(args.root) < args.min_free_gib
+        except OSError:
+            return False
+
+    if len(candidates) <= args.keep_others and not short_of_space():
         return 0
     opened = open_paths()
     if opened is None:
@@ -181,7 +199,7 @@ def main() -> int:
     remaining = len(candidates)
     freed = 0.0
     for path in sorted(candidates, key=last_used):
-        if remaining <= args.keep_others:
+        if remaining <= args.keep_others and not short_of_space():
             break
         if last_used(path) > cutoff:
             print(f"{path.name}: built within {args.min_idle_minutes} min; keeping it")
@@ -206,6 +224,9 @@ def main() -> int:
         freed += size
         print(f"{path.name}: removed ({size:.1f} GiB)")
     print(f"freed {freed:.1f} GiB; {remaining} other media dir(s) left")
+    if short_of_space():
+        print(f"still {free_gib(args.root):.0f} GiB free, under --min-free-gib {args.min_free_gib}; "
+              "the rest of the volume is not the tour's to remove")
     return 0
 
 

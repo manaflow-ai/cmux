@@ -263,7 +263,8 @@ jobs:
       # a merge tour beside a dispatch could otherwise build into the same
       # DerivedData at once. Other tags never wait.
       # A pull request branched before the lock existed checks out a head
-      # without the lock script, and with a prune that ignores held tags; this
+      # without the lock script, and with a prune that ignores held tags or
+      # has no --min-free-gib (the prune step would refuse the flag); this
       # step comes from the merge ref, so it takes both from that commit and
       # hands the prune step their dir (MEDIA_CI_SCRIPTS).
       # A tour waits an hour for its tag: longer than a warm merge tour holds
@@ -275,7 +276,7 @@ jobs:
         run: |
           set -euo pipefail
           ci=scripts/ci
-          if [ ! -f "$ci/media_tag_lock.py" ] || ! grep -q -- '--lock-dir' "$ci/prune_media_derived_data.py"; then
+          if [ ! -f "$ci/media_tag_lock.py" ] || ! grep -q -- '--min-free-gib' "$ci/prune_media_derived_data.py"; then
             git fetch --no-tags origin "$GITHUB_SHA"
             ci="$RUNNER_TEMP/media-ci"
             mkdir -p "$ci"
@@ -290,12 +291,16 @@ jobs:
       # mini holding 8 failed reload.sh's 40 GiB floor (run 38614931315).
       # Keep this run's pair and the most recently used other pair; a dir
       # that is open or was built within the tour timeout is never removed.
+      # Under 52 GiB free (reload.sh's 40 GiB floor plus the ~11 GiB the base
+      # build adds before the head build checks it) idle dirs past that pair
+      # go too: 10 of 19 failed tours on 10-19/20 built the base, then failed
+      # the head on the floor with 18-39 GiB free.
       - name: Bound the tour DerivedData on this Mac
         if: steps.scope.outputs.is_ui == 'true'
         continue-on-error: true
         run: |
           python3 "${MEDIA_CI_SCRIPTS:-scripts/ci}/prune_media_derived_data.py" \
-            --keep-tag "${TOUR_TAG}-base" --keep-tag "${TOUR_TAG}-head" --keep-others 2
+            --keep-tag "${TOUR_TAG}-base" --keep-tag "${TOUR_TAG}-head" --keep-others 2 --min-free-gib 52
 
       # The archive cache is the one glaeda CI jobs on these Macs already share
       # (ci-macos.yml): the two downloads took 2-7 min a tour without it.
