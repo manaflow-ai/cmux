@@ -33,6 +33,25 @@ import Testing
         #expect(LegacyStorage.migrateDefaults(defaults).isEmpty)
     }
 
+    /// A signed-out account's record keeps its preferences under their own keys; they move
+    /// too, so that account signing in again skips setup and finds its Mac.
+    @Test func aSignedOutAccountsRecordMovesWithItsKeys() throws {
+        let suite = "LegacyStorageTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set("", forKey: "cnx.account.current")
+        defaults.set(["cnx.setupComplete": true, "cnx.live.mac.team-1": "mac-1"], forKey: "cnx.account.user-a")
+
+        LegacyStorage.migrateDefaults(defaults)
+
+        #expect(defaults.string(forKey: "cmuxMobile.account.current") == "")
+        let prefs = AccountPreferences(defaults: defaults)
+        #expect(prefs.value("cmuxMobile.setupComplete", userID: "user-a") as? Bool == true)
+        prefs.activate(userID: "user-a")
+        #expect(defaults.bool(forKey: "cmuxMobile.setupComplete"))
+        #expect(defaults.string(forKey: "cmuxMobile.live.mac.team-1") == "mac-1")
+    }
+
     @Test func preRenameOutboxesAndSnapshotsAreRenamed() throws {
         let fm = FileManager.default
         let dir = fm.temporaryDirectory.appending(path: "LegacyStorageTests-\(UUID().uuidString)", directoryHint: .isDirectory)

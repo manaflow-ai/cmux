@@ -31,11 +31,23 @@ public enum LegacyStorage {
         var moved: [String] = []
         for (key, value) in defaults.dictionaryRepresentation() where key.hasPrefix(legacyPrefix) {
             let renamed = prefix + key.dropFirst(legacyPrefix.count)
-            if defaults.object(forKey: renamed) == nil { defaults.set(value, forKey: renamed) }
+            if defaults.object(forKey: renamed) == nil { defaults.set(renamedRecord(value), forKey: renamed) }
             defaults.removeObject(forKey: key)
             moved.append(key)
         }
         return moved.sorted()
+    }
+
+    /// A signed-out account's record (`AccountPreferences`, `cnx.account.<user id>`) holds
+    /// that account's preferences under their own keys: those move to the new names too.
+    static func renamedRecord(_ value: Any) -> Any {
+        guard let record = value as? [String: Any] else { return value }
+        var out: [String: Any] = [:]
+        for (key, inner) in record {
+            let renamed = key.hasPrefix(legacyPrefix) ? prefix + key.dropFirst(legacyPrefix.count) : key
+            if out[renamed] == nil || renamed == key { out[renamed] = inner }
+        }
+        return out
     }
 
     static func migrateFiles(in directory: URL, fileManager: FileManager = .default) {

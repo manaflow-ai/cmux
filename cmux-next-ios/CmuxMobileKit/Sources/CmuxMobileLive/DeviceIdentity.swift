@@ -57,8 +57,12 @@ public struct DeviceIdentity: Sendable, Equatable {
     static func id(userID: String, kind: String, store: any DeviceSecretStore, service: String) -> String {
         let account = account(kind, userID)
         if service == defaultService {
-            store.adopt(from: legacyService, account: account, to: service)
-            store.adopt(from: legacyService, account: kind, to: service)
+            // Unreadable now: this run uses a temporary id and writes nothing, so the id a Mac
+            // approved (still under the old service) moves on a later launch.
+            if store.adopt(from: legacyService, account: account, to: service) == .unreadable
+                || store.adopt(from: legacyService, account: kind, to: service) == .unreadable {
+                return UUID().uuidString.lowercased()
+            }
         }
         store.adopt(service: service, from: kind, to: account)
         let stored: Data?

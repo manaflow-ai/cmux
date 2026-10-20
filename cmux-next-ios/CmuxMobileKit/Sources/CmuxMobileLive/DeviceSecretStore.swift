@@ -4,6 +4,11 @@ import Security
 /// Where this phone keeps its device secrets: the link and presence device
 /// ids and the pairing keys' blobs (verify/persistence.md). The app uses the
 /// Keychain; tests use memory.
+/// The outcome of moving a Keychain item off its pre-rename service.
+public enum LegacyMove: Sendable, Equatable {
+    case moved, nothing, unreadable
+}
+
 public protocol DeviceSecretStore: Sendable {
     /// The item, or nil when there is none. Throws `OSStatus` failures other than not-found.
     func read(service: String, account: String) throws -> Data?
@@ -29,18 +34,22 @@ extension DeviceSecretStore {
     }
 
     /// Moves `account` from the `legacy` service to `service` when `service` has none (the
-    /// one-time move off the pre-rename Keychain service). Returns whether anything moved.
+    /// one-time move off the pre-rename Keychain service).
+    ///
+    /// - Returns: `.unreadable` when either read failed (say before the first unlock): the
+    ///   caller must not create a new item then, or it would shadow the one still waiting
+    ///   under `legacy` for good.
     @discardableResult
-    func adopt(from legacy: String, account: String, to service: String) -> Bool {
+    func adopt(from legacy: String, account: String, to service: String) -> LegacyMove {
         do {
-            guard try read(service: service, account: account) == nil,
-                  let data = try read(service: legacy, account: account) else { return false }
+            guard try read(service: service, account: account) == nil else { return .nothing }
+            guard let data = try read(service: legacy, account: account) else { return .nothing }
             try write(data, service: service, account: account)
         } catch {
-            return false
+            return .unreadable
         }
         delete(service: legacy, account: account)
-        return true
+        return .moved
     }
 }
 

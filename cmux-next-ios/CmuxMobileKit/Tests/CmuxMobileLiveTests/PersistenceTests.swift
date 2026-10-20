@@ -53,6 +53,28 @@ import Testing
         #expect(DeviceIdentity.load(userID: "user-b", store: store).link == "33333333-3333-3333-3333-333333333333")
     }
 
+    /// Before the first unlock the old service can't be read: no new id is stored over it, and
+    /// the next launch still moves the approved one.
+    @Test func aLockedLegacyIdIsNeverShadowed() throws {
+        final class LockedLegacy: DeviceSecretStore, @unchecked Sendable {
+            let inner = MemorySecretStore()
+            var locked = true
+            func read(service: String, account: String) throws -> Data? {
+                if locked, service == DeviceIdentity.legacyService { throw KeychainSecretStore.Failure(status: -25308) }
+                return try inner.read(service: service, account: account)
+            }
+            func write(_ data: Data, service: String, account: String) throws { try inner.write(data, service: service, account: account) }
+            func delete(service: String, account: String) { inner.delete(service: service, account: account) }
+        }
+        let store = LockedLegacy()
+        try store.inner.write(Data("11111111-1111-1111-1111-111111111111".utf8), service: DeviceIdentity.legacyService, account: "link.user-a")
+        let locked = DeviceIdentity.load(userID: "user-a", store: store)
+        #expect(locked.link != "11111111-1111-1111-1111-111111111111")
+        #expect(store.inner.accounts(service: DeviceIdentity.defaultService).isEmpty)
+        store.locked = false
+        #expect(DeviceIdentity.load(userID: "user-a", store: store).link == "11111111-1111-1111-1111-111111111111")
+    }
+
     /// A Keychain read that fails (say before the first unlock) never replaces the stored id.
     @Test func anUnreadableIdIsNeverReplaced() throws {
         final class Locked: DeviceSecretStore, @unchecked Sendable {
