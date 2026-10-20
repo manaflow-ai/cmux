@@ -93,15 +93,19 @@ extension SidebarViewComponents {
                                       fontSize: SidebarStyle.titleFont.pointSize)
         }
         if model.docDrag != nil {
-            // The sidebar document (one renderer): its sections draw in the list, in document order; the band
-            // above keeps only the client's own item (What's New).
-            let docSections = above.presenting(hidingItems: hidden, apps: apps).map(titled)
+            // The sidebar document (one renderer): the sections the list lists draw in it as blocks, in document
+            // order; the band above draws the rest, the pinned header (Home, the App Store; `arrange` lists no
+            // section for it), so it stays at the top while the rows scroll (u2977).
+            let listed = model.listedDocSections
+            let presented = above.presenting(hidingItems: hidden, apps: apps)
+            let pinned = presented.filter { !listed.contains($0.id.rawValue) }
+            let docSections = presented.filter { listed.contains($0.id.rawValue) }.map(titled)
             // Only the blocks' own items' infos: another item's change does not reload the list.
             let shownIDs = Set(docSections.flatMap(\.items).map(\.id))
             let blocks = SidebarListBlocks(sections: Dictionary(docSections.map { ($0.id.rawValue, $0) }, uniquingKeysWith: { first, _ in first }),
                                            infos: selectedInfos.filter { shownIDs.contains($0.key) }, collapsed: model.collapsedLayoutSections, look: look, metrics: metrics,
                                            drawsLines: Borders.drawsLines, appHeights: appHeights(docSections, width: width))
-            aboveRegion.update(content(model.placingTransientItems(in: [])), width: width)
+            aboveRegion.update(content(model.placingTransientItems(in: pinned)), width: width)
             if list.blocks != blocks {
                 list.blocks = blocks
                 // The document changed under the list (an item added, a section an agent filled): calm, not under the pointer.
