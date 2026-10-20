@@ -89,6 +89,11 @@ pub struct HostState {
     /// env's (`OPTCHAT_MAX_LIVE_SUBAGENTS`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub live_cap: Option<usize>,
+    /// `control cloud PEER|off`: the acpmux peer subagents run on by
+    /// default, set at run time (empty: off, local); None: the env's
+    /// (`OPTCHAT_SUBAGENT_PEER`). plans/cmux-next/cloud-subagents-DESIGN.md.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cloud_peer: Option<String>,
     /// The number of the next subagent id (`a<N>`), unique for this home.
     #[serde(default)]
     pub next_subagent: u64,

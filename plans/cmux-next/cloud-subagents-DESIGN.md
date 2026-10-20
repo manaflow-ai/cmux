@@ -106,6 +106,7 @@ cloud subagents, for these reasons.
 | B7 | Cloud Chief (the Chief itself on a VM) loses its app tools on redeploy. | a235 | Separate path: not needed for cloud subagents of the Mac Chief. |
 | B8 | Moving a whole Chief between hosts. | a284 | Separate: a moved Chief keeps `control cloud` because it lives in state.json. |
 | B9 | Tenant (non-HQ) VMs through the cmux Cloud VM API need acpmux in the devbox image. | a205 | After B2: same `place: "cloud"` with a tenant peer. |
+| B11 | The pool VM has a 32 GB disk with about 7 GB free. A full `cargo test` of optchat-chief filled it (2026-10-20). The fleet queue is also slow: two optchat-chief steps waited over 30 min without a worker. | this task / build-fleet owners | Cloud subagents send Rust and Swift tests to the fleet (as their first message says); the next `deploy.sh up` makes the disk 64 GB; a shared sccache is later. |
 | B10 | A browser for cloud subagents. | a302 | The streamed browser is the remote browser of a cloud subagent; no work here until a302 has a prototype. |
 
 Why it was slow: each piece had its own owner (a184, a196, a235, a205, a242,
@@ -122,5 +123,8 @@ change, and its credential question (B3) had no default.
    `control cloud off` turns it off; `control cloud` (no peer) shows it.
 3. Failing-first tests in `tests/cloud_subagents.rs`: placement per spawn, and
    the saved setting survives a host restart.
-4. Proof: after the nightly, `control cloud chief-subagents-1` and one real
+4. Status (2026-10-20): red 667c8558434 fails the 2 new tests on the VM;
+   fix 1ccfbdce15f passes all 5 in `cloud_subagents` on the VM (Linux).
+   Full crate, clippy and fmt on macOS: fleet step `cloudsub-green2-1ccfbdc`.
+5. Proof: after the nightly, `control cloud chief-subagents-1` and one real
    spawn that reports back.
