@@ -140,7 +140,7 @@ await requireBrowserLane("new-tab-composer-still.test.ts", async () => {
           const at = box.getBoundingClientRect();
           const text = field.getBoundingClientRect();
           const rect = `top ${at.top} left ${at.left} width ${at.width} field ${text.top},${text.left}`;
-          if (rects.at(-1)?.startsWith(rect)) return;
+          if (rects.at(-1)?.startsWith(`${rect} @`)) return;
           rects.push(`${rect} @ ${String(w.__step)}`);
         };
         new MutationObserver(read).observe(document, {
@@ -211,7 +211,8 @@ await requireBrowserLane("new-tab-composer-still.test.ts", async () => {
         labels: { play: "Play", pause: "Pause", previous: "Previous", next: "Next" },
       }),
     );
-    await page.waitForTimeout(500);
+    await page.locator(".nt-player").waitFor({ timeout: 10_000 });
+    await page.waitForTimeout(300);
     await step(page, "long draft");
     await page.keyboard.type(" and then".repeat(30));
     await page.waitForTimeout(500);

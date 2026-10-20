@@ -358,7 +358,6 @@
   background: var(--acpmux-composer-surface, var(--cmux-surface-solid, var(--acpmux-base)));
   /* The chat composer's attachment tiles (composerAttachments.css), on the field's text inset. */
   --acpmux-attach-inset: 18px;
-  --acpmux-attach-top: 0px;
   --acpmux-attach-gap: 6px;
   --acpmux-attach-height: 64px;
   --acpmux-attach-radius: 6px;
