@@ -12,7 +12,11 @@ struct AgentPaneNavigationTests {
 
     @Test func renderDocumentLoadsOnlyIntoAnEmptyFrame() {
         for (source, frame) in [(bundled, render), (dev, devRender)] {
-            for target in [nil, URL(string: "about:blank")] {
+            // Newer WebKit reports a new iframe's request as an empty URL rather than nil or about:blank
+            // (every render card stayed blank, Lucas 2026-10-21).
+            let empty = CFURLCreateWithBytes(nil, [], 0, CFStringBuiltInEncodings.UTF8.rawValue, nil) as URL?
+            #expect(empty?.absoluteString == "")
+            for target in [nil, URL(string: "about:blank"), empty] {
                 #expect(AgentPaneNavigation.decision(for: frame, source: source, userClicked: false,
                                                      mainFrame: false, targetFrameURL: target) == .allow)
             }
