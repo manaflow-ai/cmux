@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextDesign
@@ -55,7 +56,8 @@ final class FilePageService: InternalPageProvider {
     private(set) lazy var liveShare = MarkdownLiveShareServer(clock: clock)
 
     /// The file pages draw at the display's full rate, as the diff and agent pages do.
-    static let engineOptions = PageEngineOptions(fullFrameRate: true)
+    /// File pages open dropped files themselves (`fileDrop`), a WebKit-only hook so far.
+    static let engineOptions = PageEngineOptions(fullFrameRate: true, requiresWebKit: .nativeHooks)
     /// How long a closed editor tab's page may take to save its pending edits.
     static let flushTimeout: Duration = .seconds(3)
 
@@ -321,6 +323,15 @@ final class FilePageService: InternalPageProvider {
         if kind == .markdown { page.contextMenuEditor = Self.tableMenu(provider: provider, page: page) }
         page.onOpenExternal = { [weak self] url in self?.openExternal(url, from: key) }
         page.fileDrop = fileDrop(provider: provider, page: page, key: key)
+        // Selected text: Copy, then Send to Chief and Send to… (the terminal's and pages' rows).
+        let registry = services.registry
+        PageSelectionRows(rows: (["home.sendSelectionToChief", "home.sendSelectionTo"] as [ActionID]).compactMap { id in
+            registry.title(for: id).map { title in
+                (title: title, run: { text in
+                    _ = registry.perform(id, invocation: ActionInvocation(arguments: ["text": .string(text)], origin: .user))
+                })
+            }
+        }).install(on: page)
         tab.page = page
         tab.provider = provider
         tab.host = host

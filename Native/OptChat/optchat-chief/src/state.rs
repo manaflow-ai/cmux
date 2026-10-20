@@ -62,6 +62,10 @@ pub struct HostState {
     /// The turn whose messages are logged but whose reply is not posted yet.
     #[serde(default)]
     pub turn: Option<PendingTurn>,
+    /// The turn session kept for the next turn (`Settings::keep_turn_session`):
+    /// a host that restarts ends it (it knows nothing of its history).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kept_session: Option<String>,
     /// E22: what the last turn answered (message ids): a spawn made after
     /// that turn's end still belongs to it.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -136,6 +140,30 @@ pub struct HostState {
     /// [`MESSAGE_ROOTS_KEPT`], oldest dropped first.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub message_roots: Vec<(String, String)>,
+    /// Wakes the Chief asked for with `sleep` (brain/wakes.rs), soonest
+    /// first. At most [`WAKES_KEPT`].
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub wakes: Vec<Wake>,
+}
+
+/// How many pending wakes `HostState::wakes` keeps.
+pub const WAKES_KEPT: usize = 8;
+
+/// One wake the Chief asked for with `sleep`: at `at_ms` (wall clock, ms
+/// since the epoch) a note with `note` starts a turn.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Wake {
+    /// When it is due (ms since the epoch).
+    pub at_ms: u64,
+    /// When the Chief asked for it (ms since the epoch).
+    pub asked_ms: u64,
+    /// Why: the Chief's own words, shown in the wake note.
+    #[serde(default)]
+    pub note: String,
+    /// `until: event`: a turn for a user message or a report that starts
+    /// first drops this wake.
+    #[serde(default)]
+    pub until_event: bool,
 }
 
 /// How many thread roots `HostState::message_roots` keeps.
@@ -473,6 +501,9 @@ impl PendingTurn {
             .iter()
             .map(|seq| Item {
                 seq: *seq,
+                // This pre-provenance format cannot establish that its
+                // messages were owner-authored, so recovery must ask.
+                requires_approval: true,
                 ..Item::default()
             })
             .collect()
@@ -551,6 +582,10 @@ pub struct SpawnRef {
     pub spawn: String,
     /// (subagent id, its floor once this report is logged).
     pub subs: Vec<(String, u64)>,
+    /// The report came from a subagent whose effects required approval.
+    /// Older persisted reports have unknown provenance and fail closed.
+    #[serde(default = "legacy_requires_approval")]
+    pub requires_approval: bool,
     /// The user stopped the subagent: its report is logged with the next
     /// turn and starts none (the reference client's stopped report).
     #[serde(default)]
@@ -669,6 +704,15 @@ fn fields(state: &HostState) -> BTreeMap<String, String> {
 }
 
 impl StateFile {
+    /// Where a turn's attached files are saved (`brain::files`): the
+    /// `attachments` folder beside the state, in the Chief's home.
+    pub fn attachments_dir(&self) -> PathBuf {
+        self.path
+            .parent()
+            .unwrap_or_else(|| Path::new("."))
+            .join("attachments")
+    }
+
     pub fn new(path: &Path) -> StateFile {
         StateFile {
             path: path.to_owned(),
@@ -935,7 +979,7 @@ impl FrozenRecord {
 
 #[cfg(test)]
 mod security_tests {
-    use super::{Item, Resume};
+    use super::{Item, PendingTurn, Resume, SpawnRef};
 
     #[test]
     fn legacy_pending_turns_require_approval_but_new_owner_records_round_trip() {
@@ -953,5 +997,29 @@ mod security_tests {
             serde_json::from_slice(&serde_json::to_vec(&resume).unwrap()).unwrap();
         assert!(!item_again.requires_approval);
         assert!(!resume_again.requires_approval);
+
+        let old_spawn: SpawnRef =
+            serde_json::from_str(r#"{"spawn":"spawn-1","subs":[],"quiet":false}"#).unwrap();
+        assert!(old_spawn.requires_approval);
+        let spawn = SpawnRef {
+            spawn: "spawn-1".to_owned(),
+            subs: Vec::new(),
+            requires_approval: false,
+            quiet: false,
+        };
+        let spawn_again: SpawnRef =
+            serde_json::from_slice(&serde_json::to_vec(&spawn).unwrap()).unwrap();
+        assert!(!spawn_again.requires_approval);
+
+        let legacy_turn = PendingTurn {
+            seqs: vec![Some(7), None],
+            ..PendingTurn::default()
+        };
+        assert!(
+            legacy_turn
+                .opening()
+                .iter()
+                .all(|item| item.requires_approval)
+        );
     }
 }

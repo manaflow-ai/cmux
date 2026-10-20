@@ -42,6 +42,7 @@ final class AppControl {
         let service = try ControlService.start(registry: registry, settings: settings, launch: launch,
                                                frameSource: frames, watchdog: watchdog)
         self.service = service
+        services.restartControlListener = { [weak service] in try service?.restartListener() }
         registerSyncBarrier(service.router, daemon: services.daemon)
         service.router.register(HistoryControl.methods(services: services))
         service.router.register(TabSearchControl.methods())
@@ -235,6 +236,11 @@ final class AppControl {
             .mainActor("debug.agent_cursor.demo") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(DebugAgentCursorDemo.handle(call.params, services: services))
+            },
+            // A click on an agent cursor's name tag, as the person's (the tag is a link).
+            .mainActor("debug.agent_cursor.click_tag") { [weak services] call in
+                guard let services else { return .value(.null) }
+                return .value(DebugAgentCursor.clickTag(call.params, services: services))
             },
             .mainActor("debug.key") { [weak services] call in
                 guard let services else { return .value(.null) }

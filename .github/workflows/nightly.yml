@@ -2065,6 +2065,7 @@ jobs:
           IMPORT_VARIANT: ${{ needs.decide.outputs.import_variant }}
           SWIFT_IMPORT_FLAGS: ${{ needs.decide.outputs.swift_import_flags }}
           EMPTY_BROWSER_SOURCES: ${{ needs.decide.outputs.empty_browser_sources }}
+          BUILD_TRACK: ${{ needs.decide.outputs.track }}
         run: |
           set -euo pipefail
           # cx-f58x: compile out browser-import code as `decide` chose (the
@@ -2101,6 +2102,21 @@ jobs:
           # phases find the local-source helpers fresh instead of building them after
           # the compile. A failed or late prebuild only leaves that work to the
           # phases, so its status never fails this step.
+          # Xcode's script phases resolved HOME to the build user's home, not the
+          # job's HOME. On the dedicated nightly-next builder the job's HOME is
+          # /Users/runner (the Blacksmith path) while the user is cmux, so the
+          # CEF shim and the diff sidecar recorded /Users/cmux paths (build
+          # 74986f8b: libcmux_cef_shim.dylib and the five helpers named
+          # /Users/cmux/Library/Caches/cmux/cef, cmux-diff-sidecar
+          # /Users/cmux/.cargo). Name the cargo, rustup and CEF roots from the job's HOME, so the
+          # phases build where the earlier steps fetched and the bytes match a
+          # Blacksmith build. Same values as before on every other runner.
+          if [ "${BUILD_TRACK:-}" = nightly-next ]; then
+            export CARGO_HOME="${CARGO_HOME:-$HOME/.cargo}"
+            export RUSTUP_HOME="${RUSTUP_HOME:-$HOME/.rustup}"
+            CMUX_CEF_CACHE_DIR="${CMUX_CEF_CACHE_DIR:-$(scripts/cmux-next/cef-cache-root.sh)}"
+            export CMUX_CEF_CACHE_DIR
+          fi
           python3 scripts/ci/run-with-helper-prebuild.py \
             --derived-data build-universal --configuration Release --archs "$archs" \
             --log "$RUNNER_TEMP/helper-prebuild.log" -- \
@@ -2117,6 +2133,37 @@ jobs:
             COMPILER_INDEX_STORE_ENABLE=NO \
             CODE_SIGNING_ALLOWED=NO ASSETCATALOG_COMPILER_APPICON_NAME="$CHANNEL_ICON_NAME" \
             "${notary_test_flags[@]}"
+
+      # In Release Xcode merges iroh-ffi's static code into Contents/MacOS/cmux
+      # and still embeds Iroh.framework: a 35 KB stub (only __TEXT and
+      # __LINKEDIT, no exported symbol) that no binary of the app loads (otool
+      # -L of build 3939848657701), and whose LC_ID_DYLIB is a random
+      # swbuild.tmp folder, so its bytes differ in every build. The app
+      # launched without it (nx-remote job 1020-050356-5d14cf). Drop it; the
+      # hosted sign job signs the app afterwards. The checks refuse a
+      # framework that exports code or that something loads.
+      - name: Drop the empty Iroh.framework stub (nightly-next)
+        if: inputs.nightly_next_unsigned_run == '' && needs.decide.outputs.track == 'nightly-next'
+        run: |
+          set -euo pipefail
+          app="build-universal/Build/Products/Release/cmux.app"
+          fw="$app/Contents/Frameworks/Iroh.framework"
+          [ -d "$fw" ] || { echo "no Iroh.framework in $app"; exit 0; }
+          bin="$fw/Versions/A/Iroh"
+          [ -f "$bin" ] || { echo "::error::no $bin; not the known stub layout"; exit 1; }
+          if [ -n "$(nm -gU "$bin" 2>/dev/null || true)" ]; then
+            echo "::error::Iroh.framework exports symbols; it is not the Release stub"
+            exit 1
+          fi
+          loaders="$(find "$app" -type f -perm +111 ! -path "$fw/*" -print0 \
+            | xargs -0 otool -L 2>/dev/null | grep -F "Iroh.framework" || true)"
+          if [ -n "$loaders" ]; then
+            echo "::error::a binary in the app loads Iroh.framework"
+            echo "$loaders"
+            exit 1
+          fi
+          echo "Removing the Iroh.framework stub (install name $(otool -D "$bin" | tail -n 1))"
+          rm -rf "$fw"
 
       - name: Prove the password-import readers are compiled out (cx-f58x notary test)
         if: inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.password_readers_out == 'true')
@@ -3990,6 +4037,48 @@ jobs:
           if-no-files-found: error
           retention-days: 3
 
+      # The smokes leave daemons of the shipped bundle running (the app keeps
+      # its cmux-tui and acpmux daemons by design). On a hosted runner the
+      # runner then spends 3 to 5 minutes in "Cleaning up orphan processes"
+      # before the job ends (run 39395352101: two `cmux` orphans,
+      # 09:27:36-09:31:01). List what is left, then stop the daemons of this
+      # job's bundle through their own commands. Ephemeral runner only.
+      - name: Stop the daemons the smokes left
+        if: always() && env.TRACK == 'nightly-next'
+        continue-on-error: true
+        timeout-minutes: 2
+        run: |
+          set -uo pipefail
+          echo "cmux processes left by the smokes:"
+          ps -axww -o pid=,ppid=,lstart=,args= | grep -i cmux | grep -v grep || true
+          app="$GITHUB_WORKSPACE/$CHANNEL_APP_PATH"
+          bin="$app/Contents/Resources/bin"
+          [ -d "$bin" ] || exit 0
+          # shellcheck source=/dev/null
+          source scripts/lib/stop-cmux-tui-owners.sh
+          cmux_stop_cmux_tui_owners "$(cd -P "$bin" && pwd)"
+          # The DMG smoke's owners ran from the detached mount, so ask each
+          # remaining owner to stop through its socket with this bundle's
+          # cmux-tui; SIGTERM only that exact PID if the request fails.
+          ps -axww -o pid= -o args= | while read -r pid args; do
+            case "$args" in
+              */Contents/Resources/bin/cmux-tui\ --headless\ *) ;;
+              *) continue ;;
+            esac
+            socket="$(printf '%s\n' "$args" | sed -nE 's/.* --socket ([^ ]+).*/\1/p')"
+            if [ -n "$socket" ] && "$bin/cmux-tui" --socket "$socket" server stop --end-terminals >/dev/null 2>&1; then
+              continue
+            fi
+            kill -TERM "$pid" 2>/dev/null || true
+          done
+          # `cmux acp` finds the bundle's own acpmux build home (a bare
+          # `acpmux` would use ~/.acpmux). The DMG app has the same bundle id.
+          if [ -x "$bin/cmux" ]; then
+            "$bin/cmux" acp daemon shutdown --end-agents >/dev/null 2>&1 || true
+          fi
+          echo "cmux processes after the stop:"
+          ps -axww -o pid=,ppid=,args= | grep -i cmux | grep -v grep || true
+
 
   # nightly-next continuation. A build whose notarization wait ran out left a
   # recovery artifact (build-sign-notarize-nightly). Each later published
@@ -4624,6 +4713,16 @@ jobs:
           # text; cx-lntk). The app shows the same lines from the signed notes.
           if [ "$NIGHTLY_TRACK" = nightly-next ] && [ -n "$PUBLISHED_SHA" ] && [ "$PUBLISHED_SHA" != "$NOTES_HEAD" ]; then
             ./scripts/cmux-next/fetch-release-notes-span.sh origin "$NOTES_HEAD" nightly-next "$PUBLISHED_SHA"
+            # The changelog gate (2026-10-20, Lawrence: "the change log needs to be better at all
+            # times"): before any asset uploads, the span's notes must give the update card real
+            # What's New entries. A span with none fails here instead of shipping a card that says
+            # only "What's new in this build"; sign-release-notes builds the same notes later.
+            gate_dir="$(mktemp -d)"
+            python3 scripts/cmux-next/release-notes.py build --build "$NIGHTLY_BUILD" \
+              --short "1.0.0-nightly.$NIGHTLY_BUILD" --date "$(date -u +%Y-%m-%d)" \
+              --head "$NOTES_HEAD" --since "$PUBLISHED_SHA" --out "$gate_dir" >/dev/null
+            python3 scripts/cmux-next/release-notes.py check --notes "$gate_dir/$NIGHTLY_BUILD.json"
+            rm -rf "$gate_dir"
             python3 scripts/cmux-next/release-notes.py appcast --head "$NOTES_HEAD" --since "$PUBLISHED_SHA" \
               --appcasts nightly-out --build "$NIGHTLY_BUILD" --feeds "${feeds[@]}"
             # The GitHub release body lists the same span's PRs (the two release

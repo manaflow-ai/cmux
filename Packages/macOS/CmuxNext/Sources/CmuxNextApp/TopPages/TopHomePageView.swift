@@ -108,7 +108,7 @@ final class TopHomePageView: NSView {
             Task { _ = try? await store.perform(.setReadCursor(conversation: id, seq: row.summary.lastSeq)) }
         }
         list.onMarkUnread = { id in if id != HomeSidebarView.draftRowID { sidebar.setMarkedUnread(true, id) } }
-        // Archive Chief on a Chief's row; Hide or Show Alerts on a DM or group's row, and for a group
+        // Usage… and Archive Chief on a Chief's row; Hide or Show Alerts on a DM or group's row, and for a group
         // Group Info, Rename, Add People and Leave (the same actions as the palette and the CLI).
         list.menuItems = { id in
             guard let row = home.homeStore.rows.first(where: { $0.id == id }) else { return [] }
@@ -119,8 +119,11 @@ final class TopHomePageView: NSView {
                 }]
             }
             if row.kind == .chief {
-                guard let chief = row.summary.participants.lazy.compactMap({ home.directory.chief(for: $0.id) }).first else { return [] }
-                return item("home.archiveChief", nil, ["chief": .string(chief.id)])
+                // Chief Usage (chief.openUsage) reads this Mac's Chiefs: left out in a build without one.
+                let usage = registry.unavailableReason(for: ChiefUsagePageTab.actionID) == nil
+                    ? item(ChiefUsagePageTab.actionID, ChiefUsagePageTab.menuTitle) : []
+                guard let chief = row.summary.participants.lazy.compactMap({ home.directory.chief(for: $0.id) }).first else { return usage }
+                return usage + item("home.archiveChief", nil, ["chief": .string(chief.id)])
             }
             let conversation: [String: ActionValue] = ["conversation": .string(id.rawValue)]
             let actions = home.groupActions
@@ -335,7 +338,7 @@ final class TopHomePageView: NSView {
 
     // MARK: New Message
 
-    /// New Message (the compose button, Cmd-N on Home, the palette, the
+    /// New Message (the compose button, the palette, the
     /// File menu, `cmux action run home.newMessage`): a selected "New
     /// Message" row at the top of the list and the New Message page in the
     /// transcript column, with the caret in To:. A kept draft comes back as

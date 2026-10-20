@@ -1,4 +1,7 @@
+import CmuxNextAgentActivity
 import CmuxNextAgentLanes
+import CmuxNextAgentPane
+import CmuxNextHomeEngine
 import CmuxNextDaemon
 
 extension ChatsFeed {
@@ -12,6 +15,23 @@ extension ChatsFeed {
         AgentTurnStateFeed.shared = turns
         AgentTurnStateFeed.drained = { DebugTimings.turnStatesApplied(lines: $0, $1) }
         turns.start(localHost: (try? services.cloud.localDeviceID()).map(AgentSessionRef.host(installID:)))
+        startChiefTurnStates(tag: services.environment.tag)
         return ChatsFeed(socketPath: environment.socketPath)
     }
+
+    /// The Chief home's acpmux watch (2026-10-20: every Chief subagent tab read "Agent"): the
+    /// Chief runs its subagents there, and their tabs name its `chief:<id>` host, so their
+    /// titles and turn states come from that watch. It keeps its own activity lanes.
+    static func startChiefTurnStates(tag: String?) {
+        guard chiefTurnStates == nil else { return }
+        let home = ChiefHome.resolve(tag: tag)
+        guard let environment = ChiefHomeAcpmux.environment(home: home) else { return }
+        let feed = AgentTurnStateFeed(socketPath: environment.socketPath, lanes: AgentLaneStore(),
+                                      mirroring: ChiefHomeAcpmux.host(muxHome: home.muxHome))
+        chiefTurnStates = feed
+        feed.start(localHost: nil)
+    }
+
+    /// The Chief home's watch, once started.
+    static var chiefTurnStates: AgentTurnStateFeed?
 }

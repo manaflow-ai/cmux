@@ -1409,7 +1409,8 @@ body[data-loading="true"] #status::before {
   overflow-wrap: anywhere;
 }
 
-/* Find in diff (Cmd+F) */
+/* Find in diff (Cmd+F): the shared find pill (ui/findPill.css), at the top right where every
+   pane's find pill sits (FindPillMetrics.inset). */
 #diff-find-anchor {
   position: absolute;
   top: 0;
@@ -1418,43 +1419,7 @@ body[data-loading="true"] #status::before {
   pointer-events: none;
 }
 #diff-find-bar {
-  pointer-events: auto;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  margin: 10px 22px 0 0;
-  padding: 5px 6px;
-  border: 1px solid color-mix(in lab, var(--cmux-diff-fg) 13%, transparent);
-  border-radius: 8px;
-  background: var(--cmux-diff-bg);
-  box-shadow: var(--elevation-2);
-}
-#diff-find-input {
-  width: 180px;
-  padding: 3px 7px;
-  border: 1px solid transparent;
-  border-radius: 6px;
-  background: color-mix(in lab, var(--cmux-diff-fg) 7%, transparent);
-  color: var(--cmux-diff-fg);
-  font-family: var(--cmux-diff-ui-font-family);
-  font-size: var(--cmux-diff-ui-font-size);
-  outline: none;
-}
-#diff-find-input:focus-visible {
-  border-color: color-mix(in lab, var(--cmux-diff-fg) 24%, transparent);
-}
-#diff-find-count {
-  min-width: 40px;
-  text-align: right;
-  padding: 0 4px;
-  color: var(--cmux-diff-text-muted);
-  font-family: var(--cmux-diff-ui-font-family);
-  font-size: calc(var(--cmux-diff-ui-font-size) - 1px);
-  font-variant-numeric: tabular-nums;
-}
-#diff-find-bar .toolbar-icon:disabled {
-  opacity: 0.4;
-  cursor: default;
+  margin: var(--find-pill-inset, 10px) var(--find-pill-inset, 10px) 0 0;
 }
 
 /* The find match ::highlight() rules live in src/find/highlight.ts: they

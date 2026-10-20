@@ -998,6 +998,9 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
             .open(&tmp)
             .with_context(|| format!("write {}", tmp.display()))?;
         f.write_all(bytes).with_context(|| format!("write {}", tmp.display()))?;
+        // On disk before the rename: a power loss never leaves an empty
+        // session.json (its session id and ACP session id) behind.
+        f.sync_all().with_context(|| format!("sync {}", tmp.display()))?;
     }
     // Windows: created with an owner-only access list (`owner_only.rs`).
     #[cfg(windows)]
@@ -1013,8 +1016,16 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
         }
         .with_context(|| format!("write {}", tmp.display()))?;
         f.write_all(bytes).with_context(|| format!("write {}", tmp.display()))?;
+        f.sync_all().with_context(|| format!("sync {}", tmp.display()))?;
     }
     std::fs::rename(&tmp, path).with_context(|| format!("rename to {}", path.display()))?;
+    // The rename itself is durable once its directory is synced.
+    #[cfg(unix)]
+    if let Some(dir) = path.parent()
+        && let Ok(dir) = std::fs::File::open(dir)
+    {
+        let _ = dir.sync_all();
+    }
     Ok(())
 }
 

@@ -16,6 +16,7 @@ import CoreGraphics
 /// finger, frame by frame, and the composer stays the same distance above it
 /// all the way to the screen edge. That includes the last stretch below the
 /// safe area, where the layout guide stops following the keyboard.
+// lint:allow namespace-type -- vendored CmuxConversation snapshot
 public enum ConversationKeyboardPinGeometry {
     /// Drop below the base line with no keyboard.
     public static let restDrop: CGFloat = 14

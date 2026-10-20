@@ -22012,137 +22012,6 @@
         }
       }
     },
-    "handlers.refusal.markUnreadNotAvailable": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Marking as unread is not available yet. Only marking as read is."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "التعليم كغير مقروء غير متاح بعد. يتوفر التعليم كمقروء فقط."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Označavanje kao nepročitano još nije dostupno. Dostupno je samo označavanje kao pročitano."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Markering som ulæst er endnu ikke tilgængelig. Kun markering som læst er."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Als ungelesen markieren ist noch nicht verfügbar. Nur als gelesen markieren geht."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Marcar como no leído aún no está disponible. Solo se puede marcar como leído."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Marquer comme non lu n’est pas encore disponible. Seul marquer comme lu l’est."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Segnare come non letto non è ancora disponibile. Si può solo segnare come letto."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "未読にする操作はまだ利用できません。既読にする操作のみ利用できます。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ការសម្គាល់ថាមិនទាន់អានមិនទាន់មាននៅឡើយ។ មានតែការសម្គាល់ថាបានអានប៉ុណ្ណោះ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "읽지 않음으로 표시는 아직 사용할 수 없습니다. 읽음으로 표시만 가능합니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Merking som ulest er ikke tilgjengelig ennå. Bare merking som lest er det."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Oznaczanie jako nieprzeczytane nie jest jeszcze dostępne. Można tylko oznaczyć jako przeczytane."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Marcar como não lido ainda não está disponível. Só é possível marcar como lido."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Пометка как непрочитанного пока недоступна. Доступна только пометка как прочитанного."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ยังทำเครื่องหมายว่ายังไม่อ่านไม่ได้ ทำได้เฉพาะทำเครื่องหมายว่าอ่านแล้ว"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Okunmadı olarak işaretleme henüz kullanılamıyor. Yalnızca okundu olarak işaretleme var."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Позначення як непрочитаного поки недоступне. Доступне лише позначення як прочитаного."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chưa thể đánh dấu là chưa đọc. Chỉ có thể đánh dấu là đã đọc."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "暂不支持标记为未读，只能标记为已读。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "暫不支援標示為未讀，只能標示為已讀。"
-          }
-        }
-      }
-    },
     "handlers.refusal.daemonUnavailable": {
       "extractionState": "manual",
       "localizations": {
@@ -26986,6 +26855,531 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "沒有可排列的內容：畫布需要兩個會被移動的窗格"
+          }
+        }
+      }
+    },
+    "handlers.refusal.controlListenerNotRunning": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The CLI listener is not running in this app."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مستمع سطر الأوامر لا يعمل في هذا التطبيق."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI slušatelj ne radi u ovoj aplikaciji."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI-lytteren kører ikke i denne app."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der CLI-Listener läuft in dieser App nicht."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El receptor de la CLI no está en ejecución en esta app."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’écouteur de la CLI ne s’exécute pas dans cette app."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il listener della CLI non è in esecuzione in questa app."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このアプリでは CLI リスナーが動作していません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កម្មវិធីស្ដាប់ CLI មិនកំពុងដំណើរការក្នុងកម្មវិធីនេះទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 앱에서 CLI 리스너가 실행되고 있지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI-lytteren kjører ikke i denne appen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Odbiornik CLI nie działa w tej aplikacji."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O ouvinte da CLI não está em execução neste app."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Обработчик CLI не запущен в этом приложении."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ตัวรับฟัง CLI ไม่ได้ทำงานอยู่ในแอปนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI dinleyicisi bu uygulamada çalışmıyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Обробник CLI не запущено в цьому застосунку."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trình lắng nghe CLI không chạy trong ứng dụng này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此应用中的 CLI 监听器未在运行。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 App 中的 CLI 監聽器未在執行。"
+          }
+        }
+      }
+    },
+    "handlers.refusal.controlListenerRestartFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The CLI listener could not restart: %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّرت إعادة تشغيل مستمع سطر الأوامر: %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI slušatelj se nije mogao ponovo pokrenuti: %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI-lytteren kunne ikke genstarte: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der CLI-Listener konnte nicht neu starten: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo reiniciar el receptor de la CLI: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de redémarrer l’écouteur de la CLI : %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile riavviare il listener della CLI: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI リスナーを再起動できませんでした: %@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនអាចចាប់ផ្ដើមកម្មវិធីស្ដាប់ CLI ឡើងវិញបានទេ៖ %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI 리스너를 다시 시작할 수 없습니다: %@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI-lytteren kunne ikke starte på nytt: %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie można ponownie uruchomić odbiornika CLI: %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível reiniciar o ouvinte da CLI: %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось перезапустить обработчик CLI: %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่สามารถเริ่มตัวรับฟัง CLI ใหม่ได้: %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI dinleyicisi yeniden başlatılamadı: %@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не вдалося перезапустити обробник CLI: %@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không thể khởi động lại trình lắng nghe CLI: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法重新启动 CLI 监听器：%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法重新啟動 CLI 監聽器：%@"
+          }
+        }
+      }
+    },
+    "handlers.refusal.noWorkspacePullRequestLinks": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This workspace has no pull request links."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا تحتوي مساحة العمل هذه على روابط طلبات سحب."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ovaj radni prostor nema linkove zahtjeva za povlačenje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dette arbejdsområde har ingen links til pull requests."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Workspace hat keine Pull-Request-Links."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este espacio de trabajo no tiene enlaces de pull request."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cet espace de travail n’a aucun lien de pull request."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questo spazio di lavoro non ha link a pull request."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このワークスペースにはプルリクエストのリンクがありません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កន្លែងធ្វើការនេះគ្មានតំណ pull request ទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 워크스페이스에는 풀 리퀘스트 링크가 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dette arbeidsområdet har ingen pull request-lenker."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ten obszar roboczy nie ma linków do pull requestów."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este espaço de trabalho não tem links de pull request."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В этом рабочем пространстве нет ссылок на pull request."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "พื้นที่ทำงานนี้ไม่มีลิงก์ pull request"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu çalışma alanında pull request bağlantısı yok."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "У цьому робочому просторі немає посилань на pull request."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không gian làm việc này không có liên kết pull request nào."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此工作区没有拉取请求链接。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此工作區沒有提取要求連結。"
+          }
+        }
+      }
+    },
+    "handlers.refusal.homeReplyNoSelection": {
+      "comment": "Refusal: home.replyToSelection ran with no text selected in one message of a shown Home conversation.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Select text in one message of a Home conversation to reply to it."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "حدد نصًا في رسالة واحدة من محادثة في الصفحة الرئيسية للرد عليه."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Odaberite tekst u jednoj poruci razgovora na Početnoj da biste odgovorili na njega."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Markér tekst i én besked i en Hjem-samtale for at svare på den."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wähle Text in einer Nachricht einer Home-Unterhaltung aus, um darauf zu antworten."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Selecciona texto en un mensaje de una conversación de Inicio para responder a él."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sélectionnez du texte dans un message d’une conversation de l’accueil pour y répondre."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Seleziona del testo in un messaggio di una conversazione Home per rispondere."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "返信するには、ホームの会話の1つのメッセージ内のテキストを選択してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ជ្រើសរើសអត្ថបទក្នុងសារមួយនៃការសន្ទនាទំព័រដើម ដើម្បីឆ្លើយតបទៅវា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "답장하려면 홈 대화의 메시지 하나에서 텍스트를 선택하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Marker tekst i én melding i en Hjem-samtale for å svare på den."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zaznacz tekst w jednej wiadomości rozmowy na stronie głównej, aby na niego odpowiedzieć."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Selecione um texto em uma mensagem de uma conversa do Início para responder a ele."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Выделите текст в одном сообщении беседы на главной, чтобы ответить на него."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เลือกข้อความในข้อความเดียวของการสนทนาในหน้าหลักเพื่อตอบกลับ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yanıtlamak için Ana Sayfa sohbetindeki bir mesajda metin seçin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Виділіть текст в одному повідомленні розмови на головній, щоб відповісти на нього."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chọn văn bản trong một tin nhắn của cuộc trò chuyện Trang chủ để trả lời."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在主页对话的一条消息中选择文本以回复。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在主頁對話的一則訊息中選取文字以回覆。"
           }
         }
       }
