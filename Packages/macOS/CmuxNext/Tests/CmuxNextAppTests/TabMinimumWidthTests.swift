@@ -49,6 +49,7 @@ import Testing
         defer { harness.window.orderOut(nil) }
         let m = harness.strip.metrics
         #expect(m.minInactiveTabWidth == faviconAndCloseWidth(m), "minimum \(m.minInactiveTabWidth), favicon + x need \(faviconAndCloseWidth(m))")
+        #expect(m.faviconCloseWidth == faviconAndCloseWidth(m))
         let unselected = harness.strip.result.slots.filter { $0.id != harness.selected }.map(\.width)
         #expect(unselected.allSatisfy { $0 == m.minInactiveTabWidth }, "\(Set(unselected))")
     }
