@@ -218,6 +218,7 @@ async fn a_burst_of_prompts_during_a_turn_never_queues_loses_or_reorders_one() {
         let mut c = client(&hub).await;
         let (id, first) = busy_session(&mut c, busy).await;
         let began = Instant::now();
+        let mut inbox = Inbox::default();
         let mut sent = Vec::new();
         for k in 0..20 {
             let pid = format!("p-{k:02}");
@@ -227,20 +228,13 @@ async fn a_burst_of_prompts_during_a_turn_never_queues_loses_or_reorders_one() {
                     text_prompt(&id, &format!("<m{k:02}>"), &pid, json!({})),
                 )
                 .await;
-            let p2 = pid.clone();
-            let acc = c
-                .wait_for(method::MUX_PROMPT_ACCEPTED, move |p| p["promptId"] == p2.as_str())
-                .await;
-            assert_ne!(
-                acc["queued"].as_bool() == Some(true) && acc["interrupt"] != true,
-                true,
-                "{name} {pid}: {acc}"
-            );
+            let acc = inbox.accepted(&mut c, &pid).await;
+            assert!(acc["queued"] != true || acc["interrupt"] == true, "{name} {pid}: {acc}");
             sent.push((pid, rid));
         }
-        assert!(c.response(first).await.0.is_ok(), "{name}: busy turn answered");
+        assert!(inbox.answer(&mut c, first).await.1.is_ok(), "{name}: busy turn answered");
         for (pid, rid) in &sent {
-            let (r, _) = c.response(*rid).await;
+            let (_, r) = inbox.answer(&mut c, *rid).await;
             assert!(r.is_ok(), "{name} {pid}: every prompt is answered: {r:?}");
         }
         assert!(
@@ -278,5 +272,65 @@ async fn a_burst_of_prompts_during_a_turn_never_queues_loses_or_reorders_one() {
             .collect();
         let sent_ids: Vec<&str> = sent.iter().map(|(p, _)| p.as_str()).collect();
         assert_eq!(shown, sent_ids, "{name}: the transcript keeps send order");
+    }
+}
+
+/// Every message one client hears, kept: `TestClient::wait_for` and `response` drop the lines
+/// they do not wait for, and a burst's early answers (a carried prompt, a steer the agent read)
+/// arrive while the test waits for the next acceptance. Each answer keeps when it arrived.
+#[derive(Default)]
+pub(super) struct Inbox {
+    answers: std::collections::HashMap<i64, (Instant, Result<Value, String>)>,
+    accepted: std::collections::HashMap<String, Value>,
+}
+
+impl Inbox {
+    async fn read_one(&mut self, c: &mut TestClient) {
+        let line = tokio::time::timeout(Duration::from_secs(20), c.rx.recv())
+            .await
+            .expect("timeout waiting for a message")
+            .expect("connection closed");
+        match Message::parse(&line).unwrap() {
+            Message::Response { id, result, error } => {
+                if let Some(id) = id.as_i64() {
+                    let r = match error {
+                        Some(e) => Err(e.message),
+                        None => Ok(result.unwrap_or(Value::Null)),
+                    };
+                    self.answers.insert(id, (Instant::now(), r));
+                }
+            }
+            Message::Notification { method, params } if method == method::MUX_PROMPT_ACCEPTED => {
+                let p = params.unwrap_or(Value::Null);
+                if let Some(pid) = p["promptId"].as_str() {
+                    self.accepted.insert(pid.to_owned(), p);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// The acceptance of prompt `pid`.
+    pub(super) async fn accepted(&mut self, c: &mut TestClient, pid: &str) -> Value {
+        loop {
+            if let Some(v) = self.accepted.remove(pid) {
+                return v;
+            }
+            self.read_one(c).await;
+        }
+    }
+
+    /// The answer to request `id`, and when it arrived.
+    pub(super) async fn answer(
+        &mut self,
+        c: &mut TestClient,
+        id: i64,
+    ) -> (Instant, Result<Value, String>) {
+        loop {
+            if let Some(v) = self.answers.remove(&id) {
+                return v;
+            }
+            self.read_one(c).await;
+        }
     }
 }

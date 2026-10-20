@@ -87,8 +87,10 @@ async fn a_codex_turn_that_took_a_steer_answers_its_own_prompt_too() {
     }
 }
 
+/// A prompt that waits behind a running turn (`queue`: acpmux stops the turn for one that
+/// does not ask to queue, its default since 2026-10-20): these tests drive the queue.
 fn text_prompt(id: &str, prompt_id: &str, text: &str) -> Value {
-    json!({"sessionId": id, "prompt": [{"type": "text", "text": text}], "_meta": {"acpmux": {"promptId": prompt_id}}})
+    json!({"sessionId": id, "prompt": [{"type": "text", "text": text}], "_meta": {"acpmux": {"promptId": prompt_id, "queue": true}}})
 }
 
 /// A session whose agent runs "until-cancel" now, with `queued` prompts waiting behind it.

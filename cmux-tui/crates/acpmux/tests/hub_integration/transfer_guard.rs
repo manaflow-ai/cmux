@@ -85,7 +85,9 @@ fn guard(control: &str, roots: &[&Path]) -> Value {
 }
 
 fn ask(id: &str, prompt_id: &str, text: &str) -> Value {
-    json!({"sessionId": id, "prompt": [{"type": "text", "text": text}], "_meta": {"acpmux": {"promptId": prompt_id}}})
+    // It waits behind a running turn (`queue`; acpmux's default stops the turn): these tests
+    // move a chat with its queue.
+    json!({"sessionId": id, "prompt": [{"type": "text", "text": text}], "_meta": {"acpmux": {"promptId": prompt_id, "queue": true}}})
 }
 
 /// A hand-made `session.json` for a chat in `cwd`, with `extra` fields.

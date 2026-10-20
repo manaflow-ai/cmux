@@ -52,7 +52,9 @@ fn provenance(to: &str, msg_id: &str) -> Value {
 }
 
 fn prompt(session: &str, prompt_id: &str, text: &str, provenance: Option<&Value>) -> Value {
-    let mut mux = json!({"promptId": prompt_id});
+    // It waits behind a running turn: acpmux stops the turn for a prompt that does not ask to
+    // queue (its default since 2026-10-20), and these tests withdraw waiting prompts.
+    let mut mux = json!({"promptId": prompt_id, "queue": true});
     if let Some(p) = provenance {
         mux["provenance"] = p.clone();
     }
