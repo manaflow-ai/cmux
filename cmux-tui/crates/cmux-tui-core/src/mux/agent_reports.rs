@@ -405,6 +405,7 @@ impl Mux {
             source: record.source,
             session: record.session,
             agent: record.agent,
+            agent_session_id: record.agent_session_id,
             updated_at_ms: record.updated_at_ms,
             since_ms: record.since_ms,
             last_prompt: None,
@@ -421,6 +422,7 @@ impl Mux {
                 source: Arc::from(agent.source.as_str()),
                 session: agent.session.as_deref().map(Arc::from),
                 agent: agent.agent.as_deref().map(Arc::from),
+                agent_session_id: agent.agent_session_id.as_deref().map(Arc::from),
                 updated_at_ms: agent.updated_at_ms,
                 since_ms: agent.since_ms,
                 last_prompt: agent.last_prompt.clone(),
@@ -450,6 +452,15 @@ impl Mux {
         state: Option<AgentState>,
     ) -> Vec<AgentRecord> {
         let entries = self.agent_roster.lock().unwrap().roster.entries.clone();
+        let agent_session_ids = self
+            .agent_records
+            .lock()
+            .unwrap()
+            .iter()
+            .filter_map(|(terminal_id, record)| {
+                Some((terminal_id.clone(), record.agent_session_id.clone()?))
+            })
+            .collect::<HashMap<_, _>>();
         let prompts = self.agent_prompts.lock().unwrap().prompts.clone();
         let state_snapshot = self.state.lock().unwrap();
         let requested_terminal = surface.and_then(|surface| {
@@ -476,6 +487,7 @@ impl Mux {
                 // The roster's own clock, so `since_ms <= updated_at_ms` holds.
                 let since_ms = entry.since_ms();
                 let last_prompt = prompts.get(&terminal_id).cloned();
+                let agent_session_id = agent_session_ids.get(&terminal_id).cloned();
                 Some(AgentRecord {
                     surface: representative,
                     terminal_id,
@@ -483,6 +495,7 @@ impl Mux {
                     source: entry.agent_source(),
                     session: entry.session,
                     agent: entry.agent,
+                    agent_session_id,
                     updated_at_ms: entry.updated_at_ms,
                     since_ms,
                     last_prompt,

@@ -1,11 +1,13 @@
 extension WorkspaceModel {
-    /// Every live tab whose agent hooks reported a harness session id, in order: the tab id, the
-    /// agent (`claude`, `codex`) when known, and the session. Hook bookkeeping values
-    /// (`cmux-hook-…`) are not a session, and an exited terminal keeps its last report but no
-    /// longer runs it. `cmux://agent` links (hq#2555) resolve against these.
+    /// Every live tab whose agent reported a harness session id, in order: the tab id, the agent
+    /// (`claude`, `codex`) when known, and the session. A hook report carries it as
+    /// `agentSessionID` and publishes no `session`; a direct report names it as `session`. Hook
+    /// bookkeeping values (`cmux-hook-…`) are not a session, and an exited terminal keeps its last
+    /// report but no longer runs it. `cmux://agent` links (hq#2555) resolve against these.
     public var agentHarnessSessions: [(tab: String, agent: String?, session: String)] {
         screens.flatMap(\.panes).flatMap(\.tabs).compactMap { tab in
-            guard !tab.dead, let session = tab.agent?.session, !session.isEmpty, !session.hasPrefix("cmux-hook-") else { return nil }
+            guard !tab.dead, let session = tab.agent?.agentSessionID ?? tab.agent?.session, !session.isEmpty,
+                  !session.hasPrefix("cmux-hook-") else { return nil }
             return (tab.id, tab.agent?.agent, session)
         }
     }

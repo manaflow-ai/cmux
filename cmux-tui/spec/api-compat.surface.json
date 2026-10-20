@@ -37,6 +37,10 @@
         "ty": "string",
         "nullable": true
       },
+      "/agent_session_id": {
+        "ty": "string",
+        "nullable": true
+      },
       "/event": {
         "ty": "literal",
         "required": true,
@@ -16457,6 +16461,10 @@
         "ty": "object"
       },
       "/data/agents/*/agent": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/agents/*/agent_session_id": {
         "ty": "string",
         "nullable": true
       },
