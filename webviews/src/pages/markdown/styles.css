@@ -1388,7 +1388,7 @@ body {
   color: var(--cmux-md-text-color);
   font-size: var(--text-detail);
   line-height: var(--text-detail--line-height);
-  box-shadow: 0 6px 20px rgb(0 0 0 / 0.18);
+  box-shadow: var(--cmux-md-popover-shadow);
 }
 
 .cmux-comment-card blockquote {
