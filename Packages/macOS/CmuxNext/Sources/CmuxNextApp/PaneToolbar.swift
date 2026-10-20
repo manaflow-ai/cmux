@@ -138,7 +138,7 @@ final class PaneToolbar {
         // pane shows, so selecting a tab without "…" (a chat, a window's own page) or fewer pins moves no tab.
         let kinds = kind.map { paneKinds.union([$0]) } ?? paneKinds
         let reservedPins = kinds.map { kind in pinned.count(where: { Self.actions(kind).contains(ActionID(rawValue: $0)) }) }.max() ?? 0
-        view.show(((kinds.isEmpty ? [] : [Self.search]) + shownPins()).compactMap(item), more: shown, lit: zoomed && shown,
+        view.show((shownPins() + (kinds.isEmpty ? [] : [Self.search])).compactMap(item), more: shown, lit: zoomed && shown,
                   reserving: kinds.isEmpty ? 0 : reservedPins + 2)
     }
 

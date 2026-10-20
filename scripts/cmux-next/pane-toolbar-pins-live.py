@@ -206,8 +206,8 @@ try:
     pane = quiet_wait(lambda: (lambda p: p if len((p.get("toolbar") or {}).get("buttons") or []) > 1 else None)(first()), 20) or first()
     tool = pane.get("toolbar") or {}
     print("pinned rest", json.dumps(tool, ensure_ascii=False), flush=True)
-    check(tool.get("buttons") == ["Search Tabs", "Split Down", "Split Right"],
-          f"pinned: Search Tabs, then Split Down and Split Right in the order written: {tool.get('buttons')}")
+    check(tool.get("buttons") == ["Split Down", "Split Right", "Search Tabs"],
+          f"pinned: Split Down and Split Right in the order written, then Search Tabs: {tool.get('buttons')}")
     check(tool.get("revealed") is False, "pinned buttons wait for the pointer too")
     pinned_width = (tool.get("frame") or [0, 0, 0, 0])[2]
     snapshot("pinned-rest", pane)

@@ -61,10 +61,10 @@ import Testing
                 "\"…\" at rest: \(toolbar.view.moreButton.alphaValue)")
     }
 
-    /// Chrome's tab search button: Search Tabs sits before "…" whenever "…" shows, and runs with no tab
-    /// target (a tab target only reveals that tab). The bar's room counts it, so nothing moves.
+    /// Chrome's tab search button: Search Tabs sits in the slot before "…" whatever is selected, and runs
+    /// with no tab target (a tab target only reveals that tab). The bar's room counts it, so nothing moves.
     @Test func theBarOffersSearchTabsBeforeMore() throws {
-        let registry = ActionRegistry()
+        let registry = ActionRegistry.standard()
         var invocations: [ActionInvocation] = []
         registry.bind("tab.search", invoke: { invocations.append($0) })
         let toolbar = PaneToolbar(registry: { registry }, newTabMenu: { nil })
@@ -75,10 +75,16 @@ import Testing
         _ = button.target?.perform(button.action, with: button)
         #expect(invocations.count == 1)
         #expect(invocations.first?.target == nil)
-        // A chat selected in a pane with terminals keeps the room and Search Tabs fills it (no "…").
+        toolbar.view.frame = NSRect(x: 0, y: 0, width: toolbar.view.intrinsicContentSize.width, height: 30)
+        toolbar.view.layoutSubtreeIfNeeded()
+        let searchX = button.frame.minX
+        #expect(searchX < toolbar.view.moreButton.frame.minX)
+        // A chat selected in a pane with terminals keeps the room; Search Tabs stays in its slot (no "…").
         toolbar.update(target: "chat", kind: nil, paneKinds: [.terminal])
         #expect(toolbar.view.items.map(\.id) == ["tab.search"])
         #expect(toolbar.view.reservedCount == 2)
+        toolbar.view.layoutSubtreeIfNeeded()
+        #expect(toolbar.view.buttons.first?.frame.minX == searchX, "Search Tabs moved when \"…\" hid")
         // A pane of chats only (no kind anywhere) has no bar at all.
         toolbar.update(target: "chat", kind: nil)
         #expect(toolbar.view.items.isEmpty)

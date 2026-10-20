@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextCompat
 public import CmuxNextDesign
 
 /// A pinned action's button (`tabs.toolbarButtons`): its symbol, its title and key in the tooltip.
@@ -45,6 +46,7 @@ public final class PaneToolbarView: NSView {
     /// The tab bar's tracking area (``refreshCorner()``) reports the pointer.
     public private(set) lazy var reveal = HoverReveal(region: self, tracksPointer: false)
     private var corner: NSTrackingArea?
+    private var restObservation: Task<Void, Never>?
     private weak var cornerHost: NSView?
 
     override public init(frame: NSRect) {
@@ -64,13 +66,23 @@ public final class PaneToolbarView: NSView {
         }
         moreButton.isHidden = true
         addSubview(moreButton)
-        // Muted at rest, so the bar's kept room never reads as an empty gap (Leo 2026-10-19).
+        // Muted at rest, so the bar's kept room never reads as an empty gap (Leo 2026-10-19); a Debug
+        // Settings change applies at once. task-owner: this view (cancelled in deinit); event-driven.
         reveal.restAlpha = TabTunables.restingControlOpacity.value
         _ = reveal.add(moreButton)
+        restObservation = Task { [weak self] in
+            for await rest in ObservationStream({ TabTunables.restingControlOpacity.value }) { self?.reveal.restAlpha = rest }
+        }
     }
 
     @available(*, unavailable)
     public required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    nonisolated deinit {
+        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
+        MainActor.assumeIsolated { restObservation?.cancel() }
+    }
 
     override public var isFlipped: Bool { true }
     override public var mouseDownCanMoveWindow: Bool { false }
@@ -82,7 +94,6 @@ public final class PaneToolbarView: NSView {
     public func show(_ items: [PaneToolbarItem] = [], more: Bool, lit: Bool, reserving: Int = 0) {
         guard items != self.items || more != hasMore || lit != self.lit || reserving != reservedCount else { return }
         reservedCount = reserving
-        reveal.restAlpha = TabTunables.restingControlOpacity.value
         if items != self.items { setButtons(items) }
         hasMore = more
         self.lit = lit
@@ -127,13 +138,15 @@ public final class PaneToolbarView: NSView {
 
     override public func layout() {
         super.layout()
-        let side = TitlebarBandButton.side
-        // At the trailing end: "…" keeps its place while the reserved room on its leading side is empty.
-        let used = shownCount > 0 ? CGFloat(shownCount) * side + CGFloat(shownCount - 1) * Metrics.space1 / 2 + Metrics.space2 : 0
-        var x = max(0, bounds.width - used)
-        for button in buttons + [moreButton] {
-            button.frame = NSRect(x: x, y: ((bounds.height - side) / 2).rounded(), width: side, height: side)
-            x += side + Metrics.space1 / 2
+        let side = TitlebarBandButton.side, gap = Metrics.space1 / 2
+        // Fixed slots from the trailing end: "…" in the last (kept while it hides), the buttons before it
+        // in order, so Search Tabs keeps its place whichever tab is selected and fewer pins leave room
+        // only at the leading end.
+        func slotX(_ fromTrailing: Int) -> CGFloat { bounds.width - Metrics.space2 - side - CGFloat(fromTrailing) * (side + gap) }
+        let y = ((bounds.height - side) / 2).rounded()
+        moreButton.frame = NSRect(x: max(0, slotX(0)), y: y, width: side, height: side)
+        for (index, button) in buttons.enumerated() {
+            button.frame = NSRect(x: max(0, slotX(buttons.count - index)), y: y, width: side, height: side)
         }
         applyTint()
     }
@@ -184,7 +197,8 @@ public final class PaneToolbarView: NSView {
     /// right before the next move.
     public func refreshCorner() {
         let rect = stripFrame?().map { $0.union(frame) } ?? frame
-        let live = superview != nil && window != nil && hasMore && !isHiddenOrHasHiddenAncestor
+        // Any control that shows (Search Tabs with a chat selected has no "…") brightens on hover.
+        let live = superview != nil && window != nil && (hasMore || !buttons.isEmpty) && !isHiddenOrHasHiddenAncestor
         if live, let corner, corner.rect == rect, cornerHost === superview { return }
         if let corner { cornerHost?.removeTrackingArea(corner) }
         corner = nil
