@@ -316,8 +316,12 @@
             "key" : "settings.group.windowBackground",
             "rows" : [
               "appearance.background",
+              "appearance.paneBackgrounds",
               "appearance.backgroundOpacity",
-              "appearance.backgroundBlur"
+              "appearance.backgroundBlur",
+              "appearance.backgroundVideo",
+              "appearance.backgroundVideoOnBattery",
+              "appearance.backgroundAvoidPanes"
             ],
             "title" : {
               "key" : "settings.group.windowBackground",
@@ -701,6 +705,16 @@
             }
           },
           {
+            "key" : "settings.group.chiefPictures",
+            "rows" : [
+              "home.chiefPictureMotion"
+            ],
+            "title" : {
+              "key" : "settings.group.chiefPictures",
+              "text" : "Chief Pictures"
+            }
+          },
+          {
             "key" : "settings.group.computerUse",
             "rows" : [
               "computerUse.enabled",
@@ -992,7 +1006,8 @@
               "browser.hibernation",
               "browser.hibernationExclusions",
               "browser.hibernatePinnedTabs",
-              "browser.freezeHiddenTabs"
+              "browser.freezeHiddenTabs",
+              "browser.keepNeighborTabsAwake"
             ],
             "title" : {
               "key" : "settings.group.memory",
@@ -8889,7 +8904,8 @@
         "dore-empyrean",
         "dore-raven",
         "system:/System/Library/Desktop Pictures/Solid Colors/Blue.heic",
-        "file:/Users/Shared/Harbor.png"
+        "file:/Users/Shared/Harbor.png",
+        "collage:c-2f9a1b7c04de"
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
@@ -10171,6 +10187,8 @@
         "system:",
         "file:relative.png",
         "file:",
+        "collage:",
+        "collage:../evil",
         "__not_a_backdrop__",
         1,
         true
@@ -10185,6 +10203,76 @@
         "text" : "Background"
       },
       "validation" : "domain:backdrop_selection"
+    },
+    {
+      "accepts" : [
+        "shared",
+        "perPane"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.paneBackgrounds.shared",
+            "text" : "One for the Window"
+          },
+          "value" : "shared"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.paneBackgrounds.perPane",
+            "text" : "One per Pane"
+          },
+          "value" : "perPane"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "shared",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.windowBackground",
+        "text" : "Window Background"
+      },
+      "help" : {
+        "key" : "settings.appearance.paneBackgrounds.help",
+        "text" : "One background behind the whole window, or a copy in each pane. A pane's own background (right-click a pane) shows either way."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.paneBackgrounds",
+      "keywords" : [
+        "background",
+        "wallpaper",
+        "pane",
+        "split",
+        "per pane",
+        "each pane",
+        "backdrop",
+        "art"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "paneBackgrounds"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : {
+        "key" : "settings.appearance.paneBackgrounds.summary",
+        "text" : "One background or one per pane"
+      },
+      "title" : {
+        "key" : "settings.appearance.paneBackgrounds",
+        "text" : "Pane Backgrounds"
+      },
+      "validation" : "portable"
     },
     {
       "accepts" : [
@@ -12249,6 +12337,192 @@
       "title" : {
         "key" : "settings.focusRing.showWhenSinglePane",
         "text" : "Show With One Pane"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "play",
+        "whenActive",
+        "still"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.backgroundVideo.play",
+            "text" : "Play"
+          },
+          "value" : "play"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.backgroundVideo.whenActive",
+            "text" : "Only While cmux Is Active"
+          },
+          "value" : "whenActive"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.backgroundVideo.still",
+            "text" : "Still Picture"
+          },
+          "value" : "still"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "play",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.windowBackground",
+        "text" : "Window Background"
+      },
+      "help" : {
+        "key" : "settings.appearance.backgroundVideo.help",
+        "text" : "A video background plays while you can see it. It pauses when hidden or covered, in Low Power Mode and with Reduce Motion."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.backgroundVideo",
+      "keywords" : [
+        "video",
+        "wallpaper",
+        "aerial",
+        "motion",
+        "play",
+        "pause",
+        "battery"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "backgroundVideo"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.appearance.backgroundVideo",
+        "text" : "Video Background"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "play",
+        "pause"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.backgroundVideoOnBattery.play",
+            "text" : "Keep Playing"
+          },
+          "value" : "play"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.backgroundVideoOnBattery.pause",
+            "text" : "Pause"
+          },
+          "value" : "pause"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "play",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.windowBackground",
+        "text" : "Window Background"
+      },
+      "help" : {
+        "key" : "settings.appearance.backgroundVideoOnBattery.help",
+        "text" : "Whether a video background keeps playing on battery. Low Power Mode always pauses it."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.backgroundVideoOnBattery",
+      "keywords" : [
+        "video",
+        "battery",
+        "power",
+        "energy"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "backgroundVideoOnBattery"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.appearance.backgroundVideoOnBattery",
+        "text" : "On Battery"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.windowBackground",
+        "text" : "Window Background"
+      },
+      "help" : {
+        "key" : "settings.appearance.backgroundAvoidPanes.help",
+        "text" : "Frames a painting so its subject shows beside the sidebar and the agent chat, not under them."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.backgroundAvoidPanes",
+      "keywords" : [
+        "painting",
+        "crop",
+        "subject",
+        "framing",
+        "sidebar",
+        "agent"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "backgroundAvoidPanes"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.appearance.backgroundAvoidPanes",
+        "text" : "Keep Paintings Clear of Panes"
       },
       "validation" : "portable"
     },
@@ -25987,6 +26261,65 @@
     },
     {
       "accepts" : [
+        0,
+        3,
+        1.5
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 1,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.memory",
+        "text" : "Memory"
+      },
+      "help" : {
+        "key" : "settings.browser.keepNeighborTabsAwake.help",
+        "text" : "Tabs on each side of the shown tab stay loaded and running, so switching to them is instant. 0 turns it off. Memory pressure and Low Power Mode turn it off."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.keepNeighborTabsAwake",
+      "keywords" : [
+        "neighbor",
+        "adjacent",
+        "preload",
+        "warm",
+        "instant",
+        "switch",
+        "hibernation",
+        "freeze"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "browser",
+        "keepNeighborTabsAwake"
+      ],
+      "range" : {
+        "max" : 3,
+        "min" : 0,
+        "placeholder" : 0,
+        "step" : 1,
+        "unit" : "count"
+      },
+      "refuses" : [
+        -3,
+        6,
+        "1"
+      ],
+      "section" : "browser",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.browser.keepNeighborTabsAwake",
+        "text" : "Keep Neighbor Tabs Awake"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         true,
         false
       ],
@@ -27970,6 +28303,79 @@
       "title" : {
         "key" : "settings.home.channelsEnabled",
         "text" : "Channels"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "always",
+        "hover",
+        "never"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.always",
+            "text" : "Always"
+          },
+          "value" : "always"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.onHover",
+            "text" : "On Hover"
+          },
+          "value" : "hover"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.never",
+            "text" : "Never"
+          },
+          "value" : "never"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "hover",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.chiefPictures",
+        "text" : "Chief Pictures"
+      },
+      "help" : {
+        "key" : "settings.home.chiefPictureMotion.help",
+        "text" : "Whether a Chief's GIF or animated picture moves on Home pages. Reduce Motion always shows its first frame."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "home.chiefPictureMotion",
+      "keywords" : [
+        "chief",
+        "avatar",
+        "picture",
+        "gif",
+        "animation",
+        "motion"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "home",
+        "chiefPictureMotion"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "home",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.home.chiefPictureMotion",
+        "text" : "Animated Pictures"
       },
       "validation" : "portable"
     },
