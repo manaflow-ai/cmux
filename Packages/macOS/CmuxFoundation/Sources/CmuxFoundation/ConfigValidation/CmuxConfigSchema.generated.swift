@@ -2262,7 +2262,8 @@ enum CmuxEmbeddedConfigSchema {
         "openTerminalLinksInCmuxBrowser": {
           "type": "boolean",
           "default": true,
-          "description": "Open clicked terminal links in the embedded browser."
+          "description": "When enabled, Command-click terminal links open in the embedded browser; plain clicks remain terminal input.",
+          "descriptionKey": "schemaDescriptions.browser.openTerminalLinksInCmuxBrowser"
         },
         "interceptTerminalOpenCommandInCmuxBrowser": {
           "type": "boolean",

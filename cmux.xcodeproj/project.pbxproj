@@ -4038,6 +4038,7 @@
 		B88357000000000000000007 /* TerminalImageTransferPreparedContent+DebugDescription.swift in Sources */ = {isa = PBXBuildFile; fileRef = B88357000000000000000008 /* TerminalImageTransferPreparedContent+DebugDescription.swift */; };
 		124760000000000000000008 /* TerminalImageTransferTarget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 124770000000000000000008 /* TerminalImageTransferTarget.swift */; };
 		D12797000000000000000002 /* TerminalLightAppearanceUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D12797000000000000000001 /* TerminalLightAppearanceUITests.swift */; };
+		FFDCE7D24726F6ADAA628855 /* TerminalLinkActivationPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7CB10C312E419E9C3A62CFDD /* TerminalLinkActivationPolicyTests.swift */; };
 		ABD7206D9502012144363BA9 /* TerminalLinkHoverFilter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9BA974EDF5E16A75B25C387 /* TerminalLinkHoverFilter.swift */; };
 		C85390030000000000000001 /* TerminalLinkLocationAndDockTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C85390030000000000000002 /* TerminalLinkLocationAndDockTests.swift */; };
 		859110000000000000000005 /* TerminalLinkOpenContainer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 859110000000000000000006 /* TerminalLinkOpenContainer.swift */; };
@@ -8628,6 +8629,7 @@
 		B88357000000000000000008 /* TerminalImageTransferPreparedContent+DebugDescription.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalImageTransferPreparedContent+DebugDescription.swift"; sourceTree = "<group>"; };
 		124770000000000000000008 /* TerminalImageTransferTarget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Sources/TerminalImageTransferTarget.swift"; sourceTree = SOURCE_ROOT; };
 		D12797000000000000000001 /* TerminalLightAppearanceUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalLightAppearanceUITests.swift; sourceTree = "<group>"; };
+		7CB10C312E419E9C3A62CFDD /* TerminalLinkActivationPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalLinkActivationPolicyTests.swift"; sourceTree = "<group>"; };
 		A9BA974EDF5E16A75B25C387 /* TerminalLinkHoverFilter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalLinkHoverFilter.swift; sourceTree = "<group>"; };
 		C85390030000000000000002 /* TerminalLinkLocationAndDockTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalLinkLocationAndDockTests.swift; sourceTree = "<group>"; };
 		859110000000000000000006 /* TerminalLinkOpenContainer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalLinkOpenContainer.swift; sourceTree = "<group>"; };
@@ -14060,6 +14062,7 @@
 				62038FEBE991E6F6022BD52F /* SSHTuiAttachRetryTests.swift */,
 				FBA69A8DB9EBB531DD11DFE5 /* AccountUpgradeOfferTests.swift */,
 				A1CE8E303102A963A8DE21E7 /* BrowserAutomationRestoredPanelTests.swift */,
+				7CB10C312E419E9C3A62CFDD /* TerminalLinkActivationPolicyTests.swift */,
 				6C52E5BCE0CCFD00CD9ED561 /* AgentPreviousGenerationSessionEndTests.swift */,
 				F152960A3E2799807D8DD3EE /* VaultClaudeCustomTitleTests.swift */,
 				745FF9094E4E0023E0EFB065 /* SidebarWorkspaceSnapshotTests.swift */,
@@ -19181,6 +19184,7 @@
 				B12715000000000000000005 /* TerminalImageTransferConcurrencyTests+RepeatedPastes.swift in Sources */,
 				B8835A000000000000000005 /* TerminalImageTransferConcurrencyTests+Timeouts.swift in Sources */,
 				B88350000000000000000001 /* TerminalImageTransferConcurrencyTests.swift in Sources */,
+				FFDCE7D24726F6ADAA628855 /* TerminalLinkActivationPolicyTests.swift in Sources */,
 				C85390030000000000000001 /* TerminalLinkLocationAndDockTests.swift in Sources */,
 				859100000000000000000001 /* TerminalLinkOpenCoordinatorTests.swift in Sources */,
 				C0DE1A6E0000000000000001 /* TerminalLocalImageTransferFileLifetimeTests.swift in Sources */,

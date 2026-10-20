@@ -320706,115 +320706,115 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "عند التعطيل، تفتح الروابط المنقورة في مخرجات الطرفية في متصفحك الافتراضي."
+            "value": "عند التفعيل، تفتح الروابط في مخرجات الطرفية عند النقر مع الضغط على Command في متصفح cmux. عند التعطيل، تفتح في متصفحك الافتراضي."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kada je isključeno, linkovi kliknuti u izlazu terminala se otvaraju u podrazumijevanom pregledniku."
+            "value": "Kada je uključeno, linkovi u izlazu terminala otvaraju se u cmux pregledniku klikom uz Command. Kada je isključeno, otvaraju se u podrazumijevanom pregledniku."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Når deaktiveret, åbnes links, der klikkes i terminaloutput, i din standardbrowser."
+            "value": "Når aktiveret, åbnes links i terminaloutput med Command-klik i cmux-browseren. Når deaktiveret, åbnes de i din standardbrowser."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Wenn deaktiviert, werden im Terminal angeklickte Links in Ihrem Standardbrowser geöffnet."
+            "value": "Wenn aktiviert, werden mit Command-Klick angeklickte Links in der Terminalausgabe im cmux-Browser geöffnet. Wenn deaktiviert, werden sie im Standardbrowser geöffnet."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "When off, links clicked in terminal output open in your default browser."
+            "value": "When on, Command-click links in terminal output open in cmux Browser. When off, they open in your default browser."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cuando está desactivado, los enlaces en la salida del terminal se abren en tu navegador predeterminado."
+            "value": "Cuando está activado, los enlaces de la salida del terminal se abren en el navegador de cmux al hacer clic con Command. Cuando está desactivado, se abren en tu navegador predeterminado."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Lorsque désactivé, les liens cliqués dans la sortie du terminal s'ouvrent dans votre navigateur par défaut."
+            "value": "Lorsque cette option est activée, les liens de la sortie du terminal s’ouvrent dans le navigateur cmux avec un clic Command. Lorsqu’elle est désactivée, ils s’ouvrent dans votre navigateur par défaut."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Quando disattivato, i link cliccati nell'output del terminale si aprono nel browser predefinito."
+            "value": "Quando è attiva, i link nell’output del terminale si aprono nel browser cmux con un clic Command. Quando è disattivata, si aprono nel browser predefinito."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "オフの場合、ターミナル出力のリンクはデフォルトブラウザで開きます。"
+            "value": "オンの場合、ターミナル出力のリンクはCommandキーを押しながらクリックするとcmuxブラウザで開きます。オフの場合はデフォルトブラウザで開きます。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "비활성화하면 터미널 출력에서 클릭한 링크가 기본 브라우저에서 열립니다."
+            "value": "활성화하면 터미널 출력의 링크를 Command-클릭할 때 cmux 브라우저에서 열립니다. 비활성화하면 기본 브라우저에서 열립니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Når av, åpnes lenker som klikkes i terminalutdata i standard nettleser."
+            "value": "Når den er på, åpnes lenker i terminalutdata i cmux-nettleseren med Command-klikk. Når den er av, åpnes de i standardnettleseren din."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Po wyłączeniu linki kliknięte w terminalu otwierają się w domyślnej przeglądarce."
+            "value": "Gdy opcja jest włączona, linki w wyjściu terminala otwierają się w przeglądarce cmux po kliknięciu z Command. Gdy jest wyłączona, otwierają się w domyślnej przeglądarce."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Quando desativado, links clicados na saída do terminal abrem no seu navegador padrão."
+            "value": "Quando ativado, os links na saída do terminal são abertos no navegador cmux com um clique em Command. Quando desativado, eles são abertos no navegador padrão."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "При отключении ссылки из терминала открываются в браузере по умолчанию."
+            "value": "Если включено, ссылки в выводе терминала открываются в браузере cmux при нажатии Command и щелчке. Если выключено, они открываются в браузере по умолчанию."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "เมื่อปิด ลิงก์ที่คลิกในเอาต์พุตเทอร์มินัลจะเปิดในเบราว์เซอร์เริ่มต้นของคุณ"
+            "value": "เมื่อเปิด ลิงก์ในเอาต์พุตเทอร์มินัลจะเปิดในเบราว์เซอร์ cmux เมื่อคลิกพร้อมกด Command เมื่อปิด ลิงก์จะเปิดในเบราว์เซอร์เริ่มต้นของคุณ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kapalıyken, terminal çıktısında tıklanan bağlantılar varsayılan tarayıcınızda açılır."
+            "value": "Açıkken, terminal çıktısındaki bağlantılar Command tuşuna basarak tıklandığında cmux Tarayıcısı’nda açılır. Kapalıyken varsayılan tarayıcınızda açılır."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Якщо вимкнено, посилання у виводі терміналу відкриваються у стандартному браузері."
+            "value": "Якщо ввімкнено, посилання у виводі терміналу відкриваються у браузері cmux натисканням із Command. Якщо вимкнено, вони відкриваються у браузері за замовчуванням."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "关闭后，终端输出中点击的链接在默认浏览器中打开。"
+            "value": "开启后，在终端输出中按住 Command 点击链接会在 cmux 浏览器中打开；关闭后会在默认浏览器中打开。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "關閉時，終端機輸出中點擊的連結會在您的預設瀏覽器中開啟。"
+            "value": "開啟後，在終端機輸出中按住 Command 點選連結會在 cmux 瀏覽器中開啟；關閉後會在預設瀏覽器中開啟。"
           }
         }
       }

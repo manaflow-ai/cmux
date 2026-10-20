@@ -32,6 +32,10 @@ public struct TerminalPointerGestureState: Equatable, Sendable {
     private static let dragThresholdSquared = 9.0
 
     /// The press-time authorization captured for a matched release.
+    ///
+    /// The app sets this only for the Command-click link chord. Keeping the
+    /// value with the gesture prevents a modifier release from leaking a
+    /// half-click to a mouse-reporting terminal program.
     public typealias Completion = (
         modifierFlagsRawValue: UInt,
         permitsLinkActivation: Bool,
