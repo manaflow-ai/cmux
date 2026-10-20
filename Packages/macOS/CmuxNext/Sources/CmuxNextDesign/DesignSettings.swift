@@ -78,8 +78,6 @@ public final class DesignSettings {
     public var homeChiefBubblesThemed = false
     /// `home.chiefPetEnabled`: the floating Chief pet shows; the empty Chief conversation's pet row follows it.
     public var homeChiefPetEnabled = false
-    /// `home.chiefPetMascot`: the Chief pet's character, also the Chief's default face (`HomeChiefFace`).
-    public var homeChiefPetMascot = "orb"
     /// Per-metric overrides in points, clamped by `setOverride`.
     public private(set) var overrides: [MetricKey: CGFloat] = [:]
     /// Pane padding, corner radius and border from cmux.json `layout.*`,

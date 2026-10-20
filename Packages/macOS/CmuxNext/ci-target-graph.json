@@ -745,7 +745,6 @@
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextHome",
       "targets": [
         "CmuxNextDesign",
-        "CmuxNextFloating",
         "CmuxNextIcons",
         "CmuxNextWakeups"
       ],

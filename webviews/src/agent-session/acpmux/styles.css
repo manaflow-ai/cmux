@@ -216,8 +216,9 @@
 .acpmux-newtab-actions{align-self:flex-end;margin-top:10px;margin-inline-end:-8px}
 .acpmux-newtab-actions .acpmux-newtab-all{width:auto;font-size:12.5px;color:var(--acpmux-composer-dim)}
 .acpmux-newtab-failed{margin:8px 10px 0;color:var(--agent-text);font-size:var(--text-detail);line-height:var(--text-detail--line-height)}
-/* Hover, press and focus: a tonal step from the theme, on the Motion `hover` fade (0.08 s, plans/cmux-next/motion.md). The host does not pass ui.animationSpeed to the page yet, so this is the fast default. Under Reduce Motion the fills change at once. Fills only, never size, so nothing shifts. */
-.acpmux-newtab{--acpmux-motion-hover:80ms}
+/* Hover, press and focus: a tonal step from the theme, on the host's Motion `hover` fade. The
+   compatibility alias falls back to 0.08 s before the host theme arrives. Under Reduce Motion the
+   fills change at once. Fills only, never size, so nothing shifts. */
 @media (prefers-reduced-motion:no-preference){.acpmux-newtab-kind,.acpmux-newtab-all,.acpmux-omni-row,.acpmux-newtab .acpmux-send{transition:background-color var(--acpmux-motion-hover) ease-out,color var(--acpmux-motion-hover) ease-out,box-shadow var(--acpmux-motion-hover) ease-out}.acpmux-omni-action{transition:opacity var(--acpmux-motion-hover) ease-out}}
 .acpmux-newtab-kind:not(.is-selected):hover{background:color-mix(in srgb,var(--agent-text) 6%,transparent)}
 .acpmux-newtab-kind:not(.is-selected):active{background:color-mix(in srgb,var(--agent-text) 10%,transparent);color:var(--agent-text)}
@@ -739,3 +740,14 @@ fieldset.acpmux-question{display:flex;flex-direction:column;gap:10px;margin:0;mi
 .acpmux-session-preview-quiet .acpmux-session-preview-title{font-size:var(--text-control);line-height:var(--text-control--line-height);}
 .acpmux-session-preview-quiet .acpmux-session-preview-copy{max-width:30ch;}
 .ui-card.acpmux-session-preview-outline{min-width:220px;max-width:300px;padding:10px 12px;border:0.5px solid color-mix(in srgb,var(--agent-accent) 34%,transparent);background:color-mix(in srgb,var(--agent-page-bg) 92%,var(--agent-text) 8%);box-shadow:none;}
+
+/* The host's all-zero motion policy is stronger than the browser preference: it is the explicit
+   `ui.animationSpeed: off` setting. Stop every pane animation, including loops owned by a child
+   surface that cannot consume the duration tokens directly. */
+:root[data-agent-motion="off"],
+:root[data-agent-motion="off"] *,
+:root[data-agent-motion="off"] *::before,
+:root[data-agent-motion="off"] *::after {
+  animation: none !important;
+  transition: none !important;
+}

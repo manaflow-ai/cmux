@@ -28,7 +28,7 @@ function fakePage() {
 describe("contentFocus", () => {
   test("a request with nothing focused focuses the mounted input", () => {
     const page = fakePage();
-    const focus = contentFocus(page.win, page.doc);
+    const focus = contentFocus(page.win, page.doc, () => {});
     focus.mount(page.target);
     focus.request();
     expect(page.target.focused).toBe(1);
@@ -36,7 +36,7 @@ describe("contentFocus", () => {
 
   test("a request before the input mounts applies once at mount", () => {
     const page = fakePage();
-    const focus = contentFocus(page.win, page.doc);
+    const focus = contentFocus(page.win, page.doc, () => {});
     focus.request();
     expect(page.target.focused).toBe(0);
     focus.mount(page.target);
@@ -46,9 +46,33 @@ describe("contentFocus", () => {
     expect(page.target.focused).toBe(1);
   });
 
+  test("a request kept until focus takes: an input that refuses at mount gets it on retry", () => {
+    const page = fakePage();
+    let frames: Array<() => void> = [];
+    const focus = contentFocus(page.win, page.doc, (run) => frames.push(run));
+    let ready = false;
+    const loading = {
+      focused: 0,
+      focus() {
+        this.focused += 1;
+        if (ready) (page.doc as { activeElement: Element | null }).activeElement = {} as Element;
+      },
+    };
+    focus.request();
+    focus.mount(loading);
+    expect(frames.length).toBe(1);
+    ready = true;
+    frames.forEach((run) => run());
+    frames = [];
+    expect(nothingFocused(page.doc)).toBe(false);
+    const attempts = loading.focused;
+    focus.retry();
+    expect(loading.focused).toBe(attempts);
+  });
+
   test("a focused element keeps the keyboard, also against a kept request", () => {
     const page = fakePage();
-    const focus = contentFocus(page.win, page.doc);
+    const focus = contentFocus(page.win, page.doc, () => {});
     focus.request();
     (page.doc as { activeElement: Element | null }).activeElement = {} as Element; // the user clicked a field
     focus.mount(page.target);
@@ -58,7 +82,7 @@ describe("contentFocus", () => {
 
   test("the window's focus event is a request; dispose stops listening", () => {
     const page = fakePage();
-    const focus = contentFocus(page.win, page.doc);
+    const focus = contentFocus(page.win, page.doc, () => {});
     focus.mount(page.target);
     page.focusWindow();
     expect(page.target.focused).toBe(1);

@@ -31,6 +31,8 @@ final class HomeHostView: NSView {
     private var toggleObserver: (any NSObjectProtocol)?
     /// `home.toggleChiefSettings` (palette, `cmux action run`, preflight).
     static let toggleSettings = Notification.Name("HomeHostView.toggleChiefSettings")
+    /// The Chief's tile avatar when its profile sets none: 🫡.
+    static let defaultTileAvatar = HomeChiefAvatar.chiefDefault
     private var firstPage: Task<Void, Never>?
     /// Which brain answers this conversation (this Mac's or a paired server's).
     private var control: HomeChiefControl
@@ -89,6 +91,8 @@ final class HomeHostView: NSView {
         transcript.onStop = { _ = registry.perform(HomeChiefControl.stopAction, invocation: ActionInvocation(origin: .user)) }
         // A cmux app link (a workspace, pane, tab, chat or Chief subagent): opened here, through link.open.
         transcript.onAppLink = { [weak services] url in if let services { CmuxAppLinks.open(url, services: services) } }
+        // A link chip's hover card: the app's one coordinator, the target's live facts.
+        transcript.enableLinkPreviews(coordinator: services.hoverCards, previewer: HomeLinkPreviewProvider(services: services))
         transcript.onOpenLink = { LinkRouter.shared.open($0, otherTarget: $1) }
         stopObserver = NotificationCenter.default.addObserver(forName: HomeChiefControl.stopNotification, object: nil, queue: .main) { [weak self] _ in
             // task-owner: one hop to the main actor for the stop
@@ -298,9 +302,10 @@ final class HomeHostView: NSView {
             let avatar = await Task.detached { files.headerAvatar() }.value
             // A read for the Chief shown before (the conversation's Chief came in since) is dropped.
             guard let self, control.brainHome == home else { return }
-            // No picture and no text: the Chief pet's character (HomeChiefFace), live.
-            transcript.onChiefAvatar = { [weak settingsView] in settingsView?.setAvatar(picture: $0, text: $1) }
-            transcript.setChiefAvatar(picture: avatar.picture.flatMap(NSImage.init(data:)), text: avatar.text)
+            let picture = avatar.picture.flatMap(NSImage.init(data:))
+            let text = HomeChiefAvatar.headerText(avatar.text, hasPicture: picture != nil)
+            transcript.setChiefAvatar(picture: picture, text: text)  // the header and the first-run hero
+            settingsView.setAvatar(picture: picture, text: text)
         }
     }
 

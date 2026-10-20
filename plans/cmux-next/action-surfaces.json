@@ -9378,7 +9378,17 @@
 
       ],
       "default_aliases" : [
-
+        {
+          "keys" : [
+            {
+              "key" : "n",
+              "modifiers" : [
+                "cmd"
+              ]
+            }
+          ],
+          "when" : "topPage == home || surfaceKind == home || surfaceKind == home-dock"
+        }
       ],
       "default_chord" : null,
       "default_shortcut" : null,
@@ -9564,6 +9574,230 @@
       "palette_suggested" : null,
       "title" : "Open Conversation",
       "title_key" : "action.home.openConversation",
+      "title_table" : "HomeActions"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action home-conversation-info",
+      "context_menu" : "noTargetSurface",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "home.conversationInfo",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Conversation Info…",
+      "title_key" : "action.home.conversationInfo",
+      "title_table" : "HomeActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "home rename",
+      "context_menu" : "noTargetSurface",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "home.renameConversation",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Rename Group…",
+      "title_key" : "action.home.renameConversation",
+      "title_table" : "HomeActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "home add-members",
+      "context_menu" : "noTargetSurface",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "home.addMembers",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Add People to Group…",
+      "title_key" : "action.home.addMembers",
+      "title_table" : "HomeActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "home remove-member",
+      "context_menu" : "noTargetSurface",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "home.removeMember",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Remove from Group…",
+      "title_key" : "action.home.removeMember",
+      "title_table" : "HomeActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "home leave",
+      "context_menu" : "noTargetSurface",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "home.leaveConversation",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Leave Group…",
+      "title_key" : "action.home.leaveConversation",
+      "title_table" : "HomeActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "home mute",
+      "context_menu" : "noTargetSurface",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "home.muteConversation",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Hide Alerts",
+      "title_key" : "action.home.muteConversation",
+      "title_table" : "HomeActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "home unmute",
+      "context_menu" : "noTargetSurface",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "home.unmuteConversation",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Show Alerts",
+      "title_key" : "action.home.unmuteConversation",
+      "title_table" : "HomeActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "home send",
+      "context_menu" : "noTargetSurface",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "home.sendMessage",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Send Message…",
+      "title_key" : "action.home.sendMessage",
       "title_table" : "HomeActions"
     },
     {
@@ -13192,6 +13426,40 @@
       "title_table" : "ActionCatalog"
     },
     {
+      "cli" : "focusMove",
+      "cli_name" : "browser focus-search",
+      "context_menu" : "focusMove",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : {
+        "key" : "f",
+        "modifiers" : [
+          "opt",
+          "cmd"
+        ]
+      },
+      "id" : "browser.focusSearch",
+      "main_menu" : null,
+      "mcp" : "focusMove",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Search the Web",
+      "title_key" : "action.browser.focusSearch",
+      "title_table" : "ActionCatalog"
+    },
+    {
       "cli" : "stepAdjust",
       "cli_name" : "browser zoom-in",
       "context_menu" : "stepAdjust",
@@ -14875,6 +15143,1154 @@
       "title" : "Back to Pinned Page",
       "title_key" : "action.browser.resetPinnedTab",
       "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action devtools-open-docked",
+      "context_menu" : "familyMember",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "devtools.openDocked",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Developer Tools: Open Docked",
+      "title_key" : "action.devtools.openDocked",
+      "title_table" : "DevToolsActions"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action devtools-open-docked-right",
+      "context_menu" : "familyMember",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "devtools.openDockedRight",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Developer Tools: Dock to Right",
+      "title_key" : "action.devtools.openDockedRight",
+      "title_table" : "DevToolsActions"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action devtools-open-in-window",
+      "context_menu" : "familyMember",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "devtools.openInWindow",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Developer Tools: Open in Separate Window",
+      "title_key" : "action.devtools.openInWindow",
+      "title_table" : "DevToolsActions"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action devtools-close",
+      "context_menu" : "familyMember",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "devtools.close",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Developer Tools: Close",
+      "title_key" : "action.devtools.close",
+      "title_table" : "DevToolsActions"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action devtools-show-elements",
+      "context_menu" : "familyMember",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "devtools.showElements",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Developer Tools: Show Elements",
+      "title_key" : "action.devtools.showElements",
+      "title_table" : "DevToolsActions"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action devtools-show-sources",
+      "context_menu" : "familyMember",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "devtools.showSources",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Developer Tools: Show Sources",
+      "title_key" : "action.devtools.showSources",
+      "title_table" : "DevToolsActions"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action devtools-show-network",
+      "context_menu" : "familyMember",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "devtools.showNetwork",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Developer Tools: Show Network",
+      "title_key" : "action.devtools.showNetwork",
+      "title_table" : "DevToolsActions"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action devtools-show-performance",
+      "context_menu" : "familyMember",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "devtools.showPerformance",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Developer Tools: Show Performance",
+      "title_key" : "action.devtools.showPerformance",
+      "title_table" : "DevToolsActions"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action devtools-show-memory",
+      "context_menu" : "familyMember",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "devtools.showMemory",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Developer Tools: Show Memory",
+      "title_key" : "action.devtools.showMemory",
+      "title_table" : "DevToolsActions"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action devtools-show-application",
+      "context_menu" : "familyMember",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "devtools.showApplication",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Developer Tools: Show Application",
+      "title_key" : "action.devtools.showApplication",
+      "title_table" : "DevToolsActions"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action devtools-show-lighthouse",
+      "context_menu" : "familyMember",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "devtools.showLighthouse",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Developer Tools: Show Lighthouse",
+      "title_key" : "action.devtools.showLighthouse",
+      "title_table" : "DevToolsActions"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action devtools-show-layers",
+      "context_menu" : "familyMember",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "devtools.showLayers",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Developer Tools: Show Layers",
+      "title_key" : "action.devtools.showLayers",
+      "title_table" : "DevToolsActions"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action devtools-show-rendering",
+      "context_menu" : "familyMember",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "devtools.showRendering",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Developer Tools: Show Rendering",
+      "title_key" : "action.devtools.showRendering",
+      "title_table" : "DevToolsActions"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action devtools-show-sensors",
+      "context_menu" : "familyMember",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "devtools.showSensors",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Developer Tools: Show Sensors",
+      "title_key" : "action.devtools.showSensors",
+      "title_table" : "DevToolsActions"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action devtools-show-security",
+      "context_menu" : "familyMember",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "devtools.showSecurity",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Developer Tools: Show Security",
+      "title_key" : "action.devtools.showSecurity",
+      "title_table" : "DevToolsActions"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action devtools-show-animations",
+      "context_menu" : "familyMember",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "devtools.showAnimations",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Developer Tools: Show Animations",
+      "title_key" : "action.devtools.showAnimations",
+      "title_table" : "DevToolsActions"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action devtools-pause-script",
+      "context_menu" : "familyMember",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "devtools.pauseScript",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Developer Tools: Pause Script Execution",
+      "title_key" : "action.devtools.pauseScript",
+      "title_table" : "DevToolsActions"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action devtools-resume-script",
+      "context_menu" : "familyMember",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "devtools.resumeScript",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Developer Tools: Resume Script Execution",
+      "title_key" : "action.devtools.resumeScript",
+      "title_table" : "DevToolsActions"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action devtools-clear-console",
+      "context_menu" : "familyMember",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "devtools.clearConsole",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Developer Tools: Clear Console",
+      "title_key" : "action.devtools.clearConsole",
+      "title_table" : "DevToolsActions"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action devtools-copy-console-log",
+      "context_menu" : "familyMember",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "devtools.copyConsoleLog",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Developer Tools: Copy Console Log",
+      "title_key" : "action.devtools.copyConsoleLog",
+      "title_table" : "DevToolsActions"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action devtools-toggle-cache",
+      "context_menu" : "familyMember",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "devtools.toggleCache",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Developer Tools: Disable Cache",
+      "title_key" : "action.devtools.toggleCache",
+      "title_table" : "DevToolsActions"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action devtools-throttle-offline",
+      "context_menu" : "familyMember",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "devtools.throttleOffline",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Network: Go Offline",
+      "title_key" : "action.devtools.throttleOffline",
+      "title_table" : "DevToolsActions"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action devtools-throttle-slow3-g",
+      "context_menu" : "familyMember",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "devtools.throttleSlow3G",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Network: Throttle to Slow 3G",
+      "title_key" : "action.devtools.throttleSlow3G",
+      "title_table" : "DevToolsActions"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action devtools-throttle-fast3-g",
+      "context_menu" : "familyMember",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "devtools.throttleFast3G",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Network: Throttle to Fast 3G",
+      "title_key" : "action.devtools.throttleFast3G",
+      "title_table" : "DevToolsActions"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action devtools-throttle-off",
+      "context_menu" : "familyMember",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "devtools.throttleOff",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Network: No Throttling",
+      "title_key" : "action.devtools.throttleOff",
+      "title_table" : "DevToolsActions"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action devtools-empty-cache-and-hard-reload",
+      "context_menu" : "familyMember",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "devtools.emptyCacheAndHardReload",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Developer Tools: Empty Cache and Hard Reload",
+      "title_key" : "action.devtools.emptyCacheAndHardReload",
+      "title_table" : "DevToolsActions"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action devtools-clear-site-data",
+      "context_menu" : "familyMember",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "devtools.clearSiteData",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Developer Tools: Clear Site Data and Cookies",
+      "title_key" : "action.devtools.clearSiteData",
+      "title_table" : "DevToolsActions"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action devtools-toggle-java-script",
+      "context_menu" : "familyMember",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "devtools.toggleJavaScript",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Developer Tools: Disable JavaScript",
+      "title_key" : "action.devtools.toggleJavaScript",
+      "title_table" : "DevToolsActions"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action devtools-toggle-c-s-s",
+      "context_menu" : "familyMember",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "devtools.toggleCSS",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Developer Tools: Disable CSS",
+      "title_key" : "action.devtools.toggleCSS",
+      "title_table" : "DevToolsActions"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action devtools-toggle-reduced-motion",
+      "context_menu" : "familyMember",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "devtools.toggleReducedMotion",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Rendering: Emulate Reduced Motion",
+      "title_key" : "action.devtools.toggleReducedMotion",
+      "title_table" : "DevToolsActions"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action devtools-toggle-focus-emulation",
+      "context_menu" : "familyMember",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "devtools.toggleFocusEmulation",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Rendering: Emulate a Focused Page",
+      "title_key" : "action.devtools.toggleFocusEmulation",
+      "title_table" : "DevToolsActions"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action devtools-toggle-paint-flashing",
+      "context_menu" : "familyMember",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "devtools.togglePaintFlashing",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Rendering: Show Paint Flashing",
+      "title_key" : "action.devtools.togglePaintFlashing",
+      "title_table" : "DevToolsActions"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action devtools-toggle-layout-shift-regions",
+      "context_menu" : "familyMember",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "devtools.toggleLayoutShiftRegions",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Rendering: Show Layout Shift Regions",
+      "title_key" : "action.devtools.toggleLayoutShiftRegions",
+      "title_table" : "DevToolsActions"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action devtools-toggle-layer-borders",
+      "context_menu" : "familyMember",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "devtools.toggleLayerBorders",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Rendering: Show Layer Borders",
+      "title_key" : "action.devtools.toggleLayerBorders",
+      "title_table" : "DevToolsActions"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action devtools-toggle-f-p-s-meter",
+      "context_menu" : "familyMember",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "devtools.toggleFPSMeter",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Rendering: Show Frame Rendering Stats",
+      "title_key" : "action.devtools.toggleFPSMeter",
+      "title_table" : "DevToolsActions"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action devtools-toggle-performance-recording",
+      "context_menu" : "familyMember",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "devtools.togglePerformanceRecording",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Developer Tools: Start or Stop Performance Recording",
+      "title_key" : "action.devtools.togglePerformanceRecording",
+      "title_table" : "DevToolsActions"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action devtools-take-heap-snapshot",
+      "context_menu" : "familyMember",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "devtools.takeHeapSnapshot",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Developer Tools: Take Heap Snapshot",
+      "title_key" : "action.devtools.takeHeapSnapshot",
+      "title_table" : "DevToolsActions"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action devtools-capture-screenshot",
+      "context_menu" : "familyMember",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "devtools.captureScreenshot",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Developer Tools: Capture Screenshot",
+      "title_key" : "action.devtools.captureScreenshot",
+      "title_table" : "DevToolsActions"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action devtools-capture-full-page-screenshot",
+      "context_menu" : "familyMember",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "devtools.captureFullPageScreenshot",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Developer Tools: Capture Full Size Screenshot",
+      "title_key" : "action.devtools.captureFullPageScreenshot",
+      "title_table" : "DevToolsActions"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action devtools-capture-node-screenshot",
+      "context_menu" : "familyMember",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "devtools.captureNodeScreenshot",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Developer Tools: Capture Node Screenshot",
+      "title_key" : "action.devtools.captureNodeScreenshot",
+      "title_table" : "DevToolsActions"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action devtools-view-page-source",
+      "context_menu" : "familyMember",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "devtools.viewPageSource",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Developer Tools: View Page Source",
+      "title_key" : "action.devtools.viewPageSource",
+      "title_table" : "DevToolsActions"
     },
     {
       "cli" : "guiOnly",
@@ -21942,7 +23358,7 @@
       "title_table" : "ActionCatalog"
     },
     {
-      "cli" : "undeclared",
+      "cli" : "offered",
       "cli_name" : "cloud open-mobile-pairing",
       "context_menu" : "noObject",
       "context_menus" : [
@@ -21955,7 +23371,7 @@
       "default_shortcut" : null,
       "id" : "palette.mobileConnect",
       "main_menu" : "window",
-      "mcp" : "undeclared",
+      "mcp" : "offered",
       "palette" : "offered",
       "palette_section" : {
         "id" : "category.cloud",
@@ -30955,7 +32371,7 @@
             "debug_only" : false,
             "feature" : null,
             "requires" : [
-              "browserFocused"
+
             ]
           }
         },
@@ -31289,7 +32705,7 @@
                 "debug_only" : false,
                 "feature" : null,
                 "requires" : [
-                  "browserFocused"
+
                 ]
               }
             },
@@ -31302,7 +32718,7 @@
                 "debug_only" : false,
                 "feature" : null,
                 "requires" : [
-                  "browserFocused"
+
                 ]
               }
             },
