@@ -1274,6 +1274,10 @@ path = "tests/test_nightly_next_recovery.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_nightly_ssh_daemon_attestation.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cmux_tui_headless_debug_workflow.py"
 lane = "linux-guard"
 

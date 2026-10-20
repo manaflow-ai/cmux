@@ -1327,6 +1327,10 @@ jobs:
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_next_recovery.py
 
+      - name: Validate the nightly SSH daemon attestation outside the build slot
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_ssh_daemon_attestation.py
+
       - name: Validate asynchronous notarization status polling
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_poll_notary_submission.py
