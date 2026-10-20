@@ -164,6 +164,7 @@ struct VaultSessionExclusionTests {
             offset: 5,
             limit: 10,
             ceiling: 1500,
+            shortReadMeansExhausted: true,
             load: { limit in
                 requests.append(limit)
                 return Array(source.prefix(limit))
@@ -185,6 +186,7 @@ struct VaultSessionExclusionTests {
             offset: 0,
             limit: 30,
             ceiling: 1500,
+            shortReadMeansExhausted: true,
             load: { limit in
                 exhausted.append(limit)
                 return Array(source.prefix(limit))
@@ -195,6 +197,7 @@ struct VaultSessionExclusionTests {
             offset: 0,
             limit: 100,
             ceiling: 120,
+            shortReadMeansExhausted: true,
             load: { limit in
                 capped.append(limit)
                 return Array(repeating: source[0], count: limit)
@@ -205,6 +208,31 @@ struct VaultSessionExclusionTests {
         #expect(short.count == 30)
         #expect(exhausted.values == [60])
         #expect(capped.values == [120])
+    }
+
+    @Test("A loader that drops part of its window keeps growing until the page fills")
+    func filteredPageKeepsGrowingPastShortWindowedReads() async {
+        // Like Claude's loader: each read parses a window of 2x the request
+        // and returns only the sessions in this folder, so a short read does
+        // not mean the source is exhausted.
+        let source = (0..<400).map { makeEntry(agent: .claude, title: "s\($0)") }
+        let inFolder = Set(source.enumerated().filter { $0.offset % 10 == 0 }.map(\.element.id))
+        let requests = LimitRecorder()
+
+        let page = await SessionIndexStore.filteredSourcePage(
+            offset: 0,
+            limit: 20,
+            ceiling: 200,
+            shortReadMeansExhausted: false,
+            load: { limit in
+                requests.append(limit)
+                return Array(source.prefix(limit * 2).filter { inFolder.contains($0.id) }.prefix(limit))
+            },
+            isIncluded: { _ in true }
+        )
+
+        #expect(page.count == 20)
+        #expect(requests.values == [40, 80, 160])
     }
 
     private final class LimitRecorder: @unchecked Sendable {
