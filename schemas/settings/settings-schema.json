@@ -135,6 +135,7 @@
           {
             "key" : "settings.group.markdownViewer",
             "rows" : [
+              "markdown.remoteImages",
               "markdown.layout.width",
               "markdown.layout.fullWidth",
               "markdown.font.size",
@@ -142,6 +143,7 @@
               "markdown.font.lineHeight",
               "markdown.spacing.paragraph",
               "markdown.code.scale",
+              "markdown.code.family",
               "markdown.tables",
               "markdown.theme"
             ],
@@ -315,6 +317,7 @@
             "rows" : [
               "appearance.backdropArt",
               "appearance.background",
+              "appearance.paneBackgrounds",
               "appearance.backgroundOpacity",
               "appearance.backgroundBlur"
             ],
@@ -373,6 +376,7 @@
               "sidebar.groupBy",
               "sidebar.showSpaces",
               "sidebar.showProfileControl",
+              "sidebar.showSearchButton",
               "sidebar.minimal",
               "sidebar.density",
               "sidebar.detailedStatusIcons",
@@ -666,6 +670,13 @@
           {
             "key" : "settings.group.agentChat",
             "rows" : [
+              "agentPane.display.width",
+              "agentPane.display.fullWidth",
+              "agentPane.display.font.preset",
+              "agentPane.display.font.size",
+              "agentPane.display.font.lineHeight",
+              "agentPane.display.code.family",
+              "agentPane.display.code.scale",
               "agentPane.links.outsideRoots",
               "agentPane.images.remote",
               "agentPane.editedFiles.show",
@@ -1154,6 +1165,38 @@
         },
         "trail" : [
 
+        ]
+      },
+      {
+        "actions" : [
+
+        ],
+        "aliases" : [
+
+        ],
+        "groups" : [
+          {
+            "key" : "settings.group.mobile",
+            "rows" : [
+              "mobile.allowIPhoneConnections"
+            ],
+            "title" : {
+              "key" : "settings.group.mobile",
+              "text" : "iPhone"
+            }
+          }
+        ],
+        "id" : "mobile",
+        "lead" : [
+
+        ],
+        "symbol" : "iphone",
+        "title" : {
+          "key" : "settings.category.mobile",
+          "text" : "Mobile"
+        },
+        "trail" : [
+          "mobile"
         ]
       },
       {
@@ -4429,6 +4472,57 @@
     },
     {
       "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.mobile",
+        "text" : "iPhone"
+      },
+      "help" : {
+        "key" : "settings.mobile.allowIPhoneConnections.help",
+        "text" : "Lets the cmux app on your iPhone open this Mac's workspaces, terminals and agent chats while you are signed in with the same account."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "mobile.allowIPhoneConnections",
+      "keywords" : [
+        "iphone",
+        "phone",
+        "mobile",
+        "remote",
+        "connect"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "mobile",
+        "allowIPhoneConnections"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "accounts",
+      "summary" : {
+        "key" : "settings.mobile.allowIPhoneConnections.summary",
+        "text" : "Lets your iPhone reach this Mac"
+      },
+      "title" : {
+        "key" : "settings.mobile.allowIPhoneConnections",
+        "text" : "Allow iPhone Connections"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "even",
         "halve"
       ],
@@ -6689,7 +6783,7 @@
         false
       ],
       "agent_refusal" : null,
-      "agent_settable" : false,
+      "agent_settable" : true,
       "consumers" : [
         "cmux-next"
       ],
@@ -6743,7 +6837,7 @@
         ]
       ],
       "agent_refusal" : null,
-      "agent_settable" : false,
+      "agent_settable" : true,
       "consumers" : [
         "cmux-next"
       ],
@@ -10095,6 +10189,76 @@
         "text" : "Background"
       },
       "validation" : "domain:backdrop_selection"
+    },
+    {
+      "accepts" : [
+        "shared",
+        "perPane"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.paneBackgrounds.shared",
+            "text" : "One for the Window"
+          },
+          "value" : "shared"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.paneBackgrounds.perPane",
+            "text" : "One per Pane"
+          },
+          "value" : "perPane"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "shared",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.windowBackground",
+        "text" : "Window Background"
+      },
+      "help" : {
+        "key" : "settings.appearance.paneBackgrounds.help",
+        "text" : "One background behind the whole window, or a copy in each pane. A pane's own background (right-click a pane) shows either way."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.paneBackgrounds",
+      "keywords" : [
+        "background",
+        "wallpaper",
+        "pane",
+        "split",
+        "per pane",
+        "each pane",
+        "backdrop",
+        "art"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "paneBackgrounds"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : {
+        "key" : "settings.appearance.paneBackgrounds.summary",
+        "text" : "One background or one per pane"
+      },
+      "title" : {
+        "key" : "settings.appearance.paneBackgrounds",
+        "text" : "Pane Backgrounds"
+      },
+      "validation" : "portable"
     },
     {
       "accepts" : [
@@ -14705,6 +14869,58 @@
     },
     {
       "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.markdownViewer",
+        "text" : "Markdown Viewer"
+      },
+      "help" : {
+        "key" : "settings.markdown.remoteImages.help",
+        "text" : "Web image sites can see your address and when you open a document. When off, each document asks before loading its web images."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "markdown.remoteImages",
+      "keywords" : [
+        "markdown",
+        "viewer",
+        "reading",
+        "image",
+        "web",
+        "remote",
+        "privacy",
+        "tracking",
+        "automatic"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "markdown",
+        "remoteImages"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.markdown.remoteImages",
+        "text" : "Load Web Images Automatically"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         30,
         1000,
         515
@@ -15124,6 +15340,56 @@
     },
     {
       "accepts" : [
+
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.markdownViewer",
+        "text" : "Markdown Viewer"
+      },
+      "help" : {
+        "key" : "settings.markdown.codeFont.help",
+        "text" : "The font of code blocks and inline code. Empty uses the terminal font. The agent chat uses it too unless it has its own."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "markdown.code.family",
+      "keywords" : [
+        "markdown",
+        "viewer",
+        "reading",
+        "code",
+        "font",
+        "family",
+        "monospace"
+      ],
+      "kind" : "font_family",
+      "page_hidden" : false,
+      "path" : [
+        "markdown",
+        "code",
+        "family"
+      ],
+      "refuses" : [
+        1,
+        true,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.markdown.codeFont",
+        "text" : "Code Font"
+      },
+      "validation" : "domain:font_family"
+    },
+    {
+      "accepts" : [
         8,
         32,
         20
@@ -15310,6 +15576,436 @@
       "title" : {
         "key" : "settings.markdown.theme",
         "text" : "Page Theme"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        480,
+        4000,
+        2240
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 800,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.display.width.help",
+        "text" : "The widest the chat's column gets. On a wider pane the chat stays centered."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.display.width",
+      "keywords" : [
+        "agent",
+        "chat",
+        "acp",
+        "display",
+        "reading",
+        "width",
+        "max width",
+        "column",
+        "measure",
+        "wide"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "display",
+        "width"
+      ],
+      "range" : {
+        "max" : 4000,
+        "min" : 480,
+        "placeholder" : 800,
+        "step" : 10,
+        "unit" : "points"
+      },
+      "refuses" : [
+        -3040,
+        7520,
+        "1"
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.agentPane.display.width",
+        "text" : "Chat Text Width"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.display.fullWidth.help",
+        "text" : "The chat fills the whole pane instead of the text width."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.display.fullWidth",
+      "keywords" : [
+        "agent",
+        "chat",
+        "acp",
+        "display",
+        "reading",
+        "full",
+        "width",
+        "wide"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "display",
+        "fullWidth"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.agentPane.display.fullWidth",
+        "text" : "Chat Full Width"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "markdown",
+        "system",
+        "serif",
+        "mono"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.agentChatFontMarkdown",
+            "text" : "Same as Markdown Viewer"
+          },
+          "value" : "markdown"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.markdownFontSystem",
+            "text" : "System"
+          },
+          "value" : "system"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.markdownFontSerif",
+            "text" : "Serif"
+          },
+          "value" : "serif"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.markdownFontMono",
+            "text" : "Monospaced"
+          },
+          "value" : "mono"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "markdown",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.display.font.preset",
+      "keywords" : [
+        "agent",
+        "chat",
+        "acp",
+        "display",
+        "reading",
+        "font",
+        "family",
+        "serif",
+        "monospace",
+        "typeface"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "display",
+        "font",
+        "preset"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.agentPane.display.font",
+        "text" : "Chat Font"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        10,
+        28,
+        19
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 14,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.display.font.size",
+      "keywords" : [
+        "agent",
+        "chat",
+        "acp",
+        "display",
+        "reading",
+        "font",
+        "size",
+        "text"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "display",
+        "font",
+        "size"
+      ],
+      "range" : {
+        "max" : 28,
+        "min" : 10,
+        "placeholder" : 14,
+        "step" : 1,
+        "unit" : "points"
+      },
+      "refuses" : [
+        -8,
+        46,
+        "1"
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.agentPane.display.fontSize",
+        "text" : "Chat Font Size"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        1.2,
+        2.4,
+        1.7999999999999998
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 1.625,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.display.font.lineHeight",
+      "keywords" : [
+        "agent",
+        "chat",
+        "acp",
+        "display",
+        "reading",
+        "line height",
+        "leading",
+        "line spacing"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "display",
+        "font",
+        "lineHeight"
+      ],
+      "range" : {
+        "max" : 2.4,
+        "min" : 1.2,
+        "placeholder" : 1.625,
+        "step" : 0.05,
+        "unit" : "fraction"
+      },
+      "refuses" : [
+        0,
+        3.5999999999999996,
+        "1"
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.agentPane.display.lineHeight",
+        "text" : "Chat Line Height"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.display.codeFont.help",
+        "text" : "The font of code in the chat. Empty uses the Markdown viewer's code font, then the terminal font."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.display.code.family",
+      "keywords" : [
+        "agent",
+        "chat",
+        "acp",
+        "display",
+        "reading",
+        "code",
+        "font",
+        "monospace",
+        "family"
+      ],
+      "kind" : "font_family",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "display",
+        "code",
+        "family"
+      ],
+      "refuses" : [
+        1,
+        true,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.agentPane.display.codeFont",
+        "text" : "Chat Code Font"
+      },
+      "validation" : "domain:font_family"
+    },
+    {
+      "accepts" : [
+        0.6,
+        1.25,
+        0.925
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.display.codeSize.help",
+        "text" : "Code as a share of the chat's text size. Empty uses the Markdown viewer's."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.display.code.scale",
+      "keywords" : [
+        "agent",
+        "chat",
+        "acp",
+        "display",
+        "reading",
+        "code",
+        "font",
+        "size",
+        "monospace",
+        "scale"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "display",
+        "code",
+        "scale"
+      ],
+      "range" : {
+        "max" : 1.25,
+        "min" : 0.6,
+        "placeholder" : 0.875,
+        "step" : 0.025,
+        "unit" : "fraction"
+      },
+      "refuses" : [
+        -0.4,
+        2.25,
+        "1"
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.agentPane.display.codeSize",
+        "text" : "Chat Code Size"
       },
       "validation" : "portable"
     },
@@ -18818,6 +19514,57 @@
       "title" : {
         "key" : "settings.sidebar.showProfileControl",
         "text" : "Show Profile Button"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.showSearchButton.help",
+        "text" : "A magnifying glass after the profile button searches workspaces, tabs, history, agent chats, settings and commands. Off, Search stays in the command palette."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.showSearchButton",
+      "keywords" : [
+        "sidebar",
+        "search",
+        "find",
+        "magnifying glass",
+        "everything",
+        "footer",
+        "hide",
+        "show"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "showSearchButton"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sidebar.showSearchButton",
+        "text" : "Show Search Button"
       },
       "validation" : "portable"
     },
