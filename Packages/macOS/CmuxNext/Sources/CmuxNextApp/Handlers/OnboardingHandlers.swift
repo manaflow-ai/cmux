@@ -103,16 +103,20 @@ enum ClassicImportStrings {
             defaultValue: "Source: %1$@\nWorkspaces: %2$@\nBrowser tabs: %3$@\nLocal file pages: %4$@\nSSH workspaces: %5$@\nAgent chats: %6$@\nCloud VM workspaces skipped: %7$@\nImporting loads saved browser pages, connects to saved SSH hosts, and resumes saved agent chats.",
             bundle: .module
         )
+        // The localized text uses fixed field labels; only the values vary.
+        // Format those numbers for the person's locale before substitution.
         let text = String(
-            format: format, plan.source.fileName, String(plan.workspaces.count), String(plan.browserTabs),
-            String(plan.localFilePages), String(plan.sshWorkspaces), String(plan.agentChats), String(plan.skippedCloudVMs)
+            format: format, plan.source.fileName, plan.workspaces.count.formatted(.number),
+            plan.browserTabs.formatted(.number), plan.localFilePages.formatted(.number),
+            plan.sshWorkspaces.formatted(.number), plan.agentChats.formatted(.number),
+            plan.skippedCloudVMs.formatted(.number)
         )
         let cleanupFormat = String(
             localized: "classicImport.preview.cleanup",
             defaultValue: "Interrupted workspaces to replace (their terminals will end): %1$@",
             bundle: .module
         )
-        let cleanup = String(format: cleanupFormat, String(plan.cleanupWorkspaces))
+        let cleanup = String(format: cleanupFormat, plan.cleanupWorkspaces.formatted(.number))
         return text.components(separatedBy: "\n") + [cleanup]
     }
     static var imported: String {
