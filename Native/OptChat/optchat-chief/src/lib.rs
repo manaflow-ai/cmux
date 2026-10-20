@@ -41,6 +41,7 @@ pub mod log;
 pub mod mcp;
 pub mod membership;
 pub mod memory_cli;
+pub mod migrate;
 pub mod native;
 pub mod pacing;
 pub mod paths;
