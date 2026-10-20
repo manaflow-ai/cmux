@@ -1,8 +1,9 @@
 name: cmux-tui nightly
 
 on:
-  # CI pause: the macOS Nightly and rolling iOS beta remain automatic; this
-  # separate TUI package build remains available on demand.
+  # Dispatch on nightly-next: that branch holds the promoted, green
+  # feat-cmux-next head and only the promote app can move it, so the npm-tui
+  # environment admits it. Packages publish under the `next` dist-tag.
   workflow_dispatch:
     inputs:
       include_windows:
@@ -28,11 +29,11 @@ jobs:
       pypi_version: ${{ steps.version.outputs.pypi_version }}
       head_sha: ${{ steps.version.outputs.head_sha }}
     steps:
-      - name: Require main branch dispatch
+      - name: Require a nightly-next or main dispatch
         run: |
           set -euo pipefail
-          if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
-            echo "Refusing to publish a TUI nightly from $GITHUB_REF; dispatch this workflow on main." >&2
+          if [[ "$GITHUB_REF" != "refs/heads/nightly-next" && "$GITHUB_REF" != "refs/heads/main" ]]; then
+            echo "Refusing to publish a TUI nightly from $GITHUB_REF; dispatch this workflow on nightly-next." >&2
             exit 1
           fi
 
@@ -185,7 +186,7 @@ jobs:
               --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/cmux-tui-build-package.yml" \
               --deny-self-hosted-runners \
               --source-digest "$RELEASE_SHA" \
-              --source-ref "refs/heads/main"
+              --source-ref "$GITHUB_REF"
           done
 
       # cmux-relay packages are validated in the artifact contract above but
