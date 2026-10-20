@@ -75,11 +75,12 @@ const partsMentions = (parts: unknown): ReadonlyArray<string> =>
 /**
  * The people an op names, whose member rows its view head loads: the actor, the participant it
  * adds, removes or changes, a thread owner, the people its message mentions (also the edited
- * message's old mentions), and the authors whose names a preview or an edit needs.
+ * message's old mentions), the authors whose names a preview or an edit needs, and `extraIds`
+ * (an invite's address, a revoked grant's maker).
  */
-export const namedBy = (op: Op, actor: string, extra: ReadonlyArray<Message | null | undefined>, inviteAddress?: string): ReadonlySet<string> => {
+export const namedBy = (op: Op, actor: string, extra: ReadonlyArray<Message | null | undefined>, extraIds: ReadonlyArray<string | undefined> = []): ReadonlySet<string> => {
   const ids = new Set<string>([actor])
-  if (inviteAddress) ids.add(inviteAddress)
+  for (const id of extraIds) if (id) ids.add(id)
   const target = participantArg(op)
   if (target) ids.add(target)
   const address = (op as { address?: unknown }).address

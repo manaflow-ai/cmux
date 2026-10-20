@@ -2197,6 +2197,31 @@ export interface CloudOps {
     }
     readonly result: unknown
   }
+  /** Make a group link: whoever signs in and opens it joins with role (default member, at most your own; admin only from the owner) for expires_in_hours (default 168) and max_uses joins (default 20). Only this answer carries the secret (in link's fragment). It closes when revoked, used up, or when you leave, are removed or lose the role it grants. At most 50 open links per group. */
+  readonly "grant.create": {
+    readonly params: {
+      readonly conversation: ConversationId
+      readonly role?: HomeGrantableRole
+      readonly expires_in_hours?: number
+      readonly max_uses?: number
+    }
+    readonly result: {
+      readonly rev: number
+      readonly change: unknown
+      readonly grant_id: string
+      readonly code: string
+      readonly secret: string
+      readonly link?: string
+    }
+  }
+  /** Close a group link at once: its maker, or an admin or the owner above the maker. Open links are in the conversation head's grants. */
+  readonly "grant.revoke": {
+    readonly params: {
+      readonly conversation: ConversationId
+      readonly grant_id: string
+    }
+    readonly result: HomeConversationCommit
+  }
   /** Your message requests: open invites to your verified email from people you are not connected to, newest first (at most 20). trusted marks a sender with your company email domain. */
   readonly "home.requests.list": {
     readonly params: Readonly<Record<string, never>>
@@ -2460,7 +2485,7 @@ export interface CloudOps {
     }
     readonly result: Connection
   }
-  /** Accept an invite from its link (/i/<code>#<secret>). The Worker turns the secret into the proof the owner checks; a group invite may wait for the inviter's approval. */
+  /** Accept an invite or a group link from its link (/i/<code>#<secret>). The Worker turns the secret into the proof the owner checks; a group invite may wait for the inviter's approval; a link from grant.create joins at once with the link's role. */
   readonly "invite.accept": {
     readonly params: {
       readonly code: string
@@ -3536,6 +3561,8 @@ export const cloudOpMeta = {
   "firewall.get": { class: "read", owner: "cloud:UserDO", risk: "read" },
   "firewall.list": { class: "read", owner: "cloud:UserDO", risk: "read" },
   "github.issue.comment": { class: "mutation", owner: "cloud:ConnectionDO", risk: "send-external" },
+  "grant.create": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-shared" },
+  "grant.revoke": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-shared" },
   "home.requests.list": { class: "read", owner: "cloud:ConversationDO", risk: "read" },
   "home.search": { class: "read", owner: "cloud:planetscale", risk: "read" },
   "home.settings.set": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },

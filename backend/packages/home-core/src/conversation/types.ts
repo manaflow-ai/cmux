@@ -228,6 +228,29 @@ export interface Invite {
   readonly locale: string
 }
 
+/**
+ * An open link grant (grants.ts): whoever holds the link's secret joins with `role`. The head
+ * keeps only open grants; the token hash lives in a private row, never in the head.
+ */
+export interface Grant {
+  /** `grt_<26>`. */
+  readonly id: string
+  readonly role: ParticipantRole
+  /** The member who made it; removing or demoting them closes it. */
+  readonly issuer: string
+  readonly created_at: string
+  readonly expires_at: string
+  readonly max_uses: number
+  readonly uses: number
+}
+
+/** A closed grant as its row keeps it. */
+export interface ClosedGrant extends Grant {
+  readonly closed_at: string
+  readonly closed: "revoked" | "used" | "issuer_lost_rights"
+  readonly closed_by?: string
+}
+
 /** What subscribers see of an invite: no token hash. */
 export type PublicInvite = Omit<Invite, "token_hash">
 
@@ -284,6 +307,8 @@ export interface ConversationHead {
    * empty, and every record and cursor is a `member` row. Absent = inline (everything in the head).
    */
   readonly tier?: "large"
+  /** Cloud groups: open link grants (grants.ts), at most MAX_OPEN_GRANTS. */
+  readonly grants?: ReadonlyArray<Grant>
   /** Large tier: current participants, current humans, and the last member row's join number. */
   readonly member_count?: number
   readonly human_count?: number
@@ -359,6 +384,17 @@ export type CloudOp =
   | { readonly kind: "participants.set_role"; readonly participant: string; readonly role: ParticipantRole }
   /** The owner hands the conversation to a current human, and becomes an admin. */
   | { readonly kind: "ownership.transfer"; readonly participant: string }
+  /** Mint a link grant (the Worker derives `grant_id` and `token_hash`, never the client). */
+  | {
+      readonly kind: "grant.create"
+      readonly grant_id: string
+      readonly token_hash: string
+      readonly role?: ParticipantRole
+      readonly expires_in_hours?: number
+      readonly max_uses?: number
+    }
+  /** Close a link grant: its maker, or a manager above the maker. */
+  | { readonly kind: "grant.revoke"; readonly grant_id: string }
   /** An admin or the owner lifts a ban. */
   | { readonly kind: "participants.unban"; readonly participant: string }
   | InviteCreateParams

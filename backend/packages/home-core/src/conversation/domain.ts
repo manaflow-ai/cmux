@@ -11,9 +11,10 @@ import { IMPORT_OPS, reduceImport } from "./import.ts"
 import { mentionsOf, type UnreadCounts } from "./fanout.ts"
 import { commitOutbox, createOutbox } from "./outbox.ts"
 import { focusOf, isLarge, namedBy, needsPromotion, promote, settle, viewHead } from "./large.ts"
+import { closedGrant, closeLostGrants, grantExpired, TABLE_GRANT, TABLE_GRANTHASH } from "./grants.ts"
 import { actorOf, defaultParticipantPolicy, FALLBACK_NAME, stampParticipant, type ParticipantPolicy } from "./policy.ts"
 import type { Commit, OpRequest } from "./request.ts"
-import { SYSTEM_ACTOR, type ConversationHead, type ConversationKind, type Invite, type Message, type Op, type Participant } from "./types.ts"
+import { SYSTEM_ACTOR, type ClosedGrant, type ConversationHead, type ConversationKind, type Grant, type Invite, type Message, type Op, type Participant } from "./types.ts"
 import { currentParticipant, safeDisplayName } from "./validate.ts"
 import { reduceSweep, SWEEP_OP } from "./sweep.ts"
 import { inviteWrites, msgKey, TABLE_BAN, TABLE_INV, TABLE_INVHASH, TABLE_MSG, TABLE_MSGKEY, TABLE_UNREAD, UNREAD_RECOUNT_LIMIT } from "./tables.ts"
@@ -159,6 +160,7 @@ const prepare = (
     if (typeof proof !== "string" || proof.length === 0 || proof.length > 256) return "unknown_invite"
     return { op: { kind: "invite.accept", token_hash: hashInviteSecret(proof), display_name: safeDisplayName(ctx.principal.display_name, FALLBACK_NAME) } }
   }
+  if (op === "grant.create" && typeof rest.token_hash === "string" && rowsOf(ctx).get(TABLE_GRANTHASH, rest.token_hash)) return "duplicate_invite"
   if (op === "invite.create") {
     if (typeof rest.invite_id === "string" && rowsOf(ctx).get(TABLE_INV, rest.invite_id)) return "duplicate_invite"
     if (typeof rest.token_hash === "string" && rowsOf(ctx).get(TABLE_INVHASH, rest.token_hash)) return "duplicate_invite"
@@ -225,6 +227,31 @@ const unreadBefore = (before: ConversationHead, after: ConversationHead, op: Op,
   return counts
 }
 
+/**
+ * Link grant upkeep after a commit (grants.ts): a new grant's hash row, a redeemed grant's use
+ * (closed when used up), a revoked one, and the grants whose makers this commit removed or
+ * demoted. Closed grants leave the head for a `grant` row.
+ */
+const withGrantUpkeep = (state: ConversationHead, commit: Commit, op: Op, opActor: string, redeemed: Grant | undefined, now: string, writes: Array<RowWrite>): Commit => {
+  const before = state.grants ?? []
+  let grants = commit.head.grants ?? []
+  if (before.length === 0 && grants.length === 0) return commit
+  const closed: Array<ClosedGrant> = []
+  if (op.kind === "grant.create") writes.push({ table: TABLE_GRANTHASH, op: "upsert", key: op.token_hash, n: null, row: { grant_id: op.grant_id } })
+  if (op.kind === "grant.revoke") for (const grant of before) if (!grants.some((g) => g.id === grant.id) && grant.id === op.grant_id) closed.push(closedGrant(grant, "revoked", now, opActor))
+  if (redeemed) {
+    const used = { ...redeemed, uses: redeemed.uses + 1 }
+    grants = grants.flatMap((grant) => (grant.id !== used.id ? [grant] : used.uses >= used.max_uses ? (closed.push(closedGrant(used, "used", now)), []) : [used]))
+  }
+  const target = (op as { participant?: unknown }).participant
+  const makers = new Set([opActor, ...(typeof target === "string" ? [target] : [])])
+  const { open, lost } = closeLostGrants(grants, makers, (id) => commit.head.participants.find((p) => p.id === id))
+  for (const grant of lost) closed.push(closedGrant(grant, "issuer_lost_rights", now, opActor))
+  for (const grant of closed) writes.push({ table: TABLE_GRANT, op: "upsert", key: grant.id, n: null, row: grant })
+  const { grants: _old, ...rest } = commit.head
+  return { ...commit, head: open.length > 0 ? { ...rest, grants: open } : rest }
+}
+
 /** The open invite an invite op names in the head (its address is a member row the view loads). */
 const inviteNamed = (head: ConversationHead, op: Op): Invite | undefined => {
   const id = op.kind === "invite.revoke" || op.kind === "invite.approve_join" || op.kind === "invite.delivery.report" ? op.invite_id : undefined
@@ -264,14 +291,33 @@ const reduceConversation = (
   if (op === SWEEP_OP) return reduceSweep(state, ctx, actor)
   const prepared = prepare(state, op, params, ctx, actor, options)
   if (typeof prepared === "string") return refuse(prepared)
-  const coreOp = prepared.op
+  let coreOp = prepared.op
+  // The actor the reducer sees: the caller, or for a link grant the member who made it (grants.ts).
+  let opActor = actor
+  let trusted = prepared.trusted ?? null
+  let redeemed: Grant | undefined
+  if (coreOp.kind === "invite.accept") {
+    const ref = rowsOf(ctx).get<{ grant_id: string }>(TABLE_GRANTHASH, coreOp.token_hash)?.row
+    if (ref) {
+      // A link grant: the caller joins with the link's role, added by the link's maker.
+      const grant = (state.grants ?? []).find((candidate) => candidate.id === ref.grant_id)
+      if (!grant) return refuse("unknown_invite")
+      if (grantExpired(grant, formatRfc3339Millis(ctx.now))) return refuse("invite_expired")
+      if (ctx.principal.agent !== undefined || !actor.startsWith("user_")) return refuse("forbidden")
+      redeemed = grant
+      opActor = grant.issuer
+      trusted = true
+      coreOp = { kind: "participants.add", participant: { id: actor, kind: "human", display_name: coreOp.display_name }, role: grant.role }
+    }
+  }
   const loaded = loadInvite(state, ctx, coreOp)
   const messageId = targetMessageId(coreOp)
   const targetRow = messageId === undefined ? null : (rowsOf(ctx).get<Message>(TABLE_MSG, messageId)?.row ?? null)
   const lastMessage = rowsOf(ctx).range<Message>(TABLE_MSG, { limit: 1, desc: true })[0]?.row ?? null
   // A large group runs the op on a view head: the roster plus the member rows it names (large.ts).
   const invite = loaded ?? inviteNamed(state, coreOp)
-  const base = isLarge(state) ? viewHead(state, rowsOf(ctx), namedBy(coreOp, actor, [lastMessage, targetRow], invite?.address)) : state
+  const maker = coreOp.kind === "grant.revoke" ? (state.grants ?? []).find((grant) => grant.id === (coreOp as { grant_id: string }).grant_id)?.issuer : undefined
+  const base = isLarge(state) ? viewHead(state, rowsOf(ctx), namedBy(coreOp, opActor, [lastMessage, targetRow], [invite?.address, maker])) : state
   const head: ConversationHead = loaded ? { ...base, invites: [...(base.invites ?? []), loaded] } : base
   const replyId = coreOp.kind === "message.send" ? coreOp.reply_to?.message_id : undefined
   const threadId = coreOp.kind === "message.send" && typeof coreOp.thread_root === "string" ? coreOp.thread_root : undefined
@@ -280,7 +326,7 @@ const reduceConversation = (
   const threadRow = threadId === undefined ? null : (rowsOf(ctx).get<Message>(TABLE_MSG, threadId)?.row ?? null)
   const verified = (op === "invite.accept" || op === "invite.accept_verified") && ctx.principal.email_verified === true && options.addressIdsFor
   const request: OpRequest = {
-    actor,
+    actor: opActor,
     // The engine's ledger owns idempotency; `msgkey` keeps (author, client_msg_id) unique.
     idempotency_key: coreOp.kind === "message.send" ? coreOp.client_msg_id : "",
     op: coreOp,
@@ -296,12 +342,12 @@ const reduceConversation = (
     // The loop guard lives in the head (O(1)); only the newest message is read, for summaries.
     last_message: lastMessage,
     actor_addresses: verified ? options.addressIdsFor!(ctx.principal) : null,
-    trusted_participant: prepared.trusted ?? null,
+    trusted_participant: trusted,
     banned: prepared.banned ?? null
   }
   const result = apply(head, request)
   if (!result.ok) return refuse(result.code)
-  const { commit } = result
+  let { commit } = result
   // A thread root derived from the parent (a reply to a thread reply that names no thread_root) must be
   // visible to the sender, like a named one: a root below its history floor is refused, never joined.
   if (coreOp.kind === "message.send" && threadId === undefined && commit.message?.thread_root !== undefined) {
@@ -327,6 +373,7 @@ const reduceConversation = (
     writes.push({ table: TABLE_BAN, op: "upsert", key: coreOp.participant, n: null, row: { by: actor, at: request.now } })
   }
   if (coreOp.kind === "participants.unban") writes.push({ table: TABLE_BAN, op: "delete", key: coreOp.participant })
+  commit = withGrantUpkeep(state, commit, coreOp, opActor, redeemed, request.now, writes)
   // The head to store, and the commit the outbox describes (a large group's counts and tier).
   let stored: ConversationHead = commit.head
   let described: Commit = commit

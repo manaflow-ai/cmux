@@ -146,3 +146,4 @@ export {
   type MembersPage
 } from "./large.ts"
 export { checkGrant, checkOver, checkWriter, grantableRole, isManager, rankOf, roleOf, ROLES } from "./roles.ts"
+export { DEFAULT_GRANT_HOURS, DEFAULT_GRANT_USES, MAX_GRANT_HOURS, MAX_GRANT_USES, MAX_OPEN_GRANTS, TABLE_GRANT, TABLE_GRANTHASH } from "./grants.ts"
