@@ -6,6 +6,7 @@
 use anyhow::Context;
 
 use super::PROTOCOL_VERSION;
+use super::daemon_build::{stamped_build_commit, stamped_ghostty_commit};
 use super::identify_capabilities;
 use crate::platform;
 
@@ -43,6 +44,8 @@ pub(super) fn identify(mux: &Arc<Mux>, machine_metadata: bool) -> anyhow::Result
         "cli_path": cli_path,
         "ghostty_commit": stamped_ghostty_commit(),
         "protocol": PROTOCOL_VERSION,
+        "api_revision": super::api_revision_wire::identify_fields().0,
+        "min_api_revision": super::api_revision_wire::identify_fields().1,
         "capabilities": identify_capabilities(mux),
         "session": mux.session,
         "pid": std::process::id(),
@@ -129,7 +132,12 @@ pub(super) fn set_client_info(
     device_kind: Option<String>,
     device_name: Option<String>,
     device_id: Option<String>,
+    api_revision: Option<u32>,
 ) -> anyhow::Result<Value> {
+    // Refuse an unsupported revision before changing anything else.
+    if let Some(revision) = api_revision {
+        mux.control_clients.set_api_revision(client, revision)?;
+    }
     let identity =
         ClientIdentityWire { user_id, display_name, device_kind, device_name, device_id };
     let identity_changed = !identity.is_empty();
@@ -274,14 +282,4 @@ pub(super) fn machine_listening_tcp_json() -> anyhow::Result<Value> {
         };
         anyhow::bail!("machine listening TCP inventory failed: {detail}");
     }
-}
-
-pub(super) fn stamped_build_commit() -> Option<&'static str> {
-    option_env!("CMUX_TUI_BUILD_COMMIT")
-        .or(option_env!("CMUX_MUX_BUILD_COMMIT"))
-        .filter(|commit| !commit.is_empty())
-}
-
-pub(super) fn stamped_ghostty_commit() -> Option<&'static str> {
-    option_env!("CMUX_TUI_GHOSTTY_COMMIT").filter(|commit| !commit.is_empty())
 }

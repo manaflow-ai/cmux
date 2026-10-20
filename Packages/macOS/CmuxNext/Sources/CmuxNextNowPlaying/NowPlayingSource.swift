@@ -28,7 +28,7 @@ extension NowPlayingSource {
 
 extension SidebarModel {
     /// Shows `source` on the Now Playing card while `enabled` (the App passes
-    /// `sidebar.nowPlaying.enabled`, on by default).
+    /// `sidebar.nowPlaying.enabled`, off by default).
     /// The source runs while `enabled` (`NowPlayingSource.run`), and the New Tab page's player
     /// shows the same track (`NewTabNowPlaying`).
     public func followNowPlaying(_ source: any NowPlayingSource, enabled: @escaping @MainActor () -> Bool) -> Task<Void, Never> {

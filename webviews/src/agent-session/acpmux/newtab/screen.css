@@ -91,6 +91,11 @@
    draws nothing of its own. */
 .nt-composer { flex: none; display: flex; flex-direction: column; min-width: 0; }
 .nt-location { display: contents; }
+/* No page of this run knows the recent project yet (NewTabScreen projectPending): the folder chip
+   keeps its place and names nothing until the daemon lists the chats, never "Choose folder" first. */
+.nt-location[data-project-pending] .acpmux-location-leading > .acpmux-location-picker:first-child .acpmux-location-label {
+  visibility: hidden;
+}
 .nt-composer { --acpmux-strip-radius: 20px; }
 /* The strip is the box's fill (.nt-box below): the composer's surface, so the two stay one
    surface. Neither changes on hover (Leo 2026-10-18: a composer is quiet, like Claude's and
@@ -429,6 +434,98 @@
   .nt-player[data-playing="true"] .nt-player-levels i:nth-child(2){height:65%}
   .nt-player[data-playing="true"] .nt-player-levels i:nth-child(3){height:30%}
   .nt-player-played{transition:none}
+}
+/* Search | Ask (Leo 2026-10-18, reversing R86): a small glass switch at the field's right, its
+   "Tab to switch" hint before it. The thumb is its own compositor layer and moves only by
+   transform, so the slide stays smooth when the main thread is busy; NewTabScreen sets data-mode
+   on the element before React renders the rows. Two equal columns keep the thumb exactly one
+   segment wide in every language. */
+.nt-mode {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  /* On the field's first line, as the prompt glyph: the row is top-aligned so it stays there as
+     the draft grows. */
+  align-self: flex-start;
+  height: var(--text-title--line-height);
+  margin-top: 16px;
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  user-select: none;
+}
+/* The mode said aloud after a Tab: for screen readers only (ui.css's ui-sr-only is not on this page). */
+.nt-mode-status {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.nt-mode-hint {
+  color: var(--acpmux-composer-dim, color-mix(in srgb, var(--agent-text) 45%, transparent));
+  white-space: nowrap;
+}
+/* The composer template's row starts 2px lower (its padding-top) than the default's 0. */
+.nt-screen[data-template="composer"] .nt-mode {
+  margin-top: 18px;
+}
+@container (max-width: 520px) {
+  .nt-mode-hint {
+    display: none;
+  }
+}
+.nt-mode-track {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  padding: 2px;
+  /* Small-radius rects, not a capsule (POLISH.md). */
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--agent-text) 7%, transparent);
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) color-mix(in srgb, var(--agent-text) 12%, transparent);
+}
+.nt-mode-thumb {
+  position: absolute;
+  inset: 2px auto 2px 2px;
+  width: calc(50% - 2px);
+  border-radius: 5px;
+  /* Glass: a lifted translucent fill with a lit top edge, over the track's tint. */
+  background: linear-gradient(
+    color-mix(in srgb, var(--agent-text) 16%, transparent),
+    color-mix(in srgb, var(--agent-text) 9%, transparent)
+  );
+  box-shadow:
+    inset 0 0.5px 0 color-mix(in srgb, var(--agent-text) 22%, transparent),
+    var(--elevation-1);
+  transform: translateX(0);
+  will-change: transform;
+  pointer-events: none;
+}
+.nt-mode[data-mode="ask"] .nt-mode-thumb {
+  transform: translateX(100%);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .nt-mode-thumb {
+    transition: transform var(--agent-motion-move, 190ms) var(--agent-ease-out, ease-out);
+  }
+}
+.nt-mode-track button {
+  position: relative;
+  min-width: 0;
+  padding: 2px 10px;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  color: var(--acpmux-composer-dim, color-mix(in srgb, var(--agent-text) 55%, transparent));
+  font: inherit;
+  white-space: nowrap;
+}
+.nt-mode[data-mode="search"] .nt-mode-track button[data-mode="search"],
+.nt-mode[data-mode="ask"] .nt-mode-track button[data-mode="ask"] {
+  color: var(--agent-text);
 }
 /* The New Tab widget view (WidgetCards.tsx, Leo 2026-10-18): soft cards in the composer's fill and
    hairline edge, round as the composer box, no squared boxes. Rows are quiet text; a pointer fills

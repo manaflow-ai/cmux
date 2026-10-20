@@ -11,7 +11,7 @@
 // but the row's controls never overlap.
 //
 // It renders the real composer (the gallery's `agent-pane.composer-row` entry, `claude-auto`: Claude
-// Opus 5.5, Medium, Auto) in Chromium at three pane widths, light and dark, and turns the look on
+// Opus 5.5, Medium, Auto) in Chromium at three pane widths, light and dark, and turns the look off and on
 // through the host's own entry point (window.cmuxAcpmuxComposer, the old host's `composer` script).
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -204,9 +204,11 @@ await requireBrowserLane("composer-footer-plain.test.ts", async () => {
 
   for (const width of [760, 480, 340])
     for (const scheme of ["light", "dark"]) {
-      test(`at ${width} px (${scheme}): off, the chips draw as today`, async () => {
+      test(`at ${width} px (${scheme}): plain by default; off, the chips draw as before`, async () => {
         const page = await open(width, scheme);
-        // The plain look is the default (#22050); the other look is the toggle's off.
+        // The plain look is the default (#22050, DEFAULT_COMPOSER.plainFooter); the host's
+        // `composer` event turns it off.
+        const initial = await page.evaluate(measure);
         await plain(page, false);
         const row = await page.evaluate(measure);
         await page.close();
@@ -220,6 +222,7 @@ await requireBrowserLane("composer-footer-plain.test.ts", async () => {
             chips: row.chips,
           }),
         );
+        expect(initial.look).toBe("plain");
         expect(row.look).toBe("");
         const model = chip(row, "model")!;
         expect(model.leadingIcon).toBe(true);

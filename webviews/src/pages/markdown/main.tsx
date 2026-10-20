@@ -109,7 +109,9 @@ function editorHost(
       return highlighter.tokens(code, language, refresh);
     },
     renderDiagram(language, source, target) {
-      renderDiagram(libraries, language, source, target, strings.t(L.diagramFailed));
+      const flag = config()?.mermaidRenderer;
+      const mermaidRenderer = flag === "mermaid" || flag === "ondine" ? flag : undefined;
+      renderDiagram(libraries, language, source, target, strings.t(L.diagramFailed), mermaidRenderer);
     },
     label: (key) => strings.t(LABELS[key]),
     htmlPreview: (html) => htmlPreview(html, imageURL),
@@ -118,6 +120,9 @@ function editorHost(
     },
   };
 }
+
+/** The code block size in pixels the Reading Settings wrote before code became a share of the text. */
+const LEGACY_CODE_BLOCK_SIZE_KEY = "markdown.code.blockSize";
 
 /**
  * The Reading Settings popover's writes: each option is its `markdown.*` key through the store's one
@@ -128,10 +133,13 @@ function readingActions(store: MarkdownStore, zoom: MarkdownFontZoom): ReadingSe
   return {
     set(option, value) {
       store.setPreference(MARKDOWN_READING[option].key, value);
+      // A fixed code block size (cmux.json, or the old Reading Settings row) would hide the change.
+      if (option === "codeScale") store.setPreference(LEGACY_CODE_BLOCK_SIZE_KEY, null);
       if (option === "fontSize") zoom.run("zoomReset");
     },
     reset() {
       for (const option of Object.values(MARKDOWN_READING)) store.setPreference(option.key, null);
+      store.setPreference(LEGACY_CODE_BLOCK_SIZE_KEY, null);
       zoom.run("zoomReset");
     },
   };

@@ -317,7 +317,7 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
 /// absolute path, `~/…`, or a non-string value is sent unchanged.
 fn caller_path(value: Value) -> Value {
     let Some(text) = value.as_str() else { return value };
-    let path = std::path::Path::new(text);
+    let path = Path::new(text);
     if text.is_empty() || path.is_absolute() || text.starts_with('~') {
         return value;
     }
@@ -824,7 +824,7 @@ fn explicit_daemon_route(global: &GlobalArgs) -> Option<&'static str> {
 /// Whether `daemon` is the own session socket of the app `identity` names
 /// (`DaemonLauncher`'s session, macOS only).
 #[cfg_attr(not(target_os = "macos"), allow(unused_variables))]
-pub(super) fn app_owns_daemon(identity: &AppIdentity, daemon: &std::path::Path) -> bool {
+pub(super) fn app_owns_daemon(identity: &AppIdentity, daemon: &Path) -> bool {
     #[cfg(target_os = "macos")]
     if let Some(own) = crate::app_identity::app_daemon_socket(identity) {
         let canonical = |path: &std::path::Path| {
@@ -856,7 +856,7 @@ pub(super) fn connect(socket: &Path) -> Result<UnixStream, String> {
 /// Connects to one app socket. The peer-uid check is on this connection,
 /// before any request bytes are written, so a shared-directory socket cannot
 /// impersonate the user's app.
-fn connect_for_uid(socket: &std::path::Path, expected_uid: u32) -> std::io::Result<UnixStream> {
+fn connect_for_uid(socket: &Path, expected_uid: u32) -> std::io::Result<UnixStream> {
     let stream = UnixStream::connect(socket)?;
     cmux_tui_core::platform::require_unix_peer_uid(&stream, expected_uid)?;
     Ok(stream)

@@ -587,6 +587,7 @@ button.acpmux-edited-file:hover{background:color-mix(in srgb,var(--agent-text) 4
 .acpmux-harness-notice{display:block}.acpmux-harness-notice .acpmux-host-error-card{border-color:color-mix(in srgb,var(--agent-text) 14%,transparent);background:color-mix(in srgb,var(--agent-text) 4%,var(--agent-page-bg))}.acpmux-host-error-actions{display:flex;flex-wrap:wrap;gap:6px}.acpmux-harness-notice button[data-notice-action=skip],.acpmux-harness-notice button[data-notice-action=dismiss]{background:transparent;color:var(--agent-muted)}
 .acpmux-harness-spinner{display:inline-block;margin-right:6px;vertical-align:-1px;color:var(--agent-muted)}
 @media (prefers-reduced-motion: no-preference){.acpmux-harness-spinner{animation:acpmux-mp-spin 900ms linear infinite}}
+:root[data-status-indicators=static] .acpmux-harness-spinner{animation:none}
 .acpmux-instructions-notice button[data-notice-action=dismiss]{background:transparent;color:var(--agent-muted)}
 .acpmux-composer{flex-wrap:wrap}.acpmux-composer-dropping .acpmux-composer-box{border-color:var(--agent-accent)}
 .acpmux-switch-notice{display:block;padding:0 var(--cv-inset,max(18px,calc((100% - 760px)/2))) 6px;color:var(--agent-muted);font-size:12px;line-height:16px}

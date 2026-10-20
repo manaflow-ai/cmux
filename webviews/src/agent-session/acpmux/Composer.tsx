@@ -294,7 +294,7 @@ export function Composer({
   const [findingFiles, setFindingFiles] = useState(false);
   // A new folder (another chat) closes the palette, so no row from the last one stays pickable.
   useEffect(() => setFindingFiles(false), [searchFiles]);
-  // Search Files… (Cmd-P in the app, cx-ncc.69) opens the same search the + menu does.
+  // Search Files… (the app's command palette, cx-ncc.69) opens the same search the + menu does.
   useEffect(() => {
     if (!searchFiles) return;
     const open = () => setFindingFiles(true);

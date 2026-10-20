@@ -21,6 +21,12 @@ test "${ACPMUX_ENV:-}" = 1 && echo "I am session $ACPMUX_SESSION_NAME ($ACPMUX_S
 When set, `@` names your own session (`acpmux last @`, `acpmux history @`).
 Sessions you start are siblings, not children: they outlive you.
 
+Inside cmux your `cmux-subsessions` MCP server starts children instead:
+`start_session` (with `worktree: true` for a worktree of its own),
+`list_sessions`, `get_session`, `wait_for_sessions`, `send_message` and
+`stop_session`. Prefer them when you have them; this CLI is the fallback.
+Start a session only when the user asked for one.
+
 ## 2. Pick a harness and a model: `-m HARNESS[/MODEL]`
 
 One flag. The head is a family (`claude`, `codex`, `opencode`, `pi`, `omp`, `prime`,
