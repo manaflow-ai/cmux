@@ -90,15 +90,13 @@ impl Schema {
 
     /// Checks numbering and that every change compiles in both directions.
     pub fn validate(&self) -> Result<(), CompatError> {
-        let mut expected = self.base + 1;
-        for revision in &self.revisions {
+        for (expected, revision) in (self.base + 1..).zip(&self.revisions) {
             if revision.rev != expected {
                 return Err(CompatError::InvalidSchema(format!(
                     "revision {} out of order (expected {expected})",
                     revision.rev
                 )));
             }
-            expected += 1;
             for change in &revision.changes {
                 change.change.to_op(true)?;
                 change.change.to_op(false)?;

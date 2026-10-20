@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "6843b0cfd4e966719acde1c323621e6a5b049829b422229956fb3c194436dc06";
+inline constexpr std::string_view kProtocolIrSha256 = "4633825b44cf1cd8d82b476aadb9d938af82ebe6107c28580c40a44dd11d363b";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -3153,8 +3153,10 @@ struct IdentifyResult {
     Field<std::string> build_id{};
     std::optional<std::vector<std::string>> capabilities{};
     Field<std::string> cli_path{};
+    Field<std::string> crate_version{};
     std::string generation{};
     Field<std::string> ghostty_commit{};
+    Field<std::string> install{};
     Field<std::string> launch_snapshot_path{};
     std::optional<bool> lifecycle_ready{};
     std::optional<std::vector<std::string>> machine_capabilities{};
@@ -3168,6 +3170,7 @@ struct IdentifyResult {
     std::string session{};
     std::optional<std::string> session_id{};
     std::uint64_t terminal_revision{};
+    Field<std::string> update_command{};
     std::string version{};
     std::uint64_t workspace_revision{};
     friend bool operator==(const IdentifyResult&, const IdentifyResult&) = default;
@@ -4853,9 +4856,11 @@ struct SetClientInfoRequest {
     Field<std::string> device_kind{};
     Field<std::string> device_name{};
     Field<std::string> display_name{};
+    Field<std::string> install{};
     Field<std::string> kind{};
     Field<std::string> name{};
     Field<std::string> user_id{};
+    Field<std::string> version{};
     friend bool operator==(const SetClientInfoRequest&, const SetClientInfoRequest&) = default;
 };
 
