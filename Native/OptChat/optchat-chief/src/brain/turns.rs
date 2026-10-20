@@ -1427,15 +1427,27 @@ mod ended_turn_text_tests {
 
     #[test]
     fn failures_and_replies_still_post() {
-        assert_eq!(ended_turn_text(Some("hi".into()), None, false, false, "turn failed"), "hi");
+        assert_eq!(
+            ended_turn_text(Some("hi".into()), None, false, false, "turn failed"),
+            "hi"
+        );
         assert_eq!(
             ended_turn_text(None, Some("boom".into()), false, false, "turn failed"),
             "(turn failed: boom)"
         );
         assert_eq!(
-            ended_turn_text(Some("a".into()), Some("boom".into()), false, false, "turn failed"),
+            ended_turn_text(
+                Some("a".into()),
+                Some("boom".into()),
+                false,
+                false,
+                "turn failed"
+            ),
             "a\n\n(turn failed: boom)"
         );
-        assert_eq!(ended_turn_text(None, Some("refused".into()), false, true, "x"), "(turn refused)");
+        assert_eq!(
+            ended_turn_text(None, Some("refused".into()), false, true, "x"),
+            "(turn refused)"
+        );
     }
 }
