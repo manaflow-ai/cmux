@@ -56,6 +56,19 @@ describe("committed install authority changes retire idle owner sockets", { time
     } finally { closeTeamSocket(old); closeTeamSocket(fresh) }
   })
 
+  it("registration rejects a checked incarnation overtaken before the owner registered", async () => {
+    const { affected: c } = await world()
+    const before = await c.stub.installGrant(c.user, c.install, c.grant)
+    expect(before.authority_version).toMatch(/^[0-9a-f]{64}$/)
+    await narrow(c)
+    expect(await c.stub.registerSocket(c.user, c.install, c.grant, "CloudDO", c.team,
+      Date.now() + 60_000, undefined, before.authority_version)).toBe(false)
+    const current = await c.stub.installGrant(c.user, c.install, c.grant)
+    expect(current.authority_version).not.toBe(before.authority_version)
+    expect(await c.stub.registerSocket(c.user, c.install, c.grant, "CloudDO", c.team,
+      Date.now() + 60_000, undefined, current.authority_version)).toBe(true)
+  })
+
   it("presentation changes preserve a current connection", async () => {
     const { affected: c } = await world(), socket = await listenToOwnerWire(c.token, c.team, "cloud")
     try {
