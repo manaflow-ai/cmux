@@ -126,6 +126,21 @@ struct HomeSidebarHeaderTests {
         #expect(abs(field.frame.midY - home.compose.frame.midY) <= 0.5)
     }
 
+    /// The header's glyphs share one centre line by what they draw (Leo 2026-10-19, "vertically
+    /// they need to all be centered"): SF Symbols centre their layout box, and compose's pencil tip
+    /// lifts its box, so its square sat 1.75 pt below the other glyphs.
+    @Test(arguments: ["square.and.pencil", "plus.bubble", "line.3.horizontal.decrease.circle", "magnifyingglass"])
+    func eachHeaderGlyphHasItsInkCentred(_ name: String) throws {
+        let image = try #require(HomeHeaderButton.centredSymbol(name, size: 14))
+        #expect(image.isTemplate)
+        var rect = CGRect(origin: .zero, size: image.size)
+        let cg = try #require(image.cgImage(forProposedRect: &rect, context: nil, hints: nil))
+        let ink = try #require(HomeHeaderButton.inkBounds(cg))
+        let scale = CGFloat(cg.width) / image.size.width
+        #expect(abs(ink.midY / scale - image.size.height / 2) <= 0.5, "\(name) ink is off centre vertically")
+        #expect(abs(ink.midX / scale - image.size.width / 2) <= 0.5, "\(name) ink is off centre horizontally")
+    }
+
     @Test func theUnreadToggleFiltersInOneClick() {
         let home = HomeSidebarView(frame: NSRect(x: 0, y: 0, width: 320, height: 600))
         #expect(!home.unreadOnly)
