@@ -655,6 +655,45 @@ pub(crate) fn nested_overrides(family: Option<&str>) -> Vec<(String, String)> {
     nested.into_iter().filter(|(k, v)| allowed(k, v, family)).collect()
 }
 
+/// The environment a harness of `family` with the profile env `profile`
+/// starts with, as `harness_health::probe::run_for` prepares it: the
+/// daemon's own (less a nested Claude Code session's keys), the
+/// allow-listed login values over it, then `profile`. For sign-in checks
+/// that read the environment instead of spawning; the values stay in this
+/// process's memory.
+pub fn effective_for(
+    family: Option<&str>,
+    profile: &BTreeMap<String, String>,
+) -> BTreeMap<String, String> {
+    let nested = std::env::var_os("CLAUDECODE").is_some();
+    layered(
+        std::env::vars(),
+        nested,
+        pairs_for(family, Some(profile)),
+        nested_overrides(family),
+        profile,
+    )
+}
+
+/// `effective_for`'s layering, pure: `daemon` (its nested Claude keys
+/// dropped when `nested`), then `login`, then `restored`, then `profile`.
+pub(crate) fn layered(
+    daemon: impl IntoIterator<Item = (String, String)>,
+    nested: bool,
+    login: Vec<(String, String)>,
+    restored: Vec<(String, String)>,
+    profile: &BTreeMap<String, String>,
+) -> BTreeMap<String, String> {
+    let mut env: BTreeMap<String, String> = daemon.into_iter().collect();
+    env.extend(login);
+    if nested {
+        env.retain(|k, _| !crate::config::is_nested_claude_key(k));
+    }
+    env.extend(restored);
+    env.extend(profile.iter().map(|(k, v)| (k.clone(), v.clone())));
+    env
+}
+
 /// Apply the allow-listed login environment every child gets (PATH,
 /// version managers, proxies, CA) to a command.
 pub fn apply_std(cmd: &mut std::process::Command) {
@@ -907,4 +946,44 @@ fn startup_files() -> Vec<PathBuf> {
     }
     files.push(PathBuf::from(&shell));
     files
+}
+
+#[cfg(test)]
+mod effective_tests {
+    use super::layered;
+    use std::collections::BTreeMap;
+
+    fn pairs(list: &[(&str, &str)]) -> Vec<(String, String)> {
+        list.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+    }
+
+    /// A sign-in check reads what the agent would get (hq#2569 #2): a token or
+    /// a `CODEX_HOME` exported only in the login shell counts, the profile's
+    /// env wins, and a nested Claude Code session's keys do not leak in.
+    #[test]
+    fn layers_daemon_login_and_profile_like_a_spawn() {
+        let profile = BTreeMap::from([("CODEX_HOME".to_owned(), "/profile/codex".to_owned())]);
+        let env = layered(
+            pairs(&[("HOME", "/u"), ("CODEX_HOME", "/daemon/codex"), ("OPENAI_BASE_URL", "d")]),
+            false,
+            pairs(&[("CLAUDE_CODE_OAUTH_TOKEN", "login"), ("OPENAI_BASE_URL", "login")]),
+            Vec::new(),
+            &profile,
+        );
+        assert_eq!(env["HOME"], "/u");
+        assert_eq!(env["CODEX_HOME"], "/profile/codex");
+        assert_eq!(env["OPENAI_BASE_URL"], "login");
+        assert_eq!(env["CLAUDE_CODE_OAUTH_TOKEN"], "login");
+
+        let nested = layered(
+            pairs(&[("CLAUDECODE", "1"), ("ANTHROPIC_API_KEY", "session"), ("HOME", "/u")]),
+            true,
+            Vec::new(),
+            pairs(&[("CLAUDE_CODE_OAUTH_TOKEN", "login")]),
+            &BTreeMap::new(),
+        );
+        assert!(!nested.contains_key("ANTHROPIC_API_KEY"));
+        assert_eq!(nested["CLAUDE_CODE_OAUTH_TOKEN"], "login");
+        assert_eq!(nested["HOME"], "/u");
+    }
 }
