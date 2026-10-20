@@ -3,7 +3,7 @@
 // (Environment), how much of the context window it used (Context) and the files it changed
 // (Outputs), each of which opens its diff. With the flag off the pane has neither the button nor
 // the rail.
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, setSystemTime, test } from "bun:test";
 import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
@@ -324,38 +324,49 @@ test("Changes shows five pull requests and folds the rest behind Show more", asy
   expect(changes().querySelector(".acpmux-rail-more")?.textContent).toBe("Show less");
 });
 
-test("a pull request the chat closed shows Closed until a later read says it was reopened", async () => {
+test("a pull request the chat closed shows Closed until the App reads it again after the close", async () => {
   const container = installDom(true);
   const url = "https://github.com/acme/atlas-web/pull/12";
-  const status = (state: string) =>
+  const status = (state: string, at: number) => {
+    setSystemTime(new Date(at));
     setHeaderState({
       pullRequest: { url, number: 12, title: "Retry", state, checks: { state: "failing", passed: 3, total: 5 } },
     });
-  // The App read it open before the chat closed it.
-  status("open");
+  };
+  // The App read it open before the chat closed it at 2000.
+  status("open", 1000);
   const closedChat = chat([
     activity(
       [
         opened(12, "Retry"),
-        tool("gh pr close", "execute", "completed", { command: "gh pr close 12", output: "", exitCode: 0 }),
+        tool("gh pr close", "execute", "completed", { command: "gh pr close 12", output: "", exitCode: 0, endedAt: 2000 }),
       ],
       2,
     ),
   ]);
-  await render(container, closedChat);
-  await click(toggle(container)!);
-  const row = () => card(container, "Changes")!.querySelector("a.acpmux-rail-pr")!;
-  // That older open read doesn't undo the close.
-  expect(row().getAttribute("data-state")).toBe("closed");
-  expect(row().querySelector(".acpmux-rail-pr__checks")).toBeNull();
+  try {
+    await render(container, closedChat);
+    await click(toggle(container)!);
+    const row = () => card(container, "Changes")!.querySelector("a.acpmux-rail-pr")!;
+    // That older open read doesn't undo the close.
+    expect(row().getAttribute("data-state")).toBe("closed");
+    expect(row().querySelector(".acpmux-rail-pr__checks")).toBeNull();
 
-  // A later read: closed, then someone reopened it.
-  status("closed");
-  await render(container, closedChat);
-  expect(row().getAttribute("data-state")).toBe("closed");
-  status("open");
-  await render(container, closedChat);
-  expect(row().getAttribute("data-state")).toBe("open");
-  expect(row().querySelector(".acpmux-rail-pr__checks")?.textContent).toBe("Failing");
-  setHeaderState({ pullRequest: null });
+    // Later reads: closed, then someone reopened it.
+    status("closed", 3000);
+    await render(container, closedChat);
+    expect(row().getAttribute("data-state")).toBe("closed");
+    status("open", 4000);
+    await render(container, closedChat);
+    expect(row().getAttribute("data-state")).toBe("open");
+    expect(row().querySelector(".acpmux-rail-pr__checks")?.textContent).toBe("Failing");
+
+    // Hiding and showing the rail keeps the reopen.
+    await click(toggle(container)!);
+    await click(toggle(container)!);
+    expect(row().getAttribute("data-state")).toBe("open");
+  } finally {
+    setSystemTime();
+    setHeaderState({ pullRequest: null });
+  }
 });
