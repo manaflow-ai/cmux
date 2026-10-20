@@ -67,6 +67,35 @@ import Testing
         #expect(settings.snapshot.homeChiefPetEnabled)
     }
 
+    @Test func aRunRightAfterHideChiefPetWaitsForItAndTurnsThePetBackOn() async throws {
+        let home = FileManager.default.temporaryDirectory.appending(path: "cn-chief-pet-message-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+        let url = home.appending(path: "cmux-next.json")
+        try Data(#"{"home": {"chiefPetEnabled": true}}"#.utf8).write(to: url)
+        let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
+                                          managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
+        await settings.reload()
+        #expect(settings.snapshot.homeChiefPetEnabled)
+        let registry = ActionRegistry.standard()
+        let summons = Summons()
+        let toggles = ChiefPetToggles()
+        HomeChiefPetSetting().bind(into: registry, settings: { settings }, unavailable: "not ready", toggles: toggles)
+        HomeChiefPetSetting().bindMessage(into: registry, settings: { settings }, unavailable: "not ready", toggles: toggles) {
+            summons.count += 1
+            summons.enabledThen.append(settings.snapshot.homeChiefPetEnabled)
+        }
+        var failures: [ActionWorkFailure] = []
+        let work = registry.capturingWork {
+            _ = registry.perform(HomeChiefPetSetting.toggleAction, invocation: ActionInvocation(origin: .user))
+            _ = registry.perform(HomeChiefPetSetting.messageAction, invocation: ActionInvocation(origin: .user))
+        }
+        for task in work { if let failure = await task.value { failures.append(failure) } }
+        #expect(failures.isEmpty)
+        #expect(settings.snapshot.homeChiefPetEnabled, "the newer command, Message the Chief, wins")
+        #expect(summons.enabledThen == [true], "summoned once, after both writes landed")
+    }
+
     @Test func anAgentCannotSummonThePet() async throws {
         let (registry, settings, home, summons) = try Self.make()
         defer { try? FileManager.default.removeItem(at: home) }

@@ -3,7 +3,7 @@ public import CmuxNextActions
 /// `home.chiefPetEnabled` in cmux.json: the Chief pet, a small Chief that floats over every app,
 /// pops up agent events and takes a quick reply (CmuxNextFloating's `ChiefPetController`). Off by
 /// default; the person turns it on (Settings > Home > Chief Pet, View > Show Chief Pet, the palette's
-/// Show Chief Pet, the empty Chief conversation); agents may not (it puts their output over every app).
+/// Show Chief Pet and Message the Chief, the empty Chief conversation); agents may not (it puts their output over every app).
 /// `home.chiefPetMascot` picks its character among the Chief Dock's nine pixel mascots.
 public nonisolated struct HomeChiefPetSetting {
     public nonisolated init() {}
@@ -36,9 +36,14 @@ extension HomeChiefPetSetting {
     /// The toggle's title while the pet shows.
     public static var hideTitle: String { SettingsText.text("chiefPet.hide", "Hide Chief Pet") }
 
+    /// `toggles` is shared with Message the Chief, so each run reads and waits for the other's write.
     @MainActor public func bind(into registry: ActionRegistry, settings: @escaping @MainActor () -> SettingsController?,
                                 unavailable: String) {
-        let toggles = ChiefPetToggles()
+        bind(into: registry, settings: settings, unavailable: unavailable, toggles: ChiefPetToggles())
+    }
+
+    @MainActor func bind(into registry: ActionRegistry, settings: @escaping @MainActor () -> SettingsController?,
+                         unavailable: String, toggles: ChiefPetToggles) {
         registry.bind(Self.toggleAction, invoke: { invocation in
             guard let settings = settings() else { return registry.refuse(unavailable) }
             // A run while an earlier write is in flight flips that write's value, not the stale
@@ -76,6 +81,13 @@ extension HomeChiefPetSetting {
 
     @MainActor public func bindMessage(into registry: ActionRegistry, settings: @escaping @MainActor () -> SettingsController?,
                                        unavailable: String, summon: @escaping @MainActor () -> Void) {
+        bindMessage(into: registry, settings: settings, unavailable: unavailable, toggles: ChiefPetToggles(), summon: summon)
+    }
+
+    /// With the toggle's `toggles`: a run while Show / Hide Chief Pet's write is in flight reads the value
+    /// that write lands, and its own write goes after it, so the newest command wins.
+    @MainActor func bindMessage(into registry: ActionRegistry, settings: @escaping @MainActor () -> SettingsController?,
+                                unavailable: String, toggles: ChiefPetToggles, summon: @escaping @MainActor () -> Void) {
         registry.bind(Self.messageAction, invoke: { invocation in
             // The control socket refuses a person-only action first; an in-app run from elsewhere stops here,
             // with the settings layer's own words for a user-only key.
@@ -111,9 +123,10 @@ public nonisolated struct HomeSettingActions {
 
     /// `summonChiefPet`: the pet with its reply box open (Message the Chief), the App's `ChiefPetController.summon`.
     @MainActor public func bind(into registry: ActionRegistry, settings: @escaping @MainActor () -> SettingsController?,
-                                unavailable: String, summonChiefPet: @escaping @MainActor () -> Void = {}) {
+                                unavailable: String, summonChiefPet: @escaping @MainActor () -> Void) {
         HomeChannelsSetting().bind(into: registry, settings: settings, unavailable: unavailable)
-        HomeChiefPetSetting().bind(into: registry, settings: settings, unavailable: unavailable)
-        HomeChiefPetSetting().bindMessage(into: registry, settings: settings, unavailable: unavailable, summon: summonChiefPet)
+        let toggles = ChiefPetToggles()
+        HomeChiefPetSetting().bind(into: registry, settings: settings, unavailable: unavailable, toggles: toggles)
+        HomeChiefPetSetting().bindMessage(into: registry, settings: settings, unavailable: unavailable, toggles: toggles, summon: summonChiefPet)
     }
 }
