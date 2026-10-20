@@ -50,7 +50,7 @@ public final class AgentCursorOverlayModel: AgentCursorRendering {
         self.resolver = resolver
         self.host = host
         self.motion = motion
-        self.animatesMovement = animatesMovement ?? { Motion.animatesMovement }
+        self.animatesMovement = animatesMovement ?? { Motion.cursor.animatesMovement }
     }
 
     public func render(_ event: AutomationInputEvent) {
