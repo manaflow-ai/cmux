@@ -297,8 +297,9 @@ const TOOL_LIST_LIMIT: std::time::Duration = std::time::Duration::from_secs(15);
 /// mcp tools`, the list `cmux mcp serve` gives every agent chat) and whether
 /// the app's action tools were in it (`app_actions`: false while the cmux
 /// app does not answer; its `app_*` tools then load later). None when it
-/// fails or takes longer than `TOOL_LIST_LIMIT`.
-pub fn cmux_tool_names(env: &BTreeMap<String, String>) -> Option<(Vec<String>, bool)> {
+/// fails or takes longer than `TOOL_LIST_LIMIT` (Err: why).
+pub fn cmux_tool_names(env: &BTreeMap<String, String>) -> Result<CmuxToolList, String> {
+    let fail = || "cmux --json mcp tools failed".to_owned();
     let mut child = std::process::Command::new("cmux")
         .args(["--json", "mcp", "tools"])
         .envs(env)
@@ -306,10 +307,10 @@ pub fn cmux_tool_names(env: &BTreeMap<String, String>) -> Option<(Vec<String>, b
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null())
         .spawn()
-        .ok()?;
+        .map_err(|_| fail())?;
     // Only the pipe goes to the reader; the child stays here unreaped, so a
     // kill after the limit can never reach a reused pid.
-    let mut stdout = child.stdout.take()?;
+    let mut stdout = child.stdout.take().ok_or_else(fail)?;
     let (tx, rx) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
         let mut bytes = Vec::new();
@@ -318,20 +319,38 @@ pub fn cmux_tool_names(env: &BTreeMap<String, String>) -> Option<(Vec<String>, b
     let Ok(Ok(bytes)) = rx.recv_timeout(TOOL_LIST_LIMIT) else {
         let _ = child.kill();
         let _ = child.wait();
-        return None;
+        return Err(fail());
     };
-    let status = child.wait().ok()?;
+    let status = child.wait().map_err(|_| fail())?;
     if !status.success() {
-        return None;
+        return Err(fail());
     }
-    let value: Value = serde_json::from_slice(&bytes).ok()?;
-    let names = value["tools"].as_array().map(|tools| {
-        tools
-            .iter()
-            .filter_map(|t| t["name"].as_str().map(str::to_owned))
-            .collect()
-    })?;
-    Some((names, value["app_actions"] == true))
+    let value: Value = serde_json::from_slice(&bytes).map_err(|_| fail())?;
+    let names = value["tools"]
+        .as_array()
+        .map(|tools| {
+            tools
+                .iter()
+                .filter_map(|t| t["name"].as_str().map(str::to_owned))
+                .collect()
+        })
+        .ok_or_else(fail)?;
+    Ok(CmuxToolList {
+        names,
+        app_actions: value["app_actions"] == true,
+        note: None,
+    })
+}
+
+/// One `cmux --json mcp tools` answer.
+#[derive(Debug, Clone)]
+pub struct CmuxToolList {
+    /// The tool names.
+    pub names: Vec<String>,
+    /// Whether the app's action tools were in it.
+    pub app_actions: bool,
+    /// What the CLI said on stderr (why the app's tools are missing).
+    pub note: Option<String>,
 }
 
 /// Deny rules (`mcp__cmux__<name>`) for every name not in `CHIEF_CMUX_TOOLS`.
@@ -358,7 +377,12 @@ const PENDING: &str = "cmux-tools-pending.json";
 /// action tools were not in the list, `session` gets the pending marker.
 pub fn cmux_tool_denials(session: &Path, env: &BTreeMap<String, String>) -> Vec<String> {
     let pending = session.join(".claude").join(PENDING);
-    let Some((names, app)) = cmux_tool_names(env) else {
+    let Ok(CmuxToolList {
+        names,
+        app_actions: app,
+        ..
+    }) = cmux_tool_names(env)
+    else {
         crate::log::log(
             "reading the cmux MCP tool list (cmux --json mcp tools) failed; Chief turns keep every cmux tool but cmux_exec and cmux_docs",
         );
@@ -383,7 +407,8 @@ fn pending_denials(dir: &Path) -> Option<Vec<String>> {
     let pending = dir.join(PENDING);
     let env: BTreeMap<String, String> =
         serde_json::from_str(&std::fs::read_to_string(&pending).ok()?).ok()?;
-    let (names, app) = cmux_tool_names(&env)?;
+    let list = cmux_tool_names(&env).ok()?;
+    let (names, app) = (list.names, list.app_actions);
     if !app {
         return None;
     }
