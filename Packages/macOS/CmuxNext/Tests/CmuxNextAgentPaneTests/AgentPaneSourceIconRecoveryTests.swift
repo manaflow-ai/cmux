@@ -7,8 +7,14 @@ struct AgentPaneSourceIconRecoveryTests {
     private actor Resolver: RemoteAddressResolving {
         let addresses: [RemoteAddress]
         var requests: [String] = []
+        var fails = false
+        func setFailure(_ fails: Bool) { self.fails = fails }
         init(_ addresses: [RemoteAddress] = [.v4([93, 184, 216, 34])]) { self.addresses = addresses }
-        func resolve(_ host: String) async throws -> [RemoteAddress] { requests.append(host); return addresses }
+        func resolve(_ host: String) async throws -> [RemoteAddress] {
+            requests.append(host)
+            if fails { throw URLError(.cannotFindHost) }
+            return addresses
+        }
     }
     private actor Transport: RemoteFetchTransport {
         let clock: SourceIconTestClock
@@ -183,6 +189,37 @@ struct AgentPaneSourceIconRecoveryTests {
         await transport.configure(["", "<link rel=icon href='https://127.0.0.1/icon.png'>"], statuses: [404, 200])
         #expect(await loader(transport, clock: clock).result(at: url()) == .unavailable)
         #expect(await transport.requests.map(\.target) == ["/favicon.ico", "/"])
+    }
+
+    @Test func aFailedDNSLookupIsTemporaryAndNotCached() async {
+        let clock = SourceIconTestClock()
+        let transport = Transport(clock: clock)
+        let resolver = Resolver()
+        await resolver.setFailure(true)
+        let icons = AgentPaneSourceIcons(fetch: GuardedRemoteFetch(maximumBytes: 1024, timeout: .seconds(10),
+            accept: GuardedRemoteFetch.imageAccept, resolver: resolver, transport: transport, clock: clock),
+            decode: { $0 == Data("image".utf8) ? $0 : nil })
+        #expect(await icons.result(at: url()) == .temporary)
+        #expect(await transport.requests.isEmpty)
+        await resolver.setFailure(false)
+        await transport.configure(["image"])
+        #expect(await icons.result(at: url()) == .icon(Data("image".utf8)))
+        #expect(await resolver.requests.count == 3)
+        #expect(await transport.requests.count == 1)
+    }
+
+    @MainActor @Test func panesWiredFromTheSameServicesShareOneOriginQueue() async {
+        let clock = SourceIconTestClock()
+        let transport = Transport(clock: clock)
+        await transport.configure(["image"])
+        let services = AgentPaneReplyServices(sourceIcons: loader(transport, clock: clock))
+        let first = AgentPaneModel(host: NoHost())
+        let second = AgentPaneModel(host: NoHost())
+        services.wire(first.replyLinks)
+        services.wire(second.replyLinks)
+        #expect(await first.replyLinks.favicon(url("shared", "/one")) == .icon(Data("image".utf8)))
+        #expect(await second.replyLinks.favicon(url("shared", "/two")) == .icon(Data("image".utf8)))
+        #expect(await transport.requests.map(\.target) == ["/favicon.ico"])
     }
 
     @Test func aBlockedResolvedAddressIsAGenuineCachedMiss() async {

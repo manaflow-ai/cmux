@@ -512,6 +512,72 @@ test("inspection finishes with a held icon before any favicon request", async ()
   expect(calls.filter((method) => method === "link.favicon")).toEqual([]);
 });
 
+test("a held icon is reused by origin during another path's inspection and after its empty answer", async () => {
+  const { seedLinkStore } = await import("../src/agent-session/acpmux/chips/linkStore");
+  const { setChipHost } = await import("../src/agent-session/acpmux/chips/host");
+  seedLinkStore({ sites: { "https://held.example/one": { icon: ICON } } });
+  let finish: ((value: unknown) => void) | undefined;
+  const calls: string[] = [];
+  setChipHost(async (method) => {
+    calls.push(method);
+    if (method === "link.inspect") return new Promise((resolve) => { finish = resolve; });
+    return {};
+  });
+  await renderIcons(["https://held.example/two"]);
+  expect(host.querySelector("img")?.getAttribute("src")).toBe(ICON);
+  expect(calls).toEqual(["link.inspect"]);
+  await act(async () => finish?.({ sites: {} }));
+  expect(host.querySelector("img")?.getAttribute("src")).toBe(ICON);
+  expect(calls).toEqual(["link.inspect"]);
+});
+
+test("an earlier empty inspection cannot start a fetch while the current URL is pending", async () => {
+  const { seedLinkStore } = await import("../src/agent-session/acpmux/chips/linkStore");
+  const { setChipHost } = await import("../src/agent-session/acpmux/chips/host");
+  seedLinkStore({ sites: { "https://pending.example/one": {} } });
+  const url = "https://pending.example/two";
+  let finish: ((value: unknown) => void) | undefined;
+  const calls: string[] = [];
+  setChipHost(async (method) => {
+    calls.push(method);
+    if (method === "link.inspect") return new Promise((resolve) => { finish = resolve; });
+    return { icon: ICON };
+  });
+  await renderIcons([url]);
+  expect(calls).toEqual(["link.inspect"]);
+  await act(async () => finish?.({ sites: { [url]: { icon: ICON } } }));
+  expect(host.querySelector("img")?.getAttribute("src")).toBe(ICON);
+  expect(calls).toEqual(["link.inspect"]);
+});
+
+test("changing a reader's path during inspection never restarts its existing origin request", async () => {
+  const { useSourceIcon } = await import("../src/agent-session/acpmux/chips/linkStore");
+  const { setChipHost } = await import("../src/agent-session/acpmux/chips/host");
+  const { createRoot } = await import("react-dom/client");
+  let inspect: ((value: unknown) => void) | undefined;
+  let icon: ((value: unknown) => void) | undefined;
+  const calls: string[] = [];
+  setChipHost(async (method) => {
+    calls.push(method);
+    if (method === "link.inspect") return new Promise((resolve) => { inspect = resolve; });
+    if (method === "link.favicon") return new Promise((resolve) => { icon = resolve; });
+    return {};
+  });
+  function Reader({ url }: { url: string }) {
+    const src = useSourceIcon(url, true);
+    return src ? <img src={src} alt="" /> : null;
+  }
+  root = createRoot(host);
+  await act(async () => root?.render(<Reader url="https://reader.example/one" />));
+  await act(async () => inspect?.({ sites: {} }));
+  await act(async () => root?.render(<Reader url="https://reader.example/two" />));
+  expect(calls).toEqual(["link.inspect", "link.favicon", "link.inspect"]);
+  await act(async () => inspect?.({ sites: {} }));
+  expect(calls).toEqual(["link.inspect", "link.favicon", "link.inspect"]);
+  await act(async () => icon?.({ icon: ICON }));
+  expect(host.querySelector("img")?.getAttribute("src")).toBe(ICON);
+});
+
 for (const negative of [false, true]) {
   test(`favicon ${negative ? "negative" : "positive"} results share a 64-origin lifetime budget with chat`, async () => {
     const { setChipHost } = await import("../src/agent-session/acpmux/chips/host");

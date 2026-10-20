@@ -70,11 +70,11 @@ struct AgentPaneSourceIconFallbackTests {
     }
 
     private func loader(_ transport: Transport, concurrent: Int = 4, queued: Int = 128,
-                        resolver: Resolver = Resolver()) -> AgentPaneSourceIcons {
+                        resolver: Resolver = Resolver(), clock: SourceIconTestClock = SourceIconTestClock()) -> AgentPaneSourceIcons {
         AgentPaneSourceIcons(maximumConcurrent: concurrent, maximumQueued: queued,
                              fetch: GuardedRemoteFetch(maximumBytes: 1 << 20, timeout: .seconds(10),
                                                        accept: GuardedRemoteFetch.imageAccept,
-                                                       resolver: resolver, transport: transport),
+                                                       resolver: resolver, transport: transport, clock: clock),
                              decode: { $0 == Data("image".utf8) ? $0 : nil })
     }
 
@@ -91,6 +91,17 @@ struct AgentPaneSourceIconFallbackTests {
         #expect(requests[1].headers["Accept-Encoding"] == "identity")
         #expect(await transport.caps == [1 << 20, 256 * 1024, 1 << 20])
         #expect(requests.allSatisfy { $0.headers["Cookie"] == nil && $0.headers["Authorization"] == nil })
+    }
+
+    @Test func icoRedirectToHomeReusesHTMLForDiscovery() async throws {
+        let (_, events) = AsyncStream<String>.makeStream(bufferingPolicy: .bufferingNewest(8))
+        let transport = Transport([reply(302, headers: ["location": "/"]),
+            reply(200, "<link rel=icon href=/mark.png>", headers: ["content-type": "text/html; charset=utf-8"]),
+            reply(200, "image")], events: events)
+        let url = try #require(URL(string: "https://source.example/favicon.ico"))
+        #expect(await loader(transport).data(at: url) == Data("image".utf8))
+        #expect(await transport.requests.map(\.target) == ["/favicon.ico", "/", "/mark.png"])
+        #expect(await transport.caps == [1 << 20, 1 << 20, 1 << 20])
     }
 
     @Test func workingICOSkipsHTML() async throws {
