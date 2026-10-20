@@ -98,3 +98,29 @@ async fn a_call_named_early_whose_whole_call_never_came_fails_with_its_turn() {
     let at_answer = msgs.iter().position(|m| matches!(m, Message::Response { .. })).unwrap();
     assert!(at_update < at_answer);
 }
+
+#[tokio::test]
+async fn a_background_subagents_call_named_early_runs_on_past_the_turns_result() {
+    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+    let req = Message::request(
+        3,
+        method::SESSION_PROMPT,
+        json!({"sessionId": "acp-1", "prompt": [{"type": "text", "text": "write it"}]}),
+    );
+    let _ = t.outbound(&req).await;
+    t.background_subagents.lock().await.insert("toolu_bg".to_owned());
+    let mut start = block_start("toolu_w", "Write");
+    start["parent_tool_use_id"] = json!("toolu_bg");
+    t.inbound(&start).await;
+    let ended = updates(
+        &t.inbound(&json!({"type": "result", "subtype": "success", "is_error": false, "num_turns": 1, "duration_api_ms": 900, "result": ""}))
+            .await,
+    );
+    assert!(!ended.iter().any(|u| u["toolCallId"] == "toolu_w"), "{ended:?}");
+    // Its whole call still updates the call named early.
+    let mut whole = whole_call("toolu_w", "Write", json!({"file_path": "/a/b.rs", "content": ""}));
+    whole["parent_tool_use_id"] = json!("toolu_bg");
+    let whole = updates(&t.inbound(&whole).await);
+    let call = whole.iter().find(|u| u["toolCallId"] == "toolu_w").expect("the whole call");
+    assert_eq!(call["sessionUpdate"], "tool_call_update");
+}
