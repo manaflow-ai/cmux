@@ -11,6 +11,7 @@ import CmuxNextControl
 import CmuxNextCrashReporting
 import CmuxNextDesign
 import CmuxNextDaemon
+import CmuxNextFeed
 import CmuxNextPalette
 import CmuxNextPages
 import CmuxNextPopups
@@ -21,6 +22,7 @@ import CmuxNextSettings
 import CmuxNextSidebar
 import CmuxNextTerminal
 import CmuxNextUpdater
+import CmuxNextVSCodeServer
 import CmuxNextWorkspaceRepair
 import os
 /// Process-wide services the window controllers share. Model state is not
@@ -82,6 +84,8 @@ final class AppServices {
     private(set) lazy var emptyWorkspaces: EmptyWorkspaceRepair = EmptyWorkspaceRepair(daemon: daemon)  // first read in init (no IUO)
     /// The closed-tab signal and the undo toasts of user closes; set when the tab handlers bind. The daemon owns the closed history (`DaemonClosedHistory`).
     var closedTabs: ClosedTabsFeed?
+    /// Find Work's GitHub reads, with the user's `gh` login (``FindWorkPalettePage``); tests replace it.
+    lazy var findWorkGitHub: any GitHubFeedAPI = GitHubCLIClient(executable: AgentChatPullRequestReader.findGitHubCLI() ?? "/usr/bin/env")
     /// The app-wide "where was I" trail (plans/cmux-next/history.md 4.2).
     private(set) lazy var locationTrail = LocationTrailService(services: self)
     /// The merged history read side and the per-profile visit logs.
@@ -119,6 +123,8 @@ final class AppServices {
                             scratch: FileManager.default.temporaryDirectory.appending(path: "cmux-phone", directoryHint: .isDirectory))
     }()
     private(set) lazy var phoneFeedback = PhoneChiefFeedback(home: home)
+    /// The Task Manager page and Kill Process (`TaskManagerPageService`).
+    private(set) lazy var taskManager = TaskManagerPageService(services: self)
     /// The viewers' recents, the cmux picker, the diff, markdown and editor tabs (R89, S4, S6, S7).
     private(set) lazy var viewers = ViewerService(services: self)
     /// The cmux server menu bar item (DEV and NIGHTLY prototype; plans/cmux-next/server.md 14).
@@ -234,6 +240,12 @@ final class AppServices {
     let hoverCards = HoverCardCoordinator()
     /// Refusal messages for keyboard and menu runs.
     let refusalHUD = RefusalHUD()
+    /// The inline VS Code server (`serve-web`) behind VS Code (Inline); starts on first use.
+    let vscodeServeWeb = VSCodeServeWebService(
+        planner: VSCodeServeWebLaunchPlanner(homeDirectory: FileManager.default.homeDirectoryForCurrentUser,
+                                             environment: ProcessInfo.processInfo.environment),
+        launcher: VSCodeServeWebProcessLauncher(), tokenDirectory: FileManager.default.temporaryDirectory
+    )
     /// The browser host's engine provider (idle until the daemon offers the endpoint).
     private(set) var browserHost: AppBrowserHost?
     /// Remote-terminal tabs: mount, placeholder, snapshot, moves.
