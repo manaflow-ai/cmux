@@ -50,6 +50,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          sha="$(git rev-parse HEAD)"
-          echo "Asking for the newest buildable commit at or before $sha"
-          scripts/cmux-next/request-nightly-next.sh --tree-ready "$sha" --repo "$GITHUB_REPOSITORY"
+          # The tip's cmux-tui tree is often still publishing, so walk back
+          # first-parent commits until one has a published tree; the script
+          # then picks the newest green Release compile with that tree.
+          for sha in $(git rev-list --first-parent -n 15 HEAD); do
+            git checkout -q --detach "$sha"
+            out="$(scripts/cmux-next/request-nightly-next.sh --tree-ready "$sha" --repo "$GITHUB_REPOSITORY" 2>&1)" || { printf '%s\n' "$out"; exit 1; }
+            printf '%s\n' "$out"
+            grep -q 'cannot resolve a published cmux-tui tree' <<<"$out" || exit 0
+          done
+          echo "::warning::none of the 15 newest feat-cmux-next commits has a published cmux-tui tree"
