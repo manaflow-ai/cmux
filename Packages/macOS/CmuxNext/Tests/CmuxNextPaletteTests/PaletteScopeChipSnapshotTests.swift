@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxTheme
 @testable import CmuxNextPalette
 import Testing
 
@@ -16,7 +17,11 @@ struct PaletteScopeChipSnapshotTests {
         let row = NSView(frame: NSRect(x: 0, y: 0, width: 360, height: 40))
         row.appearance = NSAppearance(named: appearance)
         row.wantsLayer = true
-        row.layer?.backgroundColor = appearance == .darkAqua ? NSColor(white: 0.16, alpha: 1).cgColor : NSColor.white.cgColor
+        let input = appearance == .darkAqua
+            ? ThemeInput(background: ThemeRGB(hex: 0x1E1E1E), foreground: ThemeRGB(hex: 0xD4D4D4))
+            : ThemeInput(background: ThemeRGB(hex: 0xFFFFFF), foreground: ThemeRGB(hex: 0x24292F))
+        // The palette's opaque surface (Reduce Transparency) for this theme.
+        row.layer?.backgroundColor = ThemeTokens.derive(from: input).opaqueOverlayFill(lift: ChromeTunables.opaqueOverlayLift.value).nsColor.cgColor
         let chips = [
             PaletteScopeChipView(chip: PaletteScopeChip(levelIndex: 1, scope: .scopes, title: "Scopes", symbol: "square.grid.2x2"),
                                  style: .token, isTop: false, ink: back),
@@ -41,6 +46,7 @@ struct PaletteScopeChipSnapshotTests {
                          back: PaletteScopeChipInk.ink(isTop: false, increaseContrast: true))
         let sheet = NSImage(size: NSSize(width: 720, height: 120))
         var windows: [NSWindow] = []
+        var scopes: [ThemeScope] = []
         defer { windows.forEach { $0.close() } }
         let cells: [((top: PaletteScopeChipInk, back: PaletteScopeChipInk), NSAppearance.Name, CGFloat, CGFloat)] = [
             (Self.before, .aqua, 0, 80), (after, .aqua, 360, 80),
@@ -57,6 +63,13 @@ struct PaletteScopeChipSnapshotTests {
             window.appearance = NSAppearance(named: appearance)
             window.contentView = row
             windows.append(window)
+            let input = appearance == .darkAqua
+                ? ThemeInput(background: ThemeRGB(hex: 0x1E1E1E), foreground: ThemeRGB(hex: 0xD4D4D4))
+                : ThemeInput(background: ThemeRGB(hex: 0xFFFFFF), foreground: ThemeRGB(hex: 0x24292F))
+            let scope = ThemeScope(level: .room)
+            scope.setOverride(ThemeSpec(appearance == .darkAqua ? "Dark+" : "GitHub Light"), input: input, animated: false)
+            scope.root(row)
+            scopes.append(scope)
             row.layoutSubtreeIfNeeded()
             for chip in row.subviews {
                 chip.viewDidChangeEffectiveAppearance()
