@@ -2,17 +2,20 @@
 //! session to the pull request it produced, so cost and agent-hours can be
 //! read per merged PR.
 //!
-//! A session belongs to the branch its `cwd` had checked out when it started
-//! (`SessionMeta::git_branch`, `git_state.rs`), for all its turns: a session
-//! that switches branch later (an agent's own `git checkout -b`) stays on the
-//! one it started on. The cwd is taken as given, so a session in a subfolder
-//! of the same checkout is another row. A row is keyed by that branch
-//! and the session's `cwd`, not by repository: a repository's identity
-//! (`hub/adoption.rs` `repo_identity`) asks git about a folder that is often
-//! gone by the time its PR merges, so the cwd keeps one branch name in two
-//! checkouts apart instead. Sessions with no branch (a detached HEAD, no
-//! repository, or a session older than the field) are left out; the summary's
-//! totals still count them.
+//! A turn belongs to the branch its session's `cwd` had checked out when it
+//! ended (`gitBranch` on its `turn_result`, `hub/turn_git.rs`), so a session
+//! whose agent switches branch (its own `git checkout -b`) follows it there
+//! and counts as a session of each branch it worked on. A turn that recorded
+//! no branch (an older log, a turn lost to a restart, a folder git could not
+//! read) belongs to the branch the session started on
+//! (`SessionMeta::git_branch`, `git_state.rs`). The cwd is taken as given, so
+//! a session in a subfolder of the same checkout is another row. A row is
+//! keyed by that branch and the session's `cwd`, not by repository: a
+//! repository's identity (`hub/adoption.rs` `repo_identity`) asks git about a
+//! folder that is often gone by the time its PR merges, so the cwd keeps one
+//! branch name in two checkouts apart instead. Turns with no branch either
+//! way (a detached HEAD, no repository, or a session older than the field)
+//! are left out; the summary's totals still count them.
 //!
 //! Only turns in the range count, with the spend each `turn_result` recorded,
 //! never `SessionMeta::totals`, which spans the session's whole life. A
@@ -43,33 +46,52 @@ pub struct BranchStats {
     pub usage: TurnUsage,
 }
 
-/// One session's turns in the range, without its fork copies.
+/// One session's turns on one branch, without its fork copies.
 #[derive(Default)]
-pub(super) struct BranchShare {
-    pub turns: u64,
-    pub working_ms: u64,
-    pub usage: TurnUsage,
+struct BranchShare {
+    turns: u64,
+    working_ms: u64,
+    usage: TurnUsage,
+}
+
+/// One session's turns in the range, by branch.
+#[derive(Default)]
+pub(super) struct BranchShares(BTreeMap<String, BranchShare>);
+
+impl BranchShares {
+    /// Adds a turn's working time in the range under `branch`, and when the
+    /// turn itself counts in the range (`usage`), the turn and its spend.
+    pub(super) fn add(&mut self, branch: Option<&str>, working_ms: u64, usage: Option<&TurnUsage>) {
+        let Some(branch) = branch else { return };
+        let share = self.0.entry(branch.to_owned()).or_default();
+        share.working_ms += working_ms;
+        if let Some(usage) = usage {
+            share.turns += 1;
+            share.usage.add(usage);
+        }
+    }
 }
 
 #[derive(Default)]
 pub(super) struct Branches(BTreeMap<(String, String), BranchStats>);
 
 impl Branches {
-    pub(super) fn add(&mut self, meta: &SessionMeta, share: BranchShare) {
-        let Some(branch) = meta.git_branch.as_deref() else { return };
-        if share.turns == 0 && share.working_ms == 0 {
-            return;
-        }
+    pub(super) fn add(&mut self, meta: &SessionMeta, shares: BranchShares) {
         let cwd = meta.cwd.to_string_lossy().into_owned();
-        let row = self.0.entry((cwd.clone(), branch.to_owned())).or_insert_with(|| BranchStats {
-            cwd,
-            branch: branch.to_owned(),
-            ..BranchStats::default()
-        });
-        row.sessions += 1;
-        row.turns += share.turns;
-        row.working_ms += share.working_ms;
-        row.usage.add(&share.usage);
+        for (branch, share) in shares.0 {
+            if share.turns == 0 && share.working_ms == 0 {
+                continue;
+            }
+            let row = self.0.entry((cwd.clone(), branch.clone())).or_insert_with(|| BranchStats {
+                cwd: cwd.clone(),
+                branch,
+                ..BranchStats::default()
+            });
+            row.sessions += 1;
+            row.turns += share.turns;
+            row.working_ms += share.working_ms;
+            row.usage.add(&share.usage);
+        }
     }
 
     /// Most working time first, at most `MAX_BRANCHES`.
@@ -94,4 +116,9 @@ pub(super) fn turn_usage(msg: &Value) -> TurnUsage {
         cache_read_tokens: count("cacheReadTokens"),
         cache_write_tokens: count("cacheWriteTokens"),
     }
+}
+
+/// The branch a `turn_result` recorded its turn ended on (`hub/turn_git.rs`).
+pub(super) fn turn_branch(msg: &Value) -> Option<String> {
+    msg.get("gitBranch").and_then(Value::as_str).map(str::to_owned)
 }
