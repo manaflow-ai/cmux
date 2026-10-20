@@ -24,11 +24,11 @@ ffi) and the app. Change this file first, then the implementations.
   own token; a team, a personal space, device ownership and link admission
   never span projects. Stored rows record the project in the owner key
   (`<sub>` for the primary project, `<projectId>:<sub>` otherwise; Stack subs
-  are UUIDs and never contain `:`), and the TeamHub of a non-primary project's
-  team is named `<projectId>:<teamId>`. Every `userId`/`ownerUserId`/
+  are UUIDs and never contain `:`), and the caller's hub is named
+  `user:<owner key>` (below). Every `userId`/`ownerUserId`/
   `fromUserId` on the wire stays the bare `sub`.
-- Team membership is checked through Stack (cached 60 s, refusals 15 s, in the
-  TeamHub DO): the server API when the Worker has `STACK_SECRET_SERVER_KEY`,
+- Team membership is checked through Stack (cached 60 s, refusals 15 s, per
+  team in the caller's own hub): the server API when the Worker has `STACK_SECRET_SERVER_KEY`,
   otherwise the client API (`GET /teams?user_id=me`) with the caller's own
   access token. (Changed: no Stack server key is provisioned for cnx-ios, so the
   caller-token path is the default.) v1 admission rule for a link: phone and Mac must belong to the
@@ -67,48 +67,79 @@ echoes the token),
 | Method + path | Body / result |
 | --- | --- |
 | `POST /v1/devices` | `{deviceId, kind, name, teamId, wgPublicKey?}` → `{device:{deviceId,ownerUserId,teamId,kind,name,wgPublicKey,createdAt,updatedAt,lastSeenAt}}` (upsert; caller must be a team member; a deviceId owned by another user is `403 not_owner`) |
-| `GET /v1/teams/:teamId/macs` | → `{macs:[{deviceId,name,online,lastSeenAt,ownerUserId}]}` |
-| `GET /v1/me/macs` | → `{macs:[{deviceId,name,teamId,online,lastSeenAt,ownerUserId}]}`: the caller's own Macs (registered by the caller, the only Macs v1 lets it dial) in every team the caller still belongs to and in its personal space, with presence from each team's hub. Added in 0.5.0 so a phone finds its Mac whichever team either side has selected; the app polls it (every 4 s while its active team has no online Mac, else every 30 s) and moves to the team of an online Mac. `502 membership_unavailable` when Stack cannot list the caller's teams |
+| `GET /v1/teams/:teamId/macs` | → `{macs:[{deviceId,name,online,lastSeenAt,ownerUserId}]}`: the caller's own Macs registered in `teamId` (caller must be a member). Changed in 0.10.0: a teammate's Macs are never listed (before, every Mac of the team was), so `ownerUserId` is always the caller |
+| `GET /v1/me/macs` | → `{macs:[{deviceId,name,teamId,online,lastSeenAt,ownerUserId}]}`: the caller's own Macs (registered by the caller, the only Macs v1 lets it dial) in every team the caller still belongs to and in its personal space, with presence from the caller's hub. Added in 0.5.0 so a phone finds its Mac whichever team either side has selected; the app polls it (every 4 s while its active team has no online Mac, else every 30 s) and moves to the team of an online Mac. `502 membership_unavailable` when Stack cannot list the caller's teams |
 | `GET /v1/teams/:teamId/prefs` | → `{color, emoji}` for the caller (per user per team) |
 | `PUT /v1/teams/:teamId/prefs` | `{color?: "#RRGGBB", emoji?: string\|null}`. `emoji` is the avatar glyph: `null` = automatic (team initial), `""` = none (color only), otherwise exactly one grapheme (letter, digit, symbol or emoji; not whitespace) |
 | `POST /v1/teams/:teamId/invites` | `{email}` → `{url, sent:true}`: Stack emails a team invitation whose link opens `url` (the configured callback) with the code. Changed from a bare link: without a Stack server key the API can only send the invitation email, not mint a shareable link. Needs the caller's `$invite_members` team permission. |
 | `GET /v1/ice` | → `{iceServers:[{urls:[...],username?,credential?}], ttl, turn}` from the Cloudflare TURN key (generate-ice-servers), STUN `stun:stun.cloudflare.com:3478` always included (STUN only if TURN is unavailable). `turn` (0.7.0) is `false` when no TURN server could be included: clients must say so (off-LAN WebRTC may then fail) instead of failing silently. `ttl` is 1 h (was 4 h) |
 | `GET /v1/me/devices` | → `{devices:[{deviceId,kind,name,teamId,createdAt,updatedAt,lastSeenAt,online,push}]}` (0.7.0): every Mac and phone the caller registered, in any team or personal space. `online` is live presence for Macs and `null` for phones; `push` is whether the phone has an APNs token |
-| `DELETE /v1/devices/:deviceId` | → `{deleted:true, deviceId}` (0.7.0). Owner only (`403 not_owner`, `404 not_found`). Deletes the row and its push token; the device's team hub drops the Mac from presence (broadcasting `presence` with `removed:true`), closes the device's signaling socket with code 4002 `removed`, and ends its signaling sessions. A removed device that registers again is a new registration: removal tidies stale devices, it does not ban an id. Used by the phone (Settings → Connection → Macs / Phones) and by the Mac app ("Unpair this Mac") |
+| `DELETE /v1/devices/:deviceId` | → `{deleted:true, deviceId}` (0.7.0). Owner only (`403 not_owner`, `404 not_found`). Deletes the row and its push token; the owner's hub drops the Mac from presence (broadcasting `presence` with `removed:true`), closes the device's signaling socket with code 4002 `removed`, and ends its signaling sessions. A removed device that registers again is a new registration: removal tidies stale devices, it does not ban an id. Used by the phone (Settings → Connection → Macs / Phones) and by the Mac app ("Unpair this Mac") |
 | `PUT /v1/devices/:deviceId/push` | `{token, environment, topic, kinds?}` → `{push:{environment,topic,kinds,updatedAt}}` (0.7.0). Phone only, owner only. `token` is the APNs device token in hex (64 to 200 hex digits), `environment` `sandbox` or `production` (the app's `aps-environment`), `topic` its bundle id, which must be one of the Worker's `APNS_TOPICS`. `kinds` is which events to push (default all): `question`, `permission`, `completed`, `failed`, `chief` |
 | `DELETE /v1/devices/:deviceId/push` | → `{deleted:true}` (0.7.0): stop pushing to this phone (sign-out, notifications turned off) |
 | `POST /v1/devices/:deviceId/notify` | `{eventId, kind, agent?, place?, workspaceId?, tabId?, sessionId?}` → `{configured, sent, failed, dropped}` (0.7.0). `:deviceId` is a Mac the caller owns. Pushes one event to every phone of the same owner that registered a token and wants that `kind`. Content minimization: the Mac sends only a kind, a short agent name (≤ 40 characters) and a short place such as the workspace title (≤ 60); the Worker writes the text itself ("Claude has a question", "Claude needs permission", "Claude finished", "Claude stopped with an error", "Chief replied") with the place as the body, and never forwards agent output, prompts, tool arguments or paths. The payload's `cnx` object carries `{mac, kind, eventId, workspaceId, tabId, sessionId}` so a tap opens that tab. `eventId` (≤ 64) is the APNs collapse id. `configured:false` when the Worker has no APNs key. Tokens APNs reports as gone are deleted (`dropped`). Rate limited per Mac (`429 rate_limited`) |
-| `DELETE /v1/me` | → `{deleted:{devices:n}}` (0.7.0): purges everything the Worker stores for the caller (devices with their push tokens, team prefs) and evicts the caller's sockets. The app calls it first when the user deletes their account, then deletes the Stack account through cmux's account deletion (`DELETE <cmux API>/api/account`, as the main cmux app) |
+| `DELETE /v1/me` | → `{deleted:{devices:n}}` (0.7.0): purges everything the Worker stores for the caller (devices with their push tokens, team prefs) and evicts the caller's sockets: the caller's hub closes every socket with 4002 `removed` and forgets its devices and sessions. The app calls it first when the user deletes their account, then deletes the Stack account through cmux's account deletion (`DELETE <cmux API>/api/account`, as the main cmux app) |
 | `POST /v1/me/bootstrap` | `{teamId, devices:[{deviceId,kind,name}]}` (at most 4) → `{devices:[{device}\|{error}], macs:{macs}\|{error}, myMacs:{macs}\|{error}, ice:{iceServers,ttl,turn}\|{error}}`: the phone's launch in one round trip (added in 0.8.0). Each part is the response of its own route (`POST /v1/devices` with `teamId`, `GET /v1/teams/:teamId/macs`, `GET /v1/me/macs`, `GET /v1/ice`), run at once; a part's error does not fail the others. A 404 means an older service: make the separate calls |
 | `GET /v1/health` | → `{ok:true, version, stackProjects:[projectId], colo}` (accepted Stack projects, primary first; `colo` is the Cloudflare colo that received the request, added in 0.6.0) |
-| `GET /v1/teams/:teamId/hub` | → `{ingressColo, hubColo, locationHint}`: diagnostics added in 0.6.0. Where this request entered Cloudflare, where the team's `TeamHub` runs, and the region a hub created by this request would get (`null` when unknown) |
+| `GET /v1/teams/:teamId/hub` | → `{ingressColo, hubColo, locationHint}`: diagnostics added in 0.6.0. Where this request entered Cloudflare, where the caller's hub runs (since 0.10.0 the hub is the caller's, whatever `teamId` names; the caller must still be a member of it), and the region a hub created by this request would get (`null` when unknown) |
 
 Every response carries `Server-Timing` (0.8.0): the steps it waited on, for example
 `auth;dur=1, member;dur=0, db_connect;dur=5, db;dur=82, hub;dur=12, total;dur=101`
-(`auth` token check, `member` Stack membership, `db` the database, `hub` the team's Durable
+(`auth` token check, `member` Stack membership, `db` the database, `hub` the caller's Durable
 Object, `turn` Cloudflare TURN, `stack` the Stack API). A request slower than 250 ms is
 also logged with them.
 
 ## Signaling WebSocket `GET /v1/teams/:teamId/signal?deviceId=<id>`
 
-One `TeamHub` Durable Object per team (hibernating WebSockets). A hub stays
-where it is first created. Since 0.6.0 the Worker creates it with a
-`locationHint` from the caller's own location (Cloudflare's geolocation of
-the client: `wnam`, `enam`, `weur`, ...), not from the colo that received the
-request. Free-plan traffic is sometimes received far from the client (on
-2026-10-13 a California client was served from Paris), and a hub created then
-would stay across an ocean. Existing hubs keep their place. JSON text
+One hub per **user** (API 0.10.0; before, one per team): the `TeamHub`
+Durable Object class (hibernating WebSockets) reached by
+`idFromName("user:" + owner key)`, where the owner key is the caller's
+verified token `sub` (`<projectId>:<sub>` outside the primary project, as in
+stored rows). The name comes only from the verified token, never from the
+path, query or body. A hub holds one user's devices: the phone and the Macs
+signed in to the same account. It binds its owner on first use and refuses
+any call for another owner, so no presence, introduction, signal,
+`wg-endpoints` or device list can cross users, even teammates.
+
+What the team still scopes (a view, not a trust boundary):
+
+- The path's `teamId` is still checked: the caller must be a member, and
+  the socket's device must be registered in that team (else `403
+  wrong_team`). A device that re-registers into another team has its socket
+  closed with 4001 `moved` and reconnects under its new team.
+- A socket hears about the user's Macs registered in the socket's own team
+  only: `hello.macs` and `presence` frames are filtered by team, as the team
+  hub did. A Mac that moves team is announced `removed:true` to its old
+  team's sockets and as present to its new team's.
+- Admission is by user only: a phone may signal any Mac of its own user,
+  whichever team either is registered in (`GET /v1/me/macs` finds them).
+  Teammates never can, whatever team they share.
+
+Migration from team hubs (0.10.0): the URL and frames are unchanged, so old
+phone and Mac builds need no update. A deploy disconnects every socket;
+clients reconnect as they do after any drop and land in their user's hub.
+A new hub is seeded once from the database with the user's Macs (offline
+until they connect), so `hello` lists a registered Mac that has not
+reconnected yet. The old team hubs are no longer reached.
+
+A hub stays where it is first created. Since 0.6.0 the Worker creates it
+with a `locationHint` from the caller's own location (Cloudflare's
+geolocation of the client: `wnam`, `enam`, `weur`, ...), not from the colo
+that received the request. Free-plan traffic is sometimes received far from
+the client (on 2026-10-13 a California client was served from Paris), and a
+hub created then would stay across an ocean. JSON text
 frames:
 
 The socket is admitted only for a member of `teamId` whose `deviceId` is
-registered to the caller in that team (else HTTP 403). The server selects
+registered to the caller in that team (else HTTP 403), in the caller's own
+hub. The server selects
 subprotocol `cnx.v1` when offered (never the bearer entry). One socket per
 device: a newer connection closes the older with code 4000 `replaced` (no
-offline presence in between); a Mac re-registered into another team is closed
-with 4001 `moved`.
+offline presence in between); a device re-registered into another team is
+closed with 4001 `moved`.
 
-- server → client on connect: `{"type":"hello","you":deviceId,"macs":[{deviceId,name,online,lastSeenAt,ownerUserId}]}`
-- server → all: `{"type":"presence","mac":{deviceId,name,online,lastSeenAt}}`; a deleted Mac's last presence adds `"removed":true` (0.7.0), and clients drop it from their lists
+- server → client on connect: `{"type":"hello","you":deviceId,"macs":[{deviceId,name,online,lastSeenAt,ownerUserId}]}` (the user's own Macs in the socket's team)
+- server → the user's sockets of the Mac's team: `{"type":"presence","mac":{deviceId,name,online,lastSeenAt}}`; a deleted Mac's last presence adds `"removed":true` (0.7.0), and clients drop it from their lists
 - client → server → peer: `{"type":"signal","to":deviceId,"from":deviceId,"sessionId":uuid,"payload":P}`.
   A `from` other than the socket's own deviceId is refused with `bad_request`.
   On every forwarded signal the DO sets `"fromUserId": <sender's Stack userId>`,
@@ -145,7 +176,7 @@ with 4001 `moved`.
   session, so an older client fails no other dial in progress (it fails a
   dial only on an error for that dial's session or one without
   `sessionId`). A frame shorter than 16 bytes is dropped silently. The
-  TeamHub keeps presence and signaling (introductions); it carries no
+  hub keeps presence and signaling (introductions); it carries no
   data. A WireGuard path without UDP is TURN over TLS (below).
 - WireGuard specifics: `publicKey` is base64 Curve25519; `endpoints` are
   `ip:port` strings (host and STUN-reflexive addresses of the tunnel's UDP
@@ -264,7 +295,9 @@ with 4001 `moved`.
 
 Admission: the DO forwards `signal` only when `to` is a Mac owned by the
 sender's user (same `sub` in the same Stack project), or the reply direction of an existing sessionId. A sessionId
-is bound to the two devices of its first admitted signal.
+is bound to the two devices of its first admitted signal. Since 0.10.0 the hub is the sender's own, so another
+user's device is not in it at all: a signal to it is refused `not_owner` whether that device is online or not
+(never `offline`, which would confirm it exists).
 
 ## Link (inside either transport)
 
