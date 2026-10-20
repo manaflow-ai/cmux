@@ -96,7 +96,9 @@ struct SidebarDocGroupEditorTargetTests {
         let record = try JSONDecoder().decode(WindowRecord.self, from: Data(#"{"id":"plus","workspace_key":"plus-home"}"#.utf8))
         let bridge = SidebarBridge(services: services, state: WindowState(record: record))
         var targets: [String] = []
-        #expect(services.registry.bind("workspaceGroup.newWorkspace", invoke: { invocation in targets.append(invocation.target?.id ?? "") }))
+        // Bound outside #expect: its autoclosure is @Sendable and cannot capture the mutable `targets`.
+        let bound = services.registry.bind("workspaceGroup.newWorkspace", invoke: { invocation in targets.append(invocation.target?.id ?? "") })
+        #expect(bound)
         let perform = try #require(bridge.container.onGroupEditorItem)
         perform(CmuxNextSidebar.GroupID("itm_g_g1"), "workspaceGroup.newWorkspace")
         perform(CmuxNextSidebar.GroupID("doc-made"), "workspaceGroup.newWorkspace")
