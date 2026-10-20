@@ -26,10 +26,12 @@ nonisolated extension SidebarSection {
     }
 
     /// `sections` with the `pinned` workspaces (`workspace-pin-v1`) moved,
-    /// in sidebar order, into a Pinned section at the top. Groups stay where
-    /// they are, even when every member is pinned, so they can still be
-    /// renamed and dropped into. No pinned workspace, no Pinned section.
+    /// in sidebar order, into a Pinned section at the top. Groups stay in
+    /// their section, even when every member is pinned, so they can still be
+    /// renamed and dropped into; a pinned group lists first in its section
+    /// (daemons without the sidebar document). No pinned workspace, no Pinned section.
     public static func pinnedFirst(_ sections: [SidebarSection], pinned: Set<String>) -> [SidebarSection] {
+        let sections = sections.map(\.pinnedGroupsFirst)
         let moving = sections.flatMap(\.workspaces).filter { pinned.contains($0.id.rawValue) }
         guard !moving.isEmpty else { return sections }
         var result = sections.map { section in
@@ -54,6 +56,16 @@ nonisolated extension SidebarSection {
             result.insert(SidebarSection(kind: .pinned, nodes: nodes), at: 0)
         }
         return result
+    }
+
+    /// This section with its pinned groups first, in their order (the document lists pinned groups first;
+    /// pinning-DESIGN.md). Everything else keeps its order.
+    var pinnedGroupsFirst: SidebarSection {
+        let isPinnedGroup = { (node: SidebarNode) -> Bool in if case .group(let group) = node { group.isPinned } else { false } }
+        guard nodes.contains(where: isPinnedGroup) else { return self }
+        var section = self
+        section.nodes = nodes.filter(isPinnedGroup) + nodes.filter { !isPinnedGroup($0) }
+        return section
     }
 
     /// `sections` without the `hidden` workspaces (those the sidebar's top

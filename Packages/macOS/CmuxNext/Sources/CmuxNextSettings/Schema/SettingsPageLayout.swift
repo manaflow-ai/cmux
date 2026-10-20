@@ -13,6 +13,8 @@ public nonisolated struct SettingsPageLayout: Sendable {
     public nonisolated enum Card: String, Sendable, Hashable, CaseIterable {
         case themeStudio, terminalInfo, ghosttyDiagnostics, computerUse, harnesses, spaces, browserProfiles
         case machines, accounts, agentHarnesses, chiefs, advancedInfo, advancedActions, backdrops, mobile
+        /// The density tiles, preview and custom density editor (plans/cmux-next/density-DESIGN.md).
+        case density
     }
 
     /// A group card as the layout states it: the rows of a schema group
@@ -92,7 +94,8 @@ public nonisolated struct SettingsPageLayout: Sendable {
                 group("settings.group.window"), group("settings.group.tabs"), group("settings.group.columns"),
                 group("settings.group.history"), group("settings.group.quit"), group("settings.group.picker"),
                 group("settings.group.tasks"), group("settings.group.diffViewer"), group("settings.group.markdownViewer"),
-                group("settings.group.files"), group("settings.group.updates"),
+                // The Screenshots pane's folders sit beside the other file-viewer groups.
+                group("settings.group.files"), group("settings.group.screenshots"), group("settings.group.updates"),
                 group("settings.group.announcements"), group("settings.group.chats"),
             ],
             trail: [.spaces], actions: [.general, .rooms], aliases: [.general, .rooms]),
@@ -112,7 +115,8 @@ public nonisolated struct SettingsPageLayout: Sendable {
             ],
             // Change Background… lands here: the art picker draws appearance.background and
             // appearance.backgroundOpacity (search still shows them as rows).
-            lead: [.backdrops], actions: [.appearance], aliases: [.appearance]),
+            // The density card draws appearance.density, .customDensity and .customDensities.
+            lead: [.backdrops, .density], actions: [.appearance], aliases: [.appearance]),
         CategorySpec(
             id: "terminal", title: section(.terminal), symbol: "terminal",
             groups: [

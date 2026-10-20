@@ -19,6 +19,16 @@ struct ClassicImportSummary: Equatable {
     var leftTabs = false
     /// Classic workspaces an earlier run brought over that are still open here.
     var alreadyHere = 0
+
+    /// Adds what `other` (one workspace's import) opened and left.
+    mutating func merge(_ other: ClassicImportSummary) {
+        opened += other.opened
+        leftCloudVMs = leftCloudVMs || other.leftCloudVMs
+        leftSSH = leftSSH || other.leftSSH
+        leftSSHScrollback = leftSSHScrollback || other.leftSSHScrollback
+        leftTabs = leftTabs || other.leftTabs
+        alreadyHere += other.alreadyHere
+    }
 }
 
 /// Classic cmux session import (Leo, cx-aha.5): one workspace at a time, for
@@ -28,9 +38,10 @@ extension AppOnboardingServices {
 
     /// Runs Import Workspaces from Classic cmux: every classic workspace not
     /// already open here (the migration ledger knows which ones came over),
-    /// with its window, group, color and pin. See ``migrateClassic(_:firstWorkspace:)``.
-    func importClassicSessions() async throws -> ClassicImportSummary {
-        try await migrateClassic(.manual).summary
+    /// with its window, group, color and pin. See ``migrateClassic(_:firstWorkspace:confirmation:)``.
+    func importClassicSessions() async throws -> ClassicImportSummary? {
+        let outcome = try await migrateClassic(.manual, confirmation: confirmClassicImport)
+        return outcome.confirmed ? outcome.summary : nil
     }
 
     /// Opens one classic workspace here: a local or SSH workspace with its
@@ -47,6 +58,7 @@ extension AppOnboardingServices {
     /// - Returns: the new workspace's id, or nil when nothing of it comes over.
     func importClassicWorkspace(_ saved: ClassicSessionWorkspace, into target: String, frame: CGRect?,
                                 summary: inout ClassicImportSummary, unreachable: inout Set<String>,
+                                on host: DaemonService? = nil,
                                 created: (String) async -> Void) async throws -> String? {
         let windows = services.windows
         let logger = services.daemon.logger
@@ -57,7 +69,7 @@ extension AppOnboardingServices {
         let daemon: DaemonService
         do {
             if let remote = saved.remote, unreachable.contains(remote.sshDestination) { throw DaemonError.notConnected }
-            daemon = try await classicDaemon(for: saved.remote)
+            if let host, host.connection != nil { daemon = host } else { daemon = try await classicDaemon(for: saved.remote) }
         } catch {
             summary.leftSSH = true
             if let remote = saved.remote { unreachable.insert(remote.sshDestination) }
@@ -115,9 +127,16 @@ extension AppOnboardingServices {
         }
     }
 
+    /// The daemon for `remote`'s host, which connects by itself; not waited
+    /// for. The migration starts every host at once with it.
+    func startClassicDaemon(for remote: ClassicSessionRemote) throws -> DaemonService {
+        if let seam = owner.classicSSH { return try seam(remote.sshDestination) }
+        return try services.ssh.connect(destination: remote.sshDestination, session: nil, offerInstall: false).daemon
+    }
+
     /// `daemon` once it has a connection, within 20 seconds: woken by the
     /// connection itself, never by polling.
-    private func connected(_ daemon: DaemonService) async throws -> DaemonService {
+    func connected(_ daemon: DaemonService) async throws -> DaemonService {
         if daemon.connection != nil { return daemon }
         // The first of the connection appearing, the twenty-second SSH connect limit and
         // cancellation resumes the wait once (no task group waits for a loser).

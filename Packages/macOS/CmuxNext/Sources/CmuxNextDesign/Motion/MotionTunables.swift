@@ -25,6 +25,10 @@ public nonisolated enum MotionTunables {
         .track: (SpringParameters(response: 0.12, dampingFraction: 0.9), "Drop-zone overlay and the drag ghost jumping between targets."),
         .selection: (SpringParameters(response: 0.15, dampingFraction: 0.9), "Page info toggle state change. The sidebar selection does not animate."),
         .panel: (SpringParameters(response: 0.18, dampingFraction: 0.85), "Hover card slide."),
+        // Lawrence 2026-10-20 (Home's Chief pill popover, "animation needs to be better"): the card
+        // grows out of its control on a ~0.25 s spring with a hint of give, like an NSPopover.
+        .popover: (SpringParameters(response: 0.25, dampingFraction: 0.86), "A popup growing out of its control (Chief pill, group editors, page info, menus)."),
+        .popoverClose: (SpringParameters(response: 0.16, dampingFraction: 1), "A popup shrinking back toward its control as it fades: faster than its open."),
         .pinDrag: (SpringParameters(response: 0.3512407365520363, dampingFraction: 0.8385254915624211),
                    "Home list pin drag: tiles making room, rows below the grid, a dropped tile landing."),
     ]
@@ -82,6 +86,7 @@ public nonisolated enum MotionTunables {
         .spinner: (0.9, "One turn of the busy spinner."),
         .pulse: (1.8, "One cycle of the agent-waiting pulse."),
         .flash: (1, "Pane attention flash (two blinks; at least 1 s, the 2 Hz cap)."),
+        .sweep: (1.3, "One pass of an unmeasured progress bar's segment (the update card while checking)."),
     ]
 
     static let loops: [MotionLoop: Tunable<Double>] = Dictionary(uniqueKeysWithValues: MotionLoop.allCases.map { loop in
@@ -129,6 +134,28 @@ public nonisolated enum MotionTunables {
         "motion.panel.closeScale", .palette, "Panel close scale", help: "Scale the palette shrinks to when it closes.",
         default: 0.98, range: 0.8...1, step: 0.005, unit: .multiplier, code: "MotionTunables.panelCloseScale")
 
+    public static let popupOpenScale = Tunable<Double>.number(
+        "motion.popup.openScale", .palette, "Popup open scale", help: "Scale a popup grows from, about its control, when it opens.",
+        default: 0.95, range: 0.8...1, step: 0.005, unit: .multiplier, code: "MotionTunables.popupOpenScale")
+    public static let popupCloseScale = Tunable<Double>.number(
+        "motion.popup.closeScale", .palette, "Popup close scale", help: "Scale a popup shrinks to, toward its control, when it closes.",
+        default: 0.97, range: 0.8...1, step: 0.005, unit: .multiplier, code: "MotionTunables.popupCloseScale")
+
+    // MARK: Agent cursor
+
+    /// User, 2026-10-20: the agent cursor's motion is "quick: short, snappy".
+    /// A glide keeps the cmux-cua path (speed envelope, then the spring
+    /// settle) and plays it in this share of its time, never longer than
+    /// ``agentCursorGlideMax``.
+    public static let agentCursorGlideScale = Tunable<Double>.number(
+        "motion.agentCursor.glideScale", .fades, "Agent cursor glide time",
+        help: "Share of the cmux-cua glide time an agent cursor glide plays in.",
+        default: 0.5, range: 0.1...1, step: 0.05, unit: .multiplier, code: "MotionTunables.agentCursorGlideScale")
+    public static let agentCursorGlideMax = Tunable<Double>.number(
+        "motion.agentCursor.glideMax", .fades, "Agent cursor glide limit",
+        help: "The longest an agent cursor glide plays, however far it goes.",
+        default: 0.28, range: 0.05...1, step: 0.01, unit: .seconds, code: "MotionTunables.agentCursorGlideMax")
+
     // MARK: Launch
 
     public static let launchMarkDelay = Tunable<Double>.number(
@@ -148,7 +175,8 @@ public nonisolated enum MotionTunables {
             + MotionLoop.allCases.compactMap { loops[$0]?.descriptor }
             + [marqueeDelay, marqueeSpeed, marqueeMinimumScroll, marqueeHold, marqueeMinimumTravel,
                tooltipDelay, tooltipWarm, hoverCardGrace, hoverCardAim].map(\.descriptor)
-            + [panelOpenScale, panelCloseScale].map(\.descriptor)
+            + [panelOpenScale, panelCloseScale, popupOpenScale, popupCloseScale].map(\.descriptor)
+            + [agentCursorGlideScale, agentCursorGlideMax].map(\.descriptor)
     }
 }
 

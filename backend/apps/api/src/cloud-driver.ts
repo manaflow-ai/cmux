@@ -9,6 +9,7 @@ import { redactReason } from "./cloud-redact.ts"
 import { createBody, type EdgeTlsRule } from "./cloud-driver-body.ts"
 import { freestyleExecStdin, type GuestExecResult } from "./cloud-driver-exec.ts"
 import { vmApiSettings } from "./cloud-vm-api-config.ts"
+import { VmApiSnapshotOutcome } from "./cloud-vm-api-snapshot.ts"
 export { createBody, type EdgeTlsRule } from "./cloud-driver-body.ts"
 
 /**
@@ -38,8 +39,12 @@ export interface RawCloudDriver {
   state(id: string): Promise<string | null>
   /** A snapshot by its slug (Freestyle `GET /v5/snapshots/{slug}`), or null. */
   findSnapshot(slug: string): Promise<{ readonly id: string; readonly sourceVmId: string | null } | null>
+  /** VM API only: resume the exact capture key before requiring its source. False never admits new capture work. */
+  resumeSnapshot?(slug: string, tag: VmTag, allowSend: boolean): Promise<{ readonly id: string } | null>
+  /** VM API only: fence the key before verifying deletion, including pending captures. */
+  cancelSnapshot?(slug: string, tag: VmTag, allowEmptyFence: boolean): Promise<void>
   /** Snapshot a running or paused VM under `slug` (Freestyle `POST /v5/vms/{id}/snapshot`). */
-  createSnapshot(vmId: string, slug: string): Promise<{ readonly id: string }>
+  createSnapshot(vmId: string, slug: string, tag?: VmTag): Promise<{ readonly id: string }>
   /** Delete a snapshot (Freestyle `DELETE /v5/snapshots/{id}`; 404 is success). */
   deleteSnapshot(id: string): Promise<void>
   /** Grow a VM (Freestyle `POST /v5/vms/{id}/resize`: grow only; memory in MiB, storage in MiB). */
@@ -251,24 +256,40 @@ export class GuardedCloudDriver {
     return { state: found.state !== undefined ? found.state : await this.raw.state(found.id), gone: false }
   }
 
+  async recoverSnapshot(vmName: string, tag: VmTag, slug: string): Promise<{ id: string } | null> {
+    this.guard(vmName)
+    this.guardSnapshot(slug)
+    return this.raw.resumeSnapshot?.(slug, tag, false) ?? null
+  }
+
   /** Snapshots our VM under `vmName` as `slug`; a snapshot already under the slug must come from that VM (a retry). */
   async snapshot(vmName: string, tag: VmTag, slug: string): Promise<{ id: string }> {
     this.guard(vmName)
     this.guardSnapshot(slug)
-    const vm = await this.raw.find(vmName)
-    if (!vm) throw new DriverError("cloud.provider.vm_missing", "snapshot: no VM under the recorded name", true)
-    if (!ours(vm.tag, tag)) throw new DriverError("cloud.provider.name_conflict", "the name belongs to another VM", true)
-    const existing = await this.raw.findSnapshot(slug)
-    if (existing) {
-      if (existing.sourceVmId !== vm.id) throw new DriverError("cloud.provider.name_conflict", "the snapshot name belongs to another snapshot", true)
-      return { id: existing.id }
+    const resumed = await this.raw.resumeSnapshot?.(slug, tag, true)
+    if (resumed) return resumed
+    try {
+      const vm = await this.raw.find(vmName)
+      if (!vm) throw new DriverError("cloud.provider.vm_missing", "snapshot: no VM under the recorded name", true)
+      if (!ours(vm.tag, tag)) throw new DriverError("cloud.provider.name_conflict", "the name belongs to another VM", true)
+      const existing = await this.raw.findSnapshot(slug)
+      if (existing) {
+        if (existing.sourceVmId !== vm.id) throw new DriverError("cloud.provider.name_conflict", "the snapshot name belongs to another snapshot", true)
+        return { id: existing.id }
+      }
+      return await this.raw.createSnapshot(vm.id, slug, tag)
+    } catch (e) {
+      // The VM API verified no capture under the key (null, not undefined): a final error before
+      // its send is settled, so Cloud may release the saved slot instead of retaining it.
+      if (resumed === null && e instanceof DriverError && e.final && !(e instanceof VmApiSnapshotOutcome)) throw new VmApiSnapshotOutcome("absent", e.message, e.code)
+      throw e
     }
-    return this.raw.createSnapshot(vm.id, slug)
   }
 
   /** Deletes the snapshot under our recorded `slug`; none there is success. */
-  async removeSnapshot(slug: string): Promise<void> {
+  async removeSnapshot(slug: string, tag?: VmTag, allowEmptyFence = false): Promise<void> {
     this.guardSnapshot(slug)
+    if (this.raw.cancelSnapshot && tag) return this.raw.cancelSnapshot(slug, tag, allowEmptyFence)
     const found = await this.raw.findSnapshot(slug)
     if (found) await this.raw.deleteSnapshot(found.id)
   }

@@ -104,7 +104,7 @@ import Testing
             var attention = AttentionSettings()
             for style in [AttentionStyle.blink, .pulse] {
                 attention.style = style
-                guard let animation = Motion.attentionAnimation(attention) else { continue }
+                guard let animation = Motion.indicators.attentionAnimation(attention) else { continue }
                 #expect(animation.repeatCount == 0 && animation.repeatDuration == 0, "the attention ring loops (\(style))")
                 if let frames = animation as? CAKeyframeAnimation {
                     #expect((frames.values?.count ?? 0) <= 3, "the attention ring blinks (\(style))")

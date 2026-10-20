@@ -165,10 +165,23 @@ enum HomeMapping {
               !(markdown && (text.contains("```") || text.contains("~~~"))) else {
             return [part(p, media: media, progress: progress, markdown: markdown, links: links)]
         }
+        // A person's reply that starts with a quote (Reply to Selection, ReplyQuote): the quote shows
+        // quietly at the top of the first text bubble, the reply below it.
+        if !markdown, let (quote, body) = ReplyQuote.split(text) {
+            let (head, run) = ReplyQuote.head(quote)
+            var shown = body.isEmpty ? [] : TextParts.parts(for: body)
+            if case let .text(t, runs)? = shown.first, !t.isEmpty {
+                let shift = (head as NSString).length + 1
+                shown[0] = .text(head + "\n" + t, runs: [run] + runs.map { var r = $0; r.start += shift; return r })
+            } else {
+                shown.insert(.text(head, runs: [run]), at: 0)
+            }
+            return shown
+        }
         return TextParts.parts(for: text).map { shown in
             switch shown {
             case let .text(t, _) where markdown:
-                let (rendered, runs) = HomeMarkdown.render(t, chips: true)
+                let (rendered, runs) = HomeMarkdown.render(t, chips: HomeLinkChip.showsInTranscript)
                 return .text(rendered, runs: runs)
             case let .link(url, title, site, image, theme):
                 // A preview fetched before (this Mac's sends, taps) fills the card, as `.linkMetadata` did;
@@ -215,7 +228,7 @@ enum HomeMapping {
                      links: Links = { _ in nil }) -> Part {
         switch p {
         case .text(let text, let mentions) where markdown && mentions.isEmpty:
-            let (shown, runs) = HomeMarkdown.render(text, chips: true)
+            let (shown, runs) = HomeMarkdown.render(text, chips: HomeLinkChip.showsInTranscript)
             return .text(shown, runs: runs)
         case .text(let text, let mentions):
             return .text(text, runs: mentions.map {
