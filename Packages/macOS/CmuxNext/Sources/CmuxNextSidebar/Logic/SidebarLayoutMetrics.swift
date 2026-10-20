@@ -132,6 +132,9 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     public var sessionTree: SidebarSessionTreeState?
     /// The session tree's keycaps: each workspace's Command-number (`SidebarItemOrder`).
     public var keycaps: [WorkspaceID: Int] = [:]
+    /// The session tree's chat history (`SidebarChatHistoryState`): Pinned above the workspaces,
+    /// Earlier under them. Nil (the tree off, or a filter) draws neither.
+    public var chatHistory: SidebarChatHistoryState?
 
     public init() {}
 }

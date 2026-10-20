@@ -47,10 +47,14 @@ public nonisolated struct AgentActivityLane: Hashable, Sendable, Identifiable {
     /// The pull requests its `gh pr create` calls opened (acpmux `pullRequests`, their URLs): the
     /// sidebar's session tree counts them beside its folder's branch's.
     public let pullRequests: [String]
+    /// The acpmux chat index key (`harness:sessionId`) of the chat the session continues: its
+    /// family's index harness and the agent's own session id. Nil for a family the index has none
+    /// of, or before the agent named its session. The session tree's chat history leaves it out.
+    public let chat: String?
 
     public init(id: String, name: String, title: String, peer: String?, parent: String?, state: State, since: Date?, error: String?,
                 workspaceID: String? = nil, harness: String? = nil, step: String? = nil, spawnedBy: String? = nil, cwd: String? = nil,
-                pullRequests: [String] = []) {
+                pullRequests: [String] = [], chat: String? = nil) {
         self.id = id
         self.name = name
         self.title = title
@@ -65,6 +69,7 @@ public nonisolated struct AgentActivityLane: Hashable, Sendable, Identifiable {
         self.spawnedBy = spawnedBy
         self.cwd = cwd
         self.pullRequests = pullRequests
+        self.chat = chat
     }
 
     /// A person should look: it waits on them, failed or was lost.
@@ -94,7 +99,18 @@ public nonisolated struct AgentActivityLane: Hashable, Sendable, Identifiable {
                                  state: state, since: since, error: error, workspaceID: workspaceID,
                                  harness: harness, step: step, spawnedBy: nonEmpty(summary["spawnedBy"]),
                                  cwd: nonEmpty(summary["cwd"]),
-                                 pullRequests: (summary["pullRequests"] as? [Any] ?? []).compactMap { nonEmpty($0) })
+                                 pullRequests: (summary["pullRequests"] as? [Any] ?? []).compactMap { nonEmpty($0) },
+                                 chat: chatKey(family: nonEmpty(summary["family"]), agentSession: nonEmpty(summary["agentSessionId"])))
+    }
+
+    /// acpmux's `session_chat_key`: only the claude and codex families are indexed.
+    static func chatKey(family: String?, agentSession: String?) -> String? {
+        guard let agentSession else { return nil }
+        return switch family {
+        case "claude": "claude-code:" + agentSession
+        case "codex": "codex:" + agentSession
+        default: nil
+        }
     }
 
     private static func nonEmpty(_ value: Any?) -> String? { (value as? String).flatMap { $0.isEmpty ? nil : $0 } }

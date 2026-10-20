@@ -18,6 +18,11 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
     /// rows on either side, so rows tile and the pointer is never between
     /// two of them (Leo 2026-10-13: the hover flickered off in the gaps).
     public var rowSpacing: CGFloat = 0
+    /// The session tree's Pinned chats (`SidebarChatHistoryState.pinnedHeight`): where the block
+    /// starts, above the workspaces; nil without one. No row: the list draws the block itself.
+    public var pinnedChatsY: CGFloat?
+    /// The Earlier chats block's top, under the workspaces; nil without one.
+    public var earlierChatsY: CGFloat?
 
     public init(rows: [SidebarRow], totalHeight: CGFloat, gapY: CGFloat?, gapHeight: CGFloat, gapShift: CGFloat) {
         self.rows = rows
@@ -117,8 +122,13 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
             y += gapHeight + m.rowSpacing
         }
 
+        // The session tree's chat history, never while filtering.
+        var chats = SidebarChatHistoryPlacement(filtering ? nil : o.chatHistory, metrics: m)
+        let lastMachine = sections.lastIndex { $0.machine != nil }
+
         var firstSection = true
-        for section in sections {
+        for (sectionIndex, section) in sections.enumerated() {
+            if let lastMachine, sectionIndex > lastMachine { chats.placeEarlier(&y) }
             // Nodes that remain, with their visible children.
             var nodes: [(node: SidebarNode, children: [SidebarWorkspace])] = []
             for node in section.nodes {
@@ -159,6 +169,7 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
             if firstSection && blockHeight > 0 { y -= m.topPadding }
             if !firstSection && !(flat && previousWasMachine) && blockHeight == 0 { y += previousWasBlock ? m.topPadding : m.sectionSpacing }
             firstSection = false
+            if section.machine != nil { chats.placePinned(&y) }
             previousWasBlock = blockHeight > 0 && nodes.isEmpty
             previousWasMachine = section.machine != nil
             if let docID, blockHeight > 0 {
@@ -358,6 +369,7 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
             }
             openGapIfNeeded(section: section.id, group: nil, index: nodes.count)
         }
+        chats.placeEarlier(&y)
         y += m.bottomPadding
         var layout = SidebarLayout(
             rows: rows, totalHeight: y, gapY: gapY,
@@ -365,6 +377,7 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
             gapShift: gapY == nil ? 0 : gapHeight + m.rowSpacing
         )
         layout.rowSpacing = m.rowSpacing
+        (layout.pinnedChatsY, layout.earlierChatsY) = (chats.pinnedY, chats.earlierY)
         return layout
     }
 }
