@@ -23,7 +23,9 @@ public nonisolated struct PaneChromeMetrics: Equatable, Sendable {
     /// The `tabStripHeight` token.
     public var stripHeight: CGFloat
     public var tabHeight: CGFloat
-    /// The pane padding between the cell and the strip (and the border).
+    /// The space above the strip that counts toward the gap above the pills:
+    /// the pane padding between the cell and the strip, or 0 where the pane
+    /// card's own edge is the strip's top (`Metrics.stripTopOutset`).
     public var panePadding: CGFloat
 
     public init(stripHeight: CGFloat, tabHeight: CGFloat, panePadding: CGFloat) {
@@ -71,7 +73,7 @@ public nonisolated struct PaneChromeMetrics: Equatable, Sendable {
 
     /// The live tokens.
     @MainActor public static var current: PaneChromeMetrics {
-        PaneChromeMetrics(stripHeight: Metrics.tabStripHeight, tabHeight: Metrics.tabHeight, panePadding: Metrics.panePadding)
+        PaneChromeMetrics(stripHeight: Metrics.tabStripHeight, tabHeight: Metrics.tabHeight, panePadding: Metrics.stripTopOutset)
     }
 
     static func snap(_ value: CGFloat, _ scale: CGFloat) -> CGFloat {

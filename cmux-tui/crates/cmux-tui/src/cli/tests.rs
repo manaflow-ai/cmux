@@ -703,3 +703,5 @@ fn agent_hook_emit_rejects_a_bad_terminal_like_every_other_terminal_flag() {
     let Err(error) = command::parse(&args, Surface::Cmux) else { panic!("parsed a bad terminal") };
     assert_eq!(error.0, "terminal ID must contain exactly 32 lowercase hexadecimal digits");
 }
+
+mod machine_catalog;

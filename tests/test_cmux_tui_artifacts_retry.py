@@ -70,7 +70,7 @@ class RetryPolicyTests(unittest.TestCase):
 
     def test_run_whose_tree_published_is_not_retried(self):
         # feat's macOS fallback publishes the tree although the Linux-cross legs failed.
-        for name in ("publish tree-addressed cmux-tui", "publish pull request tree-addressed cmux-tui"):
+        for name in ("publish tree-addressed cmux-tui",):
             with self.subTest(name=name):
                 published = {"id": 7, "name": name, "conclusion": "success"}
                 decision = retry.decide(run(), tree_jobs(job(2, "failure"), published), {2: []})

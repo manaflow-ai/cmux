@@ -7,7 +7,7 @@
  */
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema, OpenApi } from "@effect/platform";
 import { Schema } from "effect";
-import { Scope } from "../domain/scopes.ts";
+import { ReportedScope, Scope } from "../domain/scopes.ts";
 import { NotFound, QuotaExceeded } from "../errors.ts";
 import { ApiKeyId, SnapshotId, VmId } from "../lib/ids.ts";
 import { GroupTeamHeaders, InvalidRequest } from "./common.ts";
@@ -20,7 +20,7 @@ const ResourceAllowlist = Schema.Array(Schema.Union(VmId, SnapshotId)).pipe(Sche
 export class ApiKey extends Schema.Class<ApiKey>("ApiKey")({
   id: ApiKeyId,
   name: Schema.String,
-  scopes: Schema.Array(Scope),
+  scopes: Schema.Array(ReportedScope),
   /** When set, the key reaches only these resources; null means every resource of the team. */
   resourceAllowlist: Schema.NullOr(Schema.Array(Schema.String)),
   /** `user:<id>` or `key:<id>` of the issuer. */
@@ -33,7 +33,7 @@ export class ApiKey extends Schema.Class<ApiKey>("ApiKey")({
 export class CreatedApiKey extends Schema.Class<CreatedApiKey>("CreatedApiKey")({
   id: ApiKeyId,
   name: Schema.String,
-  scopes: Schema.Array(Scope),
+  scopes: Schema.Array(ReportedScope),
   resourceAllowlist: Schema.NullOr(Schema.Array(Schema.String)),
   createdAt: Schema.String,
   expiresAt: Schema.NullOr(Schema.String),

@@ -217,6 +217,16 @@ pub fn env(b: &Builtin, family: &str, ctx: &Context) -> Result<BTreeMap<String, 
     match b.role {
         Role::Turn => {
             flags(&mut env, &["CLAUDE_CODE_DISABLE_AUTO_MEMORY"], "1");
+            // Only the cmux MCP server of the agent tools (cx-4a5w2): computer
+            // use, secrets and session offers are subagent work, and their
+            // tool names and instructions came after the turn's cache mark.
+            env.insert(crate::agent_tools::SERVERS_ENV.into(), "cmux".into());
+            // That server lists only the Chief's tools and refuses the rest,
+            // `cmux_exec` scripts included (fail closed without the Chief's env).
+            env.insert(
+                crate::agent_tools::MCP_TOOLS_ENV.into(),
+                crate::agent_tools::CHIEF_TURN_TOOLS.into(),
+            );
             if codex {
                 env.insert("CODEX_PROMPT_CACHE_KEY".into(), key("turn"));
                 let chief = ctx.chief(&b.home_id)?;

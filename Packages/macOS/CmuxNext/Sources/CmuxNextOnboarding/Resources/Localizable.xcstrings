@@ -2883,268 +2883,6 @@
         }
       }
     },
-    "onboarding.passwords.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bring saved passwords from these profiles?"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "これらのプロファイルから保存済みパスワードを読み込みますか?"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "هل تريد جلب كلمات السر المحفوظة من هذه الملفات الشخصية؟"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Prenijeti sačuvane lozinke iz ovih profila?"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Vil du hente gemte adgangskoder fra disse profiler?"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Gespeicherte Passwörter aus diesen Profilen übernehmen?"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "¿Traer las contraseñas guardadas de estos perfiles?"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Importer les mots de passe enregistrés de ces profils ?"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Portare le password salvate da questi profili?"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "នាំយកពាក្យសម្ងាត់ដែលបានរក្សាទុកពីប្រវត្តិរូបទាំងនេះ?"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "이 프로필에서 저장된 암호를 가져올까요?"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Vil du hente lagrede passord fra disse profilene?"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Przenieść zapisane hasła z tych profili?"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Trazer as senhas salvas destes perfis?"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Перенести сохранённые пароли из этих профилей?"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "นำรหัสผ่านที่บันทึกไว้จากโปรไฟล์เหล่านี้มาด้วยหรือไม่"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Bu profillerdeki kayıtlı parolalar getirilsin mi?"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Перенести збережені паролі з цих профілів?"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Mang mật khẩu đã lưu từ các hồ sơ này sang?"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "要从这些配置文件导入已存储的密码吗?"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "要從這些設定檔匯入已儲存的密碼嗎?"
-          }
-        }
-      }
-    },
-    "onboarding.passwords.keychain2": {
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "يطلب منك الاستيراد التأكيد باستخدام Touch ID أو كلمة السر. بعد ذلك يسأل macOS عمّا إذا كان يمكن لـ cmux استخدام %@، وهو عنصر سلسلة المفاتيح الذي يقفل به المتصفح كلمات السر المحفوظة. اختر «السماح»، وسيفتحها cmux مرة واحدة على هذا الـ Mac."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Uvoz traži da potvrdite pomoću Touch ID-a ili lozinke. Zatim macOS pita smije li cmux koristiti %@, stavku privjeska ključeva kojom preglednik zaključava sačuvane lozinke. Odaberite Dozvoli i cmux ih otključava jednom, na ovom Macu."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Import beder dig bekræfte med Touch ID eller din adgangskode. Derefter spørger macOS, om cmux må bruge %@, nøgleringsemnet, som browseren låser sine gemte adgangskoder med. Vælg Tillad, så låser cmux dem op én gang på denne Mac."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Beim Import bestätigst du mit Touch ID oder deinem Passwort. Danach fragt macOS, ob cmux %@ verwenden darf, den Schlüsselbundeintrag, mit dem der Browser seine gespeicherten Passwörter verschlüsselt. Wähle „Erlauben“, dann entschlüsselt cmux sie einmalig auf diesem Mac."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Import asks you to confirm with Touch ID or your password. Then macOS asks whether cmux may use %@, the Keychain item the browser locks its saved passwords with. Choose Allow, and cmux unlocks them once, on this Mac."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Al importar se te pide confirmar con Touch ID o tu contraseña. Después, macOS pregunta si cmux puede usar %@, el ítem del llavero con el que el navegador protege sus contraseñas guardadas. Elige Permitir y cmux las desbloquea una vez, en este Mac."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "L’importation vous demande de confirmer avec Touch ID ou votre mot de passe. macOS demande ensuite si cmux peut utiliser %@, l’élément du trousseau avec lequel le navigateur verrouille ses mots de passe enregistrés. Choisissez Autoriser et cmux les déverrouille une fois, sur ce Mac."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "L’importazione ti chiede di confermare con Touch ID o la password. Poi macOS chiede se cmux può usare %@, l’elemento del portachiavi con cui il browser protegge le password salvate. Scegli Consenti e cmux le sblocca una volta, su questo Mac."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "読み込むときに Touch ID またはパスワードで確認します。続いて macOS が、cmux に %@ の使用を許可するか尋ねます。これはブラウザが保存済みパスワードを保護しているキーチェーン項目です。「許可」を選ぶと、cmux はこの Mac 上で一度だけそれを解除します。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ការនាំចូលនឹងសុំឲ្យអ្នកបញ្ជាក់ដោយ Touch ID ឬពាក្យសម្ងាត់របស់អ្នក។ បន្ទាប់មក macOS សួរថាតើ cmux អាចប្រើ %@ បានឬទេ ដែលជាធាតុ Keychain ដែលកម្មវិធីរុករកប្រើចាក់សោពាក្យសម្ងាត់ដែលបានរក្សាទុក។ ជ្រើស Allow ហើយ cmux នឹងដោះសោវាម្តងគត់ នៅលើ Mac នេះ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "가져오기를 하면 Touch ID 또는 암호로 확인하라는 요청이 표시됩니다. 그런 다음 macOS가 cmux에서 %@을(를) 사용해도 되는지 묻습니다. 이 키체인 항목은 브라우저가 저장된 암호를 잠그는 데 쓰는 키입니다. 허용을 선택하면 cmux가 이 Mac에서 한 번만 잠금을 해제합니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Importen ber deg bekrefte med Touch ID eller passordet ditt. Deretter spør macOS om cmux kan bruke %@, nøkkelringobjektet nettleseren låser de lagrede passordene sine med. Velg Tillat, så låser cmux dem opp én gang på denne Macen."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Import poprosi o potwierdzenie za pomocą Touch ID lub hasła. Następnie macOS zapyta, czy cmux może użyć %@, czyli elementu pęku kluczy, którym przeglądarka chroni zapisane hasła. Wybierz Zezwól, a cmux odblokuje je jednorazowo na tym Macu."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "A importação pede que você confirme com o Touch ID ou sua senha. Depois, o macOS pergunta se o cmux pode usar %@, o item das Chaves com que o navegador protege as senhas salvas. Escolha Permitir e o cmux as desbloqueia uma vez, neste Mac."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "При импорте нужно подтвердить действие с помощью Touch ID или пароля. Затем macOS спросит, может ли cmux использовать %@ — объект связки ключей, которым браузер защищает сохранённые пароли. Выберите «Разрешить», и cmux разблокирует их один раз на этом Mac."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "การนำเข้าจะขอให้คุณยืนยันด้วย Touch ID หรือรหัสผ่าน จากนั้น macOS จะถามว่า cmux ใช้ %@ ได้หรือไม่ ซึ่งเป็นรายการพวงกุญแจที่เบราว์เซอร์ใช้ล็อกรหัสผ่านที่บันทึกไว้ เลือก อนุญาต แล้ว cmux จะปลดล็อกเพียงครั้งเดียวบน Mac เครื่องนี้"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "İçe aktarma, Touch ID veya parolanızla onaylamanızı ister. Ardından macOS, cmux’un %@ öğesini kullanıp kullanamayacağını sorar; bu, tarayıcının kayıtlı parolalarını kilitlediği Anahtar Zinciri öğesidir. İzin Ver’i seçin, cmux bunları bu Mac’te bir kez açar."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Під час імпорту потрібно підтвердити дію за допомогою Touch ID або пароля. Потім macOS запитає, чи може cmux використати %@ — об’єкт зв’язки ключів, яким браузер захищає збережені паролі. Виберіть «Дозволити», і cmux розблокує їх один раз на цьому Mac."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Khi nhập, bạn sẽ được yêu cầu xác nhận bằng Touch ID hoặc mật khẩu. Sau đó macOS hỏi cmux có được dùng %@ không, đây là mục Chuỗi khóa mà trình duyệt dùng để khóa các mật khẩu đã lưu. Chọn Cho phép, và cmux sẽ mở khóa chúng một lần trên máy Mac này."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "导入时会请你用触控 ID 或密码确认。随后 macOS 会询问是否允许 cmux 使用 %@，这是浏览器用来锁定已存储密码的钥匙串项目。选择“允许”，cmux 会在这台 Mac 上解锁一次。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "匯入時會請你用 Touch ID 或密碼確認。接著 macOS 會詢問是否允許 cmux 使用 %@，這是瀏覽器用來鎖定已儲存密碼的鑰匙圈項目。選擇「允許」，cmux 會在這台 Mac 上解鎖一次。"
-          }
-        }
-      },
-      "extractionState": "manual"
-    },
     "onboarding.passwords.authReason": {
       "localizations": {
         "ar": {
@@ -3278,265 +3016,134 @@
     },
     "onboarding.passwords.authDenied": {
       "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nothing was read: the confirmation didn’t finish. Click Begin Importing to try again, or import without passwords."
+          }
+        },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "لم تتم قراءة أي شيء: لم يكتمل التأكيد. انقر «استيراد» للمحاولة مرة أخرى، أو استورد دون كلمات السر."
+            "state": "translated",
+            "value": "لم تتم قراءة أي شيء: لم يكتمل التأكيد. انقر على بدء الاستيراد للمحاولة مرة أخرى، أو استورد بدون كلمات السر."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Ništa nije pročitano: potvrda nije završena. Kliknite Uvezi da pokušate ponovo ili uvezite bez lozinki."
+            "state": "translated",
+            "value": "Ništa nije pročitano: potvrda nije završena. Kliknite Započni uvoz da pokušate ponovo ili uvezite bez lozinki."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Intet blev læst: bekræftelsen blev ikke fuldført. Klik på Importér for at prøve igen, eller importér uden adgangskoder."
+            "state": "translated",
+            "value": "Intet blev læst: bekræftelsen blev ikke fuldført. Klik på Start import for at prøve igen, eller importer uden adgangskoder."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Es wurde nichts gelesen: Die Bestätigung wurde nicht abgeschlossen. Klicke auf „Importieren“, um es erneut zu versuchen, oder importiere ohne Passwörter."
-          }
-        },
-        "en": {
-          "stringUnit": {
             "state": "translated",
-            "value": "Nothing was read: the confirmation didn’t finish. Click Import to try again, or import without passwords."
+            "value": "Es wurde nichts gelesen: Die Bestätigung wurde nicht abgeschlossen. Klicke auf „Import starten“, um es erneut zu versuchen, oder importiere ohne Passwörter."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "No se leyó nada: la confirmación no terminó. Haz clic en Importar para volver a intentarlo o importa sin contraseñas."
+            "state": "translated",
+            "value": "No se leyó nada: la confirmación no terminó. Haz clic en Empezar a importar para volver a intentarlo, o importa sin contraseñas."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Rien n’a été lu : la confirmation n’a pas abouti. Cliquez sur Importer pour réessayer, ou importez sans les mots de passe."
+            "state": "translated",
+            "value": "Rien n’a été lu : la confirmation n’a pas abouti. Cliquez sur Commencer l’importation pour réessayer, ou importez sans les mots de passe."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Non è stato letto nulla: la conferma non è stata completata. Fai clic su Importa per riprovare, oppure importa senza password."
+            "state": "translated",
+            "value": "Non è stato letto nulla: la conferma non è stata completata. Fai clic su Inizia l’importazione per riprovare, oppure importa senza password."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "何も読み込まれていません。確認が完了しませんでした。もう一度試すには「読み込む」をクリックするか、パスワードなしで読み込んでください。"
+            "state": "translated",
+            "value": "何も読み取られていません: 確認が完了しませんでした。「読み込みを開始」をクリックしてもう一度試すか、パスワードなしで読み込んでください。"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "មិនបានអានអ្វីទេ៖ ការបញ្ជាក់មិនបានបញ្ចប់។ ចុច Import ដើម្បីសាកម្តងទៀត ឬនាំចូលដោយគ្មានពាក្យសម្ងាត់។"
+            "state": "translated",
+            "value": "គ្មានអ្វីត្រូវបានអានទេ៖ ការបញ្ជាក់មិនបានបញ្ចប់។ ចុច ចាប់ផ្ដើមនាំចូល ដើម្បីសាកល្បងម្ដងទៀត ឬនាំចូលដោយគ្មានពាក្យសម្ងាត់។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "아무것도 읽지 않았습니다. 확인이 완료되지 않았습니다. 다시 시도하려면 가져오기를 클릭하거나 암호 없이 가져오세요."
+            "state": "translated",
+            "value": "아무것도 읽지 않았습니다. 확인이 완료되지 않았습니다. 가져오기 시작을 클릭해 다시 시도하거나 암호 없이 가져오세요."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Ingenting ble lest: bekreftelsen ble ikke fullført. Klikk Importer for å prøve igjen, eller importer uten passord."
+            "state": "translated",
+            "value": "Ingenting ble lest: bekreftelsen ble ikke fullført. Klikk på Start import for å prøve igjen, eller importer uten passord."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Nic nie zostało odczytane: potwierdzenie się nie zakończyło. Kliknij Importuj, aby spróbować ponownie, lub zaimportuj bez haseł."
+            "state": "translated",
+            "value": "Nic nie zostało odczytane: potwierdzenie nie zostało ukończone. Kliknij Rozpocznij import, aby spróbować ponownie, lub importuj bez haseł."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Nada foi lido: a confirmação não terminou. Clique em Importar para tentar de novo ou importe sem as senhas."
+            "state": "translated",
+            "value": "Nada foi lido: a confirmação não terminou. Clique em Começar a importar para tentar de novo ou importe sem senhas."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Ничего не прочитано: подтверждение не завершено. Нажмите «Импортировать», чтобы повторить, или импортируйте без паролей."
+            "state": "translated",
+            "value": "Ничего не прочитано: подтверждение не завершено. Нажмите «Начать импорт», чтобы повторить попытку, или импортируйте без паролей."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ยังไม่มีการอ่านข้อมูลใด ๆ: การยืนยันไม่เสร็จสมบูรณ์ คลิก นำเข้า เพื่อลองอีกครั้ง หรือนำเข้าโดยไม่รวมรหัสผ่าน"
+            "state": "translated",
+            "value": "ไม่มีการอ่านข้อมูลใดๆ: การยืนยันไม่เสร็จสิ้น คลิก เริ่มนำเข้า เพื่อลองอีกครั้ง หรือนำเข้าโดยไม่มีรหัสผ่าน"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Hiçbir şey okunmadı: onay tamamlanmadı. Yeniden denemek için İçe Aktar’ı tıklayın veya parolalar olmadan içe aktarın."
+            "state": "translated",
+            "value": "Hiçbir şey okunmadı: Onay tamamlanmadı. Yeniden denemek için İçe Aktarmayı Başlat’ı tıklayın veya parolalar olmadan içe aktarın."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Нічого не прочитано: підтвердження не завершено. Натисніть «Імпортувати», щоб спробувати ще раз, або імпортуйте без паролів."
+            "state": "translated",
+            "value": "Нічого не прочитано: підтвердження не завершено. Натисніть «Почати імпорт», щоб спробувати ще раз, або імпортуйте без паролів."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Chưa đọc gì cả: việc xác nhận chưa hoàn tất. Nhấp Nhập để thử lại, hoặc nhập mà không có mật khẩu."
+            "state": "translated",
+            "value": "Chưa đọc gì: việc xác nhận chưa hoàn tất. Bấm Bắt đầu nhập để thử lại, hoặc nhập mà không có mật khẩu."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "未读取任何内容：确认未完成。点按“导入”重试，或不含密码导入。"
+            "state": "translated",
+            "value": "未读取任何内容：确认未完成。点按“开始导入”重试，或在不导入密码的情况下导入。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "未讀取任何內容：確認未完成。按一下「匯入」再試一次，或不含密碼匯入。"
+            "state": "translated",
+            "value": "未讀取任何內容：確認未完成。按一下「開始輸入」再試一次，或不含密碼輸入。"
           }
         }
       },
       "extractionState": "manual"
-    },
-    "onboarding.passwords.store": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "They go into cmux’s own encrypted password store, where autofill finds them. Agents never see them, and nothing is read until you click Import."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "パスワードは cmux 専用の暗号化されたパスワード保存先に入り、自動入力で使われます。エージェントがそれを見ることはなく、「読み込む」をクリックするまで何も読み取りません。"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "تُحفظ في مخزن كلمات السر المشفّر الخاص بـ cmux، حيث يجدها الملء التلقائي. لا يراها الوكلاء أبدًا، ولا يُقرأ شيء حتى تنقر على «استيراد»."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Idu u cmuxovo vlastito šifrirano spremište lozinki, gdje ih automatsko popunjavanje pronalazi. Agenti ih nikad ne vide, a ništa se ne čita dok ne kliknete Uvezi."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "De lægges i cmux’ eget krypterede adgangskodelager, hvor autoudfyld finder dem. Agenter ser dem aldrig, og intet læses, før du klikker på Importér."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Sie landen im eigenen verschlüsselten Passwortspeicher von cmux, aus dem das automatische Ausfüllen liest. Agents sehen sie nie, und nichts wird gelesen, bevor du auf „Importieren“ klickst."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Se guardan en el almacén de contraseñas cifrado propio de cmux, donde el autorrelleno las encuentra. Los agentes nunca las ven, y no se lee nada hasta que haces clic en Importar."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ils vont dans le stockage chiffré de mots de passe propre à cmux, où le remplissage automatique les trouve. Les agents ne les voient jamais, et rien n’est lu avant que vous cliquiez sur Importer."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Finiscono nell’archivio cifrato di password di cmux, dove le trova la compilazione automatica. Gli agenti non le vedono mai e non viene letto nulla finché non fai clic su Importa."
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "វាត្រូវបានដាក់ក្នុងឃ្លាំងពាក្យសម្ងាត់ដែលបានអ៊ិនគ្រីបរបស់ cmux ដែលការបំពេញស្វ័យប្រវត្តិរកឃើញ។ ភ្នាក់ងារមិនដែលឃើញវាទេ ហើយគ្មានអ្វីត្រូវបានអានទេ រហូតដល់អ្នកចុច នាំចូល។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "암호는 cmux 자체의 암호화된 암호 저장소에 들어가며, 자동 완성이 여기서 찾습니다. 에이전트는 절대 볼 수 없으며, 가져오기를 클릭하기 전에는 아무것도 읽지 않습니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "De havner i cmux’ eget krypterte passordlager, der autoutfylling finner dem. Agenter ser dem aldri, og ingenting leses før du klikker på Importer."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Trafiają do własnego, zaszyfrowanego magazynu haseł cmux, z którego korzysta autouzupełnianie. Agenci nigdy ich nie widzą, a nic nie jest odczytywane, dopóki nie klikniesz Importuj."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Elas vão para o armazenamento de senhas criptografado do próprio cmux, onde o preenchimento automático as encontra. Agentes nunca as veem, e nada é lido até você clicar em Importar."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Они попадают в собственное зашифрованное хранилище паролей cmux, откуда их берёт автозаполнение. Агенты их никогда не видят, и ничего не читается, пока вы не нажмёте «Импортировать»."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "รหัสผ่านจะถูกเก็บในที่เก็บรหัสผ่านที่เข้ารหัสของ cmux เอง ซึ่งการป้อนอัตโนมัติใช้ เอเจนต์จะไม่เห็นรหัสผ่านเลย และจะไม่มีการอ่านสิ่งใดจนกว่าคุณจะคลิก นำเข้า"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Parolalar, otomatik doldurmanın kullandığı cmux’ın kendi şifreli parola deposuna gider. Ajanlar bunları asla görmez ve İçe Aktar’ı tıklayana kadar hiçbir şey okunmaz."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Вони потрапляють до власного зашифрованого сховища паролів cmux, звідки їх бере автозаповнення. Агенти їх ніколи не бачать, і нічого не читається, доки ви не натиснете «Імпортувати»."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Mật khẩu được đưa vào kho mật khẩu mã hóa riêng của cmux, nơi tính năng tự động điền tìm thấy chúng. Các agent không bao giờ thấy chúng, và không có gì được đọc cho đến khi bạn bấm Nhập."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "密码会存入 cmux 自己的加密密码库,自动填充从这里读取。智能体永远看不到它们,在你点按“导入”之前不会读取任何内容。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "密碼會存入 cmux 自己的加密密碼庫,自動填寫從這裡讀取。代理程式永遠看不到它們,在你按下「匯入」之前不會讀取任何內容。"
-          }
-        }
-      }
     },
     "onboarding.import.passwordsSkipped": {
       "extractionState": "manual",
@@ -6285,6 +5892,2102 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Nhập từ trình duyệt khác…"
+          }
+        }
+      }
+    },
+    "onboarding.button.continue": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Continue"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "متابعة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nastavi"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fortsæt"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fortfahren"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Continuar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Continuer"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Continua"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "続ける"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បន្ត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "계속"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fortsett"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kontynuuj"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Continuar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Продолжить"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ดำเนินการต่อ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Devam"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Продовжити"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tiếp tục"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "继续"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "繼續"
+          }
+        }
+      }
+    },
+    "onboarding.access.allow": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allow Access…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "السماح بالوصول…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dozvoli pristup…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Giv adgang…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zugriff erlauben …"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permitir acceso…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Autoriser l’accès…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Consenti accesso…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アクセスを許可…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អនុញ្ញាតការចូលប្រើ…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "접근 허용…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gi tilgang …"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zezwól na dostęp…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permitir acesso…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Разрешить доступ…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "อนุญาตการเข้าถึง…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erişime İzin Ver…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Дозволити доступ…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cho phép truy cập…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允许访问…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允許取用…"
+          }
+        }
+      }
+    },
+    "onboarding.access.needed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No access yet"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا وصول بعد"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Još nema pristupa"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ingen adgang endnu"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Noch kein Zugriff"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aún sin acceso"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pas encore d’accès"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nessun accesso per ora"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "まだアクセスできません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនទាន់មានការចូលប្រើ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "아직 접근 권한 없음"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ingen tilgang ennå"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brak dostępu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ainda sem acesso"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Доступа пока нет"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ยังไม่มีสิทธิ์เข้าถึง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Henüz erişim yok"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Доступу ще немає"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chưa có quyền truy cập"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "尚无访问权限"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "尚無取用權限"
+          }
+        }
+      }
+    },
+    "onboarding.access.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allow access to %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "السماح بالوصول إلى %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dozvoli pristup za %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Giv adgang til %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zugriff auf %@ erlauben"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permitir acceso a %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Autoriser l’accès à %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Consenti l’accesso a %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ へのアクセスを許可"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អនុញ្ញាតការចូលប្រើ %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@에 대한 접근 허용"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gi tilgang til %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zezwól na dostęp do %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permitir acesso ao %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Разрешить доступ к %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "อนุญาตการเข้าถึง %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ için erişime izin ver"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Дозволити доступ до %@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cho phép truy cập %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允许访问 %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允許取用 %@"
+          }
+        }
+      }
+    },
+    "onboarding.access.none": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux doesn’t have access to other browsers’ profiles on this Mac."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يملك cmux وصولًا إلى ملفات تعريف المتصفحات الأخرى على هذا الـ Mac."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nema pristup profilima drugih preglednika na ovom Macu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux har ikke adgang til andre browseres profiler på denne Mac."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux hat keinen Zugriff auf die Profile anderer Browser auf diesem Mac."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux no tiene acceso a los perfiles de otros navegadores en este Mac."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux n’a pas accès aux profils des autres navigateurs sur ce Mac."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux non ha accesso ai profili degli altri browser su questo Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux はこの Mac 上のほかのブラウザのプロファイルにアクセスできません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux មិនមានសិទ្ធិចូលប្រើប្រវត្តិរូបរបស់កម្មវិធីរុករកផ្សេងទៀតនៅលើ Mac នេះទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux는 이 Mac에 있는 다른 브라우저의 프로필에 접근할 수 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux har ikke tilgang til andre nettleseres profiler på denne Macen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nie ma dostępu do profili innych przeglądarek na tym Macu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O cmux não tem acesso aos perfis de outros navegadores neste Mac."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "У cmux нет доступа к профилям других браузеров на этом Mac."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ไม่มีสิทธิ์เข้าถึงโปรไฟล์ของเบราว์เซอร์อื่นบน Mac เครื่องนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux’un bu Mac’teki diğer tarayıcıların profillerine erişimi yok."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не має доступу до профілів інших браузерів на цьому Mac."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux không có quyền truy cập hồ sơ của các trình duyệt khác trên máy Mac này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 无法访问此 Mac 上其他浏览器的个人资料。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 無法取用這台 Mac 上其他瀏覽器的設定檔。"
+          }
+        }
+      }
+    },
+    "onboarding.access.how": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "To import from %@, give cmux access to its profile folder:"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "للاستيراد من %@، امنح cmux حق الوصول إلى مجلد ملف التعريف الخاص به:"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Za uvoz iz %@, dajte cmuxu pristup njegovoj mapi profila:"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Giv cmux adgang til mappen med profiler for at importere fra %@:"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Um aus %@ zu importieren, gib cmux Zugriff auf seinen Profilordner:"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Para importar desde %@, da a cmux acceso a su carpeta de perfiles:"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pour importer depuis %@, donnez à cmux l’accès à son dossier de profils :"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Per importare da %@, consenti a cmux l’accesso alla sua cartella dei profili:"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ から読み込むには、そのプロファイルフォルダへのアクセスを cmux に許可してください:"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ដើម្បីនាំចូលពី %@ សូមអនុញ្ញាតឱ្យ cmux ចូលប្រើថតប្រវត្តិរូបរបស់វា៖"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@에서 가져오려면 cmux가 해당 프로필 폴더에 접근하도록 허용하세요:"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "For å importere fra %@ må du gi cmux tilgang til profilmappen:"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aby zaimportować z %@, daj cmux dostęp do folderu profili:"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Para importar do %@, dê ao cmux acesso à pasta de perfis dele:"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чтобы импортировать из %@, дайте cmux доступ к папке его профилей:"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "หากต้องการนำเข้าจาก %@ ให้อนุญาตให้ cmux เข้าถึงโฟลเดอร์โปรไฟล์ของเบราว์เซอร์นั้น:"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ tarayıcısından içe aktarmak için cmux’a profil klasörüne erişim verin:"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Щоб імпортувати з %@, надайте cmux доступ до його теки профілів:"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Để nhập từ %@, hãy cấp cho cmux quyền truy cập thư mục hồ sơ của trình duyệt đó:"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要从 %@ 导入，请允许 cmux 访问其个人资料文件夹："
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "若要從 %@ 輸入，請允許 cmux 取用其設定檔資料夾："
+          }
+        }
+      }
+    },
+    "onboarding.access.step1": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1. Select Continue."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1. اختر متابعة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1. Odaberite Nastavi."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1. Vælg Fortsæt."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1. Wähle „Fortfahren“."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1. Selecciona Continuar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1. Sélectionnez Continuer."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1. Seleziona Continua."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1. 「続ける」を選択します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1. ជ្រើសរើស បន្ត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1. 계속을 선택합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1. Velg Fortsett."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1. Wybierz Kontynuuj."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1. Selecione Continuar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1. Выберите «Продолжить»."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1. เลือก ดำเนินการต่อ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1. Devam’ı seçin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1. Виберіть «Продовжити»."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1. Chọn Tiếp tục."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1. 选择“继续”。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1. 選擇「繼續」。"
+          }
+        }
+      }
+    },
+    "onboarding.access.notGranted": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux didn’t get access. Choose %@ in the file picker."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يحصل cmux على حق الوصول. اختر %@ في منتقي الملفات."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nije dobio pristup. Odaberite %@ u biraču datoteka."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux fik ikke adgang. Vælg %@ i filvælgeren."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux hat keinen Zugriff erhalten. Wähle %@ in der Dateiauswahl."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux no obtuvo acceso. Elige %@ en el selector de archivos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux n’a pas obtenu l’accès. Choisissez %@ dans le sélecteur de fichiers."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux non ha ottenuto l’accesso. Scegli %@ nel selettore di file."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux はアクセスできませんでした。ファイルピッカーで %@ を選択してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux មិនបានទទួលសិទ្ធិចូលប្រើទេ។ ជ្រើសរើស %@ នៅក្នុងកម្មវិធីជ្រើសឯកសារ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 접근 권한을 얻지 못했습니다. 파일 선택기에서 %@ 폴더를 선택하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux fikk ikke tilgang. Velg %@ i filvelgeren."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux nie uzyskał dostępu. Wybierz %@ w oknie wyboru plików."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O cmux não obteve acesso. Escolha %@ no seletor de arquivos."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не получил доступ. Выберите %@ в окне выбора файлов."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ไม่ได้รับสิทธิ์เข้าถึง เลือก %@ ในตัวเลือกไฟล์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux erişim alamadı. Dosya seçicide %@ klasörünü seçin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux не отримав доступу. Виберіть %@ у вікні вибору файлів."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux chưa có quyền truy cập. Hãy chọn %@ trong bộ chọn tệp."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 未获得访问权限。请在文件选择器中选择 %@。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 未取得取用權限。請在檔案選擇器中選擇 %@。"
+          }
+        }
+      }
+    },
+    "onboarding.button.beginImporting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Begin Importing"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "بدء الاستيراد"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Započni uvoz"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start import"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Import starten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Empezar a importar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Commencer l’importation"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inizia l’importazione"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "読み込みを開始"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ចាប់ផ្ដើមនាំចូល"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "가져오기 시작"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start import"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rozpocznij import"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Começar a importar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Начать импорт"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เริ่มนำเข้า"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "İçe Aktarmayı Başlat"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Почати імпорт"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bắt đầu nhập"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "开始导入"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開始輸入"
+          }
+        }
+      }
+    },
+    "onboarding.button.skipImporting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skip Importing"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تخطي الاستيراد"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preskoči uvoz"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spring import over"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Import überspringen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Omitir importación"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ignorer l’importation"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Salta importazione"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "読み込みをスキップ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រំលងការនាំចូល"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "가져오기 건너뛰기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hopp over import"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pomiń import"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pular importação"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пропустить импорт"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ข้ามการนำเข้า"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "İçe Aktarmayı Atla"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пропустити імпорт"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bỏ qua nhập"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "跳过导入"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "略過輸入"
+          }
+        }
+      }
+    },
+    "onboarding.unlock.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unlock your data for import"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "افتح قفل بياناتك للاستيراد"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otključajte podatke za uvoz"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lås dine data op til import"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Daten für den Import entsperren"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desbloquea tus datos para importarlos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Déverrouillez vos données pour l’importation"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sblocca i tuoi dati per l’importazione"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "読み込むデータのロックを解除"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ដោះសោទិន្នន័យរបស់អ្នកសម្រាប់នាំចូល"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "가져올 데이터 잠금 해제"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lås opp dataene for import"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Odblokuj dane do importu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desbloqueie seus dados para importar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Разблокируйте данные для импорта"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ปลดล็อกข้อมูลของคุณเพื่อนำเข้า"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verilerinizin kilidini içe aktarma için açın"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Розблокуйте дані для імпорту"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mở khóa dữ liệu để nhập"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "解锁要导入的数据"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "解鎖要輸入的資料"
+          }
+        }
+      }
+    },
+    "onboarding.unlock.line": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Some data is encrypted, so macOS will ask for your computer password to let cmux use %@ and bring it in securely."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "بعض البيانات مشفرة، لذلك سيطلب macOS كلمة سر الكمبيوتر للسماح لـ cmux باستخدام %@ ونقلها بأمان."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neki podaci su šifrovani, pa će macOS tražiti lozinku računara da bi cmux mogao koristiti %@ i sigurno ih prenijeti."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nogle data er krypteret, så macOS beder om din computers adgangskode, så cmux kan bruge %@ og hente dem sikkert."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Einige Daten sind verschlüsselt. Deshalb fragt macOS nach deinem Computerpasswort, damit cmux %@ verwenden und sie sicher übernehmen kann."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Algunos datos están cifrados, así que macOS te pedirá la contraseña del ordenador para que cmux use %@ y los traiga de forma segura."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Certaines données sont chiffrées : macOS vous demandera le mot de passe de l’ordinateur pour que cmux utilise %@ et les importe en toute sécurité."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alcuni dati sono cifrati, quindi macOS chiederà la password del computer per consentire a cmux di usare %@ e importarli in modo sicuro."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一部のデータは暗号化されているため、cmux が %@ を使って安全に読み込めるよう、macOS がコンピュータのパスワードを求めます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទិន្នន័យខ្លះត្រូវបានអ៊ិនគ្រីប ដូច្នេះ macOS នឹងសួររកពាក្យសម្ងាត់កុំព្យូទ័ររបស់អ្នក ដើម្បីឱ្យ cmux ប្រើ %@ និងនាំវាចូលដោយសុវត្ថិភាព។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "일부 데이터는 암호화되어 있어, cmux가 %@ 항목을 사용해 안전하게 가져올 수 있도록 macOS가 컴퓨터 암호를 요청합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Noen data er kryptert, så macOS ber om datamaskinpassordet slik at cmux kan bruke %@ og hente dem trygt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Część danych jest zaszyfrowana, więc macOS poprosi o hasło komputera, aby cmux mógł użyć %@ i bezpiecznie je przenieść."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alguns dados são criptografados, então o macOS pedirá a senha do computador para que o cmux use %@ e os traga com segurança."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Часть данных зашифрована, поэтому macOS запросит пароль компьютера, чтобы cmux мог использовать %@ и безопасно перенести их."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ข้อมูลบางส่วนถูกเข้ารหัส macOS จึงจะขอรหัสผ่านคอมพิวเตอร์ของคุณเพื่อให้ cmux ใช้ %@ และนำข้อมูลเข้ามาอย่างปลอดภัย"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bazı veriler şifreli olduğundan macOS, cmux’un %@ öğesini kullanıp verileri güvenle getirebilmesi için bilgisayar parolanızı soracak."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Частина даних зашифрована, тож macOS попросить пароль комп’ютера, щоб cmux міг використати %@ і безпечно перенести їх."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Một số dữ liệu được mã hóa, nên macOS sẽ hỏi mật khẩu máy tính để cmux dùng %@ và nhập dữ liệu một cách an toàn."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "部分数据已加密，因此 macOS 会要求输入电脑密码，以便 cmux 使用 %@ 并安全地导入数据。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "部分資料已加密，因此 macOS 會要求輸入電腦密碼，讓 cmux 使用 %@ 並安全地輸入資料。"
+          }
+        }
+      }
+    },
+    "onboarding.import.passwordsCSV": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Import Passwords from CSV…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "استيراد كلمات السر من CSV…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uvezi lozinke iz CSV-a…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importer adgangskoder fra CSV…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Passwörter aus CSV importieren …"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importar contraseñas desde CSV…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importer les mots de passe depuis un CSV…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importa password da CSV…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CSV からパスワードを読み込む…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "នាំចូលពាក្យសម្ងាត់ពី CSV…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CSV에서 암호 가져오기…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importer passord fra CSV …"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importuj hasła z CSV…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importar senhas de CSV…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Импортировать пароли из CSV…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "นำเข้ารหัสผ่านจาก CSV…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Parolaları CSV’den İçe Aktar…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Імпортувати паролі з CSV…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nhập mật khẩu từ CSV…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "从 CSV 导入密码…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "從 CSV 輸入密碼…"
+          }
+        }
+      }
+    },
+    "onboarding.access.panelPrompt": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allow Access"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "السماح بالوصول"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dozvoli pristup"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Giv adgang"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zugriff erlauben"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permitir acceso"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Autoriser l’accès"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Consenti accesso"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アクセスを許可"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អនុញ្ញាតការចូលប្រើ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "접근 허용"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gi tilgang"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zezwól na dostęp"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permitir acesso"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Разрешить доступ"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "อนุญาตการเข้าถึง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erişime İzin Ver"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Дозволити доступ"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cho phép truy cập"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允许访问"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允許取用"
+          }
+        }
+      }
+    },
+    "onboarding.access.panelMessage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Select “Allow Access” to let cmux read your %@ data."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اختر “السماح بالوصول” للسماح لـ cmux بقراءة بيانات %@."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Odaberite „Dozvoli pristup“ da cmux može čitati vaše podatke iz %@."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vælg “Giv adgang” for at lade cmux læse dine data fra %@."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wähle „Zugriff erlauben“, damit cmux deine %@-Daten lesen kann."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Selecciona «Permitir acceso» para que cmux lea tus datos de %@."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sélectionnez « Autoriser l’accès » pour que cmux lise vos données %@."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seleziona «Consenti accesso» per permettere a cmux di leggere i tuoi dati di %@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「アクセスを許可」を選択すると、cmux が %@ のデータを読み取れるようになります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ជ្រើសរើស «អនុញ្ញាតការចូលប្រើ» ដើម្បីឱ្យ cmux អានទិន្នន័យ %@ របស់អ្នក។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "‘접근 허용’을 선택하면 cmux가 %@ 데이터를 읽을 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Velg «Gi tilgang» for å la cmux lese dataene dine fra %@."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wybierz „Zezwól na dostęp”, aby cmux mógł odczytać dane z %@."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Selecione “Permitir acesso” para que o cmux leia seus dados do %@."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выберите «Разрешить доступ», чтобы cmux мог прочитать ваши данные %@."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เลือก “อนุญาตการเข้าถึง” เพื่อให้ cmux อ่านข้อมูล %@ ของคุณ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux’un %@ verilerinizi okuyabilmesi için “Erişime İzin Ver”i seçin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Виберіть «Дозволити доступ», щоб cmux міг читати ваші дані %@."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chọn “Cho phép truy cập” để cmux đọc dữ liệu %@ của bạn."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "选择“允许访问”以让 cmux 读取你的 %@ 数据。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選擇「允許取用」以讓 cmux 讀取你的 %@ 資料。"
+          }
+        }
+      }
+    },
+    "onboarding.access.step2.open": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2. In the file picker, open this folder and choose Allow Access:"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2. في منتقي الملفات، افتح هذا المجلد واختر السماح بالوصول:"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2. U biraču datoteka otvorite ovu mapu i odaberite Dozvoli pristup:"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2. Åbn denne mappe i filvælgeren, og vælg Giv adgang:"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2. Öffne in der Dateiauswahl diesen Ordner und wähle „Zugriff erlauben“:"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2. En el selector de archivos, abre esta carpeta y elige Permitir acceso:"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2. Dans le sélecteur de fichiers, ouvrez ce dossier et choisissez Autoriser l’accès :"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2. Nel selettore di file, apri questa cartella e scegli Consenti accesso:"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2. ファイルピッカーでこのフォルダを開き、「アクセスを許可」を選択します:"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2. នៅក្នុងកម្មវិធីជ្រើសឯកសារ បើកថតនេះ ហើយជ្រើសរើស អនុញ្ញាតការចូលប្រើ៖"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2. 파일 선택기에서 이 폴더를 열고 접근 허용을 선택합니다:"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2. Åpne denne mappen i filvelgeren, og velg Gi tilgang:"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2. W oknie wyboru plików otwórz ten folder i wybierz Zezwól na dostęp:"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2. No seletor de arquivos, abra esta pasta e escolha Permitir acesso:"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2. В окне выбора файлов откройте эту папку и выберите «Разрешить доступ»:"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2. ในตัวเลือกไฟล์ ให้เปิดโฟลเดอร์นี้ แล้วเลือก อนุญาตการเข้าถึง:"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2. Dosya seçicide bu klasörü açın ve Erişime İzin Ver’i seçin:"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2. У вікні вибору файлів відкрийте цю папку й виберіть «Дозволити доступ»:"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2. Trong bộ chọn tệp, mở thư mục này và chọn Cho phép truy cập:"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2. 在文件选择器中打开此文件夹，然后选择“允许访问”："
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2. 在檔案選擇器中打開此檔案夾，然後選擇「允許取用」："
           }
         }
       }

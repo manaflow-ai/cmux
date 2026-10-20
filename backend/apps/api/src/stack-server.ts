@@ -16,6 +16,8 @@ export interface StackServer {
   findUserByEmail(email: string): Promise<{ id: string; email_verified: boolean } | undefined>
   createUser(email: string, displayName: string | undefined): Promise<{ id: string }>
   createSession(userId: string, expiresInMillis: number | undefined): Promise<{ access_token: string; refresh_token: string }>
+  /** When the user's session (a token's refresh_token_id) was created, ms; null when Stack lists no such session. */
+  sessionCreatedAt(userId: string, sessionId: string): Promise<number | null>
   /**
    * The Stack team now, or null when Stack answers TEAM_NOT_FOUND (team webhooks, cx-3bi.43).
    * `plan` is the team's client_read_only_metadata.cmuxPlan (web billing's team plan mirror,
@@ -220,7 +222,12 @@ export const stackServer = (
     createUser: async (email, displayName) =>
       call<{ id: string }>("POST", "/users", { primary_email: email, primary_email_verified: true, ...(displayName ? { display_name: displayName } : {}) }),
     createSession: async (userId, expiresInMillis) =>
-      call<{ access_token: string; refresh_token: string }>("POST", "/auth/sessions", { user_id: userId, ...(expiresInMillis ? { expires_in_millis: expiresInMillis } : {}) })
+      call<{ access_token: string; refresh_token: string }>("POST", "/auth/sessions", { user_id: userId, ...(expiresInMillis ? { expires_in_millis: expiresInMillis } : {}) }),
+    sessionCreatedAt: async (userId, sessionId) => {
+      const r = await call<{ items?: Array<{ id?: string; created_at?: number }> }>("GET", `/auth/sessions?user_id=${encodeURIComponent(userId)}`)
+      const hit = (r.items ?? []).find((s) => s.id === sessionId)
+      return typeof hit?.created_at === "number" ? hit.created_at : null
+    }
   }
 }
 

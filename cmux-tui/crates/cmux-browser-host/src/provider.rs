@@ -63,6 +63,10 @@ pub struct TabAnnounce {
     /// tab's driver multiplies CSS px by it (`CdpDriver::set_input_scale`).
     #[serde(rename = "inputScale", default = "unit_scale", skip_serializing_if = "is_unit_scale")]
     pub input_scale: f64,
+    /// The app's emulation turned touch on (a phone or tablet preset): the
+    /// tab's driver sends pointer input as touch (`CdpDriver::set_touch_emulation`, cx-3ny35).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub touch: bool,
 }
 
 fn unit_scale() -> f64 {
@@ -415,6 +419,7 @@ mod tests {
                 title: "Example".into(),
                 visible: false,
                 input_scale: 1.0,
+                touch: false,
             }],
         }
     }

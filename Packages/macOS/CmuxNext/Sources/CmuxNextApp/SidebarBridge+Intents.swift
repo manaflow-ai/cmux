@@ -12,7 +12,7 @@ import CmuxNextSidebar
 extension SidebarBridge {
     func handle(_ intent: SidebarIntent) {
         guard let state else { return }
-        if CloudCreationRows.handle(intent, bridge: self, state: state) { return }
+        if CloudCreationRows.handle(intent, bridge: self, state: state) || SidebarDocWiring.handle(intent, bridge: self) { return }
         // A section's collapse is window view state (sidebar snapshot), never a daemon command.
         if case .toggleCollapse(.section) = intent {
             model.apply(intent)
@@ -24,7 +24,7 @@ extension SidebarBridge {
         // that are all pinned already only snaps back.
         if case .reorder(let ids, let position) = intent {
             switch position.section {
-            case .pinned:
+            case .pinned, .custom: // a custom section lists only on the sidebar document, which took the intent above
                 let unpinned = ids.filter { services.machines.workspace(id: $0.rawValue)?.0.pinned != true }
                 guard !unpinned.isEmpty else { return resync() }
                 model.apply(intent)
@@ -64,7 +64,7 @@ extension SidebarBridge {
             // The row's close button is an entrypoint of `closeWorkspace`,
             // so it asks the same confirmation and ends the terminals too.
             for id in ids {
-                services.registry.perform("closeWorkspace", invocation: ActionInvocation(target: ActionTargetRef(kind: .workspace, id: id.rawValue)))
+                services.registry.perform("closeWorkspace", invocation: ActionInvocation(closingRow: id.rawValue))
             }
         case .newWorkspace(let machine, let group):
             // A double-click in a group's empty part, or its "+": the end of that group.
@@ -86,11 +86,8 @@ extension SidebarBridge {
             // commands are not used, so the daemon can drop them. Before personal state loads it waits.
             if !organizationQueue.hold(intent, local: services.machines.local) { refuseOrganization() }
         case .closeGroup(let group):
-            let members = (model.group(group)?.workspaces.map(\.id) ?? []).compactMap { id in
-                services.machines.workspace(id: id.rawValue).flatMap { workspace, daemon in
-                    workspace.key.map { (daemon, $0, WorkspaceClose.closing(workspace, on: daemon)) }
-                }
-            }
+            let members = (model.group(group)?.workspaces ?? []).compactMap { services.machines.workspace(id: $0.id.rawValue) }
+                .compactMap { workspace, daemon in workspace.key.map { (daemon, $0, WorkspaceClose.closing(workspace, on: daemon)) } }
             model.apply(intent)
             for (daemon, key, terminals) in members {
                 command("close-workspace", on: daemon) { c in try await WorkspaceClose.close(key, terminals: terminals, on: c) }
@@ -108,7 +105,8 @@ extension SidebarBridge {
             sendPinned(ids, pinned)
         case .activateItem(let id, let opensWorkspace):
             activateLayoutItem(id, opensWorkspace: opensWorkspace)
-        case .installUpdate, .setAutomaticUpdates, .openUpdateLink, .openUpdateChanges, .noticeAction, .dismissNotice, .openWhatsNew, .dismissUpdated:
+        case .installUpdate, .setAutomaticUpdates, .openUpdateLink, .openUpdateChanges, .noticeAction, .dismissNotice, .openWhatsNew, .dismissUpdated,
+             .hideNowPlayingCard:
             SidebarCardFeed.handle(intent, services: services)
         case .nowPlaying(let command): services.cache.pageRequests.sidebarSources.perform(command)
         case .layout(let op):
