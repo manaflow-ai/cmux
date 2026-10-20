@@ -33,12 +33,14 @@ enum NowPlayingCardHandlers {
             let enabled = services?.settings?.snapshot.nowPlaying.enabled ?? NowPlayingSettings.enabledDefault
             return enabled && dismissal.hiddenMedia == nil && !dismissal.hiddenUntilRelaunch
         }
+        // What the card shows (its follow's source), else the sidebar's sources.
         registry.bind("nowPlaying.playPause", invoke: { [weak services, weak registry] _ in
-            guard let sources = services?.cache.pageRequests.sidebarSources, sources.nowPlaying != nil else {
+            let source: (any NowPlayingSource)? = dismissal.source ?? services?.cache.pageRequests.sidebarSources
+            guard let source, source.nowPlaying != nil else {
                 registry?.refuse(NowPlayingCardStrings.nothingPlaying)
                 return
             }
-            sources.perform(.playPause)
+            source.perform(.playPause)
         })
     }
 

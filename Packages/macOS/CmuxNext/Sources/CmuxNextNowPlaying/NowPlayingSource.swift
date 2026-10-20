@@ -40,7 +40,7 @@ extension SidebarModel {
             }) {
                 guard let self else { return }
                 source.run(followed != .off)
-                let card = dismissal.map { $0.card(for: followed.nowPlaying) } ?? followed.nowPlaying
+                let card = dismissal.map { $0.card(for: followed.nowPlaying, from: source) } ?? followed.nowPlaying
                 if self.nowPlaying != card { self.nowPlaying = card }
                 NewTabNowPlaying.show(followed.nowPlaying, from: source)
             }
