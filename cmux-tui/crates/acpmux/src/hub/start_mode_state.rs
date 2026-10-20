@@ -1,28 +1,36 @@
 //! Part of `Hub`; see `hub/mod.rs`. What `hub/start_mode.rs` needs beyond
-//! config.json and the settings file:
+//! config.json and the settings file, from the app's chat settings push
+//! (`_acpmux/chat_settings` `permissionMode`, `permissionModeManaged`,
+//! `server/chats.rs`). Only the app reads the MDM and team policy layers:
 //!
 //! - the value of `agents.defaultPermissionMode` that MDM or the team policy
-//!   forces. Only the app reads those layers; it pushes the effective value
-//!   with every chat settings push (`_acpmux/chat_settings` `permissionMode`,
-//!   `permissionModeManaged`, `server/chats.rs`). A forced value beats
-//!   config.json, the settings file and every pick.
+//!   forces. It beats config.json, the settings file and every pick. A
+//!   forced value that is not a short string is a value acpmux does not
+//!   know, which is `standard`, never full access. Best effort, not a
+//!   security boundary: any process of the same user can push or edit these
+//!   files, and a harness profile that pins its own mode still applies.
+//! - the effective value when nothing forces it, for a file with no key: a
+//!   team default or an MDM recommended value, so new chats start in what
+//!   Settings shows. With the app closed it is the last value pushed.
 //! - a count of changes to the setting, for "latest choice wins": a pick
-//!   records the count (`lastPermissionModeChange`) and wins only while no
-//!   change has been counted since. Counting changes, not comparing values,
-//!   means a setting changed and changed back still wins over an older pick.
-//!   acpmux counts a change when it sees the setting (the forced value and
-//!   the file's value) differ from the last time it looked: at each push
-//!   (the app pushes after each settings change it writes) and each time a
-//!   new chat's start mode is decided. A change and its undo made while
-//!   neither happens (the app closed, the file edited twice by hand) is not
-//!   seen.
+//!   records the count and its epoch (`lastPermissionModeChange`) and wins
+//!   only while no change has been counted since. Counting changes, not
+//!   comparing values, means a setting changed and changed back still wins
+//!   over an older pick. acpmux counts a change when it sees the setting (the
+//!   pushed values and the file's value) differ from the last time it looked:
+//!   at each push (the app pushes after each settings change it writes) and
+//!   each time a new chat's start mode is decided. A change and its undo made
+//!   while neither happens (the app closed, the file edited twice by hand) is
+//!   not seen. A count started again (the file lost or unreadable) gets a new
+//!   epoch, so a pick from the old count never wins again.
 //!
-//! Kept in `start-mode.json` beside config.json (0600, written through a
-//! temp file and a rename), so a forced value holds across a daemon restart
+//! Kept in `start-mode.json` beside config.json (owner-only, written through
+//! `config::write_atomic`), so a forced value holds across a daemon restart
 //! before the app pushes again. A daemon with no config file keeps it in
-//! memory.
+//! memory. Lock order: the config lock, then the state's mutex.
 
 use super::*;
+use crate::config::PermissionModeChange;
 use serde::{Deserialize, Serialize};
 
 /// The state file's name, beside config.json.
@@ -31,40 +39,73 @@ const FILE: &str = "start-mode.json";
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub(crate) struct StartModeState {
-    /// The forced `agents.defaultPermissionMode`, as the app pushed it.
+    /// The forced `agents.defaultPermissionMode`, as the app pushed it
+    /// (`""` for a forced value acpmux could not read).
     pub managed: Option<String>,
-    /// The setting as acpmux last saw it (the forced value and the settings
+    /// The effective setting the app pushed when nothing forces it.
+    pub pushed: Option<String>,
+    /// The setting as acpmux last saw it (the pushed values and the settings
     /// file's value); `None` before the first look.
     pub seen: Option<String>,
     /// Changes to the setting counted so far.
     pub changes: u64,
+    /// Names this count; a new one when the count starts again.
+    pub epoch: String,
 }
 
 impl StartModeState {
+    /// The saved state, or a new count with a new epoch when there is none or
+    /// it cannot be read.
     fn load(path: Option<&Path>) -> Self {
-        path.and_then(|p| std::fs::read(p).ok())
-            .and_then(|bytes| serde_json::from_slice(&bytes).ok())
-            .unwrap_or_default()
+        let mut state = path.and_then(Self::read).unwrap_or_default();
+        if state.epoch.is_empty() {
+            state = Self { epoch: uuid::Uuid::now_v7().simple().to_string(), ..state };
+        }
+        state
     }
 
-    fn save(&self, path: &Path) -> std::io::Result<()> {
-        use std::io::Write;
-        let bytes = serde_json::to_vec_pretty(self).map_err(std::io::Error::other)?;
-        let tmp = path.with_extension("json.tmp");
-        let mut options = std::fs::OpenOptions::new();
-        options.write(true).create(true).truncate(true);
-        #[cfg(unix)]
-        std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
-        let mut file = options.open(&tmp)?;
-        file.write_all(&bytes)?;
-        file.sync_all()?;
-        std::fs::rename(&tmp, path)
+    fn read(path: &Path) -> Option<Self> {
+        use std::io::Read;
+        let mut file = match crate::config::private_state_file(path) {
+            Ok(file) => file,
+            Err(e)
+                if e.downcast_ref::<std::io::Error>()
+                    .is_some_and(|e| e.kind() == std::io::ErrorKind::NotFound) =>
+            {
+                return None;
+            }
+            Err(e) => {
+                tracing::warn!("{FILE} not read; the change count starts again: {e:#}");
+                return None;
+            }
+        };
+        let mut bytes = Vec::new();
+        let parsed = file
+            .read_to_end(&mut bytes)
+            .map_err(anyhow::Error::from)
+            .and_then(|_| serde_json::from_slice(&bytes).map_err(anyhow::Error::from));
+        parsed
+            .inspect_err(|e| {
+                tracing::warn!("{FILE} not read; the change count starts again: {e:#}")
+            })
+            .ok()
+    }
+
+    fn save(&self, path: &Path) -> anyhow::Result<()> {
+        let bytes = serde_json::to_vec_pretty(self)?;
+        crate::config::write_atomic(path, &bytes)
+    }
+
+    /// Where the count stands now, to record with a pick.
+    pub(crate) fn mark(&self) -> PermissionModeChange {
+        PermissionModeChange { epoch: self.epoch.clone(), changes: self.changes }
     }
 
     /// Counts a change when the setting is not what it was at the last look.
     /// The first look counts nothing.
     fn observe(&mut self) {
-        let now = json!([self.managed, super::start_mode::setting_snapshot()]).to_string();
+        let now =
+            json!([self.managed, self.pushed, super::start_mode::setting_snapshot()]).to_string();
         match &self.seen {
             Some(seen) if *seen == now => {}
             Some(_) => {
@@ -80,46 +121,51 @@ impl StartModeState {
 #[derive(Default)]
 pub(crate) struct StartModeCell(StdMutex<Option<StartModeState>>);
 
-impl Hub {
-    /// Where the state is kept: beside config.json, if the daemon has one.
-    async fn start_mode_file(&self) -> Option<PathBuf> {
-        let cfg = self.config.read().await;
-        cfg.path.as_ref().and_then(|p| p.parent()).map(|dir| dir.join(FILE))
-    }
+/// Where the state is kept: beside config.json, if the daemon has one.
+pub(super) fn state_file(cfg: &Config) -> Option<PathBuf> {
+    cfg.path.as_ref().and_then(|p| p.parent()).map(|dir| dir.join(FILE))
+}
 
-    /// Applies `change` to the state, looks at the setting, and saves what
-    /// changed. Answers the state before and after.
-    async fn with_start_mode_state(
+impl Hub {
+    /// Applies `change` to the state kept at `path` (`state_file`), looks at
+    /// the setting, and saves what changed. Answers the state before and
+    /// after. Callers may hold the config lock (never the other way round).
+    pub(super) fn update_start_mode_state(
         &self,
+        path: Option<&Path>,
         change: impl FnOnce(&mut StartModeState),
     ) -> (StartModeState, StartModeState) {
-        let path = self.start_mode_file().await;
         let mut cell = self.start_mode_state.0.lock().unwrap_or_else(|e| e.into_inner());
-        let state = cell.get_or_insert_with(|| StartModeState::load(path.as_deref()));
+        let loaded = cell.is_none();
+        let state = cell.get_or_insert_with(|| StartModeState::load(path));
         let before = state.clone();
         change(state);
         state.observe();
-        if *state != before
-            && let Some(path) = &path
+        if (loaded || *state != before)
+            && let Some(path) = path
             && let Err(e) = state.save(path)
         {
-            tracing::warn!("{FILE} not saved: {e}");
+            tracing::warn!("{FILE} not saved: {e:#}");
         }
         (before, state.clone())
     }
 
-    /// The forced value and the change count as they are now.
-    pub(super) async fn start_mode_now(&self) -> StartModeState {
-        self.with_start_mode_state(|_| {}).await.1
-    }
-
     /// The app's push (`_acpmux/chat_settings`): the effective setting and
-    /// whether policy forces it. Tells watchers when what a new chat starts
-    /// in may have changed.
+    /// whether policy forces it. Forced with no value is a forced value
+    /// acpmux does not know. Tells watchers when what a new chat starts in
+    /// may have changed.
     pub async fn apply_permission_push(&self, effective: Option<String>, managed: bool) {
-        let forced = effective.filter(|_| managed);
-        let (before, after) = self.with_start_mode_state(|state| state.managed = forced).await;
-        if before.managed != after.managed || before.changes != after.changes {
+        let (forced, pushed) =
+            if managed { (Some(effective.unwrap_or_default()), None) } else { (None, effective) };
+        let path = state_file(&*self.config.read().await);
+        let (before, after) = self.update_start_mode_state(path.as_deref(), |state| {
+            state.managed = forced;
+            state.pushed = pushed;
+        });
+        if before.managed != after.managed
+            || before.pushed != after.pushed
+            || before.changes != after.changes
+        {
             self.start_mode_changed();
         }
     }

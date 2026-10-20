@@ -122,8 +122,9 @@ It's also Settings > Agents > Agent Chat > Permission Mode for New Chats, and
 change it without you confirming. Picking a mode in a chat sets the default
 too, so the latest choice wins: a pick in a chat, or a change to this setting
 (also one you change back). When your organization manages this setting
-(MDM or a team policy), its value applies to every new chat, over your
-picks.
+(MDM or a team policy), its value applies to new chats, over your picks; a
+value it forces that cmux doesn't know starts chats in the agent's own mode.
+A harness profile or preset that sets its own mode still uses that mode.
 
 The model and reasoning effort a new chat starts with aren't in
 `cmux-next.json` yet. `acpmux defaults <harness> model=<id> effort=<level>`

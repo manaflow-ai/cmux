@@ -591,12 +591,12 @@ pub struct Config {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_permission_mode: Option<String>,
     /// `lastPermissionMode`, `lastPermissionModeChange`: the level of the latest mode pick
-    /// from the app pane, and how many changes to the cmux setting acpmux had counted then
-    /// (`hub/start_mode_state.rs`; `hub/start_mode.rs` `start_level`).
+    /// from the app pane, and how many changes to the cmux setting acpmux had counted then,
+    /// in which count (`hub/start_mode_state.rs`; `hub/start_mode.rs` `start_level`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_permission_mode: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub last_permission_mode_change: Option<u64>,
+    pub last_permission_mode_change: Option<PermissionModeChange>,
     /// `lastPermissionModeSetting`: an older build's record beside a pick (the setting's value
     /// then). Read once to upgrade the pick (`Hub::start_level`), never written.
     #[serde(default, skip_serializing)]
@@ -973,6 +973,17 @@ impl Config {
     pub fn web_listener(&self) -> Option<&WebSocketConfig> {
         self.websocket.as_ref().filter(|_| !self.web_unbound)
     }
+}
+
+/// `lastPermissionModeChange`: where acpmux's count of changes to the cmux
+/// setting `agents.defaultPermissionMode` stood at a mode pick
+/// (`hub/start_mode_state.rs`). `epoch` names the count: a count started
+/// again (its state file lost) has another, so an older pick never matches it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PermissionModeChange {
+    pub epoch: String,
+    pub changes: u64,
 }
 
 fn is_default_kind(k: &HarnessKind) -> bool {

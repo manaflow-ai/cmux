@@ -258,8 +258,8 @@ async fn start_mode_answer_and_new_chats_follow_the_settings_file_never_full_acc
     };
     let state: Value =
         serde_json::from_slice(&std::fs::read(dir.join("start-mode.json")).unwrap()).unwrap();
-    let now = state["changes"].clone();
-    assert!(now.is_u64(), "{state}");
+    assert!(state["changes"].is_u64(), "{state}");
+    let now = json!({"epoch": state["epoch"], "changes": state["changes"]});
     edit(json!({"lastPermissionMode": "standard", "lastPermissionModeChange": now}));
     daemon.reload_catalog().await.unwrap();
     assert_eq!(app.chat(&dir, "codex").await.1, "agent");

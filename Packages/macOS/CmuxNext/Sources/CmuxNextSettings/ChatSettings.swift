@@ -8,7 +8,8 @@ public nonisolated struct ChatSettings: Sendable, Equatable {
     public let discovery: Bool
     public let roots: [String]
     public let managedRoots: [String]
-    /// The effective permission mode for new chats, or nil when no layer sets one.
+    /// The effective permission mode for new chats, or nil when no layer sets one (`""` when a
+    /// forced value is not a string).
     public let permissionMode: String?
     /// Whether MDM or the team policy forces `permissionMode`; then it beats the file and every pick.
     public let permissionModeManaged: Bool
@@ -26,8 +27,11 @@ public nonisolated struct ChatSettings: Sendable, Equatable {
         roots = Self.strings(file.value(at: Self.rootsPath)).filter { validator.refusal($0) == nil }
         self.managedRoots = Self.unique(managedRoots).filter { validator.refusal($0) == nil }
         let modePath = AgentDefaultsSettingsSchema.permissionModePath
-        permissionMode = effective.value(at: modePath)?.stringValue
         permissionModeManaged = managedKeys[modePath.joined(separator: ".")] != nil
+        // A forced value that is not a string goes out as one the daemon does not know (`""`), which
+        // it treats as the harness's own mode; dropping it would let the file or a pick choose.
+        let mode = effective.value(at: modePath)?.stringValue
+        permissionMode = permissionModeManaged ? (mode ?? "") : mode
     }
 
     /// `_acpmux/chat_settings` params. The daemon persists this device-local projection.

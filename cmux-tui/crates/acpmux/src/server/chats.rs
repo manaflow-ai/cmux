@@ -229,13 +229,6 @@ pub(super) async fn route(
         "_acpmux/chat_settings" => {
             let settings = crate::chats::ChatSettings::from_params(&params)
                 .map_err(RpcError::invalid_params)?;
-            let mode = match params.get("permissionMode") {
-                None | Some(Value::Null) => None,
-                Some(Value::String(mode)) if mode.len() <= 64 => Some(mode.clone()),
-                Some(_) => {
-                    return Err(RpcError::invalid_params("permissionMode must be a short string"));
-                }
-            };
             let managed = match params.get("permissionModeManaged") {
                 None | Some(Value::Null) => false,
                 Some(Value::Bool(managed)) => *managed,
@@ -243,6 +236,18 @@ pub(super) async fn route(
                     return Err(RpcError::invalid_params(
                         "permissionModeManaged must be true or false",
                     ));
+                }
+            };
+            // Anything but a short string is no value; forced, that is a
+            // value acpmux does not know (`Hub::apply_permission_push`). The
+            // rest of the push applies either way.
+            let mode = match params.get("permissionMode") {
+                Some(Value::String(mode)) if mode.len() <= 64 => Some(mode.clone()),
+                None | Some(Value::Null) => None,
+                Some(other) => {
+                    let kind = if other.is_string() { "an over-long string" } else { "not a string" };
+                    tracing::warn!(managed, "chat_settings permissionMode is {kind}; read as no value");
+                    None
                 }
             };
             hub.apply_permission_push(mode, managed).await;
