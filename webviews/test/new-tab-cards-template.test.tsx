@@ -30,6 +30,8 @@ const keys = [
   "getComputedStyle",
   "requestAnimationFrame",
   "cancelAnimationFrame",
+  "ResizeObserver",
+  "MutationObserver",
 ] as const;
 const saved = keys.map((key) => [key, key in scope, scope[key]] as const);
 let window: JSDOM["window"];
@@ -55,6 +57,9 @@ beforeAll(() => {
     getComputedStyle: window.getComputedStyle.bind(window),
     requestAnimationFrame: (run: (time: number) => void) => setTimeout(() => run(0), 0),
     cancelAnimationFrame: (id: number) => clearTimeout(id),
+    // The split's quiet row fits its labels to the width (composerRowFit.ts useRowFit).
+    ResizeObserver: (window as unknown as { ResizeObserver: unknown }).ResizeObserver,
+    MutationObserver: window.MutationObserver,
   });
   host = window.document.getElementById("root")!;
 });
