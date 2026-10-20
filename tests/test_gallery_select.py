@@ -258,6 +258,13 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("--section gallery", self.run_text("comment"))
         self.assertIn("gallery", pr_status_sections())
 
+    def test_mark_stale_runs_on_every_head_move(self):
+        # Not only `synchronize`: a reopen or ready-for-review also moves past the old images.
+        cond = self.jobs["mark-stale"]["if"]
+        self.assertNotIn("== 'synchronize'", cond)
+        self.assertIn("!= 'edited'", cond)
+        self.assertEqual(self.jobs["mark-stale"]["permissions"]["pull-requests"], "write")
+
     def test_artifact_name_is_pr_and_exact_head(self):
         upload = [s for s in self.jobs["capture"]["steps"] if "upload-artifact" in s.get("uses", "")][0]
         self.assertEqual(upload["with"]["name"],
