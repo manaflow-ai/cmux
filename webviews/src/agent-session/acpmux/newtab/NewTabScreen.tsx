@@ -372,7 +372,12 @@ export function NewTabScreen(props: Props) {
   // The suggestions' popover (Leo 2026-10-12) hangs under the composer box, on the popup layer:
   // it floats over every section, never covered and never moving the page.
   const [box, setBox] = useState<HTMLDivElement | null>(null);
-  useEscapingPopup(host, shown, () => box, {
+  // With the split, the mode, model and effort sit in the quiet row under the box: the rows hang
+  // under the whole composer instead, so they never cover those controls (a press there would pick
+  // a row).
+  const [composer, setComposer] = useState<HTMLDivElement | null>(null);
+  const anchor = split ? (composer ?? box) : box;
+  useEscapingPopup(host, shown, () => anchor, {
     side: "bottom",
     align: "start",
     gap: UI_ANCHOR_GAP,
@@ -384,9 +389,10 @@ export function NewTabScreen(props: Props) {
   useEffect(() => {
     if (!suggesting || !box) return;
     const document = box.ownerDocument;
+    // A press in the box, or with the split in the quiet row under it, keeps the rows.
     const press = (event: Event) => {
       const target = event.target as Element | null;
-      if (target && (box.contains(target) || target.closest?.(".nt-popover"))) return;
+      if (target && (box.contains(target) || target.closest?.(".nt-popover, .nt-foot"))) return;
       setDismissed(textRef.current);
     };
     document.addEventListener("pointerdown", press, true);
@@ -810,7 +816,7 @@ export function NewTabScreen(props: Props) {
           bar with the agent's model chip, the mic and Send. The location strip with the project the
           chat starts in heads it, as text over the card (ComposerContext, the composer's own; hq#1957
           composer location strip; newtab/screen.css). */}
-      <div className="nt-composer">
+      <div ref={setComposer} className="nt-composer">
         {worktreeError && <WorktreeFailure error={worktreeError} onDismiss={() => setWorktreeError(undefined)} />}
         {!pill && folderStrip}
         <div ref={setBox} className="nt-box">
@@ -918,13 +924,13 @@ export function NewTabScreen(props: Props) {
           </div>
         )}
       </div>
-      {rows.length > 0 && box && (
+      {rows.length > 0 && anchor && (
         <Popover
           open
           // The rows follow the field (Escape there and a press outside close them): the popover
           // never closes itself.
           onOpenChange={() => undefined}
-          anchor={box}
+          anchor={anchor}
           label={nt("suggestions")}
           className="nt-popover"
           initialFocus={false}
