@@ -304,4 +304,64 @@ mod tests {
             "hosted projection recovered the daemon environment: {env:?}"
         );
     }
+
+    #[test]
+    fn hosted_local_environment_keeps_the_daemon_base() {
+        let profile: HarnessProfile = serde_json::from_value(serde_json::json!({
+            "argv": ["/usr/bin/true"]
+        }))
+        .unwrap();
+        let command =
+            harness_command("local", &profile, &std::env::temp_dir(), None, None).unwrap();
+        let env = command_env(&command);
+        assert!(
+            env.iter().any(|(key, _)| key == "CARGO_MANIFEST_DIR"),
+            "hosted projection discarded the local daemon environment"
+        );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn remote_scope_never_probes_a_profile_path_runner() {
+        use std::io::Write as _;
+        use std::os::unix::fs::PermissionsExt;
+        use std::process::{Command as StdCommand, Stdio};
+
+        let root = std::env::temp_dir().join(format!("acpmux-remote-scope-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let runner = root.join("systemd-run");
+        let marker = root.join("probed");
+        let mut writer = StdCommand::new("/bin/sh")
+            .args(["-c", "cat >\"$1\" && chmod 755 \"$1\"", "sh"])
+            .arg(&runner)
+            .stdin(Stdio::piped())
+            .spawn()
+            .unwrap();
+        writeln!(
+            writer.stdin.take().unwrap(),
+            "#!/bin/sh\nprintf probed >{}\nexit 1",
+            marker.display()
+        )
+        .unwrap();
+        assert!(writer.wait().unwrap().success());
+        let profile: HarnessProfile = serde_json::from_value(serde_json::json!({
+            "argv": ["/usr/bin/true"],
+            "env": {
+                "ACPMUX_REMOTE_ENV_POLICY": "1",
+                "PATH": root
+            }
+        }))
+        .unwrap();
+        let _ = harness_command(
+            "remote",
+            &profile,
+            &std::env::temp_dir(),
+            None,
+            Some(("session", "remote")),
+        )
+        .unwrap();
+        assert!(!marker.exists(), "remote launch probed profile-controlled systemd-run");
+        let _ = std::fs::remove_dir_all(&root);
+    }
 }

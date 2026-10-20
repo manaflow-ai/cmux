@@ -123,6 +123,51 @@ fn make_fifo(path: &Path) {
     assert_eq!(unsafe { libc::mkfifo(c.as_ptr(), 0o600) }, 0);
 }
 
+fn write_executable(path: &Path, text: &str) {
+    use std::io::Write as _;
+    use std::process::{Command, Stdio};
+    let mut child = Command::new("/bin/sh")
+        .args(["-c", "cat >\"$1\" && chmod 755 \"$1\"", "sh"])
+        .arg(path)
+        .stdin(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child.stdin.take().unwrap().write_all(text.as_bytes()).unwrap();
+    assert!(child.wait().unwrap().success());
+}
+
+#[tokio::test]
+async fn agent_host_parent_does_not_retain_the_controller_environment() {
+    let dir = scratch("parent-env");
+    let parent = dir.join("parent.txt");
+    let wrapper = dir.join("agent");
+    write_executable(
+        &wrapper,
+        &format!(
+            "#!/bin/sh\nps eww -p \"$PPID\" > \"$PARENT_ENV_PROBE\"\nexec python3 {}\n",
+            daemon_env::sh_quote(FAKE)
+        ),
+    );
+    let mut launch = spec(&dir, "s-parent-env");
+    launch.program = wrapper.to_string_lossy().into_owned();
+    launch.args.clear();
+    launch.env.push(("PARENT_ENV_PROBE".into(), parent.to_string_lossy().into_owned()));
+    let record = link::spawn(&launcher(), &launch).await.expect("spawn host");
+    let lock = live_lock(&dir, &record);
+    let (owner, _) = connected(&record, 0).await;
+    let mut logged = 0;
+    request(&owner, 1, "initialize", json!({"protocolVersion": 1})).await;
+    read_until(&owner, &mut logged, |e| is_response(e, 1)).await;
+    let observed = std::fs::read_to_string(&parent).unwrap();
+    for name in ["ACPMUX_TEST_HERMETIC=", "CARGO_MANIFEST_DIR="] {
+        assert!(!observed.contains(name), "agent host parent retained {name}");
+    }
+    owner.terminate(Duration::from_millis(500)).await.unwrap();
+    read_until(&owner, &mut logged, |e| matches!(e, Entry::Exit { .. })).await;
+    wait_dead(lock).await;
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[tokio::test]
 async fn host_keeps_the_turn_running_without_a_controller_and_resumes_exactly() {
     let dir = scratch("resume");
