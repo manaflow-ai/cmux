@@ -13378,9 +13378,9 @@
     {
       "cli" : "guiOnly",
       "cli_name" : "browser toggle-react-grab",
-      "context_menu" : "unimplemented",
+      "context_menu" : "offered",
       "context_menus" : [
-
+        "browserPage"
       ],
       "default_aliases" : [
 
@@ -30263,6 +30263,19 @@
               "id" : "toggleBrowserDesignMode",
               "kind" : "action",
               "order" : 1,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+                  "browserFocused"
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "toggleReactGrab",
+              "kind" : "action",
+              "order" : 2,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
