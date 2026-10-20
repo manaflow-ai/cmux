@@ -44,6 +44,7 @@ import { useEscapingPopup } from "../../../ui/popupHost";
 import { usePopupHost } from "../../../ui/UiProvider";
 import { UI_ANCHOR_GAP } from "../../../ui/anchor";
 import { useComposerChrome } from "../composerChrome";
+import { useComposerSettings } from "../composerSettings";
 import { useMenuPressGuard } from "../menuPressGuard";
 import { useMinuteClock } from "../clock";
 
@@ -135,6 +136,7 @@ function homeOrAbove(cwd: string | undefined): boolean {
 
 /// How long the folder chip holds its place for a daemon that has not listed the chats yet.
 const RESERVE_MS = 2_000;
+const NO_DEVICE_CHATS: ReturnType<typeof useDeviceChats> = [];
 
 /// The new tab screen, variant B (plans/cmux-next/new-tab.md): the project and model pickers on
 /// top, then one field that reads what is typed (`!` a shell command, an address, or a prompt for
@@ -277,9 +279,22 @@ export function NewTabScreen(props: Props) {
   };
   const t = useT();
   const chrome = useComposerChrome();
+  // The chat composer's footer look (composerSettings.ts plainFooter): the New Tab row draws the
+  // same plain chips, so the two composers never disagree (composerLocation.css).
+  const { plainFooter } = useComposerSettings();
   // A press outside an open chip menu only closes it (menuPressGuard.ts).
   useMenuPressGuard();
-  const device = useDeviceChats();
+  const pushed = useDeviceChats();
+  // Before the daemon lists the chats, the device chats wait with them (at most RESERVE_MS): a cold
+  // page fills its list once, not the device chats first and the chats above them after.
+  const [chatsReserveOver, setChatsReserveOver] = useState(false);
+  const holdChats = props.chatsPending === true && !chatsReserveOver;
+  useEffect(() => {
+    if (!holdChats) return;
+    const timer = setTimeout(() => setChatsReserveOver(true), RESERVE_MS);
+    return () => clearTimeout(timer);
+  }, [holdChats]);
+  const device = holdChats ? NO_DEVICE_CHATS : pushed;
   const closed = useRecentlyClosed();
   // Ages read the shared clock (clock.ts): every page shows the same age and changes it together.
   const clock = useMinuteClock();
@@ -771,7 +786,11 @@ export function NewTabScreen(props: Props) {
           {/* The button row: a right-click here shows the mic hidden from its own (composerChrome.tsx);
             this page draws no context ring. */}
           <ChromeArea className="acpmux-chrome-area" items={[chrome.dictation]}>
-            <div className="nt-pickers" onPointerDownCapture={touch}>
+            <div
+              className="nt-pickers"
+              data-footer-look={plainFooter ? "plain" : undefined}
+              onPointerDownCapture={touch}
+            >
               {/* The folder Enter asks in (screenActions: the picked project, else the tab's), so a pick's
               switch is the one Enter reuses. */}
               {Chips && <Chips snapshot={chipSnapshot} {...(chatFolder ? { cwd: chatFolder } : {})} />}

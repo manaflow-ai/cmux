@@ -145,6 +145,28 @@
   .bars s { display: block; height: 5px; border-radius: 3px; text-decoration: none; }
   .bars b { text-align: right; font-weight: 600; color: var(--text); font-variant-numeric: tabular-nums; }
 
+  /* Compact list + auto-dismiss timer (the pick): #01's card surface, #07's draining bar, clipped by the card's radius. */
+  .picks { padding: 22px 32px 0; max-width: 1400px; }
+  .picks h2 { font-size: 15px; font-weight: 650; margin: 0 0 4px; }
+  .picks > p { margin: 0; color: var(--text-2); max-width: 900px; }
+  .picks .grid { padding: 14px 0 6px; }
+  .timed { overflow: hidden; transition: background .12s ease-out, opacity .2s ease-out, transform .2s ease-out; }
+  .timed .tbar { position: absolute; left: 0; bottom: 0; height: 2px; width: 100%; background: var(--accent); opacity: .85;
+    transform-origin: left; animation: tdrain 12s linear forwards; }
+  @keyframes tdrain { from { transform: scaleX(1); } to { transform: scaleX(0); } }
+  .timed:hover, .timed:focus-within, .timed.is-hover { background: rgba(236,236,239,.17); }
+  .plain .timed:hover, .plain .timed:focus-within, .plain .timed.is-hover { background: rgba(236,236,239,.12); }
+  .timed:hover .tbar, .timed:focus-within .tbar, .timed.frozen .tbar { animation-play-state: paused; }
+  .timed:hover .tbar, .timed.is-hover .tbar { opacity: .45; }
+  .timed.is-hover .x { opacity: 1; }
+  .timed.gone { opacity: 0; transform: translateY(6px); pointer-events: none; }
+  .btn.is-hover { background: var(--sel); }
+  .btn.primary { background: var(--accent); border-color: transparent; color: #fff; font-weight: 600; }
+  .btn.primary:hover, .btn.primary.is-hover { background: #3399ff; }
+  .x.is-hover { background: var(--hover); color: var(--text); }
+  .replay { margin-left: auto; }
+  @media (prefers-reduced-motion: reduce) { .timed, .timed .tbar { transition: none; } }
+
   .stack-under { position: absolute; left: 14px; right: 14px; bottom: 34px; height: 30px; border-radius: 12px; background: rgba(236,236,239,.08); box-shadow: inset 0 0 0 .5px rgba(236,236,239,.12); }
 </style>
 </head>
@@ -159,6 +181,11 @@
     <button id="force" aria-pressed="false">Show hover state on all</button>
   </div>
 </header>
+<section class="picks">
+  <h2>#17 Compact list + timer: the states</h2>
+  <p>#01's look (the same card, list and button row) with #07's auto-dismiss: a thin bar drains along the bottom edge over 12s, then the card fades away by itself. <b>Hovering pauses the timer</b>, shows the X, and lifts the card a little. The first mock is live: hover it to pause, or let it run out (it comes back after 2s). The rest are frozen states.</p>
+  <main class="grid" id="picks"></main>
+</section>
 <main class="grid" id="grid"></main>
 
 <template id="x"><button class="x" aria-label="Close" title="Close"><svg viewBox="0 0 10 10"><path d="M2 2l6 6M8 2l-6 6"/></svg></button></template>
@@ -279,6 +306,52 @@ variants.forEach((v, i) => {
     </div>${v.stacked ? '<div class="stack-under"></div>' : ""}${inner}<div class="footer"><i></i><span style="font-size:12px">Lawrence</span></div></div>`;
   grid.appendChild(cell);
   v.wire?.(cell);
+});
+
+// #17: Compact list + timer, one mock per state.
+const timedCard = ({ cls = "", btn = see, x = X, at = 0, eb = eyebrow } = {}) =>
+  `<div class="card hoverable timed ${cls}">${eb}${x}
+    <ul class="changes">${C.slice(0,3).map(c=>`<li><span>${c.t}</span></li>`).join("")}</ul>
+    <div class="foot"><span class="muted">${more(TOTAL-3)}</span>${btn}</div>
+    <div class="tbar" style="animation-delay:-${at}s"></div></div>`;
+const xHover = X.replace('class="x"', 'class="x is-hover"');
+const updEyebrow = `<div class="eyebrow">Update ready · ${TOTAL} changes</div>`;
+const upd = (c = "") => `<button class="btn primary ${c}">Restart to Update</button>`;
+const states = [
+  { name: "Live", tag: "Try it", note: "Rest state, timer running. Hover to pause it and show the X; let go and it carries on. At 0 the card fades out.",
+    html: () => timedCard({ cls: "live" }), live: true },
+  { name: "Hover", note: "Pointer over the card: the X shows, the bar pauses and dims, the card lifts to 17%.",
+    html: () => timedCard({ cls: "is-hover frozen", at: 5 }) },
+  { name: "Hover on the button", note: "Pointer on “See What's New”: the button takes the selected fill; the timer stays paused.",
+    html: () => timedCard({ cls: "is-hover frozen", at: 5, btn: `<button class="btn is-hover">See What's New</button>` }) },
+  { name: "Hover on the X", note: "Pointer on the X: it gets its round hover fill. Clicking dismisses at once.",
+    html: () => timedCard({ cls: "is-hover frozen", at: 5, x: xHover }) },
+  { name: "Update button", note: "A newer build is waiting: the eyebrow says so and the button turns into a blue “Restart to Update”.",
+    html: () => timedCard({ cls: "frozen", at: 2, eb: updEyebrow, btn: upd() }) },
+  { name: "Update button, hover", note: "Pointer on “Restart to Update”: the blue brightens, the X shows, the timer is paused.",
+    html: () => timedCard({ cls: "is-hover frozen", at: 2, eb: updEyebrow, btn: upd("is-hover") }) },
+];
+const picks = document.getElementById("picks");
+states.forEach((v, i) => {
+  const cell = document.createElement("section");
+  cell.className = "cell"; cell.id = "s" + (i + 1);
+  cell.innerHTML = `<div class="label"><span class="num">#17${"abcdef"[i]}</span><span class="name">${v.name}</span>${v.tag ? `<span class="tag">${v.tag}</span>` : ""}</div>
+    <div class="note">${v.note}</div>
+    <div class="sidebar"><div class="rows">
+      <div class="row"><i></i>cmux-next</div><div class="row sel"><i></i>Chief</div><div class="row"><i></i>whats-new-card</div><div class="row"><i></i>nightly-on-minis</div><div class="row"><i></i>Home</div>
+    </div><div class="slot">${v.html()}</div><div class="footer"><i></i><span style="font-size:12px">Lawrence</span></div></div>`;
+  picks.appendChild(cell);
+  if (v.live) {
+    const slot = cell.querySelector(".slot");
+    const arm = () => {
+      const card = slot.querySelector(".timed");
+      card.querySelector(".x").onclick = () => card.classList.add("gone");
+      card.querySelector(".tbar").addEventListener("animationend", () => card.classList.add("gone"));
+      card.addEventListener("transitionend", e => { if (e.propertyName === "opacity" && card.classList.contains("gone"))
+        setTimeout(() => { slot.innerHTML = v.html(); arm(); }, 2000); });
+    };
+    arm();
+  }
 });
 
 const set = (plain) => { document.body.classList.toggle("plain", plain); document.getElementById("bg-plain").setAttribute("aria-pressed", plain); document.getElementById("bg-wall").setAttribute("aria-pressed", !plain); };
