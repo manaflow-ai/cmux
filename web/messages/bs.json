@@ -2907,7 +2907,7 @@
       "intro": "cmux iOS aplikacija je pratilac vašeg Mac-a. Uparite svoj iPhone ili iPad s Mac-om koji koristi cmux i povežite se sa svojim terminalima s telefona, uz opcionalno prosljeđivanje terminalskih notifikacija.",
       "betaNote": "iOS aplikacija je u beta verziji. Distribuira se putem TestFlight-a kao cmux BETA.",
       "accessTitle": "Dobivanje pristupa",
-      "accessDesc": "Aplikacija se distribuira putem TestFlight-a. Rani pristup je uključen uz cmux BETA, zajedno s drugim ranim funkcijama.",
+      "accessDesc": "Aplikacija se distribuira putem TestFlight-a. Beta pristup je uključen uz cmux Pro; pridružite se sa stranice TestFlight na svojoj kontrolnoj tabli.",
       "prereqTitle": "Preduvjeti",
       "prereqIntro": "Prije nego što počnete, potrebno vam je:",
       "prereq1": "Mac koji koristi cmux i na kojem ste prijavljeni.",

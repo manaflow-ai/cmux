@@ -708,7 +708,7 @@ verify_app_store_ipa_has_no_external_purchase_links() {
     return 1
   fi
 
-  matches="$(LC_ALL=C grep -R -a -l -E 'github\.com/manaflow-ai/cmux#' "$app" 2>/dev/null || true)"
+  matches="$(LC_ALL=C grep -R -a -l -E 'github\.com/manaflow-ai/cmux#founders-edition|founders-edition|buy\.stripe\.com' "$app" 2>/dev/null || true)"
   if [[ -n "$matches" ]]; then
     echo "error: App Store IPA contains an external purchase/enrollment link; refusing to upload" >&2
     printf '%s\n' "$matches" >&2

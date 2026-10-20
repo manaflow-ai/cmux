@@ -4321,7 +4321,7 @@
       "intro": "cmux iOSアプリはMacのコンパニオンです。cmuxを実行しているMacとiPhoneまたはiPadをペアリングし、スマートフォンからターミナルにアタッチできます。ターミナル通知の転送もオプションで利用できます。",
       "betaNote": "iOSアプリはベータ版です。TestFlightで「cmux BETA」として提供されています。",
       "accessTitle": "入手方法",
-      "accessDesc": "アプリはTestFlightで配布されています。早期アクセスはcmux BETAに含まれ、他の早期機能も利用できます。",
+      "accessDesc": "アプリはTestFlightで配布されています。ベータへのアクセスはcmux Proに含まれます。ダッシュボードのTestFlightページから参加してください。",
       "prereqTitle": "前提条件",
       "prereqIntro": "始める前に、次のものが必要です：",
       "prereq1": "cmuxを実行し、サインイン済みのMac。",

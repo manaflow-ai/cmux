@@ -2907,7 +2907,7 @@
       "intro": "cmux iOS 应用是你 Mac 的配套应用。将 iPhone 或 iPad 与运行 cmux 的 Mac 配对，即可从手机连接到你的终端，并可选择转发终端通知。",
       "betaNote": "iOS 应用处于测试版阶段。它通过 TestFlight 以 cmux BETA 的形式发布。",
       "accessTitle": "获取访问权限",
-      "accessDesc": "该应用通过 TestFlight 分发。cmux BETA 包含抢先访问权限，以及其他早期功能。",
+      "accessDesc": "该应用通过 TestFlight 分发。cmux Pro 包含测试版访问权限；请在控制台的 TestFlight 页面加入。",
       "prereqTitle": "前提条件",
       "prereqIntro": "开始之前，你需要：",
       "prereq1": "一台运行 cmux 并已登录的 Mac。",

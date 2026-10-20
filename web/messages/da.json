@@ -2904,7 +2904,7 @@
       "intro": "cmux-appen til iOS er en følgesvend til din Mac. Par din iPhone eller iPad med en Mac, der kører cmux, og tilslut dig dine terminaler fra telefonen, med valgfri videresendelse af terminalnotifikationer.",
       "betaNote": "iOS-appen er i beta. Den udgives på TestFlight som cmux BETA.",
       "accessTitle": "Få adgang",
-      "accessDesc": "Appen distribueres via TestFlight. Tidlig adgang er inkluderet i cmux BETA sammen med andre tidlige funktioner.",
+      "accessDesc": "Appen distribueres via TestFlight. Beta-adgang er inkluderet i cmux Pro; tilmeld dig fra TestFlight-siden i dit dashboard.",
       "prereqTitle": "Forudsætninger",
       "prereqIntro": "Før du går i gang, skal du bruge:",
       "prereq1": "En Mac, der kører cmux og er logget ind.",

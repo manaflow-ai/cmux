@@ -2905,7 +2905,7 @@
       "intro": "cmux iOS uygulaması, Mac'iniz için bir yardımcıdır. iPhone veya iPad'inizi cmux çalıştıran bir Mac ile eşleştirin ve terminallerinize telefonunuzdan bağlanın; isteğe bağlı olarak terminal bildirimlerini iletebilirsiniz.",
       "betaNote": "iOS uygulaması beta aşamasındadır. TestFlight'ta cmux BETA olarak yayınlanır.",
       "accessTitle": "Erişim sağlama",
-      "accessDesc": "Uygulama TestFlight üzerinden dağıtılır. Erken erişim, diğer erken özelliklerle birlikte cmux BETA ile birlikte gelir.",
+      "accessDesc": "Uygulama TestFlight üzerinden dağıtılır. Beta erişimi cmux Pro ile birlikte gelir; panonuzdaki TestFlight sayfasından katılın.",
       "prereqTitle": "Ön koşullar",
       "prereqIntro": "Başlamadan önce şunlara ihtiyacınız var:",
       "prereq1": "cmux çalıştıran ve oturum açılmış bir Mac.",

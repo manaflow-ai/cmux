@@ -2907,7 +2907,7 @@
       "intro": "Aplikacja cmux na iOS jest towarzyszem twojego Maca. Sparuj iPhone'a lub iPada z Makiem, na którym działa cmux, i podłącz się do swoich terminali z telefonu, z opcjonalnym przekazywaniem powiadomień terminala.",
       "betaNote": "Aplikacja iOS jest w wersji beta. Jest dystrybuowana przez TestFlight jako cmux BETA.",
       "accessTitle": "Uzyskiwanie dostępu",
-      "accessDesc": "Aplikacja jest dystrybuowana przez TestFlight. Wczesny dostęp jest wliczony w cmux BETA, obok innych wczesnych funkcji.",
+      "accessDesc": "Aplikacja jest dystrybuowana przez TestFlight. Dostęp do bety jest wliczony w cmux Pro; dołącz ze strony TestFlight w swoim panelu.",
       "prereqTitle": "Wymagania wstępne",
       "prereqIntro": "Zanim zaczniesz, potrzebujesz:",
       "prereq1": "Maca z działającym cmux i zalogowanym kontem.",

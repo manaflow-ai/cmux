@@ -2909,7 +2909,7 @@
       "intro": "L'app cmux pour iOS est un compagnon de votre Mac. Appairez votre iPhone ou iPad avec un Mac exécutant cmux et connectez-vous à vos terminaux depuis votre téléphone, avec transfert optionnel des notifications du terminal.",
       "betaNote": "L'app iOS est en bêta. Elle est distribuée sur TestFlight sous le nom cmux BETA.",
       "accessTitle": "Obtenir l'accès",
-      "accessDesc": "L'app est distribuée via TestFlight. L'accès anticipé est inclus avec cmux BETA, ainsi que d'autres fonctionnalités en avant-première.",
+      "accessDesc": "L'app est distribuée via TestFlight. L'accès à la bêta est inclus avec cmux Pro ; rejoignez-la depuis la page TestFlight de votre tableau de bord.",
       "prereqTitle": "Prérequis",
       "prereqIntro": "Avant de commencer, vous avez besoin de :",
       "prereq1": "Un Mac exécutant cmux et connecté.",
