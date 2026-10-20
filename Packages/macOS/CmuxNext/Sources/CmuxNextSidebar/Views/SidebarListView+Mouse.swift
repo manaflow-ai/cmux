@@ -13,7 +13,7 @@ extension SidebarListViewComponents {
         if groupEditor.isVisible { groupEditor.hide() }
         window?.makeFirstResponder(self)
         let point = convert(event.locationInWindow, from: nil)
-        guard let row = clickHit(at: point) else {
+        guard let row = displayed.row(at: point.y) else {
             press = nil
             // Empty space: a double-click makes a workspace there.
             if event.clickCount == 2, event.modifierFlags.intersection(.deviceIndependentFlagsMask).isEmpty,
@@ -94,7 +94,7 @@ extension SidebarListViewComponents {
         }
         guard let press, !press.cancelled else { return }
         let point = convert(event.locationInWindow, from: nil)
-        guard clickHit(at: point)?.key == press.key else { return }
+        guard displayed.row(at: point.y)?.key == press.key else { return }
         switch press.key {
         case .workspace:
             // Mouse-down drew the click on the old and new rows (`patchSelection`) and moved no row: no layout here
