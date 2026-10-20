@@ -72,27 +72,43 @@ enum HomeConversationStrings {
 
     // MARK: New Message
 
+    /// The draft row's title and the page's name (Messages' "New Message").
     static var composeTitle: String { String(localized: "home.compose.title", defaultValue: "New Message", bundle: .module) }
+    /// The To: field's VoiceOver label.
     static var composeSearch: String {
         String(localized: "home.compose.search", defaultValue: "Name or email address", bundle: .module)
     }
-    static var composeGroupName: String {
-        String(localized: "home.compose.groupName", defaultValue: "Group name (optional)", bundle: .module)
-    }
-    static var composeStart: String { String(localized: "home.compose.start", defaultValue: "Start", bundle: .module) }
     static var cancel: String { String(localized: "home.compose.cancel", defaultValue: "Cancel", bundle: .module) }
-    static func composeAddAddress(_ address: String) -> String {
-        String(format: String(localized: "home.compose.addAddress", defaultValue: "Invite %@ by email", bundle: .module), address)
-    }
+    /// The To: field's value for VoiceOver: the chosen names.
     static func composeTo(_ names: String) -> String {
         String(format: String(localized: "home.compose.to", defaultValue: "To: %@", bundle: .module), names)
     }
+    /// The + button's suggestions when the user has nobody to pick yet.
     static var composeNoContacts: String {
         String(localized: "home.compose.noContacts", defaultValue: "No teammates yet. Invite someone by email.", bundle: .module)
     }
-    static var inviteByEmail: String { String(localized: "home.compose.inviteByEmail", defaultValue: "Invite by Email…", bundle: .module) }
     static var sourceTeam: String { String(localized: "home.compose.source.team", defaultValue: "Team", bundle: .module) }
     static var sourceConnection: String { String(localized: "home.compose.source.connection", defaultValue: "Contact", bundle: .module) }
+    static var sourceAgent: String { String(localized: "home.compose.source.agent", defaultValue: "Chief", bundle: .module) }
+    /// The label in front of the recipient tokens.
+    static var toLabel: String { String(localized: "home.compose.toLabel", defaultValue: "To:", bundle: .module) }
+    /// The + button at the end of the To: field (all people to pick from).
+    static var addRecipient: String { String(localized: "home.compose.addRecipient", defaultValue: "Add Recipient", bundle: .module) }
+    static var addressEmail: String { String(localized: "home.compose.address.email", defaultValue: "Email", bundle: .module) }
+    static var addressPhone: String { String(localized: "home.compose.address.phone", defaultValue: "Phone", bundle: .module) }
+    /// A token's remove button (VoiceOver).
+    static func removeRecipient(_ name: String) -> String {
+        String(format: String(localized: "home.compose.removeRecipient", defaultValue: "Remove %@", bundle: .module), name)
+    }
+    /// A red token: the typed text names nobody.
+    static func unknownRecipient(_ text: String) -> String {
+        String(format: String(localized: "home.compose.unknownRecipient",
+                              defaultValue: "No one named “%@”. Type their email address to invite them.", bundle: .module), text)
+    }
+    /// Return in the message box before anyone is in To:.
+    static var needsRecipient: String {
+        String(localized: "home.compose.needsRecipient", defaultValue: "Add someone in To: first.", bundle: .module)
+    }
 
     // MARK: Invite
 
