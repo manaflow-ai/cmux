@@ -56,6 +56,8 @@ public final class AgentCursorLayerHost: AgentCursorLayerHosting {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
+        // Reduce Transparency may have changed since the last action; a no-op when it did not.
+        for cursor in cursors.values { cursor.reducesTransparency = reduceTransparency.isEnabled }
         switch command {
         case let .place(session, point):
             let cursor = cursor(for: session)
@@ -156,6 +158,7 @@ public final class AgentCursorLayerHost: AgentCursorLayerHosting {
             return existing
         }
         let cursor = AgentCursorLayer(color: color(session), name: label(session), scale: max(hostLayer.contentsScale, 2))
+        cursor.reducesTransparency = reduceTransparency.isEnabled
         hostLayer.addSublayer(cursor.root)
         glassLayer?.addSublayer(cursor.glassRoot)
         cursors[session] = cursor

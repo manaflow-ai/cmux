@@ -40,19 +40,14 @@ public final class AgentCursorLayer {
     static let outline = CGColor(gray: 0, alpha: 0.45)
     /// The dart's specular highlight, top-left to the middle.
     static let dartSheen: [CGColor] = [CGColor(gray: 1, alpha: 0.45), CGColor(gray: 1, alpha: 0)]
-    /// The name tag and caption tint, gray Liquid Glass (pill gallery P1, user
-    /// 2026-10-20): 18% system gray over the real blur the overlay panel's
-    /// behind-window glass draws under each tag shape (``glassRoot``).
-    static let glass = CGColor(srgbRed: 0x8E / 255, green: 0x8E / 255, blue: 0x93 / 255, alpha: 0.18)
+    /// The name tag and caption glass: the shared ``FloatingGlassStyle/agentTag`` (Chief via
+    /// a286, 2026-10-20: one Liquid Glass style, never a fork). Always its light look: the tag
+    /// floats over web pages of any color on a light behind-window blur (the overlay carrier
+    /// pins `.aqua`), under dark label text.
+    static let tagStyle = FloatingGlassStyle.agentTag
     static let glassText = CGColor(srgbRed: 0x1D / 255, green: 0x1D / 255, blue: 0x1F / 255, alpha: 0.88)
-    /// The glass's specular rim: a light inner edge.
-    static let glassRim = CGColor(gray: 1, alpha: 0.55)
-    /// The tag's tint while the pointer is on it (it is a link).
-    static let glassHover = CGColor(srgbRed: 0x8E / 255, green: 0x8E / 255, blue: 0x93 / 255, alpha: 0.32)
-    /// The tag's rim while the pointer is on it.
-    static let glassHoverRim = CGColor(gray: 1, alpha: 0.85)
-    /// The glass's top highlight, fading out before the middle.
-    static let glassSheen: [CGColor] = [CGColor(gray: 1, alpha: 0.5), CGColor(gray: 1, alpha: 0)]
+    /// How much denser the veil is while the pointer is on the tag (it is a link).
+    static let hoverVeilBoost: Double = 0.15
 
     public let root = CALayer()
     /// The arrow and ripple, turned with the travel heading; the name tag
@@ -75,8 +70,9 @@ public final class AgentCursorLayer {
     let nameTag = CALayer()
     let nameText = CATextLayer()
     let nameDot = CAShapeLayer()
-    /// The glass's specular highlight across the tag's top half.
-    let nameSheen = CAGradientLayer()
+    /// The shared glass's soft top-lit rim around the tag, and around the caption.
+    let nameRim = CAGradientLayer()
+    let captionRim = CAGradientLayer()
     /// The cursor's blur shapes, in the window's glass mask layer
     /// (`WindowOverlayHost.agentCursorGlassLayer`): moved, faded, hidden and
     /// removed with ``root`` (``roots``), so the blur stays under the tag.
@@ -144,15 +140,12 @@ public final class AgentCursorLayer {
         indicator.strokeColor = Self.rim
         indicator.lineWidth = 1.5
         indicator.isHidden = true
-        caption.backgroundColor = Self.glass
-        caption.borderColor = Self.glassRim
-        caption.borderWidth = 0.5
         caption.cornerCurve = .continuous
         caption.shadowColor = CGColor(gray: 0, alpha: 1)
         caption.shadowOpacity = 0.16
         caption.shadowRadius = 5
         caption.shadowOffset = .zero
-        caption.cornerRadius = Self.captionHeight / 2
+        caption.cornerRadius = Self.tagStyle.cornerRadius
         caption.anchorPoint = .zero
         caption.opacity = 0
         captionText.font = Self.captionFont
@@ -161,24 +154,15 @@ public final class AgentCursorLayer {
         captionText.alignmentMode = .center
         captionText.truncationMode = .start
         caption.addSublayer(captionText)
-        nameTag.backgroundColor = Self.glass
-        nameTag.borderColor = Self.glassRim
-        nameTag.borderWidth = 0.75
         nameTag.cornerCurve = .continuous
         nameTag.masksToBounds = false
         nameTag.shadowColor = CGColor(gray: 0, alpha: 1)
         nameTag.shadowOpacity = 0.18
         nameTag.shadowRadius = 4
         nameTag.shadowOffset = CGSize(width: 0, height: 1.5)
-        nameSheen.colors = Self.glassSheen
-        nameSheen.startPoint = CGPoint(x: 0.5, y: 0)
-        nameSheen.endPoint = CGPoint(x: 0.5, y: 1)
-        nameSheen.cornerCurve = .continuous
-        nameSheen.maskedCorners = [.layerMinXMinYCorner, .layerMaxXMinYCorner]
-        nameTag.addSublayer(nameSheen)
         nameDot.fillColor = Self.gray
         nameTag.addSublayer(nameDot)
-        nameTag.cornerRadius = Self.tagHeight / 2
+        nameTag.cornerRadius = Self.tagStyle.cornerRadius
         nameTag.anchorPoint = .zero
         nameText.font = Self.captionFont
         nameText.fontSize = Self.tagFontSize
@@ -187,13 +171,24 @@ public final class AgentCursorLayer {
         nameText.truncationMode = .end
         nameText.contentsScale = scale
         nameTag.addSublayer(nameText)
+        for (rim, pill) in [(nameRim, nameTag), (captionRim, caption)] {
+            // y-down layers: the gradient's start (the bright end) is the top edge.
+            rim.startPoint = CGPoint(x: 0.5, y: 0)
+            rim.endPoint = CGPoint(x: 0.5, y: 1)
+            let stroke = CAShapeLayer()
+            stroke.fillColor = nil
+            stroke.strokeColor = CGColor(gray: 0, alpha: 1)
+            stroke.lineWidth = 1 / scale
+            rim.mask = stroke
+            pill.addSublayer(rim)
+        }
+        applyGlass()
         if let name, !name.isEmpty {
             let padding: CGFloat = 9, dot: CGFloat = 6, gap: CGFloat = 5
             let lead = padding + dot + gap
             let width = Self.captionWidth(name, size: Self.tagFontSize) + lead + padding
             nameTag.frame = CGRect(origin: Self.tagOffset, size: CGSize(width: width, height: Self.tagHeight))
-            nameSheen.frame = CGRect(x: 0, y: 0, width: width, height: Self.tagHeight * 0.55)
-            nameSheen.cornerRadius = Self.tagHeight / 2
+            Self.layoutRim(nameRim, in: nameTag.bounds)
             nameDot.path = CGPath(ellipseIn: CGRect(x: padding, y: (Self.tagHeight - dot) / 2, width: dot, height: dot), transform: nil)
             let lineHeight = ceil(Self.tagFontSize * 1.3)
             nameText.frame = CGRect(x: lead, y: (Self.tagHeight - lineHeight) / 2, width: width - lead - padding, height: lineHeight)
@@ -276,6 +271,7 @@ public final class AgentCursorLayer {
                                    width: width - padding * 2, height: lineHeight)
         captionText.contentsScale = scale
         captionText.string = text
+        Self.layoutRim(captionRim, in: caption.bounds)
         glassCaption.frame = caption.frame
         for layer in [caption, glassCaption] {
             layer.opacity = 1
@@ -300,18 +296,45 @@ public final class AgentCursorLayer {
         }
     }
 
-    /// Reduce Transparency is on: the tag and caption draw opaque.
-    public var reducesTransparency = false
+    /// Reduce Transparency is on: the tag and caption draw opaque, with no rim, like every
+    /// shared glass surface (`OverlayMaterial.opaque`).
+    public var reducesTransparency = false {
+        didSet { if reducesTransparency != oldValue { applyGlass() } }
+    }
+
+    /// Paints the tag and caption in the shared glass for the current state.
+    private func applyGlass() {
+        let look = Self.tagStyle.look(isDark: false)
+        let veil = look.veil
+        let alpha = reducesTransparency ? 1 : min(veil.alpha + (isTagHighlighted ? Self.hoverVeilBoost : 0), 1)
+        let fill = CGColor(srgbRed: veil.white, green: veil.white, blue: veil.white, alpha: alpha)
+        let rimColors = [look.rimTop, look.rimBottom].map { CGColor(srgbRed: $0.white, green: $0.white, blue: $0.white, alpha: $0.alpha) }
+        for (pill, rim) in [(nameTag, nameRim), (caption, captionRim)] {
+            pill.backgroundColor = fill
+            pill.borderWidth = 0
+            rim.colors = rimColors
+            rim.isHidden = reducesTransparency
+        }
+        let shadow = Self.tagStyle.castsShadow && !reducesTransparency
+        nameTag.shadowOpacity = shadow ? 0.18 : 0
+        caption.shadowOpacity = shadow ? 0.16 : 0
+    }
+
+    /// Sizes a rim to its pill: a hairline just inside the capsule's edge.
+    private static func layoutRim(_ rim: CAGradientLayer, in bounds: CGRect) {
+        rim.frame = bounds
+        guard let stroke = rim.mask as? CAShapeLayer else { return }
+        stroke.frame = bounds
+        let inset = bounds.insetBy(dx: stroke.lineWidth / 2, dy: stroke.lineWidth / 2)
+        let radius = min(max(tagStyle.cornerRadius - stroke.lineWidth / 2, 0), min(inset.width, inset.height) / 2)
+        stroke.path = inset.width > 0 && inset.height > 0
+            ? CGPath(roundedRect: inset, cornerWidth: radius, cornerHeight: radius, transform: nil) : nil
+    }
 
     /// The pointer is on the tag (it is a link to the agent's workspace): a
-    /// little more tint and a brighter rim.
+    /// denser veil of the same shared glass.
     public var isTagHighlighted = false {
-        didSet {
-            guard isTagHighlighted != oldValue else { return }
-            nameTag.backgroundColor = isTagHighlighted ? Self.glassHover : Self.glass
-            nameTag.borderColor = isTagHighlighted ? Self.glassHoverRim : Self.glassRim
-            nameTag.borderWidth = isTagHighlighted ? 1 : 0.75
-        }
+        didSet { if isTagHighlighted != oldValue { applyGlass() } }
     }
 
     /// The target is hidden: a dot at its tab chip or column edge, no arrow.
