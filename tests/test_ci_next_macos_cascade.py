@@ -113,8 +113,17 @@ class Cascade(unittest.TestCase):
 
     def test_retry_goes_to_the_least_loaded_label(self):
         self.assertEqual(cascade.retry_label({LARGE: 5, SMALL: 4}, {LARGE: 6, SMALL: 3}), SMALL)
-        self.assertEqual(cascade.retry_label({LARGE: 5, SMALL: 10}, {LARGE: 0, SMALL: 0}), LARGE)  # a tie
         self.assertEqual(cascade.retry_label({LARGE: 5, SMALL: 10}, {LARGE: 6, SMALL: 0}), SMALL)
+        self.assertEqual(cascade.retry_label({LARGE: 0, SMALL: 10}, {LARGE: 0, SMALL: 0}), LARGE)
+
+    def test_a_full_fleet_overflows_to_6_vcpu_whose_slots_turn_over(self):
+        # 2026-10-20 01:04-02:35Z: other workflows' long jobs held 12 vCPU's five slots. The
+        # overflow sent 25 cmux-next jobs there by load ratio and none started (14 queued over
+        # 15 minutes, up to 89, then cancelled) while 6 vCPU started 69 at a median 2.5 minutes.
+        self.assertEqual(cascade.retry_label({LARGE: 5, SMALL: 10}, {LARGE: 0, SMALL: 0}), SMALL)  # was a tie
+        # The placement log of run 39358219316: 12 vCPU 5 + 1 of 5, 6 vCPU 10 + 4 of 10.
+        self.assertEqual(cascade.retry_label({LARGE: 5, SMALL: 10}, {LARGE: 1, SMALL: 4}), SMALL)
+        self.assertEqual(cascade.retry_label({LARGE: 7, SMALL: 30}, {LARGE: 0, SMALL: 9}), SMALL)
 
 
 class Place(unittest.TestCase):

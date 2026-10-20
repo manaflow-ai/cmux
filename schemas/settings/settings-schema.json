@@ -59,7 +59,7 @@
               "layout.dockColumnMode",
               "layout.frameOrientation",
               "layout.rows",
-              "layout.focusPaneOnScroll",
+              "layout.focusFollowsMouse",
               "layout.minimumPaneWidth",
               "layout.minimumPaneHeight",
               "layout.newPanePlacement",
@@ -160,6 +160,17 @@
             "title" : {
               "key" : "settings.group.files",
               "text" : "Files"
+            }
+          },
+          {
+            "key" : "settings.group.screenshots",
+            "rows" : [
+              "screenshots.findTools",
+              "screenshots.folders"
+            ],
+            "title" : {
+              "key" : "settings.group.screenshots",
+              "text" : "Screenshots"
             }
           },
           {
@@ -273,6 +284,8 @@
             "key" : "settings.group.densityMotion",
             "rows" : [
               "appearance.density",
+              "appearance.customDensity",
+              "appearance.customDensities",
               "app.uiScale",
               "appearance.metrics.chromeFontSize",
               "appearance.metrics.sidebarWidth",
@@ -316,6 +329,7 @@
             "key" : "settings.group.windowBackground",
             "rows" : [
               "appearance.background",
+              "appearance.paneBackgrounds",
               "appearance.backgroundOpacity",
               "appearance.backgroundBlur"
             ],
@@ -374,10 +388,13 @@
               "sidebar.groupBy",
               "sidebar.showSpaces",
               "sidebar.showProfileControl",
+              "sidebar.showSearchButton",
               "sidebar.minimal",
               "sidebar.density",
               "sidebar.detailedStatusIcons",
               "sidebar.showTimestamps",
+              "sidebar.groupHeader.memberCount",
+              "sidebar.groupHeader.unreadCount",
               "sidebar.minimalMode",
               "sidebar.cards.tips",
               "sidebar.side",
@@ -482,7 +499,8 @@
         ],
         "id" : "appearance",
         "lead" : [
-          "backdrops"
+          "backdrops",
+          "density"
         ],
         "symbol" : "paintbrush",
         "title" : {
@@ -877,6 +895,7 @@
             "key" : "settings.group.engine",
             "rows" : [
               "browser.defaultEngine",
+              "browser.siteEngines",
               "browser.newTabPage"
             ],
             "title" : {
@@ -992,7 +1011,8 @@
               "browser.hibernation",
               "browser.hibernationExclusions",
               "browser.hibernatePinnedTabs",
-              "browser.freezeHiddenTabs"
+              "browser.freezeHiddenTabs",
+              "browser.keepNeighborTabsAwake"
             ],
             "title" : {
               "key" : "settings.group.memory",
@@ -1984,12 +2004,20 @@
     },
     {
       "accepts" : [
+        "afterCurrent",
         "end",
-        "afterCurrent"
+        "start"
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
       "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.newTabPositionAfterCurrent",
+            "text" : "After the Current Tab"
+          },
+          "value" : "afterCurrent"
+        },
         {
           "title" : {
             "key" : "settings.choice.newTabPositionEnd",
@@ -1999,16 +2027,16 @@
         },
         {
           "title" : {
-            "key" : "settings.choice.newTabPositionAfterCurrent",
-            "text" : "After the Current Tab"
+            "key" : "settings.choice.newTabPositionStart",
+            "text" : "At the Start"
           },
-          "value" : "afterCurrent"
+          "value" : "start"
         }
       ],
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "end",
+      "default" : "afterCurrent",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.tabs",
@@ -2028,6 +2056,9 @@
         "right",
         "end",
         "after",
+        "start",
+        "first",
+        "beginning",
         "insert"
       ],
       "kind" : "choice",
@@ -4907,31 +4938,33 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : true,
+      "default" : false,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.columns",
         "text" : "Columns"
       },
       "help" : {
-        "key" : "settings.layout.focusPaneOnScroll.help",
-        "text" : "Scrolling over a pane focuses it. Momentum and scrolling within a second of typing leave focus where it is."
+        "key" : "settings.layout.focusFollowsMouse.help",
+        "text" : "Moving the pointer onto a pane or scrolling over it focuses that pane. Off keeps focus where you type until you click. Momentum and the first second after typing never move focus."
       },
       "kept_on_reset_all" : false,
-      "key" : "layout.focusPaneOnScroll",
+      "key" : "layout.focusFollowsMouse",
       "keywords" : [
         "focus",
         "scroll",
         "wheel",
         "trackpad",
         "pane",
-        "follows mouse"
+        "follows mouse",
+        "hover",
+        "pointer"
       ],
       "kind" : "toggle",
       "page_hidden" : false,
       "path" : [
         "layout",
-        "focusPaneOnScroll"
+        "focusFollowsMouse"
       ],
       "refuses" : [
         "true",
@@ -4940,12 +4973,12 @@
       ],
       "section" : "general",
       "summary" : {
-        "key" : "settings.layout.focusPaneOnScroll.summary",
-        "text" : "Scrolling a pane focuses it"
+        "key" : "settings.layout.focusFollowsMouse.summary",
+        "text" : "Hovering or scrolling a pane focuses it"
       },
       "title" : {
-        "key" : "settings.layout.focusPaneOnScroll",
-        "text" : "Focus Pane on Scroll"
+        "key" : "settings.layout.focusFollowsMouse",
+        "text" : "Focus Follows Mouse"
       },
       "validation" : "portable"
     },
@@ -6778,7 +6811,7 @@
         true,
         false
       ],
-      "agent_refusal" : null,
+      "agent_refusal" : "privacy",
       "agent_settable" : false,
       "consumers" : [
         "cmux-next"
@@ -6832,7 +6865,7 @@
           "~/notes"
         ]
       ],
-      "agent_refusal" : null,
+      "agent_refusal" : "privacy",
       "agent_settable" : false,
       "consumers" : [
         "cmux-next"
@@ -10188,6 +10221,76 @@
     },
     {
       "accepts" : [
+        "shared",
+        "perPane"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.paneBackgrounds.shared",
+            "text" : "One for the Window"
+          },
+          "value" : "shared"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.paneBackgrounds.perPane",
+            "text" : "One per Pane"
+          },
+          "value" : "perPane"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "shared",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.windowBackground",
+        "text" : "Window Background"
+      },
+      "help" : {
+        "key" : "settings.appearance.paneBackgrounds.help",
+        "text" : "One background behind the whole window, or a copy in each pane. A pane's own background (right-click a pane) shows either way."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.paneBackgrounds",
+      "keywords" : [
+        "background",
+        "wallpaper",
+        "pane",
+        "split",
+        "per pane",
+        "each pane",
+        "backdrop",
+        "art"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "paneBackgrounds"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : {
+        "key" : "settings.appearance.paneBackgrounds.summary",
+        "text" : "One background or one per pane"
+      },
+      "title" : {
+        "key" : "settings.appearance.paneBackgrounds",
+        "text" : "Pane Backgrounds"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         true,
         false
       ],
@@ -10551,12 +10654,22 @@
     },
     {
       "accepts" : [
+        "ultraCompact",
         "compact",
-        "comfortable"
+        "cozy",
+        "comfortable",
+        "spacious"
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
       "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.ultraCompact",
+            "text" : "Ultra-compact"
+          },
+          "value" : "ultraCompact"
+        },
         {
           "title" : {
             "key" : "settings.choice.compact",
@@ -10566,10 +10679,24 @@
         },
         {
           "title" : {
+            "key" : "settings.choice.cozy",
+            "text" : "Cozy"
+          },
+          "value" : "cozy"
+        },
+        {
+          "title" : {
             "key" : "settings.choice.comfortable",
             "text" : "Comfortable"
           },
           "value" : "comfortable"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.spacious",
+            "text" : "Spacious"
+          },
+          "value" : "spacious"
         }
       ],
       "consumers" : [
@@ -10581,12 +10708,21 @@
         "key" : "settings.group.densityMotion",
         "text" : "Density and Motion"
       },
-      "help" : null,
+      "help" : {
+        "key" : "settings.appearance.density.help",
+        "text" : "Row height, padding, corners, icons and text size together. Compact is the default."
+      },
       "kept_on_reset_all" : false,
       "key" : "appearance.density",
       "keywords" : [
         "size",
-        "spacing"
+        "spacing",
+        "compact",
+        "comfortable",
+        "cozy",
+        "spacious",
+        "dense",
+        "font"
       ],
       "kind" : "choice",
       "page_hidden" : false,
@@ -10606,6 +10742,119 @@
         "text" : "Density"
       },
       "validation" : "portable"
+    },
+    {
+      "accepts" : [
+
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.densityMotion",
+        "text" : "Density and Motion"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "appearance.customDensity",
+      "keywords" : [
+        "density",
+        "custom"
+      ],
+      "kind" : "text",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "customDensity"
+      ],
+      "refuses" : [
+        1,
+        true,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.appearance.customDensity",
+        "text" : "Custom Density"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        [
+
+        ],
+        [
+          {
+            "fontSize" : 11.5,
+            "id" : "my-tight",
+            "level" : -0.25,
+            "name" : "My Tight",
+            "tokens" : {
+              "sidebarRowHeight" : 22
+            }
+          }
+        ]
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : [
+
+      ],
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.densityMotion",
+        "text" : "Density and Motion"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "appearance.customDensities",
+      "keywords" : [
+        "density",
+        "custom"
+      ],
+      "kind" : "text",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "customDensities"
+      ],
+      "refuses" : [
+        "my-tight",
+        [
+          {
+
+          }
+        ],
+        [
+          {
+            "id" : "Bad Id",
+            "name" : "x"
+          }
+        ],
+        [
+          {
+            "id" : "a",
+            "level" : "1",
+            "name" : "A"
+          }
+        ]
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.appearance.customDensities",
+        "text" : "Custom Densities"
+      },
+      "validation" : "domain:custom_densities"
     },
     {
       "accepts" : [
@@ -19456,6 +19705,57 @@
       "consumers" : [
         "cmux-next"
       ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.showSearchButton.help",
+        "text" : "A magnifying glass after the profile button searches workspaces, tabs, history, agent chats, settings and commands. Off, Search stays in the command palette."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.showSearchButton",
+      "keywords" : [
+        "sidebar",
+        "search",
+        "find",
+        "magnifying glass",
+        "everything",
+        "footer",
+        "hide",
+        "show"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "showSearchButton"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sidebar.showSearchButton",
+        "text" : "Show Search Button"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : false,
       "default_label" : null,
       "group" : {
@@ -19682,6 +19982,110 @@
       "title" : {
         "key" : "settings.sidebar.showTimestamps",
         "text" : "Show Timestamps"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.groupHeader.memberCount.help",
+        "text" : "A collapsed group shows how many workspaces it holds after its name. Off, it shows only its loading spinner."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.groupHeader.memberCount",
+      "keywords" : [
+        "sidebar",
+        "group",
+        "groups",
+        "count",
+        "members",
+        "workspaces",
+        "number",
+        "header"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "groupHeader",
+        "memberCount"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sidebar.groupHeader.memberCount",
+        "text" : "Show Group Member Count"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.groupHeader.unreadCount.help",
+        "text" : "A collapsed group shows how many unread notifications its workspaces have. Off, it shows only its loading spinner."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.groupHeader.unreadCount",
+      "keywords" : [
+        "sidebar",
+        "group",
+        "groups",
+        "unread",
+        "badge",
+        "notifications",
+        "count",
+        "header"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "groupHeader",
+        "unreadCount"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sidebar.groupHeader.unreadCount",
+        "text" : "Show Group Unread Count"
       },
       "validation" : "portable"
     },
@@ -25518,7 +25922,7 @@
       },
       "help" : {
         "key" : "settings.browser.defaultEngine.help",
-        "text" : "New browser tabs open in this engine."
+        "text" : "Browser tabs and cmux pages, such as History and Apps, open in this engine."
       },
       "kept_on_reset_all" : false,
       "key" : "browser.defaultEngine",
@@ -25542,7 +25946,76 @@
       "summary" : null,
       "title" : {
         "key" : "settings.browser.defaultEngine",
-        "text" : "Default Engine"
+        "text" : "Browser Engine"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        {
+
+        },
+        {
+          "*" : "★",
+          "Work" : ""
+        }
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : {
+        "amazon.com/gp/video" : "webkit",
+        "disneyplus.com" : "webkit",
+        "hulu.com" : "webkit",
+        "max.com" : "webkit",
+        "music.apple.com" : "webkit",
+        "netflix.com" : "webkit",
+        "primevideo.com" : "webkit",
+        "spotify.com" : "webkit",
+        "tv.apple.com" : "webkit"
+      },
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.engine",
+        "text" : "Engine"
+      },
+      "help" : {
+        "key" : "settings.browser.siteEngines.help",
+        "text" : "Sites that always open in one engine: a site, such as spotify.com, and chromium or webkit. Spotify, Netflix and other protected media sites open in WebKit, because their media does not play in Chromium."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.siteEngines",
+      "keywords" : [
+        "drm",
+        "widevine",
+        "spotify",
+        "netflix",
+        "site",
+        "webkit",
+        "chromium"
+      ],
+      "kind" : "string_map",
+      "page_hidden" : false,
+      "path" : [
+        "browser",
+        "siteEngines"
+      ],
+      "refuses" : [
+        "★",
+        [
+
+        ],
+        {
+          "Work" : 1
+        }
+      ],
+      "section" : "browser",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.browser.siteEngines",
+        "text" : "Site Engines"
       },
       "validation" : "portable"
     },
@@ -25982,6 +26455,65 @@
       "title" : {
         "key" : "settings.browser.freezeHiddenTabs",
         "text" : "Freeze Hidden Tabs"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        0,
+        3,
+        1.5
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 1,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.memory",
+        "text" : "Memory"
+      },
+      "help" : {
+        "key" : "settings.browser.keepNeighborTabsAwake.help",
+        "text" : "Tabs on each side of the shown tab stay loaded and running, so switching to them is instant. 0 turns it off. Memory pressure and Low Power Mode turn it off."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.keepNeighborTabsAwake",
+      "keywords" : [
+        "neighbor",
+        "adjacent",
+        "preload",
+        "warm",
+        "instant",
+        "switch",
+        "hibernation",
+        "freeze"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "browser",
+        "keepNeighborTabsAwake"
+      ],
+      "range" : {
+        "max" : 3,
+        "min" : 0,
+        "placeholder" : 0,
+        "step" : 1,
+        "unit" : "count"
+      },
+      "refuses" : [
+        -3,
+        6,
+        "1"
+      ],
+      "section" : "browser",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.browser.keepNeighborTabsAwake",
+        "text" : "Keep Neighbor Tabs Awake"
       },
       "validation" : "portable"
     },
@@ -26864,6 +27396,7 @@
     },
     {
       "accepts" : [
+        "linkPlacement",
         "backgroundTab",
         "foregroundTab",
         "newWindow",
@@ -26873,6 +27406,13 @@
       "agent_refusal" : null,
       "agent_settable" : true,
       "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.link.linkPlacement",
+            "text" : "Same as Open Links and Files"
+          },
+          "value" : "linkPlacement"
+        },
         {
           "title" : {
             "key" : "settings.choice.link.backgroundTab",
@@ -26912,7 +27452,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "backgroundTab",
+      "default" : "linkPlacement",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.links",
@@ -26951,6 +27491,7 @@
     },
     {
       "accepts" : [
+        "linkPlacement",
         "backgroundTab",
         "foregroundTab",
         "newWindow",
@@ -26960,6 +27501,13 @@
       "agent_refusal" : null,
       "agent_settable" : true,
       "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.link.linkPlacement",
+            "text" : "Same as Open Links and Files"
+          },
+          "value" : "linkPlacement"
+        },
         {
           "title" : {
             "key" : "settings.choice.link.backgroundTab",
@@ -27038,6 +27586,7 @@
     },
     {
       "accepts" : [
+        "linkPlacement",
         "backgroundTab",
         "foregroundTab",
         "newWindow",
@@ -27047,6 +27596,13 @@
       "agent_refusal" : null,
       "agent_settable" : true,
       "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.link.linkPlacement",
+            "text" : "Same as Open Links and Files"
+          },
+          "value" : "linkPlacement"
+        },
         {
           "title" : {
             "key" : "settings.choice.link.backgroundTab",
@@ -27124,6 +27680,7 @@
     },
     {
       "accepts" : [
+        "linkPlacement",
         "backgroundTab",
         "foregroundTab",
         "newWindow",
@@ -27133,6 +27690,13 @@
       "agent_refusal" : null,
       "agent_settable" : true,
       "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.link.linkPlacement",
+            "text" : "Same as Open Links and Files"
+          },
+          "value" : "linkPlacement"
+        },
         {
           "title" : {
             "key" : "settings.choice.link.backgroundTab",
@@ -27211,6 +27775,7 @@
     },
     {
       "accepts" : [
+        "linkPlacement",
         "backgroundTab",
         "foregroundTab",
         "newWindow",
@@ -27220,6 +27785,13 @@
       "agent_refusal" : null,
       "agent_settable" : true,
       "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.link.linkPlacement",
+            "text" : "Same as Open Links and Files"
+          },
+          "value" : "linkPlacement"
+        },
         {
           "title" : {
             "key" : "settings.choice.link.backgroundTab",

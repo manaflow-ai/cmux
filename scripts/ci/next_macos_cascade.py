@@ -73,9 +73,11 @@ budget. Without the snapshot's waits nothing is stalled and nothing goes to
 hosted, which is the previous route.
 
 `retry_runner` is the Blacksmith label the bot's overflow attempt (3 or later)
-takes for these jobs: simple_pool_picker's rule, the lowest (in flight +
-queued) / capacity, the larger label on a tie. It is computed with the same
-reads, at attempt 1, as classic's picker computes its retry_runner.
+takes for these jobs: among labels with a free slot, the lowest (in flight +
+queued) / capacity, the larger label on a tie; with no free slot, 6 vCPU, whose
+slots turn over while other workflows hold 12 vCPU's (retry_label). It is
+computed with the same reads, at attempt 1, as classic's picker computes its
+retry_runner.
 """
 from __future__ import annotations
 
@@ -216,9 +218,19 @@ def cascade(jobs: Sequence[str], live: Mapping[str, int], waiting: Mapping[str, 
 
 
 def retry_label(live: Mapping[str, int], waiting: Mapping[str, int]) -> str:
-    """simple_pool_picker._pick_blacksmith's overflow rule: lowest (in flight + queued) / capacity."""
-    return min(LABELS, key=lambda label: ((live.get(label, 0) + waiting.get(label, 0)) / CAPACITY[label],
-                                          LABELS.index(label)))
+    """The overflow label: the lowest (in flight + queued) / capacity among labels with a free slot, else SMALL.
+
+    With no free slot anywhere the load ratio misleads: other workflows' long jobs
+    hold the 12 vCPU label's five slots for an hour or more. From 01:04Z to 02:35Z on
+    2026-10-20 the ratio sent 25 cmux-next jobs there and none started (14 queued
+    over 15 minutes, up to 89, then cancelled), while 6 vCPU, whose ten slots turn
+    over, started 69 at a median 2.5 minutes.
+    """
+    load = {label: live.get(label, 0) + waiting.get(label, 0) for label in LABELS}
+    free = [label for label in LABELS if load[label] < CAPACITY[label]]
+    if not free:
+        return SMALL
+    return min(free, key=lambda label: (load[label] / CAPACITY[label], LABELS.index(label)))
 
 
 def skipped(env: Mapping[str, str]) -> str:

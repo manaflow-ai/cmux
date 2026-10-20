@@ -21,6 +21,9 @@ public final class LinkRouter {
     /// selected) when asked. `source` is the tab the link was clicked in (a tab id), nil for the
     /// focused pane: the App places the tab beside it (`layout.linkPlacement`).
     public var openInCmux: (_ url: URL, _ background: Bool, _ source: String?) -> Void = { url, _, _ in NSWorkspace.shared.openInBackground(url) }
+    /// The tab (a tab id) of the pane showing a clicked view, nil when no pane shows it: the App
+    /// finds the pane holding the view (``open(_:otherTarget:from:)``).
+    public var sourceTab: (_ view: NSView) -> String? = { _ in nil }
 
     #if DEBUG
     /// `CMUX_NEXT_TEST_RECORD_EXTERNAL_OPENS=1` (live scripts): what would go to another app is
@@ -52,6 +55,14 @@ public final class LinkRouter {
         let target = target(for: url, otherTarget: otherTarget, explicit: explicit)
         open(url, in: target, source: source)
         return target
+    }
+
+    /// Opens a link clicked in `view` (a chat transcript, a cmux page) where the rule sends it,
+    /// beside the pane that shows `view` (``sourceTab``), not the focused pane: Cmd-click always
+    /// lands right of what was clicked.
+    @discardableResult
+    public func open(_ url: URL, otherTarget: Bool = false, from view: NSView) -> LinkRouting.Target? {
+        open(url, otherTarget: otherTarget, source: sourceTab(view))
     }
 
     /// Opens `url` in `target` whatever the link setting (a menu's Open in cmux Browser, Open in
