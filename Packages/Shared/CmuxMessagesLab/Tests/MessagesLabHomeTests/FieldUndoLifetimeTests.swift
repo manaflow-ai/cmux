@@ -64,4 +64,45 @@ import Testing
         try #require(!undo.canUndo, "the window's undo stack still targets a freed compose field")
         undo.undo()
     }
+
+    /// Cmd+1…9 selects a workspace or tab: the app's `TopPages.show` takes Home's page out of the
+    /// window and frees it, as the menu's key equivalent does here. The next Edit > Undo must not
+    /// reach the freed field (tester report 2026-10-19: "crashes after cmd 123").
+    @Test(arguments: 1...9) func cmdDigitAwayFromHomeThenUndoDoesNotReachAFreedField(digit: Int) throws {
+        let window = window()
+        let undo = try #require(window.undoManager)
+        undo.groupsByEvent = false
+        final class Switcher: NSObject {
+            var home: NSView?
+            @objc func select(_ sender: Any?) { home?.removeFromSuperview(); home = nil }
+        }
+        let switcher = Switcher()
+        let menu = NSMenu()
+        let item = NSMenuItem(title: "Select \(digit)", action: #selector(Switcher.select(_:)), keyEquivalent: "\(digit)")
+        item.keyEquivalentModifierMask = [.command]
+        item.target = switcher
+        menu.addItem(item)
+        weak var gone: FieldTextView?
+        autoreleasepool {
+            let home = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 200))
+            window.contentView?.addSubview(home)
+            let field = FieldTextView(usingTextLayoutManager: true)
+            field.isRichText = false
+            field.allowsUndo = true
+            field.frame = NSRect(x: 0, y: 0, width: 300, height: 40)
+            home.addSubview(field)
+            window.makeFirstResponder(field)
+            type("draft", into: field, undo: undo)
+            switcher.home = home
+            gone = field
+            window.makeFirstResponder(nil)
+            let key = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [.command], timestamp: 0,
+                                       windowNumber: window.windowNumber, context: nil, characters: "\(digit)",
+                                       charactersIgnoringModifiers: "\(digit)", isARepeat: false, keyCode: 18)!
+            #expect(menu.performKeyEquivalent(with: key))
+        }
+        #expect(gone == nil, "Cmd+\(digit) should free Home's field to reproduce the crash")
+        try #require(!undo.canUndo, "after Cmd+\(digit) the window's undo stack still targets a freed compose field")
+        undo.undo()
+    }
 }
