@@ -98,6 +98,9 @@ extension SessionPersistencePolicy {
         if windows.count + phantomWindowCount != snapshot.windows.count {
             removedAny = true
         }
+        let deduplicated = deduplicatingSessionWindows(windows)
+        removedAny = removedAny || deduplicated.removedAny
+        windows = deduplicated.windows
         guard !windows.isEmpty else {
             return (nil, removedAny)
         }
@@ -105,6 +108,35 @@ extension SessionPersistencePolicy {
         var pruned = snapshot
         pruned.windows = windows
         return (pruned, removedAny)
+    }
+
+    /// A crash can leave the same window manifest written twice.  Replaying
+    /// both copies creates a second set of panels; agent admission suppresses
+    /// duplicate providers, but the resulting empty/stale tabs still consume
+    /// UI and persistence resources.  Workspace identities are globally unique
+    /// within a session, so an exact repeated workspace identity sequence is a
+    /// safe duplicate-window fingerprint.  Windows without identities remain
+    /// eligible for normal legacy restoration and are never collapsed here.
+    private static func deduplicatingSessionWindows(
+        _ windows: [SessionWindowSnapshot]
+    ) -> (windows: [SessionWindowSnapshot], removedAny: Bool) {
+        var seenWorkspaceIdentitySequences = Set<[UUID]>()
+        var result: [SessionWindowSnapshot] = []
+        result.reserveCapacity(windows.count)
+        var removedAny = false
+
+        for window in windows {
+            let workspaceIDs = window.tabManager.workspaces.compactMap(\.workspaceId)
+            let hasCompleteIdentitySequence = workspaceIDs.count == window.tabManager.workspaces.count
+                && !workspaceIDs.isEmpty
+            if hasCompleteIdentitySequence,
+               !seenWorkspaceIdentitySequences.insert(workspaceIDs).inserted {
+                removedAny = true
+                continue
+            }
+            result.append(window)
+        }
+        return (result, removedAny)
     }
 
     static func isCmuxCrashDiagnosticWindow(

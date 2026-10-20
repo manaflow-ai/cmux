@@ -264,12 +264,18 @@ extension DockSplitStore {
         } else {
             nil
         }
-        let restorableAgent = localTmuxStartCommand == nil
-            ? Workspace.restorableAgentForSessionRestore(
+        let restorableAgent: SessionRestorableAgentSnapshot? = {
+            guard localTmuxStartCommand == nil else { return nil }
+            let binding = persistedManagedResumeBinding ?? terminalSnapshot.resumeBinding
+            return Workspace.restorableAgentForSessionRestore(
                 terminalSnapshot.agent,
-                resumeBinding: persistedManagedResumeBinding ?? terminalSnapshot.resumeBinding
+                resumeBinding: binding
+            ) ?? Workspace.synthesizedLegacySubrouterAgent(
+                resumeBinding: binding,
+                terminal: terminalSnapshot,
+                workingDirectory: terminalSnapshot.workingDirectory ?? snapshot.directory
             )
-            : nil
+        }()
         let hibernation = restorableAgent != nil ? terminalSnapshot.hibernation : nil
         let resumeBinding = localTmuxStartCommand == nil
             ? Workspace.resumeBindingForSessionRestore(

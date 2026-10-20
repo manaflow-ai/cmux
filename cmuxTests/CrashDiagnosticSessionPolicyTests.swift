@@ -187,6 +187,33 @@ struct CrashDiagnosticSessionPolicyTests {
     }
 
     @Test
+    func sessionSnapshotDropsAnExactDuplicateWindowManifest() {
+        let workspaceID = UUID()
+        var workspace = terminalWorkspaceSnapshot(currentDirectory: "/tmp/cmux-project")
+        workspace.workspaceId = workspaceID
+        let window = SessionWindowSnapshot(
+            frame: nil,
+            display: nil,
+            tabManager: SessionTabManagerSnapshot(
+                selectedWorkspaceIndex: 0,
+                workspaces: [workspace]
+            ),
+            sidebar: SessionSidebarSnapshot(isVisible: true, selection: .tabs, width: nil)
+        )
+        let snapshot = AppSessionSnapshot(
+            version: SessionSnapshotSchema.currentVersion,
+            createdAt: 10,
+            windows: [window, window]
+        )
+
+        let pruned = SessionPersistencePolicy.pruningCmuxCrashDiagnosticWindows(from: snapshot)
+
+        #expect(pruned.removedAny)
+        #expect(pruned.snapshot?.windows.count == 1)
+        #expect(pruned.snapshot?.windows.first?.tabManager.workspaces.first?.workspaceId == workspaceID)
+    }
+
+    @Test
     func sessionSnapshotKeepsWorkspacelessWindowWithEmptyPinnedGroup() {
         // TabManager persists an empty pinned group even when no workspace in
         // the window is restorable; that group is user state, not a phantom.

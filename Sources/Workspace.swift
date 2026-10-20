@@ -1202,6 +1202,42 @@ extension Workspace {
         return restorableAgent
     }
 
+    /// Reconstructs the minimal built-in agent identity carried by older
+    /// Subrouter snapshots that predate `terminal.agent`.  The binding is
+    /// accepted only after the same provider-evidence check used by the legacy
+    /// compatibility path.  The returned record is then resumed through the
+    /// normal structured `cmux restore` path, so it receives the launch lease,
+    /// live-owner check, and writer-lock admission instead of typing a raw
+    /// `sr ... resume` command into the shell.
+    nonisolated static func synthesizedLegacySubrouterAgent(
+        resumeBinding: SurfaceResumeBindingSnapshot?,
+        terminal: SessionTerminalPanelSnapshot,
+        workingDirectory: String?
+    ) -> SessionRestorableAgentSnapshot? {
+        guard let resumeBinding,
+              resumeBinding.autoResume == true,
+              let kindValue = resumeBinding.kind?.trimmingCharacters(in: .whitespacesAndNewlines),
+              let kind = RestorableAgentKind(persistedRawValue: kindValue, registration: nil),
+              kind == .codex || kind == .claude,
+              let sessionID = resumeBinding.checkpointId,
+              let validated = legacySubrouterResumeStartupInput(
+                  kind: kind.rawValue,
+                  sessionID: sessionID,
+                  launchCommand: resumeBinding.launchCommand ?? terminal.agent?.launchCommand,
+                  resumeBinding: resumeBinding,
+                  workingDirectory: resumeBinding.cwd ?? workingDirectory
+              ),
+              !validated.isEmpty else {
+            return nil
+        }
+        return SessionRestorableAgentSnapshot(
+            kind: kind,
+            sessionId: sessionID,
+            workingDirectory: resumeBinding.cwd ?? workingDirectory,
+            launchCommand: nil
+        )
+    }
+
     /// Returns a process-detected binding only when the restore policy still
     /// admits that binding for startup. Process-detected commands own the
     /// terminal's shell, but must not bypass hibernation, ownership, trust, or
@@ -1745,9 +1781,14 @@ extension Workspace {
                 : nil
             let compatibilityBindingOwnsStartup = persistedResumeBinding?.isProcessDetected == true &&
                 persistedResumeBinding?.isAgentHookBinding != true
-            let restorableAgent = Self.restorableAgentForSessionRestore(
+            let persistedAgent = Self.restorableAgentForSessionRestore(
                 snapshotRestorableAgent,
                 resumeBinding: persistedManagedResumeBinding ?? persistedResumeBinding
+            )
+            let restorableAgent = persistedAgent ?? Self.synthesizedLegacySubrouterAgent(
+                resumeBinding: persistedManagedResumeBinding ?? persistedResumeBinding,
+                terminal: snapshot.terminal ?? SessionTerminalPanelSnapshot(),
+                workingDirectory: snapshot.terminal?.workingDirectory ?? snapshot.directory
             )
             let restoredHibernation = restorableAgent != nil ? snapshot.terminal?.hibernation : nil
             let autoResumeAgentSessions = AgentSessionAutoResumeSettings.isEnabled(defaults: agentSessionAutoResumeDefaults)

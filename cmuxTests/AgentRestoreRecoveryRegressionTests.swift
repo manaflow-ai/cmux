@@ -11,6 +11,119 @@ import Testing
 @MainActor
 @Suite("Restore execution owns admission", .serialized)
 struct AgentRestoreRecoveryRegressionTests {
+    @Test("A binding-only Subrouter Codex snapshot is reconstructed through cmux restore")
+    func bindingOnlySubrouterCodexUsesAdmission() throws {
+        let defaultsName = "cmux-binding-only-subrouter-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: defaultsName))
+        defaults.set(true, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
+        defer { defaults.removePersistentDomain(forName: defaultsName) }
+
+        let cwd = "/tmp/cmux-binding-only-subrouter"
+        let sessionID = "binding-only-subrouter-\(UUID().uuidString)"
+        let source = Workspace(agentSessionAutoResumeDefaults: defaults)
+        defer { source.teardownAllPanels() }
+        let sourcePanelID = try #require(source.focusedPanelId)
+        source.updatePanelDirectory(panelId: sourcePanelID, directory: cwd)
+        var snapshot = source.sessionSnapshot(includeScrollback: false)
+        let panelIndex = try #require(snapshot.panels.firstIndex { $0.id == sourcePanelID })
+        let binding = SurfaceResumeBindingSnapshot(
+            name: "Codex",
+            kind: "codex",
+            command: TerminalStartupWorkingDirectoryPrefix.prefix(
+                "codex -c model_provider=subrouter",
+                workingDirectory: cwd
+            ),
+            cwd: cwd,
+            checkpointId: sessionID,
+            source: "agent-hook",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "codex",
+                arguments: ["codex", "-c", "model_provider=subrouter"],
+                workingDirectory: cwd,
+                capturedAt: 1_800_000_000,
+                source: "agent-hook"
+            ),
+            autoResume: true,
+            updatedAt: 1_800_000_000
+        )
+        snapshot.panels[panelIndex].terminal?.agent = nil
+        snapshot.panels[panelIndex].terminal?.managedAgentResumeBinding = binding
+        snapshot.panels[panelIndex].terminal?.wasAgentRunning = false
+
+        let restored = Workspace(
+            agentSessionAutoResumeDefaults: defaults,
+            restorableAgentIndexProvider: { .empty }
+        )
+        defer { restored.teardownAllPanels() }
+        let restoredIDs = restored.restoreSessionSnapshot(snapshot)
+        let restoredPanelID = try #require(restoredIDs[sourcePanelID])
+        let terminal = try #require(restored.terminalPanel(for: restoredPanelID))
+        let input = try #require(terminal.surface.debugInitialInputForTesting())
+        #expect(input.contains("cmux restore codex \(sessionID)"), Comment(rawValue: input))
+        #expect(!input.contains("'sr' 'codex'"), Comment(rawValue: input))
+    }
+
+    @Test("A binding-only Subrouter Claude snapshot is reconstructed through cmux restore")
+    func bindingOnlySubrouterClaudeUsesAdmission() throws {
+        let defaultsName = "cmux-binding-only-subrouter-claude-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: defaultsName))
+        defaults.set(true, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
+        defer { defaults.removePersistentDomain(forName: defaultsName) }
+
+        let cwd = "/tmp/cmux-binding-only-subrouter-claude"
+        let sessionID = "binding-only-subrouter-claude-\(UUID().uuidString)"
+        let source = Workspace(agentSessionAutoResumeDefaults: defaults)
+        defer { source.teardownAllPanels() }
+        let sourcePanelID = try #require(source.focusedPanelId)
+        source.updatePanelDirectory(panelId: sourcePanelID, directory: cwd)
+        var snapshot = source.sessionSnapshot(includeScrollback: false)
+        let panelIndex = try #require(snapshot.panels.firstIndex { $0.id == sourcePanelID })
+        let marker = "sr claude proxy --resume"
+        let binding = SurfaceResumeBindingSnapshot(
+            name: "Claude",
+            kind: "claude",
+            command: TerminalStartupWorkingDirectoryPrefix.prefix(
+                "claude --resume \(sessionID)",
+                workingDirectory: cwd
+            ),
+            cwd: cwd,
+            checkpointId: sessionID,
+            source: "agent-hook",
+            environment: [
+                SubrouterClaudeResumeRouting.environmentKey: marker,
+                SubrouterClaudeResumeRouting.launchBoundEnvironmentKey: marker,
+            ],
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "claude",
+                arguments: ["claude"],
+                workingDirectory: cwd,
+                environment: [
+                    SubrouterClaudeResumeRouting.environmentKey: marker,
+                    SubrouterClaudeResumeRouting.launchBoundEnvironmentKey: marker,
+                ],
+                capturedAt: 1_800_000_000,
+                source: "agent-hook"
+            ),
+            autoResume: true,
+            updatedAt: 1_800_000_000
+        )
+        snapshot.panels[panelIndex].terminal?.agent = nil
+        snapshot.panels[panelIndex].terminal?.managedAgentResumeBinding = binding
+        snapshot.panels[panelIndex].terminal?.wasAgentRunning = false
+
+        let restored = Workspace(
+            agentSessionAutoResumeDefaults: defaults,
+            restorableAgentIndexProvider: { .empty }
+        )
+        defer { restored.teardownAllPanels() }
+        let restoredIDs = restored.restoreSessionSnapshot(snapshot)
+        let restoredPanelID = try #require(restoredIDs[sourcePanelID])
+        let terminal = try #require(restored.terminalPanel(for: restoredPanelID))
+        let input = try #require(terminal.surface.debugInitialInputForTesting())
+        #expect(input.contains("cmux restore claude \(sessionID)"), Comment(rawValue: input))
+        #expect(!input.contains("'sr' 'claude'"), Comment(rawValue: input))
+    }
+
     @Test("A managed-only Subrouter Codex binding survives workspace restore")
     func managedOnlySubrouterCodexBindingRoutesThroughSubrouter() throws {
         try verifyManagedOnlyProviderRestore(kind: .codex, routed: true)
@@ -319,8 +432,11 @@ struct AgentRestoreRecoveryRegressionTests {
         let input = try #require(terminal.surface.debugInitialInputForTesting())
 
         if routed {
-            #expect(input.contains("'sr' '\(kind.rawValue)'"), Comment(rawValue: input))
-            #expect(!input.contains("cmux restore"), Comment(rawValue: input))
+            // Routed sessions must use the same cmux restore admission
+            // boundary as direct sessions. The provider route is reconstructed
+            // from the persisted Subrouter evidence by the agent launcher.
+            #expect(input.contains("cmux restore \(kind.rawValue)"), Comment(rawValue: input))
+            #expect(!input.contains("'sr' '\(kind.rawValue)'"), Comment(rawValue: input))
         } else {
             #expect(!input.contains("'sr'"), Comment(rawValue: input))
             #expect(input.contains(sessionID), Comment(rawValue: input))
