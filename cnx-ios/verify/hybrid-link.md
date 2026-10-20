@@ -142,6 +142,24 @@ Swift (`verify/termqa/cnxkit-test.sh` on mini-cmux11s):
   345 tests in 94 suites passed.
 - CmuxNext `CnxHostTests` (fleet step): `phone_media` parsing and state.
 
+## Review (fresh subagent, correctness first)
+
+Findings and what was done:
+
+| Finding | Severity | Resolution |
+| --- | --- | --- |
+| A late, older keyframe of the route the Mac just left (the PLI every source gets when the session's source is added; the tunnel over TURN over TLS is slower than the session) took the phone's gate back, and the newer route's P frames were then rejected with nothing asking for a keyframe: a frozen tab | must fix | The gate moves only on a keyframe newer than the newest frame it passed (RTP timestamp = capture time on both routes, serial compare); a source stuck behind the gate for 250 ms asks for a keyframe (at most every 250 ms). Unit tests `a_late_older_keyframe_of_the_left_route_never_takes_the_gate_back`, `a_source_stuck_behind_the_gate_asks_for_a_keyframe` |
+| The tunnel route could be put into stall backoff while the session waited out its own, leaving no usable route: video dark until a retry, up to 16 s | must fix | Only a route with a floor below it stalls away. Red-then-green unit test `the_floor_never_stalls_away_while_the_preferred_route_backs_off` (found by this author before the review too) |
+| A media dial or answer that failed or timed out after its peer connection existed leaked it (webrtc-rs does not close a dropped one); a phone on a UDP-blocked network retries every 30 s | should fix | The peer connection is made before the bound and closed on every failure and on the timeout, on both sides |
+| An older answer that finished after a newer offer for the same link replaced the newer session | should fix | hostd numbers offers per link on arrival and drops an answer whose offer is no longer the newest |
+| Demand not released when the app goes to the background | nice | The scene phase hides every streamed page (`StreamedBrowserDirectory.setAppActive`) |
+| Ended media sources kept forever on the phone's lane | nice | Removed when they end; their counters stay in the sum |
+| The test kill left a permit for the next session | nice | `notify_waiters` |
+| The status re-sent every 5 s with a new RTT | nice | Only when the RTT moved by 20 % and 2 ms |
+| A stale hostd registration's drop could remove a newer one | nice | Registrations carry a token |
+| A tab opened while hidden holds the session until `opened()` hides it | nice, not done | The stream reports hidden right after it opens; the session lingers at most 30 s |
+| The media source uses the WireGuard link's RTT for its NACK deadline | nice, not done | The deadline is clamped to 80 to 400 ms; both paths measured within a few ms on the rig |
+
 ## Live check
 
 See "Live results" below.
