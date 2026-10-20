@@ -177,6 +177,8 @@ mod early_calls;
 #[cfg(test)]
 mod early_calls_tests;
 #[cfg(test)]
+mod background_output_tests;
+#[cfg(test)]
 mod edit_diff_tests;
 mod inbound;
 mod outbound;

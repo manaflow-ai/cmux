@@ -9,6 +9,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use common::*;
+use optchat_chief::brain::Input;
 use optchat_chief::subagents::{Spawner, SubagentSettings};
 use optchat_chief::tools::{ControlCall, Orchestrator};
 
@@ -159,6 +160,213 @@ fn a_queued_subagent_gets_its_messages_with_its_task_when_the_cap_rises() {
     assert!(again.starts_with("outcome: noop."), "{again}");
 }
 
+/// 2026-10-20 the user: "we need to remove 40 agent limit by default".
+/// With no env cap and no `control cap`, 48 subagents (more than the old
+/// 40) all start at once: none waits.
+#[test]
+fn with_no_cap_set_every_spawn_starts_at_once() {
+    let mut h = Harness::new(default_script());
+    h.agents.hold(true);
+    let sp = spawner(&h);
+    h.brain.set_sub_starter(Some(sp.queue_starter()));
+    for batch in 0..6 {
+        let a = sp.clone();
+        let tasks: Vec<String> = (0..8).map(|i| format!("task {batch}-{i}")).collect();
+        let spawned = run(&mut h, move || a.spawn(tasks, None)).unwrap();
+        assert!(!spawned.contains("queued"), "{spawned}");
+    }
+    let a = sp.clone();
+    let status = run(&mut h, move || {
+        a.control(ControlCall {
+            action: "status".into(),
+            ..ControlCall::default()
+        })
+    })
+    .unwrap();
+    assert!(status.contains("(no cap)"), "{status}");
+}
+
+/// A cap set with `control cap` (2026-10-20: the Chief set 40 and the
+/// queued line blamed OPTCHAT_MAX_LIVE_SUBAGENTS, so the user saw a limit
+/// with no visible source): the queued line names `control cap` and says
+/// how to lift it.
+#[test]
+fn a_queued_line_names_the_control_cap_and_how_to_lift_it() {
+    let mut h = Harness::new(default_script());
+    h.agents.hold(true);
+    let sp = spawner(&h);
+    h.brain.set_sub_starter(Some(sp.queue_starter()));
+    let a = sp.clone();
+    let cap = run(&mut h, move || {
+        a.control(ControlCall {
+            action: "cap".into(),
+            n: Some(1),
+            ..ControlCall::default()
+        })
+    })
+    .unwrap();
+    assert!(cap.starts_with("outcome: done."), "{cap}");
+    let a = sp.clone();
+    let spawned = run(&mut h, move || {
+        a.spawn(vec!["task one".into(), "task two".into()], None)
+    })
+    .unwrap();
+    assert!(spawned.contains("a2: queued"), "{spawned}");
+    assert!(spawned.contains("control cap 1"), "{spawned}");
+    assert!(spawned.contains("control cap 0"), "{spawned}");
+    assert!(!spawned.contains("OPTCHAT_MAX_LIVE_SUBAGENTS"), "{spawned}");
+}
+
+/// A cap from the env: the queued line names the env and how to lift it.
+#[test]
+fn a_queued_line_names_the_env_cap() {
+    let mut h = Harness::new(default_script());
+    h.brain.set_max_live(Some(1));
+    h.agents.hold(true);
+    let sp = spawner(&h);
+    h.brain.set_sub_starter(Some(sp.queue_starter()));
+    let a = sp.clone();
+    let spawned = run(&mut h, move || {
+        a.spawn(vec!["task one".into(), "task two".into()], None)
+    })
+    .unwrap();
+    assert!(spawned.contains("a2: queued"), "{spawned}");
+    assert!(
+        spawned.contains("OPTCHAT_MAX_LIVE_SUBAGENTS=1"),
+        "{spawned}"
+    );
+    assert!(spawned.contains("control cap 0"), "{spawned}");
+}
+
+/// The session id of the first subagent (`a1`).
+fn sub_session(h: &Harness) -> String {
+    let inner = h.agents.inner.lock().unwrap();
+    let k = inner
+        .specs
+        .iter()
+        .position(|s| s.tags.contains_key("optchat.subagent"))
+        .expect("a subagent session");
+    format!("s{}", k + 1)
+}
+
+fn idle(session: &str) -> cmux_chief::acp::SessionSummary {
+    serde_json::from_value(serde_json::json!({
+        "sessionId": session, "name": "a1", "status": "idle", "harness": "claude",
+    }))
+    .unwrap()
+}
+
+/// Tell interrupts by default (user 2026-10-20: "We need a default behavior
+/// for you to interrupt instead of queuing."): a running subagent whose
+/// agent cannot steer has its turn stopped, and the message is its next
+/// prompt, not one queued behind an hour-long turn.
+#[test]
+fn a_tell_to_a_running_subagent_that_cannot_steer_interrupts_it() {
+    let mut h = Harness::new(default_script());
+    h.agents.hold(true);
+    let sp = spawner(&h);
+    let a = sp.clone();
+    run(&mut h, move || a.spawn(vec!["long job".into()], None)).unwrap();
+    wait_for(&mut h, |h| !sub_prompts(h).is_empty());
+    let session = sub_session(&h);
+    let a = sp.clone();
+    let told = run(&mut h, move || a.tell("a1", "stop and fix the build")).unwrap();
+    assert!(told.starts_with("outcome: done."), "{told}");
+    wait_for(&mut h, |h| {
+        !h.agents.inner.lock().unwrap().cancels.is_empty()
+    });
+    assert_eq!(
+        h.agents.inner.lock().unwrap().cancels,
+        vec![session.clone()]
+    );
+    // Nothing waits in the queue behind the running turn.
+    assert_eq!(sub_prompts(&h).len(), 1, "{:?}", sub_prompts(&h));
+    // The cut turn ends: the message goes in as the next prompt.
+    h.agents.hold(false);
+    h.brain.step(Input::from(
+        optchat_chief::acpmux::AgentEvent::SessionChanged(idle(&session)),
+    ));
+    wait_for(&mut h, |h| sub_prompts(h).len() >= 2);
+    let prompts = sub_prompts(&h);
+    assert!(prompts[1].contains("stop and fix the build"), "{prompts:?}");
+}
+
+/// `queue: true` keeps the old behavior for a low-priority FYI: no
+/// interrupt, the message waits after the running turn.
+#[test]
+fn a_queue_tell_waits_for_the_turn() {
+    let mut h = Harness::new(default_script());
+    h.agents.hold(true);
+    let sp = spawner(&h);
+    let a = sp.clone();
+    run(&mut h, move || a.spawn(vec!["long job".into()], None)).unwrap();
+    wait_for(&mut h, |h| !sub_prompts(h).is_empty());
+    let a = sp.clone();
+    let told = run(&mut h, move || {
+        a.tell_with("a1", "FYI: a188 landed its fix", None, true)
+    })
+    .unwrap();
+    assert!(told.starts_with("outcome: done."), "{told}");
+    wait_for(&mut h, |h| sub_prompts(h).len() >= 2);
+    assert!(sub_prompts(&h)[1].contains("FYI: a188 landed its fix"));
+    let inner = h.agents.inner.lock().unwrap();
+    assert!(inner.cancels.is_empty(), "{:?}", inner.cancels);
+    assert!(
+        inner.prompt_ids[1].starts_with("optchat-fyi:a1:"),
+        "{:?}",
+        inner.prompt_ids
+    );
+}
+
+/// Flush on the change: Chief tells an older host left in a running
+/// subagent's acpmux queue are taken out on reconnect and sent again as one
+/// interrupting tell; a `queue` (fyi) one stays queued.
+#[test]
+fn queued_chief_tells_are_flushed_as_an_interrupt_on_reconnect() {
+    let mut h = Harness::new(default_script());
+    h.agents.hold(true);
+    let sp = spawner(&h);
+    let a = sp.clone();
+    run(&mut h, move || a.spawn(vec!["long job".into()], None)).unwrap();
+    wait_for(&mut h, |h| !sub_prompts(h).is_empty());
+    let session = sub_session(&h);
+    h.agents.append_events(
+        &session,
+        vec![
+            serde_json::json!({"dir": "mux", "kind": "queued", "msg": {"text": "From a162: rebase first", "promptId": "optchat-tell:a1:1"}}),
+            serde_json::json!({"dir": "mux", "kind": "queued", "msg": {"text": "already ran", "promptId": "optchat-tell:a1:2"}}),
+            serde_json::json!({"dir": "mux", "kind": "user_message", "msg": {"text": "already ran", "promptId": "optchat-tell:a1:2"}}),
+            serde_json::json!({"dir": "mux", "kind": "queued", "msg": {"text": "low priority", "promptId": "optchat-fyi:a1:3"}}),
+        ],
+    );
+    let running: cmux_chief::acp::SessionSummary = serde_json::from_value(serde_json::json!({
+        "sessionId": session, "name": "a1", "status": "running", "harness": "claude",
+    }))
+    .unwrap();
+    h.brain
+        .step(Input::from(optchat_chief::acpmux::AgentEvent::Up(vec![
+            running,
+        ])));
+    wait_for(&mut h, |h| {
+        !h.agents.inner.lock().unwrap().cancels.is_empty()
+    });
+    assert_eq!(
+        h.agents.inner.lock().unwrap().removed_queued,
+        vec![(session.clone(), "optchat-tell:a1:1".to_owned())]
+    );
+    h.agents.hold(false);
+    h.brain.step(Input::from(
+        optchat_chief::acpmux::AgentEvent::SessionChanged(idle(&session)),
+    ));
+    wait_for(&mut h, |h| sub_prompts(h).len() >= 2);
+    let prompts = sub_prompts(&h);
+    assert!(
+        prompts[1].contains("From a162: rebase first"),
+        "{prompts:?}"
+    );
+    assert!(!prompts[1].contains("low priority"), "{prompts:?}");
+}
+
 #[test]
 fn keyed_tells_and_cancels_are_idempotent() {
     let mut h = Harness::new(default_script());
@@ -170,8 +378,9 @@ fn keyed_tells_and_cancels_are_idempotent() {
     let a = sp.clone();
     let (one, two) = run(&mut h, move || {
         (
-            a.tell_keyed("a1", "focus on tests", Some("k1")),
-            a.tell_keyed("a1", "focus on tests", Some("k1")),
+            // queue: these check the key, not the interrupt.
+            a.tell_with("a1", "focus on tests", Some("k1"), true),
+            a.tell_with("a1", "focus on tests", Some("k1"), true),
         )
     });
     assert!(one.unwrap().starts_with("outcome: done."));

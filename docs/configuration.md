@@ -172,10 +172,21 @@ Where Cmd-T and the + button put a new tab.
 }
 ```
 
-- `"end"` (default): after the pane's last tab, as in Chrome and Edge.
-- `"afterCurrent"`: right after the selected tab. A selected tab in a tab group puts the new tab after the group; it doesn't join the group.
+- `"afterCurrent"` (default): right after the selected tab. A selected tab in a tab group puts the new tab after the group; it doesn't join the group.
+- `"end"`: after the pane's last tab, as in Chrome and Edge.
+- `"start"`: first, right after the pinned tabs.
 
-**New Tab to the Right** in a tab's right-click menu always puts the new tab right after that tab. Change the setting in **Settings > General > Tabs** or with `cmux settings set tabs.newTabPosition afterCurrent`.
+The setting applies to what you open with Cmd-T and the + button. A script's `cmux tab new` still adds the tab at the end.
+
+To put one new tab in a specific place, whatever the setting, use these commands (Cmd-Shift-P, the CLI, or MCP). They have no default key; you can assign one in **Settings > Keyboard Shortcuts**.
+
+| Command | CLI |
+|---|---|
+| **New Tab After Current Tab** | `cmux tab new-after-current` |
+| **New Tab at Start** | `cmux tab new-at-start` |
+| **New Tab at End** | `cmux tab new-at-end` |
+
+**New Tab to the Right** in a tab's right-click menu always puts the new tab right after that tab. Change the setting in **Settings > General > Tabs** or with `cmux settings set tabs.newTabPosition end`.
 
 ## `tabs.newTabTemplate`
 
@@ -842,6 +853,7 @@ shows the same keys.
       "inlineAutocomplete": true,
       "maxRows": 8,
       "calculator": true,
+      "showFullURLs": false,
       "glass": "off",
       "glassTint": "background",
       "glassTintStrength": 0.35,
@@ -868,6 +880,9 @@ shows the same keys.
   when the text is the start of the host and you typed that address before or visited it
   at least 4 times. Default: `true`.
 - `omnibar.maxRows`: suggestion rows shown, `3` to `15`. Default: `8`.
+- `omnibar.showFullURLs`: show the whole address, with `https://` and `www.`, when you are not
+  editing it (Chrome's "Always Show Full URLs"; the address bar's right-click menu toggles it).
+  Default: `false`.
 - `omnibar.calculator`: show the answer to arithmetic you type (`+ - * / % ^`,
   parentheses) as a row; arrow to it and press Return to copy the answer. Default: `true`.
 
@@ -892,7 +907,7 @@ shows the same keys.
   `1` makes the bar solid. An opaque window with the theme's toolbar color looks the same at any
   value.
 
-Agents (MCP `settings_set`) may change `inlineAutocomplete`, `maxRows`, `calculator` and the look
+Agents (MCP `settings_set`) may change `inlineAutocomplete`, `maxRows`, `calculator`, `showFullURLs` and the look
 keys (`glass`, `glassTint`, `glassTintStrength`, `cornerRadius`, `shadow`, `backgroundOpacity`); the search
 engine and remote suggestions decide what leaves the Mac, so only you change them.
 

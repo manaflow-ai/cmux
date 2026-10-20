@@ -7326,5 +7326,216 @@
     "dbUpdated": "データベース: {time}",
     "noOwner": "cmux の所有者なし",
     "none": "なし。"
+  },
+  "nextPricing": {
+    "metaTitle": "cmux-next の料金: Chief、トークン、サンドボックス",
+    "metaDescription": "Chief はエージェントを動かし、クラウドのサンドボックスを起動して、作業を仕上げます。すべてのプランにオープンモデル向けの Chief クレジットが含まれ、それを超えた分は従量課金です。",
+    "previewBadge": "料金案・プレビュー",
+    "previewNote": "これらの金額は案であり、まだ販売していません。",
+    "eyebrow": "cmux-next",
+    "title": "ソフトウェアの席ではなく、Chief に支払う",
+    "lede": "Chief はほかのエージェントを動かすエージェントです。チャットを読み、Claude Code、Codex、オープンモデルのエージェントを起動し、クラウドのサンドボックスを立ち上げて報告します。トークンもサンドボックスも、ひとつのクレジット残高で支払います。",
+    "pillars": [
+      {
+        "title": "Chief クレジット込み",
+        "body": "すべてのプランに毎月のクレジットが含まれます。Kimi や GLM などのオープンモデルでは、フロンティアモデルの約 4 倍使えます。"
+      },
+      {
+        "title": "トークンは原価",
+        "body": "含まれるクレジットを超えたトークンは、上乗せなしのプロバイダー原価で請求します。お持ちの Claude や ChatGPT のサブスクリプションを無料で使うこともできます。"
+      },
+      {
+        "title": "サンドボックスは時間単位",
+        "body": "Chief は作業にマシンが必要なときにクラウドのサンドボックスを起動し、使っていないときは一時停止します。vCPU 時間と GB 時間ごとに、同じクレジットから支払います。"
+      }
+    ],
+    "perMonth": "/月",
+    "perSeatMonth": "/席/月",
+    "billedYearly": "年払いで {price}/月",
+    "custom": "個別見積もり",
+    "mostPopular": "いちばん人気",
+    "includedCredits": "毎月 {amount} の Chief クレジット",
+    "includedCreditsSeat": "1 席あたり毎月 {amount} の Chief クレジット(チームで共有)",
+    "includedTokens": "Kimi K2.7 Code で約 {tokens}M トークン、またはサンドボックス {hours} 時間",
+    "plans": {
+      "free": {
+        "name": "Free",
+        "cta": "cmux をダウンロード",
+        "features": [
+          "オープンモデルで Chief を利用",
+          "含まれるクレジットで停止、カード不要",
+          "Mac 上でご自身の Claude Code や Codex のサブスクリプションを使えば Chief は無制限",
+          "サンドボックスは同時に 1 台、最大 2 vCPU / 4 GB"
+        ]
+      },
+      "pro": {
+        "name": "Pro",
+        "cta": "Pro にする",
+        "features": [
+          "Free のすべて",
+          "クレジットでフロンティアモデル(Claude、GPT)を利用",
+          "含まれるクレジットを超えた分は従量課金",
+          "サンドボックスは同時に 5 台、最大 8 vCPU / 16 GB"
+        ]
+      },
+      "max": {
+        "name": "Max",
+        "cta": "Max にする",
+        "features": [
+          "Pro のすべて",
+          "含まれるクレジットが 4 倍",
+          "サンドボックスは同時に 20 台、最大 32 vCPU / 64 GB"
+        ]
+      },
+      "team": {
+        "name": "Team",
+        "cta": "チームを始める",
+        "features": [
+          "すべての席に Pro",
+          "クレジットをチームで共有",
+          "メンバーごと・チームごとの利用上限",
+          "請求と席をまとめて管理"
+        ]
+      },
+      "enterprise": {
+        "name": "Enterprise",
+        "cta": "お問い合わせ",
+        "features": [
+          "ボリューム単価でのクレジット契約",
+          "SSO と個別の契約条件",
+          "専任サポート"
+        ]
+      }
+    },
+    "calculator": {
+      "title": "1 か月の料金を見積もる",
+      "turns": "1 日あたりの Chief ターン数",
+      "tokensPerTurn": "1 ターンあたりのトークン数",
+      "workdays": "稼働日数",
+      "model": "モデル",
+      "openModels": "オープンモデル",
+      "frontierModels": "フロンティアモデル",
+      "sandboxHours": "1 日あたりのサンドボックス時間",
+      "sandboxSize": "サンドボックスのサイズ",
+      "parallel": "同時に動かすサンドボックス数",
+      "seats": "席数",
+      "tokens": "トークン",
+      "tokenCost": "モデルのトークン",
+      "sandboxCost": "サンドボックス({hours} 時間)",
+      "usage": "利用額",
+      "included": "含まれるクレジット",
+      "overage": "従量課金",
+      "plan": "プラン",
+      "total": "見積もり合計",
+      "recommended": "おすすめ: {plan}",
+      "doesNotFit": "{plan} ではこの利用量を動かせません",
+      "assumption": "Chief の 1 ターンは平均で、新規入力 10%、キャッシュ入力 85%、出力 5% と想定しています。実際の割合は異なる場合があります。"
+    },
+    "rates": {
+      "title": "含まれるクレジットを超えた分の単価",
+      "modelHeader": "モデル",
+      "inputHeader": "入力 / 1M",
+      "cachedHeader": "キャッシュ / 1M",
+      "outputHeader": "出力 / 1M",
+      "blendedHeader": "Chief 平均 / 1M",
+      "sandboxTitle": "サンドボックス",
+      "vcpuHour": "vCPU 時間あたり",
+      "gbHour": "GB 時間あたり",
+      "storage": "一時停止中の GB 月あたり",
+      "example": "2 vCPU / 4 GB のサンドボックスは、稼働 1 時間あたり {price} です。"
+    },
+    "compare": {
+      "title": "ほかのサービスとの比較",
+      "note": "2026-10-19 時点の公開料金です。利用量の数え方はサービスごとに異なります。",
+      "productHeader": "サービス",
+      "planHeader": "プラン",
+      "includedHeader": "含まれる利用量",
+      "sandboxHeader": "サンドボックス",
+      "rows": [
+        {
+          "product": "cmux-next",
+          "plan": "Pro $50/月",
+          "included": "$25 のクレジット、トークンは原価",
+          "sandbox": "$0.15/時(2 vCPU / 4 GB)"
+        },
+        {
+          "product": "Cursor",
+          "plan": "Premium $30/月",
+          "included": "Plus の 4 倍の週間枠",
+          "sandbox": "記載なし"
+        },
+        {
+          "product": "Claude",
+          "plan": "Max 5x $100/月",
+          "included": "Pro の 5 倍の上限",
+          "sandbox": "なし"
+        },
+        {
+          "product": "Warp",
+          "plan": "Build $20/月",
+          "included": "API 料金で $20 分",
+          "sandbox": "なし"
+        },
+        {
+          "product": "Replit",
+          "plan": "Pro $100/月",
+          "included": "$100 のクレジット",
+          "sandbox": "作業量ベースの料金に含む"
+        },
+        {
+          "product": "Devin",
+          "plan": "Pro $20/月",
+          "included": "日次・週次の枠",
+          "sandbox": "含む"
+        },
+        {
+          "product": "Conductor",
+          "plan": "Pro $50/月",
+          "included": "ご自身のサブスクリプション",
+          "sandbox": "8 コア / 16 GB、現在は無料"
+        },
+        {
+          "product": "E2B",
+          "plan": "Pro $150/月 + 従量",
+          "included": "モデル利用なし",
+          "sandbox": "$0.17/時(2 vCPU / 4 GB)"
+        },
+        {
+          "product": "Daytona",
+          "plan": "従量課金",
+          "included": "モデル利用なし",
+          "sandbox": "$0.17/時(2 vCPU / 4 GB)"
+        }
+      ]
+    },
+    "faq": {
+      "title": "よくある質問",
+      "items": [
+        {
+          "q": "Chief クレジットとは何ですか?",
+          "a": "1 クレジットは 1 米ドル分の利用です。モデルのトークンもサンドボックスの時間も同じ残高から引かれるので、2 つのメーターを管理する必要はありません。"
+        },
+        {
+          "q": "なぜオープンモデルだと多く使えるのですか?",
+          "a": "Kimi K2.7 Code での Chief の 1 ターンは、Claude Opus での同じターンの約 4 分の 1 の費用です。Chief は既定でオープンモデルを選び、ご指示があるときやタスクに必要なときにフロンティアモデルを使います。"
+        },
+        {
+          "q": "自分の Claude や ChatGPT のサブスクリプションを使えますか?",
+          "a": "はい、すべてのプランで使えます。Chief がお使いの Mac 上でご自身のログインを使って Claude Code や Codex を動かす場合、そのトークンにクレジットはかかりません。"
+        },
+        {
+          "q": "Chief はいつサンドボックスを起動しますか?",
+          "a": "ビルド、テスト、ブラウザーのセッション、長いタスクなど、専用のマシンが必要なときです。使っていないサンドボックスは一時停止し、一時停止中はストレージ代だけがかかります。"
+        },
+        {
+          "q": "クレジットがなくなるとどうなりますか?",
+          "a": "Free では翌月まで Chief が止まります。有料プランでは、設定した利用上限まで従量課金で続けるか、Chief が表示する案内からチャージできます。"
+        },
+        {
+          "q": "使わなかったクレジットは繰り越せますか?",
+          "a": "含まれるクレジットは毎月リセットされます。購入したクレジットは 12 か月有効です。"
+        }
+      ]
+    }
   }
 }

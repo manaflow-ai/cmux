@@ -11,6 +11,8 @@ nonisolated extension ActionSurfaceCatalog {
             // A tab's menu offers New Tab to the Right and, in its New submenu, New <Kind> Tab and the kinds; Cmd-T's
             // setting-driven New Tab stays in the File menu and the palette.
             "newTab.default",
+            // The tab's menu has New Tab to the Right (this, Chrome's name) and, in New, at Start and at End.
+            "newTab.afterCurrent",
             // The pane's menu offers Show Tab Bar (Hide Tab Bar while shown), and the bar's + adds a tab once it shows.
             "newTab.horizontal",
         ],
@@ -20,7 +22,6 @@ nonisolated extension ActionSurfaceCatalog {
         ],
         .unimplemented: [
             "palette.browserToggleOmnibar",
-            "palette.openVaultPane",
             "palette.openFindPane",
             "palette.openFilesPane",
         ],
@@ -47,10 +48,10 @@ nonisolated extension ActionSurfaceCatalog {
             "accounts.connect", "accounts.remove", "reloadConfiguration", "palette.openCmuxSettingsFile",
             "palette.openGhosttySettings", "ghostty.showDiagnostics", "palette.makeDefaultBrowser", "palette.makeDefaultTerminal",
             "palette.toggleSetting", "palette.shortcutKeymap", "palette.searchShortcuts", "palette.installCLI",
-            "palette.uninstallCLI", "palette.restartSocketListener", "palette.checkForUpdates", "updates.whatsNew", "announcements.show", "announcements.hide",
+            "palette.uninstallCLI", "palette.restartSocketListener", "palette.restartServer", "palette.checkForUpdates", "updates.whatsNew", "announcements.show", "announcements.hide",
             "palette.applyUpdateIfAvailable", "palette.switchAppChannel", "palette.pro.upgrade",
             "sendFeedback", "help.featureFlags", "help.documentation", "help.showCrashLogs",
-            "appearance.density.compact", "appearance.density.comfortable", "appearance.animationSpeed.fast",
+            "appearance.density.compact", "appearance.density.comfortable", "appearance.density.ultraCompact", "appearance.density.cozy", "appearance.density.spacious", "appearance.density.set", "appearance.density.create", "appearance.animationSpeed.fast",
             "appearance.animationSpeed.normal", "appearance.animationSpeed.off", "appearance.animations.newTab.toggle", "appearance.animations.newWorkspace.toggle", "appearance.animations.bounce.subtle", "appearance.animations.bounce.none",
             "browser.defaultEngine.chromium",
             "browser.defaultEngine.webkit", "appearance.paneBorder.toggle", "appearance.panePadding.toggle",
@@ -59,10 +60,13 @@ nonisolated extension ActionSurfaceCatalog {
             "focusRing.style.glow", "focusRing.singlePane.toggle", "appearance.paneBorderWidth.toggle",
             "appearance.paneBorderColor.reset", "appearance.titlebar.minimal", "appearance.titlebar.standard",
             "browser.hibernation.off", "browser.hibernation.moderate", "browser.hibernation.aggressive",
+            "browser.keepNeighborTabsAwake.0", "browser.keepNeighborTabsAwake.1", "browser.keepNeighborTabsAwake.2",
+            "browser.keepNeighborTabsAwake.3",
             "layout.toggleStripScrollbar", "recentlyFocused", "recentlyClosed", "history.commands", "history.show", "agentHistory.show",
             "music.open", "music.stop",
             "browserShowHistory", "history.search", "history.resumeAgentSession", "history.reopen", "history.open", "history.clear",
             "layout.undo", "bookmark.add", "bookmark.import", "bookmark.importFromBrowser", "bookmark.export", "agentActivity.open",
+            "palette.openVaultPane",
         ],
         .noTargetSurface: [
             "browserProfile.openLink", "file.open",
@@ -74,7 +78,7 @@ nonisolated extension ActionSurfaceCatalog {
             "simulatorRotateLeft", "simulatorRotateRight", "simulatorToggleAppearance",
             "simulatorToggleSoftwareKeyboard", "agentPane.searchChats", "screenGroup.reopenSaved", "screenGroup.deleteSaved",
             "resumeCommandSet", "resumeCommandEdit", "resumeCommandClear", "saveFilePreview", "markdownSave",
-            "markdownLink", "markdownBack", "markdownForward",
+            "markdownLink", "markdownBack", "markdownForward", "markdownResetTableWidths",
             "toggleFileEditorWordWrap", "filePreviewOpenWith", "filePreviewOpenExternally",
             "filePreviewRevealInFinder", "diffViewerNextLine", "diffViewerPreviousLine", "diffViewerHalfPageDown",
             "diffViewerHalfPageUp", "diffViewerNextHunk", "diffViewerPreviousHunk", "diffViewerGoToBottom",
@@ -96,7 +100,7 @@ nonisolated extension ActionSurfaceCatalog {
             "focusPaneByNumber", "focusSidebar",
             "canvasRevealFocusedPane", "navigate.next", "navigate.previous", "nextSurface", "prevSurface", "selectSurfaceByNumber",
             "screen.next", "screen.previous", "screen.select", "screen.selectLast", "focusTextBoxInput",
-            "focusBrowserAddressBar", "focusLocation", "focusRightSidebar", "vaultFocusSession", "jumpToUnread", "jumpToLastPrompt",
+            "focusBrowserAddressBar", "browser.focusSearch", "focusLocation", "focusRightSidebar", "vaultFocusSession", "jumpToUnread", "jumpToLastPrompt",
             "markOldestUnreadAndJumpNext", "computerUseFocus", "computerUseFocusCallingTerminal", "column.focusLeft",
             "column.focusRight", "focusHistoryBack", "focusHistoryForward", "focusHistoryLast",
         ],

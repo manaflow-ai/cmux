@@ -37,6 +37,7 @@ extension KeyRouter {
         if facts.pageID == Self.markdownPageID { bits.insert(.markdownFocused) }
         if facts.pageID == Self.diffPageID { bits.insert(.diffViewerFocused) }
         if facts.pageID == Self.codeEditorPageID { bits.insert(.codeEditorFocused) }
+        if facts.textBoxFocused { bits.insert(.textBoxFocused) }
         var context = KeyContext(bits: bits)
         if let page = facts.pageID { context[KeyContext.pageID] = .string(page) }
         context[KeyContext.windowKind] = .string(KeyContext.WindowKindValue.main)
@@ -109,7 +110,8 @@ extension KeyRouter {
                      internalPage: focusedInternalPage(in: controller),
                      showsPageHistory: services?.locationTrail.pageHistory(in: controller) != nil,
                      topPage: controller.shownTopPage == .home ? "home" : nil,
-                     pageKeySequencePending: editor.map { services?.viewers.editorPages.keySequencePending(on: $0) ?? false } ?? false)
+                     pageKeySequencePending: editor.map { services?.viewers.editorPages.keySequencePending(on: $0) ?? false } ?? false,
+                     textBoxFocused: window.firstResponder is TextBoxTextView)
     }
 
     /// The page id of the focused internal page tab.

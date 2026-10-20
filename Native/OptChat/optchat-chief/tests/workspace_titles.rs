@@ -127,6 +127,12 @@ impl Workspaces for Recorder {
     fn place(&self) -> String {
         "the test".into()
     }
+    fn locate(&self, _key: &str) -> Option<workspaces::WorkspaceRef> {
+        Some(workspaces::WorkspaceRef {
+            id: "ws_cbd7f86ef04cb1b8d1f2f7a235d6538e".into(),
+            session: "cmux-chief-h0me".into(),
+        })
+    }
 }
 
 /// "I don't like the checkmark": a finished subagent's workspace keeps the
@@ -199,6 +205,17 @@ fn a_finished_subagents_workspace_keeps_its_name_without_a_check_mark() {
     assert!(
         answer.contains("group \"Sidebar & tabs\""),
         "the spawn answer names the group: {answer}"
+    );
+    // a313: the reply gives the real ws_ id and how to move or pin it.
+    assert!(
+        answer.contains("ws_cbd7f86ef04cb1b8d1f2f7a235d6538e"),
+        "the spawn answer gives the workspace's ws_ id: {answer}"
+    );
+    assert!(
+        answer.contains(
+            "cmux --session cmux-chief-h0me workspace ws_cbd7f86ef04cb1b8d1f2f7a235d6538e move --index 0"
+        ),
+        "the spawn answer says how to move it: {answer}"
     );
     assert_eq!(
         *recorder.opened.lock().unwrap(),
