@@ -20,4 +20,9 @@ final class BrowserProfileTargetSource: PaletteTargetSource {
             PaletteTargetOption(id: record.id, title: record.name, subtitle: record.icon, symbol: record.isDefault ? "person.crop.circle" : "person.crop.circle.fill")
         }
     }
+
+    /// Descriptions belong to kinds `next` lists.
+    func currentDescription(of target: ActionTargetRef) -> String? {
+        next.currentDescription(of: target)
+    }
 }

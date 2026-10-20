@@ -79,7 +79,8 @@ final class TerminalHostDelegate: TerminalSessionDelegate {
             case .file(let url, isDirectory: true)?: LinkRouter.shared.showInFinder(url)
             case .file(let url, isDirectory: false)?:
                 LinkRouter.shared.record("file:\(url.path)")
-                self?.services?.viewers.openFile(url, in: nil, markdown: false)
+                guard let services = self?.services else { return }
+                services.linkOpener.openFile(url, from: services.linkOpener.source(tab: request.tab?.id))
             case nil: break
             }
         }
@@ -116,21 +117,23 @@ final class TerminalHostDelegate: TerminalSessionDelegate {
                 target: request.tab, arguments: ["url": .string(url.absoluteString)]))
             return
         }
-        LinkRouter.shared.open(url, otherTarget: request.other, explicit: request.option)
+        LinkRouter.shared.open(url, otherTarget: request.other, explicit: request.option, source: request.tab?.id)
     }
 
     /// Every surface's links go through ``LinkRouter`` (cx-ir3z4), wired here once: a Chief
-    /// subagent's link runs `link.open`; a cmux link opens a browser tab in the focused pane on
-    /// the default engine. With no window it waits for one, never the system, which may be cmux
+    /// subagent's link runs `link.open`; a cmux link opens a browser tab on the default engine
+    /// where ``LinkOpener`` places it (the pane right of the clicked tab's pane, or a new split). With no window it waits for one, never the system, which may be cmux
     /// itself as the default browser (a loop).
     private static func routeLinks(to services: AppServices) {
         let router = LinkRouter.shared
         router.routing = { [weak services] in services?.settings?.snapshot.linkRouting ?? .fallback }
         router.textEditor = { [weak services] in services?.settings?.snapshot.textEditor.application ?? "" }
         router.appLink = { [weak services] url in services.map { CmuxAppLinks.open(url, services: $0) } ?? false }
-        router.openInCmux = { [weak services] url, background in
-            guard let pane = services?.windows.active?.focusedPane else { services?.externalOpen.perform(.browserTab(url)); return }
-            pane.newBrowserTab(url: url, background: background)
+        router.openInCmux = { [weak services] url, background, source in
+            guard let services else { return }
+            // Beside the source pane (`layout.linkPlacement`, LinkOpener), never in its place.
+            guard let pane = services.linkOpener.source(tab: source) else { services.externalOpen.perform(.browserTab(url)); return }
+            services.linkOpener.openWeb(url, from: pane, background: background)
         }
     }
 

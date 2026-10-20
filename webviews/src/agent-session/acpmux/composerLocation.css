@@ -424,7 +424,7 @@
 :is(.acpmux-composer-bar, .nt-pickers) .acpmux-effort .acpmux-picker-button,
 :is(.acpmux-composer-bar, .nt-pickers) .acpmux-access .acpmux-picker-button {
   height: 28px;
-  border-radius: 7px;
+  border-radius: 999px;
   color: var(--agent-muted);
 }
 /* Every chip: its text and icons the row's inset from both edges, an icon or chevron the same
@@ -448,8 +448,8 @@
 }
 /* No control draws a pill at rest; the one under the pointer gets the soft pill, as the Claude app's
    chips do (Leo 2026-10-19). Hover only under a fine pointer (cg-composer click polish): a tap never
-   leaves a wash behind. A press keeps that same pill (no brighter or tinted press tone); its
-   feedback is the small shrink in composerStates.css. */
+   leaves a wash behind. A press keeps that same pill: no brighter or tinted press tone, and no
+   shrink or dip (Leo 2026-10-19). */
 @media (hover: hover) and (pointer: fine) {
   :is(.acpmux-composer-bar, .nt-pickers) .acpmux-picker-button:hover,
   :is(.acpmux-composer-bar, .nt-pickers) .acpmux-plan:hover,
@@ -1049,4 +1049,37 @@
 .acpmux-fast[aria-pressed="true"]:hover { color: var(--agent-accent); }
 /* A narrow composer lays the bolt out of the row (composerRowFit.ts speedHidden, the
    `[data-fit-part="speed"]` rules above): the reasoning menu's speed rows still set it. Its hover
-   ease and its press's spring are the other chips' (composerStates.css). */
+   ease is the other chips' (composerStates.css). */
+
+/* The environment picker (EnvironmentPicker.tsx, preview): the folder popover's field and rows,
+   in Local, SSH and Cloud sections. A section's name sits above its first row, outside the row's
+   hover; each of the first nine rows ends with its ⌥⌘ digit, then the current one's check. */
+.acpmux-env-popover { min-width: 260px; }
+.acpmux-env-popover .acpmux-menu-item:has(> .acpmux-env-row[data-section]) { position: relative; margin-top: 20px; }
+.acpmux-env-popover .acpmux-menu-item:has(> .acpmux-env-row[data-first-section]) { margin-top: 18px; }
+.acpmux-env-row[data-section]::before {
+  content: attr(data-section);
+  position: absolute;
+  top: -17px;
+  left: 8px;
+  color: var(--agent-muted);
+  font-size: var(--text-caption);
+  font-weight: 600;
+  line-height: 14px;
+  pointer-events: none;
+}
+.acpmux-env-row .acpmux-env-key {
+  flex: none;
+  margin-left: auto;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--agent-muted);
+  font: inherit;
+  font-size: var(--text-caption);
+  font-variant-numeric: tabular-nums;
+}
+.acpmux-env-row .acpmux-env-key + .acpmux-location-check { margin-left: 6px; }
+.acpmux-env-popover .acpmux-env-icon { flex: none; color: var(--agent-muted); }
+.acpmux-env-popover .acpmux-env-icon[data-kind="ssh"] { color: var(--agent-ansi-2, currentColor); }
+.acpmux-env-popover .acpmux-env-icon[data-kind="cloud"] { color: var(--agent-ansi-4, currentColor); }

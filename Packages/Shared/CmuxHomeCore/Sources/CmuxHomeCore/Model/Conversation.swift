@@ -33,6 +33,12 @@ public struct ConversationSummary: Hashable, Sendable, Codable, Identifiable {
     public var previewAttachments: AttachmentPreview?
     /// Unread messages that mention the user (the inbox owner's `mentions`).
     public var mentionCount: Int
+    /// The kind the owner declared (`group`, `dm`, `chief`), when it says. A group stays a group
+    /// when it shrinks to one other person; nil derives the kind from the participants.
+    public var declaredKind: Kind?
+    /// A large Cloud group's member count (`member_count`): its `participants` are then only a
+    /// roster. Nil when `participants` lists everyone.
+    public var memberCount: Int?
 
     public init(
         id: ConversationID,
@@ -49,7 +55,9 @@ public struct ConversationSummary: Hashable, Sendable, Codable, Identifiable {
         pinRank: Int? = nil,
         muted: Bool = false,
         previewAttachments: AttachmentPreview? = nil,
-        mentionCount: Int = 0
+        mentionCount: Int = 0,
+        declaredKind: Kind? = nil,
+        memberCount: Int? = nil
     ) {
         self.id = id
         self.owner = owner
@@ -66,9 +74,11 @@ public struct ConversationSummary: Hashable, Sendable, Codable, Identifiable {
         self.muted = muted
         self.previewAttachments = previewAttachments
         self.mentionCount = mentionCount
+        self.declaredKind = declaredKind
+        self.memberCount = memberCount
     }
 
-    public enum Kind: Hashable, Sendable {
+    public enum Kind: String, Hashable, Sendable, Codable {
         /// A one-to-one conversation with one of my Chiefs.
         case chief
         /// One other human.
@@ -79,6 +89,7 @@ public struct ConversationSummary: Hashable, Sendable, Codable, Identifiable {
 
     /// Classifies from the participants other than `me`.
     public func kind(me: ParticipantID) -> Kind {
+        if declaredKind == .group { return .group }
         let others = participants.filter { $0.id != me }
         if others.count == 1, let other = others.first {
             return other.isChief ? .chief : .direct

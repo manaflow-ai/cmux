@@ -26,6 +26,8 @@ final class BrowserPageRequests: BrowserTabDelegate {
                                      tab: { [weak self] id in self?.services?.cache.browsers.values.first { $0.tab.id == id }?.tab })
             // A popup panel's page gets the same rows, acting for its opener's tab.
             services?.popups.hitItems = { [weak self] target, openerKey in self?.hitItems(for: target, tab: openerKey) ?? [] }
+            // A popup window's omnibar suggests from its page's profile, as a tab's does.
+            services?.popups.suggestionEngine = { [weak self] page in self?.services?.cache.suggestionEngine(forPage: page) }
             // A reopened tab restores one history, not two (cx-d0d.11).
             services?.cache.browserTabs.restoredInMemory = { [weak self] tab, engine in self?.closedHistories.takeRestored(tab, engine: engine) ?? false }
             // The Downloads list a relaunch shows keeps ended downloads (cx-d0d.72).
@@ -60,6 +62,8 @@ final class BrowserPageRequests: BrowserTabDelegate {
     /// What the Now Playing card shows and drives: the player while it plays, else the playing tab,
     /// else another app that plays (Spotify, Music: macOS Now Playing, cmux's own entries left out).
     private(set) lazy var sidebarSources = NowPlayingSources(player: music, tabs: sidebarNowPlaying, system: SystemNowPlaying.bundled())
+    /// Whether the Now Playing card is put away (its x, Hide, Hide Until Relaunch; u2437), for every window's sidebar.
+    let nowPlayingCard = NowPlayingCardDismissal()
     /// Where a page's new tab goes next to its opener.
     let openers = BrowserTabOpeners()
     /// Background tabs whose title changed (the strip's unread dot).

@@ -4,7 +4,7 @@ import CmuxNextDaemon
 import ImageIO
 import UniformTypeIdentifiers
 
-/// What the sidebar shows, read from this Chief's files.
+/// What the Chief settings show, read from this Chief's files and its brain.
 public nonisolated struct HomeChiefSnapshot: Sendable {
     var harness: String?
     var model: String?
@@ -17,12 +17,16 @@ public nonisolated struct HomeChiefSnapshot: Sendable {
     /// The brain's `offered` lists (empty until the brain answers).
     var models: [ChiefEngineReport.Model] = []
     var efforts: [String] = []
+    /// What the turns run on (engine.json over the brain's defaults), which
+    /// names each picker's "Default"; nil until the brain answers.
+    var effective: ChiefEngineReport.Engine?
 
-    /// This snapshot with `report`'s offered models and efforts.
+    /// This snapshot with `report`'s offered models and efforts and its effective engine.
     func offering(_ report: ChiefEngineReport) -> HomeChiefSnapshot {
         var snapshot = self
         snapshot.models = report.offered.models
         snapshot.efforts = report.offered.efforts
+        snapshot.effective = report.engine
         return snapshot
     }
 }
@@ -156,9 +160,20 @@ public nonisolated struct HomeChiefFiles: Sendable {
         return .picture(Self.squared(file) ?? file)
     }
 
+    /// A stable short key of `path` (FNV-1a, as `ChiefHome.host` keys a mux home).
+    private static func pathKey(_ path: String) -> String {
+        var hash: UInt32 = 0x811c_9dc5
+        for byte in path.utf8 {
+            hash ^= UInt32(byte)
+            hash = hash &* 0x0100_0193
+        }
+        return String(format: "%08x", hash)
+    }
+
     /// A copy of a non-square picture cropped to its centred square, as the
     /// header draws it (the list stretches a picture over its disc), cached
-    /// by name and modification date; nil when it is square or unreadable.
+    /// by its path, name and modification date (one copy per Chief); nil when
+    /// it is square or unreadable.
     static func squared(_ file: URL) -> URL? {
         // concurrency-allow: HomeChiefFiles runs only inside Task.detached, never on the main actor
         guard let source = CGImageSourceCreateWithURL(file as CFURL, nil),
@@ -171,7 +186,9 @@ public nonisolated struct HomeChiefFiles: Sendable {
         let directory = caches.appendingPathComponent(Bundle.main.bundleIdentifier ?? "cmux", isDirectory: true)
             .appendingPathComponent("ChiefAvatar", isDirectory: true)
         let stamp = Int(modified?.timeIntervalSince1970 ?? 0)
-        let copy = directory.appendingPathComponent("\(file.deletingPathExtension().lastPathComponent)-\(stamp).png")
+        // Keyed by the picture's full path too: every Chief's file is `avatar.png`, so name and
+        // time alone gave two Chiefs saved in the same second one tile.
+        let copy = directory.appendingPathComponent("\(pathKey(file.path))-\(file.deletingPathExtension().lastPathComponent)-\(stamp).png")
         if FileManager.default.fileExists(atPath: copy.path) { return copy }
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         guard let destination = CGImageDestinationCreateWithURL(copy as CFURL, UTType.png.identifier as CFString, 1, nil) else { return nil }

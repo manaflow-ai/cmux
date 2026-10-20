@@ -18,6 +18,9 @@ art, a theme) and `cmux settings set` writes there, never to the runner's own
 settings. A step has a `title` and optionally:
 
     cmux      argv after `cmux`; app scopes get --app-socket, see `daemon`
+    rpc       {"method": ..., "params": {...}}: one app control-socket request
+              with no CLI verb (a DEBUG fixture such as debug.home.sidebar_fixture),
+              after `cmux`; an error answer, an `error` field or `ok` false fails the step
     daemon    true for a daemon verb (notify, terminal ...): it gets
               --session cmux-app-<tag> instead of the app socket
     wait      seconds to let the UI settle before the screenshot (default 1.5)
@@ -63,7 +66,7 @@ import threading
 import time
 from typing import Any
 
-STEP_KEYS = {"title", "cmux", "daemon", "wait", "shot", "display", "optional", "expect"}
+STEP_KEYS = {"title", "cmux", "rpc", "daemon", "wait", "shot", "display", "optional", "expect"}
 TOUR_KEYS = {"title", "steps", "settings"}
 DEFAULT_WAIT = 1.5
 STEP_TIMEOUT = 20.0
@@ -134,6 +137,11 @@ def load_tour(path: Path) -> dict[str, Any]:
         if command is not None and (not isinstance(command, list) or not command
                                     or not all(isinstance(word, str) for word in command)):
             raise TourError(f"{where}: `cmux` must be a non-empty list of strings")
+        rpc = step.get("rpc")
+        if rpc is not None and (not isinstance(rpc, dict) or set(rpc) - {"method", "params"}
+                                or not isinstance(rpc.get("method"), str) or not rpc["method"].strip()
+                                or not isinstance(rpc.get("params", {}), dict)):
+            raise TourError(f"{where}: `rpc` must be {{\"method\": name, \"params\": object}}")
         if step.get("daemon") and command is None:
             raise TourError(f"{where}: `daemon` needs a `cmux` command")
         wait = step.get("wait", DEFAULT_WAIT)
@@ -696,6 +704,24 @@ def run_step(app: App, screen: Screen, step: dict[str, Any], index: int, shots: 
         if done.returncode != 0:
             result["status"] = "unavailable" if step.get("optional") else "failed"
             result["detail"] = f"exited {done.returncode}"
+            if step.get("optional"):
+                result["detail"] += f" ({step['optional']})"
+    rpc = step.get("rpc")
+    if rpc and result["status"] == "ok":
+        result["rpc"] = rpc["method"]
+        try:
+            answer = app.request(rpc["method"], rpc.get("params") or {})
+            error = answer.get("error") if isinstance(answer, dict) else None
+            # A method that answers but could not do it says so in its own `ok` (a bool, or
+            # "false" from a method whose answer is all strings, as debug.hover_cards {gallery}).
+            if not error and isinstance(answer, dict) and answer.get("ok") in (False, "false"):
+                error = "answered ok: false"
+            result["output"] = json.dumps(answer)[-1500:]
+        except (OSError, ValueError, TourError, socket.timeout) as problem:
+            error = str(problem)
+        if error:
+            result["status"] = "unavailable" if step.get("optional") else "failed"
+            result["detail"] = f"{rpc['method']}: {error}"
             if step.get("optional"):
                 result["detail"] += f" ({step['optional']})"
     time.sleep(step.get("wait", DEFAULT_WAIT))
