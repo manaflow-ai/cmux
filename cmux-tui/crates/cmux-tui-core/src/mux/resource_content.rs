@@ -29,6 +29,8 @@ mod published_screens;
 mod scoped_projection;
 #[cfg(test)]
 mod scoped_projection_tests;
+#[cfg(test)]
+pub(crate) use scoped_projection::without_crosscheck;
 mod split_ids;
 
 impl Mux {
