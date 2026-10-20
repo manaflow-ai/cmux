@@ -97,8 +97,8 @@ fn main() -> std::process::ExitCode {
             }
         }
         Some(
-            tool @ ("zoom" | "date" | "spawn" | "tell" | "react" | "reply" | "control" | "profile"
-            | "chiefs"),
+            tool @ ("zoom" | "date" | "spawn" | "tell" | "react" | "reply" | "send" | "stop"
+            | "sleep" | "control" | "profile" | "chiefs"),
         ) => {
             let socket = flags
                 .value("socket")
