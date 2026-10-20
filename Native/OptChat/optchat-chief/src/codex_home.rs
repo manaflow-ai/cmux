@@ -350,3 +350,20 @@ pub fn wipe_codex_home(dir: &Path) -> io::Result<()> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn turn_codex_keeps_no_harness_history() {
+        let text = super::codex_turn_config(None).unwrap();
+        let config: toml::Table = text.parse().unwrap();
+        assert_eq!(
+            config
+                .get("history")
+                .and_then(toml::Value::as_table)
+                .and_then(|h| h.get("persistence"))
+                .and_then(toml::Value::as_str),
+            Some("none")
+        );
+    }
+}
