@@ -122,6 +122,8 @@ final class AppServices {
                             scratch: FileManager.default.temporaryDirectory.appending(path: "cmux-phone", directoryHint: .isDirectory))
     }()
     private(set) lazy var phoneFeedback = PhoneChiefFeedback(home: home)
+    /// The Task Manager page and Kill Process (`TaskManagerPageService`).
+    private(set) lazy var taskManager = TaskManagerPageService(services: self)
     /// The viewers' recents, the cmux picker, the diff, markdown and editor tabs (R89, S4, S6, S7).
     private(set) lazy var viewers = ViewerService(services: self)
     /// The cmux server menu bar item (DEV and NIGHTLY prototype; plans/cmux-next/server.md 14).
