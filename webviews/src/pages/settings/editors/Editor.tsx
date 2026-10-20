@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { AccentRowEditor } from "./AccentRowEditor";
 import { ChoiceOrNumberEditor } from "./ChoiceOrNumberEditor";
 import { ChoiceSetEditor } from "./ChoiceSetEditor";
 import { ColorEditor } from "./ColorEditor";
@@ -13,11 +14,14 @@ import { OrderedChoicesEditor } from "./OrderedChoicesEditor";
 import { SegmentedEditor } from "./SegmentedEditor";
 import { SoundEditor } from "./SoundEditor";
 import { TextEditor } from "./TextEditor";
+import { ThemeRowEditor } from "./ThemeRowEditor";
 import { TimeRangeEditor } from "./TimeRangeEditor";
 import { ToggleEditor } from "./ToggleEditor";
 import { SearchTemplateEditor } from "./SearchTemplateEditor";
 import { UrlEditor } from "./UrlEditor";
 import type { EditorProps } from "./types";
+
+const ACCENT_KEY = "appearance.accent";
 
 /** The editor for a row's kind. Every kind in the schema has one (editors.test.tsx). */
 export function Editor(props: EditorProps): ReactNode {
@@ -26,6 +30,8 @@ export function Editor(props: EditorProps): ReactNode {
     case "toggle":
       return <ToggleEditor {...props} />;
     case "choice":
+      // The accent is a swatch popup like the Theme section's, wherever it shows.
+      if (row.key === ACCENT_KEY) return <AccentRowEditor {...props} />;
       return (row.choices?.length ?? 0) <= 3 && row.default !== null ? (
         <SegmentedEditor {...props} />
       ) : (
@@ -38,6 +44,8 @@ export function Editor(props: EditorProps): ReactNode {
     case "color":
       return <ColorEditor {...props} />;
     case "theme":
+      // The Theme section's picker, wherever a theme row shows (search results).
+      return <ThemeRowEditor {...props} />;
     case "font_family":
       return <DomainListEditor {...props} />;
     case "sound":

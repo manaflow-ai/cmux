@@ -135,8 +135,6 @@ extension DaemonStore {
 
         case .screenAdded(let delta):
             guard let workspace = index.workspacesByHandle[delta.workspace] else { return .resync }
-            // The screen's own delta is newer than any echo held for it.
-            layoutEchoes.heldByScreen[delta.screen] = nil
             if let existing = workspace.screens.first(where: { $0.id == ScreenModel.identity(delta.entity) }) {
                 existing.update(delta.entity)
                 indexed(existing, in: workspace)
@@ -150,23 +148,18 @@ extension DaemonStore {
         case .screenClosed(let delta):
             guard let workspace = index.workspacesByHandle[delta.workspace],
                   let screen = workspace.screens.first(where: { $0.handle == delta.screen }) else { return .none }
-            layoutEchoes.heldByScreen[delta.screen] = nil
             workspace.screens.removeAll { $0 === screen }
             index.remove(screen)
             session.lay(workspaceOnly: workspace)
             return .none
         case .screenRenamed(let delta):
             guard let screen = screensByHandle[delta.screen], let workspace = index.workspace(holding: screen) else { return .resync }
-            layoutEchoes.heldByScreen[delta.screen] = nil
             screen.update(delta.entity)
             indexed(screen, in: workspace)
             return .none
         case .screenChanged(let delta):
             guard let workspace = index.workspacesByHandle[delta.workspace], let screen = screensByHandle[delta.screen],
                   index.workspace(holding: screen) === workspace else { return .resync }
-            // A screen-changed carries the screen's whole layout, newer than
-            // any echo held for it: the drag's end must not lay the older one.
-            layoutEchoes.heldByScreen[delta.screen] = nil
             screen.update(delta.entity)
             if let index = delta.index {
                 workspace.moveScreen(screen, to: index)
@@ -248,9 +241,9 @@ extension DaemonStore {
             indexed(shown, in: target)
             return .none
 
-        case .layoutChanged(let screen, let layout?, let transaction):
+        case .layoutChanged(let screen, let layout?, _):
             // `layout-delta-v1`: patch that one screen (I3).
-            return applyLayoutChange(screen: screen, layout: layout, transaction: transaction)
+            return applyLayoutChange(screen: screen, layout: layout)
         case .treeChanged, .layoutChanged:
             return .resync
         case .overflow:
