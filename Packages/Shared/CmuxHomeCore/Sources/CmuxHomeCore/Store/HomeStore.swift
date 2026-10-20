@@ -40,17 +40,28 @@ public final class HomeStore {
     /// The running agent reply of each conversation, while it is written.
     public internal(set) var drafts: [ConversationID: HomeTurnDraft] = [:]
     @ObservationIgnored var draftBook = HomeDraftBook()
-    /// What each conversation shows of its running Chief run (`chief-live-v1`).
+    /// What each conversation shows of its running Chief run (`chief-live-v1`): the activity line.
     public internal(set) var live: [ConversationID: HomeLiveRun] = [:]
+    /// Every running reply per conversation, in the order its turn began (``HomeTimeline``).
+    public internal(set) var streams: [ConversationID: [HomeStreamRow]] = [:]
+    /// `transcript(for:)` of each conversation at a `transcriptVersion` (a streamed chunk does
+    /// not map the window again).
+    @ObservationIgnored var transcriptCache: [ConversationID: (version: Int, me: ParticipantID, items: [TranscriptItem])] = [:]
     @ObservationIgnored var liveBook = HomeLiveBook()
     /// Conversations whose `run.live` request is out (one at a time).
     @ObservationIgnored var liveRequests: Set<ConversationID> = []
+    /// My own typing per conversation (`HomeStore+Typing.swift`): where an `on` went out, where
+    /// it is still fresh (no refresh needed yet), and the pending refresh and idle delays.
+    @ObservationIgnored var myTyping: Set<ConversationID> = []
+    @ObservationIgnored var myTypingFresh: Set<ConversationID> = []
+    @ObservationIgnored var myTypingTimers: [ConversationID: (refresh: Task<Void, Never>?, idle: Task<Void, Never>?)] = [:]
     /// Run row reads out after a snapshot (conversation, author, run).
     @ObservationIgnored var liveRowReads: Set<String> = []
 
     @ObservationIgnored public let source: any HomeSource
-    @ObservationIgnored var mirror = HomeMirror()
-    @ObservationIgnored var log = IntentLog()
+    // Every input of `transcript(for:)` drops its cache when it changes.
+    @ObservationIgnored var mirror = HomeMirror() { didSet { transcriptCache.removeAll() } }
+    @ObservationIgnored var log = IntentLog() { didSet { transcriptCache.removeAll() } }
     @ObservationIgnored private var eventTask: Task<Void, Never>?
     @ObservationIgnored var resendTask: Task<Void, Never>?
     @ObservationIgnored var pendingResends: [HomeIntent] = []
@@ -63,10 +74,10 @@ public final class HomeStore {
     /// Where prepared attachments live (`<root>/<hash>/data.<ext>`).
     @ObservationIgnored public let blobCacheDirectory: URL
     /// Every attachment this client prepared, by hash (stays after the echo).
-    @ObservationIgnored var localFiles: [String: LocalAttachmentFiles] = [:]
+    @ObservationIgnored var localFiles: [String: LocalAttachmentFiles] = [:] { didSet { transcriptCache.removeAll() } }
     /// Sends with attachments, from the first upload until the owner
     /// commits them (kept after a refusal, so a retry can upload again).
-    @ObservationIgnored var uploads: [IdempotencyKey: UploadJob] = [:]
+    @ObservationIgnored var uploads: [IdempotencyKey: UploadJob] = [:] { didSet { transcriptCache.removeAll() } }
 
     /// Sends the owner has not decided yet, per conversation, in the order
     /// the user made them. A send goes to the owner only when it is first:
@@ -232,9 +243,18 @@ public final class HomeStore {
 
     public func transcript(for id: ConversationID) -> [TranscriptItem] {
         guard let me = me?.id else { return [] }
-        let items = (mirror.windows[id] ?? TranscriptWindow()).items(pending: log.sends(in: id), me: me)
-        guard !localFiles.isEmpty else { return items }
-        return items.map(decorated)
+        let version = transcriptVersion[id, default: 0]
+        if let cached = transcriptCache[id], cached.version == version, cached.me == me { return cached.items }
+        var items = (mirror.windows[id] ?? TranscriptWindow()).items(pending: log.sends(in: id), me: me)
+        if !localFiles.isEmpty { items = items.map(decorated) }
+        transcriptCache[id] = (version, me, items)
+        return items
+    }
+
+    /// The whole transcript of `id` in display order: its items, then its running replies
+    /// (plans/cmux-next/home-chat-pipeline-DESIGN.md). The one value a view draws.
+    public func timeline(for id: ConversationID) -> HomeTimeline {
+        HomeTimeline(items: transcript(for: id), streams: streams(in: id))
     }
 
     /// Adds local files and upload progress to a row with attachment parts.
@@ -287,6 +307,7 @@ public final class HomeStore {
     }
 
     func bumpTranscript(_ id: ConversationID) {
+        transcriptCache[id] = nil
         transcriptVersion[id, default: 0] += 1
         scheduleCacheWrite()
     }

@@ -20,7 +20,7 @@ settings. A step has a `title` and optionally:
     cmux      argv after `cmux`; app scopes get --app-socket, see `daemon`
     rpc       {"method": ..., "params": {...}}: one app control-socket request
               with no CLI verb (a DEBUG fixture such as debug.home.sidebar_fixture),
-              after `cmux`; an error answer or an `error` field fails the step
+              after `cmux`; an error answer, an `error` field or `ok` false fails the step
     daemon    true for a daemon verb (notify, terminal ...): it gets
               --session cmux-app-<tag> instead of the app socket
     wait      seconds to let the UI settle before the screenshot (default 1.5)
@@ -776,6 +776,10 @@ def run_step(app: App, screen: Screen, step: dict[str, Any], index: int, shots: 
         try:
             answer = app.request(rpc["method"], rpc.get("params") or {})
             error = answer.get("error") if isinstance(answer, dict) else None
+            # A method that answers but could not do it says so in its own `ok` (a bool, or
+            # "false" from a method whose answer is all strings, as debug.hover_cards {gallery}).
+            if not error and isinstance(answer, dict) and answer.get("ok") in (False, "false"):
+                error = "answered ok: false"
             result["output"] = json.dumps(answer)[-1500:]
         except (OSError, ValueError, TourError, socket.timeout) as problem:
             error = str(problem)

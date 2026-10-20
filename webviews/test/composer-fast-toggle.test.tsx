@@ -2,7 +2,9 @@
 // Leo 2026-10-15 composer feedback, item 5: "Add Fast/Ultrafast: a lightning-bolt toggle at the
 // bottom right, just left of the mic button." At the composer's boundary: the real composer with
 // the real chips, a stand-in mic, and a host that records what the pane sends.
-//   - the bolt sits in the trailing cluster, immediately left of the mic;
+//   - the bolt sits in the trailing cluster, immediately left of the mic; with Claude Code's split
+//     (the plain footer, on by default; Leo 2026-10-19) it moves with the chips to the quiet row
+//     under the box, right after the model and effort, before the context ring;
 //   - a click cycles off -> each offered tier -> off, through the session's speed option, with the
 //     command the reasoning menu sends (chat.effort's configId=value);
 //   - a model with no speed tier shows no bolt;
@@ -161,7 +163,7 @@ async function render(shot: Snapshot) {
   });
 }
 
-const bolt = () => host.querySelector<HTMLButtonElement>(".acpmux-composer-actions .acpmux-fast");
+const bolt = () => host.querySelector<HTMLButtonElement>(".acpmux-fast");
 function press(element: Element) {
   for (const type of ["pointerdown", "mousedown", "pointerup", "mouseup", "click"])
     element.dispatchEvent(new dom.window.MouseEvent(type, { bubbles: true, cancelable: true, button: 0 }));
@@ -173,14 +175,22 @@ const twoState: Option[] = [
 ];
 const threeTier: Option[] = [{ value: "standard" }, { value: "fast" }, { value: "ultrafast" }];
 
-test("the bolt sits immediately left of the mic, and toggles one offered tier with the speed command", async () => {
+test("the bolt follows the chips into the quiet row, and toggles one offered tier with the speed command", async () => {
   sent.length = 0;
   await render(snapshot({ options: twoState, current: "off" }));
   const button = bolt();
-  expect(button, "a speed toggle in the trailing cluster").not.toBeNull();
-  const buttons = [...host.querySelectorAll<HTMLElement>(".acpmux-composer-actions button")];
-  const at = buttons.indexOf(button!);
-  expect(buttons[at + 1]?.classList.contains("acpmux-mic")).toBe(true);
+  expect(button, "a speed toggle in the quiet row").not.toBeNull();
+  // The split: the box keeps the mic and Send; the bolt is the quiet row's, after the chips and
+  // before the context ring.
+  const foot = host.querySelector<HTMLElement>(".acpmux-composer-foot")!;
+  expect(foot.contains(button)).toBe(true);
+  expect(host.querySelector(".acpmux-composer-inner .acpmux-fast")).toBeNull();
+  expect(host.querySelector(".acpmux-composer-inner .acpmux-composer-actions .acpmux-mic")).not.toBeNull();
+  const items = [...foot.children];
+  const at = items.findIndex((item) => item.contains(button));
+  expect(items.findIndex((item) => item.classList.contains("acpmux-chips"))).toBeLessThan(at);
+  const ring = items.findIndex((item) => item.classList.contains("acpmux-context"));
+  if (ring >= 0) expect(ring).toBeGreaterThan(at);
   expect(button!.getAttribute("aria-pressed")).toBe("false");
   expect(button!.getAttribute("aria-label")).toBe("Speed: Standard");
   expect(button!.title).toContain("Speed: Standard");

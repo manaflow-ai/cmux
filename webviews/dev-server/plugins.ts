@@ -322,6 +322,8 @@ const DEV_PAGES = [
   "changelog",
   "files",
   "stats",
+  "chief-usage",
+  "mobile-pairing",
 ];
 
 function pagesHost(): Plugin {

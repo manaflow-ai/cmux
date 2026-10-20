@@ -32,6 +32,29 @@ nonisolated enum TabActionCatalog: ActionCatalogGroup {
                 category: .tab, symbol: "plus.square", surfaces: [.palette, .contextMenu],
                 targets: [.tab]
             ),
+            // Cmd-T's tab in a named place, whatever `tabs.newTabPosition` says (Lawrence
+            // 2026-10-20). New Tab to the Right stays the tab menu's row (Chrome's name).
+            ActionDescriptor(
+                id: "newTab.afterCurrent",
+                title: String(localized: "action.newTab.afterCurrent", defaultValue: "New Tab After Current Tab", bundle: .module),
+                keywords: ["tab", "new", "after", "current", "right", "next to", "beside", "insert", "create"],
+                category: .tab, symbol: "plus.square", surfaces: [.palette, .keyboard],
+                targets: [.tab], cliName: "tab new-after-current"
+            ),
+            ActionDescriptor(
+                id: "newTab.atStart",
+                title: String(localized: "action.newTab.atStart", defaultValue: "New Tab at Start", bundle: .module),
+                keywords: ["tab", "new", "start", "first", "beginning", "left", "front", "create"],
+                category: .tab, symbol: "plus.square", surfaces: [.palette, .keyboard],
+                targets: [.tab], cliName: "tab new-at-start"
+            ),
+            ActionDescriptor(
+                id: "newTab.atEnd",
+                title: String(localized: "action.newTab.atEnd", defaultValue: "New Tab at End", bundle: .module),
+                keywords: ["tab", "new", "end", "last", "append", "create"],
+                category: .tab, symbol: "plus.square", surfaces: [.palette, .keyboard],
+                targets: [.tab], cliName: "tab new-at-end"
+            ),
             ActionDescriptor(
                 id: "newTab.page",
                 title: String(localized: "action.newTab.page", defaultValue: "New Tab Page", bundle: .module),
@@ -271,7 +294,8 @@ nonisolated enum TabActionCatalog: ActionCatalogGroup {
                 // Also "Go to Tab…": `palette.goToTab` is an alias (legacyAliases).
                 keywords: ["tab", "search", "find", "switch", "switcher", "go to tab", "surface", "recently closed", "url",
                            "folder", "process"],
-                defaultShortcut: Shortcut("a", modifiers: [.command, .shift]), category: .tab, symbol: "magnifyingglass",
+                // No default key: Cmd-Shift-A opens Search with the Chats & agents chip (`search.chats`).
+                category: .tab, symbol: "magnifyingglass",
                 surfaces: [.palette, .keyboard, .menu], arguments: [CatalogArgument.queryString], targets: [.tab],
                 cliName: "tab search", mainMenu: .file,
                 surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .focusMove)
@@ -321,6 +345,24 @@ nonisolated enum TabActionCatalog: ActionCatalogGroup {
                 targets: [.tab], cliName: "tab mute-unmute"
             ),
             ActionDescriptor(
+                id: "tab.muteAudio",
+                title: String(localized: "action.tab.muteAudio", defaultValue: "Mute Tab", bundle: .module),
+                keywords: ["tab", "audio", "sound", "silence"], category: .tab, symbol: "speaker.slash",
+                surfaces: [.palette], targets: [.tab], cliName: "tab mute"
+            ),
+            ActionDescriptor(
+                id: "tab.unmuteAudio",
+                title: String(localized: "action.tab.unmuteAudio", defaultValue: "Unmute Tab", bundle: .module),
+                keywords: ["tab", "audio", "sound"], category: .tab, symbol: "speaker.wave.2",
+                surfaces: [.palette], targets: [.tab], cliName: "tab unmute"
+            ),
+            ActionDescriptor(
+                id: "tab.muteOtherAudio",
+                title: String(localized: "action.tab.muteOtherAudio", defaultValue: "Mute Other Tabs", bundle: .module),
+                keywords: ["tab", "audio", "sound", "silence", "others"], category: .tab, symbol: "speaker.slash",
+                surfaces: [.palette, .contextMenu], targets: [.tab], cliName: "tab mute-others"
+            ),
+            ActionDescriptor(
                 id: "disconnectRemoteTab",
                 title: String(localized: "action.disconnectRemoteTab", defaultValue: "Disconnect SSH Tab", bundle: .module),
                 keywords: ["tab", "ssh", "remote"], category: .tab, symbol: "bolt.horizontal", surfaces: [.contextMenu],
@@ -331,6 +373,16 @@ nonisolated enum TabActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.palette.copyIdentifiers", defaultValue: "Copy Identifiers", bundle: .module),
                 keywords: ["id", "ref"], category: .tab, symbol: "number.circle", surfaces: [.palette, .contextMenu],
                 targets: [.tab], cliName: "tab copy-identifiers"
+            ),
+            // A PNG of the tab's content, never changing focus or selection
+            // (ScreenshotHandlers): Copy menu, palette, CLI, MCP.
+            ActionDescriptor(
+                id: "tab.screenshot",
+                title: String(localized: "action.tab.screenshot", defaultValue: "Screenshot Tab", bundle: .module),
+                keywords: ["screenshot", "capture", "image", "png", "picture"], category: .tab, symbol: "camera",
+                surfaces: [.palette, .contextMenu], arguments: [CatalogArgument.screenshotOut], targets: [.tab],
+                cliName: "tab screenshot",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenus: [ActionSurfaceCatalog.p(.tab, .inspect, 510, folder: .copy)])
             ),
             ActionDescriptor(
                 id: "palette.copyPaneID",

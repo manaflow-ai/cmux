@@ -17,10 +17,18 @@ acpmux). It needs no root. GPU and display energy are not in it; with
 `sudo -n` available the run also records powermetrics' package power.
 
 Usage (a fleet mini, never a laptop; launches the app with a scratch HOME):
-  bench_power.py --app BUNDLE [--settle 20] [--measure 60]
-      [--scenarios terminal,tab1,tab1-hidden,tabs20,tabs20-hidden,scroll,video,switch,minimized]
+  bench_power.py --app BUNDLE [--settle 120] [--measure 60]
+      [--scenarios terminal,tab1,tab1-hidden,tabs20,tabs20-hidden,title,scroll,video,switch,neighbors,minimized]
       [--out FILE.json]
 Prints one PERF-POWER line per scenario and kind, plus a total line.
+
+`neighbors` (browser.keepNeighborTabsAwake, plans/cmux-next/neighbor-tabs-DESIGN.md)
+times switches among the 20 tabs: to the next tab (a neighbor) and to a tab 10
+away (far), each after `--neighbor-gap` seconds so far pages are frozen again.
+Run it with "browser": {"freezeHiddenTabs": 5} and once each with
+"keepNeighborTabsAwake": 0 (before) and 1 (after). Prints PERF-NEIGHBOR lines:
+the app's own switch time (debug.tab_switch) and the time until the page runs
+script again (live_ms), plus the app's cold-show and prewarm counts.
 """
 from __future__ import annotations
 
@@ -46,6 +54,12 @@ ARTICLE = "<p>" + ("cmux keeps idle work at zero. " * 40) + "</p>"
 PAGES = {
     "/static.html": "<!doctype html><title>Static {n}</title><style>body{{font:16px -apple-system;max-width:720px;margin:40px auto}}</style>"
                     "<h1>Static page {n}</h1>" + ARTICLE * 6,
+    # A typical site's background work: a 250 ms poll and an animation loop
+    # (analytics beacons, carousels, live counters).
+    "/busy.html": "<!doctype html><title>Busy {n}</title><style>body{{font:16px -apple-system;max-width:720px;margin:40px auto}}</style>"
+                  "<h1>Busy page {n}</h1><p id=t></p>" + ARTICLE * 6 +
+                  "<script>let k=0;setInterval(()=>{{document.getElementById('t').textContent=++k}},250);"
+                  "(function f(){{document.title='Busy {n} '+(k%10);requestAnimationFrame(f)}})()</script>",
     "/long.html": "<!doctype html><title>Scroll</title><style>body{font:16px -apple-system;max-width:720px;margin:40px auto}</style>"
                   "<h1>Long page</h1>" + ARTICLE * 400 +
                   "<script>let d=4;function s(){if(scrollY+innerHeight>=document.body.scrollHeight-2)d=-4;"
@@ -113,17 +127,27 @@ def powermetrics(seconds: float):
     return found
 
 
-def measure(app_pid: int, bundle: str, label: str, seconds: float, during=None):
+def measure(app_pid: int, bundle: str, label: str, seconds: float, during=None, sample_idle: bool = False):
     """Energy, CPU and wakeups of every owned process over `seconds`."""
     start = {pid: (kind, counters(pid)) for pid, (kind, _cmd) in bm.owned(app_pid, bundle).items()}
     started = time.monotonic()
     pm_result = {}
     pm = threading.Thread(target=lambda: pm_result.update(powermetrics(seconds) or {}), daemon=True)
     pm.start()
+    sampler = None
     if during:
         during(seconds)
-    else:
+    elif not sample_idle:
         time.sleep(seconds)  # test script: the measured window
+    else:
+        # --sample-idle (sampling interrupts the app, so normal runs leave it off): a stack sample
+        # inside the window. The app's energy rises for a while, then drops, so a sample after the
+        # window shows it idle. Kept only when the window ends above the guard.
+        time.sleep(seconds / 2)  # test script: first half of the measured window
+        sample_path = os.path.abspath(f"app-{label}.sample")
+        sampler = subprocess.Popen(["sample", str(app_pid), str(int(min(10, seconds / 3))), "-mayDie", "-file", sample_path],
+                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        time.sleep(seconds / 2)  # test script: second half of the measured window
     pm.join(timeout=seconds + 40)
     elapsed = time.monotonic() - started
     kinds: dict[str, dict] = {}
@@ -148,6 +172,101 @@ def measure(app_pid: int, bundle: str, label: str, seconds: float, during=None):
               f"wakeups_per_s={entry['wakeups_per_s']} footprint_mb={round(entry['footprint_mb'], 1)}")
     print(f"PERF-POWER-TOTAL {label} mw={total['mw']} cpu_pct={total['cpu_pct']} wakeups_per_s={total['wakeups_per_s']} "
           f"footprint_mb={round(total['footprint_mb'], 1)} powermetrics={json.dumps(pm_result)}", flush=True)
+    app_mw = result["kinds"].get("app", {}).get("mw", 0.0)
+    if sampler:
+        sampler.wait(timeout=60)
+        if app_mw > IDLE_APP_MW_GUARD:
+            # An idle app above the guard (20 hidden tabs once read 2.6 to 4.4 mW against 0.24): keep its stacks.
+            print(f"PERF-POWER-GUARD {label} app_mw={app_mw} above {IDLE_APP_MW_GUARD}: sample {sample_path}", flush=True)
+        else:
+            os.remove(sample_path) if os.path.exists(sample_path) else None
+    return result
+
+
+# App energy (mW) above which an idle scenario samples the app's stacks (msg 2654).
+IDLE_APP_MW_GUARD = 1.0
+
+
+def wipe_state(bundle: str):
+    """Removes the tagged app's saved state. The app keeps its session,
+    Chromium profile and caches under the real ~/Library (not the scratch
+    HOME), so without this a run restores the last run's workspaces and tabs."""
+    import plistlib
+    with open(os.path.join(bundle, "Contents/Info.plist"), "rb") as handle:
+        bundle_id = plistlib.load(handle)["CFBundleIdentifier"]
+    if ".debug." not in bundle_id:
+        raise SystemExit(f"bench-power: refusing to wipe state of non-DEV bundle {bundle_id}")
+    tag = os.path.basename(bundle).removesuffix(".app").rsplit(" ", 1)[-1]
+    library = os.path.expanduser("~/Library")
+    for parent in ("Application Support", "Application Support/cmux", "Application Support/cmux-next",
+                   "Caches", "WebKit", "HTTPStorages", "Saved Application State", "Preferences"):
+        folder = os.path.join(library, parent)
+        for name in os.listdir(folder) if os.path.isdir(folder) else []:
+            if name.startswith(bundle_id):
+                path = os.path.join(folder, name)
+                shutil.rmtree(path, ignore_errors=True) if os.path.isdir(path) else os.remove(path)
+    shutil.rmtree(os.path.join(library, "Application Support/cmux/tags", tag), ignore_errors=True)
+
+
+def rpc(sock: str, method: str, params: dict | None = None, timeout: float = 30):
+    """One control-socket call; the result, or {"error": ...}."""
+    import socket as socketlib
+    reply = b""
+    try:
+        with socketlib.socket(socketlib.AF_UNIX, socketlib.SOCK_STREAM) as stream:
+            stream.settimeout(timeout)
+            stream.connect(sock)
+            stream.sendall((json.dumps({"id": 1, "method": method, "params": params or {}}) + "\n").encode())
+            while not reply.endswith(b"\n"):
+                chunk = stream.recv(65536)
+                if not chunk:
+                    break
+                reply += chunk
+        answer = json.loads(reply or b"{}")
+    except (OSError, ValueError) as error:
+        return {"error": str(error)}
+    return {"error": answer["error"]} if answer.get("error") else answer.get("result") or {}
+
+
+def neighbor_switches(app, sock: str, tabs: list[str], start: int, gap: float, rounds: int):
+    """Switch latency to a neighbor (next tab) and to a far tab (10 away), alternating."""
+    def percentile(values, q):
+        values = sorted(values)
+        return round(values[min(len(values) - 1, int(len(values) * q))], 2) if values else None
+    rpc(sock, "debug.tab_switch", {"action": "start"})
+    rows, index = [], start
+    for step in range(rounds * 2):
+        kind = "neighbor" if step % 2 == 0 else "far"
+        index = (index + (1 if kind == "neighbor" else len(tabs) // 2)) % len(tabs)
+        time.sleep(gap)  # test script: let non-neighbors freeze again (freezeHiddenTabs)
+        before = len((rpc(sock, "debug.tab_switch") or {}).get("switches") or [])
+        started = time.monotonic()
+        app.run("tab.focus", target=tabs[index])
+        # The page answers script once it runs again (a frozen page thaws on show first).
+        live = None
+        while time.monotonic() - started < 10:
+            if (rpc(sock, "browser.page.eval", {"tab": tabs[index], "script": "1"}) or {}).get("value") == 1:
+                live = (time.monotonic() - started) * 1000
+                break
+        switches = (rpc(sock, "debug.tab_switch") or {}).get("switches") or []
+        own = switches[before] if len(switches) > before else {}
+        rows.append({"kind": kind, "live_ms": live, "own": own})
+    rpc(sock, "debug.tab_switch", {"action": "stop"})
+    hibernation = (rpc(sock, "debug.surfaces") or {}).get("hibernation") or {}
+    result = {"cold_shows_total": hibernation.get("cold_shows_total"), "prewarmed_total": hibernation.get("prewarmed_total"),
+              "neighbor_radius": hibernation.get("neighbor_radius")}
+    for kind in ("neighbor", "far"):
+        picked = [row for row in rows if row["kind"] == kind]
+        live = [row["live_ms"] for row in picked if row["live_ms"] is not None]
+        commit = [row["own"].get("commit_ms") or row["own"].get("total_ms") for row in picked if row["own"]]
+        commit = [value for value in commit if value is not None]
+        result[kind] = {"n": len(picked), "live_p50_ms": percentile(live, 0.5), "live_p90_ms": percentile(live, 0.9),
+                        "switch_p50_ms": percentile(commit, 0.5), "switch_p90_ms": percentile(commit, 0.9)}
+        print(f"PERF-NEIGHBOR {kind} radius={result['neighbor_radius']} n={len(picked)} live_p50_ms={result[kind]['live_p50_ms']} "
+              f"live_p90_ms={result[kind]['live_p90_ms']} switch_p50_ms={result[kind]['switch_p50_ms']} "
+              f"switch_p90_ms={result[kind]['switch_p90_ms']}", flush=True)
+    print(f"PERF-NEIGHBOR-COUNTS cold_shows={result['cold_shows_total']} prewarmed={result['prewarmed_total']}", flush=True)
+    result["rows"] = rows
     return result
 
 
@@ -158,34 +277,51 @@ def refused(response: dict) -> str | None:
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--app", required=True)
-    parser.add_argument("--settle", type=float, default=20)
+    # Chromium does post-load work (code caching, GC, tile purges) for about two
+    # minutes after tabs open or hide; shorter settles measure that, not idle.
+    parser.add_argument("--settle", type=float, default=120)
     parser.add_argument("--measure", type=float, default=60)
-    parser.add_argument("--scenarios", default="terminal,tab1,tab1-hidden,tabs20,tabs20-hidden,scroll,video,switch,minimized")
+    parser.add_argument("--scenarios", default="terminal,tab1,tab1-hidden,tabs20,tabs20-hidden,title,scroll,video,switch,minimized")
     parser.add_argument("--config", default="{}", help="extra cmux.json settings (JSON)")
+    parser.add_argument("--env", action="append", default=[], metavar="NAME=VALUE",
+                        help="extra app environment, e.g. CMUX_NEXT_CEF_EXTRA_SWITCHES=... (repeatable)")
+    parser.add_argument("--neighbor-gap", type=float, default=7, help="seconds before each neighbors-scenario switch")
+    parser.add_argument("--neighbor-rounds", type=int, default=10)
+    parser.add_argument("--sample-idle", action="store_true",
+                        help="sample the app's stacks inside each idle window; keep the sample when the app is above 1 mW")
     parser.add_argument("--out")
     args = parser.parse_args()
     scenarios = args.scenarios.split(",")
     base = serve()
     signal.signal(signal.SIGTERM, bm.interrupted)
-    pid, sock, scratch = bm.launch(args.app, json.loads(args.config))
+    wipe_state(args.app)
+    pid, sock, scratch = bm.launch(args.app, json.loads(args.config),
+                                   dict(item.split("=", 1) for item in args.env))
     app = bm.App(args.app, sock)
     results = []
     tabs = 0
 
+    opened: list[str] = []
+
     def run(action: str, **kwargs):
-        reason = refused(app.run(action, **kwargs))
+        response = app.run(action, **kwargs)
+        reason = refused(response)
         if reason:
             print(f"   {action}: {reason}", file=sys.stderr)
+        opened.extend(item for item in response.get("created", []) if str(item).startswith("tab_"))
         return reason
 
     def open_tab(path: str):
+        # tN.localhost: Chromium resolves *.localhost to loopback, and each
+        # host is its own site, so tabs get their own renderers as distinct
+        # real sites would (one 127.0.0.1 site shares a few renderers).
         nonlocal tabs
-        reason = run("openBrowser.chromium", url=base + path)
+        reason = run("openBrowser.chromium", url=base.replace("127.0.0.1", f"t{tabs}.localhost") + path)
         tabs += 0 if reason else 1
 
     def settle_measure(label: str, during=None, settle: float | None = None):
         time.sleep(args.settle if settle is None else settle)  # test script: let the app settle
-        results.append(measure(pid, args.app, label, args.measure, during))
+        results.append(measure(pid, args.app, label, args.measure, during, sample_idle=args.sample_idle))
 
     try:
         print(f"PERF-POWER-MACHINE sudo_powermetrics={powermetrics(1) is not None}", flush=True)
@@ -195,7 +331,7 @@ def main():
             settle_measure("terminal")
         open_tab("/static.html?n=1")
         if "tab1" in scenarios:
-            settle_measure("tab1", settle=args.settle + 10)
+            settle_measure("tab1")
         if "tab1-hidden" in scenarios:
             run("showHideAllWindows")
             settle_measure("tab1-hidden")
@@ -205,8 +341,14 @@ def main():
             open_tab(f"/static.html?n={tabs + 1}")
             if tabs == before:
                 break
+        # A tab's Chromium page loads when the tab is first shown: show each
+        # once, as a person who opened 20 tabs and read them, then come back
+        # to the last one.
+        for tab in opened[1:] + opened[-1:]:
+            app.run("tab.focus", target=tab)
+            time.sleep(1)  # test script: let the shown page load
         if "tabs20" in scenarios:
-            settle_measure("tabs20", settle=args.settle + 20)
+            settle_measure("tabs20")
         if "tabs20-hidden" in scenarios:
             run("showHideAllWindows")
             settle_measure("tabs20-hidden")
@@ -218,14 +360,23 @@ def main():
                     run("selectSurfaceByNumber", index=index % 9 + 1)
                     index += 1
                     time.sleep(0.5)  # test script: two tab switches a second
-            settle_measure("switch", during=switch)
+            settle_measure("switch", during=switch, settle=10)
+        if "neighbors" in scenarios and len(opened) >= 4:
+            time.sleep(args.settle)  # test script: hidden pages freeze before the first switch
+            results.append({"label": "neighbors", **neighbor_switches(app, sock, opened, len(opened) - 1,
+                                                                    args.neighbor_gap, args.neighbor_rounds)})
+        if "title" in scenarios:
+            # A page in view that changes its title every frame (a timer, a counter).
+            open_tab("/busy.html?n=0")
+            settle_measure("title", settle=10)
+            run("closeTab")
         if "scroll" in scenarios:
             open_tab("/long.html")
-            settle_measure("scroll", settle=5)
+            settle_measure("scroll", settle=10)
             run("closeTab")
         if "video" in scenarios:
             open_tab("/video.html")
-            settle_measure("video", settle=20)  # 10 s to record the clip, then it loops
+            settle_measure("video", settle=30)  # 10 s to record the clip, then it loops
             run("closeTab")
         if "minimized" in scenarios:
             run("minimizeWindow")
