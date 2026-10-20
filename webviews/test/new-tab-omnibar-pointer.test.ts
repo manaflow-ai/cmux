@@ -1,13 +1,14 @@
 // The New Tab page's field follows the browser omnibar's pointer and hover rules (OmnibarPointer,
 // cx-d0d.80; Lawrence 2026-10-13): the I-beam over the whole field row at rest and while editing,
-// the arrow over its buttons, a hover lift on the box that eases in and out with the hover token,
-// none while the field has the keyboard, and no easing under Reduce Motion.
+// the arrow over its buttons, and no hover lift on the box: it is quiet, as Claude's and ChatGPT's
+// composers are (Leo 2026-10-18).
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("new-tab-omnibar-pointer.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -30,6 +31,7 @@ await requireBrowserLane("new-tab-omnibar-pointer.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
+    await warmViteServer(vite, "/test/browser/new-tab-picker.html");
     browser = await chromium.launch({ headless: true });
   });
   afterAll(async () => {
@@ -60,9 +62,10 @@ await requireBrowserLane("new-tab-omnibar-pointer.test.ts", async () => {
   }
 
   const fill = (page: Page) =>
-    page.evaluate(() => getComputedStyle(document.querySelector(".nt-box")!).backgroundImage);
-  const lift = (page: Page) =>
-    page.evaluate(() => getComputedStyle(document.querySelector(".nt-box")!).getPropertyValue("--nt-box-lift").trim());
+    page.evaluate(() => {
+      const style = getComputedStyle(document.querySelector(".nt-box")!);
+      return `${style.backgroundColor} ${style.backgroundImage}`;
+    });
 
   test("the I-beam over the whole field row at rest and while editing; the arrow over a button", async () => {
     const page = await open("no-preference");
@@ -91,39 +94,16 @@ await requireBrowserLane("new-tab-omnibar-pointer.test.ts", async () => {
     await page.close();
   });
 
-  test("the box lifts on hover with an eased fill, not while it has the keyboard", async () => {
+  test("the box is quiet: the same fill under the pointer, at rest and with the keyboard", async () => {
     const page = await open("no-preference");
-    const duration = await page.evaluate(() => getComputedStyle(document.querySelector(".nt-box")!).transitionDuration);
-    console.log("new-tab-omnibar-pointer transition:", duration);
-    expect(duration).not.toBe("0s");
     await page.mouse.move(5, 5);
     const rest = await fill(page);
-    expect(rest).not.toBe("none");
     const box = (await page.locator(".nt-box").boundingBox())!;
     await page.mouse.move(box.x + box.width / 2, box.y + box.height - 6);
-    await page.waitForFunction(
-      () => getComputedStyle(document.querySelector(".nt-box")!).getPropertyValue("--nt-box-lift").trim() === "100%",
-    );
-    const hovered = await fill(page);
-    console.log("new-tab-omnibar-pointer fill rest/hover:", rest, "|", hovered);
-    expect(hovered).not.toBe(rest);
+    await page.waitForTimeout(300);
+    expect(await fill(page), "no hover lift (Leo 2026-10-18)").toBe(rest);
     await page.locator(".nt-field").focus();
-    await page.waitForFunction(
-      () => getComputedStyle(document.querySelector(".nt-box")!).getPropertyValue("--nt-box-lift").trim() === "0%",
-    );
     expect(await fill(page)).toBe(rest);
-    await page.close();
-  });
-
-  test("under Reduce Motion the fill changes at once", async () => {
-    const page = await open("reduce");
-    expect(await fill(page)).not.toBe("none");
-    const duration = await page.evaluate(() => getComputedStyle(document.querySelector(".nt-box")!).transitionDuration);
-    // desktop.css cuts every transition to 0.01 ms under Reduce Motion.
-    expect(parseFloat(duration)).toBeLessThan(0.001);
-    const box = (await page.locator(".nt-box").boundingBox())!;
-    await page.mouse.move(box.x + box.width / 2, box.y + box.height - 6);
-    expect(await lift(page)).toBe("100%");
     await page.close();
   });
 });

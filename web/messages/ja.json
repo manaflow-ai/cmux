@@ -192,7 +192,7 @@
     "guestUnresponsive": {
       "title": "マシンが応答しません",
       "message": "このマシンが時間内に応答しなかったため、リクエストを完了できませんでした。",
-      "action": "マシンを一時停止してから再開し、もう一度お試しください。Mac アプリでは「マシンを一時停止」を選んでから「マシンを再開」を選びます。ターミナルでは cmux vm pause '<machine>' を実行してから cmux vm resume '<machine>' を実行します。"
+      "action": "新しいマシンを作成する前に、トレース ID を添えてサポートに連絡してください。"
     },
     "inProgress": {
       "title": "まだ処理中です",
@@ -280,6 +280,16 @@
       "hoursAction": "cmux billing checkout --plan pro",
       "shapeMessage": "Go は 2 vCPU、4 GiB RAM、16 GiB ディスクに対応しています。",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
+    },
+    "planBudget": {
+      "computeTitle": "{plan} のコンピュート枠を使い切りました",
+      "computeMessage": "{plan} プランは、この請求期間の {included} コンピュート時間を使い切りました。1 コンピュート時間は、1 vCPU と 2 GB メモリを 1 時間実行した量です。マシンは {resetDate} から再び起動できます。",
+      "computeAction": "一時停止中のマシンのファイルは保持されます。{resetDate} より前に追加のコンピュートが必要な場合はサポートにお問い合わせください。",
+      "computeActionUpgrade": "cmux billing checkout --plan max",
+      "storageTitle": "{plan} のディスク枠を使い切りました",
+      "storageMessage": "{plan} プランでは、保存済みのすべてのマシンで合計 {included} GB のディスクを使用できます。保存済みマシンは {used} GB を使用しており、このリクエストには {requested} GB が必要です。",
+      "storageAction": "cmux vm ls\ncmux vm rm <id>",
+      "storageActionUpgrade": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan max"
     },
     "resourcePool": {
       "title": "Cloud VM のリソースが足りません",
@@ -713,7 +723,7 @@
       "banners": {
         "cancelled": "現在の請求期間の終了時にプランがキャンセルされます。",
         "resumed": "プランは再開され、通常どおり更新されます。",
-        "nosub": "このアカウントに有効なStripeサブスクリプションは見つかりませんでした。",
+        "nosub": "このアカウントに有効なWebサブスクリプションは見つかりませんでした。",
         "error": "請求を更新できませんでした。しばらくしてから再試行してください。",
         "pastDue": "最新のお支払いに失敗しました。プランを継続するには支払い方法を更新してください。",
         "team_admin_required": "このチームの請求を管理できるのはチーム管理者のみです。",
@@ -827,6 +837,9 @@
         "unavailable": {
           "cancelScheduled": "変更するには、まずプランを再開してください。",
           "granted": "cmux から付与されたプランです。変更できる項目はありません。",
+          "grantedNoCancel": "cmux から付与されたプランのため、解約するものはありません。",
+          "paymentFailed": "プランを変更する前に、お支払い方法を更新してください。",
+          "foundersLifetime": "Founder's Edition には Pro が永久に含まれます。",
           "adminOnly": "プランを変更できるのはチーム管理者だけです。"
         },
         "names": {
@@ -869,6 +882,7 @@
       "change": {
         "title": "{plan} に切り替えますか？",
         "upgradeBody": "{plan} はすぐに開始します。今回の請求期間の残り分として、本日 {amount} をお支払いいただきます。{date} からは月額 {price} です。",
+        "upgradeBodyYearly": "{plan} はすぐに開始します。今回の請求期間の残り分として、本日 {amount} をお支払いいただきます。{date} からは年額 {price} です。",
         "downgradeBody": "{plan} はすぐに開始します。現在のプランの未使用分 {credit} は、次回以降の請求に充当されます。{date} の次回請求額は {amount} です。",
         "confirm": "{plan} に切り替え",
         "keep": "現在のプランを続ける",
@@ -881,6 +895,8 @@
         "title": "{plan} を解約しますか？",
         "body": "{date} まで {plan} を利用できます。その後、次の機能が使えなくなります:",
         "bodyNoDate": "今回の請求期間の終了まで {plan} を利用できます。その後、次の機能が使えなくなります:",
+        "foundersBody": "{plan} のサブスクリプションは {date} に終了します。その後は Founder's Edition に永久に含まれる Pro をご利用いただけます。",
+        "foundersBodyNoDate": "{plan} のサブスクリプションはこの請求期間の終了時に終了します。その後は Founder's Edition に永久に含まれる Pro をご利用いただけます。",
         "reasonLabel": "解約の理由（任意）",
         "otherPlaceholder": "詳しく教えてください（任意）",
         "confirm": "プランを解約",
@@ -3429,6 +3445,7 @@
           "soundOverrides": "エージェントとアラート種別ごとの通知サウンド上書きです。空のセルは notifications.sound を使用します。",
           "soundOverride": "通知サウンドの上書きです。default は notifications.sound を使用し、none は再生を無効にします。それ以外の値では組み込みまたはカスタムサウンドを選択します。"
         },
+        "actions": "コマンドパレット、ショートカット、タブバーのボタン、プラスボタンのメニューで使う再利用可能なアクションです。builtin、command、agent、workspaceCommand、workspace、setting、settingPreset、text に対応しています。text アクションはフォーカス中のターミナルに改行を保持して貼り付け、submit: true を指定すると Enter を押します。設定アクションにはグローバル設定が必要です。",
         "remoteTmux": {
           "beta": {
             "newWorkspaceOnHost": {
@@ -4752,11 +4769,11 @@
       "metaDescription": "cmux Cloudマシンの分離方法、認証情報の保管場所、送信ネットワークポリシーでマシンの接続先を制限する方法を説明します。",
       "intro": "このページでは、cmux Cloudマシンのセキュリティモデルを説明します。マシンを分離するもの、認証情報の保管場所、ネットワーク上でマシンが接続できる宛先を制限する方法です。",
       "isolationTitle": "分離",
-      "isolationVm": "各マシンは、専用のLinuxカーネルを持つFreestyleのmicroVMです。共有カーネル上のコンテナではありません。",
+      "isolationVm": "各マシンは、専用のLinuxカーネルを持つmicroVMです。共有カーネル上のコンテナではありません。",
       "isolationRoot": "マシン内では、設計上パスワードなしでrootになれます。セキュリティ境界はVMであり、VM内のユーザーアカウントではありません。エージェントを含め、マシン内のすべてのプロセスはrootと同じ操作ができます。",
       "isolationHome": "マシンを再作成すると、ホームディレクトリがリセットされます。既知の状態に戻すには、マシンを再作成してください。",
       "credentialsTitle": "認証情報",
-      "credentialsModel": "CodeRouterのモデル認証情報がマシンに入ることはありません。リクエストがマシンを出た後に、FreestyleのTLSエッジが認証情報を追加します。プロバイダーはこれらのヘッダー値を書き込み専用で保存するため、cmuxが設定した後は誰も読み出せません。",
+      "credentialsModel": "CodeRouterのモデル認証情報がマシンに入ることはありません。リクエストがマシンを出た後に、cmux CloudのTLSエッジが認証情報を追加します。プロバイダーはこれらのヘッダー値を書き込み専用で保存するため、cmuxが設定した後は誰も読み出せません。",
       "credentialsAttach": "クライアントがマシン上でセッションを開くためのアタッチ認証情報は短時間だけ有効で、1台のマシンと1つのセッションに限定されます。",
       "previewsTitle": "ポートプレビュー",
       "previewsDesc": "ポートプレビューは、あなたのプライベートWireGuardネットワークを通ります。公開URLはありません。プライベートネットワーク上のデバイスだけが開けます。",
@@ -7225,5 +7242,89 @@
     "errorSignUpNotAllowed": "現在、新しいアカウントは作成できません。",
     "errorPasskey": "パスキーでのサインインが完了しませんでした。もう一度試すか、別の方法を使用してください。",
     "errorGeneric": "問題が発生しました。もう一度お試しください。"
+  },
+  "opsCloudVmHealth": {
+    "eyebrow": "スタッフ · 運用",
+    "title": "VM ヘルス",
+    "description": "オペレーターの対応が必要な Cloud VM があるかを示します。プロバイダーアカウントの読み取り専用スイープが 5 分ごとに実行され、このページは最新の結果を表示します。",
+    "noSnapshotTitle": "スイープはまだありません",
+    "noSnapshotBody": "ヘルス cron はまだスイープを保存していません。デプロイとマイグレーションの後、5 分ごとに実行されます。",
+    "attentionYes": "対応が必要: はい",
+    "attentionNo": "対応が必要: いいえ",
+    "sweptAt": "スイープ: {age}（所要 {seconds} 秒）。",
+    "coverage": "実行中の VM {running} 台のうち {probed} 台をプローブしました。未プローブ: 時間予算超過 {skippedBudget} 台、アイドルタイムアウト設定あり {skippedIdle} 台。プローブエラー {probeErrors} 件。",
+    "reason": {
+      "stale": "最新のスイープは {age} のものです。ヘルス cron が失敗している可能性があります。",
+      "hung_vms": "実行中の VM {count} 台が制御経路に応答しません",
+      "stuck_transitions": "VM {count} 台が状態遷移の途中で止まっています",
+      "drift": "VM {count} 台でデータベースとプロバイダーの状態が一致しません",
+      "tls_over_limit": "TLS ルールがアカウント上限に達しているか超えています: {limit} 件中 {count} 件。ネットワークポリシーのドメイン追加は失敗します。",
+      "tls_near_limit": "TLS ルールがアカウント上限に近づいています: {limit} 件中 {count} 件。",
+      "sweep_incomplete": "スイープが不完全です。実行中の VM {unprobed} 台がプローブされなかったか、VM 一覧が部分的でした。",
+      "sweep_errors": "スイープの {count} 段階が失敗しました。"
+    },
+    "hung": {
+      "title": "応答しない VM（{count}）",
+      "body": "プロバイダー上の状態は running ですが、10 秒のファイルシステムプローブがタイムアウトしたか、プロバイダーが 409 または 5xx を返しました。"
+    },
+    "stuck": {
+      "title": "止まった状態遷移（{count}）",
+      "body": "プロバイダーで starting または pausing のまま、またはデータベースで provisioning のまま 15 分を超えた VM です。"
+    },
+    "drift": {
+      "title": "データベースとプロバイダーの不一致（{count}）",
+      "body": "データベースの状態がプロバイダーと 10 分以上一致しない cmux Cloud VM です。修復は reconcile cron が行い、このページは報告のみです。"
+    },
+    "tls": {
+      "title": "TLS ルールの予算",
+      "body": "アカウント全体の TLS ルールは、プロバイダーアカウント上のすべてのワークロードで共有される 1 つの上限に数えられます。",
+      "unavailable": "スイープは TLS ルールを読み取れませんでした。",
+      "usage": "{limit} 件中 {count} 件を使用中。",
+      "over": "{over, plural, =0 {上限ちょうどです。} other {上限を # 件超えています。}}",
+      "partial": "一覧できたルールは {listed} 件のみのため、内訳は部分的です。",
+      "pausedTitle": "{days} 日以上一時停止中の VM が保持: VM {vms} 台で {rules} 件"
+    },
+    "tlsOwner": {
+      "account_level": "アカウントレベル（VM なし）",
+      "vpc_unattributed": "プライベートネットワーク（VM なし）",
+      "unknown_vm": "削除済みまたは一覧にない VM",
+      "managed": "プロバイダー管理"
+    },
+    "errors": {
+      "title": "スイープのエラー",
+      "body": "前回のスイープで失敗した段階です。それに依存するセクションは空の場合があります。"
+    },
+    "driftKind": {
+      "provider_missing": "プロバイダーに存在しない",
+      "db_running_provider_paused": "データベースでは実行中、プロバイダーでは一時停止",
+      "db_paused_provider_running": "データベースでは一時停止、プロバイダーでは実行中",
+      "db_destroyed_provider_present": "データベースでは削除済み、プロバイダーには存在",
+      "provider_untracked": "プロバイダーに存在し、データベースの行がない"
+    },
+    "source": {
+      "provider": "プロバイダー",
+      "db": "データベース"
+    },
+    "col": {
+      "vm": "VM",
+      "workload": "ワークロード",
+      "owner": "所有者",
+      "image": "イメージとサイズ",
+      "firstSeenHung": "初回検出",
+      "updated": "最終更新",
+      "detail": "プローブ結果",
+      "state": "状態",
+      "source": "出所",
+      "since": "開始",
+      "drift": "不一致",
+      "dbStatus": "データベース",
+      "providerState": "プロバイダー",
+      "pausedSince": "一時停止開始",
+      "rules": "ルール"
+    },
+    "size": "{cpu} vCPU · メモリ {memory} GiB · ディスク {disk} GB",
+    "dbUpdated": "データベース: {time}",
+    "noOwner": "cmux の所有者なし",
+    "none": "なし。"
   }
 }

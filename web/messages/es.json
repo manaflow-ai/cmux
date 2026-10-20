@@ -33,7 +33,7 @@
     "guestUnresponsive": {
       "title": "La máquina no responde",
       "message": "Esta máquina no respondió a tiempo, así que la solicitud no pudo completarse.",
-      "action": "Pausa la máquina, luego reanúdala y vuelve a intentarlo. En la app de Mac, elige Pausar máquina y luego Reanudar máquina. En una terminal, ejecuta cmux vm pause '<machine>' y luego cmux vm resume '<machine>'."
+      "action": "Contacta con soporte con el ID de traza antes de crear otra máquina."
     },
     "inProgress": {
       "title": "Todavía en curso",
@@ -113,6 +113,16 @@
       "hoursAction": "cmux billing checkout --plan pro",
       "shapeMessage": "Go admite 2 vCPU, 4 GiB de RAM y 16 GiB de disco.",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
+    },
+    "planBudget": {
+      "computeTitle": "Cuota de cómputo de {plan} agotada",
+      "computeMessage": "Tu plan {plan} ha usado sus {included} horas de cómputo de este período de facturación. Una hora de cómputo es 1 vCPU con 2 GB de memoria durante una hora. Tus máquinas podrán iniciarse de nuevo el {resetDate}.",
+      "computeAction": "Las máquinas en pausa conservan sus archivos. Contacta con soporte si necesitas más cómputo antes del {resetDate}.",
+      "computeActionUpgrade": "cmux billing checkout --plan max",
+      "storageTitle": "Cuota de disco de {plan} agotada",
+      "storageMessage": "Tu plan {plan} incluye {included} GB de disco entre todas las máquinas guardadas. Las máquinas guardadas usan {used} GB y esta solicitud necesita {requested} GB.",
+      "storageAction": "cmux vm ls\ncmux vm rm <id>",
+      "storageActionUpgrade": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan max"
     },
     "resourcePool": {
       "title": "No hay suficientes recursos de Cloud VM",
@@ -514,6 +524,9 @@
         "unavailable": {
           "cancelScheduled": "Reanuda tu plan para cambiarlo.",
           "granted": "Otorgado por cmux. No hay nada que cambiar.",
+          "grantedNoCancel": "Otorgado por cmux, así que no hay nada que cancelar.",
+          "paymentFailed": "Actualiza tu método de pago antes de cambiar de plan.",
+          "foundersLifetime": "Founder's Edition incluye Pro de por vida.",
           "adminOnly": "Solo los administradores del equipo pueden cambiar el plan."
         },
         "names": {
@@ -556,6 +569,7 @@
       "change": {
         "title": "¿Cambiar a {plan}?",
         "upgradeBody": "{plan} empieza ahora. Hoy pagas {amount} por el resto de este período de facturación. Desde el {date}, pagas {price} al mes.",
+        "upgradeBodyYearly": "{plan} empieza ahora. Hoy pagas {amount} por el resto de este período de facturación. Desde el {date}, pagas {price} al año.",
         "downgradeBody": "{plan} empieza ahora. La parte no usada de tu plan actual, {credit}, se abona a tus próximas facturas. Tu próxima factura, el {date}, es de {amount}.",
         "confirm": "Cambiar a {plan}",
         "keep": "Mantener el plan actual",
@@ -568,6 +582,8 @@
         "title": "¿Cancelar {plan}?",
         "body": "Conservas {plan} hasta el {date}. Después, pierdes:",
         "bodyNoDate": "Conservas {plan} hasta el final de este período de facturación. Después, pierdes:",
+        "foundersBody": "Tu suscripción {plan} termina el {date}. Después tendrás Pro, que Founder's Edition incluye de por vida.",
+        "foundersBodyNoDate": "Tu suscripción {plan} termina al final de este período de facturación. Después tendrás Pro, que Founder's Edition incluye de por vida.",
         "reasonLabel": "¿Por qué cancelas? (opcional)",
         "otherPlaceholder": "Cuéntanos más (opcional)",
         "confirm": "Cancelar plan",
@@ -2242,6 +2258,7 @@
           "currentLineHighlight": "Resalta con color la fila que contiene el cursor de texto mientras no haya nada seleccionado.",
           "tabWidth": "Cuántas columnas abarca una tabulación. Las guías de sangría usan el mismo espaciado."
         },
+        "actions": "Acciones reutilizables para la paleta de comandos, los atajos, los botones de la barra de pestañas y el menú del botón más. Admite builtin, command, agent, workspaceCommand, workspace, setting, settingPreset y text. Las acciones de texto pegan en el terminal enfocado y conservan los saltos de línea; submit: true pulsa Enter. Las acciones de ajustes requieren configuración global.",
         "remoteTmux": {
           "beta": {
             "newWorkspaceOnHost": {

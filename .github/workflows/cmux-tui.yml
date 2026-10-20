@@ -692,6 +692,7 @@ jobs:
       # the focused tests so a macOS-only compile break cannot hide behind the
       # reduced test list.
       - name: cargo clippy (macOS targets)
+        id: clippy
         working-directory: cmux-tui
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
@@ -699,7 +700,7 @@ jobs:
       # its fixed groups, so a filtered dispatch reported macOS green without running the
       # test, and a macOS-only regression landed. No match fails, as on Linux.
       - name: Focused test filter (macOS)
-        if: inputs.mode == 'focused' && inputs.test_filter != 'optchat_chief'
+        if: ${{ !cancelled() && steps.clippy.outcome != 'skipped' && inputs.mode == 'focused' && inputs.test_filter != 'optchat_chief' }}
         working-directory: cmux-tui
         env:
           TEST_FILTER: ${{ inputs.test_filter }}
@@ -709,6 +710,7 @@ jobs:
         run: ../scripts/ci/cmux-tui-focused-test.sh "$TEST_FILTER" --test-threads=2
 
       - name: Mac discovery and socket tests
+        if: ${{ !cancelled() && steps.clippy.outcome != 'skipped' }}
         working-directory: cmux-tui
         # The platform module contains the macOS discovery, socket and cwd
         # checks. Run its one test binary once instead of rebuilding it for
@@ -716,12 +718,14 @@ jobs:
         run: '../scripts/ci/cargo-test-selected.sh -p cmux-tui-platform --lib platform::tests:: -- --test-threads=2'
 
       - name: Mac link caller signature tests
+        if: ${{ !cancelled() && steps.clippy.outcome != 'skipped' }}
         working-directory: cmux-tui
         # cmux-link checks a caller's code signature only on macOS
         # (caller_macos.rs); the Linux suites cover only the uid check.
         run: '../scripts/ci/cargo-test-selected.sh -p cmux-link --lib caller::tests:: -- --test-threads=2'
 
       - name: Mac browser host provider tests
+        if: ${{ !cancelled() && steps.clippy.outcome != 'skipped' }}
         working-directory: cmux-tui
         # The provider socket's peer pid differs by platform (macOS reports
         # the last process that used the server end), and the inherited
@@ -731,6 +735,7 @@ jobs:
           ../scripts/ci/cargo-test-selected.sh -p cmux-tui-core --lib server::browser_host_command::tests:: -- --test-threads=2
 
       - name: Mac process and PTY tests
+        if: ${{ !cancelled() && steps.clippy.outcome != 'skipped' }}
         working-directory: cmux-tui
         run: |
           # macOS always has /bin/zsh; the Linux runner has none, so this
@@ -740,6 +745,7 @@ jobs:
             -- --exact
 
       - name: Mac theme, layout and launchd tests
+        if: ${{ !cancelled() && steps.clippy.outcome != 'skipped' }}
         working-directory: cmux-tui
         run: |
           ../scripts/ci/cargo-test-selected.sh -p cmux-theme-tokens --test load \
@@ -753,6 +759,7 @@ jobs:
       # run it here against the release-pinned daemon, the one release users
       # update from.
       - name: Previous release upgrade adoption
+        if: ${{ !cancelled() && steps.clippy.outcome != 'skipped' }}
         working-directory: cmux-tui
         run: |
           ../scripts/cmux-next/pin-cmux-tui.sh fetch --pin
@@ -764,6 +771,7 @@ jobs:
       # The macOS arm64 host snapshot digests that the GhosttyNextKit cross
       # check compares against (schemas/terminal-corpus/crosscheck/run.sh).
       - name: Terminal corpus host snapshots (macOS arm64)
+        if: ${{ !cancelled() && steps.clippy.outcome != 'skipped' }}
         working-directory: cmux-tui
         run: cargo test -p ghostty-vt --test terminal_corpus
 
@@ -815,6 +823,15 @@ jobs:
         run: |
           export CMUX_TUI_BIN="$GITHUB_WORKSPACE/cmux-tui/target/debug/cmux-tui"
           cargo test --locked --test home_view_daemon -- --ignored
+
+      # The DM link of a non-default Chief (person-only selection, conflict
+      # replay; worker 5 f218b8add8b0). tests/shared_acpmux.rs needs no daemon:
+      # it runs in the suite step above.
+      - name: Chief DM behavior test against a real daemon
+        working-directory: Native/OptChat/optchat-chief
+        run: |
+          export CMUX_TUI_BIN="$GITHUB_WORKSPACE/cmux-tui/target/debug/cmux-tui"
+          cargo test --locked --test dm_daemon -- --ignored
 
   # The chatmux-relay crate's tests on macOS. 9f4acf5b2787 (#17051) dropped
   # the `test (macos)` matrix entry, which was their only macOS run. The
@@ -1477,12 +1494,17 @@ jobs:
       - name: Require selected verification jobs
         shell: bash
         run: |
+          # Check every selected job, then fail once: a red lint (often a
+          # base clippy red) must not hide whether the Rust tests passed.
+          failed=0
           require_success() {
             local name="$1"
             local result="$2"
-            if [[ "$result" != "success" ]]; then
+            if [[ "$result" == "success" ]]; then
+              echo "$name: success"
+            else
               echo "::error::$name finished with result '$result'" >&2
-              exit 1
+              failed=1
             fi
           }
 
@@ -1508,3 +1530,4 @@ jobs:
             require_success "Chrome CDP smoke" "$CDP_BROWSER_RESULT"
             require_success "binding end-to-end tests" "$BINDINGS_RESULT"
           fi
+          exit "$failed"

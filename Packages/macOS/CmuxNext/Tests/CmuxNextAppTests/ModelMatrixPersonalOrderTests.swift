@@ -107,7 +107,7 @@ struct ModelMatrixPersonalOrderTests {
         guard order(bridge) == rowed else { return ["MATRIX \(id): seeded \(order(bridge)), expected \(rowed)"] }
         let machine = try #require(services.machines.daemon(forWorkspace: moving)?.machineID)
         let section = CmuxNextSidebar.SectionID.machine(CmuxNextSidebar.MachineID(machine))
-        let sections = PendingWorkspaceRows.withoutPlaceholders(bridge.model.sections)
+        let sections = SidebarRowSection.withoutPlaceholders(bridge.model.sections)
         guard let position = slot.position(moving: [moving], section: section, in: sections) else {
             return ["MATRIX \(id): the slot names no position"]
         }

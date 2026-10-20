@@ -548,6 +548,16 @@ impl Hub {
                         };
                         let _ =
                             hub.finish_turn(&s, &c, result, &prompt_id, &turn_id, turn_seq).await;
+                        // A recovered turn is not continued (`auto_resume.rs`); settle its mark.
+                        hub.schedule_auto_resume(&s, &turn_id, None);
+                        // A route switch or an update asked for a restart
+                        // during the turn (route_switch.rs): the process ends
+                        // now and the next prompt starts it again, resuming
+                        // the chat. Not started here: this task runs inside
+                        // the adoption a start itself may run.
+                        if s.route_switch.swap(false, Ordering::SeqCst) {
+                            hub.detach_child(&s).await;
+                        }
                         drop(guard);
                     });
                 }
@@ -713,8 +723,10 @@ impl Hub {
     }
 
     /// Run new agents under agent hosts (see `agent_hosts_enabled`).
+    /// Windows: agent hosts are not ported yet, so agents stay direct
+    /// children in job objects (sessions do not outlive the daemon there).
     pub fn enable_agent_hosts(&self) {
-        self.agent_hosts.store(true, Ordering::SeqCst);
+        self.agent_hosts.store(cfg!(unix), Ordering::SeqCst);
     }
 
     pub(super) async fn spawn_hosted_child(
@@ -726,7 +738,9 @@ impl Hub {
         translator: Option<crate::agent_host::TranslatorSpec>,
         tap: crate::agent::Tap,
     ) -> Result<Arc<ChildAgent>, RpcError> {
-        let internal = |e: anyhow::Error| RpcError::internal(format!("{e:#}"));
+        let internal = |e: anyhow::Error| {
+            crate::launch_policy::spawn_error(e, |e| RpcError::internal(format!("{e:#}")))
+        };
         // From the profile, before its CODEX_PATH picks the binary.
         let codex_bridge = command_line.is_none()
             && translator.is_none()

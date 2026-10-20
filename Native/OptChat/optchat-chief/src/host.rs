@@ -110,7 +110,7 @@ pub fn compactor_harness_for(
 /// harnesses the Chief can use, so its model probes never start another
 /// harness's agent (a Claude-only Chief never starts codex-acp). The set
 /// turn, compactor and subagent harnesses and engine.json's, and always the
-/// Claude routes (`DEFAULT_HARNESS`, `CODEROUTER_HARNESS`): the default turn
+/// Claude routes (`DEFAULT_HARNESS`, `CODEROUTER_HARNESS`, `SR2_HARNESS`): the default turn
 /// harness, and the compactor of a turn harness that is not Claude.
 pub fn probe_harnesses(
     chief: Option<&str>,
@@ -127,7 +127,7 @@ pub fn probe_harnesses(
     ]
     .into_iter()
     .flatten()
-    .chain([DEFAULT_HARNESS, CODEROUTER_HARNESS])
+    .chain([DEFAULT_HARNESS, CODEROUTER_HARNESS, SR2_HARNESS])
     .collect();
     names.into_iter().collect::<Vec<_>>().join(",")
 }
@@ -141,16 +141,63 @@ pub const DEFAULT_HARNESS: &str = "claude";
 /// route (`claude-cr`, which acpmux has only when `coderouterClaudeRoute`
 /// names one) whether or not it can run, so an unavailable route is
 /// refused with its reason instead of silently moving to another account;
-/// else `DEFAULT_HARNESS`.
+/// else the user's own Claude CLI (`DEFAULT_HARNESS`: the `claude` acpmux
+/// finds on the login shell's PATH, run with the user's own
+/// `~/.claude/settings.json` and login; Lawrence 2026-10-19: "make sure
+/// Chief, by default, will talk to the correct Claude, using the user's
+/// Claude CLI"). The subrouter2 route (`claude-sr2`) is an explicit choice
+/// (`chief engine set --harness claude-sr2`), and the default only when
+/// acpmux has no usable `claude` but can run sr2.
 pub fn default_harness(answer: &serde_json::Value) -> &'static str {
-    if answer
-        .get("harnesses")
-        .and_then(|h| h.get(CODEROUTER_HARNESS))
-        .is_some()
-    {
-        CODEROUTER_HARNESS
+    let harnesses = answer.get("harnesses");
+    if harnesses.and_then(|h| h.get(CODEROUTER_HARNESS)).is_some() {
+        return CODEROUTER_HARNESS;
+    }
+    let runnable_stdio = |name: &str| {
+        harnesses.and_then(|h| h.get(name)).is_some_and(|p| {
+            p.get("kind").and_then(serde_json::Value::as_str) == Some("claude-stdio")
+                && p.get("unavailable").is_none()
+        })
+    };
+    if !runnable_stdio(DEFAULT_HARNESS) && runnable_stdio(SR2_HARNESS) {
+        SR2_HARNESS
     } else {
         DEFAULT_HARNESS
+    }
+}
+
+/// Records which executable (and its `--version`) the turns, compactor and
+/// subagents run, for `engine show` and host.log (Lawrence 2026-10-19: show
+/// which Claude the Chief talks to). A refused role is left out.
+fn record_resolved(home: &std::path::Path, plans: [&crate::harness_gate::Plan; 3]) {
+    let mut versions: BTreeMap<String, String> = BTreeMap::new();
+    let mut resolve = |plan: &crate::harness_gate::Plan| {
+        plan.admitted.as_ref().ok().map(|a| {
+            let version = versions
+                .entry(a.argv0.clone())
+                .or_insert_with(|| crate::engine::binary_version(&a.argv0))
+                .clone();
+            crate::engine::ResolvedHarness {
+                harness: a.profile.clone(),
+                kind: a.kind.clone(),
+                argv0: a.argv0.clone(),
+                version,
+            }
+        })
+    };
+    let resolved = crate::engine::ResolvedEngine {
+        turn: resolve(plans[0]),
+        compactor: resolve(plans[1]),
+        subagent: resolve(plans[2]),
+    };
+    if let Some(t) = &resolved.turn {
+        log(format!("turn CLI: {} {}", t.argv0, t.version));
+    }
+    if let Err(e) = crate::engine::save_resolved(home, &resolved) {
+        log(format!(
+            "writing {}: {e}",
+            crate::engine::resolved_path(home).display()
+        ));
     }
 }
 
@@ -186,6 +233,10 @@ fn trace_codex(paths: &Paths, trace: &crate::trace::Trace, log: &dyn Fn(String))
 /// acpmux's profile for a configured CodeRouter Claude route.
 pub const CODEROUTER_HARNESS: &str = "claude-cr";
 
+/// acpmux's profile for Claude Code through the subrouter2 gateway
+/// (`~/.config/cmux/harnesses/claude-sr2.toml`, command `sr2 claude`).
+pub const SR2_HARNESS: &str = "claude-sr2";
+
 /// The turn sessions' acpmux preset, or None when a turn needs none: on
 /// a Claude harness it carries each turn's system prompt (the cached
 /// layout); on codex the Chief's turn `prompt_cache_key` (an env the cmux
@@ -207,6 +258,17 @@ pub fn turn_preset(
     if family == Family::Claude {
         env.extend(session_dir::QUIET_ENV.map(|(k, v)| (k.to_owned(), v.to_owned())));
     }
+    // Only acpmux's cmux MCP server (cx-4a5w2), as acpmux's built-in turn
+    // presets set it for a Chief that sends no env.
+    let (servers_key, servers) = session_dir::TURN_TOOL_SERVERS;
+    env.insert(servers_key.to_owned(), servers.to_owned());
+    // The cmux MCP server lists only the Chief's tools and refuses the rest,
+    // `cmux_exec` scripts included (acpmux `MCP_TOOLS_ENV`). The deny rules
+    // stay as the second guard.
+    env.insert(
+        session_dir::TURN_TOOLS_ENV.to_owned(),
+        session_dir::CHIEF_CMUX_TOOLS.join(","),
+    );
     if family == Family::Codex {
         env.insert(
             CODEX_CACHE_KEY_ENV.to_owned(),
@@ -449,6 +511,12 @@ pub fn conversation_source(flags: &Flags) -> Result<Source, String> {
     }
 }
 
+/// The build-session kill switch, the test of acpmux launch_policy.rs.
+fn agent_launch_disabled() -> bool {
+    env("ACPMUX_AGENT_LAUNCH").is_some_and(|v| v.trim().eq_ignore_ascii_case("deny"))
+        || env("CMUX_AGENTS_DISABLED").is_some_and(|v| v.trim() == "1")
+}
+
 /// Runs the host; returns the exit code.
 pub fn run(flags: &Flags, started_ms: u64) -> i32 {
     // SIGTERM, SIGINT and SIGHUP stop the host and what it started (E20).
@@ -478,6 +546,13 @@ pub fn run(flags: &Flags, started_ms: u64) -> i32 {
         log(format!("creating {}: {e}", paths.root.display()));
         return 1;
     }
+    // cx-tgf4h: agents are off in this build session (acpmux refuses every
+    // launch), so no turn could start; the host would only hold messages.
+    if agent_launch_disabled() {
+        log("not starting: agents are disabled in this build session \
+             (ACPMUX_AGENT_LAUNCH=deny or CMUX_AGENTS_DISABLED=1)");
+        return 0;
+    }
     let _lock = match HostLock::take(&paths.host_lock, started_ms) {
         Ok(lock) => {
             // A stop mark an earlier host of this home left says nothing now.
@@ -498,7 +573,10 @@ pub fn run(flags: &Flags, started_ms: u64) -> i32 {
         }
     };
     // A status left by a host that crashed mid-wait says nothing true now.
-    crate::settle_status::SettleStatus::new(&paths.settle_status).clear();
+    let settle = crate::settle_status::SettleStatus::new(&paths.settle_status);
+    settle.clear();
+    // The start-up probe says again when the compactor cannot work.
+    settle.compactor_fault(None);
     let started = start(&paths, &home, &daemon_socket, source);
     if STOPPING.load(std::sync::atomic::Ordering::SeqCst) {
         // A stop signal: whatever `start` returned (its acpmux connection
@@ -709,7 +787,7 @@ fn start(
             }
         }
         // Nothing set: the configured CodeRouter route when acpmux has one,
-        // else the user's own Claude login (default_harness).
+        // else the user's own Claude CLI (default_harness).
         if chief_set.is_none() {
             harness = default_harness(&answer).to_owned();
             if sub_set.is_none() {
@@ -730,6 +808,7 @@ fn start(
             plan(&compactor_harness, "compactor"),
             plan(&sub_harness, "subagent"),
         );
+        record_resolved(home, [&turn, &compactor, &sub]);
         (
             turn.family,
             compactor.family,
@@ -777,6 +856,7 @@ fn start(
         tools,
         user_env: session_dir::host_user_env(),
         profile_tool: chief_tools.grant().allows("profile"),
+        chiefs_tool: chief_tools.grant().allows("chiefs"),
     };
     session_dir::write(paths, &setup).map_err(|e| format!("writing the session directory: {e}"))?;
     // Section 9: every subagent's directory and system prompt.
@@ -1166,7 +1246,8 @@ fn start(
                 harness: sub_harness.clone(),
                 policy: env("MUX_POLICY").unwrap_or_else(|| "approve-all".into()),
                 model: env("OPTCHAT_SUBAGENT_MODEL"),
-                effort: None,
+                // Before any turn names one: medium, as the turns run.
+                effort: crate::effort::turn_effort(env("OPTCHAT_SUBAGENT_EFFORT"), sub_family),
                 preset: Some(sub_preset_name.clone()),
                 cwd: paths.subagent.clone(),
                 prefix: format!("optchat-sub-{}", crate::paths::home_id(home)),
@@ -1210,6 +1291,12 @@ fn start(
             control: Some(control),
             inspector: start_inspector(paths, &chat, &claude_text),
             chief: Some(chief_tools.clone()),
+            // The turn names of `Settings::turn_prefix`, the subagent names
+            // of the sub preset (`optchat-sub-<home id>-<id>`).
+            turn: Some(crate::turn_caller::TurnBinding::for_home(
+                &turn_prefix(home),
+                &crate::paths::home_id(home),
+            )),
         },
     )
     .map_err(|e| format!("serving the memory tools: {e}"))?;
@@ -1302,7 +1389,7 @@ fn start(
         model: env("OPTCHAT_CHIEF_MODEL"),
         effort: crate::effort::turn_effort(env("OPTCHAT_CHIEF_EFFORT"), family),
         parent: parent_tag(home),
-        turn_prefix: format!("optchat-{}", crate::paths::home_id(home)),
+        turn_prefix: turn_prefix(home),
         agent_gap: Duration::from_millis(cmux_chief::rules::AGENT_GAP_RETRY_MS),
         turn_limit: (turn_limit > 0).then(|| Duration::from_secs(turn_limit * 60)),
         turn_idle_limit: {
@@ -1351,11 +1438,43 @@ fn start(
     .with_settle_status(crate::settle_status::SettleStatus::new(
         &paths.settle_status,
     ))
+    // The app watches only the default Chief's state/ (cx-oqnw3 review): another
+    // Chief still hears a compactor fault as its message until the app watches its home.
+    .with_compactor_messages(membership.participant != crate::chief_profile::DEFAULT_CHIEF)
     .with_workspaces(workspaces);
     let mut brain = brain;
     brain.set_sub_starter(sub_starter);
-    // Finished subagents' workspaces stay with a done mark unless this says close.
+    // No cap on subagents at work unless OPTCHAT_MAX_LIVE_SUBAGENTS sets one.
+    brain.set_max_live(crate::subagents::live_limit(
+        env(crate::subagents::MAX_LIVE_ENV).as_deref(),
+    ));
+    // Finished subagents' workspaces stay, names untouched, unless this says close.
     brain.set_sub_close_on_finish(env("OPTCHAT_SUBAGENT_ON_FINISH").as_deref() == Some("close"));
+    // Subagents that stop on a model or network error continue on their own
+    // (auto_resume.rs); OPTCHAT_AUTO_RESUME=off turns it off.
+    brain.set_auto_resume(crate::auto_resume::ResumePolicy::from_env(env), None);
+    // Agent CLIs in cmux terminals (Claude Code, Codex) that stop on an
+    // error continue the same way (terminal_watch.rs);
+    // OPTCHAT_TERMINAL_RESUME=off turns only that off.
+    if let Some(policy) = crate::auto_resume::ResumePolicy::from_env(env)
+        && !matches!(
+            env("OPTCHAT_TERMINAL_RESUME").as_deref(),
+            Some("off" | "0" | "false" | "no")
+        )
+    {
+        crate::terminal_watch::spawn(
+            policy,
+            Arc::new(crate::terminal_watch::CliTerminals::from_env(env)),
+            Arc::new(crate::auto_resume::TcpProbe::from_env(
+                env,
+                std::env::var_os("HOME")
+                    .map(std::path::PathBuf::from)
+                    .as_deref(),
+            )),
+            tx.clone(),
+            brain_log.clone(),
+        );
+    }
     if let Some(describer) = describer {
         brain.set_describer(describer);
     }
@@ -1813,4 +1932,10 @@ fn native_env(setup: &SessionSetup, paths: &Paths) -> BTreeMap<String, String> {
         .unwrap_or_else(|| "/usr/bin:/bin".into());
     env.insert("PATH".into(), format!("{}:{path}", paths.bin.display()));
     env
+}
+
+/// The turn session names' prefix (`Settings::turn_prefix`, and the tools
+/// socket's turn binding, turn_caller.rs): `optchat-<home id>`.
+fn turn_prefix(home: &std::path::Path) -> String {
+    format!("optchat-{}", crate::paths::home_id(home))
 }

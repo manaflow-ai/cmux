@@ -65,6 +65,8 @@ pub(super) struct Args {
     pub help: bool,
     /// `chief engine …` or `chief stop`.
     pub control: Option<control::Control>,
+    /// `--chief ID` with `engine` or `stop`: that Chief (chief-brains-v1), not the default (cx-mbbee).
+    pub chief: Option<String>,
     /// `cmux chief shutdown` (shutdown.rs).
     pub shutdown: bool,
     /// `--no-wait-agents`: pipe mode ends with the turn that answers the
@@ -136,6 +138,14 @@ pub(super) fn parse_args(args: &[String]) -> Result<Args, String> {
                 parsed.timeout_secs = (secs > 0).then_some(secs);
             }
             "--chief-home" => parsed.chief_home = Some(value()?.into()),
+            "--chief" => {
+                let id = value()?;
+                // `--chief --json` is a missing id, not a Chief named `--json`.
+                if inline.is_none() && id.starts_with('-') {
+                    return Err("--chief needs a Chief id (cmux chief list)".into());
+                }
+                parsed.chief = Some(id);
+            }
             "--no-wait-agents" => parsed.no_wait_agents = true,
             "--history" => {
                 let text = value()?;
@@ -146,6 +156,9 @@ pub(super) fn parse_args(args: &[String]) -> Result<Args, String> {
             other => return Err(format!("unknown argument {other}")),
         }
         index += 1;
+    }
+    if parsed.chief.is_some() && parsed.control.is_none() {
+        return Err("--chief goes with `cmux chief engine` or `cmux chief stop`".into());
     }
     Ok(parsed)
 }
@@ -187,7 +200,20 @@ fn run(global: GlobalArgs, args: &[String]) -> i32 {
         return shutdown::run(&global, args.chief_home.as_deref());
     }
     if let Some(control) = &args.control {
-        return control::run(&global, args.chief_home.as_deref(), control, global.output);
+        return control::run(
+            &global,
+            args.chief_home.as_deref(),
+            control,
+            args.chief.as_deref(),
+            global.output,
+        );
+    }
+    // cx-tgf4h: with agents off in this build session no Chief turn can
+    // run; refuse before anything starts or is sent (a send would wait for
+    // a reply that never comes).
+    if cmux_tui_core::agent_launch::disabled() {
+        let refusal = cmux_tui_core::agent_launch::refusal(m.agents_disabled);
+        return super::wire::print_operation_error(&refusal, global.output);
     }
     let stdin_tty = std::io::stdin().is_terminal();
     let pipe_mode = args.prompt.is_some() || !stdin_tty;
@@ -353,10 +379,24 @@ fn target(
     if link::is_brain_socket(&home.root) {
         return Err((1, m.brain_socket.replace("{socket}", &home.root.display().to_string())));
     }
+    // cmux NEXT adopts the shared Chief home once (build_adopt.rs).
+    if !home.isolated {
+        crate::build_adopt::chief_for_cli(&home.root);
+    }
     Ok(Target::Home(home))
 }
 
 /// Whether the output mode prints JSON.
 pub(super) fn json_output(output: OutputMode) -> bool {
     matches!(output, OutputMode::Json | OutputMode::JsonLines)
+}
+
+/// The person's Chief home this build resolves (no `--chief-home`; None for
+/// an isolated launch or without `HOME`): the app's one-time adoption at
+/// launch (build_adopt.rs).
+pub(crate) fn home_for_adopt() -> Option<std::path::PathBuf> {
+    let user_home = std::env::var_os("HOME").map(std::path::PathBuf::from)?;
+    let cwd = std::env::current_dir().unwrap_or_default();
+    let home = home::ChiefHome::resolve(None, |k| std::env::var(k).ok(), &user_home, &cwd);
+    (!home.isolated).then_some(home.root)
 }

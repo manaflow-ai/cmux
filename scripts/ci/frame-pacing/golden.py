@@ -130,7 +130,7 @@ class Driver:
             if not ready:
                 self.log.append(f"{name}: no ready spare after 20 s; the opening is cold")
         before = len(self.call("debug.new_tab", {"action": "state"}).get("openings") or [])
-        trace = self.trace(["tabs"], lambda: self.key("t", ["command"]), 0.9)
+        trace = self.trace(["tabs", "strip"], lambda: self.key("t", ["command"]), 0.9)
         openings = self.call("debug.new_tab", {"action": "state"}).get("openings") or []
         trace["opening"] = openings[-1] if len(openings) > before else None
         if not cold:
@@ -383,6 +383,14 @@ def judge(out: Path) -> dict[str, dict]:
             elif any(n["intermediate"] > THRESHOLDS[name]["max_intermediate"] for n in neighbors):
                 verdict["problems"].append("a neighbor animated under Reduce Motion" if name.startswith("reduce_")
                                            else "a neighbor moved over frames instead of making room at once")
+                verdict["ok"] = False
+            # Each strip keeps its width through a Cmd-T: a bar that gives up or takes back width
+            # (the pane's "…") lays every tab out again at once, past any spring.
+            widths = [sample.get("strip") for sample in data.get("samples") or [] if sample.get("strip")]
+            moved = [index for index in range(len(widths[0]) if widths else 0)
+                     if any(len(row) != len(widths[0]) or abs(float(row[index]) - float(widths[0][index])) > EPS for row in widths)]
+            if moved:
+                verdict["problems"].append(f"{len(moved)} tab strip(s) changed width during the opening")
                 verdict["ok"] = False
             verdict["opening"] = data.get("opening")
             if data.get("spare_ready") is False:

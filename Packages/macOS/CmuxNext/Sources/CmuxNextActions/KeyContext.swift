@@ -116,6 +116,7 @@ extension ActionContext {
         (.signedOut, "signedOut"), (.cloudWorkspace, "cloudWorkspace"), (.agentPaneFocused, "agentPaneFocused"),
         (.checkpointCaptureAvailable, "checkpointCaptureAvailable"), (.recordingShortcut, "recordingShortcut"),
         (.omnibarFocused, "omnibarFocused"), (.codeEditorFocused, "codeEditorFocused"),
+        (.homeChannelsEnabled, "homeChannelsEnabled"),
         (.markdownReadOnlyFocused, "markdownReadOnlyFocused"), (.markdownEditorFocused, "markdownEditorFocused"),
     ]
 

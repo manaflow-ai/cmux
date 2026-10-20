@@ -41,6 +41,16 @@ pub(super) fn is_effort_id(id: &str) -> bool {
     EFFORT_IDS.contains(&id)
 }
 
+/// The effort a `session/set_config_option` sets, if it sets one: an effort
+/// option's value, or Claude Code's Ultracode switch (on runs `ultracode`,
+/// off leaves xhigh).
+pub(super) fn effort_of<'a>(config_id: &str, value: &'a Value) -> Option<&'a str> {
+    if config_id == crate::claude_stdio::ULTRACODE_OPTION {
+        return Some(if value == "on" { "ultracode" } else { "xhigh" });
+    }
+    if is_effort_id(config_id) { value.as_str() } else { None }
+}
+
 /// Records that `session` runs `model` now. A model change can reset the
 /// harness's effort (Codex does), so the recorded effort is dropped.
 pub(super) fn model_applied(session: &Session, model: &str) {
@@ -130,7 +140,9 @@ fn effort_fits(curated: Option<&CatalogHarness>, model: Option<&str>, effort: &s
     else {
         return true;
     };
-    entry.efforts.as_ref().is_none_or(|list| list.iter().any(|e| e == effort))
+    // Claude Code's Ultracode runs at xhigh.
+    let level = if effort == "ultracode" { "xhigh" } else { effort };
+    entry.efforts.as_ref().is_none_or(|list| list.iter().any(|e| e == level))
 }
 
 impl Hub {
@@ -175,8 +187,9 @@ impl Hub {
             .clone();
         let r = self.set_config(session, config_id, value.clone()).await?;
         let resolved = super::model_options::resolve_config_id(&session.meta(), config_id);
-        if pick && is_effort_id(&resolved) && before.as_deref() != value.as_str() {
-            self.note_pick(session, None, value.as_str()).await;
+        let effort = effort_of(&resolved, &value);
+        if pick && effort.is_some() && before.as_deref() != effort {
+            self.note_pick(session, None, effort).await;
         }
         // The mode as a config option (Claude Code's `mode`): a mode pick.
         if pick
@@ -226,6 +239,12 @@ impl Hub {
         if let Err(e) = cfg.save() {
             tracing::warn!(harness = %meta.harness, "pick not saved to config.json: {e}");
         }
+        // The pick is now the harness's `start` in `_acpmux/harnesses`: pages already open (a
+        // prewarmed New Tab) read it again instead of drawing the old start model and effort.
+        let names: Vec<&String> = cfg.harnesses.keys().collect();
+        self.send_harness_change(
+            json!({"harnesses": names, "diagnostics": cfg.profile_diagnostics}),
+        );
     }
 
     /// The model and effort a new chat on `agent` starts on when nothing

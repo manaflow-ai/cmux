@@ -8,7 +8,7 @@ import * as TestClock from "effect/TestClock";
 import * as TestContext from "effect/TestContext";
 import { VmProviderGateway, type VmProviderGatewayShape } from "../services/vms/providerGateway";
 import { VmRepository, type CloudVmRow, type VmRepositoryShape } from "../services/vms/repository";
-import { pauseVm, resumeVm } from "../services/vms/workflows";
+import { PAUSE_OPERATION_TIMEOUT_MS, PAUSE_STATE_PROBE_TIMEOUT_MS, pauseVm, resumeVm } from "../services/vms/workflows";
 import { VmProviderOperationError } from "../services/vms/errors";
 import { providerConflictKind } from "../services/vms/drivers/types";
 
@@ -20,6 +20,7 @@ type Recorded = {
   paused: string[];
   resumed: string[];
   statusProbes: string[];
+  runtimeBudgets: Array<{ id: string; seconds: number | null }>;
   statuses: Array<{ id: string; status: string }>;
   reservations: string[];
   skipActiveLimits: boolean[];
@@ -56,18 +57,21 @@ function machineRow(overrides: Partial<CloudVmRow> = {}): CloudVmRow {
   };
 }
 
+/** Build repository and provider layers that record pause/resume side effects. */
 function fakes(options: {
   row: CloudVmRow;
   providerStatus?: "running" | "paused";
   /** Successive getStatus answers; the last one repeats. */
   providerStatuses?: Array<"creating" | "running" | "paused" | "probe_fails">;
-  pauseState?: "paused" | "in_progress" | "not_paused" | "stopped" | "destroyed" | "probe_fails";
+  pauseState?: "paused" | "in_progress" | "not_paused" | "stopped" | "destroyed" | "probe_fails" | "probe_hangs";
+  pauseHangs?: boolean;
+  runtimeBudgetHangs?: boolean;
   withPause?: boolean;
   withResume?: boolean;
   stats?: { cpus: number; memoryTotalMb: number; diskTotalMb: number };
   onReservation?: (reservation: { vcpus: number; memoryMb: number; diskMb: number }) => void;
 }) {
-  const recorded: Recorded = { paused: [], resumed: [], statusProbes: [], statuses: [], reservations: [], skipActiveLimits: [], reservationWrites: [], events: [] };
+  const recorded: Recorded = { paused: [], resumed: [], statusProbes: [], runtimeBudgets: [], statuses: [], reservations: [], skipActiveLimits: [], reservationWrites: [], events: [] };
   const repo = {
     findUserVm: (input: { providerVmId: string }) =>
       Effect.succeed(input.providerVmId === options.row.providerVmId ? options.row : null),
@@ -106,7 +110,7 @@ function fakes(options: {
       ? {
         getPauseState: () => options.pauseState === "probe_fails"
           ? Effect.fail(new VmProviderOperationError({ provider: "freestyle", operation: "getPauseState", cause: new Error("Status: 500") }))
-          : Effect.succeed(options.pauseState),
+          : options.pauseState === "probe_hangs" ? Effect.never : Effect.succeed(options.pauseState),
       }
       : {}),
     ...(options.withPause === false
@@ -114,9 +118,13 @@ function fakes(options: {
       : {
         pause: (_provider: string, providerVmId: string) => {
           recorded.paused.push(providerVmId);
-          return Effect.void;
+          return options.pauseHangs ? Effect.never : Effect.void;
         },
       }),
+    setRuntimeBudget: (_provider: string, providerVmId: string, seconds: number | null) => {
+      recorded.runtimeBudgets.push({ id: providerVmId, seconds });
+      return options.runtimeBudgetHangs ? Effect.never : Effect.void;
+    },
     ...(options.withResume === false
       ? {}
       : {
@@ -256,6 +264,50 @@ describe("pauseVm", () => {
   test("a state probe that cannot tell answers in progress and never pauses a second time", async () => {
     const { recorded, layer } = fakes({ row: machineRow(), pauseState: "probe_fails" });
     expect(await failureTag(pauseVm(caller), layer)).toBe("VmOperationDeadlineError");
+    expect(recorded.paused).toEqual([]);
+    expect(recorded.statuses).toEqual([]);
+  });
+
+  test("a hanging state probe fails within its bound and does not leave pause running", async () => {
+    const { recorded, layer } = fakes({ row: machineRow(), pauseState: "probe_hangs" });
+    const exit = await Effect.runPromise(Effect.gen(function* () {
+      const fiber = yield* Effect.fork(pauseVm(caller).pipe(Effect.provide(layer), Effect.either));
+      yield* TestClock.adjust(PAUSE_STATE_PROBE_TIMEOUT_MS);
+      return yield* Fiber.join(fiber);
+    }).pipe(Effect.provide(TestContext.TestContext)));
+    expect(exit._tag).toBe("Left");
+    expect(exit._tag === "Left" ? exit.left._tag : null).toBe("VmOperationDeadlineError");
+    expect(exit._tag === "Left" && exit.left._tag === "VmOperationDeadlineError" ? exit.left.waitedMs : null)
+      .toBe(PAUSE_STATE_PROBE_TIMEOUT_MS);
+    expect(recorded.paused).toEqual([]);
+    expect(recorded.statuses).toEqual([]);
+  });
+
+  test("a provider pause that never answers fails within its bound and leaves the row running", async () => {
+    const { recorded, layer } = fakes({ row: machineRow(), pauseState: "not_paused", pauseHangs: true });
+    const exit = await Effect.runPromise(Effect.gen(function* () {
+      const fiber = yield* Effect.fork(pauseVm(caller).pipe(Effect.provide(layer), Effect.either));
+      yield* TestClock.adjust(PAUSE_OPERATION_TIMEOUT_MS);
+      return yield* Fiber.join(fiber);
+    }).pipe(Effect.provide(TestContext.TestContext)));
+    expect(exit._tag).toBe("Left");
+    expect(exit._tag === "Left" ? exit.left._tag : null).toBe("VmOperationDeadlineError");
+    expect(recorded.paused).toEqual(["fs-1"]);
+    expect(recorded.statuses).toEqual([]);
+  });
+
+  test("a Go runtime-budget update that never answers fails within the pause bound", async () => {
+    const { recorded, layer } = fakes({
+      row: machineRow({ billingPlanId: "go" }), pauseState: "not_paused", runtimeBudgetHangs: true,
+    });
+    const exit = await Effect.runPromise(Effect.gen(function* () {
+      const fiber = yield* Effect.fork(pauseVm(caller).pipe(Effect.provide(layer), Effect.either));
+      yield* TestClock.adjust(PAUSE_OPERATION_TIMEOUT_MS);
+      return yield* Fiber.join(fiber);
+    }).pipe(Effect.provide(TestContext.TestContext)));
+    expect(exit._tag).toBe("Left");
+    expect(exit._tag === "Left" ? exit.left._tag : null).toBe("VmOperationDeadlineError");
+    expect(recorded.runtimeBudgets).toEqual([{ id: "fs-1", seconds: 0 }]);
     expect(recorded.paused).toEqual([]);
     expect(recorded.statuses).toEqual([]);
   });

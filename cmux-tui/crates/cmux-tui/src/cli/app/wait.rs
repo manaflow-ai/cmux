@@ -33,7 +33,8 @@ pub(super) fn request(
     let long = timeout.is_some_and(|timeout| timeout >= LONG_WAIT);
     let timeout = effective_timeout(timeout);
     let what = waiting_for(method, params);
-    let progress = Progress::start(&what, timeout.filter(|_| long), global.output);
+    let template = crate::localization::catalog().app_control.waiting_progress;
+    let progress = Progress::start(&what, template, timeout.filter(|_| long), global.output);
     let response = request_with_retry(stream, method, params, timeout);
     let waited = progress.finish();
     response.map_err(|error| match timeout {
@@ -101,17 +102,34 @@ fn waiting_for(method: &str, params: &Value) -> String {
     }
 }
 
+/// Progress notes for a wait that is not one app request (`cmux agents
+/// wait`): the same notes, shown from the same threshold, with `template`'s
+/// words. They stop when the returned value is dropped.
+pub(in crate::cli) fn notes(
+    what: &str,
+    template: &'static str,
+    timeout: Duration,
+    output: OutputMode,
+) -> Progress {
+    Progress::start(what, template, Some(timeout).filter(|timeout| *timeout >= LONG_WAIT), output)
+}
+
 /// Prints a progress note every few seconds while a request waits, until it
 /// is dropped. Notes go to stderr in human output, and in JSON output only
 /// when stderr is a terminal, so a piped JSON error is never mixed with them.
-struct Progress {
+pub(in crate::cli) struct Progress {
     started: Instant,
     stop: Option<mpsc::Sender<()>>,
     thread: Option<JoinHandle<()>>,
 }
 
 impl Progress {
-    fn start(what: &str, timeout: Option<Duration>, output: OutputMode) -> Self {
+    fn start(
+        what: &str,
+        template: &'static str,
+        timeout: Option<Duration>,
+        output: OutputMode,
+    ) -> Self {
         let started = Instant::now();
         let shows = match output {
             OutputMode::Human => true,
@@ -122,7 +140,6 @@ impl Progress {
             return Self { started, stop: None, thread: None };
         };
         let (stop, stopped) = mpsc::channel::<()>();
-        let template = crate::localization::catalog().app_control.waiting_progress;
         let what = what.to_owned();
         let spawned = std::thread::Builder::new().name("app-wait-notes".into()).spawn(move || {
             let mut next = FIRST_NOTE_AFTER;

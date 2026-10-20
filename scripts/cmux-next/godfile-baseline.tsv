@@ -51,7 +51,7 @@ rust-file	cmux-tui/crates/cmux-tui-core/src/resource_router/auxiliary.rs	1025	44
 rust-file	cmux-tui/crates/cmux-tui-core/src/resource_router/content.rs	2728	82
 rust-file	cmux-tui/crates/cmux-tui-core/src/resource_router/topology.rs	1930	46
 rust-file	cmux-tui/crates/cmux-tui-core/src/resource_selector.rs	1139	33
-rust-file	cmux-tui/crates/cmux-tui-core/src/server.rs	3842	47
+rust-file	cmux-tui/crates/cmux-tui-core/src/server.rs	2778	30
 rust-file	cmux-tui/crates/cmux-tui-core/src/server/loopback_forward.rs	1091	46
 rust-file	cmux-tui/crates/cmux-tui-core/src/workspace_registry.rs	6002	226
 rust-file	cmux-tui/crates/cmux-tui-core/src/workspace_registry/effect_store.rs	1410	25
@@ -92,6 +92,6 @@ rust-file	cmux-tui/crates/ghostty-vt/src/kitty.rs	1368	64
 rust-file	cmux-tui/crates/ghostty-vt/src/terminal.rs	3187	163
 swift-type	CmuxNextApp/WindowManager	1128	0
 swift-type	CmuxNextDaemon/DaemonConnection	1446	0
-swift-type	CmuxNextTabs/TabStripView	2066	0
+swift-type	CmuxNextTabs/TabStripView	2046	0
 swift-type	CmuxNextTerminal/TerminalSurfaceView	1032	0
 rust-file	cmux-tui/crates/cmux-tui-hooks/src/lib.rs	3941	139

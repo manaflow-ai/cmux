@@ -11,6 +11,11 @@
 // Unix only until the Windows port runs the daemon (cmux::local_socket).
 #![cfg(unix)]
 
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+// This process runs stand-in agents (the fake agents under tests/).
+const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
+
 use acpmux::config::{Config, ProfileSources, StoreMode};
 use acpmux::hub::Hub;
 use acpmux::rpc::Message;
@@ -41,7 +46,11 @@ fn home(name: &str, extra: Value) -> PathBuf {
     let dir = std::fs::canonicalize(&dir).unwrap();
     let codex = dir.join("bin").join("codex");
     std::fs::create_dir_all(codex.parent().unwrap()).unwrap();
-    std::fs::write(&codex, format!("#!/bin/sh\nexec python3 {FAKE_APP_SERVER} \"$@\"\n")).unwrap();
+    std::fs::write(
+        &codex,
+        format!("#!/bin/sh\nexec python3 {} \"$@\"\n", daemon_env::sh_quote(FAKE_APP_SERVER)),
+    )
+    .unwrap();
     std::fs::set_permissions(&codex, std::fs::Permissions::from_mode(0o755)).unwrap();
     let mut config = json!({
         "harnesses": {
@@ -62,21 +71,28 @@ fn home(name: &str, extra: Value) -> PathBuf {
 
 /// The daemon as it starts: config.json read from disk.
 fn hub(dir: &Path) -> Arc<Hub> {
+    hub_with(dir, |_| {})
+}
+
+/// The daemon as it starts, with `edit` applied to its loaded config.
+fn hub_with(dir: &Path, edit: impl FnOnce(&mut Config)) -> Arc<Hub> {
     let mut cfg =
         Config::load_from_with(&dir.join("config.json"), &ProfileSources::none()).unwrap();
     cfg.store.mode = StoreMode::Memory;
+    edit(&mut cfg);
     let store = acpmux::store::open(&cfg.store, Path::new("/nonexistent")).unwrap();
     Hub::new(cfg, store)
 }
 
-struct Client(mpsc::Sender<String>, mpsc::Receiver<String>, i64);
+/// The connection, its last request id and the notifications it got.
+struct Client(mpsc::Sender<String>, mpsc::Receiver<String>, i64, Vec<Value>);
 
 impl Client {
     fn new(hub: &Arc<Hub>, origin: Origin, auth: ConnAuth) -> Self {
         let (in_tx, in_rx) = mpsc::channel(64);
         let (out_tx, out_rx) = mpsc::channel(4096);
         tokio::spawn(serve_connection_authed(hub.clone(), in_rx, out_tx, origin, auth));
-        Client(in_tx, out_rx, 0)
+        Client(in_tx, out_rx, 0, Vec::new())
     }
 
     /// The app's agent pane: a LocalApp connection that proved this
@@ -110,6 +126,9 @@ impl Client {
             let v: Value = serde_json::from_str(&line).unwrap();
             if v.get("id") == Some(&json!(id)) {
                 return v;
+            }
+            if v.get("id").is_none() {
+                self.3.push(v);
             }
         }
     }
@@ -252,5 +271,209 @@ async fn a_web_chat_never_starts_in_full_access_and_an_unauthenticated_one_gets_
     let r = none.new_chat(&dir, "codex").await;
     assert_eq!(r["error"]["code"], json!(acpmux::server::conn_auth::UNAUTHENTICATED), "{r}");
 
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// `_acpmux/start_mode`: the mode acpmux would start a plain new chat on
+/// `harness` in, as this connection asks it.
+async fn start_mode(c: &mut Client, dir: &Path, harness: &str) -> Value {
+    let r =
+        c.call("_acpmux/start_mode", json!({"harness": harness, "cwd": dir.join("work")})).await;
+    assert!(r.get("error").is_none(), "{r}");
+    r["result"].clone()
+}
+
+#[tokio::test]
+async fn start_mode_answer_is_the_mode_a_new_chat_then_starts_in() {
+    let dir = home("answer", json!({"defaultPermissionMode": "fullAccess"}));
+    let daemon = hub(&dir);
+    let mut app = Client::app(&daemon).await;
+
+    // Before any chat: full access, from config.json.
+    let answer = start_mode(&mut app, &dir, "claude").await;
+    assert_eq!(answer["modeId"], "bypassPermissions", "{answer}");
+    assert_eq!(answer["name"], "Full access", "{answer}");
+    assert_eq!(answer["level"], "fullAccess", "{answer}");
+    assert_eq!(answer["source"], "config", "{answer}");
+    assert_eq!(app.chat(&dir, "claude").await.1, "bypassPermissions");
+    // A harness with no full-access mode keeps its own: no prediction.
+    assert_eq!(start_mode(&mut app, &dir, "plain").await["modeId"], Value::Null);
+
+    // The person picks Normal in a chat: the answer follows, and so does the
+    // next new chat.
+    let (claude, _) = app.chat(&dir, "claude").await;
+    let r = app.call("session/set_mode", json!({"sessionId": claude, "modeId": "default"})).await;
+    assert!(r.get("error").is_none(), "{r}");
+    let answer = start_mode(&mut app, &dir, "claude").await;
+    assert_eq!(answer["modeId"], "default", "{answer}");
+    assert_eq!(answer["level"], "ask", "{answer}");
+    assert_eq!(answer["source"], "pick", "{answer}");
+    assert_eq!(app.chat(&dir, "claude").await.1, "default");
+
+    // Asking changes nothing.
+    assert_eq!(last_pick(&dir), json!("ask"));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn start_mode_answer_ignores_picks_in_preset_and_remote_chats() {
+    let dir = home(
+        "answer-skip",
+        json!({"defaultPermissionMode": "fullAccess", "presets": {"p": {"harness": "claude"}}}),
+    );
+    let daemon = hub(&dir);
+    let mut app = Client::app(&daemon).await;
+
+    // A preset's chat: its pick is no start mode, and its own start is none.
+    let r = app
+        .call(
+            "session/new",
+            json!({"cwd": dir.join("work"), "mcpServers": [], "_meta": {"acpmux": {"preset": "p"}}}),
+        )
+        .await;
+    let preset = r["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{r}")).to_owned();
+    let r = app.call("session/set_mode", json!({"sessionId": preset, "modeId": "default"})).await;
+    assert!(r.get("error").is_none(), "{r}");
+    let r = app
+        .call(
+            "_acpmux/start_mode",
+            json!({"harness": "claude", "preset": "p", "cwd": dir.join("work")}),
+        )
+        .await;
+    assert_eq!(r["result"]["modeId"], Value::Null, "{r}");
+
+    // A Web chat viewed in the app: its pick is no start mode either. (Codex: a
+    // remote chain runs Claude Code only inside the macOS sandbox.)
+    let mut web = Client::new(&daemon, Origin::Web, ConnAuth::ListenerToken);
+    let (remote, _) = web.chat(&dir, "codex").await;
+    let r = app.call("session/set_mode", json!({"sessionId": remote, "modeId": "ask"})).await;
+    assert!(r.get("error").is_none(), "{r}");
+
+    assert_eq!(last_pick(&dir), Value::Null);
+    let answer = start_mode(&mut app, &dir, "claude").await;
+    assert_eq!(answer["modeId"], "bypassPermissions", "{answer}");
+    assert_eq!(app.chat(&dir, "claude").await.1, "bypassPermissions");
+    // The Web asks for its own context: acpmux sets no start mode there.
+    assert_eq!(start_mode(&mut web, &dir, "codex").await["modeId"], Value::Null);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+impl Client {
+    /// Whether a `_acpmux/start_mode_changed` came, after one more round trip
+    /// (a notification sent before it has arrived by then).
+    async fn told_start_mode_changed(&mut self) -> bool {
+        self.call("_acpmux/status", json!({})).await;
+        let told = self.3.iter().any(|n| n["method"] == "_acpmux/start_mode_changed");
+        self.3.clear();
+        told
+    }
+}
+
+#[tokio::test]
+async fn start_mode_answer_change_is_announced_to_local_watchers() {
+    let dir = home("answer-notice", json!({"defaultPermissionMode": "fullAccess"}));
+    let daemon = hub(&dir);
+    let mut app = Client::app(&daemon).await;
+    let r = app.call("_acpmux/watch", json!({"enabled": true})).await;
+    assert!(r.get("error").is_none(), "{r}");
+    let mut web = Client::new(&daemon, Origin::Web, ConnAuth::ListenerToken);
+    let r = web.call("_acpmux/watch", json!({"enabled": true})).await;
+    assert!(r.get("error").is_none(), "{r}");
+    let (claude, _) = app.chat(&dir, "claude").await;
+    app.3.clear();
+
+    // A pick acpmux saves: a pane showing a pending chat asks again.
+    let r = app.call("session/set_mode", json!({"sessionId": claude, "modeId": "default"})).await;
+    assert!(r.get("error").is_none(), "{r}");
+    assert!(app.told_start_mode_changed().await, "the local watcher is told");
+    assert!(!web.told_start_mode_changed().await, "a Web watcher's chats get no start mode");
+    // The same level again changes nothing, and Plan is no pick: no notice.
+    let r = app.call("session/set_mode", json!({"sessionId": claude, "modeId": "plan"})).await;
+    assert!(r.get("error").is_none(), "{r}");
+    assert!(!app.told_start_mode_changed().await);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A trusted, enabled folder profile `acme` in `dir/work/repo`, with its
+/// records under `dir` (never the user's own).
+fn folder_profile(dir: &Path) -> (PathBuf, acpmux::config::folder_profiles::FolderGate) {
+    use acpmux::config::folder_profiles;
+    let repo = dir.join("work").join("repo");
+    let profiles = folder_profiles::profile_dir(&repo);
+    std::fs::create_dir_all(&profiles).unwrap();
+    let path = profiles.join("acme.toml");
+    std::fs::write(
+        &path,
+        format!("schema = 1\nid = \"acme\"\ncommand = \"python3\"\nargs = [{FAKE_AGENT:?}]\n"),
+    )
+    .unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+    let gate = folder_profiles::FolderGate {
+        enable_record: dir.join("records").join(folder_profiles::ENABLE_RECORD),
+        trust: acpmux::trust::Paths {
+            claude_json: dir.join("records").join("claude.json"),
+            codex_config: dir.join("records").join("config.toml"),
+            record: dir.join("records").join("trust.json"),
+            agent_home: None,
+        },
+    };
+    (repo, gate)
+}
+
+#[tokio::test]
+async fn start_mode_answer_never_resolves_a_remote_callers_folder() {
+    let dir = home("answer-web-folder", json!({"defaultPermissionMode": "fullAccess"}));
+    let (repo, gate) = folder_profile(&dir);
+    let daemon = hub_with(&dir, |cfg| cfg.folder_gate = Some(gate));
+    let mut web = Client::new(&daemon, Origin::Web, ConnAuth::ListenerToken);
+    // A folder profile's name in a folder with one: the plain null answer,
+    // no error that names the folder or the file.
+    for harness in ["acme", "claude"] {
+        let r = web.call("_acpmux/start_mode", json!({"harness": harness, "cwd": repo})).await;
+        assert!(r.get("error").is_none(), "{r}");
+        assert_eq!(
+            r["result"],
+            json!({"harness": null, "modeId": null, "name": null, "level": null, "source": null}),
+            "{r}"
+        );
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn start_mode_answer_for_folder_pinned_and_unknown_harnesses() {
+    let pinned = json!({"argv": ["python3", FAKE_CLAUDE, "--permission-mode", "default"], "kind": "claude-stdio"});
+    let dir = home("answer-kinds", json!({"defaultPermissionMode": "fullAccess"}));
+    let mut config: Value =
+        serde_json::from_slice(&std::fs::read(dir.join("config.json")).unwrap()).unwrap();
+    config["harnesses"]["pinned"] = pinned;
+    std::fs::write(dir.join("config.json"), serde_json::to_vec_pretty(&config).unwrap()).unwrap();
+    let (repo, gate) = folder_profile(&dir);
+    acpmux::trust::set(&gate.trust, &repo.to_string_lossy(), "trusted").unwrap();
+    let enabled = Config { folder_gate: Some(gate.clone()), ..Default::default() };
+    let sha = acpmux::config::folder_profiles::load_one(&enabled, &gate, &repo, "acme")
+        .and_then(|fp| fp.sha256)
+        .expect("sha256");
+    acpmux::config::folder_profiles::enable(&enabled, &gate, &repo, "acme", &sha).unwrap();
+    let daemon = hub_with(&dir, |cfg| cfg.folder_gate = Some(gate));
+    let mut app = Client::app(&daemon).await;
+
+    // A folder profile's chat gets no start mode.
+    let r = app.call("_acpmux/start_mode", json!({"harness": "acme", "cwd": repo})).await;
+    assert!(r.get("error").is_none(), "{r}");
+    assert_eq!(r["result"]["harness"], "acme", "{r}");
+    assert_eq!(r["result"]["modeId"], Value::Null, "{r}");
+    // A profile that pins its mode in argv: none either.
+    let answer = start_mode(&mut app, &dir, "pinned").await;
+    assert_eq!(answer["modeId"], Value::Null, "{answer}");
+    assert_eq!(answer["level"], Value::Null, "{answer}");
+    // Codex before any chat of it: the level, but no mode id yet.
+    let answer = start_mode(&mut app, &dir, "codex").await;
+    assert_eq!(answer["modeId"], Value::Null, "{answer}");
+    assert_eq!(answer["level"], "fullAccess", "{answer}");
+    assert_eq!(answer["source"], "config", "{answer}");
+    // After one, its full-access mode.
+    assert_eq!(app.chat(&dir, "codex").await.1, "agent-full-access");
+    assert_eq!(start_mode(&mut app, &dir, "codex").await["modeId"], "agent-full-access");
     let _ = std::fs::remove_dir_all(&dir);
 }

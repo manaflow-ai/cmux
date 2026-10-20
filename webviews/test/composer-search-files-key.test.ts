@@ -1,4 +1,4 @@
-// Search Files… (Cmd-P in an agent chat, cx-ncc.69, Codex desktop app parity): the app sends the
+// Search Files… (in an agent chat, cx-ncc.69, Codex desktop app parity; no default key since Cmd-P is the native Go to, 2026-10-19): the app sends the
 // page the `searchFiles` command, which opens the composer's file search with the keyboard in its
 // field. The composer gallery's play sends it in Chromium; this checks the play passed.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -6,6 +6,7 @@ import path from "node:path";
 import { chromium, type Browser } from "playwright";
 import { playFailures } from "./support/galleryPlay";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("composer-search-files-key.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -29,6 +30,7 @@ await requireBrowserLane("composer-search-files-key.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
+    await warmViteServer(vite, "/gallery/frame.html");
     browser = await chromium.launch({ headless: true });
   });
   afterAll(async () => {

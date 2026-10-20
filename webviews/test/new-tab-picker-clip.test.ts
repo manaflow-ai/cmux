@@ -10,6 +10,7 @@ import { chromium, type Browser } from "playwright";
 import { MODEL_PICKER_MIN_HEIGHT } from "../src/agent-session/acpmux/modelPickerLayout";
 import { UI_ANCHOR_GAP } from "../src/ui/anchor";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("new-tab-picker-clip.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -37,6 +38,7 @@ await requireBrowserLane("new-tab-picker-clip.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
+    await warmViteServer(vite, "/test/browser/new-tab-picker.html");
     browser = await chromium.launch({ headless: true });
   });
   afterAll(async () => {

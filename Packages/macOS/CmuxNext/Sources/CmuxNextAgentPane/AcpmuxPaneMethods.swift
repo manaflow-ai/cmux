@@ -20,8 +20,11 @@ nonisolated enum AcpmuxPaneMethods {
     public static let requests: Set<String> = [
         // Sessions (direct.ts).
         "session/new", "session/prompt", "session/set_model", "session/set_mode", "session/set_config_option",
-        // acpmux extensions (direct.ts).
-        "_acpmux/watch", "_acpmux/events", "_acpmux/attach", "_acpmux/detach", "_acpmux/view", "_acpmux/warm",
+        // acpmux extensions (direct.ts). `_acpmux/attachment` reads a sent prompt's image by content hash.
+        "_acpmux/watch", "_acpmux/events", "_acpmux/attachment", "_acpmux/attach", "_acpmux/detach", "_acpmux/view", "_acpmux/warm",
+        // The session list's later pages (sessionPages.ts, cx-2lv1k): the same summaries watch answers,
+        // read by cursor after watch's first page.
+        "_acpmux/sessions",
         "_acpmux/kill", "_acpmux/prewarm", "_acpmux/harnesses", "_acpmux/models", "_acpmux/permission_respond",
         // Read-only, and its reply is filtered to ``replyShapes`` (ad349).
         "_acpmux/status", "_acpmux/draft_get",
@@ -30,9 +33,6 @@ nonisolated enum AcpmuxPaneMethods {
         // The thread minimap's prompt bookmarks of a chat in the pane's scope (direct.ts
         // readBookmarks, setBookmark): a seq and a flag, kept in acpmux's session meta.
         "_acpmux/bookmark_get", "_acpmux/bookmark_set",
-        // A side question about a chat in the pane's scope (direct.ts ask, `/btw`): acpmux answers
-        // it in a throwaway fork under deny-all, so it runs an agent turn like a prompt (cx-ef2m).
-        "_acpmux/ask",
         // Withdraw or change a queued prompt of a session in the pane's scope (direct.ts
         // removeQueued, editQueued).
         "_acpmux/queue_remove", "_acpmux/queue_edit",
@@ -64,9 +64,20 @@ nonisolated enum AcpmuxPaneMethods {
         // New side chat (direct.ts markSide, cx-jlzsf): tags the fork the pane made (in its scope)
         // `side` with its chat; only that tag, never `_acpmux/tag`.
         "_acpmux/side",
+        // `/btw` (direct.ts btw): a read-only `side` session beside a chat in scope whose first prompt is the
+        // question, so it runs a turn; its reply's session becomes the pane's (``AcpmuxPaneSessions/starting``).
+        "_acpmux/btw",
         // Dismiss or Start on a chat's session offer chip (direct.ts dismissOffer, startOffer;
         // cx-807da): acpmux records the answer; Start names the child chat the pane just made.
         "_acpmux/offer_respond",
+        // The mode acpmux would start a new chat on a harness in (direct.ts startMode, cx-wx93i),
+        // which a pending chat's access chip names. Read only.
+        "_acpmux/start_mode",
+        // Stop a running Claude subagent or workflow of a chat in the pane's scope (direct.ts
+        // stopSubagent, cx-liswe): acpmux sends Claude's stop_task for the task it already holds
+        // for that child (claude_stdio/workflows.rs). It stops work like `_acpmux/kill`, so no
+        // gesture; caller params never reach Claude.
+        "_acpmux/subagent_stop",
     ]
 
     /// The shape of a reply the relay filters itself, without relying on the daemon's redaction.
@@ -74,12 +85,21 @@ nonisolated enum AcpmuxPaneMethods {
         case string
         case object([String: ReplyShape])
         case list(ReplyShape)
+        /// Only the scheme of the URL in the sibling field `source` (`ssh`, `ws`, `wss`), so the
+        /// page learns a peer's transport without its URL (which can carry a user or a token).
+        case scheme(from: String)
     }
 
+    /// The URL schemes a `.scheme` field may report; any other scheme is dropped.
+    static let reportedSchemes: Set<String> = ["ssh", "ws", "wss"]
+
     /// Replies filtered to the fields the pane renders; everything else is dropped, at every depth.
-    /// `_acpmux/status`: the pane reads only `peers[].name` (direct.ts, after initialize).
+    /// `_acpmux/status`: the pane reads only `peers[].name` and each peer's `transport`, the
+    /// scheme of its `url` (direct.ts, after initialize; environments.ts peerKindsFromStatus).
     public static let replyShapes: [String: ReplyShape] = [
-        "_acpmux/status": .object(["peers": .list(.object(["name": .string]))]),
+        "_acpmux/status": .object([
+            "peers": .list(.object(["name": .string, "transport": .scheme(from: "url")])),
+        ]),
     ]
 
     /// `value` cut to `shape`: nil when it does not fit (a list keeps only the items that fit).
@@ -87,11 +107,19 @@ nonisolated enum AcpmuxPaneMethods {
         switch shape {
         case .string:
             return value as? String
+        case .scheme:
+            guard let scheme = (value as? String).flatMap({ URLComponents(string: $0)?.scheme?.lowercased() }),
+                  reportedSchemes.contains(scheme) else { return nil }
+            return scheme
         case .list(let item):
             return (value as? [Any])?.compactMap { filtered($0, to: item) }
         case .object(let fields):
             guard let object = value as? [String: Any] else { return nil }
-            let kept = fields.compactMap { key, field in object[key].flatMap { filtered($0, to: field) }.map { (key, $0) } }
+            let kept = fields.compactMap { key, field -> (String, Any)? in
+                let source: String
+                if case .scheme(let from) = field { source = from } else { source = key }
+                return object[source].flatMap { filtered($0, to: field) }.map { (key, $0) }
+            }
             // An object with none of its fields is dropped (a peer with no name renders nothing).
             return kept.isEmpty ? nil : Dictionary(uniqueKeysWithValues: kept)
         }
@@ -202,9 +230,9 @@ nonisolated enum AcpmuxPaneMethods {
     /// one click) is a read-only view, and the pane never sends anything to it.
     public static let sessionScoped: Set<String> = [
         "session/prompt", "session/set_mode", "session/set_config_option", "session/set_model", "session/cancel",
-        "_acpmux/kill", "_acpmux/draft_get", "_acpmux/draft_set", "_acpmux/bookmark_get", "_acpmux/bookmark_set", "_acpmux/ask", "_acpmux/queue_remove", "_acpmux/queue_edit", "_acpmux/permission_respond", "_acpmux/permission_group_respond", "_acpmux/permission_chat_revoke",
-        "_acpmux/secret_submit", "_acpmux/archive", "_acpmux/markUnread", "_acpmux/side",
-        "_acpmux/offer_respond",
+        "_acpmux/kill", "_acpmux/draft_get", "_acpmux/draft_set", "_acpmux/bookmark_get", "_acpmux/bookmark_set", "_acpmux/queue_remove", "_acpmux/queue_edit", "_acpmux/permission_respond", "_acpmux/permission_group_respond", "_acpmux/permission_chat_revoke",
+        "_acpmux/secret_submit", "_acpmux/archive", "_acpmux/markUnread", "_acpmux/side", "_acpmux/btw",
+        "_acpmux/offer_respond", "_acpmux/subagent_stop",
     ]
 
     /// Params beside `sessionId` that name a session, which must be in the pane's scope too: New
@@ -264,8 +292,8 @@ nonisolated enum AcpmuxPaneMethods {
 
     public static let gestureRules: [String: GestureRule] = [
         "session/prompt": .always,
-        // A side question runs an agent turn too (in a throwaway fork of the chat).
-        "_acpmux/ask": .always,
+        // A side session's question is its first prompt.
+        "_acpmux/btw": .always,
         // Every value until the host has a list of the permissive ones (bypass, auto-approve, yolo).
         "session/set_mode": .always,
         "session/set_config_option": .always,

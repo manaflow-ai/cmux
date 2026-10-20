@@ -41,6 +41,7 @@ so A never touches the real /tmp/cmux-nightly.sock.
 
 Exit 0 when every step passed; the first failed step's number otherwise.
 Usage: chief-per-build-live.py --tag TAG --app APP [--reply-wait 240] [--out DIR]
+Submit the nx-remote job with --allow-agents: gui and input jobs default to ACPMUX_AGENT_LAUNCH=deny (cx-tgf4h).
 """
 import argparse, json, os, shutil, socket, sqlite3, subprocess, sys, tempfile, time
 import re
@@ -51,6 +52,11 @@ ap.add_argument("--app", required=True)
 ap.add_argument("--reply-wait", type=float, default=240)
 ap.add_argument("--out", default=os.environ.get("NX_ARTIFACTS", "/tmp"))
 opts = ap.parse_args()
+# cx-tgf4h: nx-remote gui and input jobs run with ACPMUX_AGENT_LAUNCH=deny
+# (HQ #2130), so no Chief turn can start; fail at once, not after a reply wait.
+if os.environ.get("ACPMUX_AGENT_LAUNCH", "").strip().lower() == "deny" or os.environ.get("CMUX_AGENTS_DISABLED", "").strip() == "1":
+    sys.exit("chief-per-build-live.py: this Chief proof needs agents; submit the job with `nx-remote --allow-agents` "
+             "(ACPMUX_AGENT_LAUNCH=deny or CMUX_AGENTS_DISABLED=1 is set)")
 
 TAG = opts.tag
 # A short path: the brains' sockets (optchat/tools.sock) must fit sun_path
@@ -302,14 +308,14 @@ def pane_daemon(app, home):
 
 def acpmux_shutdown(app, home):
     env = {k: v for k, v in os.environ.items() if not k.startswith(("ACPMUX_", "CMUX_"))}
-    subprocess.run([app.acpmux, "daemon", "shutdown"], env={**env, "ACPMUX_HOME": home}, capture_output=True, timeout=30)
+    subprocess.run([app.acpmux, "daemon", "shutdown", "--end-agents"], env={**env, "ACPMUX_HOME": home}, capture_output=True, timeout=30)
 
 
 def cleanup(app, home):
     """The Chief of `home`: its acpmux daemon and router, then brain and owner (documented stop)."""
     acpmux_home = os.path.join(home, "acpmux")
     env = {k: v for k, v in os.environ.items() if not k.startswith(("ACPMUX_", "CMUX_"))}
-    subprocess.run([app.acpmux, "daemon", "shutdown"], env={**env, "ACPMUX_HOME": acpmux_home}, capture_output=True, timeout=30)
+    subprocess.run([app.acpmux, "daemon", "shutdown", "--end-agents"], env={**env, "ACPMUX_HOME": acpmux_home}, capture_output=True, timeout=30)
     try:
         conn = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         conn.settimeout(5)

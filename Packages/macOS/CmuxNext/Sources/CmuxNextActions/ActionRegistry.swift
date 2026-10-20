@@ -73,6 +73,9 @@ public final class ActionRegistry {
     /// with the hovered value (action, argument name, value, target), and
     /// with a nil value when the menu closes. The App previews themes here.
     @ObservationIgnored public var choicePreview: (@MainActor (ActionID, String, String?, ActionTargetRef?) -> Void)?
+    /// Live previews by action (`ActionRegistry+Preview`) and the one on screen.
+    @ObservationIgnored var previews: [ActionID: ActionPreview] = [:]
+    @ObservationIgnored var activePreview: ActivePreview?
     /// Every known value of a suggested argument (`ActionSuggestions.source`),
     /// supplied by the App.
     @ObservationIgnored public var argumentSuggestions: (@MainActor (String) -> [ActionEnumCase])?
@@ -306,6 +309,10 @@ public final class ActionRegistry {
     /// Performs with a target and typed arguments (palette, CLI, context menus). Fails when a required argument is missing.
     @discardableResult
     public func perform(_ id: ActionID, invocation: ActionInvocation) -> Bool {
+        settlingPreview(for: id) { performNow(id, invocation: invocation) }
+    }
+
+    private func performNow(_ id: ActionID, invocation: ActionInvocation) -> Bool {
         if disabledFeature(for: id) != nil { return false }
         if let route = keyWindowRoute?(canonicalID(for: id), invocation) { return route.perform { refuse($0) } }
         guard let action = action(for: id), isAvailable(id, for: invocation), action.isEnabled() else { return false }

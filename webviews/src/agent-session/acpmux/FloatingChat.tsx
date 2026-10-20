@@ -38,9 +38,10 @@ export function floatingStatus(waiting: boolean, running: boolean): FloatingStat
   return running ? "streaming" : "idle";
 }
 
-/// The floating chat's keys while it holds a chat: ⌘J folds it to the compact bar and back, ⌘⇧P
-/// keeps it over other windows or not, ⌘⇧I includes the focused tab. They are the panel's own,
-/// like Return and Escape.
+/// The floating chat's keys while it holds a chat: ⌘J folds it to the compact bar and back, ⌘⇧I
+/// includes the focused tab. They are the panel's own, like Return and Escape. ⌘⇧P is not one: it
+/// is the app's command palette in every web view (Lawrence 2026-10-19), so the app takes it before
+/// the page; Keep on Top is the header's pin button.
 export function useFloatingKeys(floating: QuickFloating | undefined) {
   const latest = useRef(floating);
   latest.current = floating;
@@ -52,13 +53,12 @@ export function useFloatingKeys(floating: QuickFloating | undefined) {
       if (!current || event.isComposing || !event.metaKey || event.altKey || event.ctrlKey) return;
       const key = event.key.toLowerCase();
       if (key === "j" && !event.shiftKey) current.setCollapsed(!current.state.collapsed);
-      else if (key === "p" && event.shiftKey) current.setOnTop(!current.state.onTop);
       else if (key === "i" && event.shiftKey && !current.state.collapsed) current.includeContext();
       else return;
       event.preventDefault();
       event.stopPropagation();
     };
-    // ui-allow: the floating panel's own window keys (⌘J, ⌘⇧P, ⌘⇧I), wherever focus is in its page, like an app menu key.
+    // ui-allow: the floating panel's own window keys (⌘J, ⌘⇧I), wherever focus is in its page, like an app menu key.
     document.addEventListener("keydown", onKey, true);
     return () => document.removeEventListener("keydown", onKey, true);
   }, [holding]);
@@ -109,9 +109,7 @@ export function FloatingHeader({ floating }: { floating: QuickFloating }) {
     <ContextMenu className="acpmux-floating-menu-host" items={floatingMenu(floating, t)}>
       <header className="acpmux-floating-header">
         <StatusMark status={floating.status} />
-        <span className="acpmux-floating-title" title={floating.title}>
-          {floating.title}
-        </span>
+        <span className="acpmux-floating-title">{floating.title}</span>
         <button
           type="button"
           className="acpmux-header-tool"
@@ -126,7 +124,7 @@ export function FloatingHeader({ floating }: { floating: QuickFloating }) {
           className="acpmux-header-tool"
           aria-label={t("floating.keepOnTop")}
           aria-pressed={floating.state.onTop}
-          title={`${t("floating.keepOnTop")} ⌘⇧P`}
+          title={t("floating.keepOnTop")}
           onClick={() => floating.setOnTop(!floating.state.onTop)}
         >
           <Icon name="action.pin" size={15} selected={floating.state.onTop} />
@@ -164,8 +162,8 @@ export function FloatingCompactBar({ floating }: { floating: QuickFloating }) {
         type="button"
         className="acpmux-floating-bar-open"
         aria-label={`${t("render.expand")}: ${floating.title}`}
-        // The bar cuts the title and last line short; the tooltip has both in full.
-        title={[floating.title, floating.line, `${t("render.expand")} ⌘J`].filter(Boolean).join("\n")}
+        title={t("render.expand")}
+        data-tooltip-shortcut="⌘J"
         onClick={() => floating.setCollapsed(false)}
       >
         <StatusMark status={floating.status} />
@@ -177,7 +175,7 @@ export function FloatingCompactBar({ floating }: { floating: QuickFloating }) {
         className="acpmux-header-tool"
         aria-label={t("floating.keepOnTop")}
         aria-pressed={floating.state.onTop}
-        title={`${t("floating.keepOnTop")} ⌘⇧P`}
+        title={t("floating.keepOnTop")}
         onClick={() => floating.setOnTop(!floating.state.onTop)}
       >
         <Icon name="action.pin" size={15} selected={floating.state.onTop} />

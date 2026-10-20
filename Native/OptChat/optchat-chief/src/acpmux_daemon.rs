@@ -433,7 +433,7 @@ pub fn shutdown_shared(log: &dyn Fn(&str)) {
     // Not waited for, in its own process group: a brain's host stops within
     // the supervisor's grace (5 s before SIGKILL), the shutdown may take 20.
     let started = Command::new(&bin)
-        .args(["daemon", "shutdown"])
+        .args(["daemon", "shutdown", "--end-agents"])
         .env("ACPMUX_HOME", &home)
         .env("ACPMUX_SOCKET", &socket)
         .current_dir(&home)
@@ -444,18 +444,18 @@ pub fn shutdown_shared(log: &dyn Fn(&str)) {
         .spawn();
     match started {
         Ok(child) => log(&format!(
-            "stopping acpmux: `daemon shutdown` runs (pid {})",
+            "stopping acpmux: `daemon shutdown --end-agents` runs (pid {})",
             child.id()
         )),
         Err(e) => log(&format!("stopping acpmux: starting {bin}: {e}")),
     }
 }
 
-/// `bin daemon shutdown` for the daemon of `home` on `socket`, bounded.
+/// `bin daemon shutdown --end-agents` for the daemon of `home` on `socket`, bounded.
 fn shutdown_at(bin: &Path, home: &Path, socket: &Path, log: &dyn Fn(&str)) -> bool {
     let mut command = Command::new(bin);
     command
-        .args(["daemon", "shutdown"])
+        .args(["daemon", "shutdown", "--end-agents"])
         .env("ACPMUX_HOME", home)
         .env("ACPMUX_SOCKET", socket)
         .current_dir(home)

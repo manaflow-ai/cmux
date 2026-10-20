@@ -93,6 +93,9 @@ import {
   VmTimingRecorder,
 } from "../../../services/vms/timings";
 import { getGoVmUsage, GO_SAVED_VM_LIMIT } from "../../../services/vms/goUsage";
+import { getPlanBudgetUsage, isBudgetPlanId, type PlanBudgetUsage } from "../../../services/vms/planUsage";
+import { publishVmOps, vmSyncReplaceOp } from "../../../services/vms/presencePublisher";
+import { idempotencyKeyFromRequest } from "../../../services/vms/routeInput";
 
 
 // Provisioning can run minutes; without an explicit budget the platform
@@ -102,6 +105,18 @@ import { getGoVmUsage, GO_SAVED_VM_LIMIT } from "../../../services/vms/goUsage";
 // plan allows more (app/v1/responses/route.ts uses 1800).
 export const maxDuration = 960;
 const VM_CREATE_ADMISSION_BUDGET_MS = 200;
+
+/** Compute-hours to one decimal, disk in whole GB, and the reset time. */
+function planBudgetLimits(usage: PlanBudgetUsage | null) {
+  if (!usage) return {};
+  return {
+    computeHoursIncluded: usage.includedComputeSeconds / 3600,
+    computeHoursUsed: Math.round(usage.usedComputeSeconds / 360) / 10,
+    computeBudgetResetsAt: usage.periodEnd.toISOString(),
+    storageBudgetGb: usage.storageBudgetMb / 1024,
+    storageUsedGb: Math.ceil(usage.retainedStorageMb / 1024),
+  };
+}
 
 function createResourceFields(resourceReservation: { readonly vcpus: number; readonly memoryMb: number } | null | undefined) {
   if (!resourceReservation) return {};
@@ -147,9 +162,16 @@ export async function GET(request: Request): Promise<Response> {
         throw err;
       }
 
+      // Taken BEFORE the read: the presence Worker tombstones machines missing
+      // from this list as of this instant, so a machine created after it
+      // (newer row clock) survives the replace published below.
+      const listObservedAtMs = Date.now();
       const listed = await runVmRoute(listUserVms(user.id, billingTeamId), { request });
       if (!listed.ok) return listed.response;
       const entries = listed.value;
+      // Converge the realtime `vms` collection on exactly what this list shows;
+      // best-effort after the response, never on the request path.
+      void publishVmOps(billingTeamId || user.id, [vmSyncReplaceOp(entries, listObservedAtMs)]);
       setSpanAttributes(span, { "cmux.vm.count": entries.length });
       // REST adapter: expose `id` at the top level so existing CLI + curl users don't need to
       // learn the new `providerVmId` field name. Swift CLI reads `vm["id"]`.
@@ -245,6 +267,10 @@ export async function GET(request: Request): Promise<Response> {
               .catch(() => null),
             savedVmLimit: GO_SAVED_VM_LIMIT,
           } : {}),
+          // Pro and Max monthly allowance; absent when none applies.
+          ...(isBudgetPlanId(listEntitlements.planId)
+            ? await getPlanBudgetUsage(user.id).then(planBudgetLimits).catch(() => ({}))
+            : {}),
           // The earliest expiry across the caller's machines: what a fleet header
           // counts down to. Null when nothing is on a window.
           freeAccessExpiresAt: vms.reduce<number | null>(
@@ -588,16 +614,9 @@ async function parseCreateRequest(
     provider: candidate.provider as ProviderId | undefined,
     billingTeamId: typeof bodyBillingTeamId === "string" ? bodyBillingTeamId.trim() : undefined,
   };
-  // Idempotency-Key is standard HTTP; we also accept x-cmux-idempotency-key for CLI
-  // callers that don't know about RFC-style keys. Trim + clamp to a reasonable length
-  // so we don't store unbounded idempotency metadata.
-  const rawKey = (
-    request.headers.get("idempotency-key") ||
-    request.headers.get("x-cmux-idempotency-key") ||
-    ""
-  ).trim();
-  const idempotencyKey = rawKey ? rawKey.slice(0, 128) : undefined;
-  return { ok: true, candidate, body, idempotencyKey };
+  const idempotency = idempotencyKeyFromRequest(request);
+  if (!idempotency.ok) return idempotency;
+  return { ok: true, candidate, body, idempotencyKey: idempotency.key };
 }
 
 function invalidCreateRequestResponse(message: string, action: string, details: Record<string, unknown>): Response {

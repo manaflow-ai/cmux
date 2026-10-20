@@ -35,6 +35,8 @@ with open(os.path.join(home, "brain-starts.log"), "a") as log:
 # The names (never the values) of the environment the brain got.
 with open(os.path.join(home, "brain-env-names"), "w") as names:
     names.write("\n".join(sorted(os.environ)))
+with open(os.path.join(home, "brain-home"), "w") as user_home:
+    user_home.write(os.environ.get("HOME", ""))
 with open(os.path.join(home, "brain.pid"), "w") as pid:
     pid.write(str(os.getpid()))
 with open(os.path.join(home, "daemon-socket"), "w") as where:
@@ -151,6 +153,9 @@ impl Sandbox {
             .env_remove("CMUX_SOCKET_PATH")
             .env_remove("CMUX_BUNDLE_ID")
             .env_remove("CMUX_TAG")
+            // The build-session kill switch only where a test sets it.
+            .env_remove("ACPMUX_AGENT_LAUNCH")
+            .env_remove("CMUX_AGENTS_DISABLED")
             // The test's own variables last, so no removal above drops one.
             .envs(env.iter().copied())
             .stdin(Stdio::null())
@@ -410,4 +415,74 @@ fn chief_shutdown_tells_the_app_until_the_next_chief_starts_it() {
     assert_success(&sandbox.chief(&["--chief-home", home_arg, "-p", "hello again"]));
     assert!(!marker.exists(), "the next cmux chief takes the marker away");
     assert_success(&sandbox.chief(&["shutdown", "--chief-home", home_arg]));
+}
+
+#[test]
+fn chief_says_at_once_that_agents_are_disabled_and_starts_nothing() {
+    // cx-tgf4h: a GUI build job runs with ACPMUX_AGENT_LAUNCH=deny (or
+    // CMUX_AGENTS_DISABLED=1). `cmux chief -p` waited 240 s for a reply that
+    // no turn could give; it must fail at once with the typed refusal and
+    // start no daemon and no brain.
+    let sandbox = Sandbox::new("chief-agents-disabled");
+    let home = sandbox.isolated();
+    let home_arg = home.to_str().unwrap();
+    for (key, value) in [("ACPMUX_AGENT_LAUNCH", "deny"), ("CMUX_AGENTS_DISABLED", "1")] {
+        let started = Instant::now();
+        let output =
+            sandbox.chief_with(&["--chief-home", home_arg, "-p", "hello"], &[(key, value)]);
+        assert!(started.elapsed() < Duration::from_secs(10), "{key}: not at once");
+        assert_eq!(output.status.code(), Some(1), "{key}: {}", stderr_of(&output));
+        assert!(output.stdout.is_empty(), "{key}: no reply");
+        let stderr = stderr_of(&output);
+        assert!(stderr.contains("agents are disabled in this build session"), "{key}: {stderr}");
+
+        let json = sandbox
+            .chief_with(&["--chief-home", home_arg, "--json", "-p", "hello"], &[(key, value)]);
+        assert_eq!(json.status.code(), Some(1), "{key}: {}", stderr_of(&json));
+        let error: Value = serde_json::from_str(stderr_of(&json).trim())
+            .unwrap_or_else(|e| panic!("{key}: typed JSON error: {e}: {}", stderr_of(&json)));
+        assert_eq!(error["code"], "operation.failed", "{key}: {error}");
+        assert_eq!(error["details"]["reason"], "agent_launch_disabled", "{key}: {error}");
+        assert_eq!(error["retryable"], false, "{key}: {error}");
+    }
+    assert_eq!(brain_starts(&home), 0, "no brain started");
+    assert!(!home.join("tui").exists(), "no session daemon started");
+}
+
+/// The account's home directory in the user database; None without a record.
+fn account_home() -> Option<String> {
+    // SAFETY: getpwuid returns a pointer into static storage or null; it is
+    // read at once, on this thread.
+    unsafe {
+        let record = libc::getpwuid(libc::getuid());
+        if record.is_null() {
+            return None;
+        }
+        Some(std::ffi::CStr::from_ptr((*record).pw_dir).to_str().unwrap().to_owned())
+    }
+}
+
+#[test]
+fn a_cli_started_brain_gets_the_accounts_home_not_the_callers() {
+    // A job runner (nx-remote) runs `cmux chief -p` with its own HOME; the
+    // brain then read the person's Claude settings (the model route) from
+    // the job root and its turns got 401. Like the daemon's brains
+    // (c47dd2fd0112) and the app's (FileManager.homeDirectoryForCurrentUser),
+    // the brain gets the account's home from the user database.
+    let Some(account) = account_home() else {
+        // No user database record: the CLI keeps the caller's HOME.
+        return;
+    };
+    let sandbox = Sandbox::new("chief-brain-home");
+    let home = sandbox.isolated();
+    let home_arg = home.to_str().unwrap();
+    assert_success(&sandbox.chief(&["--chief-home", home_arg, "-p", "hello"]));
+    let caller_home = sandbox.dir.join("home");
+    let brain_home = fs::read_to_string(home.join("brain-home")).unwrap();
+    assert_eq!(
+        brain_home,
+        account,
+        "the brain's HOME is not the account's (the caller's was {})",
+        caller_home.display()
+    );
 }

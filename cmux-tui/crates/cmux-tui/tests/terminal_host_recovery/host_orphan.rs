@@ -3,8 +3,8 @@
 //! client stream for the orphan grace (`CMUX_TUI_HOST_ORPHAN_GRACE_SECS`,
 //! 10 min in those builds) it ends its terminal and exits with an
 //! owner-gone exit record, which the next owner
-//! reads as a host loss (the tab stays); a plain `SIGTERM` ends an orphaned
-//! host at once. A host its daemon serves outlives the grace, and a
+//! reads as a host loss (the tab stays); in those builds a plain `SIGTERM`
+//! ends an orphaned host at once (a normal install's host survives it). A host its daemon serves outlives the grace, and a
 //! daemon restart inside the grace adopts the same host.
 
 use super::*;
@@ -83,7 +83,7 @@ fn a_normal_install_host_has_no_orphan_grace_and_a_dev_host_keeps_it() {
         command.env("CMUX_BUNDLE_ID", bundle).env_remove("CMUX_TUI_HOST_ORPHAN_GRACE_SECS");
         harness.child = Some(command.spawn().unwrap());
         wait_for_socket(&harness.socket);
-        let (terminal_id, _, _, host_pid) = run_cat(&harness, &format!("{name}-before"));
+        let (terminal_id, _, record_path, host_pid) = run_cat(&harness, &format!("{name}-before"));
         let record = wait_for_host_records(&harness.host_root(), 1).remove(0).1;
         assert_eq!(record.orphan_grace_secs, expected, "{bundle}: the host's orphan grace");
         if expected.is_some() {
@@ -91,6 +91,37 @@ fn a_normal_install_host_has_no_orphan_grace_and_a_dev_host_keeps_it() {
         }
         kill_daemon(&mut harness);
         assert!(running(host_pid), "{bundle}: the host ended with its daemon");
+        // cx-t2sqm.17: a stray SIGTERM (a cleanup script, `pkill`) to the
+        // orphaned host of a normal install is recorded and survived, also
+        // past the 2 s reconnect gap after which a DEV host honors it. The
+        // window is long so a host that sees its daemon's stream close late
+        // on a loaded box still gets SIGTERMs well past that gap.
+        let until = Instant::now() + test_timeout(Duration::from_secs(8));
+        while Instant::now() < until {
+            if !running(host_pid) {
+                break;
+            }
+            // SAFETY: signalling the host this test started (its pid is in
+            // the host record of the test's own state directory) while it
+            // still runs.
+            unsafe { libc::kill(host_pid as libc::pid_t, libc::SIGTERM) };
+            std::thread::sleep(Duration::from_millis(250));
+        }
+        std::thread::sleep(Duration::from_millis(500));
+        assert!(running(host_pid), "{bundle}: a stray SIGTERM ended an orphaned host");
+        assert!(
+            load_terminal_host_exit_records(&harness.host_root()).unwrap().is_empty(),
+            "{bundle}: a stray SIGTERM left an exit record"
+        );
+        let signals = fs::read_to_string(record_path.with_extension("signals")).unwrap_or_default();
+        assert!(
+            signals.lines().any(|line| line.contains("\"action\":\"ignored\"")),
+            "{bundle}: the breadcrumbs do not record the survived SIGTERMs: {signals}"
+        );
+        assert!(
+            !signals.lines().any(|line| line.contains("\"action\":\"ended\"")),
+            "{bundle}: a breadcrumb says a stray SIGTERM ended the host: {signals}"
+        );
         harness.child = Some({
             let mut command = harness.daemon_command();
             command.env("CMUX_BUNDLE_ID", bundle).env_remove("CMUX_TUI_HOST_ORPHAN_GRACE_SECS");
@@ -139,6 +170,13 @@ fn an_orphaned_host_exits_after_the_grace_and_a_served_one_does_not() {
     );
     assert!(wait_for_screen(&harness.socket, surface, "still-served").contains("still-served"));
 
+    let before = request(
+        &harness.socket,
+        serde_json::json!({"cmd":"resolve-terminal","terminal_id":&terminal_id}),
+    );
+    let incarnation = before["terminal_incarnation"].as_str().unwrap_or_default().to_string();
+    assert!(!incarnation.is_empty(), "the served terminal has no incarnation: {before}");
+
     // Owner gone: the host ends its terminal after the grace, cleanly.
     let killed = Instant::now();
     kill_daemon(&mut harness);
@@ -152,7 +190,8 @@ fn an_orphaned_host_exits_after_the_grace_and_a_served_one_does_not() {
     let exit = format!("{:?}", exits[0].1.exit);
     assert!(exit.contains("owner-gone"), "the exit record is not an owner-gone end: {exit}");
 
-    // The next owner reads a host loss, not a process end: the tab stays.
+    // The next owner reads a host loss, not a process end: the tab stays and
+    // its terminal respawns under a new incarnation (cx-6so.49).
     harness.restart();
     let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
     loop {
@@ -160,27 +199,24 @@ fn an_orphaned_host_exits_after_the_grace_and_a_served_one_does_not() {
             &harness.socket,
             serde_json::json!({"cmd":"resolve-terminal","terminal_id":&terminal_id}),
         );
-        // A host loss of a `run` terminal leaves it exited, its tab dead.
-        if resolved["lifecycle"] == "exited" {
+        // A new incarnation: the old one adopted again would also read running.
+        let current = resolved["terminal_incarnation"].as_str().unwrap_or_default();
+        if resolved["lifecycle"] == "running"
+            && resolved["surface"].as_u64().is_some()
+            && !current.is_empty()
+            && current != incarnation
+        {
             break;
         }
-        assert!(Instant::now() < deadline, "the orphan end was not recorded: {resolved}");
+        assert!(Instant::now() < deadline, "the orphan-ended terminal did not respawn: {resolved}");
         std::thread::sleep(Duration::from_millis(25));
     }
-    let settle = Instant::now() + Duration::from_secs(2);
-    while Instant::now() < settle {
-        let tree = request(&harness.socket, serde_json::json!({"id":9,"cmd":"list-workspaces"}));
-        let kept = tree["workspaces"].as_array().unwrap().iter().any(|workspace| {
-            workspace["name"] == "orphan"
-                && first_tab(workspace).is_some_and(|tab| {
-                    tab["dead"] == true
-                        && tab["end"]["kind"] == "host_lost"
-                        && tab["end"]["detail"] == "owner-gone"
-                })
-        });
-        assert!(kept, "the next owner detached the orphan-ended terminal's tab: {tree}");
-        std::thread::sleep(Duration::from_millis(100));
-    }
+    let tree = request(&harness.socket, serde_json::json!({"id":9,"cmd":"list-workspaces"}));
+    let kept = tree["workspaces"].as_array().unwrap().iter().any(|workspace| {
+        workspace["name"] == "orphan"
+            && first_tab(workspace).is_some_and(|tab| tab["dead"] == false)
+    });
+    assert!(kept, "the next owner did not keep the orphan-ended terminal's tab live: {tree}");
 }
 
 #[test]

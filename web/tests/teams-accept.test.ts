@@ -227,7 +227,7 @@ describe("Stack invitation-code client", () => {
       value: { teamId: TEAM_ID, teamDisplayName: "Acme" },
     });
     const headers = calls[0]!.init.headers as Record<string, string>;
-    expect(headers["x-stack-project-id"]).toBe("project-1");
+    expect(headers["x-hexclave-project-id"]).toBe("project-1");
     expect(Object.keys(headers).some((name) => name.includes("publishable"))).toBe(false);
   });
 

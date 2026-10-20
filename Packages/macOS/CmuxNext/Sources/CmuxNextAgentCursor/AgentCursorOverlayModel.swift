@@ -19,6 +19,8 @@ public final class AgentCursorOverlayModel: AgentCursorRendering {
         var paused = false
         /// The session's last input: re-placed when its target's visibility changes.
         var lastEvent: AutomationInputEvent?
+        /// What the session is typing (the keystroke caption).
+        var caption = AgentKeystrokeCaption()
     }
 
     private let resolver: AgentCursorTargetResolving
@@ -33,11 +35,28 @@ public final class AgentCursorOverlayModel: AgentCursorRendering {
     }
 
     public func render(_ event: AutomationInputEvent) {
+        render(event, typing: nil)
+    }
+
+    /// One input with what it types (`typing`, type and key events): the
+    /// cursor goes to the field when the host measured it, and the
+    /// keystroke caption shows the text beside the cursor.
+    public func render(_ event: AutomationInputEvent, typing: AgentTyping?) {
         var cursor = cursors[event.sessionID] ?? Cursor()
         guard !cursor.paused else { return }
         let isClick = event.kind == .click || event.kind == .doubleClick || event.kind == .rightClick
         draw(event, cursor: &cursor, pulse: isClick)
-        cursor.lastEvent = event
+        if let text = cursor.caption.apply(kind: event.kind, typing: typing, tMs: event.tMs), !text.isEmpty {
+            // A cursor that is not drawn here (a hidden or other target, or
+            // typing before any placed input) shows no caption.
+            if cursor.point != nil {
+                host.apply(.caption(session: event.sessionID, text: text))
+            }
+        }
+        // A typed input with no measured field leaves the cursor where it was.
+        if AgentCursorGeometry.pagePoint(of: event) != nil || cursor.lastEvent == nil {
+            cursor.lastEvent = event
+        }
         cursors[event.sessionID] = cursor
     }
 

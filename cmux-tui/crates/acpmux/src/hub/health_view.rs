@@ -80,6 +80,74 @@ impl Hub {
         Ok(json!({"harnesses": rows}))
     }
 
+    /// `_acpmux/harness/update {ids?}` (Update Everything, cx-1mbnu): checks
+    /// this machine's harnesses again (newest versions as last read), runs
+    /// now the updater of each named one (every outdated one without `ids`)
+    /// that needs no sudo (`harness_health::auto::run_updates`), waits for
+    /// them and checks again. Answers `{results: [{id, ok, version?,
+    /// error?}]}`; a harness already current is `ok` without a run. The
+    /// caller names only harness ids, never a command. Sessions keep their
+    /// process (`restart_harnesses` moves them); pooled ones end, so new
+    /// chats start the new version.
+    pub async fn update_harnesses(&self, params: &Value) -> Result<Value, RpcError> {
+        let ids = match params.get("ids") {
+            None | Some(Value::Null) => None,
+            Some(Value::Array(list)) => Some(
+                list.iter()
+                    .map(|v| v.as_str().map(str::to_owned))
+                    .collect::<Option<std::collections::BTreeSet<String>>>()
+                    .ok_or_else(|| RpcError::invalid_params("ids must be harness ids"))?,
+            ),
+            Some(_) => return Err(RpcError::invalid_params("ids must be harness ids")),
+        };
+        let check = async { self.health.check(self.health_subjects().await, false).await };
+        let (rows, ran) = self.health.run_updates(check, ids.as_ref()).await;
+        use crate::harness_health::auto::Requested;
+        let any_ran = ran.iter().any(|(_, r)| matches!(r, Requested::Ran { .. }));
+        let rows = if any_ran {
+            if ran.iter().any(|(_, r)| matches!(r, Requested::Ran { ok: true, .. })) {
+                self.drain_pool();
+            }
+            self.health.check(self.health_subjects().await, false).await
+        } else {
+            rows
+        };
+        let row = |id: &str| rows.iter().find(|r| r.id == id);
+        let version = |id: &str| row(id).and_then(|r| r.version.clone());
+        let results: Vec<Value> = ran
+            .into_iter()
+            .map(|(id, requested)| {
+                let (ok, error) = match requested {
+                    // An updater that exits 0 but leaves the old version on PATH (an npm
+                    // prefix other than the one PATH finds) did not update it.
+                    Requested::Ran { ok: true, .. } if row(&id).is_some_and(|r| r.outdated) => (
+                        false,
+                        Some(format!(
+                            "the update ran, but {} still reports {}",
+                            row(&id).map_or(id.as_str(), |r| r.program.as_str()),
+                            version(&id).unwrap_or_default()
+                        )),
+                    ),
+                    Requested::Ran { ok: true, .. } | Requested::Current => (true, None),
+                    Requested::Ran { ok: false, detail } if detail.is_empty() => {
+                        (false, Some("the update failed".to_owned()))
+                    }
+                    Requested::Ran { ok: false, detail } => (false, Some(detail)),
+                    Requested::Refused(why) => (false, Some(why)),
+                };
+                let mut out = json!({"id": id, "ok": ok});
+                if let Some(v) = version(&id) {
+                    out["version"] = json!(v);
+                }
+                if let Some(e) = error {
+                    out["error"] = json!(e);
+                }
+                out
+            })
+            .collect();
+        Ok(json!({"results": results}))
+    }
+
     /// Runs auto-update for the harnesses that want it, and checks again after any ran.
     pub async fn auto_update_harnesses(&self) -> Vec<String> {
         let ran = self.health.run_auto_updates().await;

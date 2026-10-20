@@ -8,6 +8,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("agent-pane-harness-catalog.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -163,6 +164,7 @@ await requireBrowserLane("agent-pane-harness-catalog.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
+    await warmViteServer(vite, "/");
     browser = await chromium.launch({ headless: true });
     // A cold dev server's first load can stall in CI (agent-pane-replay.test.ts): load it here,
     // again if it stalls, so the test times only the page.
@@ -191,7 +193,9 @@ await requireBrowserLane("agent-pane-harness-catalog.test.ts", async () => {
     });
     await page.goto(url());
     await page.getByText("Hi there.").waitFor();
-    // The model picker's last row, Add harness…, opens the page in place.
+    // The model picker's last row, Add harness…, opens the page in place. This chat has a message,
+    // so its menu offers no other harness unless Debug Settings' started-chat harness switch is on.
+    await page.evaluate(() => window.cmuxAcpmuxComposer?.({ harnessSwitch: true }));
     await page.locator(".acpmux-model .acpmux-picker-button").click();
     await page.locator(".acpmux-mp-add-harness").click();
     const claude = page.locator("[data-harness-row]").filter({ hasText: "Claude Code" });

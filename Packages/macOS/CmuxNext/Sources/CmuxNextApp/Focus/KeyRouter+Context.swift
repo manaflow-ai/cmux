@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextBrowser
 import CmuxNextPages
+import CmuxNextFocus
 
 // The context keys of the window a key goes to (plans/cmux-next/keybindings.md
 // section 4): built from that window's focus, never from the process-wide
@@ -97,15 +98,19 @@ extension KeyRouter {
 
     /// The facts of `window` (the key window) and its cmux window.
     func facts(in window: NSWindow, controller: WindowController) -> Facts {
-        Facts(hasMarkedText: (window.firstResponder as? any NSTextInputClient)?.hasMarkedText() == true,
-              terminalCopyMode: terminalCopyMode(in: controller), pageID: focusedPage(in: controller)?.descriptor.id,
-              markdownReadOnly: services?.viewers.markdownPages.showsReadOnly(focusedIn: controller) == true,
-              listFocus: focusedReadiness(in: controller)?.isListFocused == true,
-              pageEditableFocused: focusedReadiness(in: controller)?.isEditableFocused == true,
-              omnibarListOpen: focusedAddressBar(in: controller)?.isShowingSuggestions == true,
-              internalPage: focusedInternalPage(in: controller),
-              showsPageHistory: services?.locationTrail.pageHistory(in: controller) != nil,
-              topPage: controller.shownTopPage == .home ? "home" : nil)
+        let page = focusedPage(in: controller)
+        // Only a code editor page has key sequences; the editor pages' service is not made for others.
+        let editor = page?.descriptor.id == Self.codeEditorPageID ? page : nil
+        return Facts(hasMarkedText: (window.firstResponder as? any NSTextInputClient)?.hasMarkedText() == true,
+                     terminalCopyMode: terminalCopyMode(in: controller), pageID: page?.descriptor.id,
+                     markdownReadOnly: services?.viewers.markdownPages.showsReadOnly(focusedIn: controller) == true,
+                     listFocus: focusedReadiness(in: controller)?.isListFocused == true,
+                     pageEditableFocused: focusedReadiness(in: controller)?.isEditableFocused == true,
+                     omnibarListOpen: focusedAddressBar(in: controller)?.isShowingSuggestions == true,
+                     internalPage: focusedInternalPage(in: controller),
+                     showsPageHistory: services?.locationTrail.pageHistory(in: controller) != nil,
+                     topPage: controller.shownTopPage == .home ? "home" : nil,
+                     pageKeySequencePending: editor.map { services?.viewers.editorPages.keySequencePending(on: $0) ?? false } ?? false)
     }
 
     /// The page id of the focused internal page tab.
@@ -144,9 +149,25 @@ extension KeyRouter {
            let responder = controller.window?.firstResponder as? NSView, responder.isDescendant(of: view) {
             return view.content as? PageWebView
         }
-        guard case .page(_, _) = controller.focus.state.resolved, let pane = controller.focus.state.resolved.pane,
-              case .page(let view)? = controller.content?.paneController(key: pane)?.currentContent else { return nil }
-        return view.content as? PageWebView
+        if case .page(_, _) = controller.focus.state.resolved, let pane = controller.focus.state.resolved.pane,
+           case .page(let view)? = controller.content?.paneController(key: pane)?.currentContent {
+            return view.content as? PageWebView
+        }
+        return Self.codeEditorHoldingKeys(in: controller.window)
+    }
+
+    /// The code editor page whose web view is the window's first responder while the focus
+    /// model names something else (a file opened by a script or an agent, or a click the model
+    /// has not settled yet). AppKit sends the keys to the first responder, so the editor's context
+    /// (`codeEditorFocused`) follows it: without it Shift-Cmd-L opened a browser tab instead of
+    /// selecting every occurrence. Only the code editor: other pages keep the model's answer.
+    @MainActor static func codeEditorHoldingKeys(in window: NSWindow?) -> PageWebView? {
+        var view = window?.firstResponder as? NSView
+        while let current = view {
+            if let page = current as? PageWebView { return page.descriptor.id == codeEditorPageID ? page : nil }
+            view = current.superview
+        }
+        return nil
     }
 
     private func terminalCopyMode(in controller: WindowController) -> Bool {

@@ -273,6 +273,14 @@ impl ConversationStore {
         Ok(token)
     }
 
+    /// Removes `participant`'s credential (`chief.profile.adopt`): no token
+    /// issued for it before binds again; the next credential is minted anew.
+    pub(crate) fn revoke_agent_token(&mut self, participant: &str) -> anyhow::Result<()> {
+        self.connection
+            .execute("DELETE FROM agent_token WHERE participant = ?1", params![participant])?;
+        Ok(())
+    }
+
     /// Whether `token` is the current credential of `participant`.
     pub(crate) fn verify_agent_token(
         &mut self,
@@ -812,6 +820,11 @@ pub enum ConversationEvent {
     /// only to a connection that echoed `conversation-runs-v1` in
     /// `set-client-info` (never the remote relay or `conversation.events`).
     Run { conversation: String, run: Value, steps: Vec<Value> },
+    /// A live frame of a running run (`step.delta` or `run.activity`,
+    /// `chief-live-v1`): never stored; `subscribe` delivers it only to a
+    /// connection that echoed the capability in `set-client-info` (never the
+    /// remote relay or `conversation.events`).
+    Live { conversation: String, frame: Value },
     /// A participant's avatar changed (`participant-avatars-v1`): the stored
     /// reference, or none. Not conversation state (no conversation, no rev);
     /// `subscribe` delivers it only to a connection that echoed the
@@ -864,6 +877,11 @@ impl ConversationEvent {
                 "run": run,
                 "steps": steps,
             }),
+            Self::Live { conversation, frame } => json!({
+                "event": "conversation-live",
+                "conversation": conversation,
+                "frame": frame,
+            }),
             Self::Avatar { participant, avatar } => json!({
                 "event": "participant-avatar-changed",
                 "participant": participant,
@@ -880,6 +898,11 @@ impl ConversationEvent {
     /// Run events go on `subscribe` only to a connection that asked for them.
     pub(crate) const fn is_run(&self) -> bool {
         matches!(self, Self::Run { .. })
+    }
+
+    /// Live frames go on `subscribe` only to a connection that asked for them.
+    pub(crate) const fn is_live(&self) -> bool {
+        matches!(self, Self::Live { .. })
     }
 
     /// Avatar changes go on `subscribe` only to a connection that asked.
@@ -908,6 +931,8 @@ pub(crate) struct ConversationHost {
     pub(crate) store: Mutex<Option<ConversationStore>>,
     /// `conversation.draft` replay and rate state (memory only).
     pub(crate) drafts: Mutex<crate::conversation_drafts::DraftGate>,
+    /// The live text of running runs (`chief-live-v1`, memory only).
+    pub(crate) live: Mutex<crate::conversation_live::LiveBuffers>,
     pub(crate) publish: Mutex<()>,
     /// The participant each connection bound with an agent token (memory only).
     pub(crate) bindings: Mutex<std::collections::BTreeMap<u64, String>>,

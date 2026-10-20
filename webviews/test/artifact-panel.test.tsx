@@ -289,7 +289,8 @@ test("the panel names the document, copies when saving fails, and hands focus ba
   );
   const title = host.querySelector<HTMLElement>(".acpmux-artifact-title")!;
   expect(title.textContent).toBe("Release notes");
-  expect(title.title).toContain("Markdown");
+  // Its name shows; no tooltip repeats it (test/tooltip-rules.ts).
+  expect(title.title).toBe("");
 
   await act(async () => button("Save")!.click());
   expect(copied).toEqual([code]);

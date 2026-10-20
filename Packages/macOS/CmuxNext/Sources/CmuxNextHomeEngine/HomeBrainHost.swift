@@ -46,9 +46,17 @@ public nonisolated struct HomeBrainHost: Sendable {
                                 bundledBinDirectory: URL? = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true),
                                 bundledChiefAllowed: Bool = HomeBrainHost.bundledChiefAllowed(bundleID: Bundle.main.bundleIdentifier,
                                                                                               isDebugBuild: DevTools.isDebugBuild)) -> Bool {
+        // The build-session kill switch: no Chief host, so no brain starts (cx-9ettq).
+        if AcpmuxEnvironment.agentLaunchDisabled(environment) { return false }
         let override = environment["CMUX_NEXT_MUX_HOST"].flatMap { $0.isEmpty ? nil : $0 }
         let bundled = bundledChiefAllowed ? bundledBinDirectory?.appendingPathComponent(bundledChiefName).path : nil
         return [override, bundled].compactMap { $0 }.contains { FileManager.default.isExecutableFile(atPath: $0) }
+    }
+
+    /// Home's notice on this Mac's Chief while the build-session kill switch
+    /// is on (cx-tgf4h): no host starts, so the Chief cannot answer; nil else.
+    public static func agentsDisabledNotice(environment: [String: String] = ProcessInfo.processInfo.environment) -> String? {
+        AcpmuxEnvironment.agentLaunchDisabled(environment) ? HomeStrings.chiefAgentsDisabled : nil
     }
 
     public static func resolve(daemonSocket: String, controlSocket: String, home: ChiefHome,
@@ -56,6 +64,7 @@ public nonisolated struct HomeBrainHost: Sendable {
                         bundledBinDirectory: URL? = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true),
                         bundledChiefAllowed: Bool = HomeBrainHost.bundledChiefAllowed(bundleID: Bundle.main.bundleIdentifier,
                                                                                       isDebugBuild: DevTools.isDebugBuild)) -> HomeBrainHost? {
+        if AcpmuxEnvironment.agentLaunchDisabled(environment) { return nil }
         let override = environment["CMUX_NEXT_MUX_HOST"].flatMap { $0.isEmpty ? nil : $0 }
         let bundled = bundledChiefAllowed ? bundledBinDirectory?.appendingPathComponent(bundledChiefName).path : nil
         guard let path = [override, bundled].compactMap({ $0 }).first(where: { FileManager.default.isExecutableFile(atPath: $0) }) else {
@@ -147,8 +156,12 @@ public nonisolated struct HomeBrainHost: Sendable {
     /// owner's agent_mux credential and revokes the binding of the host that
     /// runs, so it is called only when the host must start.
     @concurrent public func start(mintToken: @Sendable () async throws -> String) async throws -> StartOutcome {
-        // A Chief-home acpmux without this Chief home (an older build, or one an
-        // app started before ACPMUX_CHIEF_MUX_HOME) is handed off (AcpmuxChiefHandoff).
+        // cmux NEXT's one-time adoption of its old homes ends before its brain starts (cx-is1kf.9).
+        await AcpmuxEnvironment.adoptBuildHomes()
+        // A Chief-home acpmux that runs from a replaced bundle (an update replaced the
+        // app it ran from, so the peer check refuses it and Chief chats say acpmux did
+        // not start), or without this Chief home (an older build, or one an app started
+        // before ACPMUX_CHIEF_MUX_HOME), is handed off (AcpmuxChiefHandoff).
         // Only the Chief host starts that daemon (a tab never does, cx-ebm.54): the
         // host that ran on it ends, and the one launched below starts it with this
         // Chief home's env.

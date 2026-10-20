@@ -244,6 +244,51 @@ fn a_terminated_daemon_keeps_the_screen_for_a_respawn_after_a_reboot() {
     assert!(text.contains("shutdown-marker"), "the screen at shutdown is gone: {text}");
 }
 
+/// The process exists and is not a zombie.
+fn host_running(pid: u32) -> bool {
+    // SAFETY: signal 0 only checks that the PID exists.
+    if unsafe { libc::kill(pid as libc::pid_t, 0) } != 0 {
+        return false;
+    }
+    #[cfg(target_os = "linux")]
+    if let Ok(stat) = fs::read_to_string(format!("/proc/{pid}/stat"))
+        && let Some(state) = stat.rsplit(')').next().and_then(|rest| rest.split_whitespace().next())
+    {
+        return state != "Z";
+    }
+    true
+}
+
+/// b3. The owner stays gone longer than the host orphan grace (a crash or
+/// an update relaunch while the Mac is unattended): the host ends its shell
+/// with an `owner-gone` record (cx-3ryj). That is a host that died without
+/// a daemon, so the next daemon respawns the terminal instead of leaving its
+/// tab on "Terminal lost: its host process ended".
+#[test]
+fn a_host_that_ended_at_the_orphan_grace_is_respawned_at_the_next_start() {
+    let _exclusive = exclusive_process_test();
+    let mut harness = RecoveryHarness::start_unstarted("respawn-orphan");
+    harness.extra_env.push(("CMUX_TUI_HOST_ORPHAN_GRACE_SECS".into(), "2".into()));
+    harness.restart();
+    let (terminal_id, incarnation, surface) = start_default_shell(&harness, "orphan");
+    send_line(&harness.socket, surface, "echo orphan-marker");
+    wait_for_screen(&harness.socket, surface, "orphan-marker\n");
+    let (_, record) = wait_for_host_records(&harness.host_root(), 1).remove(0);
+    harness.sigkill();
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(20));
+    while host_running(record.host_pid) {
+        assert!(Instant::now() < deadline, "the orphaned host outlived its grace");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    harness.restart();
+
+    wait_for_respawn(&harness, &terminal_id, &incarnation);
+    let tab = tab_named(&harness, "orphan");
+    assert_eq!(tab["dead"], false, "{tab}");
+    let surface = tab["surface"].as_u64().expect("the respawned tab has a surface");
+    wait_for_screen(&harness.socket, surface, MARKER);
+}
+
 /// c. An agent session the terminal ran is typed on the new prompt for the
 /// user to resume; it does not run.
 #[test]

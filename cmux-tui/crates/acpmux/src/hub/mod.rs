@@ -6,8 +6,15 @@
 
 mod adoption;
 mod aside;
+pub(crate) mod auto_resume;
+mod btw;
+mod exit_reason;
+mod turn_errors;
+pub(crate) use btw::SIDE_TAG;
 mod bookmarks;
+mod cancel;
 mod catalog_reload;
+mod complete;
 mod cursor_ext;
 mod fork;
 mod fork_at;
@@ -24,19 +31,26 @@ mod hosts;
 mod lifecycle;
 pub(crate) mod model_availability;
 mod model_options;
-pub use model_options::{current_model, current_option, resolve_config_id, web_url};
+mod new_request;
+pub use model_options::{
+    current_effort, current_model, current_option, resolve_config_id, web_url,
+};
 mod model_hint;
 mod models_view;
 mod paging;
 mod personal_stats;
 mod pool;
+mod prompt_images;
 mod queue;
 mod queue_edit;
 pub use queue::QueuedPrompt;
 mod resolve;
 mod route_switch;
 pub use pool::{PrewarmRequest, RssProbe, tree_rss_bytes};
+pub use route_switch::HarnessRestarts;
 pub(crate) use route_switch::route_error;
+pub(crate) use turn_errors::is_limit_error;
+mod offer_results;
 mod offers;
 mod secrets;
 mod seen;
@@ -53,13 +67,15 @@ mod steer_end;
 mod stream;
 mod tags;
 mod tap;
+mod titles;
 mod tools;
-pub use lifecycle::{
+pub use new_request::{
     NewRequest, declared_model_json, profile_takes_model_at_spawn, terminal_harness_refusal,
 };
 pub use paging::{EventFilter, EventPage};
 pub use spawn::expand_env_value;
 mod peers;
+pub(crate) use peers::PEER_PERMISSION_PENDING;
 mod permission_groups;
 mod permissions;
 pub mod person;
@@ -67,27 +83,33 @@ mod processes;
 mod questions;
 mod remote_floor;
 mod remote_sandbox;
+mod start_gate;
+pub mod subsessions;
 pub use permission_groups::PERMISSION_GROUP_OPERATIONS;
 pub mod rules;
+mod transcript;
 mod transfer;
 mod transfer_guard;
 mod transfer_in;
 mod transfer_out;
 mod transfer_watch;
+mod turn_git;
+mod turn_usage;
 mod turns;
+pub(crate) mod views;
 mod warm;
-mod xai;
-pub(crate) use turns::merge_mux_meta;
-mod views;
 mod web_control;
 mod web_token;
+mod xai;
 pub use web_control::Control;
 pub(crate) use web_control::ModeWrite;
 pub use web_token::WebToken;
 
 use crate::agent::{ChildAgent, Direction, Inbound};
 use crate::config::{Config, HarnessProfile, PermissionPolicy};
+use crate::mailbox::Mailbox;
 use crate::rpc::{Id, Message, RpcError, method};
+use crate::session_identity::{LOCAL_HOST_ID, SessionReceipt};
 use crate::store::{EventRecord, META_SCHEMA, SessionMeta, SessionStatus, Store, now_ms};
 use anyhow::Result;
 use serde_json::{Value, json};
@@ -125,6 +147,7 @@ pub struct RemoteRef {
 pub struct RemoteSession {
     pub peer: String,
     pub summary: Value,
+    pub receipt: SessionReceipt,
 }
 
 #[derive(Debug)]
@@ -181,6 +204,9 @@ pub struct PromptOptions {
     pub interrupt: bool,
     /// Who sent the prompt, when not the person (`prompt_provenance.rs`).
     pub provenance: Option<Value>,
+    /// An automatic continuation (`auto_resume.rs`): runs only while the chat still ends on
+    /// this turn, checked again once it holds the turn lock, else refused unrecorded.
+    pub after_turn: Option<String>,
 }
 
 /// The outcome of one client prompt id, shared with a resend of it.
@@ -211,6 +237,7 @@ pub(super) struct StreamState {
 pub struct Hub {
     pub config: RwLock<Config>,
     pub(super) store: Box<dyn Store>,
+    pub(super) mailbox: Mailbox,
     pub(super) sessions: StdMutex<HashMap<String, Arc<Session>>>,
     /// Where adopt looks for harness sessions.
     pub(super) harness_homes: StdMutex<crate::adopt::HarnessHomes>,
@@ -291,6 +318,10 @@ pub struct Hub {
     pub(super) transfer_lease: StdMutex<std::time::Duration>,
     /// Chats agents offered the person, still open (`offers.rs`).
     pub(super) offers: offers::Offers,
+    /// Open sub-sessions per parent and starts in flight (`subsessions.rs`).
+    pub(super) subsessions: subsessions::Index,
+    /// Automatic continuations waiting to fire, by chat (`auto_resume.rs`).
+    pub(super) auto_resumes: auto_resume::Pending,
     /// Fired by `set_transfer_lease`: each move's watch reads the new lease now.
     pub(super) transfer_lease_changed: Notify,
     /// Secrets agents asked the person for, and their one-use refs (`secrets.rs`).
@@ -299,6 +330,10 @@ pub struct Hub {
 
 impl Hub {
     pub fn new(config: Config, store: Box<dyn Store>) -> Arc<Self> {
+        Self::new_with_mailbox(config, store, Mailbox::memory())
+    }
+
+    pub fn new_with_mailbox(config: Config, store: Box<dyn Store>, mailbox: Mailbox) -> Arc<Self> {
         let (events, _) = broadcast::channel(8192);
         let (peer_notices, peer_notices_rx) = mpsc::channel(4096);
         let peers_cfg = config.peers.clone();
@@ -306,6 +341,7 @@ impl Hub {
         let hub = Arc::new(Self {
             config: RwLock::new(config),
             store,
+            mailbox,
             sessions: StdMutex::new(HashMap::new()),
             harness_homes: StdMutex::new(crate::adopt::HarnessHomes::from_env()),
             events,
@@ -348,6 +384,8 @@ impl Hub {
             person: Default::default(),
             transfer_lease: StdMutex::new(transfer_watch::TRANSFER_LEASE),
             offers: Default::default(),
+            subsessions: Default::default(),
+            auto_resumes: Default::default(),
             transfer_lease_changed: Notify::new(),
             secrets: Default::default(),
         });
@@ -359,6 +397,7 @@ impl Hub {
             let h = hub.clone();
             tokio::spawn(async move { h.peer_notice_loop().await });
             hub.watch_transfers();
+            hub.watch_titles();
             for (name, pc) in peers_cfg {
                 hub.start_peer(&name, &pc);
             }
@@ -440,6 +479,10 @@ impl Hub {
         self.events.subscribe()
     }
 
+    pub fn mailbox(&self) -> &Mailbox {
+        &self.mailbox
+    }
+
     pub(super) fn load_from_store(self: &Arc<Self>) {
         let metas = match self.store.list() {
             Ok(m) => m,
@@ -465,6 +508,16 @@ impl Hub {
             {
                 meta.event_count += extra.len() as u64;
                 meta.last_seq = last.seq;
+            }
+            // Every child's short name stays taken (`subsessions.rs`).
+            if let Some(link) = &meta.subsession {
+                self.subsessions.note_name(&link.started_by, &link.short_name);
+            }
+            // A sub-session that is not closed holds a slot of its parent (`subsessions.rs`).
+            if let Some(link) =
+                meta.subsession.as_ref().filter(|_| meta.status != SessionStatus::Closed)
+            {
+                self.subsessions.set_open(&link.started_by, &meta.id, true);
             }
             let session = self.make_session(meta);
             sessions.insert(session.id.clone(), session);
@@ -534,17 +587,31 @@ impl Hub {
     /// Resolve by id, exact name, or unique prefix of either.
     pub fn resolve(&self, key: &str) -> Result<Arc<Session>, RpcError> {
         let sessions = self.sessions.lock().unwrap();
+        // A qualified id is authoritative for new routing. The old bare id,
+        // name and prefix forms below remain compatible.
+        if let Some((host, mux_id)) = SessionReceipt::split_qualified_id(key)
+            && host == LOCAL_HOST_ID
+            && let Some(s) = sessions.get(mux_id)
+        {
+            return Ok(s.clone());
+        }
         if let Some(s) = sessions.get(key) {
             return Ok(s.clone());
         }
+        // Names are read under each session's meta lock, never cloned: a
+        // clone of every meta took ~45 ms with 2,500 sessions, on each Stop
+        // (`acpmux session cancel NAME`) and every other call by name.
+        let named = |s: &Session, pick: &dyn Fn(&str) -> bool| {
+            pick(&s.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner).name)
+        };
         let mut by_name: Vec<_> =
-            sessions.values().filter(|s| s.meta().name == key).cloned().collect();
+            sessions.values().filter(|s| named(s, &|n| n == key)).cloned().collect();
         if by_name.len() == 1 {
             return Ok(by_name.remove(0));
         }
         let by_prefix: Vec<_> = sessions
             .values()
-            .filter(|s| s.id.starts_with(key) || s.meta().name.starts_with(key))
+            .filter(|s| s.id.starts_with(key) || named(s, &|n| n.starts_with(key)))
             .cloned()
             .collect();
         match by_prefix.len() {
@@ -826,14 +893,27 @@ impl Hub {
     }
 
     pub(super) fn set_status(&self, session: &Session, status: SessionStatus) {
-        let changed = {
+        let (was, link) = {
             let mut m = session.meta.lock().unwrap();
-            let changed = m.status != status;
+            let was = m.status;
             m.status = status;
             m.updated_at = now_ms();
-            changed
+            // The parent's slot follows the status under the same lock, so
+            // concurrent status writes and the index never disagree (the
+            // index is a leaf lock, `subsessions.rs`).
+            if let Some(link) = &m.subsession {
+                self.subsessions.set_open(
+                    &link.started_by,
+                    &session.id,
+                    status != SessionStatus::Closed,
+                );
+            }
+            (was, m.subsession.clone())
         };
-        if changed {
+        if was != status {
+            if let Some(link) = &link {
+                self.subsession_status(&session.id, link, was, status);
+            }
             session.mark_waiting(status == SessionStatus::Waiting);
             self.append(session, "mux", "status", json!({"status": status.to_string()}));
             self.save_meta(session);
@@ -872,4 +952,23 @@ fn newest_first(sessions: Vec<Arc<Session>>) -> Vec<Arc<Session>> {
         .collect();
     keyed.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.id.cmp(&b.1.id)));
     keyed.into_iter().map(|(_, s)| s).collect()
+}
+
+/// Add `fields` under `_meta.acpmux` of an object, keeping any `_meta` the
+/// agent sent.
+pub(crate) fn merge_mux_meta(v: &mut Value, fields: Value) {
+    let Some(obj) = v.as_object_mut() else { return };
+    let meta = obj.entry("_meta").or_insert_with(|| json!({}));
+    if !meta.is_object() {
+        *meta = json!({});
+    }
+    let mux = meta.as_object_mut().unwrap().entry("acpmux").or_insert_with(|| json!({}));
+    if !mux.is_object() {
+        *mux = json!({});
+    }
+    if let (Some(dst), Some(src)) = (mux.as_object_mut(), fields.as_object()) {
+        for (k, v) in src {
+            dst.insert(k.clone(), v.clone());
+        }
+    }
 }

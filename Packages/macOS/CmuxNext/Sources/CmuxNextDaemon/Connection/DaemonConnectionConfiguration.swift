@@ -10,11 +10,17 @@ public struct DaemonConnectionConfiguration: Sendable {
     public var retry: RetryPolicy
     /// A connection that stays up this long resets the reconnect backoff.
     public var healthyAfter: Duration
-    /// A bridged (overlay) connection asks the daemon this often whether it
-    /// still answers; `bridgeHeartbeatMisses` unanswered asks in a row close
-    /// it, so a lost server never hangs it (the link itself waits 10 min).
-    public var bridgeHeartbeat: Duration = .seconds(15)
-    public var bridgeHeartbeatMisses = 2
+    /// The connection asks the daemon this often whether it still answers;
+    /// `heartbeatMisses` unanswered asks in a row close it (`.disconnected`,
+    /// then reconnect). A bridged connection always asks (a lost server: the
+    /// link itself waits 10 min); a local one only with `localHeartbeat`.
+    public var heartbeat: Duration = .seconds(15)
+    public var heartbeatMisses = 2
+    /// Heartbeat a local daemon too: an owner stopped (SIGSTOP) or wedged
+    /// keeps its socket open, so no EOF ends the connection (cx-jniyz.4).
+    /// Only the app's main connection sets it (it drives the not-connected
+    /// state), so page relays and short reads add no idle wakeups.
+    public var localHeartbeat = false
     /// Extra events that may let a reconnect succeed (network, sign-in).
     /// The connection also watches its daemon socket through it.
     public var retryWake: RetryWake?

@@ -51,7 +51,9 @@ test("the header links the pull request with its checks, and drops it when the A
   act(() => applyHostEvent({ kind: "headerState", value: { version: 1, pullRequest } }));
   expect(chip()?.textContent).toBe("#7");
   expect(chip()?.getAttribute("data-checks")).toBe("failing");
-  expect(chip()?.getAttribute("title")).toBe("Pull request #7, open: 3 of 5 checks passed");
+  // Its text shows, so no tooltip; a screen reader hears the state and checks (test/tooltip-rules.ts).
+  expect(chip()?.getAttribute("aria-label")).toBe("Pull request #7, open: 3 of 5 checks passed");
+  expect(chip()?.hasAttribute("title")).toBe(false);
   // A push about something else keeps it; one that says there is none drops it.
   act(() => applyHostEvent({ kind: "headerState", value: { version: 2, lit: ["splitRight"] } }));
   expect(chip()).not.toBeNull();

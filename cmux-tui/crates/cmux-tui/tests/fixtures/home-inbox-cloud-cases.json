@@ -1,0 +1,73 @@
+{
+  "about": "One corpus for both Cloud row projections: the daemon's home-inbox (cmux-conversation home.rs, through ws_cloud_conversations.rs) and the Channels page's Cloud list (webviews home-channels cloudHome.ts, through webviews/test/home-cloud-rows.test.ts). Each case is one Cloud inbox entry (UserDO inbox.list) and the row both must show, or null when it is not a row. kind: the daemon's kind; the page shows channel and group as its 'group'.",
+  "cases": [
+    {
+      "name": "titled channel with unread",
+      "entry": {"conversation": "conv_0000000000000000000000CASE1", "rev": 4, "kind": "group", "title": "Cloud team",
+        "last_seq": 3, "last_at": "2026-10-13T00:00:03.000Z", "preview": "hi", "removed": false, "unread": 2, "mentions": 0,
+        "counts_rev": 1, "pinned": false, "muted": false, "archived": false, "archived_seq": 0, "marked_unread": false},
+      "row": {"kind": "channel", "name": "Cloud team", "unread": 2, "pinned": false, "muted": false}
+    },
+    {
+      "name": "pinned direct message with its title",
+      "entry": {"conversation": "conv_0000000000000000000000CASE2", "rev": 2, "kind": "dm", "title": "Mira",
+        "dm_peer": "user_0000000000000000mira", "last_seq": 5, "last_at": "2026-10-13T00:00:02.000Z", "preview": "ok",
+        "removed": false, "unread": 0, "mentions": 0, "counts_rev": 1, "pinned": true, "pin_position": 3, "muted": false,
+        "archived": false, "archived_seq": 0, "marked_unread": true},
+      "row": {"kind": "direct", "name": "Mira", "unread": 0, "pinned": true, "muted": false}
+    },
+    {
+      "name": "untitled Chief direct message",
+      "entry": {"conversation": "conv_0000000000000000000000CASE3", "rev": 1, "kind": "chief", "title": "",
+        "dm_peer": "agent_00000000000000000000CHIEF", "last_seq": 1, "last_at": "2026-10-13T00:00:01.000Z", "preview": "",
+        "removed": false, "unread": 1, "mentions": 0, "counts_rev": 1, "pinned": false, "muted": false, "archived": false,
+        "archived_seq": 0, "marked_unread": false},
+      "row": {"kind": "chief", "name": "Chief", "unread": 1, "pinned": false, "muted": false}
+    },
+    {
+      "name": "untitled direct message has no name until its people are read: never its peer's id",
+      "entry": {"conversation": "conv_0000000000000000000000CASE4", "rev": 1, "kind": "dm", "title": "",
+        "dm_peer": "user_00000000000000000peer", "last_seq": 1, "last_at": "2026-10-12T00:00:00.000Z", "preview": "",
+        "removed": false, "unread": 0, "mentions": 0, "counts_rev": 1, "pinned": false, "muted": false, "archived": false,
+        "archived_seq": 0, "marked_unread": false},
+      "row": {"kind": "direct", "name": "", "unread": 0, "pinned": false, "muted": false}
+    },
+    {
+      "name": "a DM with an invited email address never shows the address id",
+      "entry": {"conversation": "conv_dm_000000000000000000000CASE9", "rev": 1, "kind": "dm", "title": "",
+        "dm_peer": "addr_ABREQ2MXXDJ3CH86MMYYKA0FPC", "last_seq": 2, "last_at": "2026-10-12T00:00:00.000Z", "preview": "",
+        "removed": false, "unread": 0, "mentions": 0, "counts_rev": 1, "pinned": false, "muted": false, "archived": false,
+        "archived_seq": 0, "marked_unread": false},
+      "row": {"kind": "direct", "name": "", "unread": 0, "pinned": false, "muted": false}
+    },
+    {
+      "name": "muted until unmuted",
+      "entry": {"conversation": "conv_0000000000000000000000CASE5", "rev": 1, "kind": "group", "title": "noisy",
+        "last_seq": 9, "last_at": "2026-10-11T00:00:00.000Z", "preview": "", "removed": false, "unread": 7, "mentions": 0,
+        "counts_rev": 1, "pinned": false, "muted": true, "archived": false, "archived_seq": 0, "marked_unread": false},
+      "row": {"kind": "channel", "name": "noisy", "unread": 7, "pinned": false, "muted": true}
+    },
+    {
+      "name": "a mute that ended is no mute",
+      "entry": {"conversation": "conv_0000000000000000000000CASE6", "rev": 1, "kind": "group", "title": "was muted",
+        "last_seq": 2, "last_at": "2026-10-10T00:00:00.000Z", "preview": "", "removed": false, "unread": 1, "mentions": 0,
+        "counts_rev": 1, "pinned": false, "muted": true, "muted_until": 1000, "archived": false, "archived_seq": 0,
+        "marked_unread": false},
+      "row": {"kind": "channel", "name": "was muted", "unread": 1, "pinned": false, "muted": false}
+    },
+    {
+      "name": "archived is not a row",
+      "entry": {"conversation": "conv_0000000000000000000000CASE7", "rev": 1, "kind": "group", "title": "old",
+        "last_seq": 2, "last_at": "2026-10-09T00:00:00.000Z", "preview": "", "removed": false, "unread": 0, "mentions": 0,
+        "counts_rev": 1, "pinned": false, "muted": false, "archived": true, "archived_seq": 2, "marked_unread": false},
+      "row": null
+    },
+    {
+      "name": "removed is not a row",
+      "entry": {"conversation": "conv_0000000000000000000000CASE8", "rev": 1, "kind": "group", "title": "left",
+        "last_seq": 2, "last_at": "2026-10-09T00:00:00.000Z", "preview": "", "removed": true, "unread": 0, "mentions": 0,
+        "counts_rev": 1, "pinned": false, "muted": false, "archived": false, "archived_seq": 0, "marked_unread": false},
+      "row": null
+    }
+  ]
+}
