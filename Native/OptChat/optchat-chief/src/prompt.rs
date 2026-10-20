@@ -813,6 +813,33 @@ pub fn input_blocks(view: &str, delta: &[String], images: &[Value], tail: &str) 
     input_layout("", view, delta, None, images, tail, None).blocks
 }
 
+/// The delta's lines from log index `from` on, as one text (a kept turn
+/// session's next prompt: it holds everything before `from`). None when
+/// there is none, or when a line (`id+n|`) covers ids on both sides of
+/// `from`.
+pub fn delta_from(delta: &[String], from: u64) -> Option<String> {
+    let head = |line: &str| -> Option<(u64, u64)> {
+        let (range, _) = line.split_once('|')?;
+        let (id, n) = range.split_once('+')?;
+        Some((id.parse().ok()?, n.parse().ok()?))
+    };
+    let mut out = String::new();
+    // Whether the line being read (and its continuation lines) is taken.
+    let mut taking = false;
+    for line in delta.iter().flat_map(|b| b.split_inclusive('\n')) {
+        if let Some((id, n)) = head(line) {
+            if id < from && id + n > from {
+                return None;
+            }
+            taking = id >= from;
+        }
+        if taking {
+            out.push_str(line);
+        }
+    }
+    (!out.is_empty()).then_some(out)
+}
+
 /// The index of the delta block that ends at log index `end` (an earlier
 /// request's end): the block before the first one whose first line is at or
 /// past it. None when no block ends there.
