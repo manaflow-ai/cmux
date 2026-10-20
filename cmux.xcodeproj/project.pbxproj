@@ -3056,6 +3056,7 @@
 		7738A0027738A0027738A002 /* RemoteTmuxMirrorCLIFailClosedTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7738B0027738B0027738B002 /* RemoteTmuxMirrorCLIFailClosedTests.swift */; };
 		7738A0017738A0017738A001 /* RemoteTmuxMirrorCLIObservabilityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7738B0017738B0017738B001 /* RemoteTmuxMirrorCLIObservabilityTests.swift */; };
 		C2C5F24B63F3E5516408EE44 /* RemoteTmuxMirrorCloseDetachTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0DBAA681DEE6F9121D289ABE /* RemoteTmuxMirrorCloseDetachTests.swift */; };
+		F7C05D7D340CC51A59D08BD9 /* RemoteTmuxMirrorCloseShortcutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8F241D343EB86448969104C /* RemoteTmuxMirrorCloseShortcutTests.swift */; };
 		94A9782A9AA0C554D2CCAA9A /* RemoteTmuxMirrorEnvironmentPushTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 180099E8D881C58A4546527D /* RemoteTmuxMirrorEnvironmentPushTests.swift */; };
 		D4F8A2E61C5B39707A8E6F13 /* RemoteTmuxMirrorFeedForwardTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7E1C4D2B3F09865E217D4C1 /* RemoteTmuxMirrorFeedForwardTests.swift */; };
 		783300000000000000000002 /* RemoteTmuxMirrorLayoutIdentityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 783300000000000000000001 /* RemoteTmuxMirrorLayoutIdentityTests.swift */; };
@@ -7655,6 +7656,7 @@
 		7738B0027738B0027738B002 /* RemoteTmuxMirrorCLIFailClosedTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxMirrorCLIFailClosedTests.swift; sourceTree = "<group>"; };
 		7738B0017738B0017738B001 /* RemoteTmuxMirrorCLIObservabilityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxMirrorCLIObservabilityTests.swift; sourceTree = "<group>"; };
 		0DBAA681DEE6F9121D289ABE /* RemoteTmuxMirrorCloseDetachTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxMirrorCloseDetachTests.swift; sourceTree = "<group>"; };
+		D8F241D343EB86448969104C /* RemoteTmuxMirrorCloseShortcutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RemoteTmuxMirrorCloseShortcutTests.swift"; sourceTree = "<group>"; };
 		180099E8D881C58A4546527D /* RemoteTmuxMirrorEnvironmentPushTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxMirrorEnvironmentPushTests.swift; sourceTree = "<group>"; };
 		A7E1C4D2B3F09865E217D4C1 /* RemoteTmuxMirrorFeedForwardTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxMirrorFeedForwardTests.swift; sourceTree = "<group>"; };
 		783300000000000000000001 /* RemoteTmuxMirrorLayoutIdentityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxMirrorLayoutIdentityTests.swift; sourceTree = "<group>"; };
@@ -14053,6 +14055,7 @@
 				80B2BBAC8B90CA286F4B2BF7 /* MainWindowHitTestMutationMonitorTests.swift */,
 				DB2534FB1BD7FDBD3A7474EE /* CloudManualMirrorHandshakeTests.swift */,
 				C5369F38053C6B4AC15A456B /* VaultSessionExclusionTests.swift */,
+				D8F241D343EB86448969104C /* RemoteTmuxMirrorCloseShortcutTests.swift */,
 				05BE49145FE4324D6FDDBC60 /* HerdrResumeBindingTests.swift */,
 				220FD07E397B72CAE8025EC7 /* CloudWelcomePresentationTests.swift */,
 				DA688992ADFE3696B36EEC3D /* CloudStaleInventoryMaterializationTests.swift */,
@@ -18935,6 +18938,7 @@
 				7738A0027738A0027738A002 /* RemoteTmuxMirrorCLIFailClosedTests.swift in Sources */,
 				7738A0017738A0017738A001 /* RemoteTmuxMirrorCLIObservabilityTests.swift in Sources */,
 				C2C5F24B63F3E5516408EE44 /* RemoteTmuxMirrorCloseDetachTests.swift in Sources */,
+				F7C05D7D340CC51A59D08BD9 /* RemoteTmuxMirrorCloseShortcutTests.swift in Sources */,
 				94A9782A9AA0C554D2CCAA9A /* RemoteTmuxMirrorEnvironmentPushTests.swift in Sources */,
 				D4F8A2E61C5B39707A8E6F13 /* RemoteTmuxMirrorFeedForwardTests.swift in Sources */,
 				783300000000000000000002 /* RemoteTmuxMirrorLayoutIdentityTests.swift in Sources */,
