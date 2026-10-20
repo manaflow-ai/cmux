@@ -319,6 +319,12 @@ final class ChatController: NSObject, NSTextViewDelegate {
     var onPointerMoved: ((CGPoint?) -> Void)?
     /// cmux: a click on any other link (`otherTarget`: Shift-Command held); the system opens it unless the host routes it.
     var onOpenLink: (_ url: URL, _ otherTarget: Bool) -> Void = { url, _ in NSWorkspace.shared.open(url) }
+    /// cmux: a press on a link moved past the drag slop: the host may take the drag (a split or
+    /// tab drop zone opens the link there; plans/cmux-next/link-drag-DESIGN.md). `screenPoint` is
+    /// where the pointer is. True when the host took it: the gesture is then the host's (its own
+    /// event monitor tracks the rest), with no text selection, click or tapback hold here. Nil (or
+    /// false): the press selects text as before.
+    var onDragLink: ((_ url: URL, _ screenPoint: CGPoint) -> Bool)?
     /// cmux: one-shot wake-ups on the host's timer (CmuxNext: DemandTimer).
     let wake: ChatWakeScheduler
     private var wakeAt = Double.infinity
