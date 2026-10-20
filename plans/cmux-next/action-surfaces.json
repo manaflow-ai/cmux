@@ -7221,9 +7221,9 @@
       "title_table" : "ActionCatalog"
     },
     {
-      "cli" : "unimplemented",
+      "cli" : "offered",
       "cli_name" : "pane open-cloud-as",
-      "context_menu" : "unimplemented",
+      "context_menu" : "noObject",
       "context_menus" : [
 
       ],
@@ -7233,8 +7233,8 @@
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "palette.openCloudPane",
-      "main_menu" : null,
-      "mcp" : "unimplemented",
+      "main_menu" : "window",
+      "mcp" : "offered",
       "palette" : "offered",
       "palette_section" : {
         "id" : "category.pane",
@@ -13378,9 +13378,9 @@
     {
       "cli" : "guiOnly",
       "cli_name" : "browser toggle-react-grab",
-      "context_menu" : "offered",
+      "context_menu" : "unimplemented",
       "context_menus" : [
-        "browserPage"
+
       ],
       "default_aliases" : [
 
@@ -21718,7 +21718,7 @@
       "title_table" : "ActionCatalog"
     },
     {
-      "cli" : "offered",
+      "cli" : "guiOnly",
       "cli_name" : "cloud open-mobile-pairing",
       "context_menu" : "noObject",
       "context_menus" : [
@@ -21730,8 +21730,8 @@
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "palette.mobileConnect",
-      "main_menu" : "window",
-      "mcp" : "offered",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
       "palette" : "offered",
       "palette_section" : {
         "id" : "category.cloud",
@@ -26314,6 +26314,146 @@
     },
     {
       "cli" : "offered",
+      "cli_name" : "media play-pause",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "nowPlayingCard"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "nowPlaying.playPause",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Play\/Pause Media",
+      "title_key" : "action.nowPlaying.playPause",
+      "title_table" : "MusicActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "media hide-card",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "nowPlayingCard"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "nowPlaying.hideCard",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Hide Media Card",
+      "title_key" : "action.nowPlaying.hideCard",
+      "title_table" : "MusicActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "media hide-card-until-relaunch",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "nowPlayingCard"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "nowPlaying.hideCardUntilRelaunch",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Hide Media Card Until Relaunch",
+      "title_key" : "action.nowPlaying.hideCardUntilRelaunch",
+      "title_table" : "MusicActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "media disable-card",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "nowPlayingCard"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "nowPlaying.disableCard",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Never Show Media Card",
+      "title_key" : "action.nowPlaying.disableCard",
+      "title_table" : "MusicActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "media show-card",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "sidebarFooter"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "nowPlaying.showCard",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Show Media Card",
+      "title_key" : "action.nowPlaying.showCard",
+      "title_table" : "MusicActions"
+    },
+    {
+      "cli" : "offered",
       "cli_name" : "bookmark add-page",
       "context_menu" : "offered",
       "context_menus" : [
@@ -28259,6 +28399,258 @@
       "title" : "My Tasks",
       "title_key" : "action.tasks.showMine",
       "title_table" : "TasksActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "phone open",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "phone.show",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Open Phone",
+      "title_key" : "action.phone.show",
+      "title_table" : "PhoneActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "phone boot",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "phone.boot",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Boot Phone",
+      "title_key" : "action.phone.boot",
+      "title_table" : "PhoneActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "phone screenshot",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "phone.screenshot",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Take Phone Screenshot",
+      "title_key" : "action.phone.screenshot",
+      "title_table" : "PhoneActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "phone record",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "phone.recordStart",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Record Phone",
+      "title_key" : "action.phone.recordStart",
+      "title_table" : "PhoneActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "phone stop",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "phone.recordStop",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Stop Phone Recording",
+      "title_key" : "action.phone.recordStop",
+      "title_table" : "PhoneActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "phone feedback",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "phone.sendFeedback",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Send Phone Recording to Chief",
+      "title_key" : "action.phone.sendFeedback",
+      "title_table" : "PhoneActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "phone open-url",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "phone.openURL",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Open URL on Phone",
+      "title_key" : "action.phone.openURL",
+      "title_table" : "PhoneActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "phone paste",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "phone.paste",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Copy Text to Phone",
+      "title_key" : "action.phone.paste",
+      "title_table" : "PhoneActions"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action files-open",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "files.open",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.pane",
+        "order" : 102,
+        "title" : "Panes",
+        "title_key" : "category.pane",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Open Files",
+      "title_key" : "action.files.open",
+      "title_table" : "FilesPaneActions"
     },
     {
       "cli" : "offered",
@@ -30270,19 +30662,6 @@
                   "browserFocused"
                 ]
               }
-            },
-            {
-              "enabled_when" : "can_perform",
-              "id" : "toggleReactGrab",
-              "kind" : "action",
-              "order" : 2,
-              "visible_when" : {
-                "debug_only" : false,
-                "feature" : null,
-                "requires" : [
-                  "browserFocused"
-                ]
-              }
             }
           ],
           "folder" : "options",
@@ -31685,6 +32064,76 @@
           "id" : "notificationDismiss",
           "kind" : "action",
           "order" : 6,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+
+            ]
+          }
+        }
+      ],
+      "implied" : [
+
+      ]
+    },
+    "nowPlayingCard" : {
+      "entries" : [
+        {
+          "enabled_when" : "can_perform",
+          "id" : "nowPlaying.playPause",
+          "kind" : "action",
+          "label" : "Play\/Pause",
+          "order" : 0,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+
+            ]
+          }
+        },
+        {
+          "kind" : "separator",
+          "order" : 1
+        },
+        {
+          "enabled_when" : "can_perform",
+          "id" : "nowPlaying.hideCard",
+          "kind" : "action",
+          "label" : "Hide",
+          "order" : 2,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+
+            ]
+          }
+        },
+        {
+          "enabled_when" : "can_perform",
+          "id" : "nowPlaying.hideCardUntilRelaunch",
+          "kind" : "action",
+          "label" : "Hide Until Relaunch",
+          "order" : 3,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+
+            ]
+          }
+        },
+        {
+          "kind" : "separator",
+          "order" : 4
+        },
+        {
+          "enabled_when" : "can_perform",
+          "id" : "nowPlaying.disableCard",
+          "kind" : "action",
+          "order" : 5,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -33865,6 +34314,19 @@
           "id" : "sidebar.profileControl.show",
           "kind" : "action",
           "order" : 1,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+
+            ]
+          }
+        },
+        {
+          "enabled_when" : "can_perform",
+          "id" : "nowPlaying.showCard",
+          "kind" : "action",
+          "order" : 2,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
