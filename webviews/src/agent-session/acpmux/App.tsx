@@ -57,6 +57,7 @@ import { pageStyle, pickNewTabStyle, screenTemplate, shownTemplate } from "./new
 import { newTabPageSubmit } from "./newtab/pageSubmit";
 import { isAgentHome, projectLabel } from "./sessionList";
 import { ThreadMinimap } from "./threadMinimap/ThreadMinimap";
+import { PromptMarksSession } from "./threadMinimap/promptMarks";
 import { setBookmarkTransport } from "./threadMinimap/bookmarks";
 import { composerDraft, notifyDraftActionsChanged } from "./composerDraft";
 import { paneContext } from "./paneContext";
@@ -206,6 +207,8 @@ import { PullRequestDock } from "./summary/PullRequestDock";
 import { RecapCard, useRecapCard } from "./RecapCard";
 import { configureQuickActions, quickActions, type QuickActionMode } from "./header/quickActions";
 import { chatColumnOf, configureChatWidth, useChatWidth } from "./chatWidth";
+import { registerChatDisplayHost, useChatDisplay } from "./chatDisplay";
+import { ChatDisplaySettings } from "./ChatDisplaySettings";
 import { configureCodexToolRuns, useCodexToolRuns } from "./codexToolRuns";
 import { configureNativeSidebarPreviewVariant, configureSidebarPreviewVariant } from "./sidebarPreview";
 import { archiveRow, markUnreadRow } from "./header/archiveRow";
@@ -542,6 +545,7 @@ const changesSource: ChangesSource = {
 // The composer's Hide and Show (composerChrome.tsx) persist through the host, which pushes the
 // setting back to every page and on the next launch.
 registerComposerHost((method, show) => void callNative(method, { show }).catch(() => undefined));
+registerChatDisplayHost((key, value) => void callNative("pane.setDisplay", { key, value }).catch(() => undefined));
 /// A folder's `git.status` from the native host, named by the folder: a new chat has no session to
 /// name it by (the header's worktree pill, cx-lyqio.3b).
 const readFolderStatus = (cwd: string) => postNative("git.status", { cwd });
@@ -1281,6 +1285,24 @@ function JumpToLatest({
   );
 }
 
+/// What the transcript's rows read from it: Find's reveal target and, for a prompt's own bookmark
+/// button, the session its marks key into (threadMinimap/promptMarks.ts).
+function TranscriptContext({
+  find,
+  sessionId,
+  children,
+}: {
+  find: React.ContextType<typeof FindReveal>;
+  sessionId?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <FindReveal.Provider value={find}>
+      <PromptMarksSession.Provider value={sessionId ?? ""}>{children}</PromptMarksSession.Provider>
+    </FindReveal.Provider>
+  );
+}
+
 export function VirtualTranscript({
   rows,
   sessionId,
@@ -1384,6 +1406,9 @@ export function VirtualTranscript({
   const [width, setWidth] = useState(() => lastTranscriptBox.width);
   // The column's cap (layout.json `chatWidth`): a new one measures every row again.
   const chatWidth = useChatWidth();
+  // The user's chat look (font, sizes, width; chatDisplay.ts): a new one measures every row again.
+  const chatLook = useChatDisplay();
+  const measuredLook = useRef(chatLook);
   // Rows place by their drawn height once drawn, and by the estimate until then.
   const [drawn, setDrawn] = useState(new Map<string, DrawnHeight>());
   const pendingDrawn = useRef(new Map<string, DrawnHeight>());
@@ -1442,6 +1467,8 @@ export function VirtualTranscript({
   const knownRows = useRef<Set<string> | null>(null);
   const knownFor = useRef<AcpmuxRow[] | null>(null);
   const enteringRows = useRef(new Set<string>());
+  /// The minimap's hook for this commit's settled offset (ThreadMinimap `placed`).
+  const minimapPlaced = useRef<(() => void) | undefined>(undefined);
   const olderRows = useRef<OlderRowFade | undefined>(undefined);
   olderRows.current ??= new OlderRowFade(() => ref.current);
   // Row ids are local to a session: one still waiting to fade belongs to the chat that was shown.
@@ -1645,9 +1672,12 @@ export function VirtualTranscript({
     // Keep the session in this memo's inputs: its cache is cleared synchronously above even
     // when a host reuses the same rows array for a newly selected chat.
     const cache = measurementSession.current === sessionId ? measurementCache.current : new Map();
-    const fresh = rowHeights.current.registry !== registry || measurementSession.current !== sessionId;
-    if (rowHeights.current.registry !== registry) rowHeights.current = { registry, heights: new WeakMap() };
-    const rowWidth = transcriptRowWidth(width, chatColumnOf(chatWidth));
+    const lookChanged = measuredLook.current !== chatLook;
+    measuredLook.current = chatLook;
+    const fresh = rowHeights.current.registry !== registry || measurementSession.current !== sessionId || lookChanged;
+    if (rowHeights.current.registry !== registry || lookChanged)
+      rowHeights.current = { registry, heights: new WeakMap() };
+    const rowWidth = transcriptRowWidth(width, chatColumnOf(chatWidth, chatLook));
     const last = lastEstimate.current;
     const layout = layoutConversation(
       rows,
@@ -1659,7 +1689,7 @@ export function VirtualTranscript({
     );
     lastEstimate.current = { rows, layout, width: rowWidth, sessionId };
     return { layout, ms: acpmuxPerf.enabled ? performance.now() - layoutStart : 0 };
-  }, [rows, registry, sessionId, width, chatWidth]);
+  }, [rows, registry, sessionId, width, chatWidth, chatLook]);
   // A row that draws moves only the rows below it: place them again, measuring none.
   const measured = useMemo(() => {
     const layoutStart = acpmuxPerf.enabled ? performance.now() : 0;
@@ -2023,6 +2053,8 @@ export function VirtualTranscript({
       seenAnchor.current = restingAnchor(node.scrollTop, scrolledTo.current.atLatest, layout, rows);
     }
     followTrace.update(node, layout.totalHeight, scrolledTo.current.atLatest);
+    // The minimap's band reads the offset this pass settled on.
+    minimapPlaced.current?.();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- openAt is read once, at the first open
   }, [layout, rows, range.first, height, width, dockSpace, sessionId, seekExpired, canLoadOlder]);
   // Commit before this frame paints; deferring to the next animation frame left the edge blank.
@@ -2408,9 +2440,10 @@ export function VirtualTranscript({
           scrollTop={renderScroll.top}
           viewportHeight={height - dockSpace}
           width={width}
+          placed={minimapPlaced}
         />
         {find?.open && <ChatFindBar find={find} />}
-        <FindReveal.Provider value={countReveal ?? findReveal}>
+        <TranscriptContext find={countReveal ?? findReveal} sessionId={sessionId}>
           <div className="acpmux-spacer" style={{ height: layout.totalHeight }}>
             <div
               ref={thread}
@@ -2471,7 +2504,7 @@ export function VirtualTranscript({
               )}
             </div>
           </div>
-        </FindReveal.Provider>
+        </TranscriptContext>
       </div>
       {jumpButton && <JumpToLatest shown={behind} working={working} onJump={jumpToLatest} lift={dockSpace} />}
     </>
@@ -3173,6 +3206,8 @@ function AcpmuxPane() {
     [],
   );
   const [inspectorOpen, setInspectorOpen] = useState(false);
+  // The ··· menu's Text & Width popover (ChatDisplaySettings.tsx), anchored to the menu button.
+  const [displayAnchor, setDisplayAnchor] = useState<HTMLElement | null>(null);
   const inspectorOpener = useRef<HTMLElement | undefined>(undefined);
   const inspectorOpenRef = useRef(false);
   const inspectorHiddenSurfaceRef = useRef(false);
@@ -4018,9 +4053,12 @@ function AcpmuxPane() {
             "permissionRetry",
             "permissionRevoke",
             "permissionRefresh",
-            // Previous Turn and Next Turn (Ctrl-Opt-Up, Ctrl-Opt-Down): the thread minimap steps the transcript.
+            // Previous Turn and Next Turn (Ctrl-Opt-Up, Ctrl-Opt-Down), and Previous and Next Bookmarked
+            // Prompt (the palette's): the thread minimap steps the transcript.
             "previousTurn",
             "nextTurn",
+            "previousBookmarkedPrompt",
+            "nextBookmarkedPrompt",
             // Search Files… (the command palette; no default key: Cmd-P is the native Go to): the composer opens its file search.
             "searchFiles",
           ].includes(name)
@@ -5092,6 +5130,17 @@ function AcpmuxPane() {
           ignoreFailure(callNative("project.addFiles", { cwd, name })),
         );
     const tools: ChatMenuItem[] = [
+      {
+        key: "display",
+        label: t("chatDisplay.menu"),
+        icon: "site.permission.localfonts",
+        onSelect: () =>
+          setDisplayAnchor(
+            Array.from(document.querySelectorAll<HTMLElement>(".acpmux-header-tools button")).find(
+              (button) => button.getAttribute("aria-label") === t("chatMenu.open"),
+            ) ?? document.querySelector<HTMLElement>(".acpmux-header-tools"),
+          ),
+      },
       ...replay,
       ...(instructions ? [instructions] : []),
       ...(projectFiles ? [projectFiles] : []),
@@ -6262,6 +6311,13 @@ function AcpmuxPane() {
                   <EmptyState project={projectName(composerSnapshot.summary?.cwd)} picker={heroPicker} />
                 ) : (
                   <AgentTonesContext.Provider value={chatTones}>{transcript}</AgentTonesContext.Provider>
+                )}
+                {displayAnchor && (
+                  <ChatDisplaySettings
+                    open
+                    anchor={displayAnchor}
+                    onOpenChange={(open) => !open && setDisplayAnchor(null)}
+                  />
                 )}
                 {inspectorOpen && (
                   <Inspector

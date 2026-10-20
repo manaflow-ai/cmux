@@ -199,6 +199,7 @@
         "CmuxNextLayout",
         "CmuxNextMallocZone",
         "CmuxNextMobile",
+        "CmuxNextMobileHost",
         "CmuxNextNowPlaying",
         "CmuxNextOnboarding",
         "CmuxNextPages",
@@ -271,12 +272,14 @@
         "CmuxNextDiff",
         "CmuxNextFeed",
         "CmuxNextFileGrid",
+        "CmuxNextFiles",
         "CmuxNextFloating",
         "CmuxNextFocus",
         "CmuxNextFocusUI",
         "CmuxNextHistory",
         "CmuxNextHome",
         "CmuxNextHomeEngine",
+        "CmuxNextHostedChief",
         "CmuxNextLayout",
         "CmuxNextNowPlaying",
         "CmuxNextProcessEnvironment",
@@ -842,6 +845,36 @@
         "CmuxIrxTransport"
       ]
     },
+    "CmuxNextMobileHost": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextMobileHost",
+      "targets": [
+        "CmuxNextAgentPane",
+        "CmuxNextCloud",
+        "CmuxNextCompat",
+        "CmuxNextDaemon",
+        "CmuxNextDaemonService",
+        "CmuxNextDesign",
+        "CmuxNextMobile",
+        "CmuxNextPages",
+        "CmuxNextRemoteBrowser",
+        "CmuxNextSettings",
+        "CmuxNextWakeups"
+      ],
+      "packages": []
+    },
+    "CmuxNextMobileHostTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextMobileHostTests",
+      "targets": [
+        "CmuxNextAgentPane",
+        "CmuxNextMobileHost",
+        "CmuxNextPages",
+        "CmuxNextSettings"
+      ],
+      "packages": [],
+      "reads": []
+    },
     "CmuxNextMobileTests": {
       "kind": "test",
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextMobileTests",
@@ -1067,7 +1100,8 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextScreenshots",
       "targets": [
-        "CmuxNextFileGrid"
+        "CmuxNextFileGrid",
+        "CmuxNextFiles"
       ],
       "packages": []
     },
@@ -1076,6 +1110,7 @@
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextScreenshotsTests",
       "targets": [
         "CmuxNextFileGrid",
+        "CmuxNextFiles",
         "CmuxNextScreenshots"
       ],
       "packages": [],

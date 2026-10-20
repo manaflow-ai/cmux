@@ -219,13 +219,11 @@ impl Brain {
             } else {
                 labelled(summary, &text)
             };
-            let by_person = summary.participants.iter().any(|p| {
-                p.id == message.author && p.kind == cmux_conversation::ParticipantKind::Human
-            });
+            let by_owner = self.settings.membership.is_owner_message(summary, &message);
             match crate::approval::Answer::parse(&text) {
                 // An answer to this conversation's pending approval (only a
                 // person answers one, never another Chief).
-                Some(answer) if by_person && self.has_approval(Some(conversation)) => {
+                Some(answer) if by_owner && self.has_approval(Some(conversation)) => {
                     self.answer_approval(answer, &message, Some(conversation));
                     if let Err(e) = self.chat.append(optchat_core::Kind::User, &labelled) {
                         (self.log)(&format!("logging an approval failed: {e}"));
@@ -254,6 +252,10 @@ impl Brain {
                             seq: message.seq,
                             id: message.id.clone(),
                             remote,
+                            requires_approval: !self
+                                .settings
+                                .membership
+                                .is_owner_message(summary, &message),
                         },
                     );
                     return;

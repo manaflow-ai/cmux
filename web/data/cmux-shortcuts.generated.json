@@ -7682,76 +7682,6 @@
           ]
         },
         {
-          "id": "agentPane.previousTurn",
-          "title": {
-            "en": "Previous Turn",
-            "ar": "الدور السابق",
-            "bs": "Prethodni krug",
-            "da": "Forrige tur",
-            "de": "Vorherige Runde",
-            "es": "Turno anterior",
-            "fr": "Tour précédent",
-            "it": "Turno precedente",
-            "ja": "前のターン",
-            "km": "វេនមុន",
-            "ko": "이전 턴",
-            "no": "Forrige runde",
-            "pl": "Poprzednia tura",
-            "pt-BR": "Turno anterior",
-            "ru": "Предыдущий ход",
-            "th": "เทิร์นก่อนหน้า",
-            "tr": "Önceki tur",
-            "uk": "Попередній хід",
-            "vi": "Lượt trước",
-            "zh-CN": "上一轮",
-            "zh-TW": "上一輪"
-          },
-          "shortcut": {
-            "key": "",
-            "modifiers": [
-              "ctrl",
-              "opt"
-            ]
-          },
-          "chord": null,
-          "aliases": []
-        },
-        {
-          "id": "agentPane.nextTurn",
-          "title": {
-            "en": "Next Turn",
-            "ar": "الدور التالي",
-            "bs": "Sljedeći krug",
-            "da": "Næste tur",
-            "de": "Nächste Runde",
-            "es": "Siguiente turno",
-            "fr": "Tour suivant",
-            "it": "Turno successivo",
-            "ja": "次のターン",
-            "km": "វេនបន្ទាប់",
-            "ko": "다음 턴",
-            "no": "Neste runde",
-            "pl": "Następna tura",
-            "pt-BR": "Próximo turno",
-            "ru": "Следующий ход",
-            "th": "เทิร์นถัดไป",
-            "tr": "Sonraki tur",
-            "uk": "Наступний хід",
-            "vi": "Lượt tiếp theo",
-            "zh-CN": "下一轮",
-            "zh-TW": "下一輪"
-          },
-          "shortcut": {
-            "key": "",
-            "modifiers": [
-              "ctrl",
-              "opt"
-            ]
-          },
-          "chord": null,
-          "aliases": []
-        },
-        {
           "id": "agentPane.permission.allowOnce",
           "title": {
             "en": "Allow Once",
@@ -7886,6 +7816,76 @@
             "modifiers": [
               "opt",
               "cmd"
+            ]
+          },
+          "chord": null,
+          "aliases": []
+        },
+        {
+          "id": "agentPane.previousTurn",
+          "title": {
+            "en": "Previous Turn",
+            "ar": "الدور السابق",
+            "bs": "Prethodni krug",
+            "da": "Forrige tur",
+            "de": "Vorherige Runde",
+            "es": "Turno anterior",
+            "fr": "Tour précédent",
+            "it": "Turno precedente",
+            "ja": "前のターン",
+            "km": "វេនមុន",
+            "ko": "이전 턴",
+            "no": "Forrige runde",
+            "pl": "Poprzednia tura",
+            "pt-BR": "Turno anterior",
+            "ru": "Предыдущий ход",
+            "th": "เทิร์นก่อนหน้า",
+            "tr": "Önceki tur",
+            "uk": "Попередній хід",
+            "vi": "Lượt trước",
+            "zh-CN": "上一轮",
+            "zh-TW": "上一輪"
+          },
+          "shortcut": {
+            "key": "",
+            "modifiers": [
+              "ctrl",
+              "opt"
+            ]
+          },
+          "chord": null,
+          "aliases": []
+        },
+        {
+          "id": "agentPane.nextTurn",
+          "title": {
+            "en": "Next Turn",
+            "ar": "الدور التالي",
+            "bs": "Sljedeći krug",
+            "da": "Næste tur",
+            "de": "Nächste Runde",
+            "es": "Siguiente turno",
+            "fr": "Tour suivant",
+            "it": "Turno successivo",
+            "ja": "次のターン",
+            "km": "វេនបន្ទាប់",
+            "ko": "다음 턴",
+            "no": "Neste runde",
+            "pl": "Następna tura",
+            "pt-BR": "Próximo turno",
+            "ru": "Следующий ход",
+            "th": "เทิร์นถัดไป",
+            "tr": "Sonraki tur",
+            "uk": "Наступний хід",
+            "vi": "Lượt tiếp theo",
+            "zh-CN": "下一轮",
+            "zh-TW": "下一輪"
+          },
+          "shortcut": {
+            "key": "",
+            "modifiers": [
+              "ctrl",
+              "opt"
             ]
           },
           "chord": null,
