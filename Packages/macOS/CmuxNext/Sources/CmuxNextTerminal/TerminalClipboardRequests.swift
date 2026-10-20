@@ -13,12 +13,30 @@ final class TerminalClipboardRequests {
     /// the clipboard synchronously inside it; only then may a clipboard image
     /// be saved and its path served. A program's OSC 52 read never is.
     var userPasteInProgress = false
+    /// True only during a synchronous Ghostty key/binding call initiated by
+    /// the user. A copy callback inside that call is not program output.
+    private var userClipboardWriteInProgress = false
+    /// True while Ghostty synchronously commits a write the user approved in
+    /// ``confirm(contents:kind:state:)``.
+    private var approvedClipboardWriteInProgress = false
+    /// At most one program-write dialog per surface; later writes are denied
+    /// instead of growing the global dialog queue.
+    private var writePromptPending = false
+    static let maxProgramWriteBytes = 1 << 20
 
     /// Runs `body` as a user paste (see `userPasteInProgress`).
     func asUserPaste<T>(_ body: () -> T) -> T {
         let previous = userPasteInProgress
         userPasteInProgress = true
         defer { userPasteInProgress = previous }
+        return body()
+    }
+
+    /// Marks the synchronous Ghostty call made by a user's copy key or menu.
+    func asUserClipboardWrite<T>(_ body: () -> T) -> T {
+        let previous = userClipboardWriteInProgress
+        userClipboardWriteInProgress = true
+        defer { userClipboardWriteInProgress = previous }
         return body()
     }
 
@@ -62,6 +80,10 @@ final class TerminalClipboardRequests {
     /// when `clipboard-read = ask`: a cmux dialog that blocks only this
     /// terminal. Denial completes with an empty string, as Ghostty expects.
     func confirm(contents: String, kind: TerminalClipboardRequestKind, state: UncheckedPointer) {
+        if case .osc52Write = kind {
+            confirmProgramWrite(contents: contents, state: state)
+            return
+        }
         guard let view, view.window != nil, !view.isHiddenOrHasHiddenAncestor else {
             deny(state: state)
             return
@@ -71,10 +93,11 @@ final class TerminalClipboardRequests {
             Self.spec(String(localized: "terminal.clipboard.paste.title", defaultValue: "Paste into the terminal?", bundle: .module),
                       String(localized: "terminal.clipboard.paste.message", defaultValue: "The text contains line breaks and may run commands immediately.", bundle: .module),
                       preview: contents)
-        case .osc52Read, .osc52Write:
+        case .osc52Read:
             Self.spec(String(localized: "terminal.clipboard.read.title", defaultValue: "Allow a program to read the clipboard?", bundle: .module),
                       String(localized: "terminal.clipboard.read.message", defaultValue: "A program running in this terminal asked for the clipboard contents.", bundle: .module),
                       preview: contents)
+        case .osc52Write: return  // handled before the visibility guard
         }
         CmuxDialogCenter.shared.present(spec, in: .tab(view)) { [weak self] answer in
             guard let self else { return }
@@ -84,15 +107,73 @@ final class TerminalClipboardRequests {
 
     /// OSC 52 write when `clipboard-write = ask`.
     func confirmWrite(items: [TerminalClipboardItem], location: TerminalPasteboardLocation) {
-        guard let view, view.window != nil, !view.isHiddenOrHasHiddenAncestor else { return }
+        guard bounded(items), beginWritePrompt(), let scope = writePromptScope() else { return }
         let text = items.first(where: { $0.mime.hasPrefix("text/plain") })?.text ?? items.first?.text ?? ""
-        let spec = Self.spec(String(localized: "terminal.clipboard.write.title", defaultValue: "Allow a program to change the clipboard?", bundle: .module),
-                             String(localized: "terminal.clipboard.write.message", defaultValue: "A program running in this terminal wants to copy text to the clipboard.", bundle: .module),
-                             preview: text)
-        CmuxDialogCenter.shared.present(spec, in: .tab(view)) { answer in
+        CmuxDialogCenter.shared.present(Self.writeSpec(preview: text), in: scope) { [weak self] answer in
+            self?.writePromptPending = false
             guard answer.button == "allow" else { return }
             TerminalPasteboard.write(items, to: location)
         }
+    }
+
+    /// Every callback that is not synchronous user copy or an already
+    /// approved Ghostty request is program output and requires consent.
+    func write(items: [TerminalClipboardItem], location: TerminalPasteboardLocation) {
+        if userClipboardWriteInProgress || approvedClipboardWriteInProgress {
+            TerminalPasteboard.write(items, to: location)
+        } else {
+            confirmWrite(items: items, location: location)
+        }
+    }
+
+    private func confirmProgramWrite(contents: String, state: UncheckedPointer) {
+        guard contents.utf8.count <= Self.maxProgramWriteBytes,
+              beginWritePrompt(), let scope = writePromptScope() else {
+            deny(state: state)
+            return
+        }
+        CmuxDialogCenter.shared.present(Self.writeSpec(preview: contents), in: scope) { [self] answer in
+            writePromptPending = false
+            guard answer.button == "allow" else {
+                deny(state: state)
+                return
+            }
+            approvedClipboardWriteInProgress = true
+            defer { approvedClipboardWriteInProgress = false }
+            complete(state: state, with: contents)
+        }
+    }
+
+    private func beginWritePrompt() -> Bool {
+        guard !writePromptPending else { return false }
+        writePromptPending = true
+        return true
+    }
+
+    private func writePromptScope() -> CmuxDialogScope? {
+        guard let view else {
+            writePromptPending = false
+            return nil
+        }
+        if view.window != nil, !view.isHiddenOrHasHiddenAncestor { return .tab(view) }
+        if let window = view.window { return .window(window) }
+        return .app
+    }
+
+    private func bounded(_ items: [TerminalClipboardItem]) -> Bool {
+        var total = 0
+        for item in items {
+            let count = item.mime.utf8.count + item.text.utf8.count
+            guard count <= Self.maxProgramWriteBytes - total else { return false }
+            total += count
+        }
+        return true
+    }
+
+    private static func writeSpec(preview: String) -> CmuxDialogSpec {
+        spec(String(localized: "terminal.clipboard.write.title", defaultValue: "Allow a program to change the clipboard?", bundle: .module),
+             String(localized: "terminal.clipboard.write.message", defaultValue: "A program running in this terminal wants to copy text to the clipboard.", bundle: .module),
+             preview: preview)
     }
 
     /// Deny on Escape, with a preview of the text. Allow has no key: a

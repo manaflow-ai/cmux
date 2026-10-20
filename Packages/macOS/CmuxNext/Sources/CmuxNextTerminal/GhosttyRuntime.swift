@@ -201,6 +201,7 @@ public final class GhosttyRuntime {
             loadDefaultFiles(into: config)
         }
         ghostty_config_load_recursive_files(config)
+        enforceClipboardWriteConsent(into: config)
         for line in themeLines(theme ?? themeOverride, isDark: colorSchemeIsDark, edits: themeEdits) {
             line.withCString { ghostty_config_load_string(config, $0, UInt(line.utf8.count), "cmux.json") }
         }
