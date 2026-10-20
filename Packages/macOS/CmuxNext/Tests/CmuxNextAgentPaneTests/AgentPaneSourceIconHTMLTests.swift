@@ -16,7 +16,22 @@ struct AgentPaneSourceIconHTMLTests {
         #expect(try urls("""
             <link rel="icon" href="/favicon.svg"><link rel="icon" href="/favicon.svg">
             <link rel="icon" href="/favicon.png">
-            """) == ["https://leafdraft.com/favicon.png", "https://leafdraft.com/favicon.svg"])
+            """) == ["https://leafdraft.com/favicon.png"])
+    }
+
+    @Test func svgCandidatesAreExcludedByTypeAndSuffixBeforeRanking() throws {
+        #expect(try urls("""
+            <link rel=icon type="image/svg+xml; charset=utf-8" href=/typed sizes=32x32>
+            <link rel=icon type="IMAGE/SVG+XML" href=/typed-case sizes=32x32>
+            <link rel=icon href=/mark.SVG?version=2 sizes=32x32>
+            <link rel=icon href=/mark.svgz sizes=32x32>
+            <link rel=icon href=/raster.png sizes=64x64>
+            """) == ["https://leafdraft.com/raster.png"])
+    }
+
+    @Test func fragmentsDoNotCreateDistinctIconRequests() throws {
+        #expect(try urls("<link rel=icon href=/favicon.ico#one><link rel=icon href=/favicon.ico#two>")
+                == ["https://leafdraft.com/favicon.ico"])
     }
 
     @Test func baseAndRelTokensAndEntityDecoding() throws {
@@ -54,7 +69,7 @@ struct AgentPaneSourceIconHTMLTests {
             <link rel=icon href=/plain.png>
             """) == ["https://leafdraft.com/best.png", "https://leafdraft.com/small.ico",
                        "https://leafdraft.com/large.png", "https://leafdraft.com/plain.png",
-                       "https://leafdraft.com/any.svg", "https://leafdraft.com/touch.png"])
+                       "https://leafdraft.com/touch.png"])
     }
 
     @Test func truncatedBodyStillYieldsCompletedHeadLinks() throws {

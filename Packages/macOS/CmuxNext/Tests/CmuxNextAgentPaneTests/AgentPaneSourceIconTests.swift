@@ -92,7 +92,7 @@ struct AgentPaneSourceIconTests {
         let model = AgentPaneModel(host: NoHost())
         model.replyLinks.sourceIconsBaseline = true
         var fetched: [URL] = []
-        model.replyLinks.favicon = { url in fetched.append(url); return Data([1]) }
+        model.replyLinks.favicon = { url in fetched.append(url); return .icon(Data([1])) }
         let https = try #require(URL(string: "https://example.org:8443/docs?q=yes#part"))
         _ = await model.respond(to: .favicon(https))
         #expect(fetched.map(\.absoluteString) == ["https://example.org:8443/favicon.ico"])
@@ -105,7 +105,7 @@ struct AgentPaneSourceIconTests {
         let model = AgentPaneModel(host: NoHost())
         model.replyLinks.sourceIconsBaseline = false
         var calls = 0
-        model.replyLinks.favicon = { _ in calls += 1; return Data([1]) }
+        model.replyLinks.favicon = { _ in calls += 1; return .icon(Data([1])) }
         let url = try #require(URL(string: "https://example.org/docs"))
         let refused = await model.respond(to: .favicon(url))
         #expect((refused["value"] as? [String: Any])?["disabled"] as? Bool == true)

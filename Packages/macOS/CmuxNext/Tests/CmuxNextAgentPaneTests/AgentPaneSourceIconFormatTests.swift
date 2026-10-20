@@ -17,9 +17,21 @@ struct AgentPaneSourceIconFormatTests {
         try expectPNG(AgentPaneSourceIconPNG().decode(ico))
     }
 
-    @Test func svgUsesAppKitRasterization() throws {
+    @Test func svgIsRefusedBeforeNativeRasterization() throws {
         let svg = Data(#"<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><rect width="32" height="32" fill="red"/></svg>"#.utf8)
-        try expectPNG(AgentPaneSourceIconPNG().decode(svg))
+        #expect(AgentPaneSourceIconPNG().decode(svg) == nil)
+    }
+
+    @Test(arguments: [
+        "<?xml version='1.0'?><!-- comment --><svg xmlns='http://www.w3.org/2000/svg' width='32' height='32'/>",
+        "\u{feff}  <svg xmlns='http://www.w3.org/2000/svg'><image href='https://tracker.example/pixel'/></svg>",
+        "<!DOCTYPE svg PUBLIC 'anything'><svg width='32' height='32'/>",
+    ])
+    func disguisedSVGIsRefused(_ text: String) {
+        let decoder = AgentPaneSourceIconPNG()
+        #expect(decoder.decode(Data(text.utf8)) == nil)
+        #expect(decoder.decode(text.data(using: .utf16LittleEndian)!) == nil)
+        #expect(decoder.decode(text.data(using: .utf16BigEndian)!) == nil)
     }
 
     private func expectPNG(_ output: Data?) throws {

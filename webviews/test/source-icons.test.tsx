@@ -1,7 +1,7 @@
 // Lucas 2026-10-19: Thread details listed every source with the same globe or search icon. A
 // source now shows its site's icon (labs sourceIcons): the one cmux holds, else the site's own,
 // fetched once per site by the host; a search aimed at one site (`site:…`) shows that site's.
-import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, expect, spyOn, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import { build } from "esbuild";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -60,8 +60,14 @@ beforeAll(() => {
     IS_REACT_ACT_ENVIRONMENT: true,
   });
   host = window.document.querySelector<HTMLElement>("#root")!;
-  Object.defineProperty(window.HTMLElement.prototype, "clientHeight", { configurable: true, get: () => 10_000 });
-  Object.defineProperty(window.HTMLElement.prototype, "clientWidth", { configurable: true, get: () => 760 });
+  Object.defineProperty(window.HTMLElement.prototype, "clientHeight", {
+    configurable: true,
+    get: () => 10_000,
+  });
+  Object.defineProperty(window.HTMLElement.prototype, "clientWidth", {
+    configurable: true,
+    get: () => 760,
+  });
 });
 
 afterEach(async () => {
@@ -83,6 +89,321 @@ afterAll(() => {
 });
 
 const ICON = "data:image/png;base64,iVBORw0KGgo=";
+
+test("Thread details waits for settled fetch-tool metadata before requesting an icon", async () => {
+  const { setChipHost } = await import("../src/agent-session/acpmux/chips/host");
+  const { sessionSummary } = await import("../src/agent-session/acpmux/summary/sessionSummary");
+  const { SummaryBody } = await import("../src/agent-session/acpmux/summary/SummaryBody");
+  const { createRoot } = await import("react-dom/client");
+  const calls: string[] = [];
+  setChipHost(async (method, params) => {
+    if (method === "link.favicon") calls.push(String(params.url));
+    return {};
+  });
+  root = createRoot(host);
+  const draw = async (title: string, status: string) => {
+    const summary = sessionSummary([
+      {
+        id: "tools",
+        kind: "activity",
+        items: [{ id: "fetch", tool: { id: "fetch", kind: "fetch", title, status } }],
+      },
+    ] as never);
+    await act(async () => root?.render(<SummaryBody summary={summary} />));
+  };
+  await draw("Fetch https://example.com", "pending");
+  await draw("Fetch https://example.com.evil.net/finished", "in_progress");
+  expect(calls).toEqual([]);
+  await draw("Fetch https://example.com.evil.net/finished", "completed");
+  expect(calls).toEqual(["https://example.com.evil.net/finished"]);
+});
+
+test("streaming reply links wait for transport completion and fully revealed text", async () => {
+  const { setChipHost } = await import("../src/agent-session/acpmux/chips/host");
+  const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
+  const { createRoot } = await import("react-dom/client");
+  const calls: string[] = [];
+  setChipHost(async (method, params) => {
+    if (method === "link.favicon") calls.push(String(params.url));
+    return {};
+  });
+  root = createRoot(host);
+  const draw = async (text: string, streaming: boolean) => {
+    await act(async () =>
+      root?.render(
+        <VirtualTranscript
+          rows={[{ id: "reply", kind: "assistant", text, streaming, at: 1, version: text.length }]}
+          expanded={new Set()}
+          onToggleActivity={() => {}}
+        />,
+      ),
+    );
+  };
+  await draw("https://example.com", true);
+  expect(calls).toEqual([]);
+  // Mount finished history, whose reveal is already complete.
+  act(() => root?.unmount());
+  root = createRoot(host);
+  await draw("https://example.com.evil.net/finished", false);
+  expect(calls).toEqual(["https://example.com.evil.net/finished"]);
+});
+
+test("a finished row waits for reveal catch-up before requesting the final hostname", async () => {
+  const { setChipHost } = await import("../src/agent-session/acpmux/chips/host");
+  const { RevealedMarkdown, revealFrames } = await import("../src/agent-session/acpmux/conversation/RevealedMarkdown");
+  const { ReplySourceIconsContext } = await import("../src/agent-session/acpmux/chips/ReplySourceIconsContext");
+  const { createRoot } = await import("react-dom/client");
+  const { configureLabs } = await import("../src/agent-session/acpmux/labs");
+  configureLabs({ labs: { liveRender: false } });
+  const frames = new Map<number, (now: number) => void>();
+  let frameID = 0;
+  const request = spyOn(revealFrames, "request").mockImplementation((callback) => {
+    frames.set(++frameID, callback);
+    return frameID;
+  });
+  const cancel = spyOn(revealFrames, "cancel").mockImplementation((id) => {
+    frames.delete(id);
+  });
+  try {
+    const calls: string[] = [];
+    setChipHost(async (method, params) => {
+      if (method === "link.favicon") calls.push(String(params.url));
+      return { icon: ICON };
+    });
+    root = createRoot(host);
+    const draw = async (text: string, streaming: boolean) => {
+      await act(async () =>
+        root?.render(
+          <ReplySourceIconsContext.Provider value={true}>
+            <RevealedMarkdown text={text} streaming={streaming} />
+          </ReplySourceIconsContext.Provider>,
+        ),
+      );
+    };
+    await draw("https://example.com", true);
+    await draw("https://example.com.evil.net/finished", true);
+    await draw("https://example.com.evil.net/finished", false);
+    expect(calls).toEqual([]);
+    // Display-frame time is explicit; there is no wall-clock wait.
+    for (const now of [0, 100, 200, 300]) {
+      await act(async () => {
+        const due = [...frames.values()];
+        frames.clear();
+        for (const tick of due) tick(now);
+      });
+    }
+    expect(calls.map((url) => new URL(url).origin)).toEqual(["https://example.com.evil.net"]);
+    expect(host.querySelector("img.cv-chip__favicon")?.getAttribute("src")).toBe(ICON);
+  } finally {
+    act(() => root?.unmount());
+    root = undefined;
+    request.mockRestore();
+    cancel.mockRestore();
+  }
+});
+
+test("a path change keeps the origin's pending request and cancels only on unmount", async () => {
+  const { useSourceIcon } = await import("../src/agent-session/acpmux/chips/linkStore");
+  const { setChipHost } = await import("../src/agent-session/acpmux/chips/host");
+  const { createRoot } = await import("react-dom/client");
+  const calls: string[] = [];
+  let finish: ((value: unknown) => void) | undefined;
+  setChipHost(async (method) => {
+    calls.push(method);
+    return method === "link.favicon"
+      ? new Promise((resolve) => {
+          finish = resolve;
+        })
+      : {};
+  });
+  function Reader({ url }: { url: string }) {
+    useSourceIcon(url, true, "chat");
+    return null;
+  }
+  root = createRoot(host);
+  await act(async () => root?.render(<Reader url="https://path.example/a" />));
+  await act(async () => root?.render(<Reader url="https://path.example/ab" />));
+  expect(calls.filter((method) => method === "link.favicon")).toHaveLength(1);
+  expect(calls.filter((method) => method === "link.cancelFavicon")).toHaveLength(0);
+  await act(async () => root?.unmount());
+  root = undefined;
+  await act(async () => finish?.({ temporary: true }));
+  expect(calls.filter((method) => method === "link.cancelFavicon")).toHaveLength(1);
+});
+
+test("mounted temporary readers share one cancellable retry without restoring budget", async () => {
+  const { useSourceIcon } = await import("../src/agent-session/acpmux/chips/linkStore");
+  const { setChipHost } = await import("../src/agent-session/acpmux/chips/host");
+  const { createRoot } = await import("react-dom/client");
+  let now = 1000;
+  const timers = new Map<number, { at: number; fire: () => void }>();
+  let timerID = 0;
+  const realTimer = globalThis.setTimeout;
+  const realClear = globalThis.clearTimeout;
+  const date = spyOn(Date, "now").mockImplementation(() => now);
+  const timeout = spyOn(globalThis, "setTimeout").mockImplementation(((fire: () => void, delay: number) => {
+    if (delay < 1000) return realTimer(fire, delay);
+    const id = ++timerID;
+    timers.set(id, { at: now + delay, fire });
+    return id;
+  }) as typeof setTimeout);
+  const clear = spyOn(globalThis, "clearTimeout").mockImplementation(((id: number) => {
+    if (!timers.delete(id)) realClear(id);
+  }) as typeof clearTimeout);
+  try {
+    const calls: string[] = [];
+    setChipHost(async (method, params) => {
+      if (method === "link.favicon") {
+        calls.push(String(params.url));
+        return { temporary: true };
+      }
+      return {};
+    });
+    function Reader({ url }: { url: string }) {
+      useSourceIcon(url, true, "chat");
+      return null;
+    }
+    const urls = Array.from({ length: 32 }, (_, n) => `https://retry${n}.example/one`);
+    root = createRoot(host);
+    await act(async () =>
+      root?.render(
+        <>
+          {urls.map((url) => (
+            <Reader key={url} url={url} />
+          ))}
+          <Reader url={urls[0]!} />
+        </>,
+      ),
+    );
+    expect(calls).toHaveLength(32);
+    expect(timers.size).toBe(32);
+    await act(async () => {
+      now += 31_000;
+      const due = [...timers.values()];
+      timers.clear();
+      for (const timer of due) {
+        expect(timer.at).toBeLessThanOrEqual(now);
+        timer.fire();
+      }
+    });
+    expect(calls).toHaveLength(64);
+    expect(timers.size).toBe(0);
+    await act(async () => root?.render(<Reader url="https://over-budget.example/" />));
+    expect(calls).toHaveLength(64);
+    expect(timers.size).toBe(0);
+  } finally {
+    timeout.mockRestore();
+    clear.mockRestore();
+    date.mockRestore();
+  }
+});
+
+for (const reply of [{}, undefined]) {
+  test(`${reply ? "a genuine miss" : "an unmarked host failure"} is never requested again while mounted, even after negative expiry`, async () => {
+    const { useSourceIcon } = await import("../src/agent-session/acpmux/chips/linkStore");
+    const { setChipHost } = await import("../src/agent-session/acpmux/chips/host");
+    const { createRoot } = await import("react-dom/client");
+    let now = 1000;
+    const timers: (() => void)[] = [];
+    const realTimer = globalThis.setTimeout;
+    const date = spyOn(Date, "now").mockImplementation(() => now);
+    const timeout = spyOn(globalThis, "setTimeout").mockImplementation(((fire: () => void, delay: number) => {
+      if (delay < 1000) return realTimer(fire, delay);
+      timers.push(fire);
+      return 98765;
+    }) as typeof setTimeout);
+    try {
+      let calls = 0;
+      setChipHost(async (method) => {
+        if (method === "link.favicon") calls++;
+        return reply;
+      });
+      function Reader() {
+        useSourceIcon("https://genuine-miss.example/", true);
+        return null;
+      }
+      root = createRoot(host);
+      await act(async () => root?.render(<Reader />));
+      expect(calls).toBe(1);
+      // Fire any queued timer explicitly so a scheduled retry cannot hide behind virtual time.
+      await act(async () => {
+        now += 11 * 60_000;
+        for (const fire of timers) fire();
+        root?.render(<Reader />);
+      });
+      expect(calls).toBe(1);
+      expect(timers).toHaveLength(0);
+    } finally {
+      timeout.mockRestore();
+      date.mockRestore();
+    }
+  });
+}
+
+test("a genuine miss survives remounts for ten minutes in the same document", async () => {
+  const { setChipHost } = await import("../src/agent-session/acpmux/chips/host");
+  let now = 1000;
+  const date = spyOn(Date, "now").mockImplementation(() => now);
+  try {
+    let calls = 0;
+    setChipHost(async (method) => {
+      if (method === "link.favicon") calls++;
+      return {};
+    });
+    await renderIcons(["https://cached-miss.example/one"]);
+    expect(calls).toBe(1);
+    now += 31_000;
+    await renderIcons(["https://cached-miss.example/two"]);
+    expect(calls).toBe(1);
+    now = 1000 + 10 * 60_000 - 1;
+    await renderIcons(["https://cached-miss.example/three"]);
+    expect(calls).toBe(1);
+    now++;
+    await renderIcons(["https://cached-miss.example/four"]);
+    expect(calls).toBe(2);
+  } finally {
+    date.mockRestore();
+  }
+});
+
+test("unmount cancels a scheduled retry and stale replies cannot restart it", async () => {
+  const { setChipHost } = await import("../src/agent-session/acpmux/chips/host");
+  const date = spyOn(Date, "now").mockReturnValue(1000);
+  const realTimer = globalThis.setTimeout;
+  const realClear = globalThis.clearTimeout;
+  let fire: (() => void) | undefined;
+  let cancelled = false;
+  let calls = 0;
+  const timeout = spyOn(globalThis, "setTimeout").mockImplementation(((callback: () => void, delay: number) => {
+    if (delay < 1000) return realTimer(callback, delay);
+    fire = callback;
+    return 98765;
+  }) as typeof setTimeout);
+  const clear = spyOn(globalThis, "clearTimeout").mockImplementation(((id: number) => {
+    if (id === 98765) cancelled = true;
+    else realClear(id);
+  }) as typeof clearTimeout);
+  try {
+    setChipHost(async (method) => {
+      if (method === "link.favicon") {
+        calls++;
+        return { temporary: true };
+      }
+      return {};
+    });
+    await renderIcons(["https://cancel-retry.example/"]);
+    expect(fire).toBeDefined();
+    await act(async () => root?.unmount());
+    root = undefined;
+    expect(cancelled).toBe(true);
+    await act(async () => fire?.());
+    expect(calls).toBe(1);
+  } finally {
+    timeout.mockRestore();
+    clear.mockRestore();
+    date.mockRestore();
+  }
+});
 const SOURCES = [
   {
     url: "https://www.consumerreports.org/cars/toyota/rav4-hybrid/2021/reliability",
@@ -117,7 +438,6 @@ async function render(asked: string[]) {
     backgroundTasks: [],
   };
   await act(async () => root!.render(<SummaryBody summary={summary as never} />));
-  for (let tick = 0; tick < 4; tick++) await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
   const rows = [...host.querySelectorAll("section")]
     .find((section) => section.querySelector("h3")?.textContent === "Sources")!
     .querySelectorAll("li");
@@ -453,6 +773,38 @@ test("compiled sources and opted-in UrlChips fetch after inspection and display 
     await page.act(async () => finishIcon?.({ icon: ICON }));
     expect(host.querySelector("img.cv-chip__favicon")?.getAttribute("src")).toBe(ICON);
     expect(calls.filter(({ method }) => method === "link.favicon")).toHaveLength(1);
+
+    // A timer-driven retry must also invalidate the compiled hook's store snapshot.
+    const date = spyOn(Date, "now").mockReturnValue(1000);
+    const realTimer = globalThis.setTimeout;
+    let retry: (() => void) | undefined;
+    let attempts = 0;
+    const timeout = spyOn(globalThis, "setTimeout").mockImplementation(((fire: () => void, delay: number) => {
+      if (delay < 1000) return realTimer(fire, delay);
+      retry = fire;
+      return 98765;
+    }) as typeof setTimeout);
+    try {
+      page.setChipHost(async (method: string) => {
+        if (method === "link.favicon") return ++attempts === 1 ? { temporary: true } : { icon: ICON };
+        return {};
+      });
+      await page.act(async () =>
+        compiledRoot?.render(
+          <page.ReplySourceIconsContext.Provider value={true}>
+            <page.UrlChip href="https://compiled-retry.example/">Retry</page.UrlChip>
+          </page.ReplySourceIconsContext.Provider>,
+        ),
+      );
+      expect(host.querySelector("img.cv-chip__favicon")).toBeNull();
+      expect(retry).toBeDefined();
+      await page.act(async () => retry?.());
+      expect(attempts).toBe(2);
+      expect(host.querySelector("img.cv-chip__favicon")?.getAttribute("src")).toBe(ICON);
+    } finally {
+      timeout.mockRestore();
+      date.mockRestore();
+    }
   } finally {
     // Use this bundle's React instance for its root, including on a failing assertion.
     const page = compiledRoot ? await import(path.join(out, "sources.js")) : undefined;

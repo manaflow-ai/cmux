@@ -120,7 +120,7 @@ struct AgentPaneSourceIconAdmissionTests {
             let icons = loader(transport)
             let model = AgentPaneModel(host: NoHost())
             model.replyLinks.sourceIconsBaseline = true
-            model.replyLinks.favicon = { url in await icons.data(at: url) }
+            model.replyLinks.favicon = { url in await icons.result(at: url) }
             let url = try #require(URL(string: "https://source.example/page"))
             let response = Task {
                 let reply = await model.respond(to: .favicon(url))
