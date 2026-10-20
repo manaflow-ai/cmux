@@ -146,6 +146,20 @@
 .acpmux-composer-bar .acpmux-send.acpmux-cancel:active {
   background: color-mix(in srgb, var(--agent-text) 76%, var(--acpmux-base));
 }
+/* The first Esc of the double press (escapeStop.ts): Stop's disc widens into a pill that names the
+   key, "Esc", until a second Esc stops the turn or anything else puts Stop back. */
+.acpmux-composer-bar .acpmux-send.acpmux-cancel[data-escape-armed] {
+  width: auto;
+  min-width: 28px;
+  padding: 0 9px;
+  border-radius: 14px;
+}
+.acpmux-escape-key {
+  font-size: var(--text-detail);
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+}
 
 /* Send off (the folder's trust question is open, useFolderTrustAsk.ts): the empty draft's off disc
    (styles.css, --acpmux-send-off-*), one disabled look, with no step on hover. */
