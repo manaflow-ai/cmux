@@ -38,6 +38,7 @@ extension AgentPaneRequest: CustomStringConvertible, CustomDebugStringConvertibl
         case .chooseChatFolder: "chooseChatFolder"
         case .listProjects: "listProjects"
         case .projectIcon: "projectIcon"
+        case .nowPlaying: "nowPlaying"
         case .openChat: "openChat"
         case .openChatInTerminal: "openChatInTerminal"
         case .chatsPage: "chatsPage"

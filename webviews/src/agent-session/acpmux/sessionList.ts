@@ -237,16 +237,33 @@ export function mostRecentProject(
   home?: string,
   known?: readonly string[],
 ): string | undefined {
-  const projects = known?.length ? new Set(known.map((path) => path.replace(/(.)\/+$/, "$1"))) : undefined;
-  let newest: AcpmuxSessionEntry | undefined;
-  for (const session of sessions) {
+  return firstProject(recentLocalFolders(sessions), home, known);
+}
+
+/// This Mac's chat folders, newest chat first, each once: not a private agent-home folder, `~` or a
+/// chat on another machine. `mostRecentProject` picks from it; a New Tab page keeps it for the next
+/// page's first frame (newtab/recentProject.ts).
+export function recentLocalFolders(sessions: readonly AcpmuxSessionEntry[], limit = Infinity): string[] {
+  const local = sessions.filter((session) => {
     const cwd = session.cwd?.replace(/\/+$/, "");
-    if (!cwd || cwd === "~" || cwd === home?.replace(/\/+$/, "") || isAgentHome(cwd)) continue;
-    if (projects && !projects.has(cwd)) continue;
-    if (session.peer || (session.hostKind && session.hostKind !== "local") || !listed(session)) continue;
-    if (!newest || (session.updatedAt ?? 0) > (newest.updatedAt ?? 0)) newest = session;
+    if (!cwd || cwd === "~" || isAgentHome(cwd)) return false;
+    return !session.peer && (!session.hostKind || session.hostKind === "local") && listed(session);
+  });
+  const folders: string[] = [];
+  for (const session of byRecency(local)) {
+    const cwd = session.cwd!.replace(/\/+$/, "");
+    if (!folders.includes(cwd)) folders.push(cwd);
+    if (folders.length >= limit) break;
   }
-  return newest?.cwd;
+  return folders;
+}
+
+/// The first of `folders` (newest first) a New Tab may start in: not the home folder, and with
+/// `known` (the host's project list; empty is not loaded yet) one in it.
+export function firstProject(folders: readonly string[], home?: string, known?: readonly string[]): string | undefined {
+  const projects = known?.length ? new Set(known.map((path) => path.replace(/(.)\/+$/, "$1"))) : undefined;
+  const homeFolder = home?.replace(/\/+$/, "");
+  return folders.find((cwd) => cwd !== homeFolder && (!projects || projects.has(cwd)));
 }
 
 /** A project's name for its header: the folder's last component, `~` for a home folder. */
