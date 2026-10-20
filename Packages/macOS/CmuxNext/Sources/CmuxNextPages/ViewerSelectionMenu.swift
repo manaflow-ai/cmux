@@ -22,15 +22,24 @@ public struct ViewerSelectionMenu {
 
     /// The rows under Copy, in order.
     public var rows: [Row]
+    /// The page's own items after the rows (the Markdown page's Reset Column Widths), run on every
+    /// menu, with or without a selection.
+    public var then: (@MainActor (NSMenu) -> Void)?
 
-    /// A menu with `rows` under Copy.
-    public init(rows: [Row]) {
+    /// A menu with `rows` under Copy, then `then`'s items.
+    public init(rows: [Row], then: (@MainActor (NSMenu) -> Void)? = nil) {
         self.rows = rows
+        self.then = then
     }
 
     /// Edits WebKit's default `menu` in place: the desktop items (Copy), then the rows.
     public func apply(to menu: NSMenu) {
         PageWKWebView.keepDesktopItems(in: menu)
+        if !rows.isEmpty, menu.items.contains(where: { $0.identifier?.rawValue == PageSelectionMenu.copyItem }) {
+            menu.addItem(.separator())
+            for row in rows { menu.addItem(PageMenuAction.item(row.title, handler: row.run)) }
+        }
+        then?(menu)
     }
 
     /// Makes this menu `page`'s context menu.
@@ -49,6 +58,21 @@ public struct ViewerSelectionMenu {
         /// "Quote in Chat": sends the selection with no comment.
         public static var quoteInChat: String {
             String(localized: "pages.viewerSelection.quoteInChat", defaultValue: "Quote in Chat", bundle: .module)
+        }
+
+        /// The comment dialog's title, `Comment on README.md · L3–4`.
+        public static func commentOn(_ title: String) -> String {
+            String(localized: "pages.viewerSelection.commentOn", defaultValue: "Comment on \(title)", bundle: .module)
+        }
+
+        /// The comment field's placeholder.
+        public static var commentPlaceholder: String {
+            String(localized: "pages.viewerSelection.commentPlaceholder", defaultValue: "Your comment", bundle: .module)
+        }
+
+        /// The comment dialog's default button.
+        public static var addToChat: String {
+            String(localized: "pages.viewerSelection.addToChat", defaultValue: "Add to Chat", bundle: .module)
         }
     }
 }

@@ -13,7 +13,7 @@ public import Foundation
 /// ```
 public nonisolated struct ChatQuote: Hashable, Sendable {
     /// What kind of viewer the text came from.
-    public enum Kind: String, Hashable, Sendable, CaseIterable {
+    public nonisolated enum Kind: String, Hashable, Sendable, CaseIterable {
         /// The Markdown page.
         case markdown
         /// The code editor page.

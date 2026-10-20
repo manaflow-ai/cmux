@@ -32,6 +32,16 @@ struct ViewerSelectionMenuTests {
         #expect(ran == ["comment", "quote"])
     }
 
+    @Test func thePagesOwnItemsComeAfterTheRowsWithOrWithoutASelection() {
+        let extra: @MainActor (NSMenu) -> Void = { $0.addItem(NSMenuItem(title: "Reset Column Widths", action: nil, keyEquivalent: "")) }
+        let selected = Self.webKitMenu(["WKMenuItemIdentifierCopy"])
+        ViewerSelectionMenu(rows: [.init(title: "Comment…") {}], then: extra).apply(to: selected)
+        #expect(selected.items.map { $0.isSeparatorItem ? "-" : $0.title } == ["WKMenuItemIdentifierCopy", "-", "Comment…", "Reset Column Widths"])
+        let unselected = Self.webKitMenu(["WKMenuItemIdentifierReload"])
+        ViewerSelectionMenu(rows: [.init(title: "Comment…") {}], then: extra).apply(to: unselected)
+        #expect(unselected.items.map(\.title) == ["Reset Column Widths"])
+    }
+
     @Test func noSelectionShowsNoRows() {
         let menu = Self.webKitMenu(["WKMenuItemIdentifierReload", "WKMenuItemIdentifierInspectElement"])
         ViewerSelectionMenu(rows: [.init(title: "x") {}]).apply(to: menu)

@@ -21,7 +21,7 @@ but for the viewers as well."
    (`caller.agent_session`).
 2. Else the Chief Home chat of the window.
 
-The opener is remembered in the app, in memory, per file path (`ChatQuoteRouter`). A relaunch
+The opener is remembered in the app, in memory, per file path (`ChatQuoteOpeners`). A relaunch
 forgets it, and the quote then goes to Chief. This is deliberate for v1: the daemon tab record has
 no opener field, and adding one is a daemon schema change (tracked as a follow-up below).
 
@@ -58,15 +58,15 @@ Two renderings, both from the model:
 
 ## Where it lands
 
-- **ACP agent chat** (webviews `acpmux`): a new host event `quote` (`AgentPageEvent.quote`). The
-  page adds a `kind: "text"` composer attachment (the chip the floating chat's "Include focused
-  tab" already uses) named `quote.title`, whose text is `quote.markdown`, and focuses the composer.
-  The chip is the card; `promptBlocks()` already inlines text attachments into the prompt.
-- **Chief Home chat** (native MessagesLab composer): `HomeNativeTranscriptView.appendQuote(_:)`
-  appends `quote.markdown` to the field's text (after a blank line when the field has text) and
-  focuses the field. Home's attachments are uploaded blobs, so a quote stays text; Home bubbles
-  render the Markdown quote. A native card chip in the Home field is a follow-up (needs a
-  MessagesLab inline attachment kind that is not a blob).
+A quote takes the design mode highlight's own paths (plans/cmux-next/design-mode-DESIGN.md), so a
+viewer quote and a design highlight make the same card in every chat:
+
+- **ACP agent chat**: `AgentPaneDesignSelection(id: "quote-<uuid>", name: quote.title,
+  text: quote.markdown, png: nil).push(to:)`: the `designSelection` host event, which the page
+  turns into a text chip (`designSelection.ts`) that goes with the next message.
+- **Chief Home chat**: the quote as a file `<title>.txt` holding `quote.markdown`
+  (`ChatQuoteFile`, like design mode's `BrowserDesignModeCardFiles`), given to the Home composer
+  through `attachFiles(paths:via: .drop)`, so it shows as a file chip.
 
 ## Line ranges
 
@@ -84,11 +84,11 @@ Host-initiated page ops (`PageRouter.callPage`), one per page: `cmux.markdown.se
 
 - a223 (Markdown selection): reads only `view.state.selection`; no change to pointer selection.
 - a280 (Markdown tables): a selection inside a table maps to the table block's lines.
-- a304 (Send to Chief on selected text, unlanded on `scratch/rc-send-message`): its
-  `PageSelectionRows` sets the same `contextMenuEditor` on file pages. This work adds
-  `ViewerSelectionMenu`, which takes a list of rows; a304 should add its two rows to that list in
-  `FilePageService.makeView` instead of installing a second editor (the last one set wins).
-- Design mode (sibling): uses `ChatQuote` and `ChatQuoteRouter.deliver`.
+- a304 (Send to Chief on selected text, landed 351e456c46e): its `PageSelectionRows` set a second
+  `contextMenuEditor` on file pages, which replaced the table menu (Reset Column Widths was gone).
+  Its two rows (Send to Chief, Send to…) are now rows of the one `ViewerSelectionMenu`, and
+  `PageSelectionRows` is removed.
+- Design mode (c47142a56ca): quotes reuse its card paths (above); there is no second card type.
 
 ## Tests (failing first)
 
@@ -96,10 +96,11 @@ Host-initiated page ops (`PageRouter.callPage`), one per page: `cmux.markdown.se
   lines, empty comment, multi-line quote, `>` inside the quote).
 - `CmuxNextPagesTests/ViewerSelectionMenuTests`: rows appear after Copy only with a selection, in
   order, and run their handlers.
-- `CmuxNextAppTests/ChatQuoteRouterTests`: opener chat when known and live, Chief otherwise, a later
+- `CmuxNextAppTests/ChatQuoteOpenersTests`: opener chat when known and live, Chief otherwise, a later
   opener replaces an earlier one, a dead opener falls back to Chief.
 - bun, `webviews/test/markdown-selection-quote.test.ts`: block lines and narrowing inside a block.
-- bun, `webviews/test/acpmux-quote-event.test.ts`: the `quote` host event calls the bridge.
+- `CmuxNextPagesTests/ChatQuoteFileTests`: the Home file is named by the title and holds the Markdown.
+- `CmuxNextPagesTests/ViewerCommentPromptTests`: selection reply parsing; Add to Chat and Cancel.
 
 ## Follow-ups (not in v1)
 
@@ -109,5 +110,4 @@ Host-initiated page ops (`PageRouter.callPage`), one per page: `cmux.markdown.se
    Comment… / Quote in Chat with `kind: .pdf` / `.web` and no lines.
 3. Images: a region comment needs a drawn rectangle; shared with design mode.
 4. Opener persisted on the daemon tab record, so it survives relaunch.
-5. A native quote card chip in the Home composer.
 6. Show the target chat (select its tab) when the quote lands in a chat that is not visible.
