@@ -230,6 +230,7 @@ import {
   SUBAGENT_ROW,
   type SubagentRows,
   childView,
+  runningGroups,
   subagentRowsFrom,
   subagentsIn,
 } from "./subagents/subagentRows";
@@ -3183,9 +3184,32 @@ function AcpmuxPane() {
   // Another chat closes the subagent view in the render that shows it, not an effect later (which
   // drew one frame of the old subagent id against the new chat's rows: an empty child view).
   const [subagentChat, setSubagentChat] = useState(shownSessionId);
+  // The groups opened on their own, each once: a group the person closes stays closed.
+  const [openedGroups, setOpenedGroups] = useState<ReadonlySet<string>>(() => new Set());
+  // The open folds are each chat's own (row ids such as `subagents-<seq>` repeat across chats):
+  // the chats shown before keep theirs here for a switch back.
+  const [chatFolds, setChatFolds] = useState<
+    ReadonlyMap<string, { expanded: Set<string>; opened: ReadonlySet<string> }>
+  >(() => new Map());
   if (subagentChat !== shownSessionId) {
     setSubagentChat(shownSessionId);
     setSubagentView(undefined);
+    const kept = shownSessionId === undefined ? undefined : chatFolds.get(shownSessionId);
+    if (subagentChat !== undefined)
+      setChatFolds(new Map(chatFolds).set(subagentChat, { expanded, opened: openedGroups }));
+    setExpanded(kept?.expanded ?? new Set());
+    setOpenedGroups(kept?.opened ?? new Set());
+  }
+  // A group of subagents starts open while its agents run in the working turn, in the render that
+  // first draws it (an agent a cancel or a reconnect left "running" in an earlier turn opens none).
+  const liveGroups = useMemo(
+    () => (snapshot.isWorking ? runningGroups(snapshot.rows, snapshot.subagentViews) : []),
+    [snapshot.isWorking, snapshot.rows, snapshot.subagentViews],
+  );
+  const newGroups = subagentChat === shownSessionId ? liveGroups.filter((id) => !openedGroups.has(id)) : [];
+  if (newGroups.length > 0) {
+    setOpenedGroups(new Set([...openedGroups, ...newGroups]));
+    setExpanded((current) => new Set([...current, ...newGroups]));
   }
   // After the reset above: a pane opened on a subagent shows it once its chat is shown.
   useEffect(() => {
