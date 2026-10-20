@@ -7,7 +7,7 @@ import Testing
 import UniformTypeIdentifiers
 
 /// A picture pasted, dropped or picked in the Home message box sits in the
-/// text at the caret, as in Messages and Notes, and goes
+/// text at the caret, as in Messages and Notes, with a remove button, and goes
 /// out with the message (Lawrence 2026-10-19: "I still don't have inline
 /// images inside the typing area for the iMessage thing"). Drives the real
 /// `HomeNativeTranscriptView` over a `HomeStore` on the mock owner, through
@@ -34,11 +34,11 @@ import UniformTypeIdentifiers
         var compose: ComposeView { controller.demo!.compose }
         var field: FieldTextView { compose.textView.view }
         /// The attachments the field's text shows, in order, with their character offsets.
-        var inline: [(offset: Int, attachment: NSTextAttachment)] {
+        var inline: [(offset: Int, attachment: ComposeInlineAttachment)] {
             guard let s = field.textStorage else { return [] }
-            var out: [(Int, NSTextAttachment)] = []
+            var out: [(Int, ComposeInlineAttachment)] = []
             s.enumerateAttribute(.attachment, in: NSRange(location: 0, length: s.length)) { v, r, _ in
-                if let a = v as? NSTextAttachment { out.append((r.location, a)) }
+                if let a = v as? ComposeInlineAttachment { out.append((r.location, a)) }
             }
             return out
         }
@@ -119,8 +119,11 @@ import UniformTypeIdentifiers
         let inline = h.inline
         #expect(inline.count == 1, "the field's text holds the picture")
         let a = try #require(inline.first).attachment
+        #expect(a.isImage, "an image thumbnail, not a file pill")
         #expect(a.bounds.height <= ComposeAttachmentStrip.imageMaxHeight + 0.5)
         #expect(abs(a.bounds.width / a.bounds.height - 1.5) < 0.05, "the thumbnail keeps the picture's aspect")
+        a.loadThumbnailNow(scale: 2)
+        #expect(a.thumbnail != nil, "the thumbnail decodes")
         #expect(h.compose.strip.tiles.isEmpty, "no thumbnail row above the text")
         #expect(h.compose.fieldRect.height >= a.bounds.height, "the field is as tall as the thumbnail's line")
     }
@@ -135,6 +138,21 @@ import UniformTypeIdentifiers
         #expect(h.inline.map(\.offset) == [5])
         #expect(h.field.selectedRange() == NSRange(location: 6, length: 0))
         #expect(h.view.transcript.draftText == "hello\u{FFFC} world")
+    }
+
+    /// The thumbnail's remove button takes the picture out of the text and the draft; the text stays.
+    @Test func theRemoveButtonTakesThePictureOut() async throws {
+        let h = try await home()
+        defer { h.close() }
+        type("hi", caret: 2, in: h)
+        try await attach(.pastePicture, to: h.view)
+        let a = try #require(h.inline.first).attachment
+        let button = a.makeView()
+        button.removeClicked()
+        #expect(h.inline.isEmpty)
+        #expect(h.view.transcript.draftAttachments.isEmpty)
+        #expect(h.field.string == "hi")
+        #expect(h.view.transcript.draftText == "hi")
     }
 
     /// Delete after the thumbnail removes it, as any character.
