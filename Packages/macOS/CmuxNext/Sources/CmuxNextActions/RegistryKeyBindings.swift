@@ -64,6 +64,10 @@ public struct RegistryKeyBindings {
             if KeyBindingDefaults.yieldsToTerminal.contains(id) {
                 defaultWhen = WhenClause.and([defaultWhen, KeyBindingDefaults.notTerminal].compactMap { $0 })
             }
+            // An agent chat's or web page's own keys win over these defaults (Cmd-Return steers).
+            if KeyBindingDefaults.yieldsToWebContent.contains(id) {
+                defaultWhen = WhenClause.and([defaultWhen, KeyBindingDefaults.notWebContent].compactMap { $0 })
+            }
             let specificity = requires.rawValue.nonzeroBitCount
             func add(_ keys: [Shortcut], argument: String?, source: KeyBinding.Source) {
                 let binding = KeyBinding(keys: keys, command: id, argument: argument, when: source == .default ? defaultWhen : when, source: source)

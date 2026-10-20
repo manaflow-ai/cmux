@@ -175,6 +175,17 @@ public nonisolated struct KeyBindingDefaults {
         "groupSelectedWorkspaces", "toggleChecklistItemComplete",
     ]
 
+    /// Actions whose default key an agent chat or a web page also uses: their default binding
+    /// applies everywhere but there (`notWebContent`), so the page's own handler gets the key.
+    /// Cmd-Return steers a running agent turn in the composer (Composer.tsx) and submits forms
+    /// on many sites; the checklist toggle took it first and refused "no todo items".
+    public static let yieldsToWebContent: Set<ActionID> = ["toggleChecklistItemComplete"]
+
+    /// Not an agent chat (`agent`, the acpmux page) and not a web page (`page`).
+    public static let notWebContent = WhenClause.and([
+        .notEquals(KeyContext.surfaceKind, .string("agent")), .notEquals(KeyContext.surfaceKind, .string("page")),
+    ])
+
     /// The command palette's keys (R59 fold, `PaletteKeyActionCatalog`), in
     /// table order: a later applicable entry wins, so a more specific
     /// `when` follows a general one for the same key.
