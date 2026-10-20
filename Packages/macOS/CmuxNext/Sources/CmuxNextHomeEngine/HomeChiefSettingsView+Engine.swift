@@ -95,7 +95,8 @@ extension HomeChiefSettingsView {
     func show(_ snapshot: HomeChiefSnapshot) {
         shownEngine = snapshot
         if !changeFailed { failure.isHidden = true }
-        for button in [harness, model, effort] { button.isEnabled = true }
+        // A harness check under way keeps the pickers off until it answers.
+        for button in [harness, model, effort] { button.isEnabled = checkingHarness == nil }
         let shown = HomeChiefEngineTitles(snapshot)
         fill(harness, shown.harnesses, current: snapshot.harness, defaultTitle: shown.defaultHarness, title: ChiefBackend.title(for:))
         showHarnessHint()
@@ -142,24 +143,30 @@ extension HomeChiefSettingsView {
     /// effort, as the Chief editor's backend picker does: the brain keeps a field it is not sent,
     /// and another harness's model would not run on this one. On this Mac's brain a new harness
     /// first passes its backend check (`checkHarness`, one real hello turn), as the editor
-    /// requires; one that fails is not set, and the note says so.
+    /// requires; one that fails is not set, and the note says so. Only the official engines are
+    /// checked: the check runs on the app's acpmux, and a route the Chief's own acpmux config adds
+    /// (`claude-cr`) is not there. While the check runs the pickers stay off and the note says so;
+    /// a newer pick or another Chief drops its answer.
     @discardableResult
     func pickHarness(_ value: String?) -> Task<Void, Never> {
         showHarnessHint()
         if Self.keepsHarness(value, shown: shownEngine) { return pick("harness", value) }
         let fields: [String: String?] = ["harness": value, "model": nil, "effort": nil]
-        guard let value, source.isLocal else { return pick(fields) }
+        guard let value, source.isLocal, ChiefBackend(id: value) != nil else { checkingHarness = nil; return pick(fields) }
         let home = muxHome
-        changeFailed = false
+        let title = ChiefBackend.title(for: value)
+        checkingHarness = value
         for button in [harness, model, effort] { button.isEnabled = false }
+        note(String(format: HomeEngineStrings.harnessCheckingFormat, title), kept: true)
         // task-owner: the check, then one write; ends when its result is shown
         return Task { [weak self] in
             guard let self else { return }
             let passed = await checkHarness(value)
-            guard muxHome == home, source.isLocal else { return }
+            guard checkingHarness == value, muxHome == home, source.isLocal else { return }
+            checkingHarness = nil
             guard passed else {
-                if let shownEngine { show(shownEngine) } else { for button in [harness, model, effort] { button.isEnabled = true } }
-                note(String(format: HomeEngineStrings.harnessCheckFailedFormat, ChiefBackend.title(for: value)), kept: true)
+                if let shownEngine { show(shownEngine) }
+                note(String(format: HomeEngineStrings.harnessCheckFailedFormat, title), kept: true)
                 return
             }
             await pick(fields).value

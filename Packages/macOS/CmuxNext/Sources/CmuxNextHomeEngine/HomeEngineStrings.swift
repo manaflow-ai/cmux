@@ -110,8 +110,12 @@ public nonisolated enum HomeEngineStrings {
     }
     /// "%@ did not pass its check…" (the harness's name).
     static var harnessCheckFailedFormat: String {
-        String(localized: "home.engine.harnessCheckFailed", defaultValue: "%@ did not answer its check, so the Chief stays on what it runs now.",
+        String(localized: "home.engine.harnessCheckFailed", defaultValue: "%@ did not pass its check, so the Chief stays on what it runs now.",
                table: "Home", bundle: .module)
+    }
+    /// "Checking %@…" (the harness's name) while its backend check runs.
+    static var harnessCheckingFormat: String {
+        String(localized: "home.engine.harnessChecking", defaultValue: "Checking %@…", table: "Home", bundle: .module)
     }
     static var renameRefused: String {
         String(localized: "home.engine.renameRefused", defaultValue: "The Chief's name could not be changed. Try again in a moment.",

@@ -72,6 +72,8 @@ public final class HomeChiefSettingsView: NSView {
     /// The note says why the person's own change did not take (a pick, a picture): it stays
     /// through refreshes until their next change or another Chief.
     var changeFailed = false
+    /// The harness whose backend check is running (`pickHarness`); nil when none is.
+    var checkingHarness: String?
     /// Runs harness `id`'s backend check on this Mac's acpmux (`_acpmux/harness/doctor`, one real
     /// hello turn); true when it passed. The app sets it; unset, every harness passes.
     public var checkHarness: @MainActor (String) async -> Bool = { _ in true }
@@ -184,6 +186,7 @@ public final class HomeChiefSettingsView: NSView {
         self.source = source
         shownEngine = nil
         changeFailed = false
+        checkingHarness = nil
         // A named Chief's panel keeps its own files (cx-327wl), never the default's.
         if let files = (source as? HomeChiefLocalEngine)?.files ?? (source as? HomeChiefRemoteEngine)?.files, files.muxHome != muxHome {
             muxHome = files.muxHome

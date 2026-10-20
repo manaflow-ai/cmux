@@ -8,7 +8,7 @@ import Testing
 /// The Chief Settings popover set the harness straight away, so a harness that could not answer
 /// became the Chief's brain. Now a new harness on this Mac's brain is checked first.
 @MainActor @Suite struct HomeChiefHarnessCheckTests {
-    static func view(_ writes: AsyncStream<[String: String?]>.Continuation, checked: @escaping (String) async -> Bool,
+    static func view(_ writes: AsyncStream<[String: String?]>.Continuation, checked: @escaping @MainActor (String) async -> Bool,
                      local: Bool = true) async -> HomeChiefSettingsView {
         let view = HomeChiefSettingsView(muxHome: FileManager.default.temporaryDirectory, source: CheckedChief(writes: writes, isLocal: local))
         view.checkHarness = checked
@@ -42,6 +42,42 @@ import Testing
         #expect(view.failure.isHidden)
     }
 
+    /// While the check runs the pickers stay off, a refresh (a new message, a turn's end) too,
+    /// and a newer pick drops the earlier check's answer.
+    @Test func aCheckInFlightKeepsThePickersOffAndANewerPickWins() async {
+        let (writes, continuation) = AsyncStream.makeStream(of: [String: String?].self)
+        let gate = CheckGate()
+        let view = await Self.view(continuation, checked: { _ in await withCheckedContinuation { gate.waiting.append($0) } })
+        let first = view.pickHarness(ChiefBackend.codex.id)
+        #expect(!view.harness.isEnabled)
+        await view.refresh().value
+        #expect(!view.harness.isEnabled)
+        let second = view.pickHarness(ChiefBackend.unii.id)
+        for _ in 0..<200 where gate.waiting.count < 2 { await Task.yield() }
+        #expect(gate.waiting.count == 2)
+        for check in gate.waiting { check.resume(returning: true) }
+        await first.value
+        await second.value
+        continuation.finish()
+        var sent: [String?] = []
+        for await write in writes { sent.append(write["harness"] ?? nil) }
+        #expect(sent == [ChiefBackend.unii.id])
+        #expect(view.harness.isEnabled)
+    }
+
+    /// A route harness comes from the Chief's own acpmux config, which the app's check does not see.
+    @Test func aRouteHarnessIsNotChecked() async {
+        let (writes, continuation) = AsyncStream.makeStream(of: [String: String?].self)
+        var checked = 0
+        let view = await Self.view(continuation, checked: { _ in checked += 1; return false })
+        await view.pickHarness("claude-cr").value
+        continuation.finish()
+        var sent = 0
+        for await _ in writes { sent += 1 }
+        #expect(checked == 0)
+        #expect(sent == 1)
+    }
+
     /// A paired server's brain runs its own acpmux: this Mac's check says nothing about it.
     @Test func aCloudChiefIsNotCheckedOnThisMac() async {
         let (writes, continuation) = AsyncStream.makeStream(of: [String: String?].self)
@@ -54,6 +90,11 @@ import Testing
         #expect(checked == 0)
         #expect(sent == 1)
     }
+}
+
+/// Checks that wait until the test answers them.
+@MainActor private final class CheckGate {
+    var waiting: [CheckedContinuation<Bool, Never>] = []
 }
 
 /// A brain on Claude that records each write.
