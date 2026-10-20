@@ -249,6 +249,12 @@ nonisolated enum WorkspaceActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "palette.markWorkspaceUnread",
                 title: String(localized: "action.palette.markWorkspaceUnread", defaultValue: "Mark Workspace as Unread", bundle: .module),
+            ActionDescriptor(
+                id: "workspace.toggleAudioMute",
+                title: String(localized: "action.workspace.toggleAudioMute", defaultValue: "Mute/Unmute Workspace Tabs", bundle: .module),
+                keywords: ["workspace", "audio", "sound", "mute", "unmute"], category: .workspace, symbol: "speaker.slash",
+                surfaces: [.palette, .contextMenu], targets: [.workspace], cliName: "workspace mute-unmute"
+            ),
                 keywords: ["unread", "notifications"], category: .workspace, symbol: "envelope.badge",
                 surfaces: [.palette, .menu, .contextMenu], targets: [.workspace], cliName: "workspace mark-as-unread",
                 mainMenu: .file

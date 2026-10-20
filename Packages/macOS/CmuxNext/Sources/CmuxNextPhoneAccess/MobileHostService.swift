@@ -23,6 +23,12 @@ public final class MobileHostService {
     /// Where usable phone connections are reported (`mobile.rpc.ready` on
     /// the control socket's event stream); set once the socket starts.
     public let readiness = MobileReadinessRelay()
+    /// The listener's phase and its usable phones (the Mobile Pairing page).
+    public let status = MobileHostStatus()
+    /// Copies the current listener's phase into ``status``; replaced with the listener.
+    private var phaseFollower: Task<Void, Never>?
+    /// Whether a signed-in account is set (``start(auth:launch:daemon:)``).
+    public var hasAccount: Bool { account != nil }
     /// This Mac's user-visible name, read off the main actor (the App's `MacName`).
     private let displayName: @Sendable () async -> String
 
@@ -103,7 +109,10 @@ public final class MobileHostService {
         let previous = host
         host = nil
         starting?.cancel()
+        phaseFollower?.cancel()
+        status.reset()
         let access = access
+        let status = status
         starting = Task { [weak self, logger] in
             await previous?.stop()
             let displayName = await self?.displayName() ?? "Mac"
@@ -116,8 +125,20 @@ public final class MobileHostService {
             let host = MobileIrxHost(configuration: configuration, auth: auth, makeBackend: { @MainActor in
                 let endpoint = try await daemon.endpoint()
                 return try await DaemonCompatBackend.connect(endpointProvider: { endpoint })
-            }, access: access, onUsable: { readiness.report($0) })
+            }, access: access, onUsable: { session in
+                readiness.report(session)
+                let now = Date()
+                // task-owner: one main-actor hop per usable phone connection; ends at once
+                Task { @MainActor in status.phoneBecameUsable(at: now) }
+            })
             self.host = host
+            // task-owner: lives as long as this listener; stopHost/startHost cancel it
+            self.phaseFollower = Task { @MainActor [status] in
+                for await phase in await host.phaseUpdates() {
+                    guard !Task.isCancelled else { return }
+                    status.phase = phase
+                }
+            }
             await host.start()
             let phase = await host.phase
             logger.info("phone access: \(String(describing: phase), privacy: .public)")
@@ -128,6 +149,9 @@ public final class MobileHostService {
         generation += 1
         starting?.cancel()
         starting = nil
+        phaseFollower?.cancel()
+        phaseFollower = nil
+        status.reset()
         let host = host
         self.host = nil
         // task-owner: teardown hop; MobileIrxHost.stop() is idempotent and bumps its lifetime
