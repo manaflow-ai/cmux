@@ -25,10 +25,11 @@ public nonisolated struct HomeChiefPetSetting {
 }
 
 extension HomeChiefPetSetting {
-    /// Show Chief Pet / Hide Chief Pet (`home.toggleChiefPet`; the View menu, the palette, the CLI):
+    /// Show Chief Pet / Hide Chief Pet (`home.toggleChiefPet`; the View menu and the palette):
     /// flips `home.chiefPetEnabled` as the caller. The row and the menu item read as the change they
     /// make (Hide Chief Pet while it shows). Only a person may turn it on or off: the settings layer
-    /// refuses an agent's write (the key is not agent-settable). `unavailable` is the refusal while
+    /// refuses an agent's write (the key is not agent-settable), and the action is person-only, so
+    /// the control socket refuses it too. `unavailable` is the refusal while
     /// settings are not loaded.
     public static let toggleAction: ActionID = "home.toggleChiefPet"
 

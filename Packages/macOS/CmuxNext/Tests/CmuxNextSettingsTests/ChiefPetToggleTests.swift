@@ -4,9 +4,9 @@ import CmuxNextDesign
 import Foundation
 import Testing
 
-/// Show Chief Pet / Hide Chief Pet (`home.toggleChiefPet`): the View menu item, palette row and
-/// `cmux home toggle-chief-pet` flip `home.chiefPetEnabled`, read as the change they make, and
-/// an agent cannot turn the pet on.
+/// Show Chief Pet / Hide Chief Pet (`home.toggleChiefPet`): the View menu item and palette row
+/// flip `home.chiefPetEnabled` and read as the change they make. It is person-only with no CLI
+/// verb, and an agent cannot turn the pet on.
 @MainActor @Suite(.serialized) struct ChiefPetToggleTests {
     static func make() throws -> (ActionRegistry, SettingsController, URL) {
         let home = FileManager.default.temporaryDirectory.appending(path: "cn-chief-pet-toggle-\(UUID().uuidString)")
@@ -34,7 +34,8 @@ import Testing
         #expect(descriptor.title == "Show Chief Pet")
         #expect(descriptor.mainMenu == .view)
         #expect(descriptor.isPaletteVisible)
-        #expect(descriptor.cliName == "home toggle-chief-pet")
+        #expect(descriptor.surfacePlan.cli == .exempt(.guiOnly), "user-only setting: a CLI run would always be refused")
+        #expect(descriptor.isPersonOnly, "the control socket refuses it, whatever origin it claims")
     }
 
     @Test func eachRunFlipsThePetAndTheTitleNamesTheChange() async throws {

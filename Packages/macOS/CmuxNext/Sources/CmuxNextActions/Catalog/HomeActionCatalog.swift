@@ -13,6 +13,8 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
         return all.map { descriptor in
             var descriptor = descriptor
             descriptor.waitsForResult = waits.contains(descriptor.id)
+            // `home.chiefPetEnabled` is a user-only setting: only a person turns the pet on.
+            descriptor.isPersonOnly = descriptor.id == "home.toggleChiefPet"
             return descriptor
         }
     }
@@ -83,9 +85,10 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "home.toggleChiefPet", title: t("action.home.toggleChiefPet", "Show Chief Pet"),
                 keywords: ["chief", "pet", "mascot", "floating", "companion", "show", "hide", "toggle", "buddy", "notifications"],
-                category: .window, symbol: "pawprint", surfaces: [.palette, .menu], cliName: "home toggle-chief-pet",
+                category: .window, symbol: "pawprint", surfaces: [.palette, .menu],
                 mainMenu: .view,
-                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
+                // No CLI verb: the setting is user-only, so a script or agent run would be refused.
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
             ),
             ActionDescriptor(
                 id: "home.attachFiles", title: t("action.home.attachFiles", "Attach Files…"),
