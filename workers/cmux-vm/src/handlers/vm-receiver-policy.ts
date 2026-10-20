@@ -5,7 +5,7 @@ import { MeshStore } from "../db/mesh.ts";
 import type { Principal } from "../domain/principal.ts";
 import { unavailable, vmNotFound } from "../errors.ts";
 import type { MeshId, VmId } from "../lib/ids.ts";
-import { actorOf, ownerStillValid } from "../mesh/owner.ts";
+import { actorOf, ownerLease } from "../mesh/owner.ts";
 import { sha256Hex } from "../mesh/signed-request.ts";
 import { projectVmReceivers } from "../mesh/vm-receiver-policy.ts";
 import type { KeyHasScope } from "../proofs/key-has-scope.ts";
@@ -30,13 +30,15 @@ export const readVmReceiverPolicy = <C, M, V>(caller: Named<C, Principal>, mesh:
     const attached = first.members.find((m) => m.vmId === vm.value);
     if (attached === undefined || attached.meshId !== mesh.value || attached.ipv4 !== member.ipv4 || attached.attachedAt.toISOString() !== member.attachedAt) return yield* Effect.fail(vmNotFound());
     const candidates = projectVmReceivers(vm.value, first.devices, first.result.rules);
-    if (candidates.length > 128) return yield* Effect.fail(unavailable());
+    if (candidates.length > 128 || candidates.reduce((sum, peer) => sum + peer.allow.length, 0) > 4096) return yield* Effect.fail(unavailable());
     const owners = [...new Set(first.devices.filter((d) => candidates.some((p) => p.deviceId === d.deviceId)).map((d) => d.createdBy))];
-    const liveOwners = new Map(yield* Effect.forEach(owners, (owner) => Effect.gen(function* () {
+    const leases = new Map(yield* Effect.forEach(owners, (owner) => Effect.gen(function* () {
       const actor = actorOf(owner);
-      return [owner, Option.isSome(actor) && (yield* ownerStillValid(tenant, actor.value, true))] as const;
+      return [owner, Option.isSome(actor) ? (yield* ownerLease(tenant, actor.value, true)) : Option.none<number | null>()] as const;
     }), { concurrency: 8 }));
-    const peers = candidates.filter((p) => first.devices.some((d) => d.deviceId === p.deviceId && liveOwners.get(d.createdBy) === true));
+    const peers = candidates.filter((p) => first.devices.some((d) => d.deviceId === p.deviceId && Option.isSome(leases.get(d.createdBy) ?? Option.none())));
+    const expirations = [...leases.values()].flatMap((lease) => Option.isSome(lease) && lease.value !== null ? [lease.value] : []);
+    const expiresAt = Math.min(checkedAt + 30_000, ...expirations);
     const projection = { schemaVersion: 1 as const, tenantId: tenant, vmId: vm.value, meshId: mesh.value, ipv4: member.ipv4, aclVersion: version, peers };
     const policyDigest = yield* sha256Hex(`cmux-vm-receiver-policy-v1\n${JSON.stringify(projection)}`);
     // Fence identity rotation, deletion, attachment and ACL changes across owner lookups.
@@ -46,6 +48,6 @@ export const readVmReceiverPolicy = <C, M, V>(caller: Named<C, Principal>, mesh:
     const ownsMesh = yield* tenantOwnsMesh(caller, mesh).pipe(Effect.catchAll(dependencyDown("ownership.find")));
     const ownsVm = yield* tenantOwnsVm(caller, vm).pipe(Effect.catchAll(dependencyDown("ownership.find")));
     const finished = yield* Clock.currentTimeMillis;
-    if (!same || ownsVm === null || ownsMesh === null || finished < checkedAt || finished >= checkedAt + 30_000 || !Number.isSafeInteger(version)) return yield* Effect.fail(unavailable());
-    return yield* Schema.decodeUnknown(VmReceiverPolicy)({ ...projection, policyDigest, checkedAt, expiresAt: checkedAt + 30_000 }).pipe(Effect.mapError(() => unavailable()));
+    if (!same || ownsVm === null || ownsMesh === null || finished < checkedAt || finished >= expiresAt || !Number.isSafeInteger(version)) return yield* Effect.fail(unavailable());
+    return yield* Schema.decodeUnknown(VmReceiverPolicy)({ ...projection, policyDigest, checkedAt, expiresAt }).pipe(Effect.mapError(() => unavailable()));
   }).pipe(Effect.timeoutFail({ duration: Duration.seconds(15), onTimeout: unavailable }));

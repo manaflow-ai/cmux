@@ -239,7 +239,7 @@ export class VmReceiverPolicy extends Schema.Class<VmReceiverPolicy>("VmReceiver
   ipv4: Schema.NullOr(Schema.String), aclVersion: Schema.Int.pipe(Schema.nonNegative()),
   checkedAt: Schema.Int.pipe(Schema.nonNegative()), expiresAt: Schema.Int.pipe(Schema.nonNegative()),
   policyDigest: Schema.String.pipe(Schema.pattern(/^[0-9a-f]{64}$/u)),
-  peers: Schema.Array(Schema.Struct({ deviceId: DeviceId, wgPublicKey: WgPublicKey, installPublicKey: InstallPublicKey, allow: Schema.Array(PeerAllow) })).pipe(Schema.maxItems(128)),
+  peers: Schema.Array(Schema.Struct({ deviceId: DeviceId, wgPublicKey: WgPublicKey, installPublicKey: InstallPublicKey, allow: Schema.Array(PeerAllow).pipe(Schema.maxItems(4096)) })).pipe(Schema.maxItems(128)),
 }) {}
 
 export const OverlayPeer = Schema.Struct({
@@ -564,7 +564,7 @@ export class MeshGroupDefinition extends HttpApiGroup.make("mesh")
     HttpApiEndpoint.get("getVmReceiverPolicy", "/v1/meshes/:meshId/vms/:vmId/receiver-policy")
       .setPath(MemberPath).setHeaders(GroupTeamHeaders).addSuccess(VmReceiverPolicy)
       .addError(NotFound).addError(Conflict).addError(QuotaExceeded)
-      .annotateContext(describe("Read a VM's current receiving policy", "mesh:read", `Also needs vm:read and visibility of the exact VM and mesh. Returns unique live public client identities and their incoming VM service permissions, with a 30-second lease. Public-address transport rules are excluded. No listener activation or backend service grant is implied. ${EXPERIMENT}`)),
+      .annotateContext(describe("Read a VM's current receiving policy", "mesh:read", `Also needs vm:read and visibility of the exact VM and mesh. Returns unique live public client identities and at most 4096 incoming service rules, with a lease of at most 30 seconds capped by included owner-key expiry. Public-address transport rules are excluded. No listener activation or backend service grant is implied. ${EXPERIMENT}`)),
   )
   .add(
     HttpApiEndpoint.put("attachMeshVm", "/v1/meshes/:meshId/vms/:vmId")

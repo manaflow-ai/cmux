@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { Either, Schema } from "effect";
+import { VmReceiverPolicy } from "../../src/api/mesh.ts";
 import { projectVmReceivers } from "../../src/mesh/vm-receiver-policy.ts";
 import type { DesiredRule } from "../../src/mesh/acl.ts";
 
@@ -24,5 +26,15 @@ describe("VM receiver projection", () => {
   it("orders identities independently of inventory insertion order", () => {
     const other = { deviceId: "device-b", wgPublicKey: "wg-b", installPublicKey: "point-b" }, rules = [rule, { ...rule, deviceId: other.deviceId }];
     expect(projectVmReceivers("vm-a", [other, client], rules)).toEqual(projectVmReceivers("vm-a", [client, other], rules));
+  });
+  it("decodes the versioned public contract and refuses unsupported or oversized policies", () => {
+    const peer = { deviceId: `dev_${"0".repeat(26)}`, wgPublicKey: btoa("a".repeat(32)), installPublicKey: btoa(String.fromCharCode(4) + "a".repeat(64)), allow: [{ protocol: "tcp", port: 22 }] };
+    const value = { schemaVersion: 1, tenantId: "team_alpha", vmId: `vm_${"0".repeat(26)}`, meshId: `mesh_${"0".repeat(26)}`, ipv4: "10.128.0.2",
+      aclVersion: 1, checkedAt: 1_792_000_000_000, expiresAt: 1_792_000_030_000, policyDigest: "a".repeat(64), peers: [peer] };
+    const decode = Schema.decodeUnknownEither(VmReceiverPolicy);
+    expect(Either.isRight(decode(value))).toBe(true);
+    expect(Either.isLeft(decode({ ...value, schemaVersion: 2 }))).toBe(true);
+    expect(Either.isLeft(decode({ ...value, peers: Array.from({ length: 129 }, () => peer) }))).toBe(true);
+    expect(Either.isLeft(decode({ ...value, peers: [{ ...peer, allow: Array.from({ length: 4097 }, () => ({ protocol: "tcp", port: 22 })) }] }))).toBe(true);
   });
 });
