@@ -147,6 +147,9 @@ struct MacScreenHubCardTests {
         let refused = ICECandidateError(code: 401, url: "turn:relay.example:3478", text: "Unauthorized")
         let unreachable = ICECandidateError(code: 701, url: "turns:relay.example:5349", text: "")
         let generic = MacScreenPaneModel.failedDetail(relayErrors: [], relayOnly: false, hubTab: true, name: "Mac mini 2")
+        // This Mac lost its own link to the hub: the card says so, not that the host is away.
+        let ownLink = MacScreenPaneModel.failedDetail(relayErrors: [], relayOnly: false, hubTab: true, name: "Mac mini 2", hubOnline: false)
+        #expect(ownLink != generic && !ownLink.contains("Mac mini 2"))
         #expect(generic.contains("Mac mini 2"))
         let refusedText = MacScreenPaneModel.failedDetail(relayErrors: [unreachable, refused], relayOnly: false, hubTab: true, name: "M")
         let unreachableText = MacScreenPaneModel.failedDetail(relayErrors: [unreachable], relayOnly: true, hubTab: true, name: "M")
@@ -154,7 +157,8 @@ struct MacScreenHubCardTests {
         #expect(Set([generic, refusedText, unreachableText, relayOnly]).count == 4)
         #expect(ICERelayCheck.outcome([refused, unreachable]) == .refusedCredentials)
         #expect(ICERelayCheck.outcome([unreachable]) == .unreachable)
-        #expect(ICERelayCheck.outcome([]) == .noRelayCandidate)
+        // No relay address and no 401 before the deadline: the relay can't be reached.
+        #expect(ICERelayCheck.outcome([]) == .unreachable)
         #expect(!ICECandidateError(code: 701, url: "stun:stun.example:3478", text: "").isTURN)
     }
 
@@ -333,6 +337,74 @@ struct MacScreenHubViewerTests {
         #expect(viewer.phase == .streaming(sessionID: "s1", scope: .full))
     }
 
+    /// The host's reason wins over a stream that dropped a moment before it arrived (View scope too).
+    @Test func theHostsReasonWinsOverTheDroppedStream() {
+        for scope: SessionScope in [.view, .full] {
+            let hub = testHub()
+            let viewer = MacScreenHubViewer(deviceID: hostID) { hub }
+            viewer.endSession = { _, _, _ in }
+            viewer.phase = .streaming(sessionID: "s1", scope: scope)
+            viewer.streamFailed()
+            viewer.revoked(reason: "sharing_off")
+            #expect(viewer.phase == .revoked(reason: "sharing_off"))
+            viewer.phase = .streaming(sessionID: "s2", scope: scope)
+            viewer.streamFailed()
+            viewer.ended(reason: "host_stopped")
+            #expect(viewer.phase == .ended(reason: "host_stopped"))
+        }
+    }
+
+    /// A ticket that beats the request's HTTP answer: the answer that comes back
+    /// afterwards never ends the session it started.
+    @Test func aLateAnswerNeverEndsTheSessionItStarted() {
+        let hub = testHub()
+        let viewer = MacScreenHubViewer(deviceID: hostID) { hub }
+        let ends = CallLog()
+        viewer.endSession = { _, id, reason in ends.items.append("\(id) \(reason)") }
+        viewer.phase = .streaming(sessionID: "s2", scope: .full)
+        viewer.requestReturned(.success(HubSession(id: "s2", state: .approved, scope: .full)), scope: .full, hub: hub, cancelled: true)
+        #expect(viewer.phase == .streaming(sessionID: "s2", scope: .full))
+        // A request the person cancelled while it was out does end its session.
+        viewer.phase = .idle
+        viewer.requestReturned(.success(HubSession(id: "s3", state: .pending, scope: .view)), scope: .view, hub: hub, cancelled: true)
+        #expect(viewer.phase == .idle)
+        #expect(ends.items == ["s3 viewer_disconnected"])
+    }
+
+    /// The viewer gives up with the hub: a request nobody answers ends at the five-minute expiry.
+    @Test func anUnansweredRequestExpires() async {
+        let hub = testHub()
+        let viewer = MacScreenHubViewer(deviceID: hostID) { hub }
+        let ends = CallLog()
+        viewer.endSession = { _, id, reason in ends.items.append("\(id) \(reason)") }
+        viewer.approvalTimeout = .milliseconds(20)
+        viewer.phase = .requesting(.view)
+        viewer.requestAnswered(.success(HubSession(id: "s1", state: .pending, scope: .view)), scope: .view, hub: hub)
+        #expect(viewer.phase == .waitingForApproval(sessionID: "s1", scope: .view))
+        await viewer.approvalExpiry?.value
+        #expect(viewer.phase == .ended(reason: "expired"))
+        #expect(ends.items == ["s1 expired"])
+    }
+
+    /// Full lowered to View: the card says the access changed and offers View Only.
+    @Test func accessLoweredToViewIsNotRemoved() {
+        #expect(MacScreenPaneModel.hubCard(.revoked(reason: "permission_revoked"), access: .view) == .hubAccessLowered)
+        #expect(MacScreenPaneModel.hubCard(.revoked(reason: "permission_revoked"), access: MacScreenAccess(.none).scope)
+            == .hubRevoked(.permissionRevoked))
+    }
+
+    /// A removed host is gone: its card offers no Connect Again.
+    @Test func removedDevicesOfferNoReconnect() {
+        #expect(!MacScreenEndReason.hostRemoved.canReconnect && !MacScreenEndReason.viewerRemoved.canReconnect)
+        #expect(MacScreenEndReason.hostStopped.canReconnect && MacScreenEndReason.permissionRevoked.canReconnect)
+    }
+
+    /// None means the host blocked this device: no Ask for Access (the hub refuses it).
+    @Test func noAskForAccessAtNone() {
+        #expect(!MacScreenAccess(.none).allowsRequests)
+        #expect(MacScreenAccess(.ask).allowsRequests && MacScreenAccess(.view).allowsRequests && MacScreenAccess(.full).allowsRequests)
+    }
+
     @Test func withoutAHubARequestIsRefusedAsSignedOut() {
         let viewer = MacScreenHubViewer(deviceID: hostID) { nil }
         viewer.request(.view)
@@ -389,6 +461,31 @@ struct MacScreenHubPushTests {
         #expect(!MacScreenHomeView.showsLinks(hubConfigured: true))
     }
 
+    /// This Mac removed from the user's devices: its sessions end with that reason, not "signed out".
+    @Test func aRemovedViewerSaysItWasRemoved() throws {
+        let pages = makePages()
+        pages.prepare("a", record: MacScreenRecord(deviceID: hostID), byPerson: false)
+        _ = pages.makeView(for: "a")
+        let viewer = try #require(pages.tab("a")?.pane?.model.hub)
+        pages.hub = testHub()
+        viewer.phase = .streaming(sessionID: "s1", scope: .full)
+        pages.endHubSessions(reason: "device_removed:viewer")
+        pages.hub = nil
+        #expect(viewer.phase == .ended(reason: "device_removed:viewer"))
+        #expect(MacScreenPaneModel.hubCard(viewer.phase) == .hubEnded(.viewerRemoved))
+        pages.tabClosed("a")
+    }
+
+    /// A restored, unselected device tab's strip title comes from its route and the saved name.
+    @Test func routesTitleRestoredTabsBeforeTheirView() async {
+        let pages = makePages()
+        await pages.store.load()
+        pages.store.rememberDeviceNames([hostID: "Mac mini 2"])
+        #expect(pages.title(forRoute: "device:\(hostID)") == "Mac mini 2")
+        #expect(pages.title(forRoute: "home") == MacScreenPages.homeTitle)
+        #expect(pages.title(forRoute: nil) == nil)
+    }
+
     @Test func signingOutEndsEveryDeviceSession() throws {
         let pages = makePages()
         pages.prepare("a", record: MacScreenRecord(deviceID: hostID), byPerson: false)
@@ -421,6 +518,10 @@ struct MacScreenDevicesSettingsTests {
         // End reasons name the devices.
         let stopped = AuditEntry(id: "e3", event: "ended", viewerId: "v1", hostId: hostID, detail: "host_stopped")
         #expect(MacScreenDevicesSettings.historyRow(stopped, names: names, me: hostID).detail.contains("Studio"))
+        // A removed device no longer listed: never "Removed device was removed".
+        let unknownRemoved = AuditEntry(id: "e6", event: "ended", viewerId: "gone", hostId: hostID, detail: "device_removed:viewer")
+        #expect(!MacScreenDevicesSettings.historyRow(unknownRemoved, names: names, me: hostID).detail
+            .contains(MacScreenDevicesSettings.historyRow(unknownRemoved, names: names, me: hostID).device))
         let removed = AuditEntry(id: "e4", event: "ended", viewerId: "v1", hostId: hostID, detail: "device_removed:viewer")
         #expect(MacScreenDevicesSettings.historyRow(removed, names: names, me: hostID).detail.contains("Laptop"))
         let disconnected = AuditEntry(id: "e5", event: "ended", viewerId: "v1", hostId: hostID, detail: "viewer_disconnected")
@@ -525,5 +626,26 @@ struct MacScreenHubHostOrderTests {
         await host.stopSession()?.value
         #expect(calls.items == ["s1 host_stopped s1"])
         #expect(host.session == nil)
+    }
+}
+
+/// The host's approval prompt is visible every time, not only the first.
+@MainActor
+struct MacScreenApprovalPanelTests {
+    @Test func everyPromptHasAVisibleFrame() throws {
+        let prompt = MacScreenApprovalPrompt()
+        let first = SessionRequest(id: "s1", viewerId: "v1", viewerName: "Laptop", viewerKeyFingerprint: String(repeating: "ab", count: 32), scope: .view)
+        let second = SessionRequest(id: "s2", viewerId: "v1", viewerName: "Laptop", scope: .full)
+        prompt.update([first])
+        let one = try #require(prompt.panelFrame)
+        prompt.update([])
+        #expect(prompt.panelFrame == nil)
+        prompt.update([second])
+        let two = try #require(prompt.panelFrame)
+        for frame in [one, two] {
+            #expect(frame.width >= 300 && frame.height >= 100)
+            if let screen = NSScreen.main ?? NSScreen.screens.first { #expect(screen.frame.intersects(frame)) }
+        }
+        prompt.update([])
     }
 }
