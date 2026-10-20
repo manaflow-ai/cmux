@@ -81,12 +81,14 @@ export function ComposerContext({
     [summary, sessions, peers, localName],
   );
   const initialComputer = computerId(summary);
-  // A pick in the Computer menu holds for its chat and that chat's computer; another chat shows its
-  // own computer in the render that shows it (it followed in an effect, a frame late: the wrong
-  // computer and no folder for one frame on a local/peer switch).
-  const [picked, setPicked] = useState<{ key: string; computer: string }>();
+  // A pick in the Computer menu holds until the chat or its computer changes; then the new chat's
+  // own computer shows in the render that shows it (it followed in an effect, a frame late: the
+  // wrong computer and no folder for one frame on a local/peer switch). Each change clears the pick,
+  // so a pick on one new chat never carries into the next.
   const pickKey = `${summary?.sessionId ?? ""}\u0000${initialComputer}`;
-  const selectedComputer = picked?.key === pickKey ? picked.computer : initialComputer;
+  const [picked, setPicked] = useState<{ key: string; computer?: string }>({ key: pickKey });
+  if (picked.key !== pickKey) setPicked({ key: pickKey });
+  const selectedComputer = picked.key === pickKey && picked.computer ? picked.computer : initialComputer;
   const setSelectedComputer = (computer: string) => setPicked({ key: pickKey, computer });
   const folders = useMemo(() => {
     const known = availableFolders(summary, sessions, selectedComputer);

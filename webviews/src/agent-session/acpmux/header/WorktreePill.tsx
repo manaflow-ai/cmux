@@ -52,7 +52,11 @@ export function useWorktree(
         knownWorktrees.set(folder, worktree);
         if (current) setFound({ folder, worktree });
       },
-      () => current && setFound({ folder, worktree: knownWorktrees.get(folder) }),
+      // A folder that no longer reads (a removed worktree) shows no pill, and is forgotten.
+      () => {
+        knownWorktrees.delete(folder);
+        if (current) setFound({ folder, worktree: undefined });
+      },
     );
     return () => {
       current = false;

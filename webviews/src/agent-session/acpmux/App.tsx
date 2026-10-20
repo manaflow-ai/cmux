@@ -2762,8 +2762,10 @@ function AcpmuxPane() {
     healthRechecked.current = healthRecheck;
     void readHarnessHealth({ id: healthHarness, ...(refresh ? { refresh: true } : {}) })
       .then((reply) => {
+        // A reply a newer read replaced changes nothing, the remembered answer included.
+        if (!live) return;
         knownHarnessHealth.set(healthHarness, reply.health ?? undefined);
-        if (live) setHarnessHealth(reply.health ?? undefined);
+        setHarnessHealth(reply.health ?? undefined);
       })
       .catch(() => undefined);
     return () => {

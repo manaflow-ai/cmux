@@ -22,8 +22,13 @@ function remember(sessionId: string, rowId: string, load: TurnCheckpointLoad) {
 }
 
 /// The checkpoints known for `sessionId` before any read on this mount: its answered ones.
+const NONE: ReadonlyMap<string, TurnCheckpointLoad> = new Map();
 export function rememberedCheckpoints(sessionId: string | undefined): ReadonlyMap<string, TurnCheckpointLoad> {
-  return (sessionId && answered.get(sessionId)) || new Map();
+  return (sessionId && answered.get(sessionId)) || NONE;
+}
+
+function askedOf(sessionId: string | undefined) {
+  return new Map([...rememberedCheckpoints(sessionId)].map(([rowId, load]) => [rowId, load.state]));
 }
 
 export function useTurnCheckpoints(read: TurnCheckpointRead | undefined, sessionId: string | undefined) {
@@ -33,11 +38,12 @@ export function useTurnCheckpoints(read: TurnCheckpointRead | undefined, session
   }));
   const session = useRef(sessionId);
   session.current = sessionId;
-  const asked = useRef(new Map<string, TurnCheckpointLoad["state"]>());
-  const askedFor = useRef(sessionId);
-  if (askedFor.current !== sessionId) {
-    askedFor.current = sessionId;
-    asked.current = new Map([...rememberedCheckpoints(sessionId)].map(([rowId, load]) => [rowId, load.state]));
+  // A mount (or another chat) knows its remembered turns as asked: they are not read again.
+  const asked = useRef<Map<string, TurnCheckpointLoad["state"]>>(undefined as never);
+  const askedFor = useRef<{ sessionId: string | undefined }>(undefined as never);
+  if (!askedFor.current || askedFor.current.sessionId !== sessionId) {
+    askedFor.current = { sessionId };
+    asked.current = askedOf(sessionId);
   }
   useEffect(() => {
     setLoads((current) =>
@@ -56,7 +62,12 @@ export function useTurnCheckpoints(read: TurnCheckpointRead | undefined, session
           remember(from, rowId, load);
         if (session.current !== from) return;
         asked.current.set(rowId, load.state);
-        setLoads((current) => ({ sessionId: from, map: new Map(current.map).set(rowId, load) }));
+        // On the chat's own map: an answer landing just after a switch back must not join the map
+        // the state still holds for the chat before (row ids repeat across chats).
+        setLoads((current) => ({
+          sessionId: from,
+          map: new Map(current.sessionId === from ? current.map : rememberedCheckpoints(from)).set(rowId, load),
+        }));
       };
       settle({ state: "loading" });
       read({ rowId }).then(

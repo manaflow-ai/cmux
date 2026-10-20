@@ -85,8 +85,15 @@ function load(sessionId: string): void {
         else toggleWith(via, sessionId, seq, true, () => forgetLocalMark(key));
     },
     () => {
-      // Unreachable or an older acpmux: no marks, and the next transport asks again.
-      if (via === transport) loaded.delete(sessionId);
+      // Unreachable or an older acpmux: no marks (the ones kept from the connection before go too),
+      // and the next transport asks again.
+      if (via !== transport) return;
+      loaded.delete(sessionId);
+      if (marks.has(sessionId)) {
+        marks = new Map(marks);
+        marks.delete(sessionId);
+        emit();
+      }
     },
   );
 }
