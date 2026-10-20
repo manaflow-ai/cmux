@@ -134,7 +134,7 @@ final class MachineBrowserStateView: NSView {
         queued.ink = .secondary
         openLocallyButton.target = self
         openLocallyButton.action = #selector(openLocallyPressed)
-        openLocallyButton.keyEquivalent = "\r"
+        openLocallyButton.keyHint = .return
         retryButton.target = self
         retryButton.action = #selector(retryPressed)
         let buttons = NSStackView(views: [retryButton, openLocallyButton])

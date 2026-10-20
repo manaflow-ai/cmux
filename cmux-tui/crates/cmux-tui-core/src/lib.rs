@@ -53,6 +53,7 @@ pub mod launch_credential;
 use cmux_tui_util::machine_name;
 mod model;
 mod mux;
+pub mod net_keepalive;
 /// Remote access state; the cmux-tui-remote-access crate, re-exported at the old paths.
 use cmux_tui_remote_access::pairing;
 mod program_status;
@@ -62,6 +63,7 @@ pub mod provider_management;
 mod pty_write;
 use cmux_tui_remote_access::remote_relay_state;
 mod login_shell;
+pub mod release;
 mod request_origin;
 pub mod resource;
 mod resource_api;
@@ -165,6 +167,7 @@ pub use remote_relay_state::{
 };
 pub use resource_api::{ResourceMachineRequest, ResourceMachineService};
 pub use resource_selector::{ResolvedResourcePath, ResourceSelectors, ResourceTarget};
+pub use shell_integration::AGENT_SHIMS_ENV;
 pub use short_id::assign_short_ids;
 pub use surface::{
     AttachFrame, AttachFrameReceiver, AttachStream, BrowserAttachState, BrowserFrame,

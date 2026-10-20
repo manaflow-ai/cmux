@@ -456,6 +456,98 @@ async fn a_web_prompt_for_an_unresolved_key_is_refused_and_one_for_a_peer_sessio
     assert_eq!(ok["peer"], "b", "{ok}");
 }
 
+#[tokio::test]
+async fn a_web_notification_cancel_forwarded_by_a_peer_keeps_web_control() {
+    let mut cfg_b = config(PermissionPolicy::Ask);
+    cfg_b.web_roots = vec![std::env::temp_dir().to_string_lossy().into_owned()];
+    cfg_b.web_asking_modes.insert("fake".into(), vec!["normal".into()]);
+    let b = hub(cfg_b).await;
+    let (b_in, b_rx) = mpsc::channel(64);
+    let (b_out, b_tx) = mpsc::channel(4096);
+    tokio::spawn(acpmux::server::serve_connection_with(
+        b.clone(),
+        b_rx,
+        b_out,
+        acpmux::server::Origin::Web,
+    ));
+    let mut web_b = C { tx: b_in, rx: b_tx, next: 0 };
+    let session = web_b
+        .call(
+            method::SESSION_NEW,
+            json!({
+                "cwd": std::env::temp_dir(),
+                "mcpServers": [],
+                "_meta": {"acpmux": {"name": "web-cancel"}}
+            }),
+        )
+        .await
+        .unwrap();
+    let remote_id = session["sessionId"].as_str().unwrap().to_owned();
+
+    let mut cb = client(b.clone()).await;
+    cb.call(method::MUX_ATTACH, json!({"sessionId": remote_id, "limit": 0})).await.unwrap();
+    let policy = cb
+        .call(method::MUX_SET_POLICY, json!({"sessionId": remote_id, "policy": "approve-all"}))
+        .await;
+    assert!(policy.is_ok(), "{policy:?}");
+    cb.next += 1;
+    cb.tx
+        .send(
+            Message::request(
+                cb.next,
+                method::SESSION_PROMPT,
+                json!({"sessionId": remote_id, "prompt": [{"type": "text", "text": "until-cancel"}]}),
+            )
+            .to_line(),
+        )
+        .await
+        .unwrap();
+    cb.wait(method::SESSION_UPDATE, |p| p["update"]["sessionUpdate"] == "agent_message_chunk")
+        .await;
+
+    let a = hub(config(PermissionPolicy::Ask)).await;
+    let (port, peer_token) = listen_with_peer_token(b.clone(), "cancel-via-peer").await;
+    a.add_peer("b", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), Some(peer_token), true)
+        .await
+        .unwrap();
+    let (a_in, a_rx) = mpsc::channel(64);
+    let (a_out, a_tx) = mpsc::channel(4096);
+    tokio::spawn(acpmux::server::serve_connection_with(
+        a,
+        a_rx,
+        a_out,
+        acpmux::server::Origin::Web,
+    ));
+    let web_a = C { tx: a_in, rx: a_tx, next: 0 };
+    web_a
+        .tx
+        .send(
+            Message::notification(method::SESSION_CANCEL, json!({"sessionId": "b/web-cancel"}))
+                .to_line(),
+        )
+        .await
+        .unwrap();
+
+    let ended = tokio::time::timeout(
+        Duration::from_millis(300),
+        cb.wait(method::MUX_EVENT, |p| p["kind"] == "turn_end" && p["sessionId"] == remote_id),
+    )
+    .await;
+    assert!(ended.is_err(), "a Web cancel through a peer ended the turn: {ended:?}");
+
+    cb.tx
+        .send(
+            Message::notification(method::SESSION_CANCEL, json!({"sessionId": remote_id}))
+                .to_line(),
+        )
+        .await
+        .unwrap();
+    let ended = cb
+        .wait(method::MUX_EVENT, |p| p["kind"] == "turn_end" && p["sessionId"] == remote_id)
+        .await;
+    assert_eq!(ended["msg"]["stopReason"], "cancelled", "{ended}");
+}
+
 /// The folder-trust gate: A's app pane (LocalApp) prompting a session on B
 /// is marked `via: app`, and B holds it until B's folder is trusted. A's own
 /// user (its unix socket) is not gated.
