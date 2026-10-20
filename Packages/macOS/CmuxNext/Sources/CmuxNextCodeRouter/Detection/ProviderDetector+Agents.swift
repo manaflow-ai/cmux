@@ -7,12 +7,34 @@ extension ProviderDetector {
     /// The Codex home: `$CODEX_HOME`, else `~/.codex`.
     var codexHome: URL { environment.directory("CODEX_HOME", fallback: ".codex") }
 
+    /// Codex's sign-in (``detectCodexLogin()``), else the model provider its
+    /// config.toml selects when that provider does not use the OpenAI
+    /// sign-in (hq#2569 #2: sr on the capture minis, a router with an
+    /// `env_key`, a local server). Such a provider is signed in for Codex but
+    /// is not a sign-in CodeRouter can link (``DetectionSource/providerConfig(_:)``).
+    func detectCodex() -> ProviderDetection {
+        let login = detectCodexLogin()
+        if login.status == .signedIn { return login }
+        let config = codexHome.appendingPathComponent("config.toml")
+        guard let data = environment.files.data(at: config), let text = String(data: data, encoding: .utf8) else { return login }
+        let source = DetectionSource.providerConfig(environment.display(config))
+        switch CodexProviderConfig.auth(configText: text, value: environment.value) {
+        case .openAILogin:
+            return login
+        case .configured(let name, let envKey):
+            return ProviderDetection(provider: .codex, status: .signedIn, detail: name,
+                                     sources: [source] + (envKey.map { [.environment($0)] } ?? []))
+        case .missing(let name):
+            return login.status == .missing ? ProviderDetection(provider: .codex, status: .unknown, detail: name, sources: [source]) : login
+        }
+    }
+
     /// `auth.json` in the Codex home: ChatGPT tokens (handle from the
     /// workspace and user id claims, display from the plan claim; see
     /// ``CodexAccountIdentity``) or an API key. When the CLI keeps
     /// credentials in the Keychain (`cli_auth_credentials_store = "keyring"`
     /// in config.toml), only the item's presence is checked.
-    func detectCodex() -> ProviderDetection {
+    func detectCodexLogin() -> ProviderDetection {
         let file = codexHome.appendingPathComponent("auth.json")
         let source = DetectionSource.file(environment.display(file))
         guard environment.files.exists(file) else {
@@ -58,8 +80,10 @@ extension ProviderDetector {
 
     /// Claude Code: `$CLAUDE_CODE_OAUTH_TOKEN`, the `.credentials.json`
     /// file (Linux layout, also used when the Keychain is unavailable),
-    /// or the macOS Keychain item `Claude Code-credentials`. The account
-    /// label comes from `oauthAccount.emailAddress` in `.claude.json`.
+    /// or the macOS Keychain item `Claude Code-credentials`; else a key,
+    /// gateway token or cloud switch Claude Code reads
+    /// (``detectClaudeConfigured(configDir:)``). The account label comes
+    /// from `oauthAccount.emailAddress` in `.claude.json`.
     func detectClaudeCode() -> ProviderDetection {
         let configDir = environment.directory("CLAUDE_CONFIG_DIR", fallback: ".claude")
         let identity = claudeIdentity(configDir: configDir)
@@ -83,7 +107,7 @@ extension ProviderDetector {
             return ProviderDetection(provider: .claude, status: .signedIn, account: identity.account, plan: identity.plan,
                                      sources: [.keychain(Self.claudeKeychainService)])
         }
-        return .missing(.claude)
+        return detectClaudeConfigured(configDir: configDir) ?? .missing(.claude)
     }
 
     static let claudeKeychainService = "Claude Code-credentials"

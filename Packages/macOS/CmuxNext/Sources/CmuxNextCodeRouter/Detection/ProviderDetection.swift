@@ -24,10 +24,14 @@ public enum DetectionSource: Sendable, Equatable, Hashable, Encodable {
     /// A key the user saved in cmux's own Keychain item.
     case cmuxKeychain
     case server(String)
+    /// A config file that sends the CLI to a model provider of its own (a
+    /// proxy, a router, a local server) instead of the provider's sign-in.
+    /// The CLI works, but there is no sign-in here CodeRouter can link.
+    case providerConfig(String)
 
     public var label: String {
         switch self {
-        case .file(let path): path
+        case .file(let path), .providerConfig(let path): path
         case .environment(let key): "$" + key
         case .keychain(let service): service
         case .cmuxKeychain: "cmux Keychain"
