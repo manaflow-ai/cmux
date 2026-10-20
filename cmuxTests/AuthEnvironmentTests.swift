@@ -780,7 +780,8 @@ struct CheckoutAttributionTests {
     @Test
     func vmMemoryRequiresPlanErrorDoesNotGuessAnUpgradePlan() {
         let text = defaultCloudVMAction(status: 402, errorCode: "vm_memory_requires_plan")
-        #expect(text.contains("Choose a smaller machine size"))
+        let smallerSize = String(localized: "cli.vm.resize.chooseSmaller", defaultValue: "Choose a smaller size.")
+        #expect(text.contains(smallerSize))
         #expect(!text.contains("checkout"))
     }
 
