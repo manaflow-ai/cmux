@@ -129070,6 +129070,530 @@
           }
         }
       }
+    },
+    "settings.sidebar.showTimestamps": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Timestamps"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إظهار الأوقات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prikaži vremena"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vis tidspunkter"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zeitangaben anzeigen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostrar horas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Afficher les heures"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostra orari"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "時刻を表示"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បង្ហាញពេលវេលា"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "시간 표시"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vis tidspunkter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pokazuj czas"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostrar horários"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показывать время"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แสดงเวลา"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zamanları göster"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показувати час"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hiện thời gian"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "显示时间"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "顯示時間"
+          }
+        }
+      }
+    },
+    "settings.sidebar.showTimestamps.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace rows show when they last changed: a time today, else an age such as 3d. Off, rows show no times; the hover card still does."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعرض صفوف مساحات العمل وقت آخر تغيير: الساعة إن كان اليوم، وإلا مدة مثل 3d. عند الإيقاف لا تعرض الصفوف أي أوقات، وتبقى البطاقة المنبثقة تعرضها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Redovi radnih prostora prikazuju kada su se zadnji put promijenili: vrijeme za danas, inače starost kao 3d. Isključeno, redovi ne prikazuju vremena; kartica pri prelasku ih i dalje prikazuje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arbejdsområdets rækker viser, hvornår de sidst ændrede sig: et klokkeslæt i dag, ellers en alder som 3d. Fra viser rækkerne ingen tider; svævekortet viser dem stadig."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Workspace-Zeilen zeigen, wann sie sich zuletzt geändert haben: heute eine Uhrzeit, sonst ein Alter wie 3d. Aus zeigen Zeilen keine Zeiten; die Hover-Karte zeigt sie weiterhin."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Las filas de los espacios de trabajo muestran cuándo cambiaron por última vez: una hora si fue hoy, si no una antigüedad como 3d. Desactivado, las filas no muestran horas; la tarjeta al pasar el puntero sí."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Les lignes des espaces de travail indiquent leur dernière modification : une heure si c’est aujourd’hui, sinon une ancienneté comme 3d. Désactivé, les lignes n’affichent aucune heure ; la carte de survol les affiche toujours."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le righe degli spazi di lavoro mostrano quando sono cambiate l’ultima volta: un orario se oggi, altrimenti un’età come 3d. Disattivato, le righe non mostrano orari; la scheda al passaggio del puntatore sì."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ワークスペースの行に最後に変わった時刻を表示します。今日なら時刻、それ以外は 3d のような経過時間です。オフにすると行に時刻は出ません。ホバーカードには引き続き表示されます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ជួរដេកកន្លែងធ្វើការបង្ហាញពេលដែលវាបានផ្លាស់ប្តូរចុងក្រោយ៖ ម៉ោងសម្រាប់ថ្ងៃនេះ បើមិនដូច្នោះទេ អាយុដូចជា 3d។ បិទ ជួរដេកមិនបង្ហាញពេលវេលាទេ ប៉ុន្តែកាតពេលដាក់ទស្សន៍ទ្រនិចនៅតែបង្ហាញ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "워크스페이스 행에 마지막으로 바뀐 때를 표시합니다. 오늘이면 시각, 아니면 3d 같은 경과 기간입니다. 끄면 행에 시간이 표시되지 않으며, 호버 카드에는 계속 표시됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arbeidsområderadene viser når de sist endret seg: et klokkeslett i dag, ellers en alder som 3d. Av viser radene ingen tider; svevekortet viser dem fortsatt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wiersze obszarów roboczych pokazują, kiedy ostatnio się zmieniły: godzinę, jeśli dziś, w przeciwnym razie wiek, np. 3d. Wyłączone: wiersze nie pokazują czasu; karta po najechaniu nadal go pokazuje."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "As linhas dos espaços de trabalho mostram quando mudaram pela última vez: um horário se foi hoje, senão uma idade como 3d. Desativado, as linhas não mostram horários; o cartão ao passar o ponteiro ainda mostra."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Строки рабочих пространств показывают, когда они менялись в последний раз: время, если сегодня, иначе давность, например 3d. Если выключено, строки не показывают время; карточка при наведении по-прежнему показывает."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แถวพื้นที่ทำงานแสดงเวลาที่เปลี่ยนล่าสุด: เวลาถ้าเป็นวันนี้ ไม่เช่นนั้นเป็นอายุ เช่น 3d เมื่อปิด แถวจะไม่แสดงเวลา แต่การ์ดเมื่อชี้ยังแสดงอยู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Çalışma alanı satırları en son ne zaman değiştiklerini gösterir: bugünse saat, değilse 3d gibi bir süre. Kapalıyken satırlar zaman göstermez; üzerine gelince açılan kart göstermeye devam eder."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Рядки робочих просторів показують, коли вони востаннє змінювалися: час, якщо сьогодні, інакше давність, наприклад 3d. Якщо вимкнено, рядки не показують час; картка під час наведення й далі показує."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Các hàng không gian làm việc hiện lần thay đổi gần nhất: giờ nếu là hôm nay, nếu không là khoảng thời gian như 3d. Khi tắt, các hàng không hiện thời gian; thẻ khi di chuột vẫn hiện."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "工作区行显示上次更改的时间：今天显示具体时间，否则显示 3d 之类的时长。关闭后行内不显示时间；悬停卡片仍会显示。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "工作區列顯示上次變更的時間：今天顯示具體時間，否則顯示 3d 之類的時長。關閉後列內不顯示時間；懸停卡片仍會顯示。"
+          }
+        }
+      }
+    },
+    "settings.browser.omnibar.showFullURLs": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Always Show Full URLs"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إظهار عناوين URL الكاملة دائمًا"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uvijek prikaži pune URL-ove"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vis altid fulde URL-adresser"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Immer vollständige URLs anzeigen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostrar siempre las URL completas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Toujours afficher les URL complètes"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostra sempre URL completi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "常に完全な URL を表示"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បង្ហាញ URL ពេញជានិច្ច"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "항상 전체 URL 표시"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vis alltid fullstendige nettadresser"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zawsze pokazuj pełne adresy URL"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sempre mostrar URLs completos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Всегда показывать полные URL"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แสดง URL แบบเต็มเสมอ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Her Zaman Tam URL’leri Göster"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Завжди показувати повні URL"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Luôn hiển thị URL đầy đủ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "始终显示完整网址"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "一律顯示完整網址"
+          }
+        }
+      }
+    },
+    "settings.browser.omnibar.showFullURLs.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shows the whole address, with https:// and www., when you are not editing it."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يعرض العنوان كاملًا، مع https:// وwww.، عندما لا تحرره."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prikazuje cijelu adresu, s https:// i www., kada je ne uređujete."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Viser hele adressen med https:// og www., når du ikke redigerer den."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zeigt die ganze Adresse mit https:// und www., wenn Sie sie nicht bearbeiten."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Muestra la dirección completa, con https:// y www., cuando no la estás editando."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Affiche l’adresse complète, avec https:// et www., quand vous ne la modifiez pas."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostra l’indirizzo completo, con https:// e www., quando non lo stai modificando."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "編集していないときに、https:// と www. を含むアドレス全体を表示します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បង្ហាញអាសយដ្ឋានទាំងមូល រួមទាំង https:// និង www. នៅពេលអ្នកមិនកំពុងកែវា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "편집하지 않을 때 https:// 및 www.를 포함한 전체 주소를 표시합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Viser hele adressen, med https:// og www., når du ikke redigerer den."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pokazuje cały adres, z https:// i www., gdy go nie edytujesz."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostra o endereço inteiro, com https:// e www., quando você não está editando."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показывает адрес целиком, с https:// и www., когда вы его не редактируете."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แสดงที่อยู่ทั้งหมด พร้อม https:// และ www. เมื่อคุณไม่ได้แก้ไข"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Düzenlemediğinizde adresin tamamını https:// ve www. ile gösterir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показує адресу повністю, з https:// і www., коли ви її не редагуєте."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hiển thị toàn bộ địa chỉ, gồm https:// và www., khi bạn không chỉnh sửa."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "未编辑时显示完整地址，包括 https:// 和 www.。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "未編輯時顯示完整網址，包括 https:// 和 www.。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

@@ -23,6 +23,7 @@ public nonisolated enum SidebarSectionsSetting {
     public static let showProfileControlPath = ["sidebar", "showProfileControl"]
     public static let tipsPath = ["sidebar", "cards", "tips"]
     public static let detailedStatusIconsPath = ["sidebar", "detailedStatusIcons"]
+    public static let showTimestampsPath = ["sidebar", "showTimestamps"]
 
     static func tipsDescriptor(group: SettingText) -> SettingDescriptor {
         SettingDescriptor(tipsPath, section: .appearance, group: group,
@@ -51,6 +52,15 @@ public nonisolated enum SidebarSectionsSetting {
                                                    "Workspace rows show a separate icon for working, waiting for input, error and done. Off, a row shows a spinner while it works and a blue dot when it is ready for you."),
                           kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.detailedStatusIcons),
                           keywords: ["sidebar", "status", "icons", "badge", "working", "waiting", "input", "error", "done", "agent", "osc 7501"])
+    }
+
+    static func showTimestampsDescriptor(group: SettingText) -> SettingDescriptor {
+        SettingDescriptor(showTimestampsPath, section: .appearance, group: group,
+                          title: SettingsText.keyed("settings.sidebar.showTimestamps", "Show Timestamps"),
+                          help: SettingsText.keyed("settings.sidebar.showTimestamps.help",
+                                                   "Workspace rows show when they last changed: a time today, else an age such as 3d. Off, rows show no times; the hover card still does."),
+                          kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.showTimestamps),
+                          keywords: ["sidebar", "timestamps", "time", "times", "age", "ago", "elapsed", "duration", "last activity", "clock", "rows"])
     }
 
     static func densityDescriptor(group: SettingText) -> SettingDescriptor {
@@ -191,6 +201,7 @@ public nonisolated enum SidebarSectionsSetting {
         result.showProfileControl = flag(root, showProfileControlPath, fallback: result.showProfileControl, &diagnostics)
         result.minimal = flag(root, minimalPath, fallback: result.minimal, &diagnostics)
         result.detailedStatusIcons = flag(root, detailedStatusIconsPath, fallback: result.detailedStatusIcons, &diagnostics)
+        result.showTimestamps = flag(root, showTimestampsPath, fallback: result.showTimestamps, &diagnostics)
         if let value = root.value(at: groupByPath) {
             if let text = value.stringValue, let groupBy = SidebarGroupBy(rawValue: text) {
                 result.groupBy = groupBy

@@ -137,7 +137,7 @@ nonisolated enum WorkspaceActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.editWorkspaceDescription", defaultValue: "Edit Workspace Description…", bundle: .module),
                 keywords: ["notes", "summary"], defaultShortcut: Shortcut("e", modifiers: [.option, .command]),
                 category: .workspace, symbol: "text.alignleft", surfaces: [.palette, .keyboard, .menu, .contextMenu],
-                arguments: [CatalogArgument.descriptionString], targets: [.workspace],
+                arguments: [CatalogArgument.descriptionString.describingTarget], targets: [.workspace],
                 cliName: "workspace edit-description", mainMenu: .file
             ),
             ActionDescriptor(

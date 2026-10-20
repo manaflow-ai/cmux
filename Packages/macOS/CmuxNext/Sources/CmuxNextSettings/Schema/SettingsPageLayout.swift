@@ -12,7 +12,7 @@ public nonisolated struct SettingsPageLayout: Sendable {
     /// studio, file actions). Raw values are the export's card ids.
     public nonisolated enum Card: String, Sendable, Hashable, CaseIterable {
         case themeStudio, terminalInfo, ghosttyDiagnostics, computerUse, harnesses, spaces, browserProfiles
-        case machines, accounts, agentHarnesses, advancedInfo, advancedActions, backdrops
+        case machines, accounts, agentHarnesses, chiefs, advancedInfo, advancedActions, backdrops
     }
 
     /// A group card as the layout states it: the rows of a schema group
@@ -149,8 +149,8 @@ public nonisolated struct SettingsPageLayout: Sendable {
                 group("settings.group.chiefPet"),
             ],
             // Harnesses lists every harness; Your Agents (BRING-YOUR-OWN-HARNESS) adds, checks and
-            // removes the ones you added.
-            trail: [.harnesses, .agentHarnesses, .computerUse]),
+            // removes the ones you added; Chiefs lists every Chief, each opening its editor (u2586).
+            trail: [.harnesses, .agentHarnesses, .chiefs, .computerUse]),
         // A core cmux feature: banners, sounds, the attention ring and the
         // feed for agents, terminal programs and `cmux notify`.
         CategorySpec(

@@ -27,6 +27,7 @@ final class SidebarGroupSwatchView: NSView {
         setAccessibilityElement(true)
         setAccessibilityRole(.radioButton)
         setAccessibilityLabel(GroupEditorStrings.colorName(color))
+        setAccessibilityIdentifier("cmux.sidebar.groupEditor.color.\(color.rawValue)")
         addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self, userInfo: nil))
     }
 
@@ -84,7 +85,7 @@ final class SidebarGroupSwatchView: NSView {
 final class SidebarGroupEditorRow: NSView {
     var onPress: (() -> Void)?
     let item: SidebarGroupEditorItem
-    private let icon = NSImageView()
+    private let icon = DecorativeImageView() // the row's label names the action
     private let label = ChromeLabel(labelWithString: "")
     private let shortcut = ChromeLabel(labelWithString: "")
     private var isHovered = false { didSet { if oldValue != isHovered { updateColors(animated: window != nil) } } }
@@ -121,6 +122,7 @@ final class SidebarGroupEditorRow: NSView {
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
         setAccessibilityLabel(item.title)
+        setAccessibilityIdentifier("cmux.sidebar.groupEditor.action.\(item.id)")
         addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self, userInfo: nil))
         updateColors()
     }

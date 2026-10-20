@@ -31,12 +31,18 @@ nonisolated enum CatalogArgument {
         ActionArgument(name: "name", title: String(localized: "argument.name", defaultValue: "Name", bundle: .module), kind: .string)
     }
 
+    /// Tabs by id, comma-separated (`--arg tabs=<id>,<id>`): a tab action's tabs for the CLI and
+    /// MCP, which have no strip selection. The palette never asks for it.
+    static var tabsList: ActionArgument {
+        ActionArgument(name: "tabs", title: String(localized: "argument.tabs", defaultValue: "Tabs", bundle: .module), kind: .string, isRequired: false)
+    }
+
     static var descriptionString: ActionArgument {
         ActionArgument(name: "description", title: String(localized: "argument.description", defaultValue: "Description", bundle: .module), kind: .string)
     }
 
     static var statusChoice: ActionArgument {
-        ActionArgument(name: "status", title: String(localized: "argument.status", defaultValue: "Status", bundle: .module), kind: .enumeration([choice("auto"), choice("todo"), choice("inProgress"), choice("review"), choice("done"), choice("blocked")]))
+        ActionArgument(name: "status", title: String(localized: "argument.status", defaultValue: "Status", bundle: .module), kind: .enumeration([choice("auto"), choice("todo"), choice("working"), choice("needs-attention"), choice("review"), choice("done")]))
     }
 
     static var textString: ActionArgument {
@@ -247,10 +253,10 @@ nonisolated enum CatalogArgument {
         case "cef": String(localized: "argument.value.cef", defaultValue: "Chromium", bundle: .module)
         case "auto": String(localized: "argument.value.auto", defaultValue: "Automatic", bundle: .module)
         case "todo": String(localized: "argument.value.todo", defaultValue: "To Do", bundle: .module)
-        case "inProgress": String(localized: "argument.value.inProgress", defaultValue: "In Progress", bundle: .module)
+        case "working": String(localized: "argument.value.working", defaultValue: "Working", bundle: .module)
+        case "needs-attention": String(localized: "argument.value.needsAttention", defaultValue: "Needs Attention", bundle: .module)
         case "review": String(localized: "argument.value.review", defaultValue: "In Review", bundle: .module)
         case "done": String(localized: "argument.value.done", defaultValue: "Done", bundle: .module)
-        case "blocked": String(localized: "argument.value.blocked", defaultValue: "Blocked", bundle: .module)
         case "system": String(localized: "argument.value.system", defaultValue: "System", bundle: .module)
         case "light": String(localized: "argument.value.light", defaultValue: "Light", bundle: .module)
         case "dark": String(localized: "argument.value.dark", defaultValue: "Dark", bundle: .module)

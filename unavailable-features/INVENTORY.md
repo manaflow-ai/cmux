@@ -39,8 +39,8 @@ Status column: `todo`, `done <sha>`, `skip (<owner>)`.
 | 11 | Toggle Full Width Tab | `palette.toggleFullWidthTab` | needs full-width tab support in the tab strip | Handlers/TabHandlers+More.swift | M | todo |
 | 12 | Sleepy Mode | `palette.sleepyMode` | needs app capability `sleepy-mode` | Handlers/WindowHandlers.swift | M | done f7ac14bca75 (left: classic theme/mascot/colors settings section, Low Power toggle, pets) |
 | 13 | Task Manager (2) | `palette.openTaskManager`, `taskManager.killProcess` | needs app capability `task-manager` | Handlers/WindowHandlers.swift | M | done f4c2e82984 (test) + next commit (fix); Kill Process ends local processes only, a remote machine's processes are refused |
-| 14 | Workspace description (2) | `editWorkspaceDescription`, `palette.clearWorkspaceDescription` | needs daemon capability `workspace-description-v1` | Handlers/WorkspaceMetadataHandlers.swift | M (Rust + app) | todo |
-| 15 | Workspace status (3) | `markWorkspaceDone`, `cycleWorkspaceStatus`, `palette.workspaceStatus` | needs daemon capability `workspace-status-v1` | Handlers/WorkspaceMetadataHandlers.swift | M (Rust + app) | todo |
+| 14 | Workspace description (2) | `editWorkspaceDescription`, `palette.clearWorkspaceDescription` | needs daemon capability `workspace-description-v1` | Handlers/WorkspaceMetadataHandlers.swift | M (Rust + app) | done 4656386e677 |
+| 15 | Workspace status (3) | `markWorkspaceDone`, `cycleWorkspaceStatus`, `palette.workspaceStatus` | needs daemon capability `workspace-status-v1` | Handlers/WorkspaceMetadataHandlers.swift | M (Rust + app) | done 4656386e677 |
 | 16 | Resume command (3) | `resumeCommandSet`, `resumeCommandEdit`, `resumeCommandClear` | needs daemon capability `resume-command` | Handlers/TerminalHandlers.swift | M (Rust + app) | todo |
 | 17 | Disconnect SSH Tab | `disconnectRemoteTab` | needs daemon capability `remote-ssh-tabs` | Handlers/TabHandlers+More.swift | M | todo |
 | 18 | Remote workspaces (3) | `reconnectWorkspace`, `disconnectWorkspace`, `copyWorkspaceSSHError` | needs daemon capability `remote-workspaces-v1` | Handlers/WorkspaceHandlers.swift | M | todo |

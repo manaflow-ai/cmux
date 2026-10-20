@@ -27,6 +27,11 @@ final class TopHomePageView: NSView {
     var lines: [HomeConversationLine] { rows.homeLines }
     private(set) var host: HomeHostView?
     private(set) var shown: ConversationID?
+    /// The New Message page (Messages' New Message: a page, not a sheet).
+    /// Kept while hidden when the person typed something, with its row in the list.
+    private(set) var newMessage: HomeNewMessageView?
+    /// The New Message page is the one on screen.
+    var isComposingNewMessage: Bool { newMessage.map { !$0.isHidden } ?? false }
     private var rowsObservation: Task<Void, Never>?
     private var selectionObservation: Task<Void, Never>?
     private var chiefObservation: Task<Void, Never>?
@@ -68,15 +73,18 @@ final class TopHomePageView: NSView {
         let sidebar = sidebar
         // Opening a conversation from the list reads it, so a Mark as Unread ends there.
         list.onSelect = { [weak self] id in
-            sidebar.setMarkedUnread(false, id)
+            if id != HomeSidebarView.draftRowID { sidebar.setMarkedUnread(false, id) }
             self?.show(id)
         }
         // The list redraws in the same turn, so a dropped tile lands from where it was drawn.
+        // The New Message row is no conversation: it never pins or takes a mark.
         list.onSetPinned = { [weak self] on, id in
+            guard id != HomeSidebarView.draftRowID else { return }
             sidebar.setPinned(on, id)
             self?.list.update(sidebar.model())
         }
         list.onPlacePinned = { [weak self] id, index in
+            guard id != HomeSidebarView.draftRowID else { return }
             sidebar.place(id, at: index)
             self?.list.update(sidebar.model())
         }
@@ -90,7 +98,7 @@ final class TopHomePageView: NSView {
             // task-owner: one op; ends with the owner's answer
             Task { _ = try? await store.perform(.setReadCursor(conversation: id, seq: row.summary.lastSeq)) }
         }
-        list.onMarkUnread = { id in sidebar.setMarkedUnread(true, id) }
+        list.onMarkUnread = { id in if id != HomeSidebarView.draftRowID { sidebar.setMarkedUnread(true, id) } }
         // Archive Chief on a Chief's row (the same action as the palette and the CLI).
         list.menuItems = { id in
             guard let row = home.homeStore.rows.first(where: { $0.id == id }), row.kind == .chief,
@@ -140,7 +148,7 @@ final class TopHomePageView: NSView {
                 // A conversation came or went (a lease arrived, a request was accepted): requests may have changed.
                 if Set(all.map(\.id)) != listed { listed = Set(all.map(\.id)); home.requests.refresh() }
                 list.update(sidebar.model())
-                if shown == nil, let first = defaultConversation(rows: rows, home: home) { show(first) }
+                if shown == nil, !isComposingNewMessage, let first = defaultConversation(rows: rows, home: home) { show(first) }
                 // The cache's conversation of a Chief home made again (cx-ebm.55).
                 if shownIsGone(store), let chief = Self.chief(home) { replaceGone(with: ConversationID(chief), store: store) }
             }
@@ -222,13 +230,20 @@ final class TopHomePageView: NSView {
         show(chief)
     }
 
-    /// Shows `id` in the transcript column and selects it in the list.
+    /// Shows `id` in the transcript column and selects it in the list (the
+    /// New Message row shows the New Message page).
     func show(_ id: ConversationID) {
+        guard id != HomeSidebarView.draftRowID else { return presentNewMessage() }
         list.select(id)
-        guard id != shown, let services else { return }
+        let leftNewMessage = leaveNewMessage()
+        guard id != shown, let services else {
+            if leftNewMessage { focusPrimaryInput() }
+            return
+        }
         shown = id
         host?.removeFromSuperview()
         let view = HomeHostView(services: services, conversation: id.rawValue)
+        view.isHidden = isComposingNewMessage
         view.frame = transcriptColumn.bounds
         view.autoresizingMask = [.width, .height]
         transcriptColumn.addSubview(view)
@@ -240,24 +255,84 @@ final class TopHomePageView: NSView {
     /// A permalink: its conversation, and its message's thread at its branch (any depth).
     func show(_ link: HomeDockSelection) { show(ConversationID(link.conversation)); if let m = link.message, let host { HomePageTab.transcript(in: host)?.reveal(message: m) } }
 
-    /// Home's primary input (the message box) takes the keyboard.
+    /// Home's primary input (the message box; To: on the New Message page) takes the keyboard.
     func focusPrimaryInput() {
-        guard let target = host?.focusTarget else { return }
+        guard let target = isComposingNewMessage ? newMessage?.focusTarget : host?.focusTarget else { return }
         window?.makeFirstResponder(target)
     }
 
-    // MARK: Sheets
+    // MARK: New Message
 
+    /// New Message (the compose button, Cmd-N on Home, the palette, the
+    /// File menu, `cmux action run home.newMessage`): a selected "New
+    /// Message" row at the top of the list and the New Message page in the
+    /// transcript column, with the caret in To:. A kept draft comes back as
+    /// the person left it.
     func presentNewMessage() {
         guard let services else { return }
-        let home = services.home
-        let sheet = HomeComposeSheet(contacts: home.contacts())
-        sheet.onStart = { recipients, title in await home.startConversation(recipients, title: title) }
-        sheet.onInviteInstead = { [weak self] prefill in self?.presentInvite(prefill: prefill) }
-        present(sheet)
-        // The team may arrive after the sheet opened: a refreshed list waits for the next sheet.
-        Task { await home.directory.refresh() }
+        let page = newMessage ?? makeNewMessage(services)
+        if page.superview == nil {
+            page.frame = transcriptColumn.bounds
+            page.autoresizingMask = [.width, .height]
+            transcriptColumn.addSubview(page)
+        }
+        page.isHidden = false
+        host?.isHidden = true
+        list.setDraftRow(HomeNewMessageDraft.rowTitle)
+        list.select(HomeSidebarView.draftRowID)
+        page.needsLayout = true
+        page.layoutSubtreeIfNeeded()
+        window?.makeFirstResponder(page.focusTarget)
     }
+
+    private func makeNewMessage(_ services: AppServices) -> HomeNewMessageView {
+        let page = HomeNewMessageView(services: services)
+        // The first send made the conversation: the draft ends and the page shows it.
+        page.onSent = { [weak self] id in
+            // task-owner: one hop out of the draft store's send before the page goes
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                endNewMessage()
+                if services.home.homeStore.rows.contains(where: { $0.id == id }) { show(id) } else { services.home.pendingSelection = id }
+            }
+        }
+        // Escape on an empty draft: back to the conversation shown before.
+        page.onEscape = { [weak self] in
+            guard let self else { return }
+            endNewMessage()
+            if let shown { list.select(shown) }
+            focusPrimaryInput()
+        }
+        newMessage = page
+        return page
+    }
+
+    /// Hides the New Message page for another conversation. An empty draft
+    /// goes with its row (Messages drops an untouched New Message); one with
+    /// recipients or text stays, its row unselected. True when it showed.
+    @discardableResult
+    private func leaveNewMessage() -> Bool {
+        guard let page = newMessage, !page.isHidden else { return false }
+        if page.isEmpty {
+            endNewMessage()
+        } else {
+            page.isHidden = true
+            host?.isHidden = false
+        }
+        return true
+    }
+
+    /// Drops the New Message draft, its page and its row.
+    private func endNewMessage() {
+        guard let page = newMessage else { return }
+        newMessage = nil
+        page.stop()
+        page.removeFromSuperview()
+        host?.isHidden = false
+        list.setDraftRow(nil)
+    }
+
+    // MARK: Sheets
 
     func presentInvite(prefill: String) {
         guard let services else { return }

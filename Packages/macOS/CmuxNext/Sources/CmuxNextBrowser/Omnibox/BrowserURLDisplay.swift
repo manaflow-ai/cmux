@@ -38,16 +38,20 @@ public nonisolated enum BrowserURLDisplay {
 
     /// The host's UTF-16 range inside `displayText(for:)`, which the
     /// omnibar draws at full strength while the rest of the URL is dimmed
-    /// (Chromium's host emphasis). Nil for file URLs and blank pages.
+    /// (Chromium's host emphasis). Nil for file URLs and blank pages. `text`
+    /// is the compact text or the full URL (`browser.omnibar.showFullURLs`).
     public static func hostRange(in text: String, for url: URL?) -> NSRange? {
-        guard let url, !url.isFileURL, var host = url.host(percentEncoded: false), !host.isEmpty else { return nil }
+        guard let url, !url.isFileURL, let fullHost = url.host(percentEncoded: false), !fullHost.isEmpty else { return nil }
+        var host = fullHost
         if host.lowercased().hasPrefix("www."), host.split(separator: ".").count > 2 { host = String(host.dropFirst(4)) }
         let scheme = url.scheme?.lowercased() ?? ""
-        let kept = scheme == "http" || ChromiumInternalURL.chromiumSchemes.contains(scheme)
-        let prefix = kept && text.lowercased().hasPrefix(scheme + "://") ? scheme + "://" : ""
-        let hostText = host.contains(":") && !host.hasPrefix("[") ? "[\(host)]" : host
-        guard text.dropFirst(prefix.count).lowercased().hasPrefix(hostText.lowercased()) else { return nil }
-        return NSRange(location: prefix.utf16.count, length: hostText.utf16.count)
+        let prefix = !scheme.isEmpty && text.lowercased().hasPrefix(scheme + "://") ? scheme + "://" : ""
+        let rest = text.dropFirst(prefix.count).lowercased()
+        for candidate in [host, fullHost] {
+            let hostText = candidate.contains(":") && !candidate.hasPrefix("[") ? "[\(candidate)]" : candidate
+            if rest.hasPrefix(hostText.lowercased()) { return NSRange(location: prefix.utf16.count, length: hostText.utf16.count) }
+        }
+        return nil
     }
 
     /// Full text placed in the field when editing starts.
