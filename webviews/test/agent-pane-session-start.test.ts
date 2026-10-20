@@ -118,13 +118,23 @@ test("a Claude Code chat notes its version, model, route and folder once, where 
       ["mux", "user_message", { text: "hello" }],
       ["mux", "turn_started", {}],
       ["in", "session_info_update", init("2.1.303", "claude-opus-5-5")],
-      ["in", "agent_message_chunk", update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "hi" } })],
+      [
+        "in",
+        "agent_message_chunk",
+        update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "hi" } }),
+      ],
     ]),
   );
   const { rows } = await connect(daemon);
   const starts = () => rows().filter((row) => row.kind === "sessionStart");
   expect(starts().map((row) => row.sessionStart)).toEqual([
-    { agent: "claude", version: "2.1.303", model: "claude-opus-5-5", harness: "claude-sr2", cwd: "/Users/dev/fun/cmux" },
+    {
+      agent: "claude",
+      version: "2.1.303",
+      model: "claude-opus-5-5",
+      harness: "claude-sr2",
+      cwd: "/Users/dev/fun/cmux",
+    },
   ]);
   const first = starts()[0]!;
   // Its place is the session's start: before the reply.
@@ -154,7 +164,11 @@ test("an init without Claude Code's facts (Codex's info update) draws nothing", 
     record([
       ["mux", "user_message", { text: "hello" }],
       ["in", "session_info_update", update({ sessionUpdate: "session_info_update", title: "Fix the build" })],
-      ["in", "session_info_update", update({ sessionUpdate: "session_info_update", _meta: { codex: { error: null } } })],
+      [
+        "in",
+        "session_info_update",
+        update({ sessionUpdate: "session_info_update", _meta: { codex: { error: null } } }),
+      ],
     ]),
     "codex",
   );

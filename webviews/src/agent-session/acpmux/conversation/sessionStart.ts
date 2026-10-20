@@ -54,7 +54,10 @@ export function sameSessionStart(a: AcpmuxSessionStart | undefined, b: AcpmuxSes
 
 /// /Users/me/x -> ~/x, /home/me/x -> ~/x; anything else as is.
 export function foldHome(cwd: string): string {
-  const parts = cwd.replace(/(.)\/+$/, "$1").split("/").filter(Boolean);
+  const parts = cwd
+    .replace(/(.)\/+$/, "$1")
+    .split("/")
+    .filter(Boolean);
   if ((parts[0] === "Users" || parts[0] === "home") && parts.length >= 2) return ["~", ...parts.slice(2)].join("/");
   return cwd;
 }
