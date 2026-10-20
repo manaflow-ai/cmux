@@ -14,10 +14,6 @@ import Testing
     @Test func theOfficialBackendsAreClaudeCodexAndUniiChatInThatOrder() {
         #expect(ChiefBackend.official.map(\.id) == ["claude", "codex", "unii"])
         #expect(ChiefBackend.official.filter(\.isDefault) == [.claude])
-        // Claude stays on the cloud path; UniiChat's sign-in is this Mac's, so its Chiefs are too.
-        #expect(!ChiefBackend.claude.createsOnThisMac)
-        #expect(ChiefBackend.unii.createsOnThisMac)
-        #expect(ChiefBackend.codex.createsOnThisMac)
     }
 
     @Test func titlesNameEachBackendAndShowAnUnknownIdAsItIs() {

@@ -4,7 +4,7 @@ import CmuxNextHome
 import CmuxNextHomeEngine
 import Foundation
 
-/// New Chief on this Mac's Chief owner (UniiChat and Codex, ``ChiefBackend/createsOnThisMac``)
+/// New Chief on this Mac's Chief owner (every engine: Claude, Codex, UniiChat)
 /// and the engines the Home list's Chief rows show as badges.
 extension HomeService {
     /// A Chief of this Mac's Chief owner that starts on `backend` (`chief.profile.create` with

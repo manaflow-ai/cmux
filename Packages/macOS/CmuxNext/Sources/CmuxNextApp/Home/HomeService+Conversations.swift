@@ -32,27 +32,11 @@ extension HomeService {
     }
 
     /// Creates another Chief on `backend`; its main conversation shows once the inbox lists it.
-    /// The one create path of the New Chief sheet, the palette and `cmux home new-chief`: an
-    /// engine whose Chiefs are this Mac's (UniiChat, Codex: ``ChiefBackend/createsOnThisMac``)
-    /// goes to this Mac's Chief owner, Claude to the signed-in account's cloud Chiefs.
+    /// The one create path of the New Chief sheet, the palette and `cmux home new-chief`: every
+    /// engine's Chief is made on this Mac's Chief owner, the registry Home lists Chiefs from and
+    /// `cmux chief new` writes (HomeService+LocalChief).
     func createChief(named name: String, backend: ChiefBackend = .claude) async -> HomeComposeOutcome {
-        backend.createsOnThisMac ? await createLocalChief(named: name, backend: backend) : await createCloudChief(named: name)
-    }
-
-    /// `chief.create` on the signed-in account's cloud Chiefs (the default engine).
-    private func createCloudChief(named name: String) async -> HomeComposeOutcome {
-        do {
-            let record = try await directory.createChief(named: name)
-            let id = record.mainConversation.map { ConversationID($0) }
-            pendingSelection = id
-            return id.map { HomeComposeOutcome.opened($0) } ?? .invited(nil)
-        } catch FeedServiceError.signedOut {
-            return .offline
-        } catch FeedServiceError.owner(let code, let message) {
-            return code == "policy.denied" || code == "validation.invalid" ? .refused(message) : .refusal(code: code)
-        } catch {
-            return .refused("")
-        }
+        await createLocalChief(named: name, backend: backend)
     }
 
     /// Archives one of my Chiefs (not the default one); nil when it worked,
