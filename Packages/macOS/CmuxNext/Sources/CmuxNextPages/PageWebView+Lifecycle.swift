@@ -47,7 +47,7 @@ extension PageWebView {
         router.reset()
         let reloading = crashReloads.shouldReload(at: now())
         if reloading {
-            reloadDocument()
+            reloadPage()
         } else {
             logger.error("page \(self.descriptor.id, privacy: .public) keeps crashing; not reloaded")
         }
@@ -58,6 +58,6 @@ extension PageWebView {
     /// notice's Reload button).
     public func reloadAfterCrashes() {
         crashReloads = PageCrashReloads()
-        reloadDocument()
+        reloadPage()
     }
 }
