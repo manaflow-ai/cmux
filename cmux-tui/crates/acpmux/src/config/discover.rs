@@ -204,7 +204,17 @@ pub fn discover_harnesses_from(
             }
         }
     }
-    // A `codex` the user imported from ~/.acpx stays theirs.
+    // A `codex` the user imported from ~/.acpx stays theirs, except the retired cmux ACP
+    // installer's own adapter (`~/.local/share/cmux-acp/`): it ran another model than the
+    // config named and titled every chat on a second model, so the in-process bridge takes
+    // `codex` and the adapter stays as `codex-acp` (user 2026-10-20).
+    if agents
+        .get("codex")
+        .is_some_and(|p| p.argv.first().is_some_and(|a| a.contains("/.local/share/cmux-acp/")))
+        && let Some(adapter) = agents.remove("codex")
+    {
+        agents.entry(CODEX_ACP.to_owned()).or_insert(adapter);
+    }
     let codex_imported = agents.contains_key("codex");
     for (name, bin) in [
         ("codex", "codex-acp"),
