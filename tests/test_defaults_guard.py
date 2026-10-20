@@ -279,10 +279,34 @@ class DefaultsGuardTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout)
         self.assertNotIn("DEFAULTS", result.stdout)
 
-    def test_exports_changed_without_regenerating_the_snapshot_fail(self):
+    # The snapshot is bot-only (#21946): the base autofix rewrites it after a merge, a pull request
+    # never commits it, and the guard judges a head by its sources and exports.
+
+    def test_a_head_that_does_not_commit_the_snapshot_is_judged_by_its_sources(self):
         actions = [*BASE_ACTIONS[:3], action("toggleEditor", "e", ["ctrl", "cmd"])]
-        result = self.check(self.head(actions, snapshot=False))
-        self.assertEqual(result.returncode, 1)
+        head = self.head(actions, snapshot=False)
+        result = self.check(head)
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("DEFAULTS key.toggleEditor: + ctrl+cmd+e", result.stdout)
+        self.assertNotIn("does not match the sources", result.stdout)
+        approved = self.check(head, reviews=[("lawrencecchen", "APPROVED", head)])
+        self.assertEqual(approved.returncode, 0, approved.stdout)
+
+    def test_a_hand_edited_snapshot_cannot_hide_a_default_change(self):
+        actions = [*BASE_ACTIONS[:3], action("toggleEditor", "e", ["ctrl", "cmd"])]
+        stale = self.repo.root.joinpath("schemas/defaults/cmux-next.json").read_text(encoding="utf-8")
+        head = self.head(actions, snapshot=False, extra={"schemas/defaults/cmux-next.json": stale})
+        result = self.check(head, reviews=[("lawrencecchen", "APPROVED", head)])
+        # Judged as a change that needs the call, not only as a stale file.
+        self.assertIn("::warning title=Default changed::DEFAULTS key.toggleEditor", result.stdout)
+
+    def test_check_fresh_still_finds_a_stale_snapshot(self):
+        """No CI check runs check-fresh any more (the snapshot is stale between a merge and the base
+        autofix's commit); it stays the command that says the snapshot needs regenerating."""
+        actions = [*BASE_ACTIONS[:3], action("toggleEditor", "e", ["ctrl", "cmd"])]
+        head = self.head(actions, snapshot=False)
+        result = self.repo.guard("check-fresh", "--ref", head)
+        self.assertEqual(result.returncode, 1, result.stdout)
         self.assertIn("does not match the sources; run `python3 scripts/ci/defaults_guard.py snapshot`", result.stdout)
 
 
