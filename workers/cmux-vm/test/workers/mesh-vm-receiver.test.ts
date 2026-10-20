@@ -97,6 +97,17 @@ describe("VM receiver policy", () => {
     expect(revoked["policyDigest"]).not.toBe(rotated["policyDigest"]);
   });
 
+  it("never leases a peer past its original Native owner key expiry", async () => {
+    const expiresAt = new Date(Date.now() + 20_000);
+    const owner = await h.addKey(TEAM, ["mesh:join"], { expiresAt });
+    const client = await enroll(owner);
+    expect((await apply([{ src: [client.id], dst: [vm], allow: ["tcp:22"] }])).status).toBe(200);
+    const response = await policy();expect(response.status).toBe(200);
+    const body = await json(response);
+    expect(body["peers"]).toHaveLength(1);
+    expect(body["expiresAt"]).toBe(expiresAt.getTime());
+  });
+
   it("does not infer permission from a detached or different VM", async () => {
     expect((await call(`/v1/meshes/${mesh}/vms/${vm}`, admin, "DELETE")).status).toBe(204);
     const before = h.upstreamRequests.length;
