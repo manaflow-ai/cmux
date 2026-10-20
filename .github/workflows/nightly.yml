@@ -2908,7 +2908,10 @@ jobs:
           done
           if [ "$NIGHTLY_VARIANT" != "universal" ]; then
             # No fat Mach-O may survive thinning anywhere in the bundle.
-            fat="$(find "$APP" -type f -exec sh -c 'file -b "$1" | grep -q "Mach-O universal" && echo "$1"' _ {} \;)"
+            # Only files with a Mach-O or fat magic reach `file` (one process
+            # each); the per-file scan of the whole bundle took 90 s.
+            fat="$(find "$APP" -type f -print0 | python3 scripts/list-macho-candidates.py \
+              | xargs -0 sh -c 'for f do if file -b "$f" | grep -q "Mach-O universal"; then echo "$f"; fi; done' sh)"
             if [ -n "$fat" ]; then
               echo "Fat Mach-O files remain after thinning:" >&2
               echo "$fat" >&2
@@ -4112,8 +4115,8 @@ jobs:
           # ran from a copy or the detached mount) to stop through its socket
           # with this bundle's cmux-tui, which ends its terminals; SIGTERM only
           # that exact owner PID if the request fails, takes over 10 s, or the
-          # step is past its 80 s budget. Terminal hosts are never matched.
-          deadline=$((SECONDS + 80))
+          # step is past its 70 s budget. Terminal hosts are never matched.
+          deadline=$((SECONDS + 70))
           ps -axww -o pid= -o args= | while read -r pid args; do
             case "$args" in
               */Contents/Resources/bin/cmux-tui\ --headless\ *) ;;
@@ -4139,6 +4142,37 @@ jobs:
                   "$bin/acpmux daemon run"*) kill -TERM "$pid" 2>/dev/null || true ;;
                 esac
               done
+            fi
+          fi
+          # What still runs from this job's bundles (the signed app, and the
+          # DMG smoke's copy of the same app name) holds the runner in
+          # "Cleaning up orphan processes" and slows the post-job steps
+          # (run 39440747033: owners, the Chief host and the browser host
+          # outlived the requests above; the job's tail took 2 min). The runner
+          # is ephemeral and the smokes are done: SIGTERM those exact PIDs,
+          # then SIGKILL the ones still alive after 5 s.
+          app_name="$(basename "$app")"
+          left() {
+            ps -ww -o pid= -o args= -U "$(id -u)" | while read -r pid args; do
+              case "$args" in
+                *"/$app_name/Contents/"*) echo "$pid" ;;
+              esac
+            done
+          }
+          pids="$(left)"
+          if [ -n "$pids" ]; then
+            echo "SIGTERM to the processes still running from $app_name: $(echo $pids)"
+            # shellcheck disable=SC2086 # one PID per word
+            kill -TERM $pids 2>/dev/null || true
+            for _ in 1 2 3 4 5 6 7 8 9 10; do
+              [ -n "$(left)" ] || break
+              sleep 0.5
+            done
+            pids="$(left)"
+            if [ -n "$pids" ]; then
+              echo "SIGKILL to the processes that outlived SIGTERM: $(echo $pids)"
+              # shellcheck disable=SC2086
+              kill -KILL $pids 2>/dev/null || true
             fi
           fi
           echo "cmux processes after the stop:"
