@@ -117,6 +117,26 @@ struct MacScreenAddressTests {
         #expect(MacScreenPages.pairingLinkRefusal(URL(string: "https://example.com")!) == nil)
     }
 
+    /// H7 walkthrough: the New Tab field offered "Search the web for cmux-vnc://pair?…" and
+    /// Return asked Codex. The New Tab paths (the page's rows, `newTab.submit` from the CLI,
+    /// MCP and palette) never search, ask an agent with, or load pairing-link text.
+    @Test(arguments: [
+        "cmux-vnc://pair?room=h7dummyroom0000&secret=h7dummysecret0000",
+        "  CMUX-VNC://pair?room=r&secret=s  ",
+        "cmux-vnc:pair?room=r&secret=s",
+        "connect to cmux-vnc://pair?room=r&secret=s please",
+    ])
+    func newTabNeverSearchesAsksOrLoadsAPairingLink(_ text: String) {
+        for search in [false, true] {
+            let plan = NewTabSubmit.plan(text: text, search: search, agent: "codex", resolver: OmniboxResolver(), home: nil)
+            switch plan {
+            case .browser, .chat: Issue.record("\(text.debugDescription) search=\(search) planned \(plan)")
+            default: break
+            }
+        }
+        #expect(!OmniboxRemoteSuggestions.allows(text, resolver: OmniboxResolver()))
+    }
+
     @Test(arguments: ["cmux-vnc://other", "cmux://history-elsewhere", "javascript:alert(1)"])
     func otherSchemesStillSearch(_ text: String) {
         #expect(BrowserURLResolver().url(for: text) == nil)

@@ -531,6 +531,41 @@
         "kind": "prompt",
         "text": "このビルドを直して"
       }
+    },
+    {
+      "input": "cmux-vnc://pair?room=h7dummyroom0000&secret=h7dummysecret0000",
+      "intent": {
+        "kind": "refused",
+        "reason": "pairing_link"
+      }
+    },
+    {
+      "input": "  CMUX-VNC://pair?room=r&secret=s  ",
+      "intent": {
+        "kind": "refused",
+        "reason": "pairing_link"
+      }
+    },
+    {
+      "input": "cmux-vnc:pair?room=r&secret=s",
+      "intent": {
+        "kind": "refused",
+        "reason": "pairing_link"
+      }
+    },
+    {
+      "input": "connect to cmux-vnc://pair?room=r&secret=s please",
+      "intent": {
+        "kind": "refused",
+        "reason": "pairing_link"
+      }
+    },
+    {
+      "input": "!cmux-vnc://pair?room=r&secret=s",
+      "intent": {
+        "kind": "refused",
+        "reason": "pairing_link"
+      }
     }
   ]
 }
