@@ -7,14 +7,15 @@ public import AppKit
 ///
 /// The view holds no file state of its own: the owner passes the items
 /// (``show(_:)``) from its listing, and every file command goes to
-/// ``onCommand`` (default: ``FileGridActions``). Only visible tiles load
+/// ``onCommand`` (the owner runs it; the grid changes no files). Only visible tiles load
 /// thumbnails, through the shared ``ThumbnailCache``, so thousands of items
 /// cost one screenful of renders.
 ///
 /// ```swift
-/// let grid = FileGridView(cache: ThumbnailCache(), workspace: workspace)
+/// let grid = FileGridView(cache: ThumbnailCache())
 /// grid.show(listing.items)
-/// grid.onDrop = { pasteboard in (try? importer.importItems(from: pasteboard, into: folder)) != nil }
+/// grid.onCommand = { command, items in commands.perform(command, on: items, in: grid.window) }
+/// grid.onDrop = { pasteboard in saver.canSave(pasteboard) }
 /// ```
 public final class FileGridView: NSView {
     private let cache: ThumbnailCache
@@ -25,8 +26,7 @@ public final class FileGridView: NSView {
     private var dataSource: NSCollectionViewDiffableDataSource<Int, String>?
     private var itemsByID: [String: FileGridItem] = [:]
     private var order: [String] = []
-    private let writer: FileGridPasteboard
-    private let actions: FileGridActions
+    private let writer = FileGridPasteboard()
 
     /// Colors and tile size; a change redraws the visible tiles.
     public var appearanceValues: FileGridAppearance {
@@ -38,27 +38,24 @@ public final class FileGridView: NSView {
         didSet { emptyLabel.stringValue = emptyText }
     }
 
-    /// Runs a command on the selected files. Nil (the default) runs ``FileGridActions``.
+    /// Runs a command (all but Quick Look, which the grid shows itself) on the selected files.
+    /// Nil ignores commands.
     public var onCommand: ((FileGridCommand, [FileGridItem]) -> Void)?
 
     /// Saves a drop; returns whether it took it. Nil refuses drops.
     public var onDrop: ((NSPasteboard) -> Bool)?
 
     /// Whether a drop is offered: the pasteboard has something to save. Default: files or a picture.
-    public var acceptsDrop: (NSPasteboard) -> Bool = { FileGridDropImporter().canImport($0) }
+    public var acceptsDrop: (NSPasteboard) -> Bool = { !$0.droppedFileURLs.isEmpty || $0.holdsImage }
 
     /// Makes a grid.
     ///
     /// - Parameters:
     ///   - cache: the thumbnail cache (share one per app so tiles render once).
     ///   - appearance: colors and tile size.
-    ///   - workspace: opens, reveals and trashes for the built-in ``FileGridActions``.
-    public init(cache: ThumbnailCache, appearance: FileGridAppearance = FileGridAppearance(), workspace: any FileGridWorkspace) {
-        let writer = FileGridPasteboard()
+    public init(cache: ThumbnailCache, appearance: FileGridAppearance = FileGridAppearance()) {
         self.cache = cache
         self.appearanceValues = appearance
-        self.writer = writer
-        self.actions = FileGridActions(workspace: workspace, writer: writer)
         super.init(frame: .zero)
         setUp()
     }
@@ -187,7 +184,7 @@ public final class FileGridView: NSView {
         let selected = selectedItems
         guard command.applies(toSelectionOf: selected.count) else { return }
         if command == .quickLook { return collectionView.toggleQuickLook() }
-        if let onCommand { onCommand(command, selected) } else { actions.perform(command, on: selected, in: window) }
+        onCommand?(command, selected)
     }
 
     private func makeMenu() -> NSMenu? {

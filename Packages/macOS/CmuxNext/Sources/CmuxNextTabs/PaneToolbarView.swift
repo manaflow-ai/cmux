@@ -158,10 +158,12 @@ public final class PaneToolbarView: NSView {
 
     /// "…"'s frame: the trailing slot when `revealed`; at rest a short way left of it, so the reveal
     /// moves it right. Reduce Motion (or animations off) keeps it in the slot: the fade alone.
+    /// The resting frame may start left of this view's bounds (a bar with "…" alone is one slot wide):
+    /// that part is invisible at rest and takes no clicks, since AppKit hit-tests inside the bounds only.
     func moreFrame(revealed: Bool) -> NSRect {
         let side = TitlebarBandButton.side
         let slot = max(0, bounds.width - Metrics.space2 - side)
-        let x = revealed || !Motion.animatesMovement ? slot : max(0, slot - Self.moreSlide)
+        let x = revealed || !Motion.animatesMovement ? slot : slot - Self.moreSlide
         return NSRect(x: x, y: ((bounds.height - side) / 2).rounded(), width: side, height: side)
     }
 

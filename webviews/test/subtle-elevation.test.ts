@@ -247,7 +247,7 @@ describe("one subtle elevation scale", () => {
     ["agent-session/acpmux/styles.css", ".acpmux-shell[data-sidebar=open] .acpmux-sidebar", "--elevation-2"],
     ["agent-session/acpmux/conversation/conversation.css", ".acpmux-find__bar", "--elevation-2"],
     ["agent-session/acpmux/conversation/conversation.css", ".acpmux-jump-latest", "--elevation-2"],
-    ["agent-session/acpmux/threadMinimap/threadMinimap.css", ".acpmux-minimap__popover", "--elevation-2"],
+    ["agent-session/acpmux/threadMinimap/threadMinimap.css", ".acpmux-minimap__card", "--elevation-2"],
     ["agent-session/acpmux/summary/summary.css", ".acpmux-summary-card", "--elevation-2"],
     ["agent-session/acpmux/addProject.css", ".acpmux-add-project-dialog", "--elevation-2"],
     ["agent-session/acpmux/composerAttachments.css", ".acpmux-pdf-viewer", "--elevation-2"],

@@ -160,7 +160,7 @@ final class TopHomePageView: NSView {
     /// asked to show once it is listed.
     private func observe(_ home: HomeService) {
         let store = home.homeStore
-        home.refreshChiefAvatar()
+        home.refreshChiefAvatars()
         // task-owner: lives as long as this view; event-driven (Observation)
         let sidebar = sidebar
         rowsObservation = Task { [weak self] in
@@ -168,7 +168,7 @@ final class TopHomePageView: NSView {
             var badgedChiefs: Set<String>?
             var listed: Set<ConversationID> = []
             for await (all, archived, _, _, _, _, _, _, _) in ObservationStream({
-                (store.rows, home.directory.archivedChiefs, sidebar.query, sidebar.pins, sidebar.unreadMarks, home.directory.chiefAvatar,
+                (store.rows, home.directory.archivedChiefs, sidebar.query, sidebar.pins, sidebar.unreadMarks, home.directory.chiefAvatars,
                  sidebar.ownerRows, home.directory.chiefHarnesses, home.chiefRoster)
             }) {
                 guard let self else { return }
@@ -176,6 +176,7 @@ final class TopHomePageView: NSView {
                 if chiefs != badgedChiefs {
                     badgedChiefs = chiefs
                     home.refreshChiefHarnesses()
+                    home.refreshChiefAvatars()
                 }
                 rows = Self.visible(all, archivedChiefs: archived, me: store.me?.id)
                 // A conversation came or went (a lease arrived, a request was accepted): requests may have changed.

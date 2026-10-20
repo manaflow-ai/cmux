@@ -501,6 +501,10 @@ pub struct Item {
     /// A paired device sent the message (or the resume note of such a turn).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub remote: bool,
+    /// The message came from someone other than the Chief's owner, or the
+    /// resumed turn otherwise required approval for effects.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub requires_approval: bool,
     /// The resume note of a cut turn: a cut resume turn resumes again.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub resume: bool,
@@ -520,6 +524,9 @@ pub struct Resume {
     /// every local effect, as that turn did.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub remote: bool,
+    /// The cut turn required approval independently of remote.autoApprove.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub requires_approval: bool,
     /// The full text of the cut turn's human messages, in log order: the
     /// resume turn's new messages carry them after the note (they are in
     /// the log already and are not logged again).

@@ -125,7 +125,9 @@ export function createAcpmuxDebug(
     async seedRows(count = 5000, fixture) {
       acpmuxPerf.enable();
       const rows =
-        fixture === "worked-turn" ? workedTurnRows(Date.now() - 60_000) : syntheticRows(Math.max(3, Math.floor(count)));
+        fixture === "worked-turn"
+          ? workedTurnRows(Date.now() - 60_000)
+          : syntheticRows(Math.max(3, Math.floor(count)), fixture === "short" ? "short" : "mixed");
       const start = performance.now();
       const committed = acpmuxPerf.nextCommit();
       host.replaceRows(rows);

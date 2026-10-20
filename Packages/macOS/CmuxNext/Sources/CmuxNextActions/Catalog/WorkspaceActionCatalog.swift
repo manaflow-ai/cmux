@@ -325,7 +325,7 @@ nonisolated enum WorkspaceActionCatalog: ActionCatalogGroup {
                 id: "workspaceGroup.newWorkspace",
                 title: String(localized: "action.workspaceGroup.newWorkspace", defaultValue: "New Workspace in Group", bundle: .module),
                 keywords: ["group", "create"], category: .workspace, symbol: "plus.square.dashed",
-                surfaces: [.contextMenu], targets: [.workspaceGroup], cliName: "workspace-group new-workspace"
+                surfaces: [.palette, .contextMenu], targets: [.workspaceGroup], cliName: "workspace-group new-workspace"
             ),
             ActionDescriptor(
                 id: "workspaceGroup.rename",
@@ -336,26 +336,26 @@ nonisolated enum WorkspaceActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "workspaceGroup.togglePin",
                 title: String(localized: "action.workspaceGroup.togglePin", defaultValue: "Pin/Unpin Group", bundle: .module),
-                keywords: ["group"], category: .workspace, symbol: "pin.circle", surfaces: [.contextMenu],
+                keywords: ["group"], category: .workspace, symbol: "pin.circle", surfaces: [.palette, .contextMenu],
                 targets: [.workspaceGroup], cliName: "workspace-group toggle-pin"
             ),
             ActionDescriptor(
                 id: "workspaceGroup.markRead",
                 title: String(localized: "action.workspaceGroup.markRead", defaultValue: "Mark Group as Read", bundle: .module),
                 keywords: ["group", "notifications"], category: .workspace, symbol: "envelope.open.fill",
-                surfaces: [.contextMenu], targets: [.workspaceGroup], cliName: "workspace-group mark-read"
+                surfaces: [.palette, .contextMenu], targets: [.workspaceGroup], cliName: "workspace-group mark-read"
             ),
             ActionDescriptor(
                 id: "workspaceGroup.markUnread",
                 title: String(localized: "action.workspaceGroup.markUnread", defaultValue: "Mark Group as Unread", bundle: .module),
                 keywords: ["group", "notifications"], category: .workspace, symbol: "envelope.badge.fill",
-                surfaces: [.contextMenu], targets: [.workspaceGroup], cliName: "workspace-group mark-unread"
+                surfaces: [.palette, .contextMenu], targets: [.workspaceGroup], cliName: "workspace-group mark-unread"
             ),
             ActionDescriptor(
                 id: "workspaceGroup.clearNotifications",
                 title: String(localized: "action.workspaceGroup.clearNotifications", defaultValue: "Clear Group Notifications", bundle: .module),
                 keywords: ["group", "notifications"], category: .workspace, symbol: "bell.slash.fill",
-                surfaces: [.contextMenu], targets: [.workspaceGroup], cliName: "workspace-group clear-notifications"
+                surfaces: [.palette, .contextMenu], targets: [.workspaceGroup], cliName: "workspace-group clear-notifications"
             ),
             ActionDescriptor(
                 id: "workspaceGroup.ungroup",
@@ -374,7 +374,7 @@ nonisolated enum WorkspaceActionCatalog: ActionCatalogGroup {
                 id: "workspaceGroup.editConfig",
                 title: String(localized: "action.workspaceGroup.editConfig", defaultValue: "Edit Group Config…", bundle: .module),
                 keywords: ["group", "config", "cmux.json"], category: .workspace, symbol: "slider.horizontal.3",
-                surfaces: [.contextMenu], targets: [.workspaceGroup], cliName: "workspace-group edit-config"
+                surfaces: [.palette, .contextMenu], targets: [.workspaceGroup], cliName: "workspace-group edit-config"
             ),
             ActionDescriptor(
                 id: "saveLayoutTemplate",

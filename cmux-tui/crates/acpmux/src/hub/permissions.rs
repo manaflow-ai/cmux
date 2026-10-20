@@ -668,8 +668,30 @@ impl Hub {
                         }
                         _ => false,
                     };
-                    let spent = proved
-                        && answerer.decision.is_some_and(|(n, _)| self.person.spend_decision(n));
+                    // A phone's signed allow or answer (`approvers.rs`): it
+                    // covers the answers, never `answeredBy`.
+                    let signed = !proved
+                        && answered_by.is_none()
+                        && match (&option_id, answerer.approver) {
+                            (Some(o), Some((nonce, decision))) => {
+                                cmux_local_auth::tokens_match(nonce, &p.decision_nonce)
+                                    && self.person.approver_proves(
+                                        &session.id,
+                                        permission_id,
+                                        o,
+                                        nonce,
+                                        answers.as_ref(),
+                                        decision,
+                                    )
+                            }
+                            _ => false,
+                        };
+                    let spent = (proved
+                        && answerer.decision.is_some_and(|(n, _)| self.person.spend_decision(n)))
+                        || (signed
+                            && answerer
+                                .approver
+                                .is_some_and(|(n, _)| self.person.spend_decision(n)));
                     if !spent {
                         return Err(super::person::person_required("allowing a permission"));
                     }
