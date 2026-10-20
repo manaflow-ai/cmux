@@ -34,6 +34,9 @@ test("tabbing across the tiles previews only the tile you rest on", async () => 
   await settle();
   const previews = runs(page, "cmux.settings.preview");
   expect(previews.length).toBe(1);
-  expect(previews[0]).toMatchObject({ key: "appearance.background" });
+  // The tile you stopped on (its thumbnail names its id), not one you passed.
+  const thumb = tiles[2]!.querySelector("img")!.getAttribute("src")!;
+  const rested = decodeURIComponent(decodeURIComponent(thumb.slice("backdrop/".length)));
+  expect(previews[0]).toMatchObject({ key: "appearance.background", value: rested });
   page.unmount();
 });

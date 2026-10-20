@@ -49,8 +49,8 @@ function BackdropThumb({ src }: { src: string }) {
   return <img className="backdrop-thumb" alt="" src={src} onError={() => setFailed(src)} />;
 }
 
-/** Change Background… (`?focus=appearance.background`) lands on the saved tile. Focusing it previews
- * the saved background, so nothing changes. */
+/** Change Background… (`?focus=appearance.background`) lands on the saved tile. Focus resting on it
+ * previews the saved background after the dwell, so nothing changes. */
 function revealTile(tile: HTMLElement | null): void {
   tile?.scrollIntoView?.({ block: "center" });
   tile?.focus();
@@ -62,7 +62,7 @@ export function useBackdropsShown(): boolean {
 }
 
 /**
- * Change Background… (cx-t2x.4): the art picker. Resting on a tile, or focusing it, shows that
+ * Change Background… (cx-t2x.4): the art picker. Resting on a tile with the pointer or focus shows that
  * background in every window without writing it; a click keeps it; leaving restores the saved one.
  * Below the art, the Opacity slider previews the glass over it the same way. Plain glass ("None")
  * stays the default. Opened for a workspace, This Workspace makes the tiles choose that
