@@ -21,7 +21,11 @@ public nonisolated final class IntranetHostMemory: Sendable {
     public func record(_ label: String, resolves: Bool) {
         let key = label.lowercased()
         hosts.withLock { set in
-            if resolves { set.insert(key) } else { set.remove(key) }
+            if resolves {
+                _ = set.insert(key)
+            } else {
+                _ = set.remove(key)
+            }
         }
     }
 }

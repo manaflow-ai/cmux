@@ -86,7 +86,7 @@ public actor IntranetHostProbe {
     /// The lookup's answer, or false at the deadline, whichever comes first;
     /// a lookup that answers late is dropped (getaddrinfo ignores cancellation).
     private func lookupWithDeadline(_ host: String) async -> Bool {
-        let lookup = self.lookup
+        let lookup = self.lookup, timeout = self.timeout
         let deadline = DemandTimer(owner: "omnibar.intranetProbe", clock: clock)
         let answer = OneShotAnswer()
         let result = await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
