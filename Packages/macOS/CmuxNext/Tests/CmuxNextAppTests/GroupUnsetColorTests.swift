@@ -31,6 +31,9 @@ struct GroupUnsetColorTests {
         #expect(Set(colors).count > 1, "groups with no color do not all share one color")
         // Stable: the same group maps to the same color every time.
         #expect(try ids.map { try #require(Self.group($0, color: nil)).tint } == colors)
+        // Stable across launches too (no per-process seeded hash): a fixed id, a fixed color.
+        #expect(GroupColor.unset(id: ids[0]) == .yellow)
+        #expect(colors == ids.map { .palette(GroupColor.unset(id: $0)) })
     }
 
     @Test func storedColorsAreKept() throws {
