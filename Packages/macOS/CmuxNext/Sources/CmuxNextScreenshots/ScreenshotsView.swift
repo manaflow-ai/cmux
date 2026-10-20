@@ -148,6 +148,7 @@ public final class ScreenshotsView: NSView {
             }
             return true
         } catch {
+            // dialog-keys-exempt: CmuxNextScreenshots depends only on the system-frameworks-only CmuxNextFileGrid, so it cannot reach CmuxDialogCenter
             let alert = NSAlert(error: error)
             alert.messageText = ScreenshotsStrings.dropFailed
             if let window { alert.beginSheetModal(for: window) }
