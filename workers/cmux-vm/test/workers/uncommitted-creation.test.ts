@@ -176,3 +176,35 @@ it("frees a legacy intent's slot when its pending VM is deleted", async () => {
   expect((await t.create(undefined, undefined)).status).toBe(201);
   expect((await t.create(undefined, undefined)).status).toBe(429);
 });
+
+/** The exact-slug lookup answers 404 while the VM itself, read by its upstream id, is still there. */
+const slugAnswers404 = (t: Awaited<ReturnType<typeof setup>>) => {
+  const fetch = t.upstream.fetch;
+  t.upstream.fetch = async (request) => request.method === "GET" && new URL(request.url).pathname.startsWith("/v5/vms/cmux-vm-")
+    ? Response.json({ code: "NOT_FOUND", message: "propagating" }, { status: 404 }) : fetch(request);
+};
+
+it("keeps a pending VM and its slot when its slug answers 404 inside the send's grace window", async () => {
+  const t = await setup();
+  const key = await t.failGrow("propagating");
+  slugAnswers404(t);
+  expect((await t.create(key)).status).toBe(503);
+  expect((await t.list())[0]).toMatchObject({ creation: "pending" });
+  expect((await t.create(undefined, undefined)).status).toBe(429);
+  expect(t.upstream.vms.size).toBe(1);
+  expect(t.upstream.callsTo("POST", /^\/v5\/vms$/)).toHaveLength(1);
+});
+
+it("keeps a pending VM whose slug answers 404 after the grace window while its upstream id is still alive", async () => {
+  const t = await setup();
+  const key = await t.failGrow("slug-lost");
+  slugAnswers404(t);
+  vi.spyOn(Date, "now").mockReturnValue(Date.now() + CREATE_SEND_GRACE_MS + 1000);
+  try {
+    expect((await t.create(key)).status).toBe(503);
+    expect((await t.list())[0]).toMatchObject({ creation: "pending" });
+    expect((await t.create(undefined, undefined)).status).toBe(429);
+  } finally { vi.restoreAllMocks(); }
+  expect(t.upstream.vms.size).toBe(1);
+  expect(t.upstream.callsTo("POST", /^\/v5\/vms$/)).toHaveLength(1);
+});

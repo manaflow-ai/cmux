@@ -23,7 +23,7 @@ import { name, type Named } from "@gdp-ts/core";
 import { Clock, Effect, Either, Option, Schema } from "effect";
 import { idempotent, requestFingerprint } from "./idempotency.ts";
 import type { VmCreationProbe, RetainedVmCreation } from "../domain/vm-creation.ts";
-import type { IdempotencyProgress } from "../limits/ledger.ts";
+import { CREATE_SEND_GRACE_MS, type IdempotencyProgress } from "../limits/ledger.ts";
 import { resizeVm } from "./resize.ts";
 import { toVm } from "./vm-view.ts";
 import { replaceVmHttpsProxy } from "./https-proxies.ts";
@@ -192,10 +192,15 @@ const createRecorded = <C, S>(
         Effect.flatMap((active) => active ? Effect.void : Effect.fail(new UpstreamError({ operation: "createCancelled", status: null }))),
       ),
       beginSend: () => Effect.gen(function* () {
-        // A recorded allocation is never sent again: with nothing at its exact slug, the provider deleted it.
+        // A recorded allocation is never sent again. Nothing at its exact slug may only be propagation until the
+        // send's grace window has passed; after it, the recorded upstream id is checked before the VM counts as gone.
         if (attempt.prior?.phase === "creating") {
           const recorded = yield* store.allocationStatus(caller.value.tenantId, cmuxId).pipe(Effect.mapError(() => new UpstreamError({ operation: "createFence", status: null })));
-          if (recorded !== "absent") return yield* Effect.fail(new UpstreamError({ operation: recorded === "pending" ? "createGone" : "createSendUncertain", status: null }));
+          if (recorded !== "absent") {
+            const sent = attempt.prior.dispatch, now = yield* Clock.currentTimeMillis;
+            const settled = recorded === "pending" && sent !== undefined && (sent.state !== "sent" || (sent.at !== undefined && now - sent.at >= CREATE_SEND_GRACE_MS));
+            return yield* Effect.fail(new UpstreamError({ operation: settled ? "createGone" : "createSendUncertain", status: null }));
+          }
         }
         const token = crypto.randomUUID();
         const allowed = yield* limits.beginCreateSend(caller.value.tenantId, attempt.key, cmuxId, token).pipe(Effect.mapError(() => new UpstreamError({ operation: "createFence", status: null })));
@@ -233,8 +238,18 @@ const createRecorded = <C, S>(
     if (Either.isLeft(attempted)) {
       const error = attempted.left;
       if (error.operation === "createGone") {
-        // The uncommitted VM was deleted provider-side (e.g. by autoDeleteSeconds): tombstone it and settle its
-        // intent once, so the retry answers like any deleted allocation and nothing new is created.
+        // The uncommitted VM was deleted provider-side (e.g. by autoDeleteSeconds) only if its recorded id is gone
+        // too; any other answer keeps it pending. Then tombstone it and settle its intent once, so the retry
+        // answers like any deleted allocation and nothing new is created.
+        const vanished = yield* name(cmuxId, (vm) => Effect.gen(function* () {
+          const owns = yield* tenantOwnsVm(caller, vm).pipe(Effect.mapError(() => unavailable()));
+          if (owns === null) return false;
+          return yield* upstream.getVmForWrite(vm, { owns, scope: proofs.scope }).pipe(
+            Effect.as(false),
+            Effect.catchAll((failure) => failure.status === 404 ? Effect.succeed(true) : Effect.fail(unavailable())),
+          );
+        }));
+        if (!vanished) return yield* Effect.fail(unavailable());
         yield* store.markDeleted(caller.value.tenantId, "vm", cmuxId, new Date(yield* Clock.currentTimeMillis)).pipe(Effect.mapError(() => unavailable()));
         yield* settleDeletedCreation(caller, proofs.scope, cmuxId);
         return yield* Effect.fail(vmNotFound());
