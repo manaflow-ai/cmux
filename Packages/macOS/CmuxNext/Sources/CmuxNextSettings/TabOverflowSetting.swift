@@ -3,7 +3,7 @@ public import CmuxNextDesign
 
 /// `tabs.overflow` in cmux.json: "shrink" (default, Chrome's) or "scroll" (cx-kp9b4). The palette's
 /// Tabs: Use Scrolling Tabs and Tabs: Use Shrinking Tabs (`tabs.overflow.scroll`, `tabs.overflow.shrink`)
-/// and the strip's one-time hint write it.
+/// and Settings write it. A crowded strip never asks: it scrolls, keeping the selected tab in view.
 public nonisolated struct TabOverflowSetting: Sendable {
     public static let configPath = ["tabs", "overflow"]
     public static let fallback: TabOverflow = .shrink
@@ -28,8 +28,6 @@ extension TabOverflowSetting {
     @MainActor public static func bindActions(into registry: ActionRegistry, design: DesignSettings, save: @escaping SettingChoiceActions.Save) {
         SettingChoiceActions.bind(TabOverflow.allCases, into: registry, id: { "tabs.overflow.\($0.rawValue)" }, path: configPath,
                                   fileValue: fileValue, save: save) { design.tabOverflow = $0 }
-        // The crowded strip's one-time hint turns scrolling tabs on through the same action.
-        design.useScrollingTabs = { [weak registry] in _ = registry?.perform("tabs.overflow.scroll", invocation: ActionInvocation(origin: .user)) }
     }
 
     /// The cmux.json value: the default (shrink) removes the key.

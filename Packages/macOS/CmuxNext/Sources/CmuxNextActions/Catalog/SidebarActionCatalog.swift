@@ -52,27 +52,27 @@ nonisolated enum SidebarActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.switchRightSidebarToSessions", defaultValue: "Show Vault", bundle: .module),
                 keywords: ["right sidebar", "sessions"],
                 category: .sidebar, symbol: "archivebox", surfaces: [.palette, .keyboard],
-                requires: [.rightSidebarFocused], cliName: "sidebar show-vault"
+                cliName: "sidebar show-vault"
             ),
             ActionDescriptor(
                 id: "switchRightSidebarToFeed",
                 title: String(localized: "action.switchRightSidebarToFeed", defaultValue: "Show Feed", bundle: .module),
                 keywords: ["right sidebar", "activity"],
                 category: .sidebar, symbol: "dot.radiowaves.left.and.right", surfaces: [.palette, .keyboard],
-                requires: [.rightSidebarFocused], cliName: "sidebar show-feed"
+                cliName: "sidebar show-feed"
             ),
             ActionDescriptor(
                 id: "switchRightSidebarToDock",
                 title: String(localized: "action.switchRightSidebarToDock", defaultValue: "Show Dock", bundle: .module),
                 keywords: ["right sidebar"], category: .sidebar,
-                symbol: "dock.rectangle", surfaces: [.palette, .keyboard], requires: [.rightSidebarFocused],
+                symbol: "dock.rectangle", surfaces: [.palette, .keyboard],
                 cliName: "sidebar show-dock"
             ),
             ActionDescriptor(
                 id: "switchRightSidebarToMachines",
                 title: String(localized: "action.switchRightSidebarToMachines", defaultValue: "Show Cloud", bundle: .module),
                 keywords: ["right sidebar", "machines"],
-                category: .sidebar, symbol: "cloud", surfaces: [.palette, .keyboard], requires: [.rightSidebarFocused],
+                category: .sidebar, symbol: "cloud", surfaces: [.palette, .keyboard],
                 cliName: "sidebar show-cloud"
             ),
             ActionDescriptor(
@@ -155,37 +155,40 @@ nonisolated enum SidebarActionCatalog: ActionCatalogGroup {
                 id: "checklistEditItem",
                 title: String(localized: "action.checklistEditItem", defaultValue: "Edit Checklist Item…", bundle: .module),
                 keywords: ["checklist", "todo"], category: .sidebar, symbol: "pencil", surfaces: [.contextMenu],
-                arguments: [CatalogArgument.textString], cliName: "sidebar edit-checklist-item"
+                arguments: [CatalogArgument.checklistItem, CatalogArgument.textString], targets: [.workspace],
+                cliName: "sidebar edit-checklist-item"
             ),
             ActionDescriptor(
                 id: "checklistMarkInProgress",
                 title: String(localized: "action.checklistMarkInProgress", defaultValue: "Mark Checklist Item In Progress", bundle: .module),
                 keywords: ["checklist", "todo"], category: .sidebar, symbol: "circle.bottomhalf.filled",
-                surfaces: [.contextMenu], cliName: "sidebar mark-checklist-item-in-progress"
+                surfaces: [.contextMenu], arguments: [CatalogArgument.checklistItem], targets: [.workspace], cliName: "sidebar mark-checklist-item-in-progress"
             ),
             ActionDescriptor(
                 id: "checklistCompleteItem",
                 title: String(localized: "action.checklistCompleteItem", defaultValue: "Complete Checklist Item", bundle: .module),
                 keywords: ["checklist", "todo"], category: .sidebar, symbol: "checkmark.circle.fill",
-                surfaces: [.contextMenu], cliName: "sidebar complete-checklist-item"
+                surfaces: [.contextMenu], arguments: [CatalogArgument.checklistItem], targets: [.workspace],
+                cliName: "sidebar complete-checklist-item"
             ),
             ActionDescriptor(
                 id: "checklistRemoveItem",
                 title: String(localized: "action.checklistRemoveItem", defaultValue: "Remove Checklist Item", bundle: .module),
                 keywords: ["checklist", "todo"], category: .sidebar, symbol: "minus.circle", surfaces: [.contextMenu],
-                cliName: "sidebar remove-checklist-item"
+                arguments: [CatalogArgument.checklistItem], targets: [.workspace], cliName: "sidebar remove-checklist-item"
             ),
             ActionDescriptor(
                 id: "checklistOpenAsPane",
                 title: String(localized: "action.checklistOpenAsPane", defaultValue: "Open Checklist as Pane", bundle: .module),
                 keywords: ["checklist", "todo"], category: .sidebar, symbol: "list.bullet.rectangle.portrait",
-                surfaces: [.contextMenu], cliName: "sidebar open-checklist-as-pane"
+                surfaces: [.contextMenu], targets: [.workspace], cliName: "sidebar open-checklist-as-pane"
             ),
             ActionDescriptor(
                 id: "checklistAttachImages",
                 title: String(localized: "action.checklistAttachImages", defaultValue: "Attach Images to Checklist Item…", bundle: .module),
                 keywords: ["checklist", "todo"], category: .sidebar, symbol: "photo.badge.plus",
-                surfaces: [.contextMenu], cliName: "sidebar attach-images-to-checklist-item"
+                surfaces: [.contextMenu], arguments: [CatalogArgument.checklistItem, CatalogArgument.optionalPathString],
+                targets: [.workspace], cliName: "sidebar attach-images-to-checklist-item"
             ),
             ActionDescriptor(
                 id: "palette.toggleMatchTerminalBackground",

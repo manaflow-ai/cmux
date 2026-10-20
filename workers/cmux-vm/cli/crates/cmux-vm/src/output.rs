@@ -4,7 +4,9 @@
 
 use std::io::Write;
 
-use cmux_vm_client::types::{ApiKeyList, CreatedApiKey, Snapshot, SnapshotList, Vm, VmList};
+use cmux_vm_client::types::{
+    ApiKeyList, CreatedApiKey, Snapshot, SnapshotList, Vm, VmImageList, VmList,
+};
 use serde::Serialize;
 use serde_json::json;
 
@@ -46,6 +48,143 @@ impl<'a> Printer<'a> {
         Ok(())
     }
 
+    pub fn creation_list(
+        &mut self,
+        body: &[u8],
+        pending: bool,
+        index_pages: Option<u32>,
+    ) -> Result<(), CliError> {
+        let _: cmux_vm_client::types::VmCreationList = decode(body)?;
+        if self.json {
+            return self.raw_json(body);
+        }
+        let page: serde_json::Value = decode(body)?;
+        let items = page["items"]
+            .as_array()
+            .ok_or_else(|| CliError::unexpected("invalid creation page"))?;
+        let indexing = page["pendingIndex"].as_str();
+        if indexing == Some("building") {
+            self.line("pending history is being indexed; continue with the cursor below")?;
+        } else if indexing == Some("unavailable") {
+            self.line("pending history is incomplete; some retained work needs reconciliation")?;
+        }
+        if items.is_empty() {
+            if !pending || indexing == Some("ready") {
+                self.line(if pending {
+                    "no pending creations on this page"
+                } else {
+                    "no creations on this page"
+                })?;
+            }
+        } else {
+            self.line(&format!("{:<31} {:<12} VM", "CREATION_KEY", "STATE"))?;
+            for item in items {
+                let key = item["creationKey"]
+                    .as_str()
+                    .unwrap_or("unknown")
+                    .escape_debug();
+                let state = item["state"].as_str().unwrap_or("unknown").escape_debug();
+                let id = item["id"].as_str().unwrap_or("unresolved").escape_debug();
+                self.line(&format!("{key:<31} {state:<12} {id}"))?;
+            }
+        }
+        if let Some(cursor) = page["nextCursor"].as_str() {
+            let mode = if pending { " --pending" } else { "" };
+            let budget = index_pages
+                .map(|value| format!(" --index-pages {value}"))
+                .unwrap_or_default();
+            self.line(&format!(
+                "more: cmux-vm creation list{mode}{budget} --cursor {}",
+                cursor.escape_debug()
+            ))?;
+        }
+        Ok(())
+    }
+
+    pub fn creation(&mut self, body: &[u8]) -> Result<(), CliError> {
+        let _: cmux_vm_client::types::VmCreationStatus = decode(body)?;
+        self.creation_body(body)
+    }
+
+    pub fn creation_cancellation(&mut self, body: &[u8]) -> Result<(), CliError> {
+        let _: cmux_vm_client::types::VmCreationCancellation = decode(body)?;
+        self.creation_body(body)
+    }
+
+    fn creation_body(&mut self, body: &[u8]) -> Result<(), CliError> {
+        if self.json {
+            return self.raw_json(body);
+        }
+        let value: serde_json::Value = decode(body)?;
+        for field in ["state", "id", "cancellation"] {
+            if field == "cancellation" && value.get(field).is_none() {
+                continue;
+            }
+            let text = value[field]
+                .as_str()
+                .unwrap_or("unknown")
+                .escape_debug()
+                .to_string();
+            self.line(&format!("{field:<11}{text}"))?;
+        }
+        Ok(())
+    }
+
+    pub fn retired(&mut self, body: &[u8], id: &str) -> Result<(), CliError> {
+        if self.json {
+            self.raw_json(body)
+        } else {
+            self.line(&format!(
+                "retired {id}; starts and inbound wakes are fenced"
+            ))
+        }
+    }
+
+    pub fn file_stat(&mut self, body: &[u8]) -> Result<(), CliError> {
+        let _: cmux_vm_client::types::FileStat = decode(body)?;
+        if self.json {
+            return self.raw_json(body);
+        }
+        let stat: serde_json::Value = decode(body)?;
+        for field in ["kind", "size", "mode", "mtime", "owner", "group"] {
+            let value = &stat[field];
+            let text = if field == "mode" {
+                format!(
+                    "{:04o}",
+                    value
+                        .as_u64()
+                        .ok_or_else(|| CliError::unexpected("invalid file mode"))?
+                )
+            } else if value.is_null() {
+                "unknown".to_owned()
+            } else if let Some(text) = value.as_str() {
+                text.escape_debug().to_string()
+            } else {
+                value.to_string()
+            };
+            self.line(&format!("{field:<11}{text}"))?;
+        }
+        Ok(())
+    }
+
+    pub fn identity(&mut self, body: &[u8]) -> Result<(), CliError> {
+        let _: cmux_vm_client::types::VmInstanceIdentity = decode(body)?;
+        if self.json {
+            return self.raw_json(body);
+        }
+        let value: serde_json::Value = decode(body)?;
+        for field in ["id", "scheme", "fingerprint"] {
+            self.line(&format!(
+                "{field:<13}{}",
+                value[field].as_str().unwrap_or_default()
+            ))?;
+        }
+        if let Some(presence) = value["presence"].as_str() {
+            self.line(&format!("presence     {presence}"))?;
+        }
+        Ok(())
+    }
+
     pub fn vm_list(&mut self, body: &[u8]) -> Result<(), CliError> {
         if self.json {
             return self.raw_json(body);
@@ -71,6 +210,27 @@ impl<'a> Printer<'a> {
         }
         if let Some(cursor) = &page.next_cursor {
             self.line(&format!("more: cmux-vm list --cursor {cursor}"))?;
+        }
+        Ok(())
+    }
+
+    pub fn image_list(&mut self, body: &[u8]) -> Result<(), CliError> {
+        if self.json {
+            return self.raw_json(body);
+        }
+        let images: VmImageList = decode(body)?;
+        if images.items.is_empty() {
+            self.line("no approved images")?;
+        } else {
+            self.line(&format!("{:<24} {:<20} NAME", "ID", "REVISION"))?;
+            for image in &images.items {
+                self.line(&format!(
+                    "{:<24} {:<20} {}",
+                    image.id.as_str(),
+                    image.revision.as_str(),
+                    image.display_name
+                ))?;
+            }
         }
         Ok(())
     }

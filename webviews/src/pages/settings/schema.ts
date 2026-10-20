@@ -87,7 +87,6 @@ type Schema = {
   rows: SchemaRow[];
   sections: SchemaSection[];
   page: PageLayout;
-  schema_hash: string;
   version: number;
 };
 

@@ -12,14 +12,37 @@ import AppKit
 /// `Fixture.withRenderScale(_:_:)` and the process fallback outside one. Work sent to another queue takes the scale
 /// with it (a task local does not follow DispatchQueue blocks): RowBitmaps, Pager, TiledBody, MorphBubble.prepare.
 enum RenderScaleScope {
+    /// The scope's scale for work inside a Swift task or off the main thread.
     @TaskLocal static var scoped: CGFloat? = nil
+    /// cmux: the scope's scale on the main thread outside any task (a layer's draw, a window
+    /// move, a layout pass). A task local bound there lives in the thread's fallback storage, and an
+    /// isolated deinit run inline under it (every main-actor class of a main-actor-default target
+    /// has one) makes the macOS 15.4 to 15.x runtime free() a marker its task allocator made: cmux
+    /// trapped under Chromium's allocator when Cmd-1 left Home (CMUXTERM-MACOS-44XN, macOS 15.8.1).
+    // crash-allow: read and written only on the main thread (`with` and `current` check it).
+    nonisolated(unsafe) static var mainThreadScoped: CGFloat? = nil
+
+    /// The scale of the scope that runs now, nil outside any scope.
+    static var current: CGFloat? { scoped ?? (Thread.isMainThread ? mainThreadScoped : nil) }
+
+    /// Runs `body` in a scope of scale `s`, binding no task local where no task runs.
+    static func with<T>(_ s: CGFloat, _ body: () throws -> T) rethrows -> T {
+        if Thread.isMainThread, !withUnsafeCurrentTask(body: { $0 != nil }) {
+            let outer = mainThreadScoped
+            mainThreadScoped = s
+            defer { mainThreadScoped = outer }
+            return try body()
+        }
+        // concurrency-allow: bound inside a task or off the main thread, never in fallback storage on main
+        return try $scoped.withValue(s, operation: body)
+    }
 }
 
 extension Fixture {
     /// Runs `body` with `Fixture.renderScale` = `s` on this thread (a scale of 0 or less: the current value).
     static func withRenderScale<T>(_ s: CGFloat, _ body: () throws -> T) rethrows -> T {
-        guard s > 0, RenderScaleScope.scoped != s else { return try body() }
-        return try RenderScaleScope.$scoped.withValue(s, operation: body)
+        guard s > 0, RenderScaleScope.current != s else { return try body() }
+        return try RenderScaleScope.with(s, body)
     }
 }
 
@@ -108,6 +131,7 @@ struct TextLayout: Hashable {
             }
             if r.detected != nil { a.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: range) }
         }
+        HomeLinkChip.reserve(in: a, runs: runs, kern: kern)
         return a
     }
 
@@ -224,6 +248,9 @@ struct RowSpec: Hashable {
         /// above it (macOS 26): a mini card or thumbnail, a short stub, and
         /// "N Replies" when the thread has 2 or more replies.
         case threadPreview(ThreadPreview)
+        /// cmux: a group chat's sender name above the first bubble of another person's run (iMessage): small
+        /// secondary text at the incoming bubbles' text edge. Key "name:<message id>".
+        case senderName(String)
     }
     enum LabelColor: Hashable { case secondary, failure, link }
 }
@@ -433,6 +460,13 @@ struct PartRow: Hashable {
     /// The message is marked markdown (Message.format): a long text part takes the markdown
     /// tiles only then (LongTextStore.layout).
     var markdownFormat: Bool = false
+    /// cmux: the sender's avatar beside this bubble (a group chat, the last bubble of another person's run).
+    var cmuxAvatar: SenderAvatar? = nil
+    /// cmux: how far right of `Fixture.leftEdge` an incoming bubble sits (a group chat's avatar column,
+    /// `SenderAvatar.bubbleInset`; 0 elsewhere). Outgoing rows ignore it.
+    var cmuxIndent: CGFloat = 0
+    /// cmux: the body's left edge in row coordinates (`rightEdge`: the row's `Metrics.rightEdge`).
+    func cmuxBodyX(rightEdge: CGFloat) -> CGFloat { outgoing ? rightEdge - size.width : Fixture.leftEdge + cmuxIndent }
     /// The message format of this row (Message.format).
     var format: MessageFormat? { markdownFormat ? .markdown : nil }
     /// The drawn body: lines after a hard newline are 15.5 pt apart, so the
@@ -863,6 +897,8 @@ enum RowBuilder {
                      previousRow: RowSpec.Kind? = nil, width: CGFloat = Metrics.current.width, exact: Range<Int>? = nil,
                      scale: CGFloat = Fixture.renderScale, threadCounts: [ID: Int]? = nil) -> [RowSpec] {
         let me = s.me
+        // cmux: a group chat names and draws the avatar of another person's runs (iMessage; `Conversation.cmuxGroup`).
+        let group = s.conversation.cmuxGroup == true
         var rows: [RowSpec] = []
         var span = (range ?? 0..<loaded.count).clamped(to: 0..<loaded.count) // a range from an older window stays inside
         // The host's streaming bubbles with text (ask 11, HostHooks.swift) follow the newest message as the messages
@@ -994,6 +1030,19 @@ enum RowBuilder {
                 let lastOfGroup = next.map { next in next.senderId != m.senderId || next.date.timeIntervalSince(m.date) >= groupGap
                     || next.retractedAt != nil || next.replyTo != m.replyTo
                     || thread(next, at: idx + 1) != thread(m, at: idx) } ?? true
+                // cmux: a group chat's run of another person's messages (the rule of lastOfGroup, seen from the
+                // message above): its first bubble gets the sender's name, its last their avatar, and every
+                // incoming bubble moves right of the avatar column. A reply drawn with a thread connector
+                // has no name row (the connector's stroke runs through it); its avatar names it.
+                let inGroup = group && !outgoing
+                let sender = inGroup ? s.conversation.participants.first { $0.id == m.senderId } : nil
+                let startsRun = prev.map { p in p.senderId != m.senderId || m.date.timeIntervalSince(p.date) >= groupGap
+                    || p.retractedAt != nil || m.replyTo != p.replyTo
+                    || thread(m, at: idx) != thread(p, at: prevIndex) } ?? true
+                if let name = sender?.displayName, !name.isEmpty, startsRun, connector == nil {
+                    rows.append(RowSpec(key: "name:\(m.id)", kind: .senderName(name), gap: gap, height: 14))
+                    gap = 1
+                }
                 for (pi, part) in m.parts.enumerated() {
                     // A streaming bubble (past the loaded messages) is always measured: it draws now.
                     let measured = MeasureCache.shared.size(m, pi, width: width, estimate: idx < loaded.count && (exact.map { !$0.contains(idx) } ?? false), scale: scale)
@@ -1020,7 +1069,9 @@ enum RowBuilder {
                                       tail: lastOfGroup && pi == m.parts.count - 1, reactions: reactions,
                                       myReaction: reactions.firstIndex { $0.senderId == me }, failed: failed,
                                       size: size, text: tl, connectorRoot: pi == 0 ? connector : nil, markdown: measured.markdown,
-                                      markdownFormat: m.isMarkdown)
+                                      markdownFormat: m.isMarkdown,
+                                      cmuxAvatar: inGroup && lastOfGroup && pi == m.parts.count - 1 && !isCustom(part) ? SenderAvatar(sender?.avatar) : nil,
+                                      cmuxIndent: inGroup && !isCustom(part) ? SenderAvatar.bubbleInset : 0)
                     rows.append(RowSpec(key: "part:\(m.id):\(pi)", kind: .part(row), gap: g, height: size.height,
                                         width: width, estimated: measured.estimated))
                 }
@@ -1130,6 +1181,8 @@ enum RowBuilder {
     }
 
     private static func isText(_ p: Part?) -> Bool { if case .text = p { return true } else { return false } }
+    /// cmux: a custom part keeps its own layout (a full-width row spans the transcript): no group avatar column.
+    private static func isCustom(_ p: Part) -> Bool { if case .custom = p { return true } else { return false } }
 
     /// "Read <time>" under my latest read message; "Delivered" under my
     /// latest delivered message when it is newer.

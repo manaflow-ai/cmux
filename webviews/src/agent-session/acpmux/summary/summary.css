@@ -18,6 +18,8 @@
 .acpmux-summary-card[data-placement=inline] .acpmux-summary-card__head{height:28px;padding:0 2px 4px 4px}
 .acpmux-summary-card__fold{flex:1;min-width:0;display:flex;align-items:center;gap:6px;height:26px;padding:0 6px;border:0;border-radius:7px;background:none;color:inherit;font:inherit;text-align:left;cursor:default}
 .acpmux-summary-card__fold>svg{flex:none;color:var(--agent-muted)}
+.acpmux-summary-card__fold--icon{flex:none;justify-content:center;width:26px;padding:0}
+.acpmux-summary-card__fold--icon+.acpmux-summary-tabs{margin-left:0}
 .acpmux-summary-card__title{flex:none;font-weight:500}
 .acpmux-summary-card__counts{flex:1;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;color:var(--agent-muted);font-size:var(--text-detail);font-variant-numeric:tabular-nums}
 .acpmux-summary-card__close{flex:none;display:grid;place-items:center;width:26px;height:26px;padding:0;border:0;border-radius:7px;background:none;color:var(--agent-muted);cursor:default}
@@ -27,6 +29,11 @@
 .acpmux-summary-card__fold:focus-visible,.acpmux-summary-card__close:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:-1.5px}
 .acpmux-summary-card__body{flex:1 1 auto;min-height:0;overflow:auto;padding:0 6px 6px;border-top:.5px solid var(--agent-border)}
 .acpmux-summary-card[data-placement=inline] .acpmux-summary-card__body{padding:0 0 6px;border-top:0}
+/* Rows past a capped card's edge: that edge fades (scrollEdges.ts), the only sign under hidden scrollbars. */
+.acpmux-summary-card__body[data-fade-top],.acpmux-summary-card__body[data-fade-bottom]{--acpmux-summary-fade-top:0px;--acpmux-summary-fade-bottom:0px;-webkit-mask-image:linear-gradient(to bottom,transparent,#000 var(--acpmux-summary-fade-top),#000 calc(100% - var(--acpmux-summary-fade-bottom)),transparent);mask-image:linear-gradient(to bottom,transparent,#000 var(--acpmux-summary-fade-top),#000 calc(100% - var(--acpmux-summary-fade-bottom)),transparent)}
+.acpmux-summary-card__body[data-fade-top]{--acpmux-summary-fade-top:14px}.acpmux-summary-card__body[data-fade-bottom]{--acpmux-summary-fade-bottom:22px}
+@media (prefers-reduced-transparency:reduce){.acpmux-summary-card__body[data-fade-top],.acpmux-summary-card__body[data-fade-bottom]{-webkit-mask-image:none;mask-image:none}}
+:root[data-reduce-transparency] .acpmux-summary-card__body[data-fade-top],:root[data-reduce-transparency] .acpmux-summary-card__body[data-fade-bottom]{-webkit-mask-image:none;mask-image:none}
 .acpmux-summary-agent[aria-current=true]{background:var(--acpmux-menu-hover)}
 .acpmux-summary-agent__name{font-weight:inherit}
 .acpmux-summary-agent__kind{margin-left:6px;color:var(--agent-muted);font-size:var(--text-detail)}
@@ -59,6 +66,27 @@
 .acpmux-summary-dot[data-state=failed]{background:var(--agent-danger)}
 .acpmux-summary-dot[data-state=running]{box-shadow:0 0 0 1px var(--agent-accent)}
 .acpmux-summary-none{color:var(--agent-muted)}
+/* The Subagents tab (SubagentsTab.tsx): the Subagents title opens it; the card's head then shows a Summary tab and a closable Subagents tab. Its rows are the transcript's subagent rows (SubagentGroup.tsx), compact and unbordered here. */
+.acpmux-summary-title__button{display:inline-flex;align-items:center;gap:4px;margin:-2px -4px;padding:2px 4px;border:0;border-radius:5px;background:none;color:inherit;font:inherit;cursor:default;transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out),color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
+.acpmux-summary-title__button>svg{flex:none;opacity:.7}
+.acpmux-summary-title__button:hover{background:var(--acpmux-menu-hover);color:var(--agent-text)}
+.acpmux-summary-title__button:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:0}
+.acpmux-summary-card:focus{outline:none}
+.acpmux-summary-tabs{flex:0 1 auto;min-width:0;display:flex;align-items:center;gap:2px;margin-left:-8px}
+.acpmux-summary-tab{flex:none;display:inline-flex;align-items:center;height:24px;padding:0 8px;box-sizing:border-box;border:0;border-radius:6px;background:none;color:var(--agent-muted);font:inherit;font-weight:500;cursor:default;transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out),color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
+.acpmux-summary-tab:hover,.acpmux-summary-tab[data-selected]{color:var(--agent-text)}
+.acpmux-summary-tab[data-selected]{background:var(--acpmux-menu-hover)}
+.acpmux-summary-tab[data-closable]{flex:0 1 auto;min-width:0;gap:2px;padding-right:2px}
+.acpmux-summary-tab__label{min-width:0;overflow:hidden;padding:0;border:0;background:none;color:inherit;font:inherit;white-space:nowrap;text-overflow:ellipsis;cursor:default}
+.acpmux-summary-tab__close{flex:none;display:grid;place-items:center;width:18px;height:18px;padding:0;border:0;border-radius:4px;background:none;color:var(--agent-muted);cursor:default}
+.acpmux-summary-tab__close:hover{background:color-mix(in srgb,currentColor 12%,transparent);color:var(--agent-text)}
+.acpmux-summary-tab:focus-visible,.acpmux-summary-tab__label:focus-visible,.acpmux-summary-tab__close:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:-1.5px}
+.acpmux-summary-subagent-rows .cv-subagent{height:40px;margin:0;padding:0 8px;gap:8px;border:0;border-radius:7px;font-size:var(--text-control);transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
+.acpmux-summary-subagent-rows .cv-subagent-avatar{width:22px;height:22px}
+.acpmux-summary-subagent-rows .cv-subagent__state{font-size:var(--text-detail)}
+.acpmux-summary-subagent-rows button.cv-subagent:hover{background:var(--acpmux-menu-hover)}
+.acpmux-summary-subagent-rows button.cv-subagent:active{background:color-mix(in srgb,var(--agent-text) 18%,var(--acpmux-base))}
+.acpmux-summary-subagent-rows button.cv-subagent:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:-1.5px}
 /* A subagent row's icon (SubagentStatusList.tsx): a status dot, the accent while it runs, the warning colour while it waits on the user. */
 .acpmux-lineage__icon{position:relative;flex:none;display:inline-flex;color:var(--agent-muted)}
 .acpmux-lineage__icon::after{content:"";position:absolute;right:-2px;bottom:-2px;width:6px;height:6px;border-radius:50%;box-shadow:0 0 0 1.5px var(--surface-popup);background:var(--agent-muted)}
@@ -85,6 +113,9 @@
 :root[data-status-indicators=static] .acpmux-lineage__icon[data-state=waiting]::after{content:"!";color:var(--acpmux-warning,var(--agent-warning))}
 /* The chat's gallery (GalleryDialog.tsx): over the pane as the image viewer is, a grid of the chat's images and render cards. */
 .acpmux-chat-gallery{position:fixed;inset:0;z-index:var(--layer-modal);width:auto;margin-inline:0;display:flex;flex-direction:column;background:color-mix(in srgb,var(--agent-page-bg) 94%,transparent);-webkit-backdrop-filter:blur(24px);backdrop-filter:blur(24px);color:var(--agent-text);outline:none}
+/* Reduce Transparency: the gallery is a solid page, unblurred, as the other blurred acpmux surfaces are. The page background is clear in a translucent window, so the solid color is the opaque surface token the composer uses. */
+@media (prefers-reduced-transparency:reduce){.acpmux-chat-gallery{background:var(--cmux-surface-solid, var(--acpmux-base, Canvas));-webkit-backdrop-filter:none;backdrop-filter:none}}
+:root[data-reduce-transparency] .acpmux-chat-gallery{background:var(--cmux-surface-solid, var(--acpmux-base, Canvas));-webkit-backdrop-filter:none;backdrop-filter:none}
 .acpmux-chat-gallery-filters{display:flex;gap:2px;margin-right:8px}
 .acpmux-chat-gallery-filter{height:26px;padding:0 8px;border:0;border-radius:7px;background:none;color:var(--agent-muted);font:inherit;font-size:var(--text-detail);cursor:default}
 .acpmux-chat-gallery-filter:hover{background:var(--agent-control-hover)}
@@ -117,6 +148,22 @@
 .acpmux-pr-dock__more{align-self:flex-start;height:24px;padding:0 8px;border:0;border-radius:6px;background:none;color:var(--agent-muted);font:inherit;font-size:var(--text-detail);cursor:default}
 .acpmux-pr-dock__more:hover{background:var(--acpmux-composer-hover);color:var(--agent-text)}
 .acpmux-pr-dock__more:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}
+/* The recap card above the composer (RecapCard.tsx): when the last turn ended on a question, the answer's last paragraph muted and clamped to three lines, the question, then Yes (accent) and Not now (quiet), × at the top right. On the composer's column and tray, as the pull request bars are. */
+.acpmux-recap{padding:0 var(--cv-inset,max(18px,calc((100% - 760px)/2))) 6px;font-size:var(--text-control);line-height:var(--text-control--line-height)}
+.acpmux-quick .acpmux-recap{padding:6px 8px 0}
+.acpmux-recap__card{position:relative;padding:10px 36px 10px 12px;border:var(--cmux-hairline, .5px) solid var(--agent-border);border-radius:12px;background:var(--acpmux-composer-tray);color:var(--agent-text)}
+.acpmux-recap__summary{margin:0 0 6px;color:var(--agent-muted);display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;line-clamp:3;overflow:hidden;overflow-wrap:anywhere}
+.acpmux-recap__question{margin:0;overflow-wrap:anywhere}
+.acpmux-recap__actions{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+.acpmux-recap__button{display:inline-flex;align-items:center;height:26px;padding:0 10px;border:0;border-radius:7px;font:inherit;font-size:var(--text-control);white-space:nowrap;cursor:default}
+.acpmux-recap__yes{background:var(--agent-accent);color:var(--agent-accent-text,#fff)}
+.acpmux-recap__yes:hover{background:color-mix(in srgb,var(--agent-accent) 88%,var(--agent-text))}
+.acpmux-recap__yes .acpmux-keycap{margin:0 0 0 8px}
+.acpmux-recap__later{background:none;color:var(--agent-muted)}
+.acpmux-recap__later:hover{background:var(--acpmux-composer-hover);color:var(--agent-text)}
+.acpmux-recap__button:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}
+.acpmux-recap__dismiss{position:absolute;top:6px;right:6px}
+.acpmux-recap__error{margin:6px 0 0;color:var(--agent-muted);font-size:var(--text-detail);line-height:var(--text-detail--line-height)}
 /* The session side rail (SessionRail.tsx, Debug Settings agent.sessionRail): a column beside the chat, as the side preview is (.acpmux-artifact), narrower; under 720px it lies over the chat. Cards are hairline-bordered and a step lighter than the page, rows 28px; it fades in, the width never animates. */
 .acpmux-rail{flex:0 0 clamp(240px,26%,340px);min-width:0;display:flex;flex-direction:column;align-items:stretch;gap:8px;box-sizing:border-box;padding:8px 10px 10px 2px;overflow-x:hidden;overflow-y:auto;background:var(--agent-page-bg);color:var(--agent-text);font-size:var(--text-control);line-height:18px}
 @media (max-width:560px){.acpmux-rail{position:absolute;z-index:var(--layer-overlay);top:0;right:0;bottom:0;width:min(300px,calc(100% - 32px));padding-left:10px;box-shadow:var(--elevation-2)}}

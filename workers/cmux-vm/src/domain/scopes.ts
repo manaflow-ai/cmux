@@ -9,6 +9,7 @@ import { Schema } from "effect";
 export const SCOPES = [
   "vm:read",
   "vm:write",
+  "vm:network",
   "vm:exec",
   "vm:files",
   "vm:terminal",
@@ -29,6 +30,12 @@ export const SCOPES = [
 
 export const Scope = Schema.Literal(...SCOPES);
 export type Scope = typeof Scope.Type;
+
+/** Response names can grow; authentication and key requests still use Scope. */
+export const ReportedScope = Schema.String.annotations({
+  description: "A permission name. Clients must preserve unfamiliar response names; unfamiliar names never grant authority.",
+  jsonSchema: { type: "string", "x-extensible-enum": SCOPES },
+});
 
 export const SESSION_SCOPES: ReadonlySet<Scope> = new Set(SCOPES.filter((scope) => scope !== "admin"));
 

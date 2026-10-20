@@ -9,12 +9,13 @@ import { createRoot } from "react-dom/client";
 import { applyDiffViewerAppearance, resolveDiffViewerAppearance } from "../../appearance";
 import { createPageClient, type PageClient } from "../shared/pageClient";
 import { createStrings, type Strings } from "../shared/i18n";
+import { contentFocus, FOCUS_CONTENT_COMMAND } from "../shared/pageFocus";
 import { subscribePageStreams } from "../shared/pageStreams";
 import { EditorEmptyState } from "../../viewer-empty/EditorEmptyState";
 import { viewerEmptyStrings } from "../../viewer-empty/strings";
 import table from "./generated/strings.json";
 import { EditorPage, StatusStore } from "./EditorPage";
-import { EDITOR_FLUSH_OP, EDITOR_KEY_SEQUENCE_OP, EDITOR_OPEN_LINK_OP } from "./host";
+import { APP_ACTION_RUN_OP, EDITOR_FLUSH_OP, EDITOR_KEY_SEQUENCE_OP, EDITOR_OPEN_LINK_OP } from "./host";
 import { isEditorCommand } from "./keys";
 import { applyEditorLook, PREFERENCE_KEYS, resolveEditorSettings } from "./settings";
 import { EditorStore } from "./store";
@@ -88,11 +89,15 @@ export function mountEditorPage(root: HTMLElement, client: PageClient | null = c
   document.title = strings.t(L.title);
   let view: MonacoView | null = null;
   let mounting: HTMLElement | null = null;
+  // The app gives the page the keyboard (pane click, Cmd-Opt-Arrow, tab switch, relaunch): Monaco
+  // takes it, also when it mounts after the request (pane-focus-DESIGN.md P1, P2).
+  const focus = contentFocus();
   const screenReader = () => store.getState().look.screenReader;
   const editorRef = (element: HTMLDivElement | null) => {
     if (!element) {
       mounting = null;
       store.attachView(null);
+      focus.mount(null);
       view?.dispose();
       view = null;
       status.set(null);
@@ -126,9 +131,14 @@ export function mountEditorPage(root: HTMLElement, client: PageClient | null = c
         onKeySequence: (pending) => {
           if (client) void client.call(EDITOR_KEY_SEQUENCE_OP, { pending }).catch(() => undefined);
         },
+        // The one bridge from web code to the native palette: the app's action, run by the host.
+        openCommandPalette: () => {
+          if (client) void client.call(APP_ACTION_RUN_OP, { action: "commandPalette" }).catch(() => undefined);
+        },
       });
       view = next;
       store.attachView(next);
+      focus.mount(next);
       document.documentElement.dataset.cmuxEditorBoot = "ready";
     });
   };
@@ -137,6 +147,7 @@ export function mountEditorPage(root: HTMLElement, client: PageClient | null = c
     // Cmd-S and the find chords are the app key dispatcher's page commands; the page never reads them.
     void subscribePageStreams(client, {
       onCommand: ({ command, text }) => {
+        if (command === FOCUS_CONTENT_COMMAND) return focus.request();
         if (command === "save") return void store.save({ format: true });
         if (isEditorCommand(command)) view?.command(command, text);
       },
@@ -158,6 +169,8 @@ export function mountEditorPage(root: HTMLElement, client: PageClient | null = c
     const state = store.getState();
     document.documentElement.dataset.cmuxEditorPhase = state.phase;
     document.documentElement.dataset.cmuxEditorStatus = state.status;
+    // The document is shown: a focus request kept while Monaco loaded it applies now (P2).
+    if (state.phase === "ready") focus.retry();
     if (state.look === applied) return;
     applied = state.look;
     const settings = resolveEditorSettings(state.look.settings);

@@ -244,6 +244,7 @@ impl Brain {
             return;
         }
         self.handled = message.seq;
+        self.note_main_message(&message);
         let Some(summary) = self.summary.as_ref() else {
             return;
         };
@@ -263,7 +264,10 @@ impl Brain {
             // answers, is logged, and is not a new message (it neither
             // queues nor interrupts the turn).
             match crate::approval::Answer::parse(&text) {
-                Some(answer) if self.has_approval(None) => {
+                Some(answer)
+                    if self.settings.membership.is_owner_message(summary, &message)
+                        && self.has_approval(None) =>
+                {
                     self.answer_approval(answer, &message, None);
                     if let Err(e) = self.chat.append(optchat_core::Kind::User, &text) {
                         (self.log)(&format!("logging an approval failed: {e}"));
@@ -289,6 +293,10 @@ impl Brain {
                             seq: message.seq,
                             id: message.id.clone(),
                             remote,
+                            requires_approval: !self
+                                .settings
+                                .membership
+                                .is_owner_message(summary, &message),
                         },
                     );
                     return;
