@@ -25,8 +25,8 @@ public struct TabItem: Identifiable, Hashable, Sendable {
         get { indicator.replacesTabIcon }
         set { if newValue != isBusy { indicator = newValue ? .busy : .idle } }
     }
-    /// A busy page still waiting for its first response: its spinner turns the other way
-    /// (Chromium's waiting throbber), until the page commits and loads.
+    /// A busy page still waiting for its first response, until the page commits and loads.
+    /// Its spinner turns like every other one (same direction and phase); this is state only.
     public var isWaiting = false
     /// The reporter's indicator style hint; nil uses
     /// `appearance.statusIndicator.style`.
