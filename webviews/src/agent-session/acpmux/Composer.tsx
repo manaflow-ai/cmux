@@ -1,29 +1,11 @@
-import React, {
-  useCallback,
-  useContext,
-  useEffect,
-  useImperativeHandle,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import React, { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 // Send's iMessage colors (--cmux-messages-blue); build-agent-pane-web.sh inlines the sheet.
 import "../../theme/messages.css";
 import { useEscapingList } from "../../ui/popupHost";
 import type { AcpmuxSnapshot, QueueEdit } from "./model";
-import {
-  filesFrom,
-  installFileDropLifecycle,
-  readAttachments,
-  MAX_ATTACHMENTS,
-  thumbnail,
-  type AttachmentError,
-  type ComposerAttachment,
-} from "./attachments";
+import { MAX_ATTACHMENTS, type AttachmentError, type ComposerAttachment } from "./attachments";
 import type { UploadResult } from "./cloudUploads";
-import { ImageViewerContext } from "./conversation/imageViewerContext";
 import { cappedShellChips, shellAttachment, type ShellRun } from "./shell/shellRuns";
 import type { Project } from "./ProjectChooser";
 import { ComposerContext } from "./ComposerContext";
@@ -46,10 +28,8 @@ import { FileSearch } from "./FileSearch";
 import { FastToggle, SpeedToggleHost, type SpeedTiers } from "./FastToggle";
 import { Icon } from "./icons/Icon";
 import { MentionMenu, mentionQuery, mentionResults, mentionText, useMentionSearch } from "./MentionMenu";
-import { Close, FileDoc } from "./conversation/icons";
 import { ContextMenu, type ContextMenuItem } from "../../ui/ContextMenu";
 import { openChipMenu } from "./composerChipMenu";
-import { Dialog } from "../../ui/Dialog";
 import type { Choice } from "./ComposerPickers";
 import type { FileSearchSource } from "./fileSearchModel";
 import { commandArgs, type CmuxCommand } from "./cmuxCommands";
@@ -65,7 +45,7 @@ import {
   writePersistedDraft,
 } from "./composerDraft";
 import { MarkdownField, type MarkdownFieldHandle } from "./MarkdownField";
-import { type StringKey, type Translate, useT } from "./i18n";
+import { type StringKey, useT } from "./i18n";
 import { remoteComposer } from "./remoteEditing";
 import { ChromeArea } from "../../ui/HideableChrome";
 import { useComposerChrome } from "./composerChrome";
@@ -73,6 +53,7 @@ import { useMenuPressGuard } from "./menuPressGuard";
 import { useRowFit } from "./composerRowFit";
 import { useComposerSettings } from "./composerSettings";
 import { usePromptHistory } from "./composer/promptHistory";
+import { AttachmentStrip, attachmentErrorText, useAttachmentIntake } from "./composer/attachmentIntake";
 import type { SendBlock } from "./useFolderTrustAsk";
 
 /// Composer copy. English defaults until the host passes localized labels, as the rest of the pane does today.
@@ -113,16 +94,12 @@ export const COMPOSER_LABELS = {
   copy: "composer.menu.copy",
   paste: "composer.menu.paste",
   pasteAsPlainText: "composer.menu.pasteAsPlainText",
+  undo: "composer.menu.undo",
+  redo: "composer.menu.redo",
+  selectAll: "composer.menu.selectAll",
   attachFiles: "composer.menu.attachFiles",
   insertMention: "composer.menu.insertMention",
 } as const satisfies Record<string, StringKey>;
-
-/// The refusals a moved chat's upload can take instead (a file of another type, or past the size an attachment takes).
-const UPLOADABLE = new Set<AttachmentError["reason"]>(["unsupported", "tooLarge"]);
-
-function attachmentErrorText(error: AttachmentError, t: Translate): string {
-  return t(COMPOSER_LABELS[error.reason], { name: error.name });
-}
 
 /// What the pane can do to the composer from outside it.
 export type ComposerHandle = {
@@ -223,6 +200,11 @@ type Props = {
   /// ⌘Return, only where set (the Quick Composer): sends what was typed as Return would, then
   /// asks to open the chat in a window. `sent` says whether there was a prompt to send.
   onOpenInWindow?(sent: boolean): void;
+  /// ⌘Return on an empty prompt while no turn runs (where it does nothing else): the recap card's
+  /// yes (RecapCard.tsx). Set only while that card shows.
+  onEmptyCommandReturn?(): void;
+  /// Shell mode (`!` first) on or off: its ⌘Return answers no recap card, so the card drops its key.
+  onShellChange?(shell: boolean): void;
   /// Set while no prompt may go (the folder's trust question is open, useFolderTrustAsk.ts):
   /// Send is off, Enter keeps the prompt, and `reason` shows above it. Shell mode still runs.
   blocked?: SendBlock;
@@ -267,6 +249,8 @@ export function Composer({
   onShellInterrupt,
   onMode,
   onOpenInWindow,
+  onEmptyCommandReturn,
+  onShellChange,
   handle,
   sessionId,
   switching,
@@ -282,7 +266,7 @@ export function Composer({
   const [findingFiles, setFindingFiles] = useState(false);
   // A new folder (another chat) closes the palette, so no row from the last one stays pickable.
   useEffect(() => setFindingFiles(false), [searchFiles]);
-  // Search Files… (Cmd-P in the app, cx-ncc.69) opens the same search the + menu does.
+  // Search Files… (the app's command palette, cx-ncc.69) opens the same search the + menu does.
   useEffect(() => {
     if (!searchFiles) return;
     const open = () => setFindingFiles(true);
@@ -300,7 +284,13 @@ export function Composer({
   textRef.current = text;
   /// Shell mode: the prompt is a plain monospace field whose Enter runs a command. The markdown
   /// prompt stays mounted under it, keeping its own draft.
-  const [shell, setShell] = useState(false);
+  const [shell, setShellState] = useState(false);
+  const shellChange = useRef(onShellChange);
+  shellChange.current = onShellChange;
+  const setShell = (on: boolean) => {
+    setShellState(on);
+    shellChange.current?.(on);
+  };
   const [shellText, setShellText] = useState("");
   const shellRef = useRef({ shell, shellText });
   shellRef.current = { shell, shellText };
@@ -312,11 +302,6 @@ export function Composer({
   // The @ file picker (MentionMenu.tsx): its highlight, and the prompt text Esc closed it on.
   const [mentionActive, setMentionActive] = useState(0);
   const [mentionDismissed, setMentionDismissed] = useState<string | undefined>();
-  const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
-  const attachmentsRef = useRef(attachments);
-  attachmentsRef.current = attachments;
-  const [attachError, setAttachError] = useState<string | undefined>();
-  const [dropping, setDropping] = useState(false);
   const field = useRef<MarkdownFieldHandle>(null);
   const fieldRef = useCallback(
     (handle: MarkdownFieldHandle | null) => {
@@ -357,26 +342,24 @@ export function Composer({
   const sending = useRef(false);
   /// The newest submit, for the handle's `send` (rendered after the trust answer lands).
   const submitNow = useRef<(force: boolean) => boolean>(() => false);
-  const held = useRef(0);
-  held.current = attachments.length;
   const allowImages = snapshot.summary?.promptCapabilities?.image !== false;
+  // A paste on the prompt or the shell field, and a file drop anywhere (composer/attachmentIntake.tsx).
+  const { attachments, setAttachments, attachError, setAttachError, dropping, attach } = useAttachmentIntake({
+    allowImages,
+    // A file pasted in shell mode is kept for the next prompt and uploads nothing; the mode stays.
+    pasteTarget: (target) =>
+      shellField.current?.contains(target)
+        ? { uploads: false }
+        : field.current?.element()?.contains(target)
+          ? { uploads: true }
+          : undefined,
+    ...(upload ? { upload } : {}),
+    insertPaths: (paths) => insertPaths(paths),
+  });
+  const attachmentsRef = useRef(attachments);
+  attachmentsRef.current = attachments;
   // + then Attach files clicks this input: the system file chooser (an open panel in the app).
   const chooser = useRef<HTMLInputElement>(null);
-  /// `uploads`: the person dropped or pasted these into the prompt, so a moved chat may send what
-  /// the composer can't attach to its machine (never a pick from + or a capture).
-  const attach = useRef<(files: File[], uploads?: boolean) => Promise<void>>(async () => {});
-  attach.current = async (files: File[], uploads = false) => {
-    if (files.length === 0) return;
-    const read = await readAttachments(files, held.current, allowImages);
-    setAttachments((current) => [...current, ...read.attachments]);
-    // A moved chat sends what the composer can't attach to its machine and names it in the prompt.
-    const refused = new Set(read.errors.filter((error) => UPLOADABLE.has(error.reason)).map((error) => error.name));
-    const sendable = files.filter((file) => refused.has(file.name || "file"));
-    const sent = uploads && upload && sendable.length > 0 ? await upload(sendable) : undefined;
-    if (sent && "paths" in sent) insertPaths(sent.paths);
-    const errors = sent ? read.errors.filter((error) => !refused.has(error.name)) : read.errors;
-    setAttachError(sent && "error" in sent ? sent.error : errors[0] ? attachmentErrorText(errors[0], t) : undefined);
-  };
   /// Puts machine paths at the caret, one per line.
   const insertPaths = (paths: string[]) => {
     const handle = field.current;
@@ -387,24 +370,6 @@ export function Composer({
     const caret = before.length + inserted.length;
     handle.writeText(before + inserted + value.slice(selectionEnd), caret, caret);
   };
-  useEffect(() => {
-    const paste = (event: ClipboardEvent) => {
-      const target = event.target as Node;
-      // A file pasted in shell mode is kept for the next prompt; the mode stays.
-      if (!field.current?.element()?.contains(target) && !shellField.current?.contains(target)) return;
-      const files = filesFrom(event.clipboardData);
-      if (files.length === 0) return;
-      event.preventDefault();
-      // A paste in shell mode keeps its files for the next prompt and uploads nothing.
-      void attach.current(files, !shellField.current?.contains(target));
-    };
-    const removeFileDropLifecycle = installFileDropLifecycle((files) => void attach.current(files, true), setDropping);
-    document.addEventListener("paste", paste);
-    return () => {
-      removeFileDropLifecycle();
-      document.removeEventListener("paste", paste);
-    };
-  }, []);
   useLayoutEffect(() => {
     if (!refocusSend.current) return;
     const focused = document.activeElement;
@@ -460,7 +425,7 @@ export function Composer({
         }
       },
     }),
-    [],
+    [setAttachments],
   );
   useEffect(() => {
     // The prompt's DOM value is the typed text; a draft never replaces it.
@@ -798,17 +763,25 @@ export function Composer({
     // ⌘Return while a turn runs steers: the prompt goes in now instead of after the turn. (The
     // Quick Composer keeps its own ⌘Return and Esc, below.)
     const quick = Boolean(onOpenInWindow);
-    if (
-      event.key === "Enter" &&
-      event.metaKey &&
-      !event.shiftKey &&
-      !event.altKey &&
-      !event.ctrlKey &&
-      steerable &&
-      !quick
-    ) {
+    const commandReturn =
+      event.key === "Enter" && event.metaKey && !event.shiftKey && !event.altKey && !event.ctrlKey && !quick;
+    if (commandReturn && steerable) {
       event.preventDefault();
       send(false, true);
+      return;
+    }
+    // ⌘Return on an empty prompt after a turn answers the recap card's question (RecapCard.tsx).
+    if (
+      commandReturn &&
+      onEmptyCommandReturn &&
+      !shell &&
+      remote.canSend &&
+      !snapshot.isWorking &&
+      !text.trim() &&
+      attachments.length === 0
+    ) {
+      event.preventDefault();
+      onEmptyCommandReturn();
       return;
     }
     // The @ picker owns arrows (and Ctrl-N/P/J/K), Return and Tab while it lists files, and Esc.
@@ -955,18 +928,35 @@ export function Composer({
     else if (open) setDismissed(text);
     else if (mentionAt) setMentionDismissed(text);
   };
-  // The prompt's context menu: the edit items, then Attach Files… and Insert Mention. Cut and Copy
-  // need a selection in the field, read when the menu opens.
+  // The prompt's context menu, as a text field's (POLISH.md): Undo and Redo, the edit items and
+  // Select All, then Attach Files… and Insert Mention. Cut and Copy need a selection in the field,
+  // and Undo and Redo an edit in its history, read when the menu opens.
   const [fieldSelected, setFieldSelected] = useState(false);
+  const [fieldHistory, setFieldHistory] = useState({ undo: false, redo: false });
   const noteSelection = () => {
     const shellInput = shellField.current;
     if (shell && shellInput) {
       setFieldSelected(shellInput.selectionStart !== shellInput.selectionEnd);
+      // A plain text area keeps its own history, which the page cannot read: both stay offered.
+      setFieldHistory({ undo: true, redo: true });
       return;
     }
     const selection = window.getSelection();
     const element = field.current?.element();
     setFieldSelected(Boolean(selection && !selection.isCollapsed && element?.contains(selection.anchorNode)));
+    setFieldHistory(field.current?.history() ?? { undo: false, redo: false });
+  };
+  /// Undo, Redo or Select All, in the prompt or the shell field.
+  const runField = (command: "undo" | "redo" | "selectAll") => {
+    const shellInput = shellField.current;
+    if (shell && shellInput) {
+      shellInput.focus();
+      if (command === "selectAll") shellInput.select();
+      else document.execCommand(command);
+      return;
+    }
+    field.current?.focus();
+    field.current?.[command]();
   };
   const runEdit = (command: ComposerEditCommand) => {
     if (shell) shellField.current?.focus();
@@ -974,7 +964,15 @@ export function Composer({
     onEdit?.(command);
   };
   const fieldMenu: ContextMenuItem[] = [
-    { id: "cut", label: t(COMPOSER_LABELS.cut), disabled: !onEdit || !fieldSelected, onSelect: () => runEdit("cut") },
+    { id: "undo", label: t(COMPOSER_LABELS.undo), disabled: !fieldHistory.undo, onSelect: () => runField("undo") },
+    { id: "redo", label: t(COMPOSER_LABELS.redo), disabled: !fieldHistory.redo, onSelect: () => runField("redo") },
+    {
+      id: "cut",
+      label: t(COMPOSER_LABELS.cut),
+      separatorBefore: true,
+      disabled: !onEdit || !fieldSelected,
+      onSelect: () => runEdit("cut"),
+    },
     {
       id: "copy",
       label: t(COMPOSER_LABELS.copy),
@@ -988,6 +986,7 @@ export function Composer({
       disabled: !onEdit,
       onSelect: () => runEdit("pasteAsPlainText"),
     },
+    { id: "selectAll", label: t(COMPOSER_LABELS.selectAll), onSelect: () => runField("selectAll") },
     {
       id: "attach",
       label: t(COMPOSER_LABELS.attachFiles),
@@ -1129,26 +1128,16 @@ export function Composer({
         {mentionAt && (
           <MentionMenu state={mentionState} active={mentionSelected} onHover={setMentionActive} onPick={pickMention} />
         )}
-        {(attachments.length > 0 || attachError || dropping) && (
-          <fieldset className="acpmux-attachments" aria-label={t(COMPOSER_LABELS.attachments)}>
-            {attachments.map((attachment) => (
-              <AttachmentChip
-                key={attachment.id}
-                attachment={attachment}
-                codex={snapshot.summary?.family === "codex" || snapshot.summary?.harness === "codex"}
-                onRemove={(id) => {
-                  setAttachments((current) => current.filter((item) => item.id !== id));
-                  field.current?.focus();
-                }}
-              />
-            ))}
-            {dropping ? (
-              <span className="acpmux-attachment-note">{t(COMPOSER_LABELS.dropFiles)}</span>
-            ) : (
-              attachError && <output className="acpmux-attachment-note">{attachError}</output>
-            )}
-          </fieldset>
-        )}
+        <AttachmentStrip
+          attachments={attachments}
+          {...(attachError ? { error: attachError } : {})}
+          dropping={dropping}
+          codex={snapshot.summary?.family === "codex" || snapshot.summary?.harness === "codex"}
+          onRemove={(id) => {
+            setAttachments((current) => current.filter((item) => item.id !== id));
+            field.current?.focus();
+          }}
+        />
         {/* The prompt's own right-click menu (POLISH.md right-click contract); WebKit's never shows. */}
         <ContextMenu className="acpmux-composer-field-menu" items={fieldMenu} selection="menu" onOpen={noteSelection}>
           {/* An editable prompt that drives a listbox: a native combobox cannot hold a multi-line prompt. */}
@@ -1220,7 +1209,7 @@ export function Composer({
                 const files = [...(event.currentTarget.files ?? [])];
                 // Cleared, choosing the same file again still fires change.
                 event.currentTarget.value = "";
-                void attach.current(files);
+                void attach(files);
               }}
             />
             {leading !== undefined ? (
@@ -1279,7 +1268,7 @@ export function Composer({
                               // unless the person moved focus out of the composer while the capture ran.
                               void capture?.(id === "window" ? "window" : "screen")
                                 .then(async (shot) => {
-                                  if (shot instanceof File) await attach.current([shot]);
+                                  if (shot instanceof File) await attach([shot]);
                                   else if (shot) setAttachError(attachmentErrorText(shot, t));
                                 })
                                 .finally(() => {
@@ -1369,210 +1358,6 @@ export function Composer({
 
 /// One attachment above the prompt. An image draws a thumbnail in its own shape and opens in the chat's image
 /// viewer on a click; one the pane cannot draw falls back to its name, never an empty square.
-function AttachmentChip({
-  attachment,
-  codex = false,
-  onRemove,
-}: {
-  attachment: ComposerAttachment;
-  codex?: boolean;
-  onRemove(id: string): void;
-}) {
-  const t = useT();
-  const openImage = useContext(ImageViewerContext);
-  const [broken, setBroken] = useState(false);
-  const [thumb, setThumb] = useState<string>();
-  const image = attachment.kind === "image" && attachment.data && !broken;
-  const source = image ? `data:${attachment.mimeType};base64,${attachment.data}` : undefined;
-  useEffect(() => {
-    if (!image || !attachment.data) return;
-    let live = true;
-    void thumbnail({ mimeType: attachment.mimeType, data: attachment.data }).then((url) => {
-      if (live) setThumb(url);
-    });
-    return () => {
-      live = false;
-    };
-  }, [attachment.data, attachment.mimeType, image]);
-  const remove = (
-    <button
-      type="button"
-      className="acpmux-attachment-remove"
-      aria-label={t(COMPOSER_LABELS.removeAttachment, { name: attachment.name })}
-      onClick={() => onRemove(attachment.id)}
-    >
-      <svg viewBox="0 0 16 16" width="8" height="8" aria-hidden="true">
-        <path d="M3 3l10 10M13 3L3 13" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-      </svg>
-    </button>
-  );
-  // Its right-click menu: Open where a click opens it, and Remove (cx-2lm4).
-  const menu = (open: (() => void) | undefined, chip: React.ReactNode) => (
-    <ContextMenu
-      className="acpmux-attachment-menu"
-      items={[
-        ...(open ? [{ id: "open", label: t("image.open"), onSelect: open }] : []),
-        {
-          id: "remove",
-          label: t(COMPOSER_LABELS.removeAttachment, { name: attachment.name }),
-          separatorBefore: Boolean(open),
-          onSelect: () => onRemove(attachment.id),
-        },
-      ]}
-    >
-      {chip}
-    </ContextMenu>
-  );
-  if (image && source) {
-    const img = <img alt={attachment.name} src={thumb ?? source} onError={() => setBroken(true)} />;
-    return menu(
-      openImage ? () => openImage(source, attachment.name) : undefined,
-      <div
-        className="acpmux-attachment acpmux-attachment-image"
-        /* tooltip-allow: an image thumbnail shows no name */ title={attachment.name}
-      >
-        {openImage ? (
-          <button
-            type="button"
-            className="acpmux-attachment-open"
-            aria-label={t(COMPOSER_LABELS.openAttachment, { name: attachment.name })}
-            onClick={() => openImage(source, attachment.name)}
-          >
-            {img}
-          </button>
-        ) : (
-          img
-        )}
-        {remove}
-      </div>,
-    );
-  }
-  if (attachment.kind === "document" && attachment.data) {
-    return menu(
-      undefined,
-      <PdfAttachmentChip
-        attachment={{ ...attachment, kind: "document", data: attachment.data }}
-        remove={remove}
-        codex={codex}
-      />,
-    );
-  }
-  return menu(
-    undefined,
-    <div className="acpmux-attachment acpmux-attachment-file">
-      <span>{attachment.name}</span>
-      {remove}
-    </div>,
-  );
-}
-
-function PdfAttachmentChip({
-  attachment,
-  remove,
-  codex,
-}: {
-  attachment: ComposerAttachment & { kind: "document"; data: string };
-  remove: React.ReactNode;
-  codex: boolean;
-}) {
-  const t = useT();
-  const [pdfOpen, setPdfOpen] = useState(false);
-  const close = useRef<HTMLButtonElement>(null);
-  // `frame-src` intentionally excludes data/blob URLs. Keep the inline preview deterministic and
-  // open the original bytes in a native browser tab from the modal instead of weakening CSP.
-  const [pdfUrl, setPdfUrl] = useState<string>();
-  useEffect(() => {
-    if (!pdfOpen) {
-      setPdfUrl(undefined);
-      return;
-    }
-    try {
-      const bytes = Uint8Array.from(atob(attachment.data), (char) => char.charCodeAt(0));
-      const url = URL.createObjectURL(new Blob([bytes], { type: "application/pdf" }));
-      setPdfUrl(url);
-      return () => URL.revokeObjectURL(url);
-    } catch {
-      setPdfUrl(undefined);
-      return;
-    }
-  }, [attachment.data, pdfOpen]);
-  const pageLabel = attachment.pageCount === undefined ? "PDF" : `${attachment.pageCount}p`;
-  const deliveryLabel = codex ? `${pageLabel} · ${t(COMPOSER_LABELS.sentAsFileForCodex)}` : pageLabel;
-  return (
-    <>
-      <div className="acpmux-attachment acpmux-attachment-document" data-page-count={attachment.pageCount ?? undefined}>
-        <button
-          type="button"
-          className="acpmux-attachment-document-open"
-          aria-label={t(COMPOSER_LABELS.openAttachment, { name: attachment.name })}
-          onClick={() => setPdfOpen(true)}
-        >
-          <PdfSheetPreview />
-        </button>
-        <span className="acpmux-attachment-document-meta">
-          <FileDoc size={15} />
-          <span className="acpmux-attachment-document-name">{attachment.name}</span>
-          <span className="acpmux-attachment-document-pages">{deliveryLabel}</span>
-        </span>
-        {remove}
-      </div>
-      <Dialog
-        open={pdfOpen}
-        onOpenChange={setPdfOpen}
-        label={t(COMPOSER_LABELS.openAttachment, { name: attachment.name })}
-        className="acpmux-pdf-viewer"
-        initialFocus={close}
-      >
-        <div className="acpmux-pdf-viewer-bar">
-          <span className="acpmux-image-viewer-title">{attachment.name}</span>
-          <span className="acpmux-image-viewer-count">{deliveryLabel}</span>
-          <button
-            type="button"
-            className="acpmux-image-viewer-action"
-            ref={close}
-            aria-label={t("image.close")}
-            title={t("image.close")}
-            onClick={() => setPdfOpen(false)}
-          >
-            <Close />
-          </button>
-        </div>
-        <div className="acpmux-pdf-viewer-preview">
-          <PdfSheetPreview large />
-        </div>
-        {pdfUrl && (
-          <a
-            className="acpmux-pdf-viewer-open"
-            href={pdfUrl}
-            target="_blank"
-            rel="noreferrer"
-            aria-label={t(COMPOSER_LABELS.openAttachment, { name: attachment.name })}
-          >
-            <FileDoc size={15} />
-            <span>{attachment.name}</span>
-          </a>
-        )}
-      </Dialog>
-    </>
-  );
-}
-
-/** A CSP-safe PDF thumbnail; the original bytes remain available via the modal's open link. */
-function PdfSheetPreview({ large = false }: { large?: boolean }) {
-  return (
-    <span className={`acpmux-pdf-sheet${large ? " is-large" : ""}`} aria-hidden="true">
-      <span className="acpmux-pdf-sheet-fold" />
-      <span className="acpmux-pdf-sheet-mark">PDF</span>
-      <span className="acpmux-pdf-sheet-lines">
-        <i />
-        <i />
-        <i />
-        <i />
-      </span>
-    </span>
-  );
-}
-
 function SlashMenu({
   matches,
   active,

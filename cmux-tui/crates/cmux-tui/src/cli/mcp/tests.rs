@@ -1463,3 +1463,20 @@ fn an_allowlist_lists_only_its_tools_and_refuses_every_other_call() {
     assert_eq!(listed["result"]["tools"], json!([]));
     assert_eq!(allowed_tools(None), None);
 }
+
+/// The tools the acpmux sub-session server's instructions point agents at
+/// (`acpmux::subsession_mcp::CMUX_TOOLS`) stay tools of this server, and the
+/// instructions reach them the way an agent's `cmux mcp serve` does: in
+/// code mode, through a `cmux_exec` script, with `cmux_docs` for arguments.
+#[test]
+fn the_subsession_servers_instructions_name_real_cmux_tools() {
+    let mut server = code_mode_server(Fake::with_actions());
+    let rules = acpmux::subsession_mcp::instructions();
+    assert!(rules.contains("cmux_exec") && rules.contains("cmux_docs"), "{rules}");
+    let names = acpmux::subsession_mcp::CMUX_TOOLS;
+    let found = call(&mut server, "cmux_docs", json!({"names": names}));
+    assert_eq!(found["structuredContent"]["unknown"], json!([]), "{found}");
+    for name in names {
+        assert!(rules.contains(&format!("cmux.{name}(")), "the instructions no longer call {name}");
+    }
+}

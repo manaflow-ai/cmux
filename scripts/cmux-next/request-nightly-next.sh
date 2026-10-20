@@ -199,7 +199,11 @@ fi
 # this history the bound falls back to <sha>. One fetch of the branch's recent history covers every
 # candidate (a fetch per commit took over 5 minutes in run 37820762809); a
 # commit it does not reach is older than the lower bound or off the branch.
-git fetch -q --no-tags --depth="$((window * 4))" origin refs/heads/feat-cmux-next 2>/dev/null \
+# Depth-limited only in a shallow checkout: in a full clone --depth writes
+# .git/shallow and truncates history for every worktree sharing it.
+depth=()
+[[ "$(git rev-parse --is-shallow-repository)" == true ]] && depth=(--depth="$((window * 4))")
+git fetch -q --no-tags ${depth[@]+"${depth[@]}"} origin refs/heads/feat-cmux-next 2>/dev/null \
   || echo "warning: could not fetch feat-cmux-next; considering only local commits" >&2
 # One page holds the window (at most 99): paginating walked every push run ever made.
 runs="$(gh api "repos/$repo/actions/workflows/cmux-next.yml/runs?event=push&branch=feat-cmux-next&per_page=$window")"

@@ -1488,6 +1488,7 @@ jobs:
     needs: [web]
     if: ${{ always() && !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' }}
     permissions:
+      actions: read
       checks: read
       contents: read
       pull-requests: write

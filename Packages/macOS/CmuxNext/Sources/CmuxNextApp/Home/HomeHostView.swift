@@ -15,7 +15,7 @@ import CmuxNextWakeups
 /// or why it cannot show (the local daemon does not serve conversations).
 @MainActor
 final class HomeHostView: NSView {
-    private let transcript: HomeNativeTranscriptView
+    let transcript: HomeNativeTranscriptView
     private let message = ChromeLabel(labelWithString: "")
     private var availability: Task<Void, Never>?
     /// The Chief's settings, a right sidebar the header's name pill toggles
@@ -63,6 +63,8 @@ final class HomeHostView: NSView {
             // The tile avatar is the default Chief's: a named Chief's panel never sets it (cx-327wl).
             if self?.control.named == nil { service?.refreshChiefAvatar() }
         }
+        // A new engine of this Chief: the Home list's badge follows it.
+        sidebar.onEngineChanged = { [weak service] in service?.refreshChiefHarnesses() }
         sidebar.onShowMemory = { [weak services] in
             _ = services?.registry.perform(ChiefInspectorHandlers.actionID, invocation: ActionInvocation(origin: .user))
         }
@@ -156,7 +158,7 @@ final class HomeHostView: NSView {
         let switchKeys = services.homeSwitchKeys
         transcript.onHideSwitchKeys = { switchKeys.hide() }
         transcript.onOpenKeyboardShortcutSettings = {
-            if let url = HomeSwitchKeysSource.keyboardShortcutsURL { NSWorkspace.shared.open(url) }
+            if let url = HomeSwitchKeysSource.keyboardShortcutsURL { NSWorkspace.shared.openInBackground(url) }
         }
         // task-owner: lives as long as this view; event-driven (Observation of the registry)
         shortcutsWatch = Task { [weak self] in
@@ -332,11 +334,15 @@ final class HomeHostView: NSView {
 
     /// Whether the pane getting focus moves the keyboard to `focusTarget`
     /// from `responder`: always when it is outside this view; inside, unless
-    /// a text view or field has it or the transcript holds a text selection
-    /// (the pane, a header button or the bare transcript gave the person a
-    /// Home with nowhere to type, Lawrence 2026-10-18).
+    /// a visible, editable text input has it or the transcript holds a text
+    /// selection (the pane, a header button or the bare transcript gave the
+    /// person a Home with nowhere to type, Lawrence 2026-10-18). A hidden or
+    /// read-only text view is no place to type (the Chief settings' name
+    /// field after the panel closed kept the keyboard, Lawrence 2026-10-19).
     func focusTargetShouldTakeKeyboard(from responder: NSResponder?) -> Bool {
         guard let view = responder as? NSView, view === self || view.isDescendant(of: self) else { return true }
+        if view === focusTarget || view.ownsTypedText { return false }
+        if view is NSText || view is NSTextField { return true }
         return transcript.primaryInputShouldTakeKeyboard(from: responder)
     }
 }
@@ -353,18 +359,15 @@ extension HomeHostView: NSMenuItemValidation {
 }
 
 /// Home's primary input is its message box (R65, spec app-screens.md 3):
-/// a printable key typed while Home has the keyboard but no text view of
-/// it does (a click on a bubble left the transcript focused) moves the
-/// keyboard to the box and types the key there.
+/// the pane getting focus by any path lands the keyboard there, and a
+/// printable key typed while Home has the keyboard but no text input of it
+/// does (a click on a bubble left the transcript focused, a hidden field kept
+/// it) moves the keyboard to the box and types the key there (the protocol's
+/// default `acceptsRedirectedTyping` and `beginTyping`).
 extension HomeHostView: PrimaryInputTarget {
-    var acceptsRedirectedTyping: Bool {
-        guard let responder = window?.firstResponder as? NSView else { return true }
-        return !(responder is NSText || responder is NSTextField)
-    }
+    var primaryInputView: NSView? { focusTarget }
 
-    func beginTyping(with event: NSEvent) {
-        let box = transcript.primaryInput
-        guard let window, window.makeFirstResponder(box) else { return }
-        box.keyDown(with: event)
+    func primaryInputShouldTakeKeyboard(from responder: NSResponder?) -> Bool {
+        focusTargetShouldTakeKeyboard(from: responder)
     }
 }

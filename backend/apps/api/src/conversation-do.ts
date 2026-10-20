@@ -19,7 +19,7 @@ type Head = conversation.ConversationState
 type ConvAttachment = Attachment & { typing?: boolean }
 const MAX_HISTORY_PAGE = 200
 /** Ops the Worker completes (home-routes.ts); refused on the conversation socket. */
-const WORKER_DERIVED_OPS = new Set(["conversation.create", "dm.open", "invite.create", "invite.accept", "conversation.import", "conversation.import.commit", "participants.add"])
+const WORKER_DERIVED_OPS = new Set(["conversation.create", "dm.open", "invite.create", "invite.accept", "invite.accept_verified", "conversation.import", "conversation.import.commit", "participants.add"])
 
 /**
  * Reach policy with owner records: an agent participant is allowed when it is one of the
@@ -47,6 +47,20 @@ export type AttachmentAccess =
 
 /** A download the owner allows: the record, and (when asked by message part) that part, whose name is the file name. */
 export type DownloadAccess = { readonly record: conversation.AttachmentRecord; readonly name: string | null; readonly part?: conversation.AttachmentPart } | null
+
+/** A message request's preview text, in characters. */
+const REQUEST_PREVIEW_CHARS = 140
+
+/** One message request as its recipient sees it (`home.requests.list`). */
+export interface RequestPreview {
+  readonly inviter: string
+  readonly inviter_user: string
+  readonly kind: "dm" | "group"
+  readonly title?: string
+  readonly preview: string
+  readonly created_at: string
+  readonly expires_at: string
+}
 
 export type InvitePreviewResult =
   | { readonly state: "ok"; readonly inviter: string; readonly kind: "dm" | "group"; readonly title?: string }
@@ -361,6 +375,53 @@ export class ConversationDO extends OwnerDO<Head> {
       kind: state.kind === "dm" ? "dm" : "group",
       ...(state.kind === "group" && state.title ? { title: state.title } : {})
     }
+  }
+
+  /**
+   * Worker only (home-routes.ts `home.requests.list` and `request.dismiss`): one message request as
+   * its recipient sees it, when `invite` is still pending here and is addressed to one of
+   * `addresses` (the recipient's verified address ids). Null otherwise, with no write, so a caller
+   * cannot probe other invites. The preview is the newest message of the inviter (what an
+   * unknown sender's message shows in a request list), never the address.
+   */
+  async requestPreview(entity: string, invite: string, addresses: ReadonlyArray<string>): Promise<RequestPreview | null> {
+    const state = this.existingState(entity)
+    const open = state?.invites?.find((i) => i.id === invite && i.status === "pending" && addresses.includes(i.address))
+    if (!state || !open || Date.parse(open.expires_at) <= Date.now()) return null
+    const inviter = state.participants.find((p) => p.id === open.invited_by)
+    const newest = this.boundEngine!.rows.range<conversation.Message>(conversation.TABLE_MSG, { limit: 20, desc: true })
+      .map((r) => r.row)
+      .find((m) => m.author === open.invited_by && m.retracted_at === undefined)
+    const text = newest ? conversation.messageText(newest).replace(/\s+/gu, " ").trim() : ""
+    return {
+      inviter: inviter?.display_name ?? "",
+      inviter_user: open.invited_by,
+      kind: state.kind === "dm" ? "dm" : "group",
+      ...(state.kind === "group" && state.title ? { title: state.title } : {}),
+      preview: [...text].slice(0, REQUEST_PREVIEW_CHARS).join(""),
+      created_at: open.created_at,
+      expires_at: open.expires_at
+    }
+  }
+
+  /** invite.accept_verified from the Worker: the same accept lock as a link (10 failures an hour). */
+  async acceptVerified(entity: string, principal: Principal, idempotencyKey: string): Promise<SubmitResult> {
+    if (!this.existingState(entity)) {
+      return { frames: [{ t: "reject", tx: "", idempotency_key: idempotencyKey, code: "unknown_invite", message: "no invite for you here", retryable: false, replayed: false } as OwnerFrame] }
+    }
+    const who = principal.user ?? principal.identity
+    const sql = this.sqlStore
+    sql.exec(`CREATE TABLE IF NOT EXISTS home_accept_failures (who TEXT NOT NULL, at INTEGER NOT NULL)`)
+    const now = Date.now()
+    sql.exec(`DELETE FROM home_accept_failures WHERE at <= ?`, now - invites.HOUR)
+    const failures = sql.exec<{ at: number }>(`SELECT at FROM home_accept_failures WHERE who = ?`, who).map((r) => Number(r.at))
+    if (invites.acceptLocked({ failures }, now)) {
+      return { frames: [{ t: "reject", tx: "", idempotency_key: idempotencyKey, code: "accept_locked", message: "too many failed attempts; try again later", retryable: true, replayed: false } as OwnerFrame] }
+    }
+    const res = await this.submit(entity, principal, { t: "op", op: "invite.accept_verified", params: {}, idempotency_key: idempotencyKey, origin: "user" })
+    const reply = res.frames.find((f) => f.t === "result" || f.t === "reject")
+    if (reply?.t === "reject" && ACCEPT_FAILURES.has(reply.code)) sql.exec(`INSERT INTO home_accept_failures (who, at) VALUES (?, ?)`, who, now)
+    return res
   }
 
   /** Worker only (home-routes.ts rate gate): whether `principal` already decided `key` here (a retry replays, so it is not charged). */
