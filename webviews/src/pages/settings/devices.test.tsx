@@ -318,6 +318,16 @@ test("a fingerprint shows the whole key on hover and Copy writes it", async () =
   page.unmount();
 });
 
+test("history fits its card: fixed columns, names wrap at word boundaries, full text on hover", async () => {
+  const page = await open();
+  const table = card(page.container).querySelector<HTMLElement>(".devices-history")!;
+  expect(table.classList.contains("devices-history-fixed")).toBe(true);
+  expect(table.querySelectorAll("colgroup col").length).toBe(7);
+  const first = table.querySelector("tbody tr")!;
+  for (const cell of first.querySelectorAll("td.devices-wrap")) expect(cell.getAttribute("title")).toBe(cell.textContent);
+  page.unmount();
+});
+
 test("history cells wrap instead of widening the table", async () => {
   const page = await open();
   const table = card(page.container).querySelector<HTMLElement>(".devices-history")!;
