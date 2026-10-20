@@ -18,7 +18,7 @@ nonisolated struct TitleCoalescer: Equatable, Sendable {
         /// Apply this title now.
         case apply(Update)
         /// Keep it; call `fire(now:)` at this time.
-        case wait(until: Double)
+        case later(at: Double)
     }
 
     private var lastApplied: Double?
@@ -28,7 +28,7 @@ nonisolated struct TitleCoalescer: Equatable, Sendable {
     mutating func offer(_ title: String?, now: Double) -> Decision {
         if let lastApplied, now - lastApplied < Self.interval {
             pending = Update(title: title)
-            return .wait(until: lastApplied + Self.interval)
+            return .later(at: lastApplied + Self.interval)
         }
         pending = nil
         lastApplied = now

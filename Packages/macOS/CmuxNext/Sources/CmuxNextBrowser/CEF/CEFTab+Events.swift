@@ -191,7 +191,7 @@ extension CEFTab {
         switch titleCoalescer.offer(title, now: now) {
         case .apply(let update):
             machine.apply(.titleChanged(update.title))
-        case .wait(let until):
+        case .later(let until):
             titleTimer.scheduleIfIdle(after: .milliseconds(Int64(max(0, until - now) * 1000) + 1)) { @MainActor [weak self] in
                 guard let self, !self.isClosed,
                       let update = self.titleCoalescer.fire(now: ProcessInfo.processInfo.systemUptime) else { return }

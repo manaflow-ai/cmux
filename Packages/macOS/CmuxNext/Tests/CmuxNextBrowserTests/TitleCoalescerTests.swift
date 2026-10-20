@@ -24,7 +24,7 @@ import Testing
             fire(upTo: time)
             switch coalescer.offer(title, now: time) {
             case .apply(let update): applied.append(update.title)
-            case .wait(let until): deadline = deadline ?? until
+            case .later(let until): deadline = deadline ?? until
             }
         }
         fire(upTo: end)
