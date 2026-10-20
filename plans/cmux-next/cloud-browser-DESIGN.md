@@ -11,6 +11,25 @@ CEF fork, `cmux.rb/1`, split compositor), `remote-tab-r1.md`, `remote-tab-r2.md`
 This doc adds: where cloud work stands today, the protocol comparison the user asked for, a working
 cloud prototype with numbers measured from Lawrence's Mac, and the order to ship it.
 
+## Direction change (2026-10-20, after remote-desktop-DESIGN.md, 902f2b13112)
+
+[remote-desktop-DESIGN.md](remote-desktop-DESIGN.md) makes `cmux-screen-host` (Aziz's Rust WebRTC
+host) the one host engine (U1, U2) and retires `cmux.rd/1` media and `cmux-rd-host` at M5. Its M3 step
+moves this cloud browser onto that host. So:
+
+- The `cmux-rd host --browser` prototype below stays as a measured baseline only: the "Cloud VM, software
+  encode" row of that doc's section 4 targets. No more cloud browser work goes into `cmux-rd-host`.
+- What carries over: the browser supervisor (`cmux-rd-host/src/browser.rs`: Chrome outlives viewers,
+  restarts after a crash, stops with the host) is backend-agnostic and moves into the `desktop` role of
+  `cmux-screen-host` at M3; the marker page and the click/scroll bench method carry over unchanged.
+- The cloud browser on `cmux-screen-host` waits on three things that are not on feat-cmux-next:
+  `cmux-screen` itself (draft [#20413](https://github.com/manaflow-ai/cmux/pull/20413); M0 merge order is
+  Aziz's), Linux X11 input (M2: `backend/desktop.rs` logs "input is not implemented for this backend yet;
+  the stream is view-only"), and a WebRTC source in the `remote_view` pane (U5; Aziz's #20426, draft).
+- Section 2.2's choice of `cmux.rd/1` over WebRTC is replaced by U2. The trade-off stays: `cmux.rd/1`
+  measured 13 ms key G2G in a VM; WebRTC adds about 30 ms of jitter buffer and pacing unless the
+  section 4 measures (playout delay 0) land.
+
 ## 0. Answer in one paragraph
 
 Not yet in Mighty's position, but closer than it looks. The hard parts exist: a low-latency media

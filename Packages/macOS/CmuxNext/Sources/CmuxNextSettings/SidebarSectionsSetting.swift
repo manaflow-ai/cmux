@@ -24,6 +24,8 @@ public nonisolated enum SidebarSectionsSetting {
     public static let tipsPath = ["sidebar", "cards", "tips"]
     public static let detailedStatusIconsPath = ["sidebar", "detailedStatusIcons"]
     public static let showTimestampsPath = ["sidebar", "showTimestamps"]
+    public static let groupHeaderMemberCountPath = ["sidebar", "groupHeader", "memberCount"]
+    public static let groupHeaderUnreadCountPath = ["sidebar", "groupHeader", "unreadCount"]
 
     static func tipsDescriptor(group: SettingText) -> SettingDescriptor {
         SettingDescriptor(tipsPath, section: .appearance, group: group,
@@ -61,6 +63,24 @@ public nonisolated enum SidebarSectionsSetting {
                                                    "Workspace rows show when they last changed: a time today, else an age such as 3d. Off, rows show no times; the hover card still does."),
                           kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.showTimestamps),
                           keywords: ["sidebar", "timestamps", "time", "times", "age", "ago", "elapsed", "duration", "last activity", "clock", "rows"])
+    }
+
+    static func groupHeaderMemberCountDescriptor(group: SettingText) -> SettingDescriptor {
+        SettingDescriptor(groupHeaderMemberCountPath, section: .appearance, group: group,
+                          title: SettingsText.keyed("settings.sidebar.groupHeader.memberCount", "Show Group Member Count"),
+                          help: SettingsText.keyed("settings.sidebar.groupHeader.memberCount.help",
+                                                   "A collapsed group shows how many workspaces it holds after its name. Off, it shows only its loading spinner."),
+                          kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.groupHeaderMemberCount),
+                          keywords: ["sidebar", "group", "groups", "count", "members", "workspaces", "number", "header"])
+    }
+
+    static func groupHeaderUnreadCountDescriptor(group: SettingText) -> SettingDescriptor {
+        SettingDescriptor(groupHeaderUnreadCountPath, section: .appearance, group: group,
+                          title: SettingsText.keyed("settings.sidebar.groupHeader.unreadCount", "Show Group Unread Count"),
+                          help: SettingsText.keyed("settings.sidebar.groupHeader.unreadCount.help",
+                                                   "A collapsed group shows how many unread notifications its workspaces have. Off, it shows only its loading spinner."),
+                          kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.groupHeaderUnreadCount),
+                          keywords: ["sidebar", "group", "groups", "unread", "badge", "notifications", "count", "header"])
     }
 
     static func densityDescriptor(group: SettingText) -> SettingDescriptor {
@@ -202,6 +222,8 @@ public nonisolated enum SidebarSectionsSetting {
         result.minimal = flag(root, minimalPath, fallback: result.minimal, &diagnostics)
         result.detailedStatusIcons = flag(root, detailedStatusIconsPath, fallback: result.detailedStatusIcons, &diagnostics)
         result.showTimestamps = flag(root, showTimestampsPath, fallback: result.showTimestamps, &diagnostics)
+        result.groupHeaderMemberCount = flag(root, groupHeaderMemberCountPath, fallback: result.groupHeaderMemberCount, &diagnostics)
+        result.groupHeaderUnreadCount = flag(root, groupHeaderUnreadCountPath, fallback: result.groupHeaderUnreadCount, &diagnostics)
         if let value = root.value(at: groupByPath) {
             if let text = value.stringValue, let groupBy = SidebarGroupBy(rawValue: text) {
                 result.groupBy = groupBy

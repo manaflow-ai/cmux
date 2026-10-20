@@ -178,16 +178,36 @@ final class PageWKWebView: WKWebView {
     /// every drag to WebKit.
     var fileDrop: PageFileDrop?
 
+    /// Reads the first file URL of a drag's pasteboard: a round trip to the pasteboard server.
+    var readDroppedFileURL: @MainActor (NSPasteboard) -> URL? = { pasteboard in
+        pasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true])?.first as? URL
+    }
+
+    /// The answer for the current drag: its pasteboard does not change during the drag, and AppKit
+    /// waits for every `draggingUpdated`, so the file is read once per drag, not on every move.
+    private var dragAnswer: (sequence: Int, url: URL?)?
+
     private func droppedFile(_ info: any NSDraggingInfo) -> URL? {
-        guard let fileDrop,
-              let url = info.draggingPasteboard.readObjects(forClasses: [NSURL.self],
-                                                            options: [.urlReadingFileURLsOnly: true])?.first as? URL,
-              fileDrop.accepts(url) else { return nil }
+        guard let fileDrop else { return nil }
+        if let answer = dragAnswer, answer.sequence == info.draggingSequenceNumber { return answer.url }
+        let url = readDroppedFileURL(info.draggingPasteboard).flatMap { fileDrop.accepts($0) ? $0 : nil }
+        dragAnswer = (info.draggingSequenceNumber, url)
         return url
     }
 
     override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
-        droppedFile(sender) != nil ? .copy : super.draggingEntered(sender)
+        dragAnswer = nil
+        return droppedFile(sender) != nil ? .copy : super.draggingEntered(sender)
+    }
+
+    override func draggingExited(_ sender: (any NSDraggingInfo)?) {
+        dragAnswer = nil
+        super.draggingExited(sender)
+    }
+
+    override func draggingEnded(_ sender: any NSDraggingInfo) {
+        dragAnswer = nil
+        super.draggingEnded(sender)
     }
 
     override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
@@ -198,7 +218,9 @@ final class PageWKWebView: WKWebView {
     var onFilesDropped: (@MainActor () -> Void)?
 
     override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
-        guard let url = droppedFile(sender), let fileDrop else {
+        let url = droppedFile(sender)
+        dragAnswer = nil
+        guard let url, let fileDrop else {
             if sender.draggingPasteboard.canReadObject(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) { onFilesDropped?() }
             return super.performDragOperation(sender)
         }
