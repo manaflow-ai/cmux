@@ -22,6 +22,9 @@ pub const MACHINE_SECTION_PREFIX: &str = "sec_m_";
 /// A key longer than this renumbers its siblings.
 pub const MAX_ORDER_KEY_CHARS: usize = 32;
 pub const MAX_TITLE_CHARS: usize = 80;
+/// The most levels of groups one tree may have (host > project > branch,
+/// remote-groups-DESIGN.md R1): a top-level group is level 1.
+pub const MAX_GROUP_DEPTH: usize = 3;
 pub const MAX_SECTIONS: usize = 64;
 pub const MAX_ITEMS: usize = 20_000;
 /// The space between a section's rows or tiles, in points (as the old
