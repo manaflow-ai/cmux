@@ -31,6 +31,9 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
     /// Settings toggle `agent.suggestedTasks` is on; ``AcpmuxHost`` reads it at each daemon start, so a running
     /// daemon keeps the value it started with.
     public var offersSessionTools = false
+    /// Whether an unsigned development daemon needs its person key on an
+    /// inherited descriptor. Signed builds enroll only after checking the peer.
+    public var passesPersonKeyAtSpawn = true
 
     /// The Computer Use variables (AgentActivitySocketSource.Configuration).
     /// The spawn environment drops all three when inherited and takes only
