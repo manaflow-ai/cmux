@@ -117,8 +117,8 @@ ssh cmux23 'python3 ~/ios-internal-builder/ios_internal_builder.py status'
 
 ## Fallback
 
-- A dispatch of `ios-internal-nightly.yml` with `runner=macos-26` archives on
-  GitHub-hosted macOS instead of cmux23.
+- Unset repo variable `CI_IOS_INTERNAL_RUNNER` and the archive runs on
+  GitHub-hosted `macos-26` instead of cmux23 (no warm cache).
 - Manual retries dispatch `ios-internal-nightly.yml` on the admin-only
   `rc/cnx-ios-builder` ref. There is no second branch-controlled signing lane;
   timestamp build numbers remain monotonic within the serialized builder.
@@ -139,6 +139,12 @@ ssh cmux23 'python3 ~/ios-internal-builder/ios_internal_builder.py status'
   nothing.
 
 ## Not done (follow-ups)
+
+- The admission hook does not check the iOS platform is installed. cmux23 had
+  none at first (`iOS 26.5 is not installed`); it was added with
+  `xcodebuild -downloadPlatform iOS`. An Xcode update needs the same step.
+- A build Apple rejects in processing holds the signer for 45 min
+  (`asc builds wait`).
 
 - The Mac nightly and this builder use separate minis; neither waits on the
   other.
