@@ -445,6 +445,7 @@ final class AgentTabStore {
         if model.newTab != nil { view.showsLoadingState = false }
         pageChats.seed(view)
         model.onComposerSetting = { [weak pageSettings] path, show in try await pageSettings?.setComposer(path, show) }
+        model.onDisplaySetting = { [weak pageSettings] path, value in try await pageSettings?.setDisplay(path, value) }
         customization.start()
         return view
     }

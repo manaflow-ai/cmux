@@ -17,9 +17,11 @@ on:
 
 permissions: {}
 
+# feat-cmux-next moves every minute or two, faster than a decide run, so a
+# running decide is never cancelled: one runs, the newest push waits.
 concurrency:
   group: cnx-ios-internal-next-trigger
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   decide:
@@ -35,7 +37,15 @@ jobs:
         with:
           persist-credentials: false
           ref: refs/heads/feat-cmux-next
-          fetch-depth: 400
+          # Blobless and sparse: plan reads trees for the diff and two small
+          # files; ios_internal_builder.py fetches the last uploaded commit.
+          fetch-depth: 1
+          filter: blob:none
+          sparse-checkout: |
+            scripts/ci
+            cnx-ios/project.yml
+            cnx-ios/CnxKit/Package.swift
+          sparse-checkout-cone-mode: false
 
       - name: Decide
         id: plan
