@@ -183,6 +183,7 @@ let package = Package(
                 "CmuxNextKeepAwake",
                 "CmuxNextChromiumWarmup",
                 "CmuxNextPhoneAccess",
+                "CmuxNextPhone",
                 "CmuxNextPopups",
                 "CmuxNextWorkspaceRepair",
                 "CmuxNextCLIInstall",
@@ -568,6 +569,7 @@ let package = Package(
         .target(
             name: "CmuxNextPhone",
             dependencies: ["CmuxNextCompat", "CmuxNextWakeups"],
+            resources: [.process("Localizable.xcstrings")],
             swiftSettings: daemonSwiftSettings
         ),
         .testTarget(
@@ -928,6 +930,7 @@ let package = Package(
                 .process("NewTabActions.xcstrings"),
                 .process("Localizable.xcstrings"),
                 .process("PageInfoActions.xcstrings"),
+                .process("PhoneActions.xcstrings"),
                 .process("ProfileActions.xcstrings"),
                 .process("RemoteActions.xcstrings"),
                 .process("ScreenActions.xcstrings"),
