@@ -84,3 +84,48 @@ public final class MemoryRelaySecretStore: RelaySecretStore {
     public func remove(relayID: String) { _ = secrets.withLock { $0.removeValue(forKey: relayID) } }
     public func relayIDs() -> [String] { secrets.withLock { $0.keys.sorted() } }
 }
+
+/// The relay secret store's calls, one at a time and never on the main actor:
+/// the app's store is the Keychain, whose reads took 8-20 s on the main
+/// thread in the H7 walkthrough. Opening a sealed secret uses the Secure
+/// Enclave key, so it runs here too.
+actor RelaySecretVault {
+    let store: any RelaySecretStore
+
+    init(store: any RelaySecretStore) {
+        self.store = store
+    }
+
+    /// After a relays listing: drops the secrets of relays no longer listed (except
+    /// `keeping`, just saved here), opens and keeps the secrets sealed to this
+    /// device, and returns every secret this device holds for the listed and kept relays.
+    func sync(listed: [HubRelay], keeping: Set<String>, identity: DeviceIdentity) -> [String: RelaySecret] {
+        let ids = Set(listed.map(\.id))
+        for id in store.relayIDs() where !ids.contains(id) && !keeping.contains(id) {
+            store.remove(relayID: id)
+        }
+        let sealing = RelaySealing(identity: identity)
+        var opened: [String: RelaySecret] = [:]
+        for relay in listed {
+            let held = store.secret(relayID: relay.id)
+            if let blob = relay.sealedForThisDevice, let secret = try? sealing.open(blob, relayID: relay.id) {
+                if held != secret { store.save(secret, relayID: relay.id) }
+                opened[relay.id] = secret
+            } else if let held {
+                opened[relay.id] = held
+            }
+        }
+        for id in keeping where opened[id] == nil {
+            if let held = store.secret(relayID: id) { opened[id] = held }
+        }
+        return opened
+    }
+
+    func save(_ secret: RelaySecret, relayID: String) {
+        store.save(secret, relayID: relayID)
+    }
+
+    func remove(relayID: String) {
+        store.remove(relayID: relayID)
+    }
+}
