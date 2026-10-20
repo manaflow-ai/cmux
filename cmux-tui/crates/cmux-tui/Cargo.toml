@@ -1,6 +1,6 @@
 [package]
 name = "cmux-tui"
-version = "0.1.0"
+version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -38,13 +38,13 @@ path = "src/bin/cmux-tui.rs"
 name = "cmux-tui-hook"
 path = "src/bin/cmux-tui-hook.rs"
 
-# The Windows per-terminal host (cx-1vlzr): a small sibling binary the daemon
-# spawns instead of re-exec'ing the 49 MB cmux-tui.exe, so Windows Defender's
-# first-child image scan (cost scales with the creator's image size) stays
-# cheap per terminal. Built on every platform for one packaging contract; the
-# spawn path uses it on Windows only (macOS/Linux re-exec cmux-tui for PTY fd
-# custody). Links only the terminal-host runtime, so dead-code elimination
-# keeps it small.
+# The per-terminal host (cx-1vlzr): a small sibling binary the daemon spawns
+# instead of re-exec'ing itself. On Windows Defender's first-child image scan
+# (cost scales with the creator's image size) stays cheap per terminal; on
+# macOS an idle host no longer maps the monolith's ~390 dylib images
+# (host_exe.rs; build.rs links it with -dead_strip_dylibs). Built on every
+# platform for one packaging contract; Linux re-execs /proc/self/exe. Links
+# only the terminal-host runtime, so dead-code elimination keeps it small.
 [[bin]]
 name = "cmux-tui-host"
 path = "src/bin/cmux-tui-host.rs"
@@ -73,6 +73,8 @@ serde.workspace = true
 serde_json.workspace = true
 # `cmux agents wait --regex` checks a pattern as the daemon's terminal.wait does.
 regex.workspace = true
+# `cmux mcp serve` code mode: `cmux_exec` scripts run in an embedded engine.
+rquickjs.workspace = true
 toml.workspace = true
 base64.workspace = true
 getrandom.workspace = true

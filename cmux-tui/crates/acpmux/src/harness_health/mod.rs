@@ -13,6 +13,12 @@ pub mod auto;
 pub mod channel;
 pub(crate) mod inventory;
 pub(crate) mod inventory_feed;
+mod inventory_refresh;
+pub(crate) use inventory_refresh::INVENTORY_REFRESH_FEATURE;
+mod update_plan;
+pub(crate) use update_plan::UPDATE_PLAN_FEATURE;
+mod update_prepare;
+pub(crate) use update_prepare::UPDATE_PREPARE_FEATURE;
 pub mod latest;
 pub mod probe;
 
@@ -134,6 +140,7 @@ fn builtin_login(family: &str) -> Option<&'static str> {
         "claude" => "claude auth login",
         "gemini" => "gemini",
         "opencode" => "opencode auth login",
+        "unii" => "unii login",
         _ => return None,
     })
 }
@@ -173,6 +180,26 @@ fn builtin_auth(s: &Subject) -> Option<(Auth, Option<String>)> {
         "claude" if program.contains("claude") && home_named("CLAUDE_CONFIG_DIR") => {
             let found = crate::claude_auth::find(&s.env);
             found.signed_in().then(|| (Auth::SignedIn, Some(found.sources.join(", "))))
+        }
+        // UniiChat (the bundled `uniichat-agent`): the token `unii login`
+        // keeps for the server the harness env names (UNII_URL, UNII_HOME).
+        "unii" => {
+            use crate::cli::uniichat_agent::{Endpoint, Options};
+            let env = |key: &str| s.env.get(key).filter(|v| !v.is_empty()).cloned();
+            let endpoint = Endpoint::resolve(
+                &Options::default(),
+                env("UNII_URL"),
+                env("UNII_HOME"),
+                env("HOME").map(PathBuf::from).or_else(dirs::home_dir),
+            )
+            .ok()?;
+            Some(match endpoint.token() {
+                Ok(_) => (
+                    Auth::SignedIn,
+                    Some(format!("{} holds a sign-in", endpoint.token_file.display())),
+                ),
+                Err(why) => (Auth::SignedOut, Some(why)),
+            })
         }
         _ => None,
     }

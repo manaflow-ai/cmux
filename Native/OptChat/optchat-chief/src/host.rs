@@ -141,23 +141,63 @@ pub const DEFAULT_HARNESS: &str = "claude";
 /// route (`claude-cr`, which acpmux has only when `coderouterClaudeRoute`
 /// names one) whether or not it can run, so an unavailable route is
 /// refused with its reason instead of silently moving to another account;
-/// else the subrouter2 route (`claude-sr2`, a harness file the person
-/// installs) when acpmux can run it (Lawrence 2026-10-18: "all your agents
-/// are started with Opus 5.5 medium using subrouter to Claude"); else
-/// `DEFAULT_HARNESS`.
+/// else the user's own Claude CLI (`DEFAULT_HARNESS`: the `claude` acpmux
+/// finds on the login shell's PATH, run with the user's own
+/// `~/.claude/settings.json` and login; Lawrence 2026-10-19: "make sure
+/// Chief, by default, will talk to the correct Claude, using the user's
+/// Claude CLI"). The subrouter2 route (`claude-sr2`) is an explicit choice
+/// (`chief engine set --harness claude-sr2`), and the default only when
+/// acpmux has no usable `claude` but can run sr2.
 pub fn default_harness(answer: &serde_json::Value) -> &'static str {
     let harnesses = answer.get("harnesses");
     if harnesses.and_then(|h| h.get(CODEROUTER_HARNESS)).is_some() {
         return CODEROUTER_HARNESS;
     }
-    let sr2 = harnesses.and_then(|h| h.get(SR2_HARNESS));
-    if sr2.is_some_and(|p| {
-        p.get("kind").and_then(serde_json::Value::as_str) == Some("claude-stdio")
-            && p.get("unavailable").is_none()
-    }) {
+    let runnable_stdio = |name: &str| {
+        harnesses.and_then(|h| h.get(name)).is_some_and(|p| {
+            p.get("kind").and_then(serde_json::Value::as_str) == Some("claude-stdio")
+                && p.get("unavailable").is_none()
+        })
+    };
+    if !runnable_stdio(DEFAULT_HARNESS) && runnable_stdio(SR2_HARNESS) {
         SR2_HARNESS
     } else {
         DEFAULT_HARNESS
+    }
+}
+
+/// Records which executable (and its `--version`) the turns, compactor and
+/// subagents run, for `engine show` and host.log (Lawrence 2026-10-19: show
+/// which Claude the Chief talks to). A refused role is left out.
+fn record_resolved(home: &std::path::Path, plans: [&crate::harness_gate::Plan; 3]) {
+    let mut versions: BTreeMap<String, String> = BTreeMap::new();
+    let mut resolve = |plan: &crate::harness_gate::Plan| {
+        plan.admitted.as_ref().ok().map(|a| {
+            let version = versions
+                .entry(a.argv0.clone())
+                .or_insert_with(|| crate::engine::binary_version(&a.argv0))
+                .clone();
+            crate::engine::ResolvedHarness {
+                harness: a.profile.clone(),
+                kind: a.kind.clone(),
+                argv0: a.argv0.clone(),
+                version,
+            }
+        })
+    };
+    let resolved = crate::engine::ResolvedEngine {
+        turn: resolve(plans[0]),
+        compactor: resolve(plans[1]),
+        subagent: resolve(plans[2]),
+    };
+    if let Some(t) = &resolved.turn {
+        log(format!("turn CLI: {} {}", t.argv0, t.version));
+    }
+    if let Err(e) = crate::engine::save_resolved(home, &resolved) {
+        log(format!(
+            "writing {}: {e}",
+            crate::engine::resolved_path(home).display()
+        ));
     }
 }
 
@@ -222,6 +262,13 @@ pub fn turn_preset(
     // presets set it for a Chief that sends no env.
     let (servers_key, servers) = session_dir::TURN_TOOL_SERVERS;
     env.insert(servers_key.to_owned(), servers.to_owned());
+    // The cmux MCP server lists only the Chief's tools and refuses the rest,
+    // `cmux_exec` scripts included (acpmux `MCP_TOOLS_ENV`). The deny rules
+    // stay as the second guard.
+    env.insert(
+        session_dir::TURN_TOOLS_ENV.to_owned(),
+        session_dir::CHIEF_CMUX_TOOLS.join(","),
+    );
     if family == Family::Codex {
         env.insert(
             CODEX_CACHE_KEY_ENV.to_owned(),
@@ -740,8 +787,7 @@ fn start(
             }
         }
         // Nothing set: the configured CodeRouter route when acpmux has one,
-        // else subrouter2 when acpmux can run it, else the user's own Claude
-        // login (default_harness).
+        // else the user's own Claude CLI (default_harness).
         if chief_set.is_none() {
             harness = default_harness(&answer).to_owned();
             if sub_set.is_none() {
@@ -762,6 +808,7 @@ fn start(
             plan(&compactor_harness, "compactor"),
             plan(&sub_harness, "subagent"),
         );
+        record_resolved(home, [&turn, &compactor, &sub]);
         (
             turn.family,
             compactor.family,
@@ -1244,6 +1291,12 @@ fn start(
             control: Some(control),
             inspector: start_inspector(paths, &chat, &claude_text),
             chief: Some(chief_tools.clone()),
+            // The turn names of `Settings::turn_prefix`, the subagent names
+            // of the sub preset (`optchat-sub-<home id>-<id>`).
+            turn: Some(crate::turn_caller::TurnBinding::for_home(
+                &turn_prefix(home),
+                &crate::paths::home_id(home),
+            )),
         },
     )
     .map_err(|e| format!("serving the memory tools: {e}"))?;
@@ -1336,7 +1389,7 @@ fn start(
         model: env("OPTCHAT_CHIEF_MODEL"),
         effort: crate::effort::turn_effort(env("OPTCHAT_CHIEF_EFFORT"), family),
         parent: parent_tag(home),
-        turn_prefix: format!("optchat-{}", crate::paths::home_id(home)),
+        turn_prefix: turn_prefix(home),
         agent_gap: Duration::from_millis(cmux_chief::rules::AGENT_GAP_RETRY_MS),
         turn_limit: (turn_limit > 0).then(|| Duration::from_secs(turn_limit * 60)),
         turn_idle_limit: {
@@ -1395,7 +1448,7 @@ fn start(
     brain.set_max_live(crate::subagents::live_limit(
         env(crate::subagents::MAX_LIVE_ENV).as_deref(),
     ));
-    // Finished subagents' workspaces stay with a done mark unless this says close.
+    // Finished subagents' workspaces stay, names untouched, unless this says close.
     brain.set_sub_close_on_finish(env("OPTCHAT_SUBAGENT_ON_FINISH").as_deref() == Some("close"));
     // Subagents that stop on a model or network error continue on their own
     // (auto_resume.rs); OPTCHAT_AUTO_RESUME=off turns it off.
@@ -1879,4 +1932,10 @@ fn native_env(setup: &SessionSetup, paths: &Paths) -> BTreeMap<String, String> {
         .unwrap_or_else(|| "/usr/bin:/bin".into());
     env.insert("PATH".into(), format!("{}:{path}", paths.bin.display()));
     env
+}
+
+/// The turn session names' prefix (`Settings::turn_prefix`, and the tools
+/// socket's turn binding, turn_caller.rs): `optchat-<home id>`.
+fn turn_prefix(home: &std::path::Path) -> String {
+    format!("optchat-{}", crate::paths::home_id(home))
 }

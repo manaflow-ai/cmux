@@ -665,7 +665,9 @@ function Block({
     case "code": {
       if (code === "open") return <PlainCode code={block.code} lang={block.lang} open />;
       if (code === "plain") return <PlainCode code={block.code} lang={block.lang} />;
-      if (isChart(block.lang, block.code)) return <DiagramBlock lang={block.lang} code={block.code} />;
+      // A diagram draws once its fence closes; a Mermaid source still streaming stays code.
+      if (isChart(block.lang, block.code) && !(block.open && block.lang.toLowerCase() === "mermaid"))
+        return <DiagramBlock lang={block.lang} code={block.code} />;
       // A page in a closed ```cmux-render fence runs in the render frame; the dev server has none.
       const render = canRender() && !block.open ? renderFence(block.lang, block.code) : undefined;
       if (render) return <RenderCard call={render} />;
@@ -769,7 +771,9 @@ export function Markdown({
   atMount.current ??= new Set(blocks.map((entry) => entry.key));
   // Notes are numbered by first reference; the key keeps `opts` (and every memoized block) the
   // same object until a new reference arrives.
-  const noteIds = footnoteOrder(children).join(" ");
+  // The reveal clock can re-render a streaming reply while its source is unchanged. Keep the
+  // full footnote scan on source changes instead of repeating it for each animation frame.
+  const noteIds = useMemo(() => footnoteOrder(children).join(" "), [children]);
   // The reply's data URL budget; only a reply longer than the budget can pass it.
   const budgetSource = children.length > MAX_REPLY_DATA_URLS ? children : "";
   const overBudget = useMemo(() => dataUrlsOverBudget(budgetSource), [budgetSource]);

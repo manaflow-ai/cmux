@@ -1,13 +1,17 @@
 #!/usr/bin/env python3
-"""Keep NEXT's Swift package checkouts on a trusted worker, never its build state.
+"""Keep NEXT's package checkouts and compilation cache on a trusted worker, never its build state.
 
 An incremental Xcode build can keep stale autolink and force-load data in
 objects it did not recompile after an import set changed, and those objects
 then link into the shipped app. So every shipped build starts from an empty
 DerivedData with its inputs at their checkout times. Only the package
-checkouts (source, no build output) stay, outside the workspace, scoped to the
-runner, source path and toolchain. Earlier revisions of this script also kept
-DerivedData there and replayed old input times; prepare deletes that state.
+checkouts (source, no build output) and Xcode's compilation cache stay,
+outside the workspace, scoped to the runner, source path and toolchain. The
+compilation cache is content-keyed (each key includes the job's explicit
+module dependencies), so a hit replays exactly what a cold compile of the same
+inputs produces; it is the warm state main restores from R2 (hq-25), kept on
+the dedicated worker's disk instead. Earlier revisions of this script also
+kept DerivedData there and replayed old input times; prepare deletes that state.
 """
 from __future__ import annotations
 
@@ -60,7 +64,8 @@ def prepare(workspace: Path, home: Path, runner: str, track: str, toolchain: str
     derived.mkdir()
     identity = hashlib.sha256(f'{workspace.resolve()}\n{toolchain}'.encode()).hexdigest()[:32]
     link(workspace / '.spm-cache', runner_state / identity / 'SourcePackages')
-    print(f'NEXT Release build starts from empty DerivedData; package checkouts: {runner_state / identity}')
+    link(derived / 'CompilationCache.noindex', runner_state / identity / 'CompilationCache')
+    print(f'NEXT Release build starts from empty DerivedData; package checkouts and compilation cache: {runner_state / identity}')
     return True
 
 

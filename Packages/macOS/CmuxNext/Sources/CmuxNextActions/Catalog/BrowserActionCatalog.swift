@@ -137,8 +137,8 @@ nonisolated enum BrowserActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "toggleReactGrab",
                 title: String(localized: "action.toggleReactGrab", defaultValue: "Toggle React Grab", bundle: .module),
-                // No default chord: Shift-Cmd-G is Find Previous in a browser
-                // (R88); this action is not built yet.
+                // No default chord: Shift-Cmd-G is Find Previous in a browser (R88).
+                // The page's menu offers it next to Design Mode (Options).
                 keywords: ["browser", "react", "inspect"], category: .browser,
                 symbol: "hand.point.up.left", surfaces: [.palette, .keyboard, .menu], requires: [.browserFocused],
                 targets: [.pane], cliName: "browser toggle-react-grab", mainMenu: .view
@@ -427,6 +427,6 @@ nonisolated enum BrowserActionCatalog: ActionCatalogGroup {
                 category: .browser, symbol: "rectangle.ratio.16.to.9", surfaces: [.palette, .contextMenu], requires: [.browserFocused],
                 targets: [.pane], cliName: "browser fit-desktop-1280"
             ),
-        ] + vscodeServerDescriptors() + agentGuardDescriptors() + importFilesDescriptors() + pinnedPageDescriptors()
+        ] + vscodeServerDescriptors() + agentGuardDescriptors() + importFilesDescriptors() + importCookiesDescriptors() + pinnedPageDescriptors()
     }
 }

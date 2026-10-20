@@ -127,6 +127,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
 
     func stop() {
         stopped = true
+        homeStore.stopTyping(in: conversation)
         liveLine.stop()
         turnPopover?.close()
         controller.intents = nil
@@ -144,7 +145,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
         // A running Chief run (`chief-live-v1`) owns the Chief's bubble: its typing dots until text comes.
         let live = homeStore.liveRun(in: conversation)
         apply(items: homeStore.transcript(for: conversation), summary: homeStore.summary(conversation),
-              typing: (homeStore.typing[conversation] ?? []).union(live.map { [$0.participant] } ?? []),
+              typing: homeStore.typists(in: conversation),
               hasOlder: homeStore.hasOlderMessages(in: conversation), draft: live.map(\.turnDraft) ?? homeStore.drafts[conversation])
         // The line closes on the frame after the one that shows the reply in the bubble's place (cx-zz30r, cx-06vn1).
         if let activity = live?.activity { liveLine.show(activity) } else { liveLine.hide(after: controller) }
@@ -157,8 +158,6 @@ final class HomeProjection: @preconcurrency ChatIntents {
                hasOlder newHasOlder: Bool, draft: HomeTurnDraft? = nil) {
         // MessagesLab hides a sender's typing dots while its stream has text (ask 11).
         let typing = wantedTyping
-        // My sends while the Chief's reply streamed stay below the text it showed then (ProjectionCore+Freeze).
-        let items = core.arrange(items)
         guard let store = controller.store else {
             install(items: items, summary: summary, typing: typing, hasOlder: newHasOlder)
             restoreDraft()
@@ -330,8 +329,8 @@ final class HomeProjection: @preconcurrency ChatIntents {
         if homeStore.summary(conversation) == nil { _ = noteSend("sent: the store has not listed this conversation") }
         if !store.state.atNewest { _ = noteSend("sent: an older window shows, no local bubble") }
         if store.state.atNewest {
-            // The Chief's reply text already on screen stays where it is, above this send (cmux: send order).
-            for a in core.freezeStream(before: key, in: store.state) { controller.dispatch(a) }
+            // A reply still streaming stays one bubble, the newest row, below this send: the owner posts it
+            // after the send, so it lands in the bubble's place (HomeProjection+Draft, send order).
             controller.dispatch(.send)
             // The local bubble morphs into HomeStore's item; without it the item shows on its own.
             _ = core.recordSend(key, in: store.state)
@@ -536,7 +535,10 @@ final class HomeProjection: @preconcurrency ChatIntents {
 
     func draftChanged() {
         if sendNotice == CmuxStrings.threadRootNotReady { sendNotice = nil }  // the user moved on
-        homeStore.setDraft(controller.store?.state.ui.draft.text ?? "", for: conversation)
+        let text = controller.store?.state.ui.draft.text ?? ""
+        homeStore.setDraft(text, for: conversation)
+        // My typing dots for the other members (HomeStore+Typing); off once the field is empty.
+        homeStore.composing(text, in: conversation)
         onDraftTextChange()
     }
 
@@ -679,9 +681,6 @@ struct ProjectionCore {
     var links: HomeMapping.Links = { _ in nil }
     /// The agent's running reply on screen (`stream(_:state:)`, MessagesLab ask 11).
     var shownStream: ShownStream?
-    /// Running replies whose shown text was frozen in place by my send (`freezeStream(before:)`),
-    /// by turn: the frozen text stays above that send, the rest streams below it.
-    var frozen: [IdempotencyKey: FrozenReply] = [:]
 
     init(me: ParticipantID) { self.me = me }
 
@@ -694,12 +693,17 @@ struct ProjectionCore {
         let roots = HomeMapping.roots(in: items, aliases: aliases, summary: summary, media: media, links: links)
         let conv = Conversation(id: id.rawValue, title: HomeMapping.title(summary, me: me),
                                 participants: HomeMapping.participants(summary, me: me),
-                                messages: items.map { HomeMapping.message($0, aliases: aliases, me: me, summary: summary, media: media, links: links, roots: roots) })
+                                messages: items.map { HomeMapping.message($0, aliases: aliases, me: me, summary: summary, media: media, links: links, roots: roots) },
+                                cmuxGroup: summary?.kind(me: me) == .group)
         return (conv, HomeMapping.window(items))
     }
 
     /// The actions from the shown snapshot to this one.
     mutating func step(items: [TranscriptItem], summary new: ConversationSummary?) -> HomeDiff {
+        // The shown snapshot again (a streamed token, typing, the activity line): nothing to diff.
+        // Mapping every row again cost 3.5 ms per token at 60 rows on the main thread, which a
+        // drag over the field waits for (DragWhileStreamingTests).
+        if items == shown, new == summary { return HomeDiff() }
         let d = HomeDiff.plan(old: shown, new: items, oldSummary: summary, newSummary: new, aliases: aliases, me: me, media: media, links: links,
                               handOff: streamingTurn)
         shown = items
@@ -720,7 +724,4 @@ struct ProjectionCore {
     }
 
     mutating func forget(_ key: IdempotencyKey) { aliases[key] = nil }
-
-    /// A frozen piece of the running reply joins the shown snapshot at the newest (ProjectionCore+Freeze).
-    mutating func insertShown(_ item: TranscriptItem) { shown.append(item) }
 }

@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { useEscapeCloses } from "../../../ui/escapeDismiss";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
@@ -6,8 +7,10 @@ import type { AcpmuxRow } from "../model";
 import { subagentsIn } from "../subagents/subagentRows";
 import { GalleryDialog } from "./GalleryDialog";
 import { chatGallery } from "./chatGallery";
+import { useScrollEdges } from "./scrollEdges";
 import { sessionSummary } from "./sessionSummary";
 import { SubagentStatusList, subagentStatus, waitingSubagents } from "./SubagentStatusList";
+import { SubagentsTab } from "./SubagentsTab";
 import { SummaryBody, type SummaryChanges } from "./SummaryBody";
 import type { SummaryCardControl } from "./cardState";
 
@@ -15,7 +18,9 @@ import type { SummaryCardControl } from "./cardState";
 /// uses a popover that dismisses on outside click or Escape. Folded popovers keep their header line,
 /// with the subagents' live counts. The summary is read from the transcript only while the card is
 /// open, so a live turn pays nothing for it otherwise.
-/// A subagent row shows that subagent (`subagents.onOpen`).
+/// A subagent row shows that subagent (`subagents.onOpen`). The Subagents section's title opens a
+/// Subagents tab beside the Summary (SubagentsTab.tsx), as the ChatGPT desktop app's right pane
+/// does; its close button goes back to the summary.
 export function SummaryCard({
   card,
   rows,
@@ -47,6 +52,8 @@ export function SummaryCard({
 }) {
   const t = useT();
   const [gallery, setGallery] = useState(false);
+  /// The Subagents tab: absent until the Subagents title opens it, then shown or behind Summary.
+  const [tab, setTab] = useState<"summary" | "subagents" | undefined>(undefined);
   const shown = card.shown;
   const open = shown && !card.collapsed;
   const views = subagents.views;
@@ -58,7 +65,24 @@ export function SummaryCard({
   const galleryCount = useMemo(() => (open ? chatGallery(rows).length : 0), [open, rows]);
   const panel = useRef<HTMLElement>(null);
   const popover = shown && !card.column;
+  const edges = useScrollEdges();
   const close = card.close;
+  // Closing the Subagents tab leaves focus on the Subagents title that opened it; on a folded
+  // popover, where that title is not drawn, on the fold button, else on the card itself.
+  const closeTab = () => {
+    flushSync(() => setTab(undefined));
+    const card = panel.current;
+    (
+      card?.querySelector<HTMLElement>(".acpmux-summary-title__button") ??
+      card?.querySelector<HTMLElement>(".acpmux-summary-card__fold") ??
+      card
+    )?.focus();
+  };
+  // A tab picked on a folded popover opens it: the tab's content is what the click asks for.
+  const showTab = (next: "summary" | "subagents") => {
+    if (!card.column && card.collapsed) card.fold(false);
+    setTab(next);
+  };
   useEffect(() => {
     if (!popover) return;
     const away = (event: Event) => {
@@ -92,17 +116,65 @@ export function SummaryCard({
   ].filter(Boolean);
   const title = t("summary.open");
   const foldLabel = card.collapsed ? t("summary.expand") : t("summary.collapse");
+  const onSubagents = tab === "subagents";
   return (
     <>
       <aside
         ref={panel}
         className="acpmux-summary-card"
+        // Focusable from script only: the last place closing the Subagents tab can leave focus.
+        tabIndex={-1}
         aria-label={title}
         data-placement={card.column ? "inline" : "popover"}
         data-collapsed={!card.column && card.collapsed ? "" : undefined}
       >
         <div className="acpmux-summary-card__head">
-          {card.column ? (
+          {tab && !card.column && (
+            // The popover keeps its fold control beside the tabs, so a narrow pane can still fold it.
+            <button
+              type="button"
+              className="acpmux-summary-card__fold acpmux-summary-card__fold--icon"
+              aria-expanded={!card.collapsed}
+              aria-label={foldLabel}
+              title={foldLabel}
+              onClick={() => card.fold(!card.collapsed)}
+            >
+              <Icon name={card.collapsed ? "disclosure.collapsed" : "disclosure.expanded"} size={10} />
+            </button>
+          )}
+          {tab ? (
+            // Toggle buttons (aria-pressed), as the gallery's filters are: page code carries no raw roles.
+            <div className="acpmux-summary-tabs">
+              <button
+                type="button"
+                className="acpmux-summary-tab"
+                aria-pressed={!onSubagents}
+                data-selected={onSubagents ? undefined : ""}
+                onClick={() => showTab("summary")}
+              >
+                {t("summary.title")}
+              </button>
+              <span className="acpmux-summary-tab" data-closable="" data-selected={onSubagents ? "" : undefined}>
+                <button
+                  type="button"
+                  className="acpmux-summary-tab__label"
+                  aria-pressed={onSubagents}
+                  onClick={() => showTab("subagents")}
+                >
+                  {t("summary.subagents")}
+                </button>
+                <button
+                  type="button"
+                  className="acpmux-summary-tab__close"
+                  aria-label={t("summary.subagents.closeTab")}
+                  title={t("summary.subagents.closeTab")}
+                  onClick={closeTab}
+                >
+                  <Icon name="action.close" size={10} />
+                </button>
+              </span>
+            </div>
+          ) : card.column ? (
             <span className="acpmux-summary-card__title">{t("summary.title")}</span>
           ) : (
             <button
@@ -118,7 +190,7 @@ export function SummaryCard({
               {counts.length > 0 && <span className="acpmux-summary-card__counts">{counts.join(" · ")}</span>}
             </button>
           )}
-          {card.column && counts.length > 0 && (
+          {!tab && card.column && counts.length > 0 && (
             <span className="acpmux-summary-card__counts">{counts.join(" · ")}</span>
           )}
           {!card.column && (
@@ -138,8 +210,13 @@ export function SummaryCard({
             </button>
           )}
         </div>
-        {summary && (
-          <div className="acpmux-summary-card__body">
+        {open && onSubagents && (
+          <div className="acpmux-summary-card__body" ref={edges}>
+            <SubagentsTab agents={agents} waiting={waiting} onOpen={subagents.onOpen} />
+          </div>
+        )}
+        {summary && !onSubagents && (
+          <div className="acpmux-summary-card__body" ref={edges}>
             {/* The subagents first: they are what the card follows while a turn runs. */}
             {agents.length > 0 && (
               <SubagentStatusList
@@ -148,6 +225,7 @@ export function SummaryCard({
                 current={subagents.current}
                 onOpen={subagents.onOpen}
                 autoOpen={subagents.autoOpen}
+                onShowAll={() => setTab("subagents")}
               />
             )}
             <SummaryBody

@@ -26,7 +26,7 @@
 //     (Cmd-[) and `forward` (Cmd-]) through the page's link history, `link` (Cmd-K) the link
 //     popover on the selection.
 // Resources the host serves from the page's origin (the strict PageCSP allows nothing else):
-// `<assetBase><path relative to the file's folder>` for images, `<libBase>mermaid.js` and
+// `<assetBase><path relative to the file's folder>` for images, `<libBase>ondine.js`, `<libBase>mermaid.js` and
 // `<libBase>vega.js` (vega.min.js then vega-lite.min.js) for diagrams, and, when the host fetches
 // remote images for the page (`markdown.remoteImages`), `<remoteImageBase><base64url of the URL>`.
 import type { DiffViewerAppearance } from "../../appearance";
@@ -40,10 +40,21 @@ export const MARKDOWN_FLUSH_OP = "cmux.markdown.flush";
 export const MARKDOWN_OPEN_LINK_OP = "cmux.markdown.openLink";
 export const MARKDOWN_RESOLVE_LINKS_OP = "cmux.markdown.resolveLinks";
 export const MARKDOWN_LIST_FILES_OP = "cmux.markdown.listFiles";
+/**
+ * Page to host: `{key, value}` stores one `markdown.*` settings key (the Reading Settings popover;
+ * value null resets it) through the settings write path; the host re-sends the look.
+ */
+export const MARKDOWN_SET_PREFERENCE_OP = "cmux.markdown.setPreference";
 export const MARKDOWN_CHANGES = "cmux.markdown.changes";
 export const MARKDOWN_LOOK = "cmux.markdown.look";
 export const MARKDOWN_CONFLICT = "cmux.markdown.conflict";
 export const MARKDOWN_READ_ONLY = "cmux.markdown.read_only";
+
+/**
+ * Why a file opens read only (FileReadOnlyReason in the host): not valid UTF-8, binary, not
+ * writable, or a chat transcript the host opens read only. `outside` comes only from an older host.
+ */
+export type MarkdownReadOnlyReason = "outside" | "encoding" | "binary" | "permission" | "transcript";
 
 export interface MarkdownConfig {
   /** The file's absolute path. */
@@ -54,8 +65,10 @@ export interface MarkdownConfig {
   hash: string;
   /** The file's GitHub `origin` repository (`owner/repo`), when it has one. */
   githubRepository?: string;
-  /** The page may not save: the file is outside every workspace root (or not writable). */
+  /** The page may not save: see `readOnlyReason`. */
   readOnly?: boolean;
+  /** Why the page may not save; the page names it. */
+  readOnlyReason?: MarkdownReadOnlyReason;
   /**
    * A recovered crash draft of this file (R96), sent once: the page loads it as unsaved edits on
    * `hash`. Ignored when read only or equal to `text`.
@@ -67,6 +80,8 @@ export interface MarkdownConfig {
   assetBase?: string;
   /** URL prefix of the diagram libraries; without it diagrams show their source only. */
   libBase?: string;
+  /** Mermaid renderer flag: "ondine" (default, Mermaid as fallback) or "mermaid" (Mermaid only). */
+  mermaidRenderer?: "ondine" | "mermaid";
   /**
    * URL prefix the host fetches remote (http, https) images under, `<remoteImageBase><base64url of
    * the URL>`; without it remote images do not load (the page CSP allows only its own origin).
@@ -116,6 +131,7 @@ export interface MarkdownFile {
   /** The file's GitHub `origin` repository (`owner/repo`), when it has one. */
   githubRepository?: string;
   readOnly?: boolean;
+  readOnlyReason?: MarkdownReadOnlyReason;
   assetBase?: string;
 }
 

@@ -334,11 +334,17 @@ enum TabLifecycle {
     /// one, the focused pane's selected tab (session-local browser tabs too).
     static func close(_ ctx: AppActionContext, _ invocation: ActionInvocation) {
         guard invocation.target?.kind == .tab || invocation["tab"]?.targetValue != nil else {
+            // Cmd-W while the focus a creation asked for is still on its way (Cmd-D, then Cmd-W at
+            // once: its pane may have no controller yet, and the old pane still has the focus): the
+            // creation it focuses closes, never the old pane's tab (CancelledCreation).
+            if let content = ctx.focusedContent, case .tab(let id)? = content.focus.state.expectation?.key, content.daemon.cancelCreation(tab: id) { return ctx.services.keyRouter.creationInputCoordinator.drop(tab: id, in: content.contentView.window) }
             guard let (pane, id) = ctx.tab(invocation) else { return }
             // The user's Cmd-W keeps a pinned tab (Chrome parity, PINNED-ITEMS-END-TO-END P3) unless
             // `tabs.cmdWClosesPinnedTabs` is on; the tab menu, the CLI and MCP name the tab and close it.
             if invocation.origin == .user {
                 let closesPinned = ctx.services.settings?.snapshot.cmdWClosesPinnedTabs ?? CmdWClosesPinnedTabsSetting.fallback
+                // Several selected tabs close together (Chrome); a selected pinned tab stays, as above.
+                if let selected = pane.stripModel.keyboardCloseSelection(id, closesPinned: closesPinned) { return CloseUndoToasts.close(in: pane, selected) }
                 switch pane.stripModel.keyboardClose(id, closesPinned: closesPinned) {
                 case .close: break
                 case .select(let next): return pane.select(next)
@@ -350,7 +356,7 @@ enum TabLifecycle {
         }
         guard let (tab, pane) = ctx.daemonTab(invocation) else { return }
         if let controller = ctx.services.paneController(for: pane) {
-            return CloseUndoToasts.close(in: controller, [StripTabID(tab.id)])
+            return CloseUndoToasts.close(in: controller, ctx.actingTabs(invocation, controller, StripTabID(tab.id)))
         }
         let command = ctx.services.daemon(for: pane).closeCommand(for: tab)
         if tab.kind == .remoteTerminal { ctx.services.remoteTerminals.viewClosed(tab) }

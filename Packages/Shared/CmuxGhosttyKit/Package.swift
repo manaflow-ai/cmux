@@ -49,6 +49,11 @@ import PackageDescription
 // Since ced99dcde a new drawn terminal (a restore, the reflow preview) keeps
 // rows whose content is the same (PR 43) and the renderer's cell size
 // follows its font grid only (PR 44), so a font change rebuilds once.
+// Since e923d79f1 CSI ? 996 n and mode 2031 report the surface's runtime
+// color scheme, so a plain theme in dark mode answers dark (PR 37).
+// Since a04c57e81 a snapshot restore keeps a scrolled-back viewport on the
+// rows it showed, and a scroll no longer turns the next local-history
+// restore into a full resend.
 //
 // A pin change is one reviewed commit that changes the URL and the checksum
 // together (the zip's sha256, also in the release's SHA256SUMS). Never pin
@@ -73,8 +78,8 @@ let package = Package(
         ),
         .binaryTarget(
             name: "GhosttyNextKit",
-            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-ced99dcde2f11df0e9f9e4a3d768c2a8ff62d903-apple-v6/GhosttyNextKit.xcframework.zip",
-            checksum: "1b63ad807de22b8c51489c3bf1640dbc2b8582beca9f74a516471f59ac0e63ed"
+            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-a04c57e8148bdb27b75a141c76dd11c902ac33bf-apple-v6/GhosttyNextKit.xcframework.zip",
+            checksum: "88073882d8536776f82fa6feb0d50c852a97d0955e5374bc50a23aeacebf33ae"
         ),
     ]
 )
