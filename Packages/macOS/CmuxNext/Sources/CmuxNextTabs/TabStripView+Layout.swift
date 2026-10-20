@@ -131,6 +131,7 @@ extension TabStripView {
     /// Every move of `generation` ended: a closing tab or chip it carried goes, and the masks and
     /// clips that only that motion needed come off.
     func moveEnded(_ generation: Int) {
+        movesInFlight.remove(generation)
         let now = CACurrentMediaTime()
         // The move that ends last carries it; a little slack for the completion's own frame.
         for id in dying where (goesAt[id] ?? .infinity) <= now + 0.02 { removeTab(id) }
@@ -148,8 +149,16 @@ extension TabStripView {
         occlusionEnds = TabOcclusion.update(cells: cells, selected: selected, band: scrollMapping.band, settle: settle)
     }
 
+    /// `result` by tab, built once per layout.
+    var slotIndex: TabSlotIndex {
+        if let slotIndexCache { return slotIndexCache }
+        let index = TabSlotIndex(result)
+        slotIndexCache = index
+        return index
+    }
+
     func reveal(_ id: TabID, animated: Bool) {
-        guard let slot = result.slot(id) else { return }
+        guard let slot = slotIndex.slots[id] else { return }
         let target = TabScrollMath.offset(
             revealing: slot,
             current: scrollOffset,
@@ -265,6 +274,7 @@ extension TabStripView {
         CATransaction.setDisableActions(true)
         if let move {
             let generation = move.generation
+            movesInFlight.insert(generation)
             CATransaction.setCompletionBlock { [weak self] in MainActor.assumeIsolated { self?.moveEnded(generation) } } // main-proof: CATransaction.h: the completion block is called on the main thread
         }
         defer { CATransaction.commit() }
