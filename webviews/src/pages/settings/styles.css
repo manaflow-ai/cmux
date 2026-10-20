@@ -438,7 +438,8 @@ mark {
 .row-control .select .ui-select-button {
   /* One width per row style: a popup never resizes with its selected label (which ellipsizes),
      so the controls around it stay put. */
-  width: 180px;
+  width: var(--row-popup-width);
+  max-width: 100%;
 }
 
 /* An unset row's effective value: the thumb and field sit on it, dimmed, and a badge under the
@@ -453,7 +454,7 @@ mark {
   top: calc(100% + 1px);
   right: 0;
   color: var(--muted-text);
-  font-size: 10px;
+  font-size: var(--text-caption);
   line-height: 12px;
   white-space: nowrap;
   pointer-events: none;
@@ -1179,7 +1180,7 @@ mark {
 .appearance-bar {
   position: sticky;
   bottom: 16px;
-  z-index: 5;
+  z-index: var(--layer-sticky);
   display: flex;
   align-items: center;
   gap: 4px;
@@ -1211,6 +1212,6 @@ mark {
 }
 
 .appearance-bar-question {
-  font-size: 12px;
+  font-size: var(--text-detail);
   white-space: nowrap;
 }

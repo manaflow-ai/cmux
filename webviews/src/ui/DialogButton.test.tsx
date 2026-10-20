@@ -5,7 +5,7 @@ import { afterEach, expect, test } from "bun:test";
 import { act, createRef } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { DialogButton, dialogKeyAria, dialogKeyGlyph } from "./DialogButton";
+import { DialogButton, dialogKeyAria, dialogKeyGlyph, keyedIconProps } from "./DialogButton";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -123,4 +123,19 @@ test("a button no key presses shows no keycap, and the caller's ref still reache
   expect(button.querySelector("kbd")).toBeNull();
   expect(button.hasAttribute("aria-keyshortcuts")).toBe(false);
   expect(ref.current).toBe(button);
+});
+
+test("an icon button names its key in the tooltip and to assistive tech", () => {
+  expect(keyedIconProps("Close", "escape")).toEqual({
+    "aria-label": "Close",
+    "aria-keyshortcuts": "Escape",
+    title: "Close ⎋",
+  });
+  expect(keyedIconProps("Next", "right")).toEqual({
+    "aria-label": "Next",
+    "aria-keyshortcuts": "ArrowRight",
+    title: "Next →",
+  });
+  expect(dialogKeyGlyph("left")).toBe("←");
+  expect(dialogKeyAria("left")).toBe("ArrowLeft");
 });

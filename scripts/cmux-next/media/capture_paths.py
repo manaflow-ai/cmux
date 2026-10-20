@@ -29,6 +29,7 @@ TOUR_FILES = {
     "pinned-tabs": TOURS / "pinned-tabs.json",
     "hover-card": TOURS / "hover-card.json",
     "update-card": TOURS / "update-card.json",
+    "chief-settings": TOURS / "chief-settings.json",
     "glass": TOURS / "glass.json",
     "fonts": TOURS / "fonts.json",
     "core": TOURS / "core.json",
