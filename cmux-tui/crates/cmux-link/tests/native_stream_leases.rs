@@ -117,7 +117,7 @@ fn native_receiver_stream_policy_removal_or_binding_changes_revoke_active_lease(
             "host" => policy.peers[0].binding.host = "host_00000000000000000003".into(),
             "wg" => {
                 policy.peers[0].binding.wg_public_key =
-                    base64::engine::general_purpose::STANDARD.encode([3u8; 32])
+                    base64::engine::general_purpose::STANDARD.encode([3u8; 32]);
             }
             "acl" => policy.peers[0].binding.acl_version += 1,
             "epoch" => policy.epoch += 1,
