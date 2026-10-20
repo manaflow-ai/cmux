@@ -187,28 +187,38 @@ penalty for gaps and for path depth. The basename of `Sources/App/ContentView.sw
 million paths ~ 60 MiB), prefiltered by a 64-bit "letters present" mask per name, so fuzzy over a
 million names is a linear pass of mask checks plus scoring the survivors (target under 5 ms).
 
-### 7.3 Content ranking
+### 7.3 Ranking: one list across all sources
 
-Score of a content hit (higher first):
+The engine returns one list, names and content together, best first (section 10.3). Every hit
+gets a match tier on one shared scale, so a terminal error can beat a file name:
 
-1. Match class: whole doc equals the query > every word matched at word boundaries > phrase
-   (words adjacent, in order) > all words anywhere.
-2. Source weight: `chief` 1.2, `chat` 1.15, `command` 1.1, `scrollback` 1.0, `screen` 0.9,
-   `file` 1.0, `page` 0.95.
-3. Recency: `exp(-age / 7 days)`, so a 1-week-old hit is worth e^-1 of a fresh one at equal match.
-4. Frecency: hits whose target the user opened before (same Raycast/Alfred idea; +1 per open,
-   half-life 3 days, keyed by target).
-5. Current context: same workspace +10%.
+| tier | content hit (scrollback, chat, Chief, file text, ...) | name hit (workspace, tab, file path, page) |
+| --- | --- | --- |
+| 5 | a doc line is the whole query | the name (or a path's basename) is the query |
+| 4 | the query as a phrase, every word a whole word | the name or basename starts with the query |
+| 3 | every word starts a word (`migrat` in `migration failed`) | the query is contiguous at a word start (`migrat` in `db-migrations-DESIGN.md`) |
+| 2 | the query as a phrase anywhere | the query is contiguous anywhere |
+| 1 | every word somewhere in the doc | fuzzy: letters in order (fzf style, quality 0..99 breaks ties) |
 
-Collection order and ranking interact: the engine collects up to 4x `limit` candidates newest
-first, scores them, and returns the top `limit`. Names (7.2) come in a separate list.
+Score = tier x 1000 + (kind weight - 1) x 500 + 400 x recency + frecency (at most 300) + name
+quality (0..99). Kind weights: `chief` 1.2, `chat` 1.15, `command` 1.1, names 1.1, `scrollback`
+and `file` 1.0, `page` 0.95, `screen` 0.9. Recency = `exp(-age / 7 days)` (a name's age is its last
+use; a file's is its mtime). Frecency: +1 per open of the hit's target, half-life 3 days, keyed by
+target (Raycast/Alfred), 100 points per unit up to 300.
+
+Example ("migrat"): the 2-minute-old scrollback line `error: migration 0042 failed` and the file
+`db-migrations-DESIGN.md` (edited yesterday) are both tier 3 with weight 1.0, so recency puts the
+error first. A tier never crosses another (recency + frecency + weight stay under 1000).
+
+Collection: the engine collects up to 4x `limit` content candidates newest first and every name
+candidate that passes the letter mask, scores them all, and returns the top `limit`.
 
 ### 7.4 What the window shows
 
-A "Top hit" row (best name match when its fuzzy score is in the top class, else best content
-hit), then sections in fixed order with up to 5 rows each until the user expands: Actions,
-Workspaces & tabs, Chats, Chief, Terminal, Files, Pages, Settings. In a scope (Cmd+Shift+A)
-only those sections, flat and longer. Ownership of visuals: UI agent (section 10).
+One ranked list (section 10.2): the first hit is the "Best match", the rest follow in score order,
+not grouped by source. App rows (actions, settings) merge into it with the same tiers (10.3).
+In a scope (Cmd+Shift+A, a source chip) the list holds only those kinds. Visuals: UI agent
+(section 10).
 
 ## 8. Benchmark and the 100x goal
 
@@ -251,4 +261,70 @@ a bounded channel and drops to backfill when full), a257 (Memory Inspector: Chie
 
 ## 10. UI (owned by the Search-everything UI agent)
 
-(UI agent writes this section: mocks, window layout, keyboard, scope chip, empty state.)
+Mocks: `plans/cmux-next/search-everything-gallery/index.html` (5 live looks, light and dark,
+type in any of them). Recommended: look A.
+
+### 10.1 One window, built on the palette's `search` scope
+
+- The window is the palette panel on the `search` scope (a247, plans/cmux-next/sidebar-search.md).
+  No second panel, field or ranker. Cmd+P opens `palette.open {scope: search}`; Cmd+Shift+A opens
+  the same with the chip "Chats & agents" (daemon scopes `["chat", "chief"]`); the sidebar button
+  opens it anchored. Cmd+Shift+P stays the command list. Old Cmd+P (Go to) rows are all inside
+  Search, so nothing is lost; `palette.goToTab` / `tab.search` stay as aliases for scripts.
+- Backspace on an empty field, or the chip's x, removes the chip and searches everything with the
+  query kept.
+
+### 10.2 Layout (look A)
+
+- Field row: scope chip (if any), query, a small "ms" readout in DEBUG builds only.
+- Source chips row under the field: All, Terminal, Chats & agents, Chief, Files, Tabs, Web,
+  Settings, Commands, each with its live hit count. Tab / Shift+Tab move between them, Cmd+1..9
+  pick one. A chip is the same thing as a scope (it sets the daemon `scopes` and filters app rows).
+- Left: one list ranked across all sources (the engine's "Top hit" row first, under "Best match",
+  then "More"). Not grouped: grouping (look B) lets a weak section sit above the best hit, and
+  section order jumps while typing. Inside a single source chip the list is flat.
+- Row: source icon (colored tile), title with highlights, place (workspace, terminal, line
+  number, harness), and one snippet line with the matched words marked (`highlights` UTF-16
+  ranges from the hit). Right edge: age, or the shortcut for a command.
+- Right: preview of the selected row (`listWithDetail`, palette-scopes 3.3), loaded lazily:
+  - scrollback / command: about 6 lines around the hit with line numbers, the hit line marked;
+    Return jumps the terminal to that line and flashes it.
+  - screen (old full-screen TUI frame): the saved frame text, monospaced, words marked; Return
+    opens the frame read-only, Cmd+Return goes to the live terminal.
+  - chat / chief: the message as a bubble with the one before and after; Return opens the chat
+    scrolled to that message.
+  - file: lines around the hit; Return opens it at the line.
+  - setting, command, tab, page: key/value rows and the row's actions.
+- Footer: key hints (arrows, Return, Cmd+Return split, Tab source, Cmd+K actions) and the count.
+
+### 10.3 Ordering in the merged list
+
+App rows (actions, settings, workspaces, tabs; palette ranker, instant) and daemon hits
+(streamed) are merged by a normalized score: each list's scores are mapped to 0..1 by match class
+(exact title > word-start title > title anywhere > content word-start > content anywhere), then
+recency and frecency (engine 7.3) break ties. Rule that stops the list jumping: rows already shown
+above the selected row never move when a later daemon batch arrives; new hits insert below it.
+
+### 10.4 Empty state
+
+Recent searches (last 5 queries, from the daemon frecency file) and Recent places (palette
+frecency over all kinds), plus one hint line with the prefixes: `>` commands, `@` chats and agents,
+`#` files, `/` settings, `!` terminal output.
+
+### 10.5 Speed and motion
+
+- Every keystroke paints app rows from the in-memory snapshot in under 16 ms (palette ranker, off
+  main); daemon hits arrive in later batches. The query is cancelled on each keystroke
+  (`search.cancel`).
+- Until the daemon serves `search-v1`, the app uses a stub source (no rows, no error) so the
+  window ships on its own.
+- Reduce Motion: no fades or slides; selection and preview change instantly.
+
+### 10.6 UI plan
+
+1. Mocks and this section (done).
+2. Daemon search source in the palette (`PaletteQueryProvider`, a247 phase 2): async,
+   generation-tagged, cancelled per keystroke, stubbed until `search.query` exists.
+3. Cmd+P and Cmd+Shift+A open the `search` scope (Chats & agents chip for Cmd+Shift+A).
+4. Source chips row and the preview pane.
+5. Strings in all 21 locales; failing-first tests for each step on the Mac minis.
