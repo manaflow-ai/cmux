@@ -331,9 +331,15 @@ opt-level = 1
 # cmux-tui rebuild after a one-line edit (-Z time-passes, crate-split lane 3).
 # Off: about 11 s -> 5.5 s per edit; release builds keep lto = "thin".
 lto = "off"
+# Line tables keep file:line in panics, backtraces and profiles; full DWARF made
+# each worktree's target about twice the size (Huge Blue, 10-19: 11 GB -> 5.4 GB
+# cold, with cold builds 360 s -> 251 s). Use `debug = true` locally to step
+# through locals in a debugger.
+debug = "line-tables-only"
 
 [profile.dev.package."*"]
 opt-level = 3
+debug = false
 
 # acpmux's own code does not make its tests faster when optimized (rbx,
 # 2026-10-17: cargo nextest -p acpmux 16.2 s at opt-level 1, 16.5 s at 0), but

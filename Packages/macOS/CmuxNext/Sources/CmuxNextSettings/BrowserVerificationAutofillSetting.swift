@@ -45,9 +45,8 @@ public nonisolated struct BrowserVerificationAutofillSetting: Sendable, Hashable
     }
 }
 
-/// Email verification AutoFill's row (Browser > Passwords). Kept off the Settings page until a mail
-/// source ships (DESIGN.md "Not in slice 1"): the key works in cmux.json, and showing the row is
-/// this one `hiddenFromSettingsPage` call.
+/// Email verification AutoFill's row (Browser > Passwords), shown in Settings and the palette. Off
+/// by default; the person turns it on.
 nonisolated enum BrowserVerificationAutofillSettingsSchema {
     static var descriptors: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.passwords", "Passwords")
@@ -59,7 +58,7 @@ nonisolated enum BrowserVerificationAutofillSettingsSchema {
                                          "When a site emails you a code or link, its tab offers it. Only on the sender's own site, never filled without your click, and never stored."),
                 kind: .toggle, default: .bool(BrowserVerificationAutofillSetting.fallback.enabled),
                 keywords: ["email", "verification", "code", "one-time", "otp", "2fa", "autofill", "magic link"]
-            ).hiddenFromSettingsPage("no mail source yet (plans/cmux-next/email-verification-autofill/DESIGN.md)"),
+            ),
         ]
     }
 

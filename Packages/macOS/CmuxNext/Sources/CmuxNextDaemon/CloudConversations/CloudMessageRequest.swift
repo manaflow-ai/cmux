@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// One message request: who invited the user into which conversation, and a preview. It names
 /// no address and no account id; `conversation` is the only id.
