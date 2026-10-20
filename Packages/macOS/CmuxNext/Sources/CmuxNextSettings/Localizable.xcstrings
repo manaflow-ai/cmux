@@ -143670,6 +143670,534 @@
           }
         }
       }
+    },
+    "settings.ui.calm": {
+      "comment": "Settings > Appearance > Motion: title of the ui.calm choice, one switch that reduces motion, hover cards and hover highlights.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Calm Mode"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الوضع الهادئ"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mirni način"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rolig tilstand"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ruhemodus"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Modo calma"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mode calme"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Modalità calma"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "落ち着いたモード"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "របៀបស្ងប់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "차분한 모드"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rolig modus"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tryb spokojny"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Modo calmo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Спокойный режим"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "โหมดสงบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sakin mod"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Спокійний режим"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chế độ tĩnh"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "平静模式"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "平靜模式"
+          }
+        }
+      }
+    },
+    "settings.choice.calm": {
+      "comment": "Settings: the Calm value of Calm Mode (reduced motion, no hover cards or hover highlights).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Calm"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "هادئ"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mirno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rolig"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ruhig"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Calma"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Calme"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Calma"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "落ち着き"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ស្ងប់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "차분하게"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rolig"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Spokojny"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Calmo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Спокойно"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "สงบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sakin"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Спокійно"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tĩnh"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "平静"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "平靜"
+          }
+        }
+      }
+    },
+    "settings.choice.still": {
+      "comment": "Settings: the Still value of Calm Mode (Calm, and no animation at all).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Still"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ثابت"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mirovanje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Stille"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Still"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Inmóvil"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Immobile"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Immobile"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "静止"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "នៅស្ងៀម"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "정지"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Stille"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bez ruchu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Imóvel"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Без движения"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "นิ่ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Durgun"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Без руху"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đứng yên"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "静止"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "靜止"
+          }
+        }
+      }
+    },
+    "settings.ui.calm.help": {
+      "comment": "Settings > Appearance > Motion: help text of Calm Mode; Calm and Still are its two on values.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Calm: nothing slides, springs or spins, hover cards stay closed and the pointer leaves no highlight on tabs, rows and buttons. Still: Calm, and every animation is instant. Your other motion and hover card settings come back when it is off."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "هادئ: لا شيء ينزلق أو يرتد أو يدور، وتبقى بطاقات التمرير مغلقة، ولا يترك المؤشر أي تمييز على علامات التبويب والصفوف والأزرار. ثابت: مثل هادئ، وكل حركة فورية. تعود إعدادات الحركة وبطاقات التمرير الأخرى عند إيقافه."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mirno: ništa ne klizi, ne odskače i ne vrti se, kartice pri prelasku ostaju zatvorene, a pokazivač ne ostavlja isticanje na karticama, redovima i dugmadima. Mirovanje: kao Mirno, i svaka animacija je trenutna. Ostale postavke pokreta i kartica vraćaju se kada je isključeno."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rolig: intet glider, fjedrer eller drejer, svævekort forbliver lukkede, og markøren efterlader ingen fremhævning på faner, rækker og knapper. Stille: Rolig, og alle animationer sker med det samme. Dine andre bevægelses- og svævekortindstillinger vender tilbage, når den er slået fra."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ruhig: Nichts gleitet, federt oder dreht sich, Hover-Karten bleiben geschlossen und der Zeiger hebt Tabs, Zeilen und Tasten nicht hervor. Still: wie Ruhig, und jede Animation erfolgt sofort. Deine anderen Bewegungs- und Hover-Karten-Einstellungen gelten wieder, wenn er aus ist."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Calma: nada se desliza, rebota ni gira, las tarjetas emergentes no se abren y el puntero no resalta pestañas, filas ni botones. Inmóvil: como Calma, y todas las animaciones son instantáneas. Tus otros ajustes de movimiento y tarjetas vuelven al desactivarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Calme : rien ne glisse, ne rebondit ni ne tourne, les cartes de survol restent fermées et le pointeur ne met en évidence ni onglets, ni lignes, ni boutons. Immobile : comme Calme, et chaque animation est instantanée. Vos autres réglages de mouvement et de cartes reviennent quand il est désactivé."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Calma: niente scorre, rimbalza o ruota, le schede al passaggio restano chiuse e il puntatore non evidenzia schede, righe e pulsanti. Immobile: come Calma, e ogni animazione è istantanea. Le altre impostazioni di movimento e delle schede tornano quando è disattivata."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "落ち着き: スライド、弾み、回転がなくなり、ホバーカードは開かず、ポインタを重ねてもタブ、行、ボタンが強調表示されません。静止: 落ち着きに加えて、すべてのアニメーションが即座に完了します。オフにすると、ほかのモーションとホバーカードの設定が元に戻ります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ស្ងប់៖ គ្មានអ្វីរអិល លោត ឬបង្វិលទេ កាតដាក់ទស្សន៍ទ្រនិចនៅតែបិទ ហើយទស្សន៍ទ្រនិចមិនបន្លិចផ្ទាំង ជួរ និងប៊ូតុងទេ។ នៅស្ងៀម៖ ដូចស្ងប់ ហើយចលនាទាំងអស់កើតឡើងភ្លាមៗ។ ការកំណត់ចលនា និងកាតផ្សេងទៀតរបស់អ្នកត្រឡប់មកវិញនៅពេលបិទវា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "차분하게: 미끄러지거나 튀거나 회전하는 움직임이 없고, 호버 카드가 열리지 않으며, 포인터를 올려도 탭, 행, 버튼이 강조되지 않습니다. 정지: 차분하게에 더해 모든 애니메이션이 즉시 끝납니다. 끄면 다른 모션 및 호버 카드 설정이 다시 적용됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rolig: ingenting glir, spretter eller snurrer, svevekort forblir lukket, og pekeren uthever ikke faner, rader og knapper. Stille: Rolig, og alle animasjoner skjer umiddelbart. De andre bevegelses- og svevekortinnstillingene dine kommer tilbake når den er av."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Spokojny: nic się nie przesuwa, nie odbija ani nie obraca, karty po najechaniu pozostają zamknięte, a wskaźnik nie podświetla kart, wierszy ani przycisków. Bez ruchu: jak Spokojny, a każda animacja jest natychmiastowa. Pozostałe ustawienia ruchu i kart wracają po wyłączeniu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Calmo: nada desliza, quica ou gira, os cartões de passagem ficam fechados e o ponteiro não destaca abas, linhas e botões. Imóvel: como Calmo, e toda animação é instantânea. Seus outros ajustes de movimento e de cartões voltam quando ele é desativado."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Спокойно: ничего не скользит, не пружинит и не вращается, карточки при наведении не открываются, а указатель не подсвечивает вкладки, строки и кнопки. Без движения: как Спокойно, и все анимации мгновенные. Остальные настройки движения и карточек вернутся, когда режим выключен."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "สงบ: ไม่มีสิ่งใดเลื่อน เด้ง หรือหมุน การ์ดเมื่อชี้จะไม่เปิด และตัวชี้จะไม่ไฮไลต์แท็บ แถว และปุ่ม นิ่ง: เหมือนสงบ และทุกแอนิเมชันจะเกิดขึ้นทันที การตั้งค่าการเคลื่อนไหวและการ์ดอื่นๆ ของคุณจะกลับมาเมื่อปิดโหมดนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sakin: hiçbir şey kaymaz, sekmez veya dönmez, üzerine gelme kartları açılmaz ve işaretçi sekmeleri, satırları ve düğmeleri vurgulamaz. Durgun: Sakin gibi, ayrıca her animasyon anında gerçekleşir. Diğer hareket ve kart ayarlarınız kapatıldığında geri gelir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Спокійно: ніщо не ковзає, не пружинить і не обертається, картки при наведенні не відкриваються, а вказівник не підсвічує вкладки, рядки й кнопки. Без руху: як Спокійно, і всі анімації миттєві. Інші налаштування руху й карток повернуться, коли режим вимкнено."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tĩnh: không có gì trượt, nảy hay xoay, thẻ khi di chuột không mở và con trỏ không làm nổi bật tab, hàng và nút. Đứng yên: như Tĩnh, và mọi hoạt ảnh diễn ra ngay lập tức. Các cài đặt chuyển động và thẻ khác của bạn sẽ trở lại khi tắt chế độ này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "平静：不再滑动、弹跳或旋转，悬停卡片不会打开，指针也不会高亮标签页、行和按钮。静止：在平静的基础上，所有动画立即完成。关闭后，你的其他动效和悬停卡片设置会恢复。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "平靜：不再滑動、彈跳或旋轉，懸停卡片不會打開，指標也不會醒目標示分頁、列和按鈕。靜止：在平靜的基礎上，所有動畫立即完成。關閉後，你的其他動態效果和懸停卡片設定會恢復。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

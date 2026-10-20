@@ -80,10 +80,10 @@ public final class HoverCardCoordinator {
     /// Cards show only while the app is active (always in a no-activate
     /// test run, which is never active); tests inject one.
     public var appIsActive: () -> Bool = { NSApp.isActive || WindowPlacement.noActivate }
-    /// `sidebar.hoverCards.enabled`: off, the pointer gives no target a card
-    /// (a row's, a tab's or a user's custom one); Show Resource Usage still
-    /// pins one. Tests inject one.
-    public var hoverCardsEnabled: () -> Bool = { DesignSettings.shared.hoverCardsEnabled }
+    /// `sidebar.hoverCards.enabled` and not calm mode (`ui.calm`): off, the
+    /// pointer gives no target a card (a row's, a tab's or a user's custom
+    /// one); Show Resource Usage still pins one. Tests inject one.
+    public var hoverCardsEnabled: () -> Bool = { DesignSettings.shared.showsHoverCards }
     /// A mouse button is down (a press, a drag, a selection): the pointer
     /// gives no target a card, as in Chrome. Tests inject one.
     public var mouseButtonDown: () -> Bool = { NSEvent.pressedMouseButtons != 0 }

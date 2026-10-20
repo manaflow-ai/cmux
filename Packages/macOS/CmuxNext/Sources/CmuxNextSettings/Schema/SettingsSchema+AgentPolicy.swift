@@ -122,6 +122,7 @@ extension SettingsSchema {
         "ui.animations.feedback",
         "ui.animations.web",
         "ui.paneAnimations",
+        "ui.calm",
         "appearance.colorTransition.enabled",
         "appearance.colorTransition.duration",
         "appearance.colorTransition.curve",
