@@ -193,6 +193,20 @@ public final class ChiefSession {
         reconnect()
     }
 
+    /// Composer text of a Chief screen that went away, for the screen that replaces it.
+    private var carriedComposerText: String?
+
+    /// The leaving screen's unsent text (empty clears it).
+    public func carryComposerText(_ text: String) {
+        carriedComposerText = text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : text
+    }
+
+    /// The carried text, once.
+    public func takeCarriedComposerText() -> String? {
+        defer { carriedComposerText = nil }
+        return carriedComposerText
+    }
+
     /// The coordinator's try ended (connected, refused or replaced): Try Again is offered again.
     public func endReconnect() {
         if isReconnecting { isReconnecting = false }

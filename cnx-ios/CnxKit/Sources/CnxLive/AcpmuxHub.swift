@@ -600,16 +600,18 @@ public final class AcpmuxSessionSource: AgentSessionSource {
                 summary.status = session.summaryStatus
                 if !session.name.isEmpty { summary.name = session.name }
             }
+            attached = true
+            for record in page { receive(record: record) }
             // The session's models, modes and options as acpmux keeps them now (D4: a running
-            // chat had no model menu, as they only came with later updates).
+            // chat had no model menu, as they only came with later updates). After the page:
+            // a pick (set_model, set_mode, set_config_option) writes no record, so an older
+            // update in the page must not win over the state now.
             if let detail = result["session"] {
                 for event in Self.sessionState(detail) {
                     if case .modelsAvailable(let models, _) = event { knownModels = models }
                     emit(event)
                 }
             }
-            attached = true
-            for record in page { receive(record: record) }
             let pending = held
             held = []
             for record in pending { receive(record: record) }

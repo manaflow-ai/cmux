@@ -537,7 +537,15 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
         if let pop = navigation.interactivePopGestureRecognizer { recognizers.append(pop) }
         if #available(iOS 26.0, *), let content = navigation.interactiveContentPopGestureRecognizer { recognizers.append(content) }
         for recognizer in recognizers {
-            if recognizer.delegate !== self { previousPopDelegates[ObjectIdentifier(recognizer)] = WeakDelegate(value: recognizer.delegate) }
+            if recognizer.delegate !== self {
+                // A Chief screen rebuilt on a new store (Try Again) takes over from the old one:
+                // keep the navigation's own delegate, never the outgoing Chief screen.
+                if let outgoing = recognizer.delegate as? ChiefConversationContainer {
+                    previousPopDelegates[ObjectIdentifier(recognizer)] = outgoing.previousPopDelegates[ObjectIdentifier(recognizer)]
+                } else {
+                    previousPopDelegates[ObjectIdentifier(recognizer)] = WeakDelegate(value: recognizer.delegate)
+                }
+            }
             recognizer.isEnabled = true
             recognizer.delegate = self
         }
@@ -571,10 +579,19 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
         field?.becomeFirstResponder()
     }
 
+    /// The Chief screen on screen now: a rebuilt one may appear before the old one disappears.
+    private static weak var shown: ChiefConversationContainer?
+
     public override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         enableEdgePop()
+        Self.shown = self
         session.isVisible = true
+        // Text written on the screen this one replaced (Try Again rebuilt it on a new store).
+        if let carried = session.takeCarriedComposerText(), let field = composerTextView, field.text.isEmpty {
+            field.text = carried
+            field.delegate?.textViewDidChange?(field)
+        }
         session.markSeen()
         showOutboxIfWaiting()
         if focusesComposerOnAppear {
@@ -589,12 +606,14 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
 
     public override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
-        // A sheet over Chief keeps it on screen.
-        if presentedViewController == nil { session.isVisible = false }
+        // A sheet over Chief keeps it on screen; so does the screen that replaced this one.
+        if presentedViewController == nil, Self.shown === self || Self.shown == nil { session.isVisible = false }
     }
 
     public override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
+        // Unsent text goes with the session to a rebuilt screen (it reads it on appear).
+        session.carryComposerText(composerTextView?.text ?? "")
         // Hand the recognizers back to their own delegates for the next screen.
         for recognizer in popRecognizers where recognizer.delegate === self {
             recognizer.delegate = previousPopDelegates[ObjectIdentifier(recognizer)]?.value

@@ -65,4 +65,38 @@ import Testing
         #expect(again.id != first.id)
         #expect(!again.resend)
     }
+
+    /// Review: the reply was lost after the transcript already showed the prompt: nothing comes back.
+    @Test func aPromptSeenRunningNeverComesBack() throws {
+        let source = Recorder()
+        let store = AgentChatStore(source: source)
+        store.send(prompt: "run the tests")
+        let first = try #require(Self.prompt(source.sent.last))
+        store.apply(.userMessage(text: "run the tests", promptId: first.id, turnId: "t1", attachments: [], at: Date()))
+        store.apply(.promptNotSent(text: "run the tests", attachments: [], promptID: first.id, reason: "link down"))
+        #expect(store.returnedDraft == nil)
+        store.send(prompt: "run the tests")
+        #expect(Self.prompt(source.sent.last)?.id != first.id)
+    }
+
+    /// Review: other attachments are another prompt; a withdrawal takes the attachments too.
+    @Test func attachmentsCountAndLeaveWithTheDraft() throws {
+        let source = Recorder()
+        let store = AgentChatStore(source: source)
+        let photo = AgentAttachment(kind: .file, name: "a.txt")
+        store.send(prompt: "look", attachments: [photo])
+        let first = try #require(Self.prompt(source.sent.last))
+        store.apply(.promptNotSent(text: "look", attachments: [photo], promptID: first.id, reason: "link down"))
+        store.returnedDraft = nil
+        store.send(prompt: "look", attachments: [])
+        #expect(Self.prompt(source.sent.last)?.id != first.id)
+
+        store.send(prompt: "look again", attachments: [photo])
+        let second = try #require(Self.prompt(source.sent.last))
+        store.apply(.promptNotSent(text: "look again", attachments: [photo], promptID: second.id, reason: "link down"))
+        store.returnedDraft = nil
+        store.apply(.queued(text: "look again", promptId: second.id, position: 0))
+        #expect(store.withdrawnDraft?.attachments == [photo])
+    }
 }
+

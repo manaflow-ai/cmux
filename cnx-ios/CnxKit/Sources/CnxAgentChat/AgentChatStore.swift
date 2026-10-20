@@ -199,8 +199,11 @@ public final class AgentChatStore {
     /// A returned draft the Mac turned out to have run (its prompt id showed up in the
     /// transcript after the link came back): the composer takes it out again (then clears this).
     public var withdrawnDraft: ReturnedDraft?
-    /// The last returned prompt still waiting for a resend: its text and id.
-    private var resendable: (text: String, promptID: String)?
+    /// The last returned prompt still waiting for a resend: what it held and its id.
+    private var resendable: (text: String, attachments: [AgentAttachment], promptID: String)?
+    /// Prompt ids the transcript showed running or queued (a lost reply for one of them is not
+    /// a prompt that never went out).
+    private var seenPromptIDs: Set<String> = []
     /// Bumps on every streamed change (follow-mode scroll keys off it).
     public private(set) var revision = 0
     private var currentMessageID: String?
@@ -261,7 +264,9 @@ public final class AgentChatStore {
             respond(to: permission.request, option: deny)
         }
         // The same prompt sent again after its reply was lost keeps its id: acpmux runs it once.
-        let resend = resendable.flatMap { $0.text == text ? $0.promptID : nil }
+        let resend = resendable.flatMap { pending in
+            pending.text == text && pending.attachments.map(\.id) == attachments.map(\.id) ? pending.promptID : nil
+        }
         resendable = nil
         source.send(.prompt(text: text, attachments: attachments, steer: steer,
                             promptID: resend ?? UUID().uuidString.lowercased(), resend: resend != nil))
@@ -270,11 +275,12 @@ public final class AgentChatStore {
     /// The Mac shows `promptID` ran (or queued): a draft returned for it goes away, and it is
     /// never sent again under that id.
     private func reached(_ promptID: String) {
+        seenPromptIDs.insert(promptID)
         guard let pending = resendable, pending.promptID == promptID else { return }
         resendable = nil
         let draft = returnedDraft?.promptID == promptID ? returnedDraft : nil
         if draft != nil { returnedDraft = nil }
-        withdrawnDraft = draft ?? ReturnedDraft(text: pending.text, attachments: [], promptID: promptID)
+        withdrawnDraft = draft ?? ReturnedDraft(text: pending.text, attachments: pending.attachments, promptID: promptID)
         if clientError != nil { clientError = nil }
     }
 
@@ -428,9 +434,11 @@ public final class AgentChatStore {
             approvingOptionID = nil
             clientError = message
         case .promptNotSent(let text, let attachments, let promptID, let reason):
+            // The transcript already showed it run: only its reply was lost.
+            guard !seenPromptIDs.contains(promptID) else { break }
             clientError = reason
             returnedDraft = ReturnedDraft(text: text, attachments: attachments, promptID: promptID)
-            resendable = (text, promptID)
+            resendable = (text, attachments, promptID)
         case .subagent(let change):
             applySubagent(change)
         case .batch(let events):
