@@ -38,16 +38,25 @@ import Testing
         return tab
     }
 
+    /// Why a bubble did not show (printed when a test needs it).
+    static func environment(_ window: NSWindow) -> String {
+        "screens=\(NSScreen.screens.map(\.frame)) active=\(NSApp?.isActive ?? false) window=\(window.frame) visible=\(window.isVisible)"
+    }
+
     static func milliseconds(_ duration: Duration) -> Double {
         Double(duration.components.seconds) * 1000 + Double(duration.components.attoseconds) / 1e15
     }
 
     /// A visible window with the Extensions button at its top right.
     static func window() -> (NSWindow, NSView) {
-        let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 900, height: 700), styleMask: [.titled],
-                              backing: .buffered, defer: false)
+        // Inside the main screen, so the bubble below the anchor has room (CI workers run at
+        // small virtual displays).
+        let screen = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1024, height: 768)
+        let size = NSSize(width: min(900, screen.width - 40), height: min(700, screen.height - 40))
+        let window = NSWindow(contentRect: NSRect(origin: NSPoint(x: screen.minX + 20, y: screen.minY + 20), size: size),
+                              styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
-        let anchor = NSView(frame: NSRect(x: 860, y: 660, width: 28, height: 28))
+        let anchor = NSView(frame: NSRect(x: size.width - 40, y: size.height - 40, width: 28, height: 28))
         window.contentView?.addSubview(anchor)
         window.orderFrontRegardless()
         return (window, anchor)
@@ -70,7 +79,7 @@ import Testing
         // The toolbar prepares the rows and the panel when a tab binds, off the click's path.
         let prepare = clock.measure { controller.prepare(host: tab) }
         let first = clock.measure { controller.show(host: tab, handler: handler, anchor: anchor) }
-        try #require(controller.isShown)
+        try #require(controller.isShown, "\(Self.environment(window))")
         #expect(controller.content.rows.count == Self.count)
         controller.close()
         let open = Self.fastest {
@@ -90,7 +99,7 @@ import Testing
         let handler = ExtensionsMenu.DirectHandler(host: tab) { _ in }
         let controller = ExtensionsMenuController()
         controller.show(host: tab, handler: handler, anchor: anchor)
-        try #require(controller.isShown)
+        try #require(controller.isShown, "\(Self.environment(window))")
         #expect(controller.icons.loads == Self.count)
         controller.close()
         controller.show(host: tab, handler: handler, anchor: anchor)
@@ -104,7 +113,7 @@ import Testing
         defer { window.close() }
         let controller = ExtensionsMenuController()
         controller.show(host: tab, handler: ExtensionsMenu.DirectHandler(host: tab) { _ in }, anchor: anchor)
-        try #require(controller.isShown)
+        try #require(controller.isShown, "\(Self.environment(window))")
         let enter = try #require(NSEvent.enterExitEvent(with: .mouseEntered, location: .zero, modifierFlags: [], timestamp: 0,
                                                         windowNumber: 0, context: nil, eventNumber: 0, trackingNumber: 0, userData: nil))
         let exit = try #require(NSEvent.enterExitEvent(with: .mouseExited, location: .zero, modifierFlags: [], timestamp: 0,
@@ -131,7 +140,7 @@ import Testing
         let before = tab.extensionBackend.snapshots
         let controller = ExtensionsMenuController()
         controller.show(host: tab, handler: ExtensionsMenu.DirectHandler(host: tab) { _ in }, anchor: anchor)
-        try #require(controller.isShown)
+        try #require(controller.isShown, "\(Self.environment(window))")
         #expect(tab.extensionBackend.snapshots == before, "the open asked Chromium for the list before it showed")
         #expect(controller.renders == 1)
         controller.close()

@@ -63,7 +63,7 @@ import Testing
         let recorder = Recorder()
         let controller = ExtensionsMenuController()
         controller.show(host: tab, handler: recorder, anchor: anchor)
-        try #require(controller.isShown)
+        try #require(controller.isShown, "\(ExtensionsMenuPerformanceTests.environment(window))")
         let unpinned = try #require(controller.content.rows.first { !$0.isPinned })
         #expect(controller.choose("pin", extension: unpinned.extensionID))
         #expect(controller.isShown, "pinning closed the bubble")
@@ -79,7 +79,7 @@ import Testing
         defer { window.close() }
         let controller = ExtensionsMenuController()
         controller.show(host: tab, handler: Recorder(), anchor: anchor)
-        try #require(controller.isShown)
+        try #require(controller.isShown, "\(ExtensionsMenuPerformanceTests.environment(window))")
         let order = controller.content.focusOrder
         // Two rows of three buttons, Manage Extensions, close.
         #expect(order.count == 8)
