@@ -27,6 +27,17 @@ struct AgentPaneReplyReadPathTests {
         #expect(!AgentPaneReplyRequest.readPath("src/App.tsx").isPassive)
     }
 
+    @Test func opensAnEmptyTextFileWithoutTruncation() throws {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("empty-\(UUID().uuidString).txt")
+        try Data().write(to: file)
+        defer { try? FileManager.default.removeItem(at: file) }
+
+        let read = try #require(AgentPaneReplyRequest.FileText(path: file.path))
+        #expect(read.text == "")
+        #expect(read.bytes == 0)
+        #expect(!read.truncated)
+    }
+
     @Test func readsTextCutsLongFilesAndLeavesBinaryToTheTab() throws {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("read-path-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
