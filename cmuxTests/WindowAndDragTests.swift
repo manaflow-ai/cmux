@@ -2374,6 +2374,53 @@ final class MainWindowDragBehaviorTests: XCTestCase {
 }
 
 
+@Suite("Titlebar file search field layout")
+struct TitlebarFileSearchFieldLayoutTests {
+    @Test func fieldCentersRightOfTheTitleInsetAndTheTitleStopsBeforeIt() throws {
+        let titlebarWidth: CGFloat = 1200
+        let region = TitlebarFileSearchFieldLayout.region(titlebarWidth: titlebarWidth, titleLeadingPadding: 228)
+        #expect(region.leading == 216)
+        #expect(region.width == 984)
+
+        let fieldWidth = try #require(TitlebarFileSearchFieldLayout.width(regionWidth: region.width))
+        #expect(fieldWidth == TitlebarFileSearchFieldLayout.maximumWidth)
+
+        let fieldLeading = region.leading + (region.width - fieldWidth) / 2
+        let titleTrailingEdge = titlebarWidth - TitlebarFileSearchFieldLayout.titleTrailingPadding(
+            regionWidth: region.width,
+            fieldWidth: fieldWidth
+        )
+        #expect(fieldLeading - titleTrailingEdge == TitlebarFileSearchFieldLayout.titleGap)
+    }
+
+    @Test func fullscreenControlsShiftTheRegion() {
+        let region = TitlebarFileSearchFieldLayout.region(
+            titlebarWidth: 1000,
+            titleLeadingPadding: 8,
+            reservedLeadingWidth: 120
+        )
+        #expect(region.leading == 116)
+        #expect(region.width == 884)
+    }
+
+    @Test func narrowTitlebarHidesTheFieldAndKeepsTheTitlePadding() {
+        #expect(TitlebarFileSearchFieldLayout.width(regionWidth: 400) == nil)
+        #expect(
+            TitlebarFileSearchFieldLayout.titleTrailingPadding(regionWidth: 400, fieldWidth: nil)
+                == TitlebarFileSearchFieldLayout.titleGap
+        )
+    }
+
+    @Test func goToFileDefaultsToCommandOptionPWithoutClashingWithOtherDefaults() {
+        let shortcut = KeyboardShortcutSettings.Action.goToFile.defaultShortcut
+        #expect(shortcut == StoredShortcut(key: "p", command: true, shift: false, option: true, control: false))
+        let clashes = KeyboardShortcutSettings.Action.allCases.filter {
+            $0 != .goToFile && $0.defaultShortcut == shortcut
+        }
+        #expect(clashes.isEmpty, "\(clashes)")
+    }
+}
+
 @Suite("Custom titlebar leading padding")
 struct CustomTitlebarLeadingPaddingTests {
     @Test func hiddenSidebarUsesMinimumSidebarTitleInset() {

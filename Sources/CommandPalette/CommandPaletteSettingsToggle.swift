@@ -510,6 +510,9 @@ enum CommandPaletteSettingsToggleCommands {
                 userFacing: SettingCatalog().app.alwaysConfirmWorkspaceClose
             ),
             CommandPaletteSettingToggleDescriptor(
+                userFacing: SettingCatalog().app.showTitlebarFileSearch
+            ),
+            CommandPaletteSettingToggleDescriptor(
                 userFacing: SettingCatalog().app.warnBeforeClosingWindow
             ),
             CommandPaletteSettingToggleDescriptor(

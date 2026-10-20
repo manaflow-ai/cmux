@@ -19,6 +19,7 @@ extension CmuxSettingsFileStore {
         "app.goToWorkspaceOrder",
         "app.workspaceInheritWorkingDirectory",
         "app.minimalMode",
+        "app.showTitlebarFileSearch",
         "app.keepWorkspaceOpenWhenClosingLastSurface",
         "app.focusPaneOnFirstClick",
         "app.paneResizeStepPixels",
