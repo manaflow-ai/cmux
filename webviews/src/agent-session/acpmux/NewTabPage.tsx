@@ -17,6 +17,7 @@ import {
   type OmnibarRow,
 } from "./omnibar";
 import {
+  activityTime,
   folded,
   homePath,
   listed,
@@ -189,7 +190,9 @@ export function recentSessions(
   // cannot make the rows trade places.
   const ordered = all.sort(
     (a, b) =>
-      urgency(a) - urgency(b) || (b.updatedAt ?? 0) - (a.updatedAt ?? 0) || a.sessionId.localeCompare(b.sessionId),
+      urgency(a) - urgency(b) ||
+      (activityTime(b) ?? 0) - (activityTime(a) ?? 0) ||
+      a.sessionId.localeCompare(b.sessionId),
   );
   if (!fold) return ordered.slice(0, count);
   // A child folds only under a parent this list shows; under one past the cut it lists on its own.
