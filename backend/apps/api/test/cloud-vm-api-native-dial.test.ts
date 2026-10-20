@@ -120,6 +120,7 @@ const mintFixture = async () => {
     range: <T>() => [{ key: machine.id, n: 1, row: machine as unknown as T }]
   }
   const audit: Array<Record<string, unknown>> = []
+  let denyFinalPolicy = false, policyReads = 0
   const authority: NativeLinkAuthority = {
     authorize: (_row, p, proof, services) => authorizeNativeDial(f.deps, p, target, proof, services),
     recheck: (p, permit) => recheckNativeDial(f.deps, p, permit)
@@ -127,8 +128,8 @@ const mintFixture = async () => {
   const keys = parseSigningKeys(JSON.stringify({ active: "test-k1", keys: vectors.test_keys, published_at: { "test-k1": 1, "test-k2": 1 } }))
   if (!keys) throw new Error("fixture signing keys were rejected")
   const mint = async (proof?: unknown) => mintLinkToken({ entity: TEAM, rows, p: principal, params: { host: HOST, services: ["ssh"], ...(proof ? { native_proof: proof } : {}) }, request: crypto.randomUUID(), environment: "test", keys, native: authority },
-    async () => ["daemon", "ssh"], () => ({ record: (entry) => { audit.push(entry) } }))
-  return { ...f, mint, audit, authority, pause: () => { machine = { ...machine, status: "paused" } } }
+    async () => ++policyReads > 1 && denyFinalPolicy ? [] : ["daemon", "ssh"], () => ({ record: (entry) => { audit.push(entry) } }))
+  return { ...f, mint, audit, authority, denyAtFinalPolicy: () => { denyFinalPolicy = true }, pause: () => { machine = { ...machine, status: "paused" } } }
 }
 
 describe("Native policy in the actual link-token minter", () => {
@@ -191,4 +192,12 @@ it("never mints a Native credential beyond its original grant expiry", async () 
   if (!answer.ok) throw new Error(answer.code)
   const claims = decodeJwt((answer.value as { token: string }).token)
   expect(Number(claims.exp) * 1000).toBeLessThanOrEqual(expires)
+})
+
+
+it("drops a signed credential when the service policy is removed before final admission", async () => {
+  const f = await mintFixture()
+  f.denyAtFinalPolicy()
+  expect(await f.mint(await f.proof())).toMatchObject({ ok: false, code: "auth.forbidden" })
+  expect(f.audit).toHaveLength(0)
 })
