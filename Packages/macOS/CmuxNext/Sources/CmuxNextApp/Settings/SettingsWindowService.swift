@@ -209,13 +209,25 @@ final class SettingsWindowService: InternalPageProvider {
 
     var shellIntegration: String? { GhosttyRuntime.shared.shellIntegrationSettings?.mode }
 
-    /// The window opacity the theme resolved (Ghostty's, or the default a
-    /// chosen material gets), so the unset slider sits where the window is:
-    /// read through the active window's theme scope (the app scope when no
-    /// window is open), which inherits the app theme unless a room
-    /// overrides it.
+    /// The window opacity the window shows, so the unset slider sits where the window is: read
+    /// through the active window's theme scope (the app scope when no window is open), which
+    /// inherits the app theme unless a room overrides it. Over a background picture that is the
+    /// tint the picture resolved (its own tint, above the legibility floor), not the theme's
+    /// opacity: an unset slider sat at Ghostty's 100% while the window showed the work's 35%, so a
+    /// click jumped and the field read "Ghostty".
     func derivedNumber(at path: [String]) -> Double? {
-        path == WindowBackgroundSetting.opacityPath ? (services.windows.active?.themeScope ?? ThemeScope.app).input.backgroundOpacity : nil
+        guard path == WindowBackgroundSetting.opacityPath else { return nil }
+        let scope = services.windows.active?.themeScope ?? ThemeScope.app
+        return Self.shownOpacity(of: scope)
+    }
+
+    /// The tint opacity `scope`'s window paints (`WindowBackdrop`): the theme's opacity, or over a
+    /// background picture the tint the picture and the legibility floor resolve.
+    static func shownOpacity(of scope: ThemeScope) -> Double {
+        guard scope.backdropSelection != nil else { return scope.input.backgroundOpacity }
+        let backdrop = WindowBackdrop(scope.tokens, art: scope.backdropArt, selection: scope.backdropSelection,
+                                      tuning: scope.appearanceTuning, tintOpacity: scope.backdropTintOpacity)
+        return backdrop.isOpaque ? scope.input.backgroundOpacity : backdrop.tintOpacity
     }
 
     var browserProfiles: [SettingsBrowserProfileRow] {
