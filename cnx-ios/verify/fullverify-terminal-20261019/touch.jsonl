@@ -95,3 +95,15 @@
 {"t": 1792469083.417166, "kind": "drag", "dur": 0.9, "what": "read"}
 {"t": 1792469167.5306182, "kind": "tap", "what": "send-prompt"}
 {"t": 1792469257.5416079, "kind": "drag", "dur": 0.9, "what": "read"}
+{"t": 1792469369.3272479, "kind": "tap", "dur": 0.8, "what": "longpress"}
+{"t": 1792469469.851431, "kind": "tap", "dur": 0.8, "what": "longpress"}
+{"t": 1792469475.5130482, "kind": "tap", "dur": 0.8, "what": "longpress"}
+{"t": 1792469481.484936, "kind": "tap", "dur": 0.8, "what": "longpress"}
+{"t": 1792469487.300978, "kind": "tap", "dur": 0.8, "what": "longpress"}
+{"t": 1792469493.366094, "kind": "tap", "dur": 0.8, "what": "longpress"}
+{"t": 1792469499.357302, "kind": "tap", "dur": 0.8, "what": "longpress"}
+{"t": 1792469505.2579992, "kind": "tap", "dur": 0.8, "what": "longpress"}
+{"t": 1792469511.208925, "kind": "tap", "dur": 0.8, "what": "longpress"}
+{"t": 1792469517.109219, "kind": "tap", "dur": 0.8, "what": "longpress"}
+{"t": 1792469523.151629, "kind": "tap", "dur": 0.8, "what": "longpress"}
+{"t": 1792469556.869542, "kind": "tap", "what": "send-mem60"}

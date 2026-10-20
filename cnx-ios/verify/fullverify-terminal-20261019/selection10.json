@@ -1,0 +1,56 @@
+{
+ "selections10": [
+  {
+   "ocr": "104",
+   "copied": "104",
+   "exact": true
+  },
+  {
+   "ocr": "107",
+   "copied": "107",
+   "exact": true
+  },
+  {
+   "ocr": "110",
+   "copied": "110",
+   "exact": true
+  },
+  {
+   "ocr": "113",
+   "copied": "113",
+   "exact": true
+  },
+  {
+   "ocr": "116",
+   "copied": "116",
+   "exact": true
+  },
+  {
+   "ocr": "119",
+   "copied": "119",
+   "exact": true
+  },
+  {
+   "ocr": "122",
+   "copied": "122",
+   "exact": true
+  },
+  {
+   "ocr": "125",
+   "copied": "125",
+   "exact": true
+  },
+  {
+   "ocr": "128",
+   "copied": "128",
+   "exact": true
+  },
+  {
+   "ocr": "131",
+   "copied": "131",
+   "exact": true
+  }
+ ],
+ "exact": 10,
+ "n": 10
+}

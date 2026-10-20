@@ -1,0 +1,30 @@
+{
+ "samples": 136,
+ "span_min": 67.8,
+ "stream_span_min": 57.6,
+ "fp_first": 116.0,
+ "fp_peak": 140.0,
+ "fp_last_stream": 131.0,
+ "growth_after_10min": 1.0,
+ "slope_mb_per_10min_after10": 0.27,
+ "cpu_stream_avg": 12.3,
+ "cpu_slope_pct_per_10min": -0.04,
+ "cpu_idle_avg": 2.5,
+ "idle_n": 14,
+ "rss_peak": 578.1,
+ "mac_cnx-hostd": {
+  "first": 28.1,
+  "max": 37.2,
+  "last": 36.0
+ },
+ "mac_cmux-tui": {
+  "first": 88.4,
+  "max": 207.5,
+  "last": 187.8
+ },
+ "mac_cmux DEV": {
+  "first": 177.9,
+  "max": 228.8,
+  "last": 228.8
+ }
+}

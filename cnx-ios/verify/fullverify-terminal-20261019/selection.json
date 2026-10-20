@@ -1,0 +1,45 @@
+{
+ "selections": [
+  {
+   "word": "300",
+   "menu": [
+    "Copy",
+    "Copy",
+    "Select All",
+    "Select All"
+   ],
+   "copied": "300",
+   "exact": true
+  },
+  {
+   "ocr_line": "cmux@cmux11s-Mac-mini \u1ed3\u1ea1\u1ea0\u1ed3 % q",
+   "copied": "cmux@cmux11s-Mac-mini",
+   "in_line": true
+  },
+  {
+   "ocr_line": "Typing into terminal",
+   "copied": null,
+   "in_line": false
+  },
+  {
+   "ocr_line": "ctr1",
+   "copied": null,
+   "in_line": false
+  },
+  {
+   "ocr_line": "otab",
+   "copied": null,
+   "in_line": false
+  },
+  {
+   "ocr_line": "u",
+   "copied": null,
+   "in_line": false
+  },
+  {
+   "ocr_line": "K",
+   "copied": null,
+   "in_line": false
+  }
+ ]
+}
