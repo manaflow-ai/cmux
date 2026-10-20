@@ -49,4 +49,44 @@ struct AcpmuxLaunchSecurityTests {
         #expect(variables["CMUX_NEXT_CUA_V2_DIR"] == "/private/v2")
         #expect(variables["PATH"] == "/usr/bin")
     }
+
+    @Test func signedResolutionRejectsAnExecutableOutsideTheAppsTeam() {
+        var checkedTeam: String?
+        let environment = AcpmuxEnvironment.resolve(
+            build: nil,
+            bundledBinDirectory: URL(fileURLWithPath: "/App/bin", isDirectory: true),
+            environment: [:],
+            userHome: URL(fileURLWithPath: "/Users/test", isDirectory: true),
+            uid: 501,
+            isExecutable: { _ in true },
+            executableOverride: nil,
+            teamIdentifier: "TEAM123",
+            isTrustedExecutable: { _, team in checkedTeam = team; return false }
+        )
+
+        #expect(checkedTeam == "TEAM123")
+        #expect(environment == nil)
+    }
+
+    @Test func signedResolutionDefersItsPersonKeyUntilPeerEnrollment() throws {
+        let environment = try #require(AcpmuxEnvironment.resolve(
+            build: nil,
+            bundledBinDirectory: URL(fileURLWithPath: "/App/bin", isDirectory: true),
+            environment: [:],
+            userHome: URL(fileURLWithPath: "/Users/test", isDirectory: true),
+            uid: 501,
+            isExecutable: { _ in true },
+            executableOverride: nil,
+            teamIdentifier: "TEAM123",
+            isTrustedExecutable: { _, _ in true }
+        ))
+
+        #expect(!environment.passesPersonKeyAtSpawn)
+    }
+
+    @Test func staticLaunchCheckRejectsAnotherTeamsExecutable() {
+        let systemBinary = URL(fileURLWithPath: "/bin/ls")
+        #expect(!AcpmuxServerPeer.executableSignedByAppTeam(systemBinary, team: "NOTCMUXTEAM"))
+        #expect(!AcpmuxServerPeer.executableSignedByAppTeam(systemBinary, team: "invalid team"))
+    }
 }
