@@ -51,7 +51,23 @@ jobs:
           ref: ${{ inputs.sha != '' && inputs.sha || 'refs/heads/feat-cmux-next' }}
           fetch-depth: 150
 
+      # The release train (nightly-next-train.yml, docs/ci/nightly-next-train.md).
+      # Unset or dry-run: the train plans from the last good build and its run
+      # summary is the plan; the promotion below still goes ahead. on: the
+      # train replaces it (a train commit is not on feat-cmux-next, so a plain
+      # promotion after one is refused). off: nothing.
+      - name: Start the nightly-next train
+        if: vars.NIGHTLY_NEXT_TRAIN != 'off'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MODE: ${{ vars.NIGHTLY_NEXT_TRAIN == 'on' && 'drive' || 'plan' }}
+        run: |
+          set -euo pipefail
+          gh workflow run nightly-next-train.yml -R "$GITHUB_REPOSITORY" --ref feat-cmux-next -f mode="$MODE" \
+            || echo "::warning::could not start the nightly-next train ($MODE); is nightly-next-train.yml on feat-cmux-next and main?"
+
       - name: Request nightly-next promotion on main
+        if: vars.NIGHTLY_NEXT_TRAIN != 'on'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |

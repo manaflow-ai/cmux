@@ -86,7 +86,9 @@ const github = {
       // Git trees: each commit's tree is its first parent's tree plus its own
       // files (blob = the commit that wrote it), unless the scenario gives an
       // explicit tree (a merge that resolves a conflict).
-      getCommit: async ({ commit_sha }) => ({ data: { sha: commit_sha, tree: { sha: `T|${commit_sha}|` } } }),
+      // A train commit's message and parents (readTrainCommit()) come from
+      // scenario.gitCommits; any other commit has neither, so it is no train.
+      getCommit: async ({ commit_sha }) => ({ data: { sha: commit_sha, tree: { sha: `T|${commit_sha}|` }, ...((scenario.gitCommits || {})[commit_sha] || {}) } }),
       getTree: async ({ tree_sha, recursive }) => {
         const [, commitSha, dir] = tree_sha.split('|');
         calls.trees += 1;
@@ -197,6 +199,11 @@ const decision = scenario.newest
   : await guard.decide({
       github, core, owner: 'manaflow-ai', repo: 'cmux', sha: scenario.sha,
       surfaceText: scenario.surface, sleep: async () => {},
+      // G1' tree check: scenario.trainVerify is its answer, 'throw' a crash.
+      verifyTrain: scenario.trainVerify === undefined ? null : async () => {
+        if (scenario.trainVerify === 'throw') throw new Error('merge-tree crashed');
+        return scenario.trainVerify;
+      },
     });
 const approvers = await guard.approvedBy({ github, owner: 'manaflow-ai', repo: 'cmux', runId: 1 });
 let policy = { require_non_lander_approver: true };
@@ -915,6 +922,110 @@ def test_workflow_executes_the_release_surface_approval_gate() -> None:
         "needs.promote-nightly-next.outputs.action == 'needs-ack' && "
         "needs.promote-nightly-next.outputs.dry_run != 'true'"
     )
+
+
+# ------------------------------------------------------------ train commits (G1'/G2')
+
+TRAIN = "e" * 40
+TRAIN_GATE = [{"name": "nightly-next train Release compile", "status": "completed", "conclusion": "success"}]
+
+
+def train_run(**overrides) -> dict:
+    run = {
+        "id": 9, "head_sha": TRAIN, "head_branch": "nightly-train/123/1", "event": "workflow_dispatch",
+        "path": ".github/workflows/nightly-next-train.yml", "head_repository": {"full_name": "manaflow-ai/cmux"},
+    }
+    run.update(overrides)
+    return run
+
+
+def train_case(**overrides) -> dict:
+    """TRAIN = nightly-next train commit: parents CURRENT (nightly-next) and
+    SHA (a feat-cmux-next commit), trailer `Nightly-Train: v1`."""
+    case = scenario(sha=TRAIN, runs=[train_run()], jobs={"9": TRAIN_GATE},
+                    trainVerify={"ok": True, "reason": "tree is the tip minus 0 revert(s)"})
+    case["commits"].insert(0, {"sha": TRAIN, "parents": [{"sha": CURRENT}, {"sha": SHA}],
+                               "author": {"login": "github-actions[bot]"}, "committer": {"login": "github-actions[bot]"},
+                               "files": []})
+    case["gitCommits"] = {TRAIN: {"message": "nightly-next train: x\n\nNightly-Train: v1\n",
+                                  "parents": [{"sha": CURRENT}, {"sha": SHA}]}}
+    case.update(overrides)
+    case["jobs"] = {str(k): v for k, v in case["jobs"].items()}
+    return case
+
+
+def test_a_verified_green_train_commit_promotes() -> None:
+    decision = run(train_case())["decision"]
+    assert decision["action"] == "promote", decision
+
+
+def test_a_train_commit_without_a_tree_verifier_is_refused() -> None:
+    case = train_case()
+    del case["trainVerify"]
+    decision = run(case)["decision"]
+    assert decision["action"] == "refuse" and "no train tree verifier" in decision["reason"], decision
+
+
+def test_a_train_commit_whose_tree_is_not_its_reverts_is_refused() -> None:
+    decision = run(train_case(trainVerify={"ok": False, "reason": "the tree is not the tip minus its reverts"}))["decision"]
+    assert decision["action"] == "refuse" and "minus its reverts" in decision["reason"], decision
+
+
+def test_a_crashed_tree_check_is_refused() -> None:
+    decision = run(train_case(trainVerify="throw"))["decision"]
+    assert decision["action"] == "refuse" and "failed to run" in decision["reason"], decision
+
+
+def test_a_train_commit_needs_its_own_train_gate_run() -> None:
+    # The cmux-next.yml push run of its second parent is not the train's gate.
+    decision = run(train_case(runs=[gate_run(head_sha=TRAIN)], jobs={"7": GREEN}))["decision"]
+    assert decision["action"] == "refuse" and "nightly-next-train.yml" in decision["reason"], decision
+    decision = run(train_case(runs=[train_run(head_branch="feat-cmux-next")]))["decision"]
+    assert decision["action"] == "refuse", decision
+    decision = run(train_case(jobs={"9": [{**TRAIN_GATE[0], "conclusion": "failure"}]}))["decision"]
+    assert decision["action"] == "refuse", decision
+
+
+def test_a_train_commit_on_an_old_nightly_head_is_refused() -> None:
+    case = train_case()
+    case["gitCommits"][TRAIN]["parents"] = [{"sha": MID}, {"sha": SHA}]
+    decision = run(case)["decision"]
+    assert decision["action"] == "refuse" and "was made on" in decision["reason"], decision
+
+
+def test_a_train_commit_whose_tip_is_not_on_the_source_is_refused() -> None:
+    # SHA is not reachable from the feat-cmux-next head MID ("behind").
+    decision = run(train_case(sourceHead=MID))["decision"]
+    assert decision["action"] == "refuse" and "second parent" in decision["reason"], decision
+
+
+def test_a_plain_commit_still_takes_g1_and_g2() -> None:
+    # No trailer: the train path is not taken even with a verifier present.
+    case = scenario(trainVerify={"ok": True, "reason": "unused"})
+    assert run(case)["decision"]["action"] == "promote"
+
+
+def test_the_train_verifier_reads_the_script_verdict() -> None:
+    script = r"""
+const guard = await import(process.env.GUARD);
+const answer = (status, stdout, stderr = '') => () => ({ status, stdout, stderr });
+const ok = await guard.trainVerifier('x.py', { spawn: answer(0, 'log\n{"ok": true, "reason": "fine"}\n') })('a'.repeat(40));
+const bad = await guard.trainVerifier('x.py', { spawn: answer(1, '{"ok": false, "reason": "differs"}') })('a'.repeat(40));
+let crashed = null;
+try { await guard.trainVerifier('x.py', { spawn: answer(1, '', 'Traceback') })('a'.repeat(40)); } catch (e) { crashed = e.message; }
+console.log(JSON.stringify({ ok, bad, crashed }));
+"""
+    out = subprocess.run(["node", "--input-type=module", "-e", script], cwd=ROOT, capture_output=True, text=True,
+                         env={**os.environ, "GUARD": str(GUARD)}, check=True)
+    result = json.loads(out.stdout)
+    assert result["ok"] == {"ok": True, "reason": "fine"}
+    assert result["bad"] == {"ok": False, "reason": "differs"}
+    assert result["crashed"] and "Traceback" in result["crashed"]
+
+
+def test_both_promote_decisions_pass_the_train_verifier() -> None:
+    assert WORKFLOW.count("verifyTrain: guard.trainVerifier(") == 2
+    assert WORKFLOW.count("scripts/ci/nightly_next_train.py\n") >= 2
 
 
 def main() -> None:
