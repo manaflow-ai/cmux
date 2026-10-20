@@ -104,10 +104,14 @@ public nonisolated struct SidebarDocItem: Hashable, Sendable, Identifiable {
     public var label: String?
     /// A url item's page icon address (body `icon_url`): the favicon its row draws.
     public var iconURL: String?
+    /// A group member pinned inside its group (`extra.pinned`): the reducer
+    /// lists it first among the members (plans/cmux-next/pinning-DESIGN.md).
+    public var pinnedInGroup: Bool
 
     public init(id: String, section: String, parent: String? = nil, body: SidebarDocBody, showsLabel: Bool = true, span: Int? = nil,
-                label: String? = nil, iconURL: String? = nil) {
+                label: String? = nil, iconURL: String? = nil, pinnedInGroup: Bool = false) {
         self.iconURL = iconURL
+        self.pinnedInGroup = pinnedInGroup && parent != nil
         self.id = id
         self.section = section
         self.parent = parent
@@ -233,6 +237,14 @@ public nonisolated struct SidebarDocRecords: Hashable, Sendable {
     /// The item that places `ref`, or nil.
     public func item(for ref: SidebarDocWorkspaceRef) -> SidebarDocItem? {
         items.values.first { $0.body.workspace == ref }
+    }
+
+    /// Whether item `id` reads as pinned (Pin/Unpin labels, the row's hover
+    /// pin): at the top level of Pinned, or pinned inside its group. A member
+    /// of a pinned group is not pinned itself; Pin pins it in that group.
+    public func isPinned(item id: String) -> Bool {
+        guard let item = items[id] else { return false }
+        return item.section == SidebarDocStore.pinnedSection
     }
 
     /// Records from a `sidebar.get` reply.
