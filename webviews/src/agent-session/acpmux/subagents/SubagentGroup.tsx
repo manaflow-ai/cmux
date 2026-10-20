@@ -82,12 +82,15 @@ function groupLabel(t: Translate, language: PaneLanguage, agents: readonly Subag
   const n = agents.length;
   const count = (state: string) => agents.filter((agent) => agent.state === state).length;
   const [runningCount, failed, done] = [count("running"), count("failed"), count("completed")];
+  // Stopped by the person (cancelled) or lost by acpmux (disconnected): ended, not failed.
+  const stopped = count("cancelled") + count("disconnected");
   if (n > 0 && runningCount === n) return t("subagents.allRunning", { n });
   if (n > 0 && done === n) return t("subagents.allDone", { n });
   if (n > 0 && failed === n) return t("subagents.allFailed", { n });
   const states = [
     runningCount > 0 && t("summary.subagents.running", { n: runningCount }),
     failed > 0 && t("summary.subagents.failed", { n: failed }),
+    stopped > 0 && t("summary.subagents.stopped", { n: stopped }),
     runningCount === 0 && done > 0 && t("summary.subagents.done", { n: done }),
   ].filter((part): part is string => typeof part === "string");
   const total = t("subagents.count", { n });

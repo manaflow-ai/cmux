@@ -290,6 +290,30 @@ export default agentPaneEntry({
         summary(4.7, { status: "cancelled" }),
       ]),
     },
+    "stopped-open": {
+      note: "The stopped group opened: one done, one cancelled, one disconnected; the line counts the two as stopped.",
+      snapshot: chat([
+        user(prompt, 6),
+        group(
+          [
+            agent("Retry policy", 5.8, "completed", { ran: 0.8 }),
+            agent("Error parsing", 5.8, "cancelled", { ran: 1.1 }),
+            agent("Timeouts", 5.8, "disconnected", { ran: 0.4 }),
+          ],
+          5.8,
+        ),
+        summary(4.7, { status: "cancelled" }),
+      ]),
+      play: async (ctx) => {
+        await openGroup(3)(ctx);
+        const line = ctx.find({ selector: ".cv-subagents__title" }).textContent;
+        if (line !== "3 subagents, 2 stopped, 1 done") throw new Error(`group line reads ${line}`);
+        const states = [...ctx.document.querySelectorAll(".cv-subagent__state")].map(
+          (node) => node.textContent?.split(" · ")[0],
+        );
+        if (states.join("|") !== "Done|Cancelled|Disconnected") throw new Error(`rows read ${states.join("|")}`);
+      },
+    },
     "two-batches": {
       note: "Text between spawns starts a second group.",
       snapshot: chat(
