@@ -103,9 +103,8 @@ public actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
         log.log("clearTokens called")
         cachedAccessToken = nil
         cachedRefreshToken = nil
-        guard hardenTokensBeforeClear() else {
-            log.log("clearTokens skipped because existing items could not be hardened")
-            return
+        if !hardenTokensBeforeClear() {
+            log.log("clearTokens continuing after one or more accessibility preflights failed")
         }
         keychainDelete(account: Self.accessTokenAccount)
         keychainDelete(account: Self.refreshTokenAccount)
@@ -189,18 +188,19 @@ public actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
     }
 
     private func hardenTokensBeforeClear() -> Bool {
-        guard hardenCurrentTokenIfPresent(account: Self.accessTokenAccount),
-              hardenCurrentTokenIfPresent(account: Self.refreshTokenAccount) else {
-            return false
-        }
-        guard accessGroup != nil, let legacyProjectID else { return true }
-        return hardenLegacyTokenIfPresent(
+        var allOK = true
+        allOK = hardenCurrentTokenIfPresent(account: Self.accessTokenAccount) && allOK
+        allOK = hardenCurrentTokenIfPresent(account: Self.refreshTokenAccount) && allOK
+        guard accessGroup != nil, let legacyProjectID else { return allOK }
+        allOK = hardenLegacyTokenIfPresent(
             account: "stack-auth-access-\(legacyProjectID)",
             deleteAfterHardening: false
-        ) && hardenLegacyTokenIfPresent(
+        ) && allOK
+        allOK = hardenLegacyTokenIfPresent(
             account: "stack-auth-refresh-\(legacyProjectID)",
             deleteAfterHardening: false
-        )
+        ) && allOK
+        return allOK
     }
 
     private func baseQuery(account: String) -> [String: Any] {
