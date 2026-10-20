@@ -147,7 +147,10 @@ await requireBrowserLane("settings-scroll.test.ts", async () => {
         await open(page, "appearance");
         expect(await watchRows(page)).toBeGreaterThan(40);
         const steps: string[] = [];
-        for (let step = 0; step < 80; step += 1) {
+        // The loop stops at the end; the cap only bounds a page that never gets there. WebKit moves
+        // about 110px per 120px wheel step, so 80 steps stopped 4px short once the regenerated schema
+        // (12286201804) made Appearance 8839px tall.
+        for (let step = 0; step < 200; step += 1) {
           const state = await scrollState(page);
           if (state.documentScrolls || state.scrollers.length !== 1) steps.push(`${step}: ${JSON.stringify(state)}`);
           if (state.contentTop >= state.contentEnd && step > 0) {
