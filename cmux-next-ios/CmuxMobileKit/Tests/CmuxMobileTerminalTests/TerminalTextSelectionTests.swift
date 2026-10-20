@@ -14,7 +14,7 @@ import Testing
         // A path is one word, like a URL in Terminal.
         let path = TerminalTextSelection.word(at: P(row: 3, column: 10), line: "cd ~/cmux-next/cmux-next-ios.rs ok", columns: 53)
         #expect(path.start.column == 3)
-        #expect(path.end.column == 24)
+        #expect(path.end.column == 30)
         // On a blank the press selects that one cell.
         let blank = TerminalTextSelection.word(at: P(row: 1, column: 5), line: "ab    cd", columns: 53)
         #expect(blank.start == blank.end)

@@ -3158,115 +3158,115 @@ private let initializationResult: InitializationResult = {
     if bindings_contract_version != scaffolding_contract_version {
         return InitializationResult.contractVersionMismatch
     }
-    if (uniffi_cmux_mobile_link_ffi_checksum_func_cmux_mobile_version() != 54199) {
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_cmux_mobile_version() != 32274) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_cmux_mobile_link_ffi_checksum_func_connect() != 25724) {
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_connect() != 15050) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_cmux_mobile_link_ffi_checksum_func_connect_with_options() != 14347) {
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_connect_with_options() != 39046) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_cmux_mobile_link_ffi_checksum_func_network_changed() != 29696) {
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_network_changed() != 41080) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_cmux_mobile_link_ffi_checksum_func_prewarm() != 62590) {
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_prewarm() != 1330) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_cmux_mobile_link_ffi_checksum_func_reset_warm_state() != 30596) {
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_reset_warm_state() != 25219) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_cmux_mobile_link_ffi_checksum_method_channelhandle_close() != 24044) {
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_channelhandle_close() != 40361) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_cmux_mobile_link_ffi_checksum_method_channelhandle_id() != 8802) {
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_channelhandle_id() != 13230) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_cmux_mobile_link_ffi_checksum_method_channelhandle_recv() != 51384) {
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_channelhandle_recv() != 16393) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_cmux_mobile_link_ffi_checksum_method_channelhandle_send() != 45754) {
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_channelhandle_send() != 33874) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_close() != 65297) {
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_close() != 25269) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_debug_network_change_probe() != 11320) {
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_debug_network_change_probe() != 3637) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_has_input_lane() != 24284) {
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_has_input_lane() != 13960) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_is_closed() != 33391) {
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_is_closed() != 39285) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_kill_media() != 6522) {
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_kill_media() != 24064) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_media_state() != 55151) {
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_media_state() != 4127) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_open_browser() != 31507) {
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_open_browser() != 7869) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_open_channel() != 8899) {
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_open_channel() != 27670) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_open_input_channel() != 45546) {
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_open_input_channel() != 47191) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_path() != 28494) {
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_path() != 46489) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_ping() != 28685) {
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_ping() != 22934) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_roam_timings() != 62822) {
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_roam_timings() != 26202) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_timings() != 18369) {
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_timings() != 339) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_transport() != 40852) {
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_transport() != 62295) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_warm_media() != 36947) {
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_warm_media() != 33318) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_cmux_mobile_link_ffi_checksum_method_linkobserver_on_event() != 49160) {
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_linkobserver_on_event() != 31759) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_cmux_mobile_link_ffi_checksum_method_browserobserver_on_frame() != 46477) {
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_browserobserver_on_frame() != 17549) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_cmux_mobile_link_ffi_checksum_method_browserobserver_on_message() != 6004) {
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_browserobserver_on_message() != 32873) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_cmux_mobile_link_ffi_checksum_method_browserobserver_on_closed() != 23811) {
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_browserobserver_on_closed() != 6055) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_cmux_mobile_link_ffi_checksum_method_browserstream_close() != 65139) {
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_browserstream_close() != 58413) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_cmux_mobile_link_ffi_checksum_method_browserstream_note_decode() != 40051) {
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_browserstream_note_decode() != 53306) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_cmux_mobile_link_ffi_checksum_method_browserstream_now_us() != 59350) {
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_browserstream_now_us() != 62477) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_cmux_mobile_link_ffi_checksum_method_browserstream_request_keyframe() != 54037) {
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_browserstream_request_keyframe() != 20188) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_cmux_mobile_link_ffi_checksum_method_browserstream_send_input() != 27206) {
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_browserstream_send_input() != 59829) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_cmux_mobile_link_ffi_checksum_method_browserstream_send_message() != 49174) {
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_browserstream_send_message() != 22255) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_cmux_mobile_link_ffi_checksum_method_browserstream_set_visible() != 4366) {
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_browserstream_set_visible() != 23188) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_cmux_mobile_link_ffi_checksum_method_browserstream_stats() != 2583) {
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_browserstream_stats() != 19072) {
         return InitializationResult.apiChecksumMismatch
     }
 
