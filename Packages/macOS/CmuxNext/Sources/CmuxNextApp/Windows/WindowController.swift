@@ -178,6 +178,8 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         workspaceObservation = Task { [weak self] in
             for await _ in ObservationStream({ Self.readShowInputs(state, cloud: cloud, machines: machines, windows: windows) }) {
                 self?.showWorkspace(requested: state.workspaceID)
+                // A parked terminal (the classic migration's background workspaces) starts on its first show.
+                if let id = state.workspaceID, let (workspace, daemon) = machines.workspace(id: id) { daemon.wakeParkedTabs(in: workspace) }
             }
         }
     }
