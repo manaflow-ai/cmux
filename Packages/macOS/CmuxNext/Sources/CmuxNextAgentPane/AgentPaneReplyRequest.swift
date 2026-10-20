@@ -120,15 +120,22 @@ public nonisolated enum AgentPaneReplyRequest: Equatable, Sendable {
         let bytes: Int
         let truncated: Bool
 
-        nonisolated init?(path: String) {
+        nonisolated init?(path: String, paths: AgentPaneReplyPaths, outsideRootsAllowed: Bool = false) {
             // Opening a FIFO must not wait for a writer. Check the opened descriptor so a
             // path replacement cannot turn a regular-file check into a device read.
-            let descriptor = open(path, O_RDONLY | O_NONBLOCK | O_CLOEXEC)
+            let descriptor = open(path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)
             guard descriptor >= 0 else { return nil }
             let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
             defer { try? handle.close() }
             var info = stat()
             guard fstat(descriptor, &info) == 0, (info.st_mode & S_IFMT) == S_IFREG else { return nil }
+            // O_NOFOLLOW protects the final component. Ancestor directories can also change:
+            // authorize the descriptor's real path before reading any bytes, and fail closed
+            // if it no longer names the canonical path the request checked.
+            var buffer = [CChar](repeating: 0, count: Int(MAXPATHLEN))
+            guard fcntl(descriptor, F_GETPATH, &buffer) == 0 else { return nil }
+            let openedPath = String(cString: buffer)
+            guard openedPath == path, paths.allowsRead(openedPath, outsideRootsAllowed: outsideRootsAllowed) else { return nil }
             let size = Int(clamping: info.st_size)
             let nonText: [UTType] = [.image, .pdf, .audiovisualContent, .archive, .executable, .font]
             if let type = UTType(filenameExtension: URL(fileURLWithPath: path).pathExtension.lowercased()),

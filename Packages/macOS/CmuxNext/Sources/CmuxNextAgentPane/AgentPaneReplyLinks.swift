@@ -123,12 +123,17 @@ extension AgentPaneModel {
         case .success(let checked): path = checked
         }
         guard let canonical = AcpmuxPathPolicy.canonical(path) else { return Self.replyFailure(.pathInvalid) }
-        guard !replyPaths().isDenied(canonical) else { return Self.replyFailure(.pathDenied) }
+        let paths = replyPaths()
+        let outsideRootsAllowed = replyLinks.settings().outsideRoots != .text
+        guard !paths.isDenied(canonical) else { return Self.replyFailure(.pathDenied) }
+        guard paths.allowsRead(canonical, outsideRootsAllowed: outsideRootsAllowed) else { return Self.replyFailure(.pathOutsideRoots) }
         if AcpmuxPathPolicy.isDirectory(canonical) {
             replyLinks.revealFolder(URL(fileURLWithPath: canonical, isDirectory: true))
             return AgentPaneReply.success(["kind": "folder", "path": canonical])
         }
-        let read = await Task.detached { AgentPaneReplyRequest.FileText(path: canonical) }.value
+        let read = await Task.detached {
+            AgentPaneReplyRequest.FileText(path: canonical, paths: paths, outsideRootsAllowed: outsideRootsAllowed)
+        }.value
         guard let read else { return Self.replyFailure(.pathInvalid) }
         // An image, a PDF or another binary file opens as a path chip's open does: the click's
         // gesture is already spent, so the page could not ask again.
