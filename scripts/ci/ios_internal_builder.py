@@ -159,7 +159,13 @@ def _gh_json(args: list[str]):
 
 def builder_runs() -> list[dict]:
     """Recent builds; each run's title is "cnx-ios INTERNAL <sha> ..." (the workflow's run-name)."""
-    data = _gh_json([f"repos/{REPO}/actions/workflows/ios-internal-nightly.yml/runs?per_page=50"])
+    try:
+        data = _gh_json([f"repos/{REPO}/actions/workflows/ios-internal-nightly.yml/runs?per_page=50"])
+    except subprocess.CalledProcessError as error:
+        # GitHub answers 404 until the workflow's first run registers it.
+        if "404" in (error.stdout or "") + (error.stderr or ""):
+            return []
+        raise
     runs = []
     for r in data.get("workflow_runs", []):
         m = re.search(r"\b([0-9a-f]{40})\b", r.get("display_title") or "")
