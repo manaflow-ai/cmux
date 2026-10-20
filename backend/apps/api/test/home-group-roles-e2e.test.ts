@@ -102,7 +102,7 @@ describe("Home group links, end to end", { timeout: 60_000 }, () => {
     expect((await op(yan.token, "invite.accept", { code, secret })).error?.code).toBe("unknown_invite")
     const after = await worker.fetch("https://api.test/v1/invites/preview", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ code, secret }) })
     // A closed link reads as expired, like a closed invite.
-    expect((await after.json()).state).toBe("expired")
+    expect(((await after.json()) as { state: string }).state).toBe("expired")
   })
 })
 
