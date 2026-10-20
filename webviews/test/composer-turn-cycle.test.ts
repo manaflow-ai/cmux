@@ -4,8 +4,8 @@
 // cycle's snapshots through the pane's bridge, as the app's arrive: running, one then three
 // subagents, a subagent's permission ask, a queued prompt, finished. Across the cycle the prompt,
 // the controls row, the footer and every control keep their boxes (within 0.5 px); the ask and the
-// queue grow upward over the transcript. Typing while the turn runs (Stop becomes Steer and Send)
-// moves neither the mic nor Send. In every phase the row shows no context ring or spinner (the
+// queue grow upward over the transcript. Typing while the turn runs (↵ joins Stop)
+// moves neither the mic nor Stop. In every phase the row shows no context ring or spinner (the
 // running state is Send turned Stop, nothing else) and one lock at most (hq#1957 item 15 compact
 // row). The quiet row under the box (ComposerFoot.tsx) ends on the context ring, which holds its
 // place from the first frame, so the first usage report moves nothing.
@@ -71,7 +71,7 @@ await requireBrowserLane("composer-turn-cycle.test.ts", async () => {
     effort: ".acpmux-effort .acpmux-picker-button",
     access: ".acpmux-access-trigger",
     mic: ".acpmux-mic",
-    "send or stop": ".acpmux-send",
+    "send or stop": ".acpmux-send:not(.acpmux-steer-now)",
     "context ring": ".acpmux-composer-foot .acpmux-context-ring",
   };
 
@@ -163,7 +163,7 @@ await requireBrowserLane("composer-turn-cycle.test.ts", async () => {
       const before = await boxes(page);
       await page.click("[contenteditable='true']");
       await page.keyboard.type("x");
-      await page.locator(".acpmux-steer").waitFor();
+      await page.locator(".acpmux-steer-now").waitFor();
       const after = await boxes(page);
       await page.close();
       // A narrow row makes room for Steer from its left cluster (labels give way by priority).

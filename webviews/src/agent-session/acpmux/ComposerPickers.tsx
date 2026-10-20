@@ -254,11 +254,17 @@ export function ComposerPickers({
     summary?.model && isDefaultChoice({ id: summary.model })
       ? (resolvedModel(summary) ?? (summary.harness ? loadResolvedDefaults()[summary.harness] : undefined))
       : summary?.model;
-  const catalogModel = catalogRow(
-    pickerCatalog?.harnesses.find((entry) => entry.acpmuxHarness === summary?.harness || entry.id === summary?.harness)
-      ?.models,
-    runningModel,
-  );
+  // A profile the catalog does not map to its family (a second Claude account's harness id) still
+  // runs a catalogued model: any harness's row for that id names it and its default level, so the
+  // chips never fall back to the raw id or to the word Reasoning.
+  const catalogModel =
+    catalogRow(
+      pickerCatalog?.harnesses.find(
+        (entry) => entry.acpmuxHarness === summary?.harness || entry.id === summary?.harness,
+      )?.models,
+      runningModel,
+    ) ??
+    pickerCatalog?.harnesses.map((entry) => catalogRow(entry.models, runningModel)).find((row) => row !== undefined);
   const efforts: Choice[] = reasoningChoices(effort?.options ?? [], catalogModel, t);
   // Claude Code's Ultracode: a switch beside the levels, offered where the model runs Extra High.
   // It rides the free effort option (ultracode on, Extra High off): acpmux's own `ultracode` id is a
@@ -480,11 +486,17 @@ export function ComposerPickers({
   // A New Tab's chat names the model it will start on (the last pick here), not the default's last
   // resolution: no other model first (Leo 2026-10-13: "Claude Sonnet 5", then his Opus 5.5).
   const starting = shown === undefined && chipHarness && fresh && !switching ? startingModel(chipHarness) : undefined;
+  // The running model's name: the session's own, unless that is only its id ("claude-opus-5-5", a
+  // profile that lists models without names), then the catalog row's, then one read off the id.
+  const ownName = model?.name && model.name !== model.id ? model.name : undefined;
+  const runningName = summary?.model
+    ? (ownName ??
+      (catalogModel && catalogRow([catalogModel], summary.model) ? catalogModel.name : undefined) ??
+      modelIdName(summary.model, t))
+    : undefined;
   // Before the session reports, the predicted model's name holds the chip's width (cx-ncc.58).
   const modelName =
-    defaulted || unreported
-      ? (starting ?? resolvedName ?? t(PICKER_LABELS.model))
-      : (model?.name ?? summary?.model ?? starting);
+    defaulted || unreported ? (starting ?? resolvedName ?? t(PICKER_LABELS.model)) : (runningName ?? starting);
   // Until the session reports its options (a new chat, an agent still starting), the effort chip
   // draws what this harness's chats last showed (chipMemory.ts) and the access chip acpmux's
   // start-mode answer (startMode.ts), never grey bars; the session's values then replace them in
@@ -588,7 +600,8 @@ export function ComposerPickers({
   const modelShort = modelName
     ? shortModelName(
         modelName,
-        chipEntry?.models.find((choice) => choice.name === modelName)?.shortName,
+        (catalogModel?.name === modelName ? catalogModel?.shortName : undefined) ??
+          chipEntry?.models.find((choice) => choice.name === modelName)?.shortName,
         chipEntry?.name ?? snapshot.catalog.find((entry) => entry.id === chipHarness)?.name,
       )
     : undefined;
@@ -1052,8 +1065,13 @@ export function ContextRing({
   }, [known]);
   const tokens = new Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 });
   const full = fraction >= 0.8 ? " acpmux-context-full" : "";
+  // On the wrapper, so it also shows while the ring is inert before the first usage report.
+  const tooltip = known
+    ? t("context.ringTooltip", { percent, used: tokens.format(used), size: tokens.format(size) })
+    : t("context.ringTooltipEmpty");
   return (
-    <span className={`acpmux-picker acpmux-context${full}`}>
+    // tooltip-allow: names the icon-only ring's reading, and why it is inert before any usage.
+    <span className={`acpmux-picker acpmux-context${full}`} title={open ? undefined : tooltip}>
       <button
         ref={trigger}
         type="button"
@@ -1499,6 +1517,12 @@ export const PlusIcon = () => (
 export const ArrowUpIcon = () => (
   <Icon>
     <path d="M8 12.9V3.4M3.9 7.5 8 3.4l4.1 4.1" strokeWidth={2.1} />
+  </Icon>
+);
+/** Steer's return glyph (↵): a prompt typed during a turn goes in now, as Codex and Claude draw it. */
+export const ReturnIcon = () => (
+  <Icon>
+    <path d="M12.6 3.6v4.1a1.8 1.8 0 0 1-1.8 1.8H3.6M6.6 6.4 3.4 9.5l3.2 3.1" strokeWidth={1.9} />
   </Icon>
 );
 export const StopIcon = () => (

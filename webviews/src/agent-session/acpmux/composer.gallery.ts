@@ -515,12 +515,21 @@ export default agentPaneEntry({
       },
     },
     "working-steer": {
-      note: "A prompt typed while the turn runs: Steer beside Send puts it into the turn now (⌘Return); Send queues it for after the turn (Return); Esc on an empty prompt stops the turn.",
+      note: "A prompt typed while the turn runs: one ↵ control puts it into the turn now (⌘Return), Return queues it for after the turn, and Stop keeps its place at the row's end.",
       snapshot: steering(true),
       ready: { draft: "Use the new tokenizer instead" },
+      play: async (ctx) => {
+        await ctx.waitFor(() => {
+          const steer = ctx.document.querySelector(".acpmux-steer-now");
+          return steer?.getAttribute("aria-label") === "Steer now" && steer.textContent?.trim() === "";
+        });
+        await ctx.waitFor(() =>
+          ctx.document.querySelector('.acpmux-composer-actions > button:last-child[aria-label="Stop"]'),
+        );
+      },
     },
     "working-interrupt": {
-      note: "The same for an agent that cannot steer: Interrupt stops the turn and sends the prompt next (⌘Return).",
+      note: "The same for an agent that cannot steer: the ↵ control stops the turn and sends the prompt next (⌘Return).",
       snapshot: steering(false),
       ready: { draft: "Use the new tokenizer instead" },
     },

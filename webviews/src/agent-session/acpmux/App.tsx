@@ -1216,6 +1216,8 @@ const currentRegistry = (): NativeRegistry => ({
 /// The thread's top padding (styles.css `.acpmux-thread`): rows draw this far below their places,
 /// so the transcript ends this far past their total height.
 const THREAD_TOP = 16;
+/// Room between the transcript's foot and the floating bottom stack (the composer and its footer).
+const DOCK_GAP = 8;
 /// Small layout changes arrive constantly while a reply streams. Treat the bottom as a short
 /// resting zone so every token does not write a new fractional scroll offset (and make the thumb
 /// visibly twitch at the same cadence). A meaningful displacement still corrects immediately.
@@ -1513,11 +1515,20 @@ export function VirtualTranscript({
   const [dockSpace, setDockSpace] = useState(0);
   const dockSpaceRef = useRef(0);
   dockSpaceRef.current = dockSpace;
+  /// The floating stack's height plus a small gap: the view ends above it (Leo 2026-10-20: the last
+  /// row and the scrollbar end above the composer, as in the Codex and Claude apps), so the stack
+  /// lies over no rows and `dockSpace` stays 0 for it.
+  const [dockLift, setDockLift] = useState(0);
+  const dockLiftRef = useRef(0);
+  dockLiftRef.current = dockLift;
   useLayoutEffect(() => {
     if (!dock) {
       setDockSpace(0);
+      setDockLift(0);
       return;
     }
+    const lift = () =>
+      getComputedStyle(dock).position === "absolute" ? Math.ceil(dock.getBoundingClientRect().height) + DOCK_GAP : 0;
     // Before the frame paints, as the viewport's own size is: a composer that grew a line, or a
     // queue that appeared, never draws a frame with the latest row under it. The room is how far
     // the stack reaches over the view: none for a stack in the flow under it, or with no box
@@ -1528,11 +1539,15 @@ export function VirtualTranscript({
       return stack.height > 0 && view ? Math.max(0, Math.min(stack.height, view.bottom - stack.top)) : 0;
     };
     const observer = new ResizeObserver(() => {
-      const next = over();
+      const nextLift = lift();
+      if (nextLift !== dockLiftRef.current) flushSync(() => setDockLift(nextLift));
+      const next = nextLift > 0 ? 0 : over();
       if (Math.abs(next - dockSpaceRef.current) >= 0.5) flushSync(() => setDockSpace(next));
     });
     observer.observe(dock);
-    setDockSpace(over());
+    const firstLift = lift();
+    setDockLift(firstLift);
+    setDockSpace(firstLift > 0 ? 0 : over());
     return () => observer.disconnect();
   }, [dock]);
   const [width, setWidth] = useState(() => lastTranscriptBox.width);
@@ -2571,7 +2586,14 @@ export function VirtualTranscript({
         // Under the bottom stack: rows there stay out of sight (conversation.css), and focus or Find
         // scroll a row into view above it.
         data-docked={dockSpace > 0 || undefined}
-        style={dockSpace > 0 ? ({ "--acpmux-dock-space": `${dockSpace}px` } as React.CSSProperties) : undefined}
+        style={
+          dockSpace > 0 || dockLift > 0
+            ? ({
+                ...(dockSpace > 0 ? { "--acpmux-dock-space": `${dockSpace}px` } : {}),
+                ...(dockLift > 0 ? { "--acpmux-dock-lift": `${dockLift}px` } : {}),
+              } as React.CSSProperties)
+            : undefined
+        }
       >
         <ThreadMinimap
           rows={rows}
@@ -2648,7 +2670,9 @@ export function VirtualTranscript({
           </div>
         </TranscriptContext>
       </div>
-      {jumpButton && <JumpToLatest shown={behind} working={working} onJump={jumpToLatest} lift={dockSpace} />}
+      {jumpButton && (
+        <JumpToLatest shown={behind} working={working} onJump={jumpToLatest} lift={dockSpace + dockLift} />
+      )}
     </>
   );
 }

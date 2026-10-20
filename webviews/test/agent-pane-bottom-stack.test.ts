@@ -6,7 +6,7 @@
 // dev entry with its browser host, talking JSON-RPC to a stand-in acpmux daemon whose chat opened
 // three PRs and has a turn running, waiting on a permission, with six prompts queued behind it.
 // The stack lies over the transcript's foot (Leo 2026-10-19, as the Claude and Codex apps lay their
-// composer): the transcript runs the pane's height under it, and every part sits in the stack.
+// composer): the transcript's view ends just above it, and every part sits in the stack.
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -227,9 +227,10 @@ await requireBrowserLane("agent-pane-bottom-stack.test.ts", async () => {
 
   /// Every part drawn, inside the chat column, in the stack over the transcript's foot, and over no other part.
   function expectStacked({ main, transcript, stack, parts }: { main: Box; transcript: Box; stack: Box; parts: Box[] }) {
-    // The transcript runs to the pane's bottom, under the stack, which ends there too.
-    expect({ transcriptToBottom: Math.abs(main.bottom - transcript.bottom) <= 0.5 }).toEqual({
-      transcriptToBottom: true,
+    // The transcript's view ends 8 px above the stack (App.tsx DOCK_GAP, Leo 2026-10-20: its last
+    // row and its scrollbar end above the composer), and the stack ends at the pane's bottom.
+    expect({ transcriptAboveStack: Math.abs(stack.top - 8 - transcript.bottom) <= 1 }).toEqual({
+      transcriptAboveStack: true,
     });
     expect({ stackToBottom: Math.abs(main.bottom - stack.bottom) <= 0.5 }).toEqual({ stackToBottom: true });
     // The chat has started: no location strip, and nothing left where it stood.

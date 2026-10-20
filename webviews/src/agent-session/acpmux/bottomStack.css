@@ -5,10 +5,9 @@
    the card. Every part takes its own height in the stack's own flow, so none draws over another or
    under the pane's edge; a new part joins that flow here.
    While the stage shows the transcript (.acpmux-main[data-dock=float]), the stack lies over the
-   transcript's foot, as the Claude and Codex apps lay their composer (Leo 2026-10-19): the
-   transcript runs the pane's height, its scrollbar's track to the pane's bottom corner, and keeps
-   the stack's height as room under its last row (VirtualTranscript `dock`), hiding the rows that
-   pass under it (conversation.css). The stack never takes the transcript's last
+   transcript's foot, as the Claude and Codex apps lay their composer: the transcript's view ends a
+   small gap above the stack (App.tsx dockLift, Leo 2026-10-20), so its last row and its scrollbar
+   end above the composer instead of under it. The stack never takes the transcript's last
    --acpmux-transcript-min under the header; in a pane shorter still, the dock and the queue give up
    their height, down to one row, and scroll inside it. Elsewhere (a new chat's hero, a handoff
    review, the diff, the inspector) the stack is in the pane's flow under the stage. */

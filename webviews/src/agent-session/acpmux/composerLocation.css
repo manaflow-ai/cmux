@@ -1058,6 +1058,8 @@
   --acpmux-row-edge: 12px;
   min-height: 28px;
   margin-top: 4px;
+  /* Room under the row so it never sits on the window's edge (Leo 2026-10-20, as Codex and Claude). */
+  margin-bottom: 10px;
   padding-block: 0;
   padding-inline: calc(16px - var(--acpmux-row-inset)) calc(var(--acpmux-row-edge) - var(--acpmux-row-inset));
   gap: 0;
@@ -1076,8 +1078,51 @@
 .acpmux-composer-foot .acpmux-access.acpmux-unrestricted .acpmux-access-trigger > .acpmux-icon:first-child {
   display: inline-flex;
 }
-/* The box's own row, with the chips gone: + on the left, the mic and Send or Stop on the right. */
-.acpmux-composer-inner { min-height: 48px; }
+/* The box with the chips gone, as the Claude desktop composer lays it (Leo 2026-10-20): no row of
+   its own under the prompt. + sits left of the prompt and the mic and Send or Stop right of it, all
+   on the prompt's last line, so the box is only as tall as the text. The bar and its chrome area
+   draw no box (display: contents): + and the actions are the box's own grid items, beside the
+   prompt (and the shell field), under the attachments' band. A 48 px box for one line: the 22 px
+   line between 13 px insets, the 28 px controls 10 px off the bottom edge. Menus over the box are
+   absolute and keep its padding box. */
+.acpmux-composer-box:has(> .acpmux-chrome-area > .acpmux-composer-inner) {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: end;
+}
+.acpmux-composer-inner { display: contents; }
+.acpmux-composer-box > .acpmux-attachments { grid-column: 1 / -1; grid-row: 1; }
+.acpmux-composer-box:has(> .acpmux-chrome-area > .acpmux-composer-inner) > .acpmux-composer-field-menu > * {
+  grid-column: 2;
+  grid-row: 2;
+}
+.acpmux-composer-inner > :not(.acpmux-composer-actions) {
+  grid-column: 1;
+  grid-row: 2;
+  margin: 0 0 10px 4px;
+}
+.acpmux-composer-inner > .acpmux-composer-actions {
+  grid-column: 3;
+  grid-row: 2;
+  margin: 0 10px 10px 0;
+}
+.acpmux-composer-box:has(> .acpmux-chrome-area > .acpmux-composer-inner) .acpmux-md-field {
+  padding: calc(13px * var(--cmux-interface-scale, 1)) calc(8px * var(--cmux-interface-scale, 1))
+    calc(13px * var(--cmux-interface-scale, 1)) calc(4px * var(--cmux-interface-scale, 1));
+}
+.acpmux-composer-box:has(> .acpmux-chrome-area > .acpmux-composer-inner) .acpmux-md-placeholder {
+  left: calc(4px * var(--cmux-interface-scale, 1));
+  top: calc(13px * var(--cmux-interface-scale, 1));
+  right: calc(8px * var(--cmux-interface-scale, 1));
+}
+.acpmux-composer-box:has(> .acpmux-chrome-area > .acpmux-composer-inner) .acpmux-shell-field {
+  min-height: 48px;
+  padding: 13px 8px 13px 20px;
+}
+.acpmux-composer-box:has(> .acpmux-chrome-area > .acpmux-composer-inner) .acpmux-shell-glyph {
+  left: 4px;
+  top: 13px;
+}
 /* The context ring ends the quiet row, as Claude Code's does: the row's soft pill on hover and
    while its details are open, the row's outline under keyboard focus. */
 .acpmux-composer-foot .acpmux-context-ring { width: 24px; height: 24px; margin-inline-start: 4px; }
@@ -1117,3 +1162,8 @@
 .acpmux-env-popover .acpmux-env-icon { flex: none; color: var(--agent-muted); }
 .acpmux-env-popover .acpmux-env-icon[data-kind="ssh"] { color: var(--agent-ansi-2, currentColor); }
 .acpmux-env-popover .acpmux-env-icon[data-kind="cloud"] { color: var(--agent-ansi-4, currentColor); }
+/* The ↵ disc while a turn runs: its own inset on the mic's side, as Send's sits on its leading
+   side, so ↵, the mic and Stop draw one gap apart. */
+.acpmux-composer-bar .acpmux-send.acpmux-steer-now {
+  margin-inline: 0 var(--acpmux-row-inset);
+}

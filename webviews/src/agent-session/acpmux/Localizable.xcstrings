@@ -1,6 +1,402 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "composer.steerNowTooltip": {
+      "comment": "Agent pane: tooltip of the composer's icon-only steer button (a return glyph) while a turn runs; the typed prompt goes into the running turn now",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أرسل الآن: وجّه الدور الجاري (⌘Return)"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pošalji sada: usmjeri tekući potez (⌘Return)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send nu: styr den igangværende tur (⌘Return)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jetzt senden: laufenden Zug lenken (⌘Return)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send now: steer the running turn (⌘Return)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enviar ahora: dirigir el turno en curso (⌘Return)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Envoyer maintenant : orienter le tour en cours (⌘Retour)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invia ora: guida il turno in corso (⌘Invio)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今すぐ送信：実行中のターンを誘導 (⌘Return)"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ញើឥឡូវ៖ ដឹកនាំវេនដែលកំពុងដំណើរការ (⌘Return)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "지금 보내기: 진행 중인 턴 조정 (⌘Return)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send nå: styr den pågående runden (⌘Return)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wyślij teraz: pokieruj bieżącą turą (⌘Return)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enviar agora: direcionar o turno em andamento (⌘Return)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отправить сейчас: направить текущий ход (⌘Return)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ส่งเลย: กำหนดทิศทางรอบที่กำลังทำงาน (⌘Return)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Şimdi gönder: süren turu yönlendir (⌘Return)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Надіслати зараз: скерувати поточний хід (⌘Return)"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gửi ngay: điều hướng lượt đang chạy (⌘Return)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "立即发送：引导正在进行的回合 (⌘Return)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "立即傳送：引導進行中的回合 (⌘Return)"
+          }
+        }
+      }
+    },
+    "context.ringTooltip": {
+      "comment": "Agent pane composer: tooltip of the context usage ring; {percent} is the share used, {used} and {size} are compact token counts (84K, 200K)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "السياق: {percent}% مستخدم ({used} من {size} رمز)"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kontekst: iskorišteno {percent}% ({used} od {size} tokena)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kontekst: {percent}% brugt ({used} af {size} tokens)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kontext: {percent} % belegt ({used} von {size} Tokens)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Context: {percent}% used ({used} of {size} tokens)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Contexto: {percent} % usado ({used} de {size} tokens)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Contexte : {percent} % utilisé ({used} sur {size} jetons)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Contesto: {percent}% usato ({used} di {size} token)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コンテキスト：{percent}% 使用（{size} トークン中 {used}）"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បរិបទ៖ បានប្រើ {percent}% ({used} នៃ {size} តូខឹន)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "컨텍스트: {percent}% 사용 ({size} 토큰 중 {used})"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kontekst: {percent} % brukt ({used} av {size} tokens)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kontekst: wykorzystano {percent}% ({used} z {size} tokenów)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Contexto: {percent}% usado ({used} de {size} tokens)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Контекст: использовано {percent}% ({used} из {size} токенов)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "บริบท: ใช้ไป {percent}% ({used} จาก {size} โทเค็น)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bağlam: %{percent} kullanıldı ({size} belirteçten {used})"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Контекст: використано {percent}% ({used} з {size} токенів)"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ngữ cảnh: đã dùng {percent}% ({used} trên {size} token)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上下文：已用 {percent}%（{used} / {size} 个令牌）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上下文：已用 {percent}%（{used} / {size} 個權杖）"
+          }
+        }
+      }
+    },
+    "context.ringTooltipEmpty": {
+      "comment": "Agent pane composer: tooltip of the context usage ring before the chat reports any usage",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يظهر استخدام السياق بعد الرد الأول"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upotreba konteksta prikazuje se nakon prvog odgovora"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kontekstforbrug vises efter det første svar"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Kontextnutzung erscheint nach der ersten Antwort"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Context usage shows after the first reply"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El uso del contexto aparece tras la primera respuesta"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’utilisation du contexte s’affiche après la première réponse"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’uso del contesto appare dopo la prima risposta"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コンテキストの使用量は最初の返信の後に表示されます"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការប្រើបរិបទបង្ហាញបន្ទាប់ពីការឆ្លើយតបដំបូង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "컨텍스트 사용량은 첫 답변 후에 표시됩니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kontekstbruk vises etter det første svaret"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Użycie kontekstu pojawi się po pierwszej odpowiedzi"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O uso do contexto aparece após a primeira resposta"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Использование контекста появится после первого ответа"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การใช้บริบทจะแสดงหลังคำตอบแรก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bağlam kullanımı ilk yanıttan sonra görünür"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Використання контексту з’явиться після першої відповіді"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mức dùng ngữ cảnh hiện sau câu trả lời đầu tiên"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "首次回复后显示上下文用量"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "首次回覆後顯示上下文用量"
+          }
+        }
+      }
+    },
     "started.prReady": {
       "comment": "A chat card's pull request status: it is ready to merge",
       "extractionState": "manual",

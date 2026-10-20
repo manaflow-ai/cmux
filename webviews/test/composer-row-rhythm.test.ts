@@ -2,8 +2,9 @@
 // unevenly, with big random gaps between 'Claude Opus', 'Medium', 'Normal' and 'Trusted this
 // chat's…'. Use one consistent gap, group related controls, and right-align the trailing cluster").
 //
-// The controls sit in two rows (Leo 2026-10-19, Claude Code's split): the box's row is [+] ………
-// [Interrupt · mic · Send]; the quiet row under it is [permission mode · Plan] ……… [model · effort].
+// The controls sit in two rows (Leo 2026-10-19, Claude Code's split): the box holds [+] beside the
+// prompt and [mic · ↵ · Stop] after it, on the prompt's last line (Leo 2026-10-20, the Claude desktop
+// composer); the quiet row under it is [permission mode · Plan] ……… [model · effort].
 // Each row keeps the rhythm on its own.
 // What a person sees between two controls is the space between what each draws (its text, its
 // icons' boxes, or Send's disc), not between their transparent hit boxes, so this measures that.
@@ -14,7 +15,8 @@
 //   - inside the chips (model, effort, permission mode, Interrupt), the text sits the same distance
 //     from the chip's leading and trailing edges, and an icon or chevron the same distance from the
 //     text, in every chip of the same row;
-//   - the trailing cluster ends at the bar's content edge, so Send lines up with the row's padding.
+//   - in the box, + and the last disc sit the same distance from the box's sides, and the last disc
+//     as far from the box's bottom as from its side.
 //
 // It renders the real composer (the gallery's `agent-pane.composer-row` entry, a running Claude chat
 // with text typed so Interrupt shows beside the mic and Send) in Chromium at four pane widths.
@@ -25,13 +27,13 @@ import { chromium, type Browser } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
-type Span = { left: number; right: number };
+type Span = { left: number; right: number; bottom?: number };
 type Control = {
   name: string;
   /** The control's hit box. */
   box: Span;
   /** What it draws, leading to trailing: text runs and icons (Send: its disc). */
-  parts: { kind: "text" | "icon" | "disc"; left: number; right: number }[];
+  parts: { kind: "text" | "icon" | "disc"; left: number; right: number; bottom?: number }[];
   /** The shared down-chevron's optical correction, when this control has one. */
   chevronY?: number;
 };
@@ -42,6 +44,7 @@ await requireBrowserLane("composer-row-rhythm.test.ts", async () => {
   function measure(selector: string): Row {
     const bar = document.querySelector<HTMLElement>(selector)!;
     const barRect = bar.getBoundingClientRect();
+    const barBottom = barRect.bottom;
     const style = getComputedStyle(bar);
     const named: [string, string][] = [
       ["plus", ".acpmux-composer-plus .acpmux-picker-button"],
@@ -49,9 +52,9 @@ await requireBrowserLane("composer-row-rhythm.test.ts", async () => {
       ["effort", ".acpmux-effort .acpmux-picker-button"],
       ["mode", ".acpmux-access-trigger"],
       ["plan", ".acpmux-plan"],
-      ["steer", ".acpmux-steer"],
+      ["steer", ".acpmux-steer-now"],
       ["mic", ".acpmux-mic"],
-      ["send", ".acpmux-send"],
+      ["send", ".acpmux-send:not(.acpmux-steer-now)"],
     ];
     const shown = (element: Element) => {
       for (let node: Element | null = element; node && node !== bar; node = node.parentElement) {
@@ -72,8 +75,8 @@ await requireBrowserLane("composer-row-rhythm.test.ts", async () => {
           ? Number.parseFloat(chevronTransform.match(/matrix\([^,]+,[^,]+,[^,]+,[^,]+,[^,]+,([^)]+)\)/)?.[1] ?? "NaN")
           : undefined;
       const disc = getComputedStyle(element).backgroundColor;
-      if (name === "send" && disc !== "rgba(0, 0, 0, 0)" && disc !== "transparent")
-        parts.push({ kind: "disc", left: rect.left, right: rect.right });
+      if ((name === "send" || name === "steer") && disc !== "rgba(0, 0, 0, 0)" && disc !== "transparent")
+        parts.push({ kind: "disc", left: rect.left, right: rect.right, bottom: rect.bottom });
       else {
         const walk = (node: Node) => {
           if (node instanceof SVGSVGElement) {
@@ -117,11 +120,11 @@ await requireBrowserLane("composer-row-rhythm.test.ts", async () => {
         walk(element);
       }
       parts.sort((a, b) => a.left - b.left);
-      return [{ name, box: { left: rect.left, right: rect.right }, parts, chevronY }];
+      return [{ name, box: { left: rect.left, right: rect.right, bottom: rect.bottom }, parts, chevronY }];
     });
     controls.sort((a, b) => a.box.left - b.box.left);
     return {
-      bar: { left: barRect.left, right: barRect.right },
+      bar: { left: barRect.left, right: barRect.right, bottom: barBottom },
       content: {
         left: barRect.left + parseFloat(style.paddingLeft) + parseFloat(style.borderLeftWidth),
         right: barRect.right - parseFloat(style.paddingRight) - parseFloat(style.borderRightWidth),
@@ -172,7 +175,7 @@ await requireBrowserLane("composer-row-rhythm.test.ts", async () => {
     await vite?.close();
   });
 
-  /** A running Claude chat with a prompt typed, so Interrupt, the mic and Send all show. */
+  /** A running Claude chat with a prompt typed, so the mic, ↵ and Stop all show. */
   const row = async (width: number, scheme: string) => {
     const page = await browser!.newPage({ viewport: { width, height: 300 } });
     await page.goto(stageURL("queued", scheme));
@@ -180,11 +183,12 @@ await requireBrowserLane("composer-row-rhythm.test.ts", async () => {
     await page.locator(".acpmux-effort .acpmux-picker-button").waitFor();
     await page.locator(".acpmux-composer-box [contenteditable='true'], .acpmux-composer-box textarea").first().click();
     await page.keyboard.type("Also cover the 503 path");
-    await page.locator(".acpmux-steer").waitFor();
+    await page.locator(".acpmux-steer-now").waitFor();
     await page.evaluate(() => document.fonts.ready);
     // Let the row's fit pass (composerRowFit.ts) settle after the typed text.
     await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
-    const inner = await page.evaluate(measure, ".acpmux-composer-inner");
+    // The box's own controls lay out in the box itself (the bar draws no box of its own).
+    const inner = await page.evaluate(measure, ".acpmux-composer-box");
     const foot = await page.evaluate(measure, ".acpmux-composer-foot");
     await page.close();
     return { inner, foot };
@@ -232,7 +236,7 @@ await requireBrowserLane("composer-row-rhythm.test.ts", async () => {
           // Inside each chip: the text's inset from the leading and trailing edges, and the space
           // between an icon or chevron and the text.
           for (const control of controls.filter((control) =>
-            ["model", "effort", "mode", "plan", "steer"].includes(control.name),
+            ["model", "effort", "mode", "plan"].includes(control.name),
           )) {
             const { parts, box } = control;
             const gaps = parts.slice(1).map((part, index) => part.left - parts[index]!.right);
@@ -304,9 +308,11 @@ await requireBrowserLane("composer-row-rhythm.test.ts", async () => {
         const trail = send ? inner.bar.right - drawn(send).right : 0;
         if (Math.abs(lead - trail) > 1)
           problems.push(`the row's drawn edges differ: ${lead.toFixed(1)} px leading, ${trail.toFixed(1)} px trailing`);
-        if (send && Math.abs(send.box.right - inner.content.right) > 1)
+        const below =
+          send?.box.bottom !== undefined && inner.bar.bottom !== undefined ? inner.bar.bottom - send.box.bottom : 0;
+        if (send && Math.abs(below - trail) > 1)
           problems.push(
-            `Send ends ${(inner.content.right - send.box.right).toFixed(1)} px before the bar's content edge`,
+            `Stop sits ${below.toFixed(1)} px off the box's bottom and ${trail.toFixed(1)} px off its side`,
           );
         expect(problems).toEqual([]);
       });

@@ -22,6 +22,7 @@ import {
   SearchIcon,
   PlanIcon,
   SlashIcon,
+  ReturnIcon,
   StopIcon,
   type ComposerPermissionAccess,
 } from "./ComposerPickers";
@@ -946,6 +947,8 @@ export function Composer({
   };
 
   const stop = !shell && snapshot.isWorking && !text.trim();
+  // Stop shows for the whole turn, a typed prompt or not; Esc stops only from an empty prompt.
+  const running = !shell && snapshot.isWorking;
   // Esc stops the turn on a double press (escapeStop.ts). The Quick Composer's page-level Esc hides
   // its panel, so only the pane counts an Esc that reaches the page.
   const escapeStop = useEscapeStop({
@@ -1387,22 +1390,26 @@ export function Composer({
               </SpeedToggleHost.Provider>
             )}
             <span className="acpmux-composer-actions">
-              {/* Steer comes in at the cluster's leading edge, so the mic and Send keep their places
-                  when typing during a turn turns Stop into Steer and Send (hq#1957). */}
+              {/* While a turn runs, a typed prompt gets one icon control, as Codex and Claude draw
+                  it (Leo 2026-10-20): ↵ sends it now (steers, or interrupts an agent that cannot
+                  steer), the ⌘Return the placeholder teaches. Return still queues it. It comes in
+                  at the cluster's leading edge, so the mic and Stop keep their places (hq#1957). */}
               {steerable && (
                 <button
                   key="steer"
                   type="button"
-                  className="acpmux-steer"
+                  className="acpmux-send acpmux-send-ready acpmux-steer-now"
                   aria-label={t(steerKind === "steer" ? "composer.steerLabel" : "composer.interruptLabel")}
-                  /* tooltip-allow: the button shows a verb; the tooltip says what it does and its shortcut */
-                  title={t(steerKind === "steer" ? "composer.steerTooltip" : "composer.interruptTooltip")}
+                  // tooltip-allow: names the icon-only control and its shortcut.
+                  title={t(steerKind === "steer" ? "composer.steerNowTooltip" : "composer.interruptTooltip")}
+                  // Keep focus and the caret in the prompt, as the mic does.
+                  onMouseDown={(event) => event.preventDefault()}
                   onClick={() => {
                     send(false, true);
                     field.current?.focus();
                   }}
                 >
-                  {t(steerKind === "steer" ? "composer.steer" : "composer.interrupt")}
+                  <ReturnIcon />
                 </button>
               )}
               {!plainFooter && speed && <FastToggle speed={speed} />}
@@ -1412,7 +1419,7 @@ export function Composer({
                   {accessory}
                 </span>
               )}
-              {stop ? (
+              {running ? (
                 <button
                   key="stop"
                   ref={sendButton}
