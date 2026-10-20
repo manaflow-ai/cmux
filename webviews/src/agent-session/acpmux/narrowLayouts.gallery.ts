@@ -378,17 +378,14 @@ export default agentPaneEntry({
       note: "The chat composer with the plain footer off: every chip, the bolt, the mic and Send in one row.",
       snapshot: withControls(chat(finished)),
       play: async (ctx) => {
+        // Each variant loads its own page, so the setting stays off for the stage's own checks too.
         setComposerSettings({ plainFooter: false });
-        try {
-          await ctx.waitFor(
-            () =>
-              ctx.document.querySelector(".acpmux-composer-foot") === null &&
-              ctx.document.querySelector(".acpmux-composer-bar .acpmux-model") !== null,
-          );
-          await check(ctx);
-        } finally {
-          setComposerSettings({ plainFooter: true });
-        }
+        await ctx.waitFor(
+          () =>
+            ctx.document.querySelector(".acpmux-composer-foot") === null &&
+            ctx.document.querySelector(".acpmux-composer-bar .acpmux-model") !== null,
+        );
+        await check(ctx);
       },
     },
     code: {
