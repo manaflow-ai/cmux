@@ -45,7 +45,7 @@ import Testing
         let line = try #require(GroupPaletteDefaultTests.views(GroupLineView.self, in: sidebar).first)
         let head = sidebar.convert(header.bounds, from: header)
         let drawn = sidebar.convert(line.bounds, from: line)
-        let bar = SidebarStyle.groupHeaderBarHeight(rowHeight: head.height)
+        let bar = head.height // the bar fills the header's row (SidebarGroupHeaderHeightTests)
         // The sidebar is flipped or not; the bar's edge nearest the members is the one the line meets.
         let flipped = sidebar.isFlipped
         let barEdge = flipped ? head.midY + bar / 2 : head.midY - bar / 2

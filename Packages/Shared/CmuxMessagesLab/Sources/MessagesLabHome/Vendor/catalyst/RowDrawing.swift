@@ -24,12 +24,14 @@ enum RowDraw {
         if case .typing = spec.kind { return 0...min(spec.width, 140) }
         if case .receipt = spec.kind { return max(0, spec.metrics.receiptRight - 170)...spec.width }
         guard case let .part(p) = spec.kind else { return 0...spec.width }
-        let x = p.outgoing ? spec.metrics.rightEdge - p.size.width : Fixture.leftEdge
+        let x = p.cmuxBodyX(rightEdge: spec.metrics.rightEdge) // cmux: a group's incoming bubbles sit right of the avatar column
         // Media carry a save button 14 + 28 pt beside them.
         var media = false
         if case let .attachment(a) = p.part, a.kind == "image" || a.kind == "video" { media = true }
         let extra: CGFloat = media ? 46 : 0
-        return max(0, x - 36 - (p.outgoing ? extra : 0))...min(spec.width, x + p.size.width + 20 + (p.outgoing ? 0 : extra))
+        // cmux: the span starts at the avatar column when the row draws an avatar.
+        let lower = min(x - 36 - (p.outgoing ? extra : 0), p.cmuxAvatar == nil ? .infinity : SenderAvatar.left - 1)
+        return max(0, lower)...min(spec.width, x + p.size.width + 20 + (p.outgoing ? 0 : extra))
     }
 
     /// Whether a row's bitmap is the same at every row width: its drawn span is the same size at
@@ -50,7 +52,7 @@ enum RowDraw {
         if case .receipt = spec.kind { return fixedSpanKeys && spec.metrics.receiptRight - 170 >= 0 }
         guard case let .part(p) = spec.kind else { return false }
         if case .custom = p.part { return false }
-        let x = p.outgoing ? spec.metrics.rightEdge - p.size.width : Fixture.leftEdge
+        let x = p.cmuxBodyX(rightEdge: spec.metrics.rightEdge) // cmux: group indent
         var media = false
         if case let .attachment(a) = p.part, a.kind == "image" || a.kind == "video" { media = true }
         let extra: CGFloat = media ? 46 : 0
@@ -100,7 +102,7 @@ enum RowDraw {
     /// Body rect of a part row in row coordinates (window width, margin above).
     static func bodyRect(_ spec: RowSpec) -> CGRect {
         guard case let .part(p) = spec.kind else { return .zero }
-        let x = p.outgoing ? spec.metrics.rightEdge - p.size.width : Fixture.leftEdge
+        let x = p.cmuxBodyX(rightEdge: spec.metrics.rightEdge) // cmux: group indent
         return CGRect(x: x, y: margin, width: p.size.width, height: p.bodySize.height)
     }
 
@@ -217,9 +219,15 @@ enum RowDraw {
             TextDraw.line(s, font: f, color: Fixture.repliesTint, // cmux: themed link tint
                           x: outgoing ? m.receiptRight - w : Fixture.labelLeft, baseline: top + 14, in: ctx, kern: captionKern)
         case let .part(p):
-            let x = p.outgoing ? m.rightEdge - p.size.width : Fixture.leftEdge
-            PartRenderer.draw(ctx, row: p, body: CGRect(x: x, y: margin, width: p.size.width, height: p.bodySize.height),
-                              windowY: windowY, highlight: highlight)
+            let x = p.cmuxBodyX(rightEdge: m.rightEdge) // cmux: group indent
+            let body = CGRect(x: x, y: margin, width: p.size.width, height: p.bodySize.height)
+            PartRenderer.draw(ctx, row: p, body: body, windowY: windowY, highlight: highlight)
+            // cmux: a group chat's sender avatar beside the last bubble of their run.
+            if !p.outgoing, let avatar = p.cmuxAvatar { avatar.draw(in: ctx, rect: SenderAvatar.rect(beside: body)) }
+        case let .senderName(name):
+            // cmux: a group chat's sender name, at the indented incoming bubble's text edge (iMessage).
+            let f = HomeFonts.system(ofSize: 11) // HomeFonts (cx-qpqs)
+            TextDraw.line(name, font: f, color: Fixture.secondaryText, x: senderNameLeft, baseline: top + 11, in: ctx)
         case let .receipt(bold, rest):
             drawReceipt(ctx, bold, rest, receiptRight: m.receiptRight, top: top)
         case .typing:
@@ -258,6 +266,8 @@ enum RowDraw {
     /// as a layer whose top RowCell snaps to a whole device pixel (tools/evidence/ANIMATIONS.md section 6,
     /// cx-3cb typing-pixels; before: 20.14, 4.31, 43.69 x 27.19 from a capsule fit with a blur bias).
     static let typingBubble = CGRect(x: 20, y: margin + 4.335, width: 44, height: 27)
+    /// cmux: a group chat's sender name's left edge (row coordinates): the indented incoming bubble's text.
+    static var senderNameLeft: CGFloat { Fixture.leftEdge + SenderAvatar.bubbleInset + Fixture.bubblePadX }
     /// cmux: the host status line's left edge (row coordinates): the typing bubble's, a point in.
     static var noticeLeft: CGFloat { typingBubble.minX + 1 }
     /// The point the typing bubble grows from (row coordinates): Messages' fitted scale centre,
@@ -370,9 +380,12 @@ enum PartRenderer {
         let attr = tl.attributed(color: color, linkColor: link)
         for (i, line) in tl.lines.enumerated() where line.range.length > 0 {
             let l = CTLineCreateWithAttributedString(attr.attributedSubstring(from: line.range))
+            let origin = CGPoint(x: body.minX + Fixture.bubblePadX, y: body.minY + Fixture.textBaseline + tl.lineOffset(i, hard: outgoing ? TextLayout.hardBreakAdvance : Fixture.lineHeight))
+            // cmux: link chips (HomeLinkChip) under the line's text.
+            HomeLinkChip.drawSpans(ctx, tl.chipSpans(line: i, attr: attr), origin: origin, tint: link, outgoing: outgoing, scale: Fixture.renderScale)
             ctx.saveGState()
             ctx.textMatrix = CGAffineTransform(scaleX: 1, y: -1)
-            ctx.textPosition = CGPoint(x: body.minX + Fixture.bubblePadX, y: body.minY + Fixture.textBaseline + tl.lineOffset(i, hard: outgoing ? TextLayout.hardBreakAdvance : Fixture.lineHeight))
+            ctx.textPosition = origin
             CTLineDraw(l, ctx)
             ctx.restoreGState()
         }

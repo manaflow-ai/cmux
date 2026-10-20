@@ -3,7 +3,8 @@ public import AppKit
 /// Pointer and trackpad routing. Mouse-downs focus the pane under the
 /// pointer, and so does the start of a scroll that passes through to a pane
 /// (`LayoutRootView+ScrollFocus`); horizontal scroll gestures over a columns screen are claimed by
-/// the layout (first dominant axis decides). Vertical ones pass through,
+/// the layout (first dominant axis decides), except where the pane's own
+/// content scrolls sideways (`LayoutRootView+ScrollClaim`). Vertical ones pass through,
 /// except over a column whose rows overflow: there they scroll the rows
 /// over the gaps between rows, or anywhere with Command held (rows.md V5).
 extension LayoutRootView {
@@ -13,6 +14,10 @@ extension LayoutRootView {
         case horizontal(ScreenContentView)
         case vertical(ScreenContentView, ColumnID)
         case passthrough
+        /// A canvas pan (LayoutRootView+Canvas), through its momentum.
+        case canvas(ScreenContentView)
+        /// A gesture that began over a canvas pane: horizontal pans, vertical scrolls the pane.
+        case canvasUndecided(ScreenContentView)
     }
 
     func handleMonitored(_ event: NSEvent) -> NSEvent? {
@@ -30,6 +35,8 @@ extension LayoutRootView {
             return event
         case .scrollWheel:
             return handleScroll(event, locationInWindow: event.locationInWindow) ? nil : event
+        case .magnify:
+            return handleCanvasMagnify(event) ? nil : event
         default:
             return event
         }
@@ -38,7 +45,8 @@ extension LayoutRootView {
     private func activeColumnsView(at locationInWindow: NSPoint) -> ScreenContentView? {
         guard bounds.contains(convert(locationInWindow, from: nil)),
               let active = model.activeScreenID, let view = screenViews[active],
-              view.acceptsHorizontalScroll(at: view.convert(locationInWindow, from: nil)) else { return nil }
+              view.acceptsHorizontalScroll(at: view.convert(locationInWindow, from: nil)),
+              !paneContentClaimsHorizontalScroll(at: locationInWindow) else { return nil }
         return view
     }
 
@@ -61,6 +69,7 @@ extension LayoutRootView {
     }
 
     private func handleScrollEvent(_ event: NSEvent, at locationInWindow: NSPoint) -> NSEvent? {
+        if let consumed = handleCanvasScroll(event, at: locationInWindow) { return consumed ? nil : event }
         // Momentum after a horizontal gesture we consumed: our spring owns the coast.
         if !event.momentumPhase.isEmpty {
             guard consumeMomentum else { return event }
@@ -93,6 +102,8 @@ extension LayoutRootView {
         }
 
         switch scrollLock {
+        case .canvas, .canvasUndecided:
+            return event
         case .idle, .passthrough:
             if case .passthrough = scrollLock, phase.contains(.began) { focusPaneForPassThroughScroll(at: locationInWindow) }
             if phase.contains(.ended) || phase.contains(.cancelled) { scrollLock = .idle }
