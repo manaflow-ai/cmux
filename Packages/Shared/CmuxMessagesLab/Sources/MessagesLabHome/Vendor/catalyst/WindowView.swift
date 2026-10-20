@@ -559,8 +559,11 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
             // bubbles (right-aligned to the width they were laid out for) past the view's right edge for
             // that frame: they showed cut off in a divider drag while a reply streamed (u2891, 2026-10-19).
             // Rows of a narrower width in a wider view only leave a gap at the right for one frame.
+            // cmux: and a wider width whose rows only need re-measuring (`widthRowsCheap`: the state
+            // is the last pass's but for the streams' text) runs now too, so no frame shows rows of
+            // another width (HomeResizeWhileStreamingTests). Only a full derivation waits.
             if widthChanged, !captureMode, widthFrameScheduler != nil, widthPassInFrame, bounds.width > rowsWidth,
-               widthPassCostInFrame >= MessagesWindowView.widthPassFrameBudget {
+               widthPassCostInFrame >= MessagesWindowView.widthPassFrameBudget, !widthRowsCheap(store.state) {
                 MessagesWindowView.widthPassesDeferred += 1
                 widthPassPending = true
             } else {
@@ -667,6 +670,17 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
     /// The rows at the new width: re-measured from the last width change's rows when the state,
     /// the day and the strings are the same (RowBuilder.rewidth: the derivation over every loaded
     /// message was about a third of each divider-drag step), else derived.
+    /// cmux: the last width pass's rows still fit the state but for the streams' text, so a width
+    /// change only re-measures rows (`widthRows`' first two paths), never derives every message's.
+    private func widthRowsCheap(_ st: AppState) -> Bool {
+        guard let d = widthDerived else { return false }
+        let msgs = st.conversation.messages
+        return d.messages.count == msgs.count && d.me == st.me && d.atNewest == st.atNewest && d.typing == st.ui.typing
+            && d.notice == st.ui.notice && d.day == Format.dayInterval(store.date(at: clock()))
+            && d.strings == ObjectIdentifier(MessagesLabLocalization.bundle)
+            && d.messages.withUnsafeBufferPointer({ $0.baseAddress }) == msgs.withUnsafeBufferPointer({ $0.baseAddress })
+    }
+
     private func widthRows(_ st: AppState, now: Date, near: Range<Int>?) -> [RowSpec] {
         let msgs = st.conversation.messages
         let day = Format.dayInterval(now), strings = ObjectIdentifier(MessagesLabLocalization.bundle)

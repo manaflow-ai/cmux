@@ -373,7 +373,7 @@ public final class LayoutRootView: NSView {
 
     func advanceFrame(_ dt: Double) -> Bool {
         // One motion policy per frame (it reads the animation settings), not one per spring.
-        let policy = Motion.policy
+        let policy = Motion.panes.policy
         var moving = false
         for view in screenViews.values where !view.isHidden {
             if view.step(dt, policy: policy) { moving = true }

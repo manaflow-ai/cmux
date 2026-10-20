@@ -33,6 +33,10 @@
     dwellMs: [40, 110],
     holdMs: [50, 110],
     doubleClickGapMs: [70, 140],
+    // A wheel scroll this long (ms) glides out in decaying parts, like a
+    // trackpad fling; shorter than `flingMinPx` stays one event.
+    flingMs: 240,
+    flingMinPx: 40,
   });
 
   const RANGES = ["dwellMs", "holdMs", "doubleClickGapMs"];
@@ -164,5 +168,35 @@
     return out;
   }
 
-  ns.humanMouse = { DEFAULTS, config, rng, moveDuration, planMove, pause };
+  // A fling: wheel parts at display rate whose sizes decay exponentially
+  // and sum exactly to (dx, dy) in whole px. [{ t, dx, dy }], t in ms.
+  function planWheel(dx, dy, cfg) {
+    const total = Math.max(Math.abs(dx), Math.abs(dy));
+    if (cfg.motion === "instant" || total < cfg.flingMinPx || !(cfg.flingMs > 0)) return [{ t: 0, dx, dy }];
+    const frame = 1000 / cfg.hz;
+    const n = Math.max(2, Math.round(cfg.flingMs / frame));
+    const k = 4 / n; // decay per part: the last part is about e^-4 of the first
+    const weights = [];
+    for (let i = 0; i < n; i++) weights.push(Math.exp(-k * i));
+    const sum = weights.reduce((a, b) => a + b, 0);
+    const split = (v) => {
+      const parts = [];
+      let given = 0;
+      let acc = 0;
+      for (let i = 0; i < n; i++) {
+        acc += weights[i];
+        const upto = Math.round((v * acc) / sum);
+        parts.push(upto - given);
+        given = upto;
+      }
+      return parts;
+    };
+    const xs = split(dx);
+    const ys = split(dy);
+    const out = [];
+    for (let i = 0; i < n; i++) if (xs[i] || ys[i]) out.push({ t: i * frame, dx: xs[i], dy: ys[i] });
+    return out;
+  }
+
+  ns.humanMouse = { DEFAULTS, config, rng, moveDuration, planMove, planWheel, pause };
 })(typeof globalThis !== "undefined" ? globalThis : this);
