@@ -14,6 +14,7 @@ import { useT } from "../i18n";
 import { MinimapTick } from "../../../ui/MinimapTick";
 import { usePromptMarks } from "./promptMarks";
 import { useHoverIntent } from "../../../ui/hoverIntent";
+import { useEscapeCloses } from "../../../ui/escapeDismiss";
 import { animateScroll, highlightBubble, reducedMotion, settleScroll, stopScroll } from "./scrollMotion";
 import { BookmarkIcon } from "./BookmarkIcon";
 import {
@@ -314,6 +315,11 @@ export function ThreadMinimap({
   // The card's own height, for centering it on its row and keeping it inside the viewport.
   const cardTurn: MinimapTurn | undefined = cardRow === undefined ? undefined : turns[cardRow];
   const showCard = cardOpen && cardTurn !== undefined;
+  /// Focus is inside the card (its bookmark button): Escape there closes it, as on a row.
+  const [cardFocus, setCardFocus] = useState(false);
+  // A card closed with focus in it (Escape, a click elsewhere) takes no blur: it starts unfocused.
+  if (!showCard && cardFocus) setCardFocus(false);
+  useEscapeCloses(showCard && cardFocus, dismiss);
   useLayoutEffect(() => {
     const node = card.current;
     if (showCard && node) setCardHeight(node.offsetHeight);
@@ -574,14 +580,14 @@ export function ThreadMinimap({
             // Back onto the rail keeps it (its row takes over); anywhere else it goes.
             if (!within(rail.current, event.relatedTarget)) intend(null);
           }}
+          onFocus={() => setCardFocus(true)}
           onBlur={(event) => {
             // Focus leaving the card for anywhere but the rail closes it, as leaving the rail does.
             const next = event.relatedTarget;
-            if (within(event.currentTarget, next) || within(rail.current, next)) return;
+            if (within(event.currentTarget, next)) return;
+            setCardFocus(false);
+            if (within(rail.current, next)) return;
             if (hovered === undefined) intend(null);
-          }}
-          onKeyDown={(event) => {
-            if (event.key === "Escape") dismiss();
           }}
         >
           <div className="acpmux-minimap__title">
