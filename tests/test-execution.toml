@@ -277,6 +277,10 @@ path = "tests/test_ci_simple_pool_picker.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_next_macos_cascade.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_pull_request_caches_are_read_only.py"
 lane = "linux-guard"
 
@@ -498,6 +502,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_next_tour.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_media_tag_lock.py"
 lane = "linux-guard"
 
 [[test]]

@@ -676,6 +676,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_simple_pool_picker.py
 
+      - name: Validate the cmux-next macOS cascade onto free Blacksmith slots
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_next_macos_cascade.py
+
       - name: Validate agent pane frame pacing summary
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_frame_pacing_summary.py
@@ -1138,6 +1142,10 @@ jobs:
       - name: Validate the cmux-next tour bounds its DerivedData on each Mac
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_ci_prune_media_derived_data.py
+
+      - name: Validate a second cmux-next tour of a tag waits for the tour holding it
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_media_tag_lock.py
 
       - name: Validate the cmux-next tour drops stale prebuilt modules when a binary pin changes
         if: ${{ matrix.group == 'release-notary' }}
