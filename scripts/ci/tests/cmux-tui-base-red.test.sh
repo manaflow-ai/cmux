@@ -42,6 +42,6 @@ run "$current"
 
 run "closed_delete::a_base_red_test_without_date${tab}cx-test3${tab}soon${tab}any${tab}x"
 [[ $rc -ne 0 ]] || fail "an entry without a date passed"
-run "closed_delete::a_base_red_test_without_bead${tab}${tab}2999-12-31${tab}any${tab}x"
-[[ $rc -ne 0 ]] || fail "an entry without a bead passed"
+run "closed_delete::a_base_red_test_with_a_bad_bead${tab}NOT_A_BEAD${tab}2999-12-31${tab}any${tab}x"
+[[ $rc -ne 0 ]] || fail "an entry with a bad bead id passed"
 echo "PASS: cmux-tui base-red list"

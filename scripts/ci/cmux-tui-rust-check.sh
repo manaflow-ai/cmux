@@ -196,8 +196,8 @@ step() { # NAME CMD...: runs CMD, records pass/fail/skipped and seconds
 # Base-red skip list (scripts/ci/cmux-tui-base-red.tsv): tests that are red on
 # the base for a known reason, skipped in the cmux-tui workspace tests (`test`
 # and `all`) with libtest `--skip` (a test-name substring; use the full path).
-# Columns, tab-separated: FILTER BEAD EXPIRES(YYYY-MM-DD, UTC, the last day the
-# skip applies) OS(any|macos|linux) REASON. An entry without a bead, or with a
+# Columns, tab-separated: FILTER BEAD EXPIRES(YYYY-MM-DD, UTC, the review date:
+# after it each run warns) OS(any|macos|linux) REASON. An entry without a bead, or with a
 # bad filter, date or OS, fails the step. An entry past its expiry only warns
 # (a gate-notice line naming its bead) and is still applied: a calendar date
 # must not turn every PR red (2026-10-20: cx-2ueez and cx-gz5dx expired and
