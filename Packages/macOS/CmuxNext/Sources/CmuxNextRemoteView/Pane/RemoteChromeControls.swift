@@ -105,7 +105,7 @@ final class RemoteChromeButton: NSButton {
         updateLayer()
     }
 
-    override var wantsUpdateLayer: Bool { true }
+    nonisolated override var wantsUpdateLayer: Bool { true }
 
     override func updateLayer() {
         layer?.backgroundColor = (isHovering ? hoverFill : restingFill).cgColor

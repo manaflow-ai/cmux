@@ -39,6 +39,7 @@ export function EffortPicker({
   ultracode,
   speed,
   chevron,
+  short,
   slider = false,
   sliderStyle: requestedSliderStyle = "accent",
 }: {
@@ -52,6 +53,8 @@ export function EffortPicker({
   ultracode?: SpeedSection;
   speed?: SpeedSection;
   chevron?: React.ReactNode;
+  /// The level's short name ("Med"), for a narrow composer row (composerRowFit.ts).
+  short?: string;
   /// Draw the Reasoning section as a slider (the person's opt-in); the list is the default.
   slider?: boolean;
   /// Visual treatment for the opt-in slider; the current accent treatment is the default.
@@ -96,9 +99,10 @@ export function EffortPicker({
   }, [open]);
   const levelRow = (choice: Choice) =>
     row(defaulted && choice.id === selectedVisible?.id ? { ...choice, hint: t("picker.default") } : choice);
-  // One line per row, as a native menu: the check in its own leading gutter (empty when the row is
-  // not chosen, so every label starts at the same x), the label, a hint, and a short note (Ultracode)
-  // in secondary text on the same line, its full text in the tooltip when the menu clips it.
+  // One line per row, as a native menu: the label, a hint, and a short note (Ultracode) in secondary
+  // text on the same line, its full text in the tooltip when the menu clips it, then the check in its
+  // own trailing gutter (composerControls.css; empty when the row is not chosen, so every label
+  // starts at the same x).
   const row = (choice: Choice) => (
     <MenuRadioItem key={choice.id} value={choice.id} className="acpmux-effort-item">
       <span className="acpmux-effort-text">
@@ -121,7 +125,7 @@ export function EffortPicker({
     <span className="acpmux-picker acpmux-effort">
       <Menu open={open} onOpenChange={setOpen}>
         <MenuButton className="acpmux-picker-button" label={t("effort.title")} data-menu={label} aria-haspopup="menu">
-          <span>{level}</span>
+          <EffortLabel label={level} short={short && short !== level ? short : undefined} />
           {chevron}
         </MenuButton>
         <MenuPopup side="top" align="start" className="acpmux-effort-menu">
@@ -187,6 +191,21 @@ export function EffortPicker({
         </MenuPopup>
       </Menu>
     </span>
+  );
+}
+
+/// The effort chip's label: the level, and its short name for a narrow composer row, which swaps
+/// one for the other whole (composerRowFit.ts). The short name is drawn, so the chip's text stays
+/// the level's name.
+export function EffortLabel({ label, short }: { label: string; short?: string | undefined }) {
+  if (!short) return <span>{label}</span>;
+  return (
+    <>
+      <span data-fit-part="effort" data-fit-forms="full">
+        {label}
+      </span>
+      <span className="acpmux-fit-label" data-fit-part="effort" data-fit-forms="short" data-label={short} />
+    </>
   );
 }
 

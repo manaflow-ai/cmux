@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR a17c6a27cd1400e2e053746dfc1bcc952c775f4bb8ea50973e66cf02c537c2f8.
+// cmux-tui mux protocol 12, IR 6843b0cfd4e966719acde1c323621e6a5b049829b422229956fb3c194436dc06.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -717,12 +717,54 @@ pub type CloudConversationThreadResult = T::JsonValue;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CloudConversationTypingRequest {
+    pub conversation: String,
+    pub on: bool,
+}
+
+#[rustfmt::skip]
+pub type CloudConversationTypingResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CloudConversationUnsubscribeRequest {
     pub conversation: String,
 }
 
 #[rustfmt::skip]
 pub type CloudConversationUnsubscribeResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct CloudHostReplicaClearRequest {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub purge: Option<bool>,
+}
+
+#[rustfmt::skip]
+pub type CloudHostReplicaClearResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CloudHostReplicaSetRequest {
+    pub api_base_url: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub client_version: Optional<String>,
+    pub expires_at: u64,
+    pub host_name: String,
+    pub install_token: String,
+}
+
+#[rustfmt::skip]
+pub type CloudHostReplicaSetResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct CloudHostReplicaStatusRequest {
+}
+
+#[rustfmt::skip]
+pub type CloudHostReplicaStatusResult = T::JsonValue;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
@@ -799,6 +841,14 @@ pub struct CloudParticipantAvatarGetRequest {
 
 #[rustfmt::skip]
 pub type CloudParticipantAvatarGetResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct CloudRequestsListRequest {
+}
+
+#[rustfmt::skip]
+pub type CloudRequestsListResult = T::JsonValue;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
@@ -1801,6 +1851,8 @@ pub struct HomeInboxResult {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct IdentifyRequest {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub machine_metadata: Option<bool>,
 }
 
 #[rustfmt::skip]
@@ -3111,6 +3163,8 @@ pub type SelectWorkspaceResult = T::EmptyResult;
 pub struct SendRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub bytes: Optional<T::Base64>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub expect_foreground: Optional<String>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub paste: Option<bool>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -3155,6 +3209,8 @@ pub struct SetCellPixelsRequest {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct SetClientInfoRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub api_revision: Optional<u32>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub capabilities: Optional<Vec<String>>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -3201,6 +3257,8 @@ pub struct SetColumnDockRequest {
     pub pane: T::Id,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub permanent: Optional<bool>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub pinned: Optional<bool>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub role: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -4224,8 +4282,24 @@ impl CmuxClient {
         self.execute(&CLOUD_CONVERSATION_THREAD_METADATA, &request)
     }
 
+    pub fn cloud_conversation_typing(&mut self, request: CloudConversationTypingRequest) -> Result<CloudConversationTypingResult> {
+        self.execute(&CLOUD_CONVERSATION_TYPING_METADATA, &request)
+    }
+
     pub fn cloud_conversation_unsubscribe(&mut self, request: CloudConversationUnsubscribeRequest) -> Result<CloudConversationUnsubscribeResult> {
         self.execute(&CLOUD_CONVERSATION_UNSUBSCRIBE_METADATA, &request)
+    }
+
+    pub fn cloud_host_replica_clear(&mut self, request: CloudHostReplicaClearRequest) -> Result<CloudHostReplicaClearResult> {
+        self.execute(&CLOUD_HOST_REPLICA_CLEAR_METADATA, &request)
+    }
+
+    pub fn cloud_host_replica_set(&mut self, request: CloudHostReplicaSetRequest) -> Result<CloudHostReplicaSetResult> {
+        self.execute(&CLOUD_HOST_REPLICA_SET_METADATA, &request)
+    }
+
+    pub fn cloud_host_replica_status(&mut self, request: CloudHostReplicaStatusRequest) -> Result<CloudHostReplicaStatusResult> {
+        self.execute(&CLOUD_HOST_REPLICA_STATUS_METADATA, &request)
     }
 
     pub fn cloud_inbox_list(&mut self, request: CloudInboxListRequest) -> Result<CloudInboxListResult> {
@@ -4258,6 +4332,10 @@ impl CmuxClient {
 
     pub fn cloud_participant_avatar_get(&mut self, request: CloudParticipantAvatarGetRequest) -> Result<CloudParticipantAvatarGetResult> {
         self.execute(&CLOUD_PARTICIPANT_AVATAR_GET_METADATA, &request)
+    }
+
+    pub fn cloud_requests_list(&mut self, request: CloudRequestsListRequest) -> Result<CloudRequestsListResult> {
+        self.execute(&CLOUD_REQUESTS_LIST_METADATA, &request)
     }
 
     pub fn cloud_session_clear(&mut self, request: CloudSessionClearRequest) -> Result<CloudSessionClearResult> {
@@ -4547,6 +4625,10 @@ impl CmuxClient {
     }
 
     pub fn identify(&mut self, request: IdentifyRequest) -> Result<T::IdentifyResult> {
+        if request.machine_metadata.is_some() {
+            self.require_protocol_field("identify", 12)?;
+            self.require_capability_field("identify", "machine-identity-v1")?;
+        }
         self.execute_identify(&IDENTIFY_METADATA, &request)
     }
 
@@ -5123,6 +5205,9 @@ impl CmuxClient {
     }
 
     pub fn send(&mut self, request: SendRequest) -> Result<SendResult> {
+        if !request.expect_foreground.is_missing() {
+            self.require_capability_field("send", "send-expect-foreground-v1")?;
+        }
         if request.paste.is_some() {
             self.require_protocol_field("send", 7)?;
         }
@@ -5145,6 +5230,9 @@ impl CmuxClient {
     }
 
     pub fn set_client_info(&mut self, request: SetClientInfoRequest) -> Result<SetClientInfoResult> {
+        if !request.api_revision.is_missing() {
+            self.require_protocol_field("set-client-info", 12)?;
+        }
         if !request.device_id.is_missing() {
             self.require_protocol_field("set-client-info", 12)?;
             self.require_capability_field("set-client-info", "shared-sizing-v1")?;
@@ -5173,6 +5261,10 @@ impl CmuxClient {
     }
 
     pub fn set_column_dock(&mut self, request: SetColumnDockRequest) -> Result<SetColumnDockResult> {
+        if !request.pinned.is_missing() {
+            self.require_protocol_field("set-column-dock", 12)?;
+            self.require_capability_field("set-column-dock", "pinned-dock-v1")?;
+        }
         if !request.role.is_missing() {
             self.require_protocol_field("set-column-dock", 12)?;
             self.require_capability_field("set-column-dock", "dock-column-role-v1")?;

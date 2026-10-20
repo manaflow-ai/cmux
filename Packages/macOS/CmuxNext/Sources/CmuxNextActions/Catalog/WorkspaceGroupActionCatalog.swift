@@ -104,14 +104,52 @@ nonisolated enum WorkspaceGroupActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "workspaceGroup.moveUp",
                 title: String(localized: "action.workspaceGroup.moveUp", defaultValue: "Move Workspace Group Up", bundle: .module),
-                keywords: ["group", "reorder"], category: .workspace, symbol: "arrow.up", surfaces: [.palette],
+                keywords: ["group", "reorder"], category: .workspace, symbol: "arrow.up", surfaces: [.palette, .keyboard],
                 targets: [.workspaceGroup], cliName: "workspace-group move-up"
             ),
             ActionDescriptor(
                 id: "workspaceGroup.moveDown",
                 title: String(localized: "action.workspaceGroup.moveDown", defaultValue: "Move Workspace Group Down", bundle: .module),
-                keywords: ["group", "reorder"], category: .workspace, symbol: "arrow.down", surfaces: [.palette],
+                keywords: ["group", "reorder"], category: .workspace, symbol: "arrow.down", surfaces: [.palette, .keyboard],
                 targets: [.workspaceGroup], cliName: "workspace-group move-down"
+            ),
+            ActionDescriptor(
+                id: "workspaceGroup.moveToTop",
+                title: String(localized: "action.workspaceGroup.moveToTop", defaultValue: "Move Workspace Group to Top", table: "WorkspaceActions", bundle: .module),
+                keywords: ["group", "reorder", "first", "top"], category: .workspace, symbol: "arrow.up.to.line", surfaces: [.palette, .keyboard],
+                targets: [.workspaceGroup], cliName: "workspace-group move-to-top"
+            ),
+            ActionDescriptor(
+                id: "workspaceGroup.moveToBottom",
+                title: String(localized: "action.workspaceGroup.moveToBottom", defaultValue: "Move Workspace Group to Bottom", table: "WorkspaceActions", bundle: .module),
+                keywords: ["group", "reorder", "last", "end", "bottom"], category: .workspace, symbol: "arrow.down.to.line", surfaces: [.palette, .keyboard],
+                targets: [.workspaceGroup], cliName: "workspace-group move-to-bottom"
+            ),
+            // Slack's "Collapse all other sections": the other groups fold, this one opens.
+            ActionDescriptor(
+                id: "workspaceGroup.collapseOthers",
+                title: String(localized: "action.workspaceGroup.collapseOthers", defaultValue: "Collapse Other Groups", table: "WorkspaceActions", bundle: .module),
+                keywords: ["group", "collapse", "other", "others", "fold", "focus"], category: .workspace, symbol: "rectangle.compress.vertical",
+                surfaces: [.palette, .keyboard, .contextMenu], targets: [.workspaceGroup], cliName: "workspace-group collapse-others"
+            ),
+            // Sorts the group's members only; the sidebar's Sort Workspaces verbs sort every container.
+            ActionDescriptor(
+                id: "workspaceGroup.sortByName",
+                title: String(localized: "action.workspaceGroup.sortByName", defaultValue: "Sort Group by Name", table: "WorkspaceActions", bundle: .module),
+                keywords: ["group", "sort", "alphabetical", "name", "order"], category: .workspace, symbol: "textformat",
+                surfaces: [.palette, .contextMenu], targets: [.workspaceGroup], cliName: "workspace-group sort-by-name"
+            ),
+            ActionDescriptor(
+                id: "workspaceGroup.sortByLastUsed",
+                title: String(localized: "action.workspaceGroup.sortByLastUsed", defaultValue: "Sort Group by Last Used", table: "WorkspaceActions", bundle: .module),
+                keywords: ["group", "sort", "recent", "recency", "order"], category: .workspace, symbol: "clock",
+                surfaces: [.palette, .contextMenu], targets: [.workspaceGroup], cliName: "workspace-group sort-by-last-used"
+            ),
+            ActionDescriptor(
+                id: "workspaceGroup.sortByDirectory",
+                title: String(localized: "action.workspaceGroup.sortByDirectory", defaultValue: "Sort Group by Directory", table: "WorkspaceActions", bundle: .module),
+                keywords: ["group", "sort", "folder", "path", "directory", "order"], category: .workspace, symbol: "folder",
+                surfaces: [.palette, .contextMenu], targets: [.workspaceGroup], cliName: "workspace-group sort-by-directory"
             ),
             ActionDescriptor(
                 id: "workspaceGroup.moveToWindow",

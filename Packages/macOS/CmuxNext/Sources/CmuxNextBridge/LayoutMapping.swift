@@ -80,7 +80,8 @@ public struct LayoutMapping {
         case .bottom: .bottom
         }
         return DockColumn(edge: edge, mode: snapshot.mode == .overlay ? .overlay : .docked,
-                          role: snapshot.role.map { _ in .agentChat })
+                          role: snapshot.role.map { _ in .agentChat },
+                          isPinned: snapshot.isPinned, allowsTabs: snapshot.allowsTabs)
     }
 
     /// The layout's dock as the daemon's value. Top and bottom need a daemon
@@ -94,7 +95,8 @@ public struct LayoutMapping {
         case .bottom: .bottom
         }
         return DockSnapshot(edge: edge, mode: dock.mode == .overlay ? .overlay : .docked,
-                            role: dock.role.map { _ in .agentChat })
+                            role: dock.role.map { _ in .agentChat },
+                            isPinned: dock.isPinned, allowsTabs: dock.allowsTabs)
     }
 
     /// Converts one daemon layout node. Nil when nothing in it can be shown. A split is keyed by
