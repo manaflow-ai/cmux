@@ -70,6 +70,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     private var freezeStarted: CFTimeInterval = 0
     /// A reset's replay being fed: layout waits for all of it.
     private var replayGate = TerminalReplayGate()
+    /// M-SIZELOG (G-07): when the last reset came and the bytes of its replay.
+    private var replayStartedAt: CFTimeInterval?
+    private var replayBytes = 0
     /// Clips the key bar while its height follows the keyboard; the bar
     /// itself keeps its 44 pt layout pinned to the clip's top.
     private let keyBarClip = UIView()
@@ -906,6 +909,12 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
                 scroll.reset()
                 armReplayDeadline()
             }
+            if isReset {
+                replayStartedAt = CACurrentMediaTime()
+                replayBytes = 0
+            } else if replayGate.isReplaying {
+                replayBytes += data.count
+            }
             replayGate.received(data.count, isReset: isReset, at: CACurrentMediaTime())
             pacer.arrived(at: CACurrentMediaTime())
             #if DEBUG
@@ -1160,6 +1169,10 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             return
         }
         if replayDone {
+            if let started = replayStartedAt {
+                sizingLog.notice("replay done bytes=\(self.replayBytes, privacy: .public) ms=\(Int((CACurrentMediaTime() - started) * 1000), privacy: .public)")
+                replayStartedAt = nil
+            }
             outputSinceProbe = true
             // Ghostty's next scrollbar report has the replay's row count.
             if readingMark != nil { readingMarkAwaitsReport = true }
