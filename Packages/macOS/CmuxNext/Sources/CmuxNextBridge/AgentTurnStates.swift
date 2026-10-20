@@ -236,6 +236,8 @@ public final class AgentTurnStateStore {
     /// `install:<id>` of this Mac; a chat tab of another host has no state
     /// here (its acpmux runs elsewhere).
     public var localHost: String?
+    /// Other acpmux hosts on this Mac whose watch also feeds this store (red: unread).
+    public var mirroredHosts: Set<String> = []
     /// The watch is up and the states are acpmux's: false before its first page and after it
     /// closes, when a chat with no state may still be working.
     public var watching = false
@@ -268,7 +270,8 @@ public final class AgentTurnStateStore {
     /// Sets one session's facts from a `_acpmux/session_changed`; writes only what changed.
     /// `recordsTimeline` false (the watch closing) notes no moment: nothing happened to the chat.
     public func apply(session: String, state: AgentTurnState?, lastMessage: String?, muted: Bool, title: String?,
-                      generatedTitle: String? = nil, detail: AgentChatDetail?, recordsTimeline: Bool = true) {
+                      generatedTitle: String? = nil, detail: AgentChatDetail?, recordsTimeline: Bool = true,
+                      source: String = "local") {
         let held = record(session)
         if recordsTimeline {
             let nowMs = UInt64((Date().timeIntervalSince1970 * 1000).rounded())
@@ -287,7 +290,8 @@ public final class AgentTurnStateStore {
 
     /// Replaces every session with a watch page's; writes only what changed.
     public func replace(states: AgentTurnStates, lastMessages: [String: String], muted: Set<String>,
-                        titles: [String: String], generatedTitles: [String: String] = [:], details: [String: AgentChatDetail]) {
+                        titles: [String: String], generatedTitles: [String: String] = [:], details: [String: AgentChatDetail],
+                        source: String = "local") {
         let ids = Set(sessions.keys).union(states.bySession.keys).union(lastMessages.keys).union(muted)
             .union(titles.keys).union(generatedTitles.keys).union(details.keys)
         for id in ids {
@@ -298,7 +302,7 @@ public final class AgentTurnStateStore {
 
     /// The watch closed: nothing live is known. Titles stay: a tab keeps
     /// reading as its chat while the watch reconnects.
-    public func clearLive() {
+    public func clearLive(source: String = "local") {
         for (id, record) in sessions {
             apply(session: id, state: nil, lastMessage: nil, muted: false, title: record.title,
                   generatedTitle: record.generatedTitle, detail: nil, recordsTimeline: false)

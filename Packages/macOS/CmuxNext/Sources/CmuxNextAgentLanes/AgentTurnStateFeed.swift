@@ -27,7 +27,8 @@ public final class AgentTurnStateFeed {
     private var backoff = Backoff(initial: .milliseconds(250), maximum: .seconds(30))
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-turn-states")
 
-    public init(socketPath: String, turns: AgentTurnStateStore = .shared, lanes: AgentLaneStore = .shared) {
+    public init(socketPath: String, turns: AgentTurnStateStore = .shared, lanes: AgentLaneStore = .shared,
+                mirroring host: String? = nil) {
         socket = socketPath
         self.turns = turns
         self.lanes = lanes

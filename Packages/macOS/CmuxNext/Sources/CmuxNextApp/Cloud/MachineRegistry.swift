@@ -80,6 +80,9 @@ final class MachineRegistry {
         session(machineID)?.machine.title ?? sshSession(machineID)?.host.destination.displayName ?? server(machineID)?.name
     }
 
+    /// The machine name on the tabs of `machineID`'s tree (red: the machine badge).
+    func tabBadge(_ machineID: String) -> String? { machineBadge(machineID) }
+
     /// The sidebar name of a remote machine, nil for local.
     func machineName(_ machineID: String) -> String? {
         session(machineID)?.machine.title ?? sshSession(machineID)?.host.label ?? server(machineID)?.name
