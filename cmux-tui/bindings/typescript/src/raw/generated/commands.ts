@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR b431fb4d14b075f94710d8eb91c3b4a87fd99cb44eb8db04b89b0b9656c9ce85. */
+/* cmux-tui mux protocol 12, IR 6843b0cfd4e966719acde1c323621e6a5b049829b422229956fb3c194436dc06. */
 
 
 import type * as T from "./types.js";
@@ -593,6 +593,12 @@ export interface CloudParticipantAvatarGetRequest extends CmuxRequestBase {
   "participant_id": string;
 }
 export type CloudParticipantAvatarGetResult = T.JsonValue;
+
+/** Protocol v12; authority: local-admin. */
+export interface CloudRequestsListRequest extends CmuxRequestBase {
+  cmd: "cloud-requests-list";
+}
+export type CloudRequestsListResult = T.JsonValue;
 
 /** Protocol v12; authority: local-admin. */
 export interface CloudSessionClearRequest extends CmuxRequestBase {
@@ -2211,6 +2217,7 @@ export type SelectWorkspaceResult = T.EmptyResult;
 export interface SendRequest extends CmuxRequestBase {
   cmd: "send";
   "bytes"?: (T.Base64) | null;
+  "expect_foreground"?: (string) | null;
   "paste"?: boolean;
   "surface"?: (T.Id) | null;
   "terminal_id"?: (string) | null;
@@ -2244,6 +2251,7 @@ export interface SetCellPixelsRequest extends CmuxRequestBase {
 /** Protocol v6; authority: control. */
 export interface SetClientInfoRequest extends CmuxRequestBase {
   cmd: "set-client-info";
+  "api_revision"?: (number) | null;
   "capabilities"?: (Array<string>) | null;
   "device_id"?: (string) | null;
   "device_kind"?: (string) | null;
@@ -2869,6 +2877,7 @@ export type CmuxRequest =
   | CloudMuxSubscribeRequest
   | CloudMuxUnsubscribeRequest
   | CloudParticipantAvatarGetRequest
+  | CloudRequestsListRequest
   | CloudSessionClearRequest
   | CloudSessionSetRequest
   | CloudSessionStatusRequest
@@ -3546,6 +3555,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "local-admin";
     since: 12;
     capability: "participant-avatars-v1";
+    stream: null;
+  };
+  "cloud-requests-list": {
+    request: CloudRequestsListRequest;
+    result: CloudRequestsListResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "cloud-conversations-v1";
     stream: null;
   };
   "cloud-session-clear": {

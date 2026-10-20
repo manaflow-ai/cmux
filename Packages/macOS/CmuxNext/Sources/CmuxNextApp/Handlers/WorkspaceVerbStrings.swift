@@ -1,6 +1,6 @@
 import Foundation
 
-/// Refusals of the workspace verbs (Resources/WorkspaceVerbs.xcstrings).
+/// Refusals and menu titles of the workspace verbs (Resources/WorkspaceVerbs.xcstrings).
 nonisolated enum WorkspaceVerbStrings {
     /// The local machine in a machine list.
     static var thisMac: String { text("workspaceVerbs.thisMac", "This Mac") }
@@ -14,6 +14,9 @@ nonisolated enum WorkspaceVerbStrings {
     static var mergeIntoHome: String { text("workspaceVerbs.refusal.mergeIntoHome", "a workspace cannot merge into Home") }
     static var otherMachine: String { text("workspaceVerbs.refusal.otherMachine", "tabs cannot move to a workspace on another machine") }
     static var onlyPane: String { text("workspaceVerbs.refusal.onlyPane", "the pane is the only pane of its workspace") }
+    /// A grouped row's Move to Top and Move to Bottom (they move it inside its group).
+    static var moveToTopOfGroup: String { text("workspaceVerbs.moveToTopOfGroup", "Move to Top of Group") }
+    static var moveToBottomOfGroup: String { text("workspaceVerbs.moveToBottomOfGroup", "Move to Bottom of Group") }
 
     private static func text(_ key: StaticString, _ value: String.LocalizationValue) -> String {
         String(localized: key, defaultValue: value, table: "WorkspaceVerbs", bundle: .module)

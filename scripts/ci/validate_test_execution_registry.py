@@ -245,15 +245,18 @@ def comparison_point(base_sha: str, root: Path = ROOT) -> str:
     return merge_base(base_sha, root) or base_sha
 
 
-def register_derivable(root: Path = ROOT) -> list[str]:
-    """Append an entry for each unregistered test a workflow already runs; return their paths."""
+def register_derivable(root: Path = ROOT, only: set[str] | None = None) -> list[str]:
+    """Append an entry for each unregistered test a workflow already runs; return their paths.
+    With `only`, consider just those repository-relative paths: the pre-commit hook passes the
+    commit's own tests, so it never writes the base's unregistered ones into a pull request."""
     manifest = root / "tests" / "test-execution.toml"
     workflows = root / ".github" / "workflows"
     registered = {entry.get("path") for entry in load_registry(manifest)}
     discovered = sorted(
         path.relative_to(root).as_posix() for path in (root / "tests").glob("test_*.py") if path.is_file()
     )
-    added = [path for path in discovered if path not in registered and workflow_running(path, workflows)]
+    added = [path for path in discovered
+             if path not in registered and (only is None or path in only) and workflow_running(path, workflows)]
     if added:
         text = manifest.read_text(encoding="utf-8")
         blocks = "".join(f'\n[[test]]\npath = "{path}"\nlane = "{DIRECT_RUN_LANE}"\n' for path in added)
@@ -474,12 +477,14 @@ def main(argv: list[str]) -> int:
     )
     parser.add_argument("--write", action="store_true",
                         help="register unregistered tests a workflow already runs, then validate")
+    parser.add_argument("--only", action="append", default=None, metavar="PATH",
+                        help="with --write, register only these tests (repeatable)")
     args = parser.parse_args(argv)
     root = args.repo_root.resolve()
 
     if args.write:
         try:
-            for path in register_derivable(root):
+            for path in register_derivable(root, set(args.only) if args.only is not None else None):
                 print(f"registered {path} on lane {DIRECT_RUN_LANE}")
         except (OSError, ValueError) as error:
             print(error, file=sys.stderr)

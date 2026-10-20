@@ -184,6 +184,27 @@ export const acceptInvite = (head: ConversationHead, next: Draft, request: OpReq
 }
 
 /**
+ * `invite.accept_verified` (a message request accepted in Home): the caller's verified email is
+ * the invited address, so no link is needed. The open invite to one of the caller's verified
+ * addresses binds the caller, in a dm and in a group alike (the same rule as a verified
+ * `invite.accept`). Any other caller gets `unknown_invite`, the answer for a wrong link, so the
+ * op never tells whether a conversation invited someone.
+ */
+export const acceptVerifiedInvite = (head: ConversationHead, next: Draft, request: OpRequest, op: OpOf<"invite.accept_verified">): Commit => {
+  if (head.state === "archived") fail("archived")
+  const user = request.actor
+  if (!user.startsWith("user_") || !validParticipantId(user) || !validName(op.display_name)) fail("invalid_participant")
+  const mine = request.actor_addresses ?? []
+  const invite = (head.invites ?? []).find((candidate) => candidate.channel === "email" && candidate.status === "pending" && mine.includes(candidate.address))
+  if (!invite) return fail("unknown_invite")
+  if (isExpired(invite, request.now)) fail("invite_expired")
+  if (invite.invited_by === user) fail("invite_self")
+  closeExpired(head, next, request.now)
+  bindUser(head, next, invite, user, op.display_name, request.now)
+  return conversationChanged(next, request)
+}
+
+/**
  * `invite.approve_join`: the inviter or the conversation owner lets the
  * requesting user in, or declines with `approve: false` (the invite closes as
  * `revoked`; the link was used by someone else). Not after the expiry.

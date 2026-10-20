@@ -115,6 +115,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_repo_variable_defaults.py
 
+      - name: Validate scripts keep full clones full
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_no_shallow_dev_fetch.py
+
       - name: Validate the local and fast guard runner
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_run_guards.py
@@ -676,6 +680,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_simple_pool_picker.py
 
+      - name: Validate the cmux-next macOS cascade onto free Blacksmith slots
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_next_macos_cascade.py
+
       - name: Validate agent pane frame pacing summary
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_frame_pacing_summary.py
@@ -727,6 +735,10 @@ jobs:
       - name: Validate side-lane placement onto idle owned runners
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_side_lane_placement.py
+
+      - name: Validate session jobs keep the gui label until runners carry the session label
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_session_label_routing.py
 
       - name: Validate owned Mac build state
         if: ${{ matrix.group == 'ci' }}
@@ -1125,9 +1137,19 @@ jobs:
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_cmux_next_media_tour_gate.py
 
+      - name: Validate webview-only changes tour on Linux, not a Mac
+        if: ${{ matrix.group == 'release-notary' }}
+        run: |
+          python3 tests/test_cmux_next_media_path_map.py
+          python3 tests/test_cmux_next_media_runner_scope.py
+
       - name: Validate the cmux-next tour bounds its DerivedData on each Mac
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_ci_prune_media_derived_data.py
+
+      - name: Validate a second cmux-next tour of a tag waits for the tour holding it
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_media_tag_lock.py
 
       - name: Validate the cmux-next tour drops stale prebuilt modules when a binary pin changes
         if: ${{ matrix.group == 'release-notary' }}

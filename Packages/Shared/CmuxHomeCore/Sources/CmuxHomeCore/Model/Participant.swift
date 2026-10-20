@@ -51,9 +51,19 @@ public struct Participant: Hashable, Sendable, Codable, Identifiable {
 
     public var isChief: Bool { kind == .agent && agentClass == .chief }
 
+    /// The name a person reads: the display name, else the invited email or phone (already
+    /// masked by the owner), else empty. Never an internal id (``Swift/String/isHomeInternalID``).
+    public var visibleName: String {
+        for candidate in [displayName, invitedContact ?? ""] {
+            let trimmed = candidate.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty, !trimmed.isHomeInternalID { return trimmed }
+        }
+        return ""
+    }
+
     /// One or two letters for a monogram avatar.
     public var initials: String {
-        let words = displayName.split(whereSeparator: { $0 == " " || $0 == "-" || $0 == "_" })
+        let words = visibleName.split(whereSeparator: { $0 == " " || $0 == "-" || $0 == "_" })
         let letters = words.prefix(2).compactMap { $0.first.map(String.init) }
         let joined = letters.joined().uppercased()
         return joined.isEmpty ? "?" : joined
