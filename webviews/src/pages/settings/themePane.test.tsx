@@ -153,7 +153,11 @@ test("a managed app theme pair says why its controls are off", async () => {
     path: "/settings/theme",
     mock: {
       managed: {
-        "appearance.appTheme": { value: "light:GitHub Light,dark:Dracula", source: "profile", reason: "Set by your organization" },
+        "appearance.appTheme": {
+          value: "light:GitHub Light,dark:Dracula",
+          source: "profile",
+          reason: "Set by your organization",
+        },
       },
     },
   });
@@ -180,4 +184,22 @@ test("?focus= on a paired theme lands on its Light row, once: a later Match swit
   await click(toggle);
   expect(themeRow(page, "single")).not.toBeNull();
   expect(document.activeElement).toBe(toggle);
+});
+
+// The schema's App Theme group was the only place these keys showed a settings-file notice, a
+// managed reason or a refused write; the card's rows show them as every SettingRow does.
+test("the card's rows show the key's notice, managed reason and refused write", async () => {
+  page = await renderPage({
+    path: "/settings/theme",
+    mock: {
+      diagnostics: [{ path: "appearance.theme", message: "theme must be a string" }],
+      managed: { "appearance.appTheme": { value: "Dracula", source: "profile", reason: "Set by your organization" } },
+    },
+  });
+  expect(themeRow(page, "match")!.querySelector("[data-notice]")?.textContent).toContain("theme must be a string");
+  expect(themeRow(page, "single")!.querySelector("[data-notice]")).toBeNull();
+  expect(themeRow(page, "app-match")!.querySelector("[data-managed-reason]")).not.toBeNull();
+  expect(themeRow(page, "app-match")!.hasAttribute("data-managed")).toBe(true);
+  await run(() => page!.store.set("appearance.accent", "not-an-accent"));
+  expect(themeRow(page, "accent")!.querySelector(".row-error")).not.toBeNull();
 });

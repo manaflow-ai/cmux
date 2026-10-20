@@ -3,18 +3,15 @@ import type { GhosttyTheme } from "../../../theme/ghosttyTheme";
 import { withAllEdits, type ThemeEditMap } from "../../../theme/themeEdits";
 import { accentChoices } from "../accentChoices";
 import { AccentPicker } from "../components/AccentPicker";
+import { useColorScheme } from "../colorScheme";
 import { useSettingsSelector, useStore } from "../context";
 import { valueOf } from "../store";
 import { text } from "../strings";
 import { parseThemeSpec, themeFor } from "../themeSpec";
 import type { EditorProps } from "./types";
 
-const scheme = (): "dark" | "light" =>
-  window.matchMedia?.("(prefers-color-scheme: dark)").matches === false ? "light" : "dark";
-
 /** The theme the app takes its tokens from: appearance.appTheme's, else the terminal theme's. */
-function appSourceName(theme: unknown, appTheme: unknown): string | null {
-  const side = scheme();
+function appSourceName(theme: unknown, appTheme: unknown, side: "dark" | "light"): string | null {
   const app = typeof appTheme === "string" && appTheme !== "followTerminal" ? parseThemeSpec(appTheme) : null;
   const spec = app ?? parseThemeSpec(theme);
   return spec ? themeFor(spec, side, "") || null : null;
@@ -26,8 +23,9 @@ function appSourceName(theme: unknown, appTheme: unknown): string | null {
  */
 export function AccentRowEditor({ row, value, disabled, labelId }: EditorProps) {
   const store = useStore();
+  const side = useColorScheme();
   const name = useSettingsSelector((state) =>
-    appSourceName(valueOf(state, "appearance.theme"), valueOf(state, "appearance.appTheme")),
+    appSourceName(valueOf(state, "appearance.theme"), valueOf(state, "appearance.appTheme"), side),
   );
   const themeColors = useSettingsSelector((state) => state.themeColors);
   const edits = useSettingsSelector((state) => valueOf(state, "appearance.themeEdits") as ThemeEditMap | null);

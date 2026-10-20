@@ -1,5 +1,6 @@
 import { useEffect, useMemo } from "react";
 import { withAllEdits, isEdited, type ThemeEditMap } from "../../../theme/themeEdits";
+import { useColorScheme } from "../colorScheme";
 import { useSettingsSelector, useStore } from "../context";
 import { ThemePicker } from "../components/ThemePicker";
 import { valueOf } from "../store";
@@ -10,10 +11,6 @@ import type { EditorProps } from "./types";
 
 const THEME_EDITS_KEY = "appearance.themeEdits";
 
-/** The system appearance now; a search result re-renders often enough not to subscribe. */
-const scheme = (): "dark" | "light" =>
-  window.matchMedia?.("(prefers-color-scheme: dark)").matches === false ? "light" : "dark";
-
 /**
  * A `theme` row outside the Theme section (search results): the Theme section's own picker, so a
  * theme is chosen the same way everywhere. A light/dark pair shows and replaces the side in effect;
@@ -21,6 +18,7 @@ const scheme = (): "dark" | "light" =>
  */
 export function ThemeRowEditor({ row, value, disabled, labelId }: EditorProps) {
   const store = useStore();
+  const side = useColorScheme();
   const names = useSettingsSelector((state) => state.domains.themes);
   // Only the theme colors and the color edits: another key's change never re-renders this row.
   const themeColors = useSettingsSelector((state) => state.themeColors);
@@ -29,7 +27,7 @@ export function ThemeRowEditor({ row, value, disabled, labelId }: EditorProps) {
   const colors = useMemo(() => withAllEdits(themeColors, edits), [themeColors, edits]);
   if (names.length === 0) return <TextEditor row={row} value={value} disabled={disabled} labelId={labelId} />;
   const spec = typeof value === "string" && value !== row.default ? parseThemeSpec(value) : null;
-  const current = spec ? themeFor(spec, scheme(), "") || null : null;
+  const current = spec ? themeFor(spec, side, "") || null : null;
   return (
     <ThemePicker
       value={current}
@@ -43,7 +41,6 @@ export function ThemeRowEditor({ row, value, disabled, labelId }: EditorProps) {
       // A light/dark pair keeps its other side: the pick replaces the side in effect.
       onPick={(name) => {
         if (!name) return store.reset(row.key);
-        const side = scheme();
         const next: ThemeSpec =
           spec?.kind !== "pair"
             ? { kind: "single", name }

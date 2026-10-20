@@ -5,7 +5,7 @@
 // shows the contrast the derived app tokens reach and the active window's scope overrides inline
 // (no space/workspace/terminal tabs). Overrides and the app theme are the host's theme levels. The
 // schema's App Theme group lists the same keys; SectionView draws none of them a second time.
-import { useCallback, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { ContextMenu, type ContextMenuItem } from "../../../ui/ContextMenu";
 import { APP_ACCENTS, contrastReport, deriveAppTheme, type AppAccent } from "../../../theme/appTheme";
 import type { GhosttyTheme } from "../../../theme/ghosttyTheme";
@@ -17,19 +17,19 @@ import {
   type ThemeEditToken,
 } from "../../../theme/themeEdits";
 import { accentChoices } from "../accentChoices";
-import { useRowState, useSettingsState, useStore } from "../context";
+import { useColorScheme } from "../colorScheme";
+import { useRowState, useSettingsState, useStore, type RowState } from "../context";
 import { Switch } from "../editors/ToggleEditor";
 import { Icon } from "../icons";
 import { revealRow } from "../keyboard";
 import { rowsByKey } from "../schema";
-import type { ManagedInfo } from "../ops";
-import { managedOf, managedText, valueOf } from "../store";
+import { managedOf, valueOf } from "../store";
 import { t, text } from "../strings";
 import { formatThemeSpec, parseThemeSpec, themeFor, type ThemeSpec } from "../themeSpec";
 import { AccentPicker } from "./AccentPicker";
 import { ResetButton, ResetSpacer } from "./ResetButton";
 import { ScopeOverrides } from "./ScopeOverrides";
-import { SettingRow, useRowMenu } from "./SettingRow";
+import { RowFrame, RowStatus, SettingRow, useRowMenu } from "./SettingRow";
 import { ThemeFiles } from "./ThemeFiles";
 import { ThemePreview } from "./ThemePreview";
 import { ThemePicker } from "./ThemePicker";
@@ -45,19 +45,6 @@ export const ACCENT_KEY = "appearance.accent";
 const FOLLOW_TERMINAL = "followTerminal";
 const DEFAULT_DARK = "Apple System Colors";
 const DEFAULT_LIGHT = "Apple System Colors Light";
-
-const darkQuery = "(prefers-color-scheme: dark)";
-function subscribeScheme(onChange: () => void): () => void {
-  const query = window.matchMedia?.(darkQuery);
-  query?.addEventListener("change", onChange);
-  return () => query?.removeEventListener("change", onChange);
-}
-const readScheme = (): "dark" | "light" => (window.matchMedia?.(darkQuery).matches ? "dark" : "light");
-
-/** The system appearance the page is shown in (the app's, through WebKit). */
-function useColorScheme(): "dark" | "light" {
-  return useSyncExternalStore(subscribeScheme, readScheme, () => "dark");
-}
 
 export function ThemeStudio({ focus = null }: { focus?: string | null } = {}) {
   const store = useStore();
@@ -295,6 +282,7 @@ export function ThemeStudio({ focus = null }: { focus?: string | null } = {}) {
               <StudioRow
                 kind="match"
                 settingKey={THEME_KEY}
+                state={themeState}
                 id={ids.match}
                 title={t("settingsPage.theme.matchSystem")}
                 help={t("settingsPage.theme.matchSystemHelp")}
@@ -343,12 +331,6 @@ export function ThemeStudio({ focus = null }: { focus?: string | null } = {}) {
               )}
             </>
           )}
-          {managed && names.length > 0 && (
-            <div className="row row-note" data-managed-reason="">
-              <Icon name="lock" />
-              {managedText(managed)}
-            </div>
-          )}
           <ScopeOverrides />
           {appRow && names.length === 0 && <SettingRow row={appRow} focused={focused === APP_THEME_KEY} />}
           {appRow && names.length > 0 && (
@@ -356,7 +338,7 @@ export function ThemeStudio({ focus = null }: { focus?: string | null } = {}) {
               <StudioRow
                 kind="app-match"
                 settingKey={APP_THEME_KEY}
-                managedNote={appManaged}
+                state={appState}
                 id={ids.appMatch}
                 title={t("settingsPage.theme.matchSystem")}
                 help={appSpec ? t("settingsPage.theme.matchSystemHelp") : t("settingsPage.theme.appFollowsTerminal")}
@@ -419,7 +401,7 @@ export function ThemeStudio({ focus = null }: { focus?: string | null } = {}) {
               id={ids.accent}
               title={text(accentRow.title)}
               help={text(accentRow.summary)}
-              managedNote={accentState.managed}
+              state={accentState}
               menu={accentMenu}
               reset={
                 <ResetButton
@@ -467,12 +449,12 @@ export function toggledPair(
 function StudioRow({
   kind,
   settingKey,
+  state,
   reveal = false,
   onRevealed,
   id,
   title,
   help,
-  managedNote,
   menu,
   reset,
   children,
@@ -480,24 +462,26 @@ function StudioRow({
   kind: string;
   /** The key it edits: Up/Down, the Reset command and `?focus=` treat it as that setting's row. */
   settingKey: string;
+  /** The key's state, on the key's first row only: its settings-file notice, why it is managed and
+   * why its last write failed, as on every SettingRow. */
+  state?: RowState;
   /** The row `?focus=` names: scrolled to with its control focused. */
   reveal?: boolean;
   onRevealed?(): void;
   id: string;
   title: string;
   help?: string;
-  managedNote?: ManagedInfo | null;
   menu: ContextMenuItem[];
   reset: ReactNode;
   children: ReactNode;
 }) {
   return (
-    <div
-      className="row"
+    <RowFrame
+      settingKey={settingKey}
+      kind={rowsByKey.get(settingKey)?.kind ?? "theme"}
+      state={state}
       data-theme-row={kind}
-      data-row-key={settingKey}
-      tabIndex={-1}
-      ref={
+      rowRef={
         reveal
           ? (node: HTMLDivElement | null) => {
               if (!node) return;
@@ -513,18 +497,13 @@ function StudioRow({
             {title}
           </div>
           {help && <div className="row-help">{help}</div>}
-          {managedNote && (
-            <div className="row-managed" data-managed-reason="">
-              <Icon name="lock" />
-              {managedText(managedNote)}
-            </div>
-          )}
+          {state && <RowStatus settingKey={settingKey} state={state} />}
         </ContextMenu>
         <div className="row-control">
           {children}
           {reset}
         </div>
       </div>
-    </div>
+    </RowFrame>
   );
 }
