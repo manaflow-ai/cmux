@@ -60,6 +60,8 @@ final class HostView: NSView {
     let headerBackdrop = HeaderBackdropView(frame: .zero)
     /// cmux: the in-pane header controls (HeaderBar's avatar and name pill).
     let paneHeader = PaneHeaderView(frame: .zero)
+    /// cmux: Reply to Selection's quote over the message box (HostView+QuoteCard.swift); nil when none shows.
+    var quoteCard: ReplyQuoteCardView?
     private(set) var demo: MessagesWindowView?
     weak var controller: ChatController? { didSet { scrollView.document.controller = controller } }
     /// MessagesLab b6760b6: the window's update observer and the window place the rows last read
@@ -175,6 +177,7 @@ final class HostView: NSView {
         controller?.placeSendButton(animated: false)
         fieldChrome.place(field: demo.compose.fieldRect, plus: demo.compose.plusRect,
                           emoji: CGRect(x: bounds.width - Fixture.windowWidth + 586.5, y: demo.compose.plusRect.minY, width: 31, height: 30))
+        placeQuoteCard(above: demo.compose.fieldRect)
     }
 
     /// Height of the header area over the content. cmux: the in-pane
@@ -368,6 +371,9 @@ final class ChatController: NSObject, NSTextViewDelegate {
     /// cmux: the host took this press as a link drag; its later moves and release are not ours.
     private var linkDragTaken = false
     private(set) lazy var selection = TranscriptSelection(controller: self)
+    /// cmux: Reply to Selection's quote while the reply is written (ChatController+ReplyQuote.swift);
+    /// nil: a reply answers the whole message.
+    var replyQuote: ReplyQuote? { didSet { if replyQuote != oldValue { updateQuoteCard() } } }
     /// Trackpad swipe-to-reply (SwipeReply.swift). cmux: installed only when
     /// the owner can honor `.reply` (`intents.canReply`).
     private(set) lazy var swipe = SwipeReply(controller: self)
@@ -532,6 +538,7 @@ final class ChatController: NSObject, NSTextViewDelegate {
     func dispatch(_ a: Action) {
         guard let store else { return }
         thread.note(a)
+        forgetQuote(for: a)
         // MessagesLab bd65bbf (Host.dispatch): a keystroke goes first. Engine jobs due now
         // run at the start of the next display frame, so they do not add their commits to
         // the keystroke's frame; a send goes first only past statuses and typing (message
@@ -573,6 +580,7 @@ final class ChatController: NSObject, NSTextViewDelegate {
         host.scrollView.syncFromModel()
         if !selection.isEmpty { selection.refresh() }
         if let demo { host.fieldChrome.follow(field: demo.compose.fieldRect) }
+        if replyQuote != nil { placeQuoteCard() }
         scheduleWake()
     }
 
@@ -644,6 +652,8 @@ final class ChatController: NSObject, NSTextViewDelegate {
         // In the field a working agent stops first (one Esc), as before threads; then the
         // thread view. The pane's Esc monitor (focus on the transcript) only closes the view.
         if isWorking { onStop?(); return }
+        // cmux: Reply to Selection: an empty field's Esc takes the quote off first, the next one closes the thread.
+        if replyQuote != nil, store?.state.ui.draft.text.isEmpty != false { replyQuote = nil; return }
         _ = thread.escape()
     }
 
@@ -725,6 +735,8 @@ final class ChatController: NSObject, NSTextViewDelegate {
         if let hit = demo.hit(p) {
             // cmux: a link (re-checked at click time, MarkdownLinkPolicy) opens in PaneLinks.
             if openLink(hit, at: p) { return }
+            // cmux: a reply's quote shows its words in the original (ChatController+ReplyQuote.swift).
+            if quoteClicked(hit, at: p) { return }
             switch hit.row.part {
             // cmux: the bytes come from HomeStore (Host.swift opened a fixture asset).
             // cmux: a video plays or pauses in its bubble (opening it in an
