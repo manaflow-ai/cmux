@@ -171,6 +171,8 @@ public struct SidebarMapping {
         row.lastMessage = lastMessage(front, tabs)
         if showsUnread { row.notificationText = newestUnread(tabs).flatMap(notificationText) }
         row.reported = Self.reported(workspace.status, asset: iconAsset)
+        row.workspaceDescription = workspace.workspaceDescription
+        row.taskStatus = workspace.taskStatus.map(Self.taskStatus)
         row.detail = detail(tabs: tabs, indicator: indicator.state, agentTab: agentTab(tabs), front: front,
                             notification: row.notificationText)
         return row
@@ -282,6 +284,17 @@ public struct SidebarMapping {
         case .error: return SidebarProgress(value: value ?? 1, isError: true)
         case .indeterminate: return SidebarProgress(value: nil)
         case .paused: return value.map { SidebarProgress(value: $0) }
+        }
+    }
+
+    /// The sidebar's lane for a workspace's manual task status (`workspace-status-v1`).
+    static func taskStatus(_ status: WorkspaceTaskStatus) -> SidebarTaskStatus {
+        switch status {
+        case .todo: .todo
+        case .working: .working
+        case .needsAttention: .needsAttention
+        case .review: .review
+        case .done: .done
         }
     }
 
