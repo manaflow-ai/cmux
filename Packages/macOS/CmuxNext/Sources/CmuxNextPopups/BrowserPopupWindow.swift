@@ -200,8 +200,14 @@ public final class BrowserPopupWindow: NSWindow {
         if page.state.isLoading { page.stop() }
     }
 
-    /// Cmd-L (`focusBrowserAddressBar`) while the popup has the keyboard.
-    public func focusAddressBar() {}
+    /// Cmd-L (`focusBrowserAddressBar`) while the popup or its page has the
+    /// keyboard: the omnibar gets it with the whole address selected, as a
+    /// tab's does (a sign-in window's read-only bar too: select and copy).
+    /// A Chromium page window holding the keyboard gives it back first.
+    public func focusAddressBar() {
+        if isVisible, !isKeyWindow { makeKey() }
+        addressBar.focus()
+    }
 
     /// Every close path (close button, Cmd-W, `window.close()`) ends here once.
     override public func close() {
