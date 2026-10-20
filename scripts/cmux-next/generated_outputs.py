@@ -31,13 +31,16 @@ import re
 import sys
 from collections.abc import Iterable
 
+# The Swift exports compile their module and its dependencies: a setting can be
+# declared in CmuxNextDesign (SidebarNavigationSettings, AttentionSettings), so
+# any CmuxNext source is an input, not only CmuxNextSettings or CmuxNextActions.
 ACTIONS_INPUTS = (
-    r"Packages/macOS/CmuxNext/Sources/CmuxNextActions/|Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Config/"
+    r"Packages/macOS/CmuxNext/Sources/"
     r"|Packages/macOS/CmuxNext/Tests/CmuxNextActionsTests/|Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/LinkExportTests\.swift"
     r"|scripts/cmux-next/regenerate-action-exports\.sh"
 )
 SETTINGS_INPUTS = (
-    r"Packages/macOS/CmuxNext/Sources/CmuxNextSettings/"
+    r"Packages/macOS/CmuxNext/Sources/"
     r"|Packages/macOS/CmuxNext/Tests/CmuxNextSettingsTests/(SettingsSchemaExportTests|ManagedPreferencesManifestTests)\.swift"
     r"|scripts/cmux-next/regenerate-settings-exports\.sh"
 )
@@ -46,7 +49,8 @@ SDK_INPUTS = r"cmux-tui/spec/|cmux-tui/bindings/codegen/|cmux-tui/bindings/rust/
 # (output patterns, input regex, how it is regenerated)
 OUTPUTS: tuple[tuple[tuple[str, ...], str, str], ...] = (
     (("Packages/macOS/CmuxNext/ci-target-graph.json",),
-     r"Packages/macOS/CmuxNext/Package\.swift$|scripts/cmux-next/ci-target-graph\.py$",
+     # dump-package's targets, plus the repository paths test sources name (`reads`).
+     r"Packages/macOS/CmuxNext/Package\.swift$|Packages/macOS/CmuxNext/Tests/.*\.swift$|scripts/cmux-next/ci-target-graph\.py$",
      "scripts/cmux-next/ci-target-graph.py (the base autofix)"),
     (("plans/cmux-next/action-surfaces.json", "plans/cmux-next/actions.md", "plans/cmux-next/links.json"),
      ACTIONS_INPUTS, "scripts/cmux-next/regenerate-action-exports.sh (a Mac; the autofix)"),
