@@ -69,8 +69,9 @@ struct HomeGroupInfoView: View {
     private var members: some View {
         let members: [HomeGroupMember] = model.info.members
         let fits: Bool = members.count <= 6
+        let header: String = model.info.membersHeader
         return VStack(alignment: .leading, spacing: Metrics.space1) {
-            Text(HomeConversationStrings.infoMembers)
+            Text(header)
                 .font(Font(Typography.caption))
                 .foregroundStyle(colors.secondary)
             ScrollView {
