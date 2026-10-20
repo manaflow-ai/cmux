@@ -592,7 +592,22 @@ def _rust_prefixes(path: Path, diagnostics: list[Diagnostic]) -> set[str]:
         )
     else:
         body, body_offset = selector
-        selector_prefixes = set(re.findall(r'"([a-z][a-z0-9_]*)"', body))
+        # The selector names its prefixes inline, or looks them up in a
+        # `PUBLIC_ID_PREFIXES` table whose rows are (prefix, CLI scope): there
+        # only each row's first string is a prefix.
+        if re.search(r"\bPUBLIC_ID_PREFIXES\b", body):
+            table = re.search(
+                r"\bconst\s+PUBLIC_ID_PREFIXES\s*:[^=]*=\s*&\[(.*?)\];", text, re.DOTALL
+            )
+            if table is None:
+                diagnostics.append(
+                    Diagnostic(path, 1, 1, "boundary.prefix", "missing PUBLIC_ID_PREFIXES table")
+                )
+                return set(actual.values())
+            body, body_offset = table.group(1), table.start(1)
+            selector_prefixes = set(re.findall(r'\(\s*"([a-z][a-z0-9_]*)"\s*,', body))
+        else:
+            selector_prefixes = set(re.findall(r'"([a-z][a-z0-9_]*)"', body))
         missing = set(EXPECTED_PREFIXES) - selector_prefixes
         stale = selector_prefixes - set(EXPECTED_PREFIXES)
         for prefix in sorted(missing):
