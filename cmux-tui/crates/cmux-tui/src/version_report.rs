@@ -6,96 +6,18 @@
 //! The JSON is the one paste a bug report needs for version-skew triage:
 //! release, build, both protocols, platform and how the binary was installed.
 
-use std::path::{Component, Path};
+use std::path::Path;
 
-/// The npm/PyPI release that contains this binary. Anything else (a local or
-/// test build, or a raw R2 tree artifact stamped `0.0.0-r2.sha-…` that the
-/// app bundles) reports the one cmux-next version, the workspace crate
-/// version, which `scripts/cmux-next/check-version-surfaces.sh` requires.
-pub(crate) const DISTRIBUTION_VERSION: &str = match option_env!("CMUX_TUI_DISTRIBUTION_VERSION") {
-    Some(version) if is_release(version) => version,
-    _ => env!("CARGO_PKG_VERSION"),
-};
-
-/// A release version: not empty and not a `0.0.0-…` placeholder stamp.
-const fn is_release(version: &str) -> bool {
-    let bytes = version.as_bytes();
-    let placeholder = b"0.0.0-";
-    if bytes.is_empty() {
-        return false;
-    }
-    if bytes.len() < placeholder.len() {
-        return true;
-    }
-    let mut index = 0;
-    while index < placeholder.len() {
-        if bytes[index] != placeholder[index] {
-            return true;
-        }
-        index += 1;
-    }
-    false
-}
-
-/// How this binary reached the machine, read from its own path.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum InstallChannel {
-    /// A `cmux-tui-<platform>` npm package (`npx cmux`, `npm install -g cmux`).
-    Npm,
-    /// A `cmux` PyPI wheel (`uvx cmux`, `pipx`, `uv tool install`).
-    Pypi,
-    /// Bundled inside the cmux macOS app, which updates it.
-    App,
-    /// Anything else: a source build, a copied binary, an SSH-bootstrapped host.
-    Other,
-}
-
-impl InstallChannel {
-    pub(crate) fn detect(executable: &Path) -> Self {
-        let names: Vec<String> = executable
-            .components()
-            .filter_map(|component| match component {
-                Component::Normal(name) => Some(name.to_string_lossy().to_ascii_lowercase()),
-                _ => None,
-            })
-            .collect();
-        if names.iter().any(|name| name.ends_with(".app")) {
-            Self::App
-        } else if names.iter().any(|name| name == "node_modules") {
-            Self::Npm
-        } else if names.iter().any(|name| name == "site-packages" || name == "dist-packages") {
-            Self::Pypi
-        } else {
-            Self::Other
-        }
-    }
-
-    pub(crate) fn as_str(self) -> &'static str {
-        match self {
-            Self::Npm => "npm",
-            Self::Pypi => "pypi",
-            Self::App => "app",
-            Self::Other => "other",
-        }
-    }
-
-    /// The command that moves this install to the latest release, when the
-    /// channel has one (the app updates itself; other installs are manual).
-    pub(crate) fn update_command(self) -> Option<&'static str> {
-        match self {
-            Self::Npm => Some("npm install --global cmux@latest"),
-            Self::Pypi => Some("uv tool upgrade cmux"),
-            Self::App | Self::Other => None,
-        }
-    }
-}
+#[cfg(test)]
+use cmux_tui_core::release::is_release;
+pub(crate) use cmux_tui_core::release::{DISTRIBUTION_VERSION, InstallChannel};
 
 /// The release `cmux --version` names. An unpublished commit artifact (the R2
 /// tree builds the cmux-next app bundles, stamped `0.0.0-r2.sha-<commit>`)
 /// names the cmux-next version, the crate version from cmux-tui/Cargo.toml
 /// [workspace.package], so the app's CLI says what the app says (1.0.0).
-pub(crate) fn release_version<'a>(distribution: &'a str, _crate_version: &'a str) -> &'a str {
-    distribution
+pub(crate) fn release_version<'a>(distribution: &'a str, crate_version: &'a str) -> &'a str {
+    if distribution.starts_with("0.0.0-") { crate_version } else { distribution }
 }
 
 /// `cmux --version`'s line after `cmux `.
