@@ -35,6 +35,16 @@ public nonisolated enum ChromeTunables {
         "chrome.tabs.compact", .tabs, "Compact tabs",
         help: "A tighter tab strip at compact density: 26 pt strip, 22 pt tabs, the icon 6 pt in and 4 pt from its title. Off: 28, 24, 8 and 6.",
         default: false, code: "ChromeTunables.compactTabs")
+    // @intent no top bar (Leo 2026-10-14): a chat's header tools in its pane's tab row is opt-in, off by default.
+    public static let tabRowTools = Tunable<Bool>.toggle(
+        "chrome.tabs.rowTools", .tabs, "Chat tools in the tab row",
+        help: "A chat's header tools sit at the right end of its pane's tab row instead of a row of their own; the tabs make room. Off: the chat header is its own row under the tabs.",
+        default: false, code: "ChromeTunables.tabRowTools")
+    // @intent opt-in looks live in Debug Settings, off by default, until promoted (Lawrence via Leo, 2026-10-15).
+    public static let interfaceSize = Tunable<Bool>.toggle(
+        "chrome.interfaceSize", .shape, "Interface size",
+        help: "Scale chrome type, spacing and control heights together by appearance.interfaceScale (90, 100, 110 or 125%). Off: 100%.",
+        default: false, code: "ChromeTunables.interfaceSize")
     public static let compactTabContentLeadingInset = points("compactTabContentLeadingInset", .tabs, "Compact tab content inset",
                                                              help: "Tab content inset under Compact tabs.", 6, range: 0...24)
     public static let dividerThickness = points("dividerThickness", .panes, "Divider thickness", help: "Visible line between split panes.", 1, range: 0...6)
@@ -50,7 +60,7 @@ public nonisolated enum ChromeTunables {
         default: 0.14, range: 0...0.6, step: 0.01, unit: .fraction, code: "ChromeTunables.opaqueOverlayLift")
     public static let glassOverlayTintStrength = Tunable<Double>.number(
         "glass.overlayTintStrength", .glass, "Overlay tint strength", help: "Multiplier on the theme glass tint's alpha for overlay surfaces (palette, hover cards, browser bars, drop overlay).",
-        default: 1, range: 0...3, step: 0.05, unit: .multiplier, code: "ChromeTunables.glassOverlayTintStrength")
+        default: 1.25, range: 0...3, step: 0.05, unit: .multiplier, code: "ChromeTunables.glassOverlayTintStrength")
 
     // MARK: Scroll fade
 
@@ -61,7 +71,7 @@ public nonisolated enum ChromeTunables {
     static var fixed: [TunableDescriptor] {
         [space1, space2, space3, space4, space5, space6, trafficLightInset, sidebarMinWidth, sidebarMaxWidth, tabBackgroundInset,
          tabContentLeadingInset, dividerThickness, dividerHitWidth].map(\.descriptor)
-            + [compactTabs.descriptor, compactTabContentLeadingInset.descriptor]
+            + [compactTabs.descriptor, compactTabContentLeadingInset.descriptor, tabRowTools.descriptor, interfaceSize.descriptor]
             + [panePadding.descriptor, opaqueOverlayLift.descriptor, glassOverlayTintStrength.descriptor, scrollFadeMaxFraction.descriptor]
     }
 }

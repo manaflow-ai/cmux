@@ -15,7 +15,8 @@
 //!
 //! Deviation: acpmux ignores the client's `mcpServers` in `session/new` and
 //! gives every agent chat its own agent tools instead (cmux, cmux-cua,
-//! secrets: acpmux agent_tools.rs, cx-wx93i), so mux/host's way of passing
+//! secrets: acpmux agent_tools.rs, cx-wx93i; a Chief turn keeps only cmux,
+//! `TURN_TOOL_SERVERS`, cx-4a5w2), so mux/host's way of passing
 //! MCP servers reaches no harness. The Chief's own `optchat` server, which
 //! acpmux does not know, goes in the directory's `.mcp.json`, enabled by the
 //! project settings, which Claude Code harnesses read.
@@ -48,6 +49,9 @@ pub struct SessionSetup {
     /// The record grants the `profile` tool (chief_profile.rs): the
     /// launcher section of AGENTS.md names `chief profile`.
     pub profile_tool: bool,
+    /// The record grants the `chiefs` tool: the launcher section names
+    /// `chief chiefs`.
+    pub chiefs_tool: bool,
 }
 
 /// Whether this host copies the user's Claude Code settings env into its
@@ -238,6 +242,155 @@ pub const TURN_DENIED_TOOLS: [&str; 25] = [
     "Workflow",
 ];
 
+/// The cmux MCP tools a Chief turn keeps (cx-68uof, hq-6d 2026-10-16): open
+/// and focus workspaces, panes, tabs, pages and files, answer dialogs, and
+/// follow agents. Chiefs, conversations, memory and subagents are the
+/// Chief's own `optchat` server (chiefs, profile, spawn, tell, zoom, date),
+/// which always loads; cmux MCP has no conversation or Chief tools (v2_tools
+/// EXCLUDED). Every other cmux MCP tool is denied in the turn's settings
+/// and stays reachable through the `cmux` CLI. Names: `agents_*` and
+/// `render` (cmux mcp agent tools), `app_<cli words>` (action tools).
+pub const CHIEF_CMUX_TOOLS: [&str; 15] = [
+    "agents_snapshot",
+    "agents_workspace_create",
+    "agents_workspace_select",
+    "agents_terminal_split",
+    "agents_terminal_focus",
+    "agents_tab_select",
+    "agents_dialog_list",
+    "agents_dialog_answer",
+    "agents_events",
+    "agents_wait",
+    "render",
+    "app_show_pane",
+    "app_show_tab",
+    "app_tab_new_page",
+    "app_file_open",
+];
+
+/// The turn presets' env that keeps only acpmux's `cmux` MCP server
+/// (acpmux `agent_tools::SERVERS_ENV`; its built-in turn presets set the
+/// same, cx-4a5w2). In the app, whose bundle has `cmux-cua`, the computer
+/// use and secret servers' 43 tool names and instructions came after the
+/// turn's cache mark: 1,440 of its 2,905 uncached tokens, every turn.
+pub const TURN_TOOL_SERVERS: (&str, &str) = ("ACPMUX_AGENT_TOOL_SERVERS", "cmux");
+
+/// The turn presets' env that limits acpmux's `cmux` MCP server to
+/// `CHIEF_CMUX_TOOLS` (acpmux `agent_tools::MCP_TOOLS_ENV`).
+pub const TURN_TOOLS_ENV: &str = "CMUX_MCP_TOOLS";
+
+/// The code-mode tools of `cmux mcp serve`: a script reaches every cmux
+/// tool, so a turn always denies them, even when the server did not get
+/// `TURN_TOOLS_ENV`.
+const CODE_MODE_TOOLS: [&str; 2] = ["cmux_exec", "cmux_docs"];
+
+/// Deny rules for the other agent tool servers, the second guard for an
+/// acpmux without `TURN_TOOL_SERVERS` (their tools leave the list; their
+/// instructions stay).
+pub const TURN_DENIED_SERVERS: [&str; 3] =
+    ["mcp__cmux-cua", "mcp__cmux-secrets", "mcp__cmux-sessions"];
+
+/// How long `cmux mcp tools` may take before a turn keeps every tool.
+const TOOL_LIST_LIMIT: std::time::Duration = std::time::Duration::from_secs(15);
+
+/// The cmux MCP tool names of the CLI the turn's env runs (`cmux --json
+/// mcp tools`, the list `cmux mcp serve` gives every agent chat) and whether
+/// the app's action tools were in it (`app_actions`: false while the cmux
+/// app does not answer; its `app_*` tools then load later). None when it
+/// fails or takes longer than `TOOL_LIST_LIMIT`.
+pub fn cmux_tool_names(env: &BTreeMap<String, String>) -> Option<(Vec<String>, bool)> {
+    let mut child = std::process::Command::new("cmux")
+        .args(["--json", "mcp", "tools"])
+        .envs(env)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .ok()?;
+    // Only the pipe goes to the reader; the child stays here unreaped, so a
+    // kill after the limit can never reach a reused pid.
+    let mut stdout = child.stdout.take()?;
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let mut bytes = Vec::new();
+        let _ = tx.send(std::io::Read::read_to_end(&mut stdout, &mut bytes).map(|_| bytes));
+    });
+    let Ok(Ok(bytes)) = rx.recv_timeout(TOOL_LIST_LIMIT) else {
+        let _ = child.kill();
+        let _ = child.wait();
+        return None;
+    };
+    let status = child.wait().ok()?;
+    if !status.success() {
+        return None;
+    }
+    let value: Value = serde_json::from_slice(&bytes).ok()?;
+    let names = value["tools"].as_array().map(|tools| {
+        tools
+            .iter()
+            .filter_map(|t| t["name"].as_str().map(str::to_owned))
+            .collect()
+    })?;
+    Some((names, value["app_actions"] == true))
+}
+
+/// Deny rules (`mcp__cmux__<name>`) for every name not in `CHIEF_CMUX_TOOLS`.
+fn deny_rules(names: Vec<String>) -> Vec<String> {
+    CODE_MODE_TOOLS
+        .iter()
+        .map(|name| (*name).to_owned())
+        .chain(names.into_iter().filter(|name| {
+            !CHIEF_CMUX_TOOLS.contains(&name.as_str()) && !CODE_MODE_TOOLS.contains(&name.as_str())
+        }))
+        .map(|name| format!("mcp__cmux__{name}"))
+        .collect()
+}
+
+/// The pending marker: the env of a tool list taken before the cmux app
+/// answered. Each turn start (`set_session_cache`) lists again with it until
+/// the app's action tools are in, then adds their denials.
+const PENDING: &str = "cmux-tools-pending.json";
+
+/// Deny rules for every cmux MCP tool of `env`'s CLI not in
+/// `CHIEF_CMUX_TOOLS`. When the list cannot be read, only the code-mode
+/// tools: the turn keeps every other tool (behind ToolSearch) and host.log
+/// says so. When the app's
+/// action tools were not in the list, `session` gets the pending marker.
+pub fn cmux_tool_denials(session: &Path, env: &BTreeMap<String, String>) -> Vec<String> {
+    let pending = session.join(".claude").join(PENDING);
+    let Some((names, app)) = cmux_tool_names(env) else {
+        crate::log::log(
+            "reading the cmux MCP tool list (cmux --json mcp tools) failed; Chief turns keep every cmux tool but cmux_exec and cmux_docs",
+        );
+        return deny_rules(Vec::new());
+    };
+    if app {
+        let _ = std::fs::remove_file(&pending);
+    } else if let Ok(text) = serde_json::to_string(env) {
+        crate::log::log(
+            "the cmux app did not answer: its action tools are filtered from the next turn on",
+        );
+        if let Err(e) = write_private(&pending, text.as_bytes()) {
+            crate::log::log(format!("writing {}: {e}", pending.display()));
+        }
+    }
+    deny_rules(names)
+}
+
+/// With the pending marker in `dir` (a session's `.claude`): the denials of
+/// a list that now has the app's action tools (the marker goes), else None.
+fn pending_denials(dir: &Path) -> Option<Vec<String>> {
+    let pending = dir.join(PENDING);
+    let env: BTreeMap<String, String> =
+        serde_json::from_str(&std::fs::read_to_string(&pending).ok()?).ok()?;
+    let (names, app) = cmux_tool_names(&env)?;
+    if !app {
+        return None;
+    }
+    let _ = std::fs::remove_file(&pending);
+    Some(deny_rules(names))
+}
+
 /// The Claude Code env of every turn, in the turn directory's project
 /// settings (over the user's settings env; acpmux's built-in Chief presets
 /// take no env from the host): tool search on, so every MCP tool but the
@@ -314,6 +467,7 @@ pub fn write(paths: &Paths, setup: &SessionSetup) -> io::Result<()> {
         setup.instructions.as_deref(),
         &Tools::Cli(chief),
         setup.profile_tool,
+        setup.chiefs_tool,
     );
     write_if_changed(&paths.session.join("AGENTS.md"), agents.as_bytes())?;
     match setup.tools {
@@ -334,7 +488,17 @@ pub fn write(paths: &Paths, setup: &SessionSetup) -> io::Result<()> {
         pretty(&mcp_json(setup, paths))?.as_bytes(),
     )?;
     // Private: they may hold the user's settings env (an API token).
-    let mut settings = settings_json(setup, paths, &TURN_DENIED_TOOLS);
+    // cx-68uof: only the Chief's cmux MCP tools load with a turn; the rest
+    // are denied, so Claude Code lists none of them (the deferred-tool list
+    // it appends after our cached input was 3,365 tokens for 165 tools).
+    let denied = cmux_tool_denials(&paths.session, &setup.env);
+    let deny: Vec<&str> = TURN_DENIED_TOOLS
+        .iter()
+        .copied()
+        .chain(TURN_DENIED_SERVERS)
+        .chain(denied.iter().map(String::as_str))
+        .collect();
+    let mut settings = settings_json(setup, paths, &deny);
     for (key, value) in TURN_SETTINGS_ENV {
         settings["env"][key] = json!(value);
     }
@@ -357,8 +521,55 @@ pub fn write(paths: &Paths, setup: &SessionSetup) -> io::Result<()> {
     let chief = paths.bin.join("chief");
     write_if_changed(&chief, launcher(setup).as_bytes())?;
     std::fs::set_permissions(&chief, std::fs::Permissions::from_mode(0o755))?;
+    let claude = paths.bin.join("claude");
+    write_if_changed(&claude, CLAUDE_SHIM.as_bytes())?;
+    std::fs::set_permissions(&claude, std::fs::Permissions::from_mode(0o755))?;
     Ok(())
 }
+
+/// Variables a Claude harness plants in its own process env that must not
+/// reach a `claude` started from its shell: a subrouter account's Claude
+/// home (`CLAUDE_CONFIG_DIR`, whose settings name a dead local base URL,
+/// `http://127.0.0.1:1`), the harness's route and credentials, and the
+/// nested-session markers.
+pub const CLAUDE_SHIM_DROPPED_ENV: [&str; 8] = [
+    "CLAUDE_CONFIG_DIR",
+    "ANTHROPIC_BASE_URL",
+    "ANTHROPIC_AUTH_TOKEN",
+    "ANTHROPIC_API_KEY",
+    "ANTHROPIC_CUSTOM_HEADERS",
+    "CLAUDECODE",
+    "CLAUDE_CODE_ENTRYPOINT",
+    "CLAUDE_CODE_SSE_PORT",
+];
+
+/// `bin/claude`, first on the PATH of the Chief's turn and subagent
+/// sessions: a background agent a session starts with `claude` (no
+/// terminal) runs the user's own Claude CLI (the next `claude` on PATH)
+/// with the user's own config: `~/.claude/settings.json`, which Claude
+/// Code re-reads while it runs, and the user's login. Without it such an
+/// agent inherited the session's `CLAUDE_CONFIG_DIR` (a subrouter account's
+/// home) and retried a dead base URL until it timed out (a103,
+/// 2026-10-19). `CHIEF_KEEP_CLAUDE_ENV=1` keeps the inherited variables.
+pub const CLAUDE_SHIM: &str = r#"#!/bin/sh
+# optchat-chief: run the user's own Claude CLI with the user's own config
+# (session_dir.rs CLAUDE_SHIM).
+self_dir=$(cd "$(dirname "$0")" && pwd -P)
+PATH=$(printf '%s' "$PATH" | tr ':' '
+' | while IFS= read -r d; do
+  [ -n "$d" ] && [ "$(cd "$d" 2>/dev/null && pwd -P)" != "$self_dir" ] && printf '%s:' "$d"
+done)
+PATH=${PATH%:}
+export PATH
+if [ "${CHIEF_KEEP_CLAUDE_ENV:-}" != 1 ]; then
+  unset CLAUDE_CONFIG_DIR ANTHROPIC_BASE_URL ANTHROPIC_AUTH_TOKEN ANTHROPIC_API_KEY ANTHROPIC_CUSTOM_HEADERS CLAUDECODE CLAUDE_CODE_ENTRYPOINT CLAUDE_CODE_SSE_PORT
+fi
+if ! command -v claude >/dev/null 2>&1; then
+  echo "claude: not found on PATH (after the Chief's own bin)" >&2
+  exit 127
+fi
+exec claude "$@"
+"#;
 
 /// Writes every subagent's working directory (section 9): `.mcp.json`
 /// (zoom and date), the turn's project settings (no Task/Agent, no hooks,
@@ -442,6 +653,9 @@ pub fn set_session_cache(
 ) -> io::Result<()> {
     let dir = session.join(".claude");
     std::fs::create_dir_all(&dir)?;
+    // cx-68uof: the cmux app's action tools, when they were not listed at
+    // host start, are denied from the first turn that finds them.
+    let late = pending_denials(&dir);
     for name in ["settings.json", "settings.local.json"] {
         let path = dir.join(name);
         let mut value: Value = std::fs::read_to_string(&path)
@@ -449,6 +663,18 @@ pub fn set_session_cache(
             .and_then(|t| serde_json::from_str(&t).ok())
             .filter(Value::is_object)
             .unwrap_or_else(|| json!({}));
+        if let Some(late) = &late {
+            if !value["permissions"]["deny"].is_array() {
+                value["permissions"]["deny"] = json!([]);
+            }
+            if let Some(deny) = value["permissions"]["deny"].as_array_mut() {
+                for rule in late {
+                    if !deny.iter().any(|d| d == rule) {
+                        deny.push(json!(rule));
+                    }
+                }
+            }
+        }
         value["promptCacheTtl"] = json!(ttl.as_str());
         // At 5 minutes also FORCE_PROMPT_CACHING_5M, which wins over every
         // other source of Claude Code's TTL (a subscription login marks 1h).

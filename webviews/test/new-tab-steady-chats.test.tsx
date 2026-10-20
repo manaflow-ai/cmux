@@ -9,6 +9,8 @@ import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import { noChat } from "../src/gallery/fixtures/acpmux";
+import { recentSessions } from "../src/agent-session/acpmux/NewTabPage";
+import { recentChatCards } from "../src/agent-session/acpmux/newtab/screenModel";
 import type { AcpmuxSessionEntry } from "../src/agent-session/acpmux/sessionList";
 
 const scope = globalThis as Record<string, unknown>;
@@ -126,6 +128,18 @@ test("two New Tabs drawn at different moments of one minute show the same age", 
   }
 });
 
+test("same-time chats keep a deterministic order when the snapshot order changes", () => {
+  const sessions = [
+    lane({ sessionId: "chat-b", updatedAt: T0, name: "Second chat" }),
+    lane({ sessionId: "chat-a", updatedAt: T0, name: "First chat" }),
+  ];
+  expect(recentSessions(sessions, 2, false).map((session) => session.sessionId)).toEqual(["chat-a", "chat-b"]);
+  expect(recentSessions([...sessions].reverse(), 2, false).map((session) => session.sessionId)).toEqual([
+    "chat-a",
+    "chat-b",
+  ]);
+});
+
 test("a lane shows once, by its name, not again by its transcript's first prompt", async () => {
   const { setDeviceChats } = await import("../src/agent-session/acpmux/newtab/deviceChats");
   const agent = "01a13744-474a-4b2e-9f0e-7c1d2e3f4a5b";
@@ -140,6 +154,65 @@ test("a lane shows once, by its name, not again by its transcript's first prompt
   ]);
   const page = await mount("a", [lane({ agentSessionId: agent })]);
   expect(rows(page).map((row) => row.title)).toEqual(["cg-next-reds", "Fix the flaky upload test"]);
+});
+
+// A lane's child sessions, started from coordinator messages (Leo 2026-10-13: "Coordinator: ..."
+// rows at the top of Chats), fold under their parent: neither the child's acpmux session
+// (`spawnedBy`) nor its transcript in the device index (`parent`) is listed on its own.
+test("a chat another chat's agent started is not listed on its own", async () => {
+  const { setDeviceChats } = await import("../src/agent-session/acpmux/newtab/deviceChats");
+  setDeviceChats([
+    {
+      key: "claude-code:child-transcript",
+      harness: "claude-code",
+      title: "Coordinator: fix the reds",
+      updatedAt: T0,
+      parent: "claude-code:lane",
+    },
+    { key: "claude-code:another", harness: "claude-code", title: "Fix the flaky upload test", updatedAt: T0 - MINUTE },
+  ]);
+  const page = await mount("a", [
+    lane({}),
+    lane({ sessionId: "child", name: "Coordinator: land the PR", spawnedBy: "lane-1", updatedAt: T0 + 1 }),
+  ]);
+  expect(rows(page).map((row) => row.title)).toEqual(["cg-next-reds", "Fix the flaky upload test"]);
+});
+
+// The parent's row keeps its children in a collapsed list with a count; opened, it lists them under
+// it (Leo 2026-10-14).
+test("a chat's children fold into a list under its row", async () => {
+  const { setDeviceChats } = await import("../src/agent-session/acpmux/newtab/deviceChats");
+  setDeviceChats([]);
+  const page = await mount("a", [
+    lane({}),
+    lane({ sessionId: "child", name: "Coordinator: land the PR", spawnedBy: "lane-1", updatedAt: T0 + 1 }),
+    lane({ sessionId: "child-2", name: "Coordinator: fix the reds", spawnedBy: "lane-1", updatedAt: T0 + 2 }),
+  ]);
+  expect(rows(page).map((row) => row.title)).toEqual(["cg-next-reds"]);
+  const toggle = page.querySelector<HTMLButtonElement>(".nt-card-children-toggle")!;
+  expect(toggle.getAttribute("aria-expanded")).toBe("false");
+  expect(toggle.textContent).toBe("2");
+  await act(async () => toggle.click());
+  expect(toggle.getAttribute("aria-expanded")).toBe("true");
+  expect(rows(page).map((row) => row.title)).toEqual([
+    "cg-next-reds",
+    "Coordinator: fix the reds",
+    "Coordinator: land the PR",
+  ]);
+});
+
+// A child lists on its own when its parent is not in the list (deleted, or a summary from before
+// the daemon dropped the tag) or when it waits on the user, so no chat is hidden everywhere.
+test("a child whose parent is gone, or that waits on the user, lists on its own", async () => {
+  const { setDeviceChats } = await import("../src/agent-session/acpmux/newtab/deviceChats");
+  setDeviceChats([]);
+  const page = await mount("a", [
+    lane({}),
+    lane({ sessionId: "orphan", name: "Coordinator: orphan", spawnedBy: "deleted-lane", updatedAt: T0 + 1 }),
+    lane({ sessionId: "asks", name: "Coordinator: asks", spawnedBy: "lane-1", indicator: "input", updatedAt: T0 + 2 }),
+  ]);
+  expect(rows(page).map((row) => row.title)).toEqual(["Coordinator: asks", "cg-next-reds", "Coordinator: orphan"]);
+  expect(page.querySelector(".nt-card-children-toggle")).toBeNull();
 });
 
 test("a chat whose last turn failed reads Failed; one that lost its agent reads Disconnected", async () => {
@@ -191,4 +264,14 @@ test("the age is a fixed, right-aligned column after the harness icon, and rows 
     edge: "-10px",
     rowPadding: "0px 10px",
   });
+});
+
+test("same-time device chats keep a deterministic order when the host's push order changes", () => {
+  const chats = [
+    { key: "claude:chat-b", harness: "claude", title: "Second chat", updatedAt: T0 },
+    { key: "claude:chat-a", harness: "claude", title: "First chat", updatedAt: T0 },
+  ];
+  const order = (device: typeof chats) => recentChatCards([], T0, undefined, device).map((card) => card.title);
+  expect(order(chats)).toEqual(["First chat", "Second chat"]);
+  expect(order([...chats].reverse())).toEqual(["First chat", "Second chat"]);
 });

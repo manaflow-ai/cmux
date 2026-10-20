@@ -106,12 +106,11 @@ final class PageWKWebView: WKWebView {
         ObjectIdentifier(menu) == id || menu.items.contains { item in item.submenu.map { Self.menu($0, contains: id) } ?? false }
     }
 
-    /// A first click in an inactive window reaches the page, as on the native controls (sidebar rows,
-    /// dividers, toasts, popup rows): WebKit accepts a first mouse only to drag a selection, so a
-    /// person's click on a page button only activated the window. A page action that removes or
-    /// grants something keeps its own confirmation (the host's native sheet), so this skips none; a
-    /// page with a one-click destructive or granting control opts out
-    /// (``PageDescriptor/acceptsFirstMouse``) and keeps WebKit's answer. No owner: WebKit's answer.
+    /// On a page that opts in (``PageDescriptor/acceptsFirstMouse``, off by default), a first click
+    /// in an inactive window reaches the page, as on the native controls (sidebar rows, dividers,
+    /// toasts, popup rows): WebKit accepts a first mouse only to drag a selection, so a person's
+    /// click on a page button only activated the window. Every other page, and a view with no
+    /// owner, keeps WebKit's answer.
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
         if pageAcceptsFirstMouse?() ?? false { return true }
         // WebKit reads the event (its location); without one it has no first mouse to accept.

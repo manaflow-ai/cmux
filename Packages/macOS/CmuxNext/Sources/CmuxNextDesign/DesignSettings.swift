@@ -9,6 +9,11 @@ public enum MetricKey: String, Sendable, CaseIterable, Codable {
     case sidebarRowHeight
     case tabStripHeight
     case tabMaxWidth
+    /// Chrome's tab minimums (design-tokens.json `motion.tabStrip`): crowding shrinks every tab
+    /// evenly to the active minimum, then the inactive tabs to theirs; pinned tabs are always one width.
+    case tabMinActiveWidth
+    case tabMinInactiveWidth
+    case tabPinnedWidth
     case paletteRowHeight
     case columnGap
     case panelCornerRadius
@@ -28,9 +33,19 @@ public final class DesignSettings {
     /// Intentional Command/Control hold hints (`shortcuts.showModifierHoldHints`).
     public var showModifierHoldHints = true
     public var density: Density = .compact
-    /// `app.uiScale`, the app-wide chrome and first-party page scale.
+    /// `app.uiScale`, the content/page scale. Chrome uses `interfaceScale`.
     /// Terminal content deliberately remains owned by Ghostty's font size.
     public var uiScale: CGFloat = 1
+    /// `appearance.interfaceScale`: the opt-in multiplier for the app chrome. A single token
+    /// multiplier drives type, spacing and control heights across native surfaces.
+    public var interfaceScale: CGFloat = 1
+    /// Whether `interfaceScale` applies: the Debug Settings toggle `chrome.interfaceSize`, off by
+    /// default (and always off in Release, where the tunable store is inert).
+    public var interfaceScaleEnabled: Bool { ChromeTunables.interfaceSize.override ?? false }
+    /// Sets the `--cmux-interface-scale` token web chrome reads: the multiplier, or 1 when it is off.
+    public var interfaceScaleScript: String {
+        "document.documentElement.style.setProperty('--cmux-interface-scale', '\(interfaceScaleEnabled ? interfaceScale : 1)')"
+    }
     /// `agentPane.zoom`, the focused agent chat's own display scale.
     public var agentPaneZoom: CGFloat = 1
     /// `ui.animationSpeed`: how fast chrome animates (see `Motion`). A change posts
@@ -41,17 +56,26 @@ public final class DesignSettings {
             NotificationCenter.default.post(name: Motion.speedDidChange, object: nil)
         }
     }
+    /// `appearance.colorTransition.*`: how theme and color changes animate (``ColorTransition``;
+    /// read it resolved through `ColorTransition.current`). Web pages take a new value with their
+    /// next theme payload.
+    public var colorTransition = ColorTransition()
     /// `ui.animations.bounce`: structural springs are critically damped or bounce subtly.
     public var animationBounce: MotionBounce = .none
     /// The `ui.animations.{newTab,newWorkspace}` kinds on: new tabs by default
     /// (`AnimationKindsSetting.defaultEnabled`), new workspaces off.
     public var enabledAnimations: Set<MotionKind> = [.newTab]
     /// `ui.paneAnimations`: pane layout changes spring when true (see
-    /// `Motion.animatesPaneLayout`); off by default.
-    public var paneAnimations = false
+    /// `Motion.animatesPaneLayout`); on by default.
+    public var paneAnimations = true
     /// `labs.classicHome`: Home is the classic top page instead of the home workspace with its
     /// left dock (cx-ebm.59.5); off by default, kept one release. Read when Home opens.
     public var classicHome = false
+    /// `home.channelsEnabled`: the sidebar shows the Channels entry after Home (cx-frn2y); off by default.
+    public var homeChannelsEnabled = false
+    /// `home.chiefBubbleStyle` is `theme`: the Chief chat's bubbles take the theme's colours; false (the
+    /// default) keeps iMessage's blue and grey. The Home transcript follows it (`HomeNativeTranscriptView.bubbleStyle`).
+    public var homeChiefBubblesThemed = false
     /// Per-metric overrides in points, clamped by `setOverride`.
     public private(set) var overrides: [MetricKey: CGFloat] = [:]
     /// Pane padding, corner radius and border from cmux.json `layout.*`,
@@ -59,6 +83,8 @@ public final class DesignSettings {
     public private(set) var paneChrome = PaneChromeOverrides()
     /// `layout.centerFocusedColumn`.
     public var centerFocusedColumn: CenterFocusedColumn = .never
+    /// `tabs.overflow`: crowded tab strips shrink their tabs (default) or scroll sooner.
+    public var tabOverflow: TabOverflow = .shrink
     /// `layout.stripScrollbar`: the column strip's scrollbar.
     public var stripScrollbar: StripScrollbarMode = .system
     /// `sidebar.*`: section look and pinned band caps.
@@ -72,8 +98,8 @@ public final class DesignSettings {
         }
     }
     /// `sidebar.hoverCards.delay`: pointer rest before a sidebar row's or a tab's card opens.
-    /// Chrome's tab hover card delay at its default tab width (`HoverCardTiming.chromeDelay`).
-    public var hoverCardDelay: Duration = HoverCardTiming.chromeDelay
+    /// Defaults to `HoverCardTiming.showDelay`.
+    public var hoverCardDelay: Duration = HoverCardTiming.showDelay
     /// `layout.closeFocus`: who gets focus when the focused pane closes.
     public var closeFocus: CloseFocusPolicy = .previousNeighbor
     /// `layout.defaultColumnWidth`: new column width, a viewport fraction.
@@ -91,6 +117,8 @@ public final class DesignSettings {
     /// `layout.rows`: off hides every row entry point and fits existing
     /// rows into their column (plans/cmux-next/rows.md O1 to O3).
     public var layoutRows = true
+    /// `layout.focusPaneOnScroll`: a scroll over an unfocused pane focuses it.
+    public var focusPaneOnScroll = true
     /// `layout.minimumPaneWidth`, `layout.minimumPaneHeight`: the smallest
     /// content area a pane keeps below its chrome, in points.
     public var minimumPaneContentSize = CGSize(width: 200, height: 64)
@@ -135,7 +163,7 @@ public final class DesignSettings {
     /// keys refine (`ChromeStyle`).
     public var chromeStyle: ChromeStyle = .default
     /// `appearance.focusIndicator`: what marks the focused pane.
-    public var focusIndicator: FocusIndicator = .both
+    public var focusIndicator: FocusIndicator = .tabs
     /// `focus.inactiveTabStyle`: how an unfocused pane's tabs draw subtler
     /// when `focusIndicator` marks tabs.
     public var inactiveTabStyle: InactiveTabStyle = .fade
@@ -186,6 +214,9 @@ public final class DesignSettings {
         case .sidebarRowHeight: 20...48
         case .tabStripHeight: 22...44
         case .tabMaxWidth: 120...320
+        case .tabMinActiveWidth: 32...200
+        case .tabMinInactiveWidth: 16...120
+        case .tabPinnedWidth: 24...120
         case .paletteRowHeight: 26...48
         case .columnGap: 0...24
         case .panelCornerRadius: 0...20
@@ -197,5 +228,9 @@ public final class DesignSettings {
     /// Clamps the app-wide interface scale to the supported range.
     public static func clampedUIScale(_ value: CGFloat) -> CGFloat {
         min(max(value, 0.85), 1.5)
+    }
+
+    public static func clampedInterfaceScale(_ value: CGFloat) -> CGFloat {
+        min(max(value, 0.9), 1.25)
     }
 }

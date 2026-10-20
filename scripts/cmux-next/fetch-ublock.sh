@@ -22,6 +22,10 @@ UBLOCK_ID="cjpalhdlnbpafiamejdnhcphjbkeiagm"
 UBLOCK_ZIP_URL="https://github.com/gorhill/uBlock/releases/download/${UBLOCK_VERSION}/uBlock0_${UBLOCK_VERSION}.chromium.zip"
 UBLOCK_ZIP_SHA256="393cf95709d1074d4022970e9014e434395c53a822387f1e25f43be97cf4b582"
 UBLOCK_SOURCE_URL="https://github.com/gorhill/uBlock/archive/refs/tags/${UBLOCK_VERSION}.tar.gz"
+# SHA-256 of the staged manifest.json (with the key). CEFBuiltInExtensions
+# .adBlockerManifestSHA256 pins the same value: the agent extension guard
+# trusts only a built-in copy whose manifest matches it.
+UBLOCK_MANIFEST_SHA256="8736fdbd889f05a37c62b98da88ad3e9e2ae72a067f0909e18bc051792ab161d"
 UBLOCK_SOURCE_SHA256="a518c7d6e6b3f81d1a738befeb617abba59f93bd6b1e626da079a1003e9db52b"
 # The Web Store listing's public key (same value cmux-browser pins).
 UBLOCK_PUBLIC_KEY_BASE64="MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAmJNzUNVjS6Q1qe0NRqpmfX/oSJdgauSZNdfeb5RV1Hji21vX0TivpP5gq0fadwmvmVCtUpOaNUopgejiUFm/iKHPs0o3x7hyKk/eX0t2QT3OZGdXkPiYpTEC0f0p86SQaLoA2eHaOG4uCGi7sxLJmAXc6IsxGKVklh7cCoLUgWEMnj8ZNG2Y8UKG3gBdrpES5hk7QyFDMraO79NmSlWRNgoJHX6XRoY66oYThFQad8KL8q3pf3Oe8uBLKywohU0ZrDPViWHIszXoE9HEvPTFAbHZ1umINni4W/YVs+fhqHtzRJcaKJtsTaYy+cholu5mAYeTZqtHf6bcwJ8t9i2afwIDAQAB"
@@ -34,7 +38,7 @@ stage() {
 import base64, hashlib, json, os, shutil, stat, sys, tempfile, urllib.request, zipfile
 from pathlib import Path, PurePosixPath
 
-(target, version, ext_id, zip_url, zip_sha, source_url, key_b64, source_sha) = sys.argv[1:9]
+(target, version, ext_id, zip_url, zip_sha, source_url, key_b64, source_sha, manifest_sha) = sys.argv[1:10]
 target = Path(target)
 
 def ext_id_for(key: bytes) -> str:
@@ -46,6 +50,8 @@ def receipt_ok(root: Path) -> bool:
         r = json.loads((root / ".cmux-extension-source.json").read_text())
         m = json.loads((root / "manifest.json").read_text())
     except (OSError, ValueError):
+        return False
+    if hashlib.sha256((root / "manifest.json").read_bytes()).hexdigest() != manifest_sha:
         return False
     return (r.get("zip_sha256") == zip_sha and r.get("version") == version and m.get("version") == version
             and m.get("manifest_version") == 2 and ext_id_for(base64.b64decode(m.get("key", ""))) == ext_id)
@@ -87,7 +93,7 @@ try:
     manifest["key"] = key_b64
     (root / "manifest.json").write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n")
     (root / ".cmux-extension-source.json").write_text(json.dumps({
-        "name": "uBlock Origin", "version": version, "id": ext_id, "license": "GPL-3.0-only",
+        "name": "uBlock Origin", "version": version, "id": ext_id, "license": "GPL-3.0-or-later",
         "zip_url": zip_url, "zip_sha256": zip_sha, "source_url": source_url, "source_sha256": source_sha,
         "manifest_key": "Chrome Web Store public key (stable id)"}, indent=2) + "\n")
     (root / "SOURCE.txt").write_text(
@@ -119,4 +125,4 @@ PY
 }
 
 mkdir -p "$cache_root"
-stage "$target" "$UBLOCK_VERSION" "$UBLOCK_ID" "$UBLOCK_ZIP_URL" "$UBLOCK_ZIP_SHA256" "$UBLOCK_SOURCE_URL" "$UBLOCK_PUBLIC_KEY_BASE64" "$UBLOCK_SOURCE_SHA256"
+stage "$target" "$UBLOCK_VERSION" "$UBLOCK_ID" "$UBLOCK_ZIP_URL" "$UBLOCK_ZIP_SHA256" "$UBLOCK_SOURCE_URL" "$UBLOCK_PUBLIC_KEY_BASE64" "$UBLOCK_SOURCE_SHA256" "$UBLOCK_MANIFEST_SHA256"

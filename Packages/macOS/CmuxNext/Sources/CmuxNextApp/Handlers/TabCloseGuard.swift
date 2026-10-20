@@ -20,12 +20,15 @@ enum TabCloseGuard {
     }
 
     /// Runs `close` at once, or after the person confirms the question.
+    /// `close` gets what the question asked the terminals, so the close's undo
+    /// toast decision does not ask them again (one daemon read per Cmd-W, not two).
     static func close(_ tabs: [TabModel], on daemon: DaemonService, services: AppServices, window: NSWindow?,
-                      close: @escaping @MainActor () -> Void) {
-        guard CloseUndoToasts.isUserClose, window != nil, asks(tabs, services: services) else { return close() }
+                      close: @escaping @MainActor (_ asked: RunningPrograms) -> Void) {
+        guard CloseUndoToasts.isUserClose, window != nil, asks(tabs, services: services) else { return close([:]) }
         Task { @MainActor in
-            guard let prompt = await prompt(closing: tabs, on: daemon, services: services) else { return close() }
-            DestructiveConfirmation.present(prompt, in: window, settings: services.settings) { if $0 { close() } }
+            let (prompt, asked) = await promptAndAnswers(closing: tabs, on: daemon, services: services)
+            guard let prompt else { return close(asked) }
+            DestructiveConfirmation.present(prompt, in: window, settings: services.settings) { if $0 { close(asked) } }
         }
     }
 
@@ -41,16 +44,24 @@ enum TabCloseGuard {
     /// The question for closing `tabs` (a tab, a selection, a tab group), or
     /// nil to close at once: only a working agent or a foreground program asks.
     static func prompt(closing tabs: [TabModel], on daemon: DaemonService, services: AppServices) async -> DestructiveConfirmation.Prompt? {
+        await promptAndAnswers(closing: tabs, on: daemon, services: services).prompt
+    }
+
+    /// `prompt`, plus each terminal it asked and its answer.
+    static func promptAndAnswers(closing tabs: [TabModel], on daemon: DaemonService,
+                                 services: AppServices) async -> (prompt: DestructiveConfirmation.Prompt?, asked: RunningPrograms) {
         let snapshot = services.settings?.snapshot
         let warnTab = snapshot?.warnBeforeClosingTab ?? CmuxConfigSnapshot.closeWarningFallback
         let warnAgent = snapshot?.warnBeforeClosingAgentSession ?? CmuxConfigSnapshot.closeWarningFallback
         let terminals = tabs.filter { $0.kind == .pty && !$0.dead }
-        guard warnTab || warnAgent, !terminals.isEmpty else { return nil }
+        guard warnTab || warnAgent, !terminals.isEmpty else { return (nil, [:]) }
         let agents = terminals.compactMap(workingAgent)
         // A terminal with a working agent is that agent's question, never the program one.
         let others = terminals.filter { workingAgent($0) == nil }
-        let programs = warnTab ? await DestructiveConfirmation.runningPrograms(of: others, on: daemon) : []
-        return warning(agents: agents, programs: programs, warnTab: warnTab, warnAgent: warnAgent).map { prompt($0, closing: tabs) }
+        let asked = warnTab ? await DestructiveConfirmation.runningPrograms(bySurface: others, on: daemon) : [:]
+        let question = warning(agents: agents, programs: asked.programNames, warnTab: warnTab, warnAgent: warnAgent)
+            .map { prompt($0, closing: tabs) }
+        return (question, asked)
     }
 
     /// The question for these closing terminals, or nil to close at once.

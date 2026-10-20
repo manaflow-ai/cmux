@@ -3,25 +3,32 @@ import CmuxNextDesign
 import Foundation
 
 /// The row's state badge (`SidebarRowBadgeStyle`, Leo and Lawrence 2026-10-14): no count number.
-/// The row leads with its harness logo or its kind icon (a user's icon still wins), the badge sits
-/// on that icon's bottom-right corner (or, as a stack, in the trailing slot), and the right side
-/// shows the dim time since the last change.
+/// It always draws in the trailing slot, with or without an icon: nothing but the favicon or the
+/// user's icon draws in the leading slot (Lawrence 2026-10-19, "There should only ever be a single
+/// unread indicator for the right side"), so a row with a favicon and a text-only row
+/// (WORKSPACE-ROWS-NO-DEFAULT-ICON) put it in the same place. The right side shows the dim time
+/// since the last change.
 extension WorkspaceRowView {
     /// Applies `style` after the rest of `configure`: the row badge and the trailing time. `trailing` leaves the row as it was.
     func configureBadges(_ ws: SidebarWorkspace, shown: WorkspaceRowContent, style: SidebarRowBadgeStyle,
                          stackLimit: Int = SidebarRowBadgeStackCap.tunable.defaultValue.limit) {
-        let badges = WorkspaceRowBadges(unread: ws.unread, activity: shown.activity, stackLimit: stackLimit)
+        let badges = WorkspaceRowBadges(unread: ws.unread, activity: shown.activity, stackLimit: stackLimit,
+                                        detailed: shown.detailedStatus)
         guard style != .trailing, !isShowingPlaceholder else {
             rowBadge.configure([], look: .corner)
             return
         }
-        // The kind icon, the cleared unread badge and the idle activity are set in `configure`.
+        // The icon, the cleared unread badge and the idle activity are set in `configure`.
         if timeText == nil, let time = shown.badgeTime {
             timeText = time
             timeLabel.setString(time)
         }
         let corner = style == .corner
-        rowBadge.configure(corner ? badges.first.map { [$0] } ?? [] : badges.stacked, look: corner ? .corner : .stack)
+        // One glyph (`corner`) or the stack, in the trailing slot. A stack keeps its chips only
+        // when glyphs overlap; a lone glyph is bare (no disc behind the spinner or the unread dot,
+        // Lawrence 2026-10-18).
+        let states = corner ? badges.first.map { [$0] } ?? [] : badges.stacked
+        rowBadge.configure(states, look: states.count > 1 ? .stack : .plain)
         rowBadge.themedToolTip = Self.badgeSummary(badges, stacked: !corner)
     }
 
@@ -30,29 +37,21 @@ extension WorkspaceRowView {
     static func badgeSummary(_ badges: WorkspaceRowBadges, stacked: Bool) -> String? {
         var parts: [String] = []
         if badges.unreadCount > 0 { parts.append(Strings.unreadCount(badges.unreadCount)) }
-        for state in badges.items where state != .success {
+        for state in badges.pending where state != .success {
             if let text = Strings.activity(state), !parts.contains(text) { parts.append(text) }
         }
         if stacked, badges.overflow > 0 { parts.append(Strings.statusMore(badges.overflow)) }
         return parts.isEmpty ? nil : parts.joined(separator: ", ")
     }
 
-    /// Places the corner badge on the leading icon, or the stack left of `trailing` centered on
-    /// `cy`; returns the new trailing edge.
-    func layoutRowBadge(style: SidebarRowBadgeStyle, trailing: CGFloat, cy: CGFloat) -> CGFloat {
+    /// Places the badge (one glyph or the stack) left of `trailing`, centered on `cy`; returns the
+    /// new trailing edge. Never on the leading icon.
+    func layoutRowBadge(trailing: CGFloat, cy: CGFloat) -> CGFloat {
         guard !rowBadge.isHidden else { return trailing }
         // Whole points, so each glyph in its cell lands on the pixel grid at 1x and 2x.
-        let side = rowBadge.cellSide
-        if style == .stack {
-            let width = rowBadge.preferredWidth
-            rowBadge.frame = NSRect(x: (trailing - width).rounded(.down), y: (cy - side / 2).rounded(), width: width, height: side)
-            return rowBadge.frame.minX - Metrics.space2
-        }
-        // The glyph's center sits a quarter of a glyph inside the icon's bottom-right corner.
-        let inset = RowBadgeView.glyphSide / 4, box = icon.frame
-        rowBadge.frame = NSRect(x: (box.maxX - inset - side / 2).rounded(), y: (box.maxY - inset - side / 2).rounded(),
-                                width: side, height: side)
-        return trailing
+        let side = rowBadge.cellSide, width = rowBadge.preferredWidth
+        rowBadge.frame = NSRect(x: (trailing - width).rounded(.down), y: (cy - side / 2).rounded(), width: width, height: side)
+        return rowBadge.frame.minX - Metrics.space2
     }
 
     /// The row's backdrop for the badges' cutout rings: `fill` over the sidebar's background.

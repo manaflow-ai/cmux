@@ -291,6 +291,11 @@ pub struct Translator {
     /// suggested with its permission ask (`session_rules`), held until the
     /// answer: an "Allow for this session" hands them back.
     suggestions: Mutex<HashMap<String, Value>>,
+    /// claude control request_id -> the tool input of its `can_use_tool`
+    /// ask, held until the answer: Claude Code takes an allow only with
+    /// `updatedInput` (its permission reply schema), so an allow the hub
+    /// did not rewrite hands the input back as it came.
+    inputs: Mutex<HashMap<String, Value>>,
     next_control: AtomicI64,
     pub session_id: Mutex<Option<String>>,
     pub acp_session_id: String,
@@ -345,6 +350,9 @@ pub struct Translator {
     /// The tokens the chat's context last held (its last `message_delta`; a
     /// compaction resets it).
     context_used: AtomicU64,
+    /// A compaction just ended: the synthetic user line Claude writes next
+    /// is its summary (`compaction_summary`).
+    awaiting_summary: AtomicBool,
     /// The model id the chat's main loop last ran (its `message_start`): the
     /// `modelUsage` key for its window, which a picker alias is not.
     loop_model: Mutex<String>,
@@ -374,6 +382,9 @@ struct BackgroundShell {
     launched: bool,
     /// Its `running` update went out (`inbound.rs` `running`).
     announced: bool,
+    /// The file Claude Code writes its output to (`output_file`), once a
+    /// task event named it.
+    output: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -401,6 +412,7 @@ impl Translator {
             pending: Mutex::new(HashMap::new()),
             control_out: Mutex::new(HashMap::new()),
             suggestions: Mutex::new(HashMap::new()),
+            inputs: Mutex::new(HashMap::new()),
             next_control: AtomicI64::new(1),
             session_id: Mutex::new(None),
             acp_session_id,
@@ -425,6 +437,7 @@ impl Translator {
             background_shells: Mutex::new(HashMap::new()),
             context_window: AtomicU64::new(0),
             context_used: AtomicU64::new(0),
+            awaiting_summary: AtomicBool::new(false),
             loop_model: Mutex::new(String::new()),
             message_ids: Mutex::new(HashMap::new()),
             edits: Mutex::new(HashMap::new()),

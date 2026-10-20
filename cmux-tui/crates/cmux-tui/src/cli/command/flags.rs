@@ -8,12 +8,17 @@
 /// cmux's custom forwarding and error text.
 pub(super) const BOOLEAN_FLAGS: &[&str] = &[
     "ack",
+    // `agent list`: only the agents waiting on the person.
+    "needs-me",
+    // `agent list --json`: the agents and their counts by state.
+    "counts",
     // `agent message release`: the person's decision on a held message.
     "approve",
     "decline",
     "collapse",
     "patch",
     "candidates",
+    "catalog",
     "expand",
     "clear",
     "reply",
@@ -73,6 +78,8 @@ pub(super) const BOOLEAN_FLAGS: &[&str] = &[
     "to-right",
     "to-left",
     "include-pinned",
+    // `workspace rename`: hand the name back to the automatic namer.
+    "release-to-auto",
 ];
 
 /// `--name` ends the command without a value: it needs one, or it is no

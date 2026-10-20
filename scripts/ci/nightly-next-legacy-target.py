@@ -5,6 +5,7 @@ Usage:
   nightly-next-legacy-target.py <next-appcast> <old-appcast> <dmg-prefix>
       [--pending-meta FILE --pending-run ID --now EPOCH] [--max-pending-hours H]
       [--max-same-build-hours H] [--failure-log FILE] [--max-failures N]
+      [--refuse-build N]...
 
 Prints GitHub output lines:
   action=continue|new|none
@@ -32,6 +33,9 @@ Rules:
 - Failures count per build from --failure-log (lines "Build N failed:"). A build
   with --max-failures (default 2) counted failures is not continued and not
   submitted again; a newer cmux NEXT build still is.
+- A --refuse-build N (a build that lacks a commit in
+  NIGHTLY_LEGACY_REQUIRED_COMMITS, or whose check failed) is neither continued
+  nor submitted.
 - Fails when the cmux NEXT feed has no items, the newest item's enclosure is not
   the exact <dmg-prefix><build>.dmg, or the pending metadata is malformed.
 """
@@ -71,6 +75,7 @@ def main(argv):
     parser.add_argument("--max-same-build-hours", type=float, default=48.0)
     parser.add_argument("--failure-log")
     parser.add_argument("--max-failures", type=int, default=2)
+    parser.add_argument("--refuse-build", type=int, action="append", default=[])
     args = parser.parse_args(argv)
 
     next_items = items(args.next_appcast)
@@ -99,7 +104,7 @@ def main(argv):
         print(f"bundle_run={bundle_run}")
         return 0
 
-    blocked = set()  # builds never submitted again
+    blocked = set(args.refuse_build)  # builds never submitted (or continued)
     if args.pending_meta:
         if not args.pending_run or not re.fullmatch(r"\d+", args.pending_run) or args.now is None:
             return fail("--pending-meta needs --pending-run (a run id) and --now")
@@ -116,7 +121,7 @@ def main(argv):
             return fail(f"malformed pending submission id {submission!r}")
         if not re.fullmatch(r"\d+", bundle_run):
             return fail(f"malformed pending bundle run {bundle_run!r}")
-        if pending_build > current:
+        if pending_build > current and pending_build not in blocked:
             age_hours = (args.now - submitted) / 3600
             if accepted:
                 # Apple accepted it: never resubmit this build while the bundle is kept.

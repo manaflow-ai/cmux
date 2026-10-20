@@ -314,7 +314,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             Ok(())
         }
-        Command::Shutdown { keep_agents } => crate::cli::shutdown::run(keep_agents, json_out).await,
+        Command::Shutdown { end_agents, .. } => {
+            crate::cli::shutdown::run(end_agents, json_out).await
+        }
         Command::Config => {
             let path = Config::path();
             if json_out {
@@ -424,6 +426,8 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
         Command::Router(_)
         | Command::DaemonRun { .. }
         | Command::Stdio { .. }
+        | Command::CliAgent { .. }
+        | Command::UniichatAgent { .. }
         | Command::Session(_)
         | Command::Daemon(_)
         | Command::Harness(_)

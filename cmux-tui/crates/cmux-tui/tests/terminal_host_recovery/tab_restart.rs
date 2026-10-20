@@ -256,3 +256,90 @@ fn a_manual_restart_waits_for_the_old_host_of_a_kept_process_exit() {
     assert!(text.contains("held-exit-marker"), "the final screen is gone: {text}");
     echo_value(&harness, surface, "alive", "$$");
 }
+
+/// e. A tab kept by `shutdown-daemon` `end_terminals` + `keep_layout`
+/// (`tab-restart-kept-layout-v1`). Restart starts the new shell in the
+/// directory the keep recorded, in the same tab, and ends the keep: the
+/// tab is an ordinary terminal tab again, so its shell's `exit` closes it
+/// (a kept tab would stay, dead, for the next frontend to restart again).
+#[test]
+fn a_manual_restart_of_a_kept_layout_tab_starts_in_its_directory_and_ends_the_keep() {
+    let _exclusive = exclusive_process_test();
+    let mut harness = RecoveryHarness::start("restart-kept-layout");
+    let (terminal_id, _, surface) = start_default_shell(&harness, "kept-layout");
+    let kept_dir = harness.dir.join("keptdir");
+    fs::create_dir_all(&kept_dir).unwrap();
+    // The physical path: the session host records the shell's real directory.
+    let kept_dir = kept_dir.canonicalize().unwrap().to_string_lossy().into_owned();
+    send_line(&harness.socket, surface, &format!("cd '{kept_dir}'"));
+    // The base name: a full path can wrap on the screen.
+    let base = r#"$(basename "$PWD")"#;
+    assert_eq!(echo_value(&harness, surface, "before", base), "keptdir");
+
+    let identify = request(&harness.socket, serde_json::json!({"id": 2, "cmd": "identify"}));
+    let capabilities = identify["capabilities"].as_array().unwrap();
+    assert!(
+        capabilities.iter().any(|capability| capability == "tab-restart-kept-layout-v1"),
+        "{identify}"
+    );
+    let accepted = request(
+        &harness.socket,
+        serde_json::json!({
+            "id": 3,
+            "cmd": "shutdown-daemon",
+            "pid": identify["pid"],
+            "generation": identify["generation"],
+            "end_terminals": true,
+            "keep_layout": true,
+        }),
+    );
+    assert_eq!(accepted["accepted"], true, "{accepted}");
+    let mut daemon = harness.child.take().unwrap();
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
+    while daemon.try_wait().unwrap().is_none() {
+        assert!(Instant::now() < deadline, "daemon did not exit after shutdown");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    wait_for_no_host_records(&harness.host_root());
+
+    harness.restart();
+    let dead = tab_named(&harness, "kept-layout");
+    assert_eq!(dead["dead"], true, "{dead}");
+    assert_eq!(dead["relaunch"]["cwd"], kept_dir.as_str(), "the keep recorded another directory");
+    let resolved = request(
+        &harness.socket,
+        serde_json::json!({"cmd":"resolve-terminal","terminal_id":terminal_id}),
+    );
+    let incarnation = resolved["terminal_incarnation"].as_str().unwrap_or_default().to_string();
+    let restarted = restart_tab(&harness, dead["tab_resource_id"].clone());
+    assert_eq!(restarted["ok"], true, "{restarted}");
+    wait_for_respawn(&harness, &terminal_id, &incarnation);
+
+    let tab = tab_named(&harness, "kept-layout");
+    assert_eq!(tab["dead"], false, "{tab}");
+    assert_eq!(tab["tab_resource_id"], dead["tab_resource_id"], "the restart made a new tab");
+    assert!(tab["relaunch"].is_null(), "{tab}");
+    let surface = tab["surface"].as_u64().expect("the restarted tab has a surface");
+    wait_for_screen(&harness.socket, surface, MARKER);
+    assert_eq!(echo_value(&harness, surface, "after", base), "keptdir", "not the kept directory");
+
+    // The keep ended: the shell's exit closes the tab.
+    send_line(&harness.socket, surface, "exit");
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
+    loop {
+        let tree = request(&harness.socket, serde_json::json!({"cmd":"list-workspaces"}));
+        let present = tree["workspaces"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .flat_map(|workspace| workspace["screens"].as_array().into_iter().flatten())
+            .flat_map(|screen| screen["panes"].as_array().into_iter().flatten())
+            .flat_map(|pane| pane["tabs"].as_array().into_iter().flatten())
+            .any(|tab| tab["tab_resource_id"] == dead["tab_resource_id"]);
+        if !present {
+            break;
+        }
+        assert!(Instant::now() < deadline, "exit left the restarted kept tab: {tree}");
+        std::thread::sleep(Duration::from_millis(25));
+    }
+}

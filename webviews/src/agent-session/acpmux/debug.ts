@@ -9,6 +9,7 @@ import { loadRun, loadSeed, type LoadRunOptions } from "./loadDebug";
 import { workedTurnRows } from "./workedTurn";
 import { acpWire, type AcpWireLog } from "./wire";
 import { followTrace } from "./followTrace";
+import { composerChips, layoutWatch, type LayoutWatchOptions } from "./layoutWatch";
 
 // `window.cmuxAcpmuxDebug`, called by the DEBUG `debug.agent_pane` socket
 // method. The first measurement call turns on measurement (acpmuxPerf.enabled);
@@ -48,6 +49,8 @@ export type AcpmuxDebug = {
   openChanges(): Record<string, unknown>;
   setModel(model: string, effort?: string): Promise<Record<string, unknown>>;
   models(): Record<string, unknown>;
+  /** What moved on the page after it first showed its content, watched for `ms` (layoutWatch.ts). */
+  layoutWatch(options?: LayoutWatchOptions): Promise<Record<string, unknown>>;
   /** Streams a scripted reply into a long synthetic transcript and reports the frames (streamDebug.ts). */
   stream(options?: StreamOptions): Promise<Record<string, unknown>>;
   /** Opens a mock session of `turns` heavy turns through the real client (loadDebug.ts). */
@@ -258,6 +261,8 @@ export function createAcpmuxDebug(
             // The summary card as drawn (summary/SummaryCard.tsx), and the subagent this pane shows.
             summaryCard: summaryCardState(),
             subagentOf: document.querySelector(".cv-subagent-of__parent")?.textContent ?? null,
+            // The composer's chips as drawn (model, effort, access), keyed by their menu label.
+            composer: composerChips(),
             focused: document.hasFocus(),
           }
         : NO_AUTOMATION;
@@ -287,6 +292,9 @@ export function createAcpmuxDebug(
     },
     models() {
       return host.automation ? automation.models(host.automation) : NO_AUTOMATION;
+    },
+    layoutWatch(options = {}) {
+      return layoutWatch(options);
     },
     stream(options = {}) {
       return runStream(host.replaceRows, options);

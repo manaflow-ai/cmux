@@ -7,7 +7,9 @@ cmux NEXT's executable links with -no_exported_symbols, so the release strip
 removes every function name from it. The map keeps them for in-app
 symbolication (hang records, exception traces): per slice, the LC_UUID and
 the __TEXT,__text symbols as offsets from the __TEXT segment, sorted, named
-as dladdr names them (without the leading underscore).
+as dladdr names them (without the leading underscore), then one entry with
+an empty name at the end of __TEXT,__text: addresses past it (__stubs,
+__objc_stubs) name no function.
 
 Format, little-endian: b"CMXSYM1\\0", u32 slice count, then per slice the
 16-byte UUID, u32 payload size and the payload as raw DEFLATE (what
@@ -61,6 +63,7 @@ def functions(image: bytes) -> tuple[bytes, list[tuple[int, str]]] | None:
     uuid = None
     text_vmaddr = None
     text_section = None
+    text_end = None
     sections = 0
     symtab = None
     at = 32
@@ -79,10 +82,12 @@ def functions(image: bytes) -> tuple[bytes, list[tuple[int, str]]] | None:
                 sections += 1
                 if image[sect:sect + 16].rstrip(b"\0") == b"__text" and image[sect + 16:sect + 32].rstrip(b"\0") == b"__TEXT":
                     text_section = sections
+                    sect_addr, sect_size = struct.unpack_from("<QQ", image, sect + 32)
+                    text_end = sect_addr + sect_size
         elif cmd == LC_SYMTAB:
             symtab = struct.unpack_from("<IIII", image, at + 8)
         at += size
-    if uuid is None or text_vmaddr is None or text_section is None or symtab is None:
+    if uuid is None or text_vmaddr is None or text_section is None or text_end is None or symtab is None:
         return None
     symoff, nsyms, stroff, strsize = symtab
     strings = image[stroff:stroff + strsize]
@@ -101,6 +106,9 @@ def functions(image: bytes) -> tuple[bytes, list[tuple[int, str]]] | None:
         # Aliases at one address: the external (or first) name wins.
         if offset not in found or n_type & 0x01:
             found[offset] = name
+    if found:
+        # The end of __text: no function holds an address from here on.
+        found[text_end - text_vmaddr] = ""
     return uuid, sorted(found.items())
 
 
@@ -157,7 +165,7 @@ def main() -> int:
     for uuid, symbols in tables:
         packed = payload(symbols)
         blob += uuid + struct.pack("<I", len(packed)) + packed
-        count += len(symbols)
+        count += len(symbols) - 1  # not the end-of-__text entry
     fd, tmp = tempfile.mkstemp(dir=os.path.dirname(out) or ".", prefix=".cmux-symbols-")
     with os.fdopen(fd, "wb") as f:
         f.write(blob)

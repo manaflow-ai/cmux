@@ -71,7 +71,7 @@ describe("VM install at bind", { timeout: 60_000 }, () => {
 
   it("event.emit: v1 kinds reach the team's subscribers as an ephemeral event; bad kinds, big data and floods are refused", async () => {
     const s = await vmSetup("cloud-bind-4")
-    const res = await worker.fetch("https://api.test/v1/wire/cloud", { headers: { Upgrade: "websocket", "Sec-WebSocket-Protocol": `cmux.wire.v1, bearer.${s.a.session}` } })
+    const res = await worker.fetch("https://api.test/v1/wire/cloud", { headers: { Upgrade: "websocket", "Sec-WebSocket-Protocol": "cmux.wire.v1", authorization: `Bearer ${s.a.session}` } })
     const ws = res.webSocket!
     const frames: Array<any> = []
     ws.addEventListener("message", (e) => frames.push(JSON.parse(e.data as string)))

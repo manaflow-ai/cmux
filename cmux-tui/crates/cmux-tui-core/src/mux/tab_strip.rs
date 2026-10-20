@@ -9,6 +9,8 @@
 //! tab whose group or pin changed and every tab group the change touched,
 //! so `session.events` readers converge without refetching.
 
+pub(crate) mod tab_slot;
+
 use std::collections::BTreeSet;
 
 use super::tab_drag;

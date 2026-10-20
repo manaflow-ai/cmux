@@ -896,10 +896,15 @@ impl ProfileClient {
                                 format!("{e} (The other changes did commit.)")
                             }
                         })?;
+                    // The create's brain outcome stays (the picture's answer has none).
+                    let brain = record.get("brain").cloned();
                     record = set.get("value").cloned().unwrap_or(set);
+                    if let (Some(brain), Some(fields)) = (brain, record.as_object_mut()) {
+                        fields.insert("brain".into(), brain);
+                    }
                 }
                 let note = if action == "create" {
-                    "The new Chief starts on its own and answers in its own conversation."
+                    brain_note(&record)
                 } else {
                     "A changed name or picture shows at once; changed text reaches that Chief's \
 system prompt when its brain next starts."
@@ -909,6 +914,39 @@ system prompt when its brain next starts."
             other => Err(format!(
                 "chiefs: no action {other}; one of list, get, create, update"
             )),
+        }
+    }
+}
+
+/// What the create answered about the new Chief's brain (the daemon's real
+/// state), said plainly so the Chief tells the person the truth.
+fn brain_note(record: &Value) -> &'static str {
+    let brain = record.get("brain");
+    let state = brain.and_then(|b| b.get("state")).and_then(Value::as_str);
+    let reason = brain.and_then(|b| b.get("reason")).and_then(Value::as_str);
+    match (state, reason) {
+        (Some("started"), _) => {
+            "Its brain started: it answers in its own conversation. Tell the person so."
+        }
+        (Some("not_started"), Some("no_supervisor")) => {
+            "Its brain did NOT start: this cmux runs no Chief brains here (no supervisor). \
+Tell the person plainly that the new Chief exists but will not answer until its brain runs."
+        }
+        (Some("not_started"), Some("launch_disabled")) => {
+            "Its brain did NOT start: agents are turned off in this build session. Tell the \
+person plainly that the new Chief exists but will not answer here."
+        }
+        (Some("not_started"), Some("unconfirmed")) => {
+            "Whether its brain started is not confirmed yet (the supervisor was busy). Tell \
+the person it may answer soon, and do not promise it."
+        }
+        (Some("not_started"), _) => {
+            "Its brain did NOT start (an error; the daemon log says why). Tell the person \
+plainly that the new Chief exists but will not answer until this is fixed."
+        }
+        _ => {
+            "Whether its brain started is unknown (an older cmux). Do not tell the person it \
+answers; say it was created."
         }
     }
 }

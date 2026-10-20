@@ -4,6 +4,14 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>composer rim harness</title>
+    <!-- Each composer is a size container (composerLocation.css), so a shrink-to-fit flex item would
+         collapse to its padding: give each the width a pane gives it. -->
+    <style>
+      .acpmux-shell > .acpmux-composer {
+        flex: none;
+        inline-size: 380px;
+      }
+    </style>
   </head>
   <body>
     <section class="acpmux-shell">

@@ -7,12 +7,14 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex, PoisonError};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use cmux_cloud_wire::SnapshotBackoff;
 use serde_json::{Value, json};
 
 use super::CloudError;
 use super::contract::{
     self, InboxOpRequest, MAX_PAGE, MAX_TAIL, OpRequest, Target, history_data, inbox_list_data,
-    mutation_data, read_body, read_value, require_agent, require_conversation, snapshot_data,
+    mutation_data, read_body, read_value, requests_list_data, require_agent, require_conversation,
+    snapshot_data,
 };
 use super::session::{CloudSession, SessionParams};
 use super::stream::{CloudEvent, StreamAction, StreamState};
@@ -146,6 +148,8 @@ pub struct ServiceOptions {
     pub max_concurrent_requests: usize,
     /// Unix milliseconds.
     pub now_ms: Arc<dyn Fn() -> u64 + Send + Sync>,
+    /// How a stream asks again for a snapshot that did not decode.
+    pub snapshot_backoff: SnapshotBackoff,
     /// API origins beyond the built-in cmux Cloud ones that a lease from a
     /// connection that is not the app may name (`CMUX_CLOUD_API_ORIGINS`).
     pub api_origins: Vec<String>,
@@ -167,6 +171,7 @@ impl Default for ServiceOptions {
                 .filter(|entry| !entry.is_empty())
                 .map(str::to_string)
                 .collect(),
+            snapshot_backoff: SnapshotBackoff::default(),
             now_ms: Arc::new(|| {
                 SystemTime::now()
                     .duration_since(UNIX_EPOCH)
@@ -195,6 +200,13 @@ struct Subscription {
     idle_since: Option<Instant>,
     /// The shared socket's current state, which a later subscriber is told.
     state: SocketState,
+    /// Frames a client asked the driver to send on the socket (`run.live.get`,
+    /// `typing`).
+    outbox: Vec<String>,
+    /// The client whose `cloud-conversation-typing` is on: the indicator is
+    /// sent again after a reconnect (the owner turned it off when the old
+    /// socket closed), and turned off when that client's connection closes.
+    typing_by: Option<u64>,
 }
 
 /// One `cloud-subscription-state`: the state, its reason and the account of
@@ -412,6 +424,14 @@ impl CloudConversations {
         let reply = self.post("/v1/read", &read_body("inbox.list", params))?;
         let (value, revision) = read_value(reply)?;
         inbox_list_data(value, revision)
+    }
+
+    /// `cloud-requests-list`: the lease person's open message requests
+    /// (`home.requests.list`), rows without a valid conversation id dropped.
+    pub fn requests_list(&self) -> Result<Value, CloudError> {
+        let reply = self.post("/v1/read", &read_body("home.requests.list", json!({})))?;
+        let (value, _revision) = read_value(reply)?;
+        requests_list_data(value)
     }
 
     /// `cloud-conversation-snapshot`.
@@ -712,6 +732,8 @@ impl CloudConversations {
                         clients: BTreeSet::from([client]),
                         idle_since: None,
                         state: initial,
+                        outbox: Vec::new(),
+                        typing_by: None,
                     },
                 );
                 (true, reply)
@@ -733,6 +755,63 @@ impl CloudConversations {
             }
         }
         Ok(reply)
+    }
+
+    /// `cloud-conversation-live` (`chief-live-v1`): asks the conversation's
+    /// owner for its `run.live` snapshot on the shared socket
+    /// (`run.live.get`); the answer arrives as a `cloud-conversation-live`
+    /// event to every subscriber. Only a subscriber of the conversation asks;
+    /// while the socket is down the request waits for it (the owner also sends
+    /// the snapshot on every join).
+    pub fn request_live(&self, client: u64, conversation: &str) -> Result<Value, CloudError> {
+        require_conversation(conversation)?;
+        let target = Target::Conversation(conversation.to_string());
+        let mut subscriptions =
+            self.inner.subscriptions.lock().unwrap_or_else(PoisonError::into_inner);
+        let Some(subscription) = subscriptions
+            .get_mut(&target)
+            .filter(|subscription| subscription.clients.contains(&client))
+        else {
+            return Err(CloudError::daemon_reject(
+                "not_subscribed",
+                "subscribe to the cloud conversation first",
+            ));
+        };
+        let frame =
+            json!({"t": "run.live.get", "type": "run.live.get", "conversation": conversation})
+                .to_string();
+        if !subscription.outbox.contains(&frame) {
+            subscription.outbox.push(frame);
+        }
+        Ok(subscription.state.reply(&target))
+    }
+
+    /// `cloud-conversation-typing` (`cloud-conversation-typing-v1`): the
+    /// lease's participant is typing (`on`) or stopped, as the owner's
+    /// ephemeral `typing {on, conversation}` frame on the conversation's
+    /// shared socket (the owner's `onFrame`, conversation-do.ts); the owner
+    /// broadcasts it as `conversation-typing` and turns it off when the socket
+    /// closes. Any client of this daemon may send it while some client
+    /// subscribes the conversation (a Chief brain reads and writes on two
+    /// connections), else `not_subscribed`. The newest state replaces one
+    /// that has not gone out yet; it goes out once the socket is live, again
+    /// after a reconnect while on, and off when `client` closes while on.
+    pub fn typing(&self, client: u64, conversation: &str, on: bool) -> Result<Value, CloudError> {
+        require_conversation(conversation)?;
+        let target = Target::Conversation(conversation.to_string());
+        let mut subscriptions =
+            self.inner.subscriptions.lock().unwrap_or_else(PoisonError::into_inner);
+        let Some(subscription) =
+            subscriptions.get_mut(&target).filter(|subscription| !subscription.clients.is_empty())
+        else {
+            return Err(CloudError::daemon_reject(
+                "not_subscribed",
+                "subscribe to the cloud conversation first",
+            ));
+        };
+        subscription.typing_by = on.then_some(client);
+        queue_typing(subscription, conversation, on);
+        Ok(subscription.state.reply(&target))
     }
 
     /// Emits `target`'s current socket state. The daemon calls it after it
@@ -773,9 +852,17 @@ impl CloudConversations {
         {
             let mut subscriptions =
                 self.inner.subscriptions.lock().unwrap_or_else(PoisonError::into_inner);
-            for subscription in subscriptions.values_mut() {
+            for (target, subscription) in subscriptions.iter_mut() {
                 if subscription.clients.remove(&client) && subscription.clients.is_empty() {
                     subscription.idle_since = Some(Instant::now());
+                }
+                // Its indicator ends with it (another subscriber may keep
+                // the socket, so the owner's close-time off would not come).
+                if subscription.typing_by == Some(client)
+                    && let Target::Conversation(conversation) = target
+                {
+                    subscription.typing_by = None;
+                    queue_typing(subscription, conversation, false);
                 }
             }
         }
@@ -952,12 +1039,35 @@ impl Inner {
     }
 
     /// Time left before an idle subscription retires, capped at `cap`.
+    /// Unix milliseconds as the mirror counts them.
+    fn now(&self) -> i64 {
+        i64::try_from((self.options.now_ms)()).unwrap_or(i64::MAX)
+    }
+
     fn idle_wait(&self, target: &Target, cap: Duration) -> Duration {
         let subscriptions = self.subscriptions.lock().unwrap_or_else(PoisonError::into_inner);
         match subscriptions.get(target).and_then(|subscription| subscription.idle_since) {
             Some(since) => self.options.linger.saturating_sub(since.elapsed()).min(cap),
             None => cap,
         }
+    }
+
+    /// A socket of `target` went live: an indicator that is on goes out again
+    /// (the owner turned it off when the previous socket closed).
+    fn resend_typing(&self, target: &Target) {
+        let Target::Conversation(conversation) = target else { return };
+        let mut subscriptions = self.subscriptions.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(subscription) = subscriptions.get_mut(target)
+            && subscription.typing_by.is_some()
+        {
+            queue_typing(subscription, conversation, true);
+        }
+    }
+
+    /// The frames clients asked to send on `target`'s socket, taken.
+    fn take_outbox(&self, target: &Target) -> Vec<String> {
+        let mut subscriptions = self.subscriptions.lock().unwrap_or_else(PoisonError::into_inner);
+        subscriptions.get_mut(target).map(|s| std::mem::take(&mut s.outbox)).unwrap_or_default()
     }
 
     fn remove(&self, target: &Target) {
@@ -1005,8 +1115,19 @@ enum Ended {
     Unauthenticated,
 }
 
+/// Queues the owner's `typing` frame; the outbox holds at most one, the
+/// newest state.
+fn queue_typing(subscription: &mut Subscription, conversation: &str, on: bool) {
+    subscription.outbox.retain(|frame| {
+        !serde_json::from_str::<Value>(frame).is_ok_and(|frame| frame["t"] == "typing")
+    });
+    subscription
+        .outbox
+        .push(json!({"t": "typing", "on": on, "conversation": conversation}).to_string());
+}
+
 fn run_driver(inner: &Arc<Inner>, target: Target) {
-    let mut stream = StreamState::new(target.clone());
+    let mut stream = StreamState::new(target.clone(), inner.options.snapshot_backoff);
     let mut reporter = StateReporter { inner, target: target.clone(), last: None };
     let mut backoff = inner.options.backoff_min;
     let poll = inner.options.poll;
@@ -1033,7 +1154,7 @@ fn run_driver(inner: &Arc<Inner>, target: Target) {
             Err(ConnectError::Unavailable(_)) => Ended::Dropped,
             Ok(mut wire) => {
                 stream.on_connect();
-                pump(
+                let ended = pump(
                     inner,
                     &target,
                     &mut stream,
@@ -1041,7 +1162,13 @@ fn run_driver(inner: &Arc<Inner>, target: Target) {
                     wire.as_mut(),
                     &session,
                     &mut backoff,
-                )
+                );
+                // The owner's `off` for anyone still typing could only come
+                // on this socket.
+                for event in stream.typing_ended() {
+                    inner.emit(event.with_account(account));
+                }
+                ended
             }
         };
         match ended {
@@ -1104,12 +1231,36 @@ fn pump(
         if inner.stream_session().is_err() {
             return Ended::Reconnect;
         }
-        match wire.recv(inner.idle_wait(target, inner.options.poll)) {
+        // A client's request on the socket (`run.live.get`, `typing`) goes out once
+        // the stream is live; a failed send drops the socket, and the
+        // owner's join snapshot answers instead.
+        if stream.is_live() {
+            for frame in inner.take_outbox(target) {
+                if wire.send(&frame).is_err() {
+                    return Ended::Dropped;
+                }
+            }
+        }
+        let now = inner.now();
+        // A snapshot that did not decode is asked for again when its backoff ends.
+        for action in stream.snapshot_retry_due(now) {
+            if let StreamAction::Send(frame) = action
+                && wire.send(&frame).is_err()
+            {
+                return Ended::Dropped;
+            }
+        }
+        let mut wait = inner.idle_wait(target, inner.options.poll);
+        if let Some(at) = stream.snapshot_retry_at() {
+            let until = u64::try_from(at.saturating_sub(now)).unwrap_or(0);
+            wait = wait.min(Duration::from_millis(until));
+        }
+        match wire.recv(wait) {
             WireRecv::Idle => {}
             WireRecv::Closed { code: Some(4401) } => return Ended::Unauthenticated,
             WireRecv::Closed { .. } => return Ended::Dropped,
             WireRecv::Text(text) => {
-                for action in stream.on_text(&text) {
+                for action in stream.on_text(&text, inner.now()) {
                     match action {
                         StreamAction::Send(frame) => {
                             if wire.send(&frame).is_err() {
@@ -1118,11 +1269,19 @@ fn pump(
                         }
                         StreamAction::Emit(event) => inner.emit(event.with_account(account)),
                         StreamAction::Live => {
-                            *backoff = inner.options.backoff_min;
                             reporter.report("live", None, account);
+                            inner.resend_typing(target);
                         }
+                        StreamAction::Drop => return Ended::Dropped,
                         StreamAction::Forbidden => return Ended::Forbidden,
                     }
+                }
+                // The backoff resets only when the stream works: a snapshot or
+                // an event reached clients and no snapshot is failing. A
+                // welcome alone, or a snapshot that keeps failing, keeps it,
+                // so those reconnects slow down.
+                if stream.take_progress() && stream.is_healthy() {
+                    *backoff = inner.options.backoff_min;
                 }
             }
         }

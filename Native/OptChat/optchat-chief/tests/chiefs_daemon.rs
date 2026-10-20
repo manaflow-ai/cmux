@@ -174,13 +174,59 @@ struct Mcp {
     next: u64,
 }
 
+/// The turn session name acpmux gives Lead's turn agents in these tests
+/// (`TurnBinding` below: turn prefix `optchat-lead-`).
+const LEAD_TURN: &str = "optchat-lead-1";
+
+/// The binding of the test Chief hosts: a `/bin/bash` stands in for the
+/// acpmux agent host (not `/bin/sh`: on macOS it runs `/bin/bash` in the
+/// same pid), so a caller started by [`under_agent`] runs under a session.
+fn binding() -> optchat_chief::turn_caller::TurnBinding {
+    optchat_chief::turn_caller::TurnBinding {
+        turn_prefix: "optchat-lead-".to_owned(),
+        subagent_prefix: "optchat-sub-lead-".to_owned(),
+        agent_parent: std::fs::canonicalize("/bin/bash").ok(),
+    }
+}
+
+/// `command` run as the acpmux agent of session `session`: a `/bin/bash` agent
+/// host stays its parent, and the agent has the name acpmux sets.
+fn under_agent(command: &Command, session: &str) -> Command {
+    let mut sh = Command::new("/bin/bash");
+    sh.args(["-c", "\"$@\"; status=$?; exit $status", "bash"])
+        .arg(command.get_program())
+        .args(command.get_args());
+    for (key, value) in command.get_envs() {
+        match value {
+            Some(value) => sh.env(key, value),
+            None => sh.env_remove(key),
+        };
+    }
+    sh.env("ACPMUX_SESSION_NAME", session);
+    if let Some(dir) = command.get_current_dir() {
+        sh.current_dir(dir);
+    }
+    sh
+}
+
 impl Mcp {
     fn start(args: &[&str], env: &[(&str, &str)]) -> Mcp {
-        let mut child = Command::new(env!("CARGO_BIN_EXE_optchat-chief"))
+        Mcp::start_in(args, env, None)
+    }
+
+    /// The server as the acpmux agent of `session` ([`under_agent`]).
+    fn start_in(args: &[&str], env: &[(&str, &str)], session: Option<&str>) -> Mcp {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_optchat-chief"));
+        command
             .args(args)
             .env_remove(TURN_KEY_ENV)
             .env_remove("OPTCHAT_SUBAGENT")
-            .envs(env.iter().copied())
+            .env_remove("ACPMUX_SESSION_NAME")
+            .envs(env.iter().copied());
+        if let Some(session) = session {
+            command = under_agent(&command, session);
+        }
+        let mut child = command
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .spawn()
@@ -248,6 +294,7 @@ fn serve(home: &Path, chief: Arc<ChiefTools>) -> PathBuf {
             control: None,
             inspector: None,
             chief: Some(chief),
+            turn: Some(binding()),
         },
     )
     .unwrap();
@@ -290,14 +337,29 @@ fn a_chief_makes_and_edits_chiefs_through_its_tool_and_only_its_own_turn_may() {
     let sock = socket.display().to_string();
 
     // The turn's MCP server (it has the turn key) lists and uses `chiefs`.
-    let mut turn = Mcp::start(&["mcp", "--socket", &sock], &[(TURN_KEY_ENV, &key)]);
-    assert_eq!(turn.names(), ["zoom", "date", "tell", "profile", "chiefs"]);
+    let mut turn = Mcp::start_in(
+        &["mcp", "--socket", &sock],
+        &[(TURN_KEY_ENV, &key)],
+        Some(LEAD_TURN),
+    );
+    assert_eq!(
+        turn.names(),
+        ["zoom", "date", "tell", "control", "profile", "chiefs"]
+    );
     let (err, made) = turn.call(
         "chiefs",
         json!({"action": "create", "display_name": "Docs", "role": "Docs writer"}),
     );
     assert!(!err, "{made}");
-    assert!(made.contains("starts on its own"), "{made}");
+    // This daemon runs no brain supervisor: the tool says so, never that it answers.
+    assert!(
+        made.contains("\"no_supervisor\"") && made.contains("did NOT start"),
+        "{made}"
+    );
+    assert!(
+        !made.contains("it answers in its own conversation"),
+        "{made}"
+    );
     let listed = me.v2("chief.profile.list", json!({}), None);
     let docs = listed["chiefs"]
         .as_array()
@@ -409,15 +471,15 @@ fn a_chief_makes_and_edits_chiefs_through_its_tool_and_only_its_own_turn_may() {
 
     // `cmux chief new|edit` in Lead's turn: relayed to its host with the key.
     let cmux = |env: &[(&str, &str)], args: &[&str]| {
-        cli(dir.path())
+        let mut command = cli(dir.path());
+        command
             .arg("--socket")
             .arg(&daemon.socket)
             .arg("chief")
             .args(args)
             .env("ACPMUX_SESSION_ID", "s_lead_turn")
-            .envs(env.iter().copied())
-            .output()
-            .unwrap()
+            .envs(env.iter().copied());
+        under_agent(&command, LEAD_TURN).output().unwrap()
     };
     let home = lead_home.display().to_string();
     let made = cmux(

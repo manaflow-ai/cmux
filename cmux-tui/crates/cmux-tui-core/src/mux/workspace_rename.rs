@@ -32,6 +32,31 @@ impl Mux {
         expected_revision: Option<u64>,
         mutation: &WorkspaceMutation,
     ) -> anyhow::Result<WorkspaceMutationResult> {
+        self.rename_workspace_with_name_authority(
+            target,
+            requested_key,
+            name,
+            &crate::resource_name::WorkspaceNameUpdate::user(),
+            expected_generation,
+            expected_revision,
+            mutation,
+        )
+    }
+
+    /// `rename-workspace` with its name provenance: an automatic rename
+    /// (`source: auto`) never replaces a user name and loses to any rename
+    /// after the name revision it read.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn rename_workspace_with_name_authority(
+        &self,
+        target: Option<WorkspaceId>,
+        requested_key: Option<&str>,
+        name: String,
+        name_authority: &crate::resource_name::WorkspaceNameUpdate,
+        expected_generation: Option<&str>,
+        expected_revision: Option<u64>,
+        mutation: &WorkspaceMutation,
+    ) -> anyhow::Result<WorkspaceMutationResult> {
         let authority = self.authorize_workspace_lifecycle_mutation(
             WorkspaceMutationAuthority::Ordinary,
             "rename",
@@ -40,6 +65,7 @@ impl Mux {
             target,
             requested_key,
             name,
+            name_authority,
             expected_generation,
             expected_revision,
             mutation,
@@ -110,6 +136,7 @@ impl Mux {
             id,
             key,
             name,
+            &crate::resource_name::WorkspaceNameUpdate::user(),
             None,
             expected_revision,
             &mutation,
@@ -125,17 +152,21 @@ impl Mux {
         target: Option<WorkspaceId>,
         requested_key: Option<&str>,
         name: String,
+        name_authority: &crate::resource_name::WorkspaceNameUpdate,
         expected_generation: Option<&str>,
         expected_revision: Option<u64>,
         mutation: &WorkspaceMutation,
     ) -> anyhow::Result<WorkspaceMutationResult> {
         Self::validate_workspace_name(&name)?;
-        let fingerprint = serde_json::json!({
+        let mut fingerprint = serde_json::json!({
             "op": "rename-workspace",
             "workspace": target,
             "key": requested_key,
             "name": name,
         });
+        if let Some(name_fingerprint) = name_authority.fingerprint() {
+            fingerprint["name_authority"] = name_fingerprint;
+        }
         let notifications = self.tree_decorations();
         let mut registry = self.workspace_registry.lock().unwrap();
         if let Some(commit) = registry.replay(mutation, &fingerprint)? {
@@ -149,7 +180,13 @@ impl Mux {
             let key = state.workspaces[index].key.clone();
             let changed = state.workspaces[index].name != name;
             let mut desired = self.registry_projection(&state);
-            desired[index].name = name.clone();
+            name_authority.apply_workspace(
+                &mut desired[index],
+                name.clone(),
+                registry.generation(),
+            )?;
+            let (name_source, name_revision) =
+                (desired[index].name_source, desired[index].name_revision);
             let desired_active_workspace =
                 state.workspaces.get(state.active_workspace).map(|workspace| &workspace.public_id);
             let intent = registry.prepare_workspace_commit(
@@ -185,6 +222,8 @@ impl Mux {
                             state.workspaces.iter_mut().find(|workspace| workspace.key == key)
                     {
                         workspace.name = name;
+                        workspace.name_source = name_source;
+                        workspace.name_revision = name_revision;
                         state.workspace_revision = receipt.commit.revision;
                     }
                 })
@@ -198,6 +237,8 @@ impl Mux {
                 .into_workspace()?;
             let commit = receipt.commit;
             state.workspaces[index].name = name;
+            state.workspaces[index].name_source = name_source;
+            state.workspaces[index].name_revision = name_revision;
             // A replayed receipt carries the original, possibly older,
             // revision: never move the in-memory revisions back.
             state.workspace_revision = state.workspace_revision.max(commit.revision);
@@ -232,4 +273,97 @@ impl Mux {
         self.publish_resource_event();
         Ok(result)
     }
+
+    /// The resource plan of one `workspace.rename`: the durable row with its
+    /// name provenance, the public delta and the in-memory apply.
+    pub(super) fn workspace_rename_plan(
+        &self,
+        state: &State,
+        registry: &WorkspaceRegistry,
+        target: &WorkspacePublicId,
+        index: usize,
+        name: String,
+        name_authority: &crate::resource_name::WorkspaceNameUpdate,
+    ) -> anyhow::Result<ResourceMutationPlan> {
+        let workspace = &state.workspaces[index];
+        let changed = workspace.name != name;
+        let active_screen =
+            workspace.screens.get(workspace.active_screen).map(|screen| screen.public_id.clone());
+        let mut desired = self.registry_projection(state);
+        name_authority.apply_workspace(&mut desired[index], name.clone(), registry.generation())?;
+        let durable = desired[index].clone();
+        let (name_source, name_revision) = (durable.name_source, durable.name_revision);
+        let result = serde_json::json!({
+            "workspace": target.as_str(),
+            "name": name,
+            "changed": changed,
+        });
+        let deltas = Value::Array(vec![workspace_resource_upsert(
+            0,
+            registry.session_id().as_str(),
+            target,
+            &name,
+            (name_source, name_revision),
+            index,
+            index == state.active_workspace,
+        )]);
+        let workspace_key = durable.key.clone();
+        Ok(ResourceMutationPlan::new(
+            ResourcePatch {
+                changes: vec![ResourceChange::UpsertWorkspace {
+                    workspace: durable,
+                    position: index,
+                    active_screen,
+                }],
+            },
+            result.clone(),
+            deltas,
+            move |state| {
+                let workspace = &mut state.workspaces[index];
+                workspace.name = name;
+                workspace.name_source = name_source;
+                workspace.name_revision = name_revision;
+            },
+        )
+        .with_workspace_ledger(ResourceWorkspaceLedger {
+            event_kind: "workspace-renamed",
+            workspace_key,
+            workspaces: desired,
+            legacy_result: result,
+            presentation: None,
+        })
+        .with_metrics(ResourceMutationMetrics {
+            touched_resources: 1,
+            order_entries: 0,
+            terminal_queries: 0,
+            changed_rows: 1,
+        }))
+    }
+}
+
+/// The public `upsert` of one workspace, with its name provenance.
+pub(super) fn workspace_resource_upsert(
+    sequence: usize,
+    session_id: &str,
+    workspace_id: &WorkspacePublicId,
+    name: &str,
+    name_provenance: (crate::resource_name::NameSource, u64),
+    index: usize,
+    focused: bool,
+) -> Value {
+    let (name_source, name_revision) = name_provenance;
+    serde_json::json!({
+        "kind":"upsert",
+        "sequence":sequence,
+        "resource":"workspace",
+        "id":workspace_id,
+        "value":{
+            "id":workspace_id,
+            "session_id":session_id,
+            "name":name,
+            "index":index,
+            "focused":focused,
+            "extra":crate::resource_name::workspace_name_extra(name_source, name_revision),
+        },
+    })
 }

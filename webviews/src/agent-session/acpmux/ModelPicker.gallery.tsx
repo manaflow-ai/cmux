@@ -1,5 +1,6 @@
 // l10n-allow-file: gallery fixtures (sample models), not shipped UI.
 import { componentEntry } from "../../gallery/format";
+import type { ChatAccounts } from "./chatAccounts";
 import type { ModelPickerProps } from "./modelPickerLayout";
 import type { Play } from "../../gallery/play";
 import { BUNDLED_MODEL_CATALOG } from "./modelCatalogData";
@@ -128,6 +129,42 @@ const numericSearch: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector('.acpmux-mp input[role="combobox"]') !== null);
 };
 
+/// The compact model menu (Debug Settings `agent.modelMenu`, compact by default): numbered top
+/// models, then Effort and Account beside their rows, then More models.
+const accounts: ChatAccounts = {
+  list: async () => ({
+    accounts: [
+      { id: "max", name: "Claude Max", kind: "subscription" },
+      { id: "api", name: "Anthropic API key", kind: "api-key" },
+      { id: "subrouter", name: "subrouter", kind: "subrouter" },
+    ],
+    active: "max",
+    scope: "chat",
+  }),
+  set: async () => undefined,
+};
+
+const quick: ModelPickerProps = {
+  ...curated,
+  quick: {
+    effort: {
+      levels: [
+        { id: "low", name: "Low" },
+        { id: "medium", name: "Medium" },
+        { id: "high", name: "High" },
+      ],
+      current: "medium",
+      onPick: () => undefined,
+    },
+    account: { sessionId: "gallery-chat", accounts },
+  },
+};
+
+const openQuick: Play = async (ctx) => {
+  await ctx.click({ selector: ".acpmux-model .acpmux-picker-button" });
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-quick-menu") !== null);
+};
+
 export default componentEntry<ModelPickerProps>({
   id: "agent-pane.model-picker",
   title: "Model picker",
@@ -135,7 +172,11 @@ export default componentEntry<ModelPickerProps>({
   height: 390,
   widths: { narrow: 200, normal: 420, wide: 760 },
   anchors: [{ selector: ".acpmux-model" }],
-  covers: ["agent-session/acpmux/ModelPicker.tsx#ModelPicker", "ui/ScrollArea.tsx#ScrollArea"],
+  covers: [
+    "agent-session/acpmux/ModelPicker.tsx#ModelPicker",
+    "agent-session/acpmux/QuickModelMenu.tsx#QuickModelMenu",
+    "ui/ScrollArea.tsx#ScrollArea",
+  ],
   styles: () => Promise.all([import("./styles.css"), import("./modelPicker.css")]),
   load: () => import("./ModelPicker").then((module) => module.ModelPicker),
   variants: {
@@ -168,6 +209,54 @@ export default componentEntry<ModelPickerProps>({
       },
     },
     curated: { props: curated, play: openModels },
+    // A Codex chat with a message (Leo 2026-10-19): its harness is fixed, so the menu is search,
+    // Codex's models and More models, with no harness rail and no Add harness….
+    "started-chat": {
+      props: {
+        ...curated,
+        harness: "codex",
+        model: "gpt-6.1-sol",
+        label: "GPT-6.1 Sol",
+        harnessFixed: true,
+        onAddAgent: () => undefined,
+      },
+      play: openModels,
+    },
+    // The same chat on the compact menu: Codex's numbered models with no rail.
+    "started-chat-quick-menu": {
+      props: {
+        ...quick,
+        harness: "codex",
+        model: "gpt-6.1-sol",
+        label: "GPT-6.1 Sol",
+        harnessFixed: true,
+        onAddAgent: () => undefined,
+      },
+      play: openQuick,
+    },
+    "quick-menu": { props: quick, play: openQuick },
+    // The rail's Codex tab: Codex's models in place; Effort and Account stay with the chat's harness.
+    "quick-menu-rail": {
+      props: quick,
+      play: async (ctx) => {
+        await openQuick(ctx);
+        await ctx.click({ selector: '.acpmux-quick-rail-tab[aria-label="Codex"]' });
+        await ctx.waitFor(
+          () => ctx.document.querySelector('.acpmux-quick-rail-tab[aria-label="Codex"][aria-pressed="true"]') !== null,
+        );
+      },
+    },
+    // Typing filters every harness's models in place, with no search field.
+    "quick-menu-filter": {
+      props: quick,
+      play: async (ctx) => {
+        await openQuick(ctx);
+        for (const letter of "son") await ctx.press(letter);
+        await ctx.waitFor(
+          () => ctx.document.querySelector(".acpmux-quick-menu .ui-menu-group-label")?.textContent === "“son”",
+        );
+      },
+    },
     "more-models": {
       props: curated,
       play: async (ctx) => {

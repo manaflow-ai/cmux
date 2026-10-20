@@ -9,7 +9,7 @@ import CmuxNextDesign
 /// keyboard focus: the card hides after the click, and the focus must not stay on a hidden button.
 final class SidebarCardTextButton: NSView {
     var onPress: (() -> Void)?
-    private let label = NSTextField(labelWithString: "")
+    private let label = ChromeLabel(labelWithString: "")
     private var isHovered = false { didSet { if isHovered != oldValue { needsDisplay = true } } }
     private var isPressed = false { didSet { if isPressed != oldValue { needsDisplay = true } } }
     private var isKeyFocused = false { didSet { if isKeyFocused != oldValue { needsDisplay = true } } }
@@ -32,8 +32,8 @@ final class SidebarCardTextButton: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
 
-    override var isFlipped: Bool { true }
-    override var wantsUpdateLayer: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
+    nonisolated override var wantsUpdateLayer: Bool { true }
     override var mouseDownCanMoveWindow: Bool { false }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
@@ -56,7 +56,7 @@ final class SidebarCardTextButton: NSView {
     /// The width the text needs, with the hover fill's inset on both sides.
     var fittingWidth: CGFloat {
         label.font = Self.font
-        return ceil(label.cell?.cellSize.width ?? label.intrinsicContentSize.width) + 2 * Metrics.space1
+        return ceil(label.naturalSize.width) + 2 * Metrics.space1
     }
 
     override func layout() {

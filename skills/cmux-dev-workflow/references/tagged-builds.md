@@ -2,16 +2,16 @@
 
 Tagged builds isolate app name, bundle ID, debug socket, and DerivedData path so multiple agents and the user's normal app do not collide.
 
-For the local backend used by outside contributors:
-
 ```bash
-CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag <tag>
-CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag <tag> --launch
-CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag <tag> --build-only
+./scripts/reload.sh --tag <tag>
+./scripts/reload.sh --tag <tag> --launch
+./scripts/reload.sh --tag <tag> --build-only
 ```
 
-Without `CMUX_DEV_BACKEND_MODE=local`, tagged builds require the shared dev backend
-from a cmuxterm-hq checkout. See [contributor setup](../../../CONTRIBUTING.md#getting-started).
+cmux-next reads no web API origin, so `reload.sh` defaults to
+`CMUX_DEV_BACKEND_MODE=local` and provisions no shared backend. An explicit
+`CMUX_DEV_BACKEND_MODE` or `CMUX_DEV_BACKEND_URL` (the fleet passes one) still
+wins. See [contributor setup](../../../CONTRIBUTING.md#getting-started).
 
 A normal reload builds, then terminates the running app with the same tag; `--launch`
 also opens the replacement. `--build-only` validates a separately staged bundle

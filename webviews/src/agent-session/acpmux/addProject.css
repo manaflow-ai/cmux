@@ -25,7 +25,7 @@
 .acpmux-add-project button:disabled { opacity: .45; }
 .acpmux-add-project-heading { display: flex; align-items: center; gap: 8px; }
 .acpmux-add-project-heading strong { flex: 1; font-size: var(--text-body); font-weight: 600; }
-.acpmux-add-project-heading button { width: 26px; height: 26px; font-size: var(--text-heading); }
+.acpmux-add-project-heading button { width: 26px; height: 26px; font-size: var(--text-title); }
 .acpmux-add-project-path { display: flex; align-items: center; gap: 6px; min-width: 0; color: var(--agent-muted); }
 .acpmux-add-project-path span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .acpmux-add-project-input { box-sizing: border-box; width: 100%; min-width: 0; border: 1px solid var(--agent-border); border-radius: 6px; padding: 0 10px; background: var(--agent-input-bg); color: var(--agent-text); font: inherit; }
