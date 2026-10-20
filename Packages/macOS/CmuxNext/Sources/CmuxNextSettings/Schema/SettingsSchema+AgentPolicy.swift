@@ -78,6 +78,7 @@ extension SettingsSchema {
         "layout.frameOrientation",
         "layout.rows",
         "layout.focusPaneOnScroll",
+        "layout.scrollAreas",
         "layout.minimumPaneWidth",
         "layout.minimumPaneHeight",
         "appearance.theme",
