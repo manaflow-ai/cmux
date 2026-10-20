@@ -1090,7 +1090,12 @@ class FastTierStartsWarm(unittest.TestCase):
         self.assertLess(record, tier)
         self.assertLess(tier, steps.index(saves[0]))
         self.assertIn(FAST_CACHE_MANIFEST, steps[record]["run"])
-        self.assertIn("'blacksmith-12vcpu-macos-26'", str(build["runs-on"]))
+        # 6 vCPU, not 12: the 12 vCPU label runs about five jobs at once and the
+        # cascade fills it first, so a seed pinned there sat queued (run
+        # 39351410275, 85+ minutes) while its concurrency group held every later
+        # feat-cmux-next push, and no seed ever landed.
+        self.assertIn("'blacksmith-6vcpu-macos-26'", str(build["runs-on"]))
+        self.assertNotIn("12vcpu", str(build["runs-on"]))
         self.assertIn("needs.due.outputs.due == 'true'", build.get("if", ""))
 
     def test_seed_key_matches_the_fast_tier_key_for_one_tree(self):
