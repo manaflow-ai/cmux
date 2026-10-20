@@ -364,7 +364,13 @@ impl Worker {
         let jobs = self.write_engine().take_seal_jobs();
         for job in jobs {
             let done = job.run();
-            self.write_engine().finish_seal(done);
+            // Free the retired frozen segment (up to 64 MiB) after the write
+            // guard is gone, so queries never wait on the free.
+            let retired = {
+                let mut engine = self.write_engine();
+                engine.finish_seal(done)
+            };
+            drop(retired);
         }
     }
 
