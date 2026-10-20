@@ -74,4 +74,12 @@ fn a_stopped_turn_that_closes_open_work_posts_no_done_marker() {
     h.agents.hold(false);
     h.settle_posts();
     assert_no_post(&h);
+    // With no done marker, msg_1's work stays open for a later turn to
+    // close: a client's pending mark must not stick forever.
+    let rows = h.chat.state_prefix("host/").unwrap();
+    assert!(
+        rows.iter()
+            .any(|(k, v)| k == "host/open_answers" && v.contains("msg_1")),
+        "{rows:?}"
+    );
 }
