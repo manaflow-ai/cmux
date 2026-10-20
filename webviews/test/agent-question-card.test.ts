@@ -2,7 +2,8 @@
 // 2026-10-19, the Claude app's AskUserQuestion card, "this is decent ui cmux next should have it").
 // A pending ask shows a "Needs your input" pill over a card with the question as its header; the
 // card has the keyboard when it arrives on an empty composer, so arrows move between the options,
-// ⌘↩ submits, Esc skips and a number key picks Other to type an answer. What the card sends is the
+// ⌘↩ submits, Esc hands the keyboard back to the composer without answering (Skip declines), a
+// click on the last single-choice question sends it, and a number key picks Other to type an answer. What the card sends is the
 // host's `chat.permission` call, which the pane relay sends as `_acpmux/permission_respond` and
 // acpmux hands the agent (cmux-tui/crates/acpmux/tests/hub_integration/questions.rs).
 //
@@ -135,12 +136,76 @@ await requireBrowserLane("agent-question-card.test.ts", async () => {
       await page.close();
     });
 
-    test("Esc skips the question: the agent gets its decline", async () => {
+    test("Esc never answers: it hands the keyboard to the composer and reaches the pane", async () => {
       const page = await pendingQuestion();
+      expect(await focusedInCard(page)).toBe(true);
+      // The pane's own Esc handling (the double press that stops a turn) still sees the key.
+      await page.evaluate(() => {
+        const seen: boolean[] = [];
+        window.addEventListener("keydown", (event) => {
+          if (event.key === "Escape") seen.push(event.defaultPrevented);
+        });
+        Object.assign(window, { escapesSeen: seen });
+      });
       await page.keyboard.press("Escape");
+      await page.waitForTimeout(100);
+      expect(await permissionCalls(page, 0)).toEqual([]);
+      expect(await page.evaluate(() => (window as unknown as { escapesSeen: boolean[] }).escapesSeen)).toEqual([false]);
+      expect(await focusedInCard(page)).toBe(false);
+      expect(await page.evaluate(() => document.activeElement?.closest(".acpmux-composer-prompt") !== null)).toBe(true);
+      // The ask is still pending; Skip is what declines it.
+      expect(await page.locator(".acpmux-question").isVisible()).toBe(true);
+      await page.locator(".acpmux-question-skip").click();
       expect(await permissionCalls(page, 1)).toEqual([
         { method: "chat.permission", params: { permissionId: "perm_toolu_single", optionId: "reject_once" } },
       ]);
+      await page.close();
+    });
+
+    test("one click on the last single-choice question sends it", async () => {
+      const page = await pendingQuestion();
+      await page.locator(".acpmux-question-row", { hasText: "Passkeys" }).click();
+      expect(await permissionCalls(page, 1)).toEqual([
+        {
+          method: "chat.permission",
+          params: { permissionId: "perm_toolu_single", optionId: "allow_once", answers: { [prompt]: "Passkeys" } },
+        },
+      ]);
+      await page.close();
+    });
+
+    test("a refused reply shows its error on the card and the controls work again for a retry", async () => {
+      const page = await pendingQuestion();
+      // acpmux refuses the first reply (the ask stays pending); the second goes through.
+      await page.evaluate(() => {
+        const handler = window.webkit!.messageHandlers!.agentSession!;
+        const post = handler.postMessage.bind(handler);
+        let refused = false;
+        handler.postMessage = (message: unknown) => {
+          const { method, params } = message as Call;
+          if (method === "chat.permission" && !refused) {
+            refused = true;
+            (window as unknown as { permissionCalls: Call[] }).permissionCalls.push({ method, params });
+            return Promise.resolve({ ok: false, error: { userMessage: "The agent is busy." } });
+          }
+          return post(message);
+        };
+      });
+      await page.locator(".acpmux-question-row", { hasText: "API keys" }).click();
+      const error = page.locator(".acpmux-question-error");
+      await error.waitFor();
+      expect((await error.innerText()).replace(/\s+/g, " ").trim()).toBe(
+        "Couldn’t send your answer. Try again. The agent is busy.",
+      );
+      expect(await page.locator(".acpmux-question").getAttribute("aria-busy")).toBeNull();
+      expect(await page.locator(".acpmux-question-skip").isDisabled()).toBe(false);
+      await page.locator(".acpmux-question-row", { hasText: "API keys" }).click();
+      const calls = await permissionCalls(page, 2);
+      expect(calls.length).toBe(2);
+      expect(calls[1]).toEqual({
+        method: "chat.permission",
+        params: { permissionId: "perm_toolu_single", optionId: "allow_once", answers: { [prompt]: "API keys" } },
+      });
       await page.close();
     });
 
