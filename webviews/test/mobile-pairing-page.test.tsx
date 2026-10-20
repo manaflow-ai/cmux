@@ -156,7 +156,7 @@ test("the page names the missing step and shows the code once ready", async () =
   const store = new MobilePairingStore(fake.client);
   root = createRoot(host);
   act(() => root!.render(<MobilePairingPage store={store} strings={createStrings(table, ["en"])} />));
-  await act(async () => void (await store.start()));
+  await act(async () => await store.start());
   expect(host.querySelector("h1")?.textContent).toBe("Pair your iPhone");
   const signIn = host.querySelector<HTMLButtonElement>("[data-action=sign-in]");
   expect(signIn).not.toBeNull();

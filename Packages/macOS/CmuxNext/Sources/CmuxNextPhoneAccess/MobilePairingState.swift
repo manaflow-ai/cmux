@@ -22,9 +22,24 @@ public nonisolated enum MobilePairingState: Sendable, Equatable {
     /// The state for the account, the setting and the listener's phase
     /// (nil while no listener exists yet).
     public static func resolve(signedIn: Bool, allowed: Bool, phase: MobileIrxHost.Phase?) -> MobilePairingState {
-        .signedOut
+        guard signedIn else { return .signedOut }
+        guard allowed else { return .accessOff }
+        switch phase {
+        case .listening: return .ready
+        case .failed(let reason): return .failed(reason)
+        // A restart (new account, phone access toggled) passes through stopped and idle.
+        case nil, .idle, .provisioning, .waitingForRelay, .stopped: return .preparing
+        }
     }
 
     /// The page's name for the state (`MobilePairingStatus.state` in webviews/src/pages/mobile-pairing/types.ts).
-    public var wireName: String { "signedOut" }
+    public var wireName: String {
+        switch self {
+        case .signedOut: "signedOut"
+        case .accessOff: "accessOff"
+        case .preparing: "preparing"
+        case .ready: "ready"
+        case .failed: "failed"
+        }
+    }
 }
