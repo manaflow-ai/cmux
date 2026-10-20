@@ -17,6 +17,11 @@ class SocketControlSchemaTests(unittest.TestCase):
         self.assertEqual(mode["default"], "automation")
         self.assertIn("same OS user", mode["description"])
 
+    def test_unusable_plaintext_password_mode_is_not_published(self):
+        settings = self.socket_settings()
+        self.assertNotIn("password", settings["socketControlMode"]["enum"])
+        self.assertNotIn("socketPassword", settings)
+
 
 if __name__ == "__main__":
     unittest.main()
