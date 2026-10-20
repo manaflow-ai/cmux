@@ -35,3 +35,8 @@ struct ChiefPetRoutes {
         return await services.notifications.typeChiefPetReply(text, to: notice)
     }
 }
+
+/// The Show Chief Pet toggle's title while the pet shows (Handlers.xcstrings).
+enum HomeChiefPetStrings {
+    static var hide: String { String(localized: "chiefPet.hide", defaultValue: "Hide Chief Pet", table: "Handlers", bundle: .module) }
+}

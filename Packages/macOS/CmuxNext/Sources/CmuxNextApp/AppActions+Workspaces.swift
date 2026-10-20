@@ -44,6 +44,8 @@ extension AppActions {
         // the sidebar's Home entry, so a dock showing Channels goes back to Messages (cx-frn2y).
         registry.bind("home.show") { if showHome(services), services.home.dockMode == .channels { HomeDockTab.view(services)?.switchTo(.messages) } }
         HomeChannelsSetting().bind(into: registry, settings: { [weak services] in services?.settings }, unavailable: RefusalStrings.homeNotReady)
+        HomeChiefPetSetting().bind(into: registry, settings: { [weak services] in services?.settings }, unavailable: RefusalStrings.homeNotReady,
+                                   hideTitle: HomeChiefPetStrings.hide)
         // The composer's attach button as an action (home.attachFiles): a path
         // goes to the shown Home composer through its own intake (as a drop);
         // without one the shown composer opens its file picker.

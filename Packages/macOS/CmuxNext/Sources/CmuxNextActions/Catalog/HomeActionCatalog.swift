@@ -77,6 +77,16 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
                 category: .window, symbol: "number", surfaces: [.palette], cliName: "home disable-channels",
                 surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
             ),
+            // The Chief pet (`home.chiefPetEnabled`, off by default): Leo 2026-10-19, the toggle "ought to be a
+            // hell of a lot more obvious" than Settings > Home. View > Show Chief Pet and the palette row read as
+            // the change they make (Hide Chief Pet while it shows); the empty Chief conversation offers it too.
+            ActionDescriptor(
+                id: "home.toggleChiefPet", title: t("action.home.toggleChiefPet", "Show Chief Pet"),
+                keywords: ["chief", "pet", "mascot", "floating", "companion", "show", "hide", "toggle", "buddy", "notifications"],
+                category: .window, symbol: "pawprint", surfaces: [.palette, .menu], cliName: "home toggle-chief-pet",
+                mainMenu: .view,
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
+            ),
             ActionDescriptor(
                 id: "home.attachFiles", title: t("action.home.attachFiles", "Attach Files…"),
                 keywords: ["home", "attach", "file", "photo", "video", "image", "upload", "message", "conversation"],
