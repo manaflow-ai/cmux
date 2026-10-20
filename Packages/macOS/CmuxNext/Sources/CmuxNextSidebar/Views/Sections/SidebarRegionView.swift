@@ -254,7 +254,10 @@ final class SidebarRegionView: NSView {
                 case .chip: .chip
                 default: section.look == .builtIn ? .builtIn : .list
                 }
-                view.configure(activeInfo(content.infos[id] ?? .fallback(for: item), id), style: style)
+                var info = activeInfo(content.infos[id] ?? .fallback(for: item), id)
+                info.leadingPin = style == .list && sectionID == SidebarLayoutDocument.pinnedSectionID
+                    && item.ref.kind == LayoutItemRef.workspaceKind
+                view.configure(info, style: style)
                 view.activatesOnPress = item.ref.activatesOnPress
                 place(view, row.frame, new: new)
                 if id == SidebarListBlocks.gapID { view.alphaValue = 0 } // a drag's gap: the slot the others make way for

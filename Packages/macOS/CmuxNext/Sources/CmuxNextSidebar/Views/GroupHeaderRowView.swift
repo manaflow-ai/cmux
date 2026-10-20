@@ -274,22 +274,24 @@ final class GroupHeaderRowView: SidebarRowView {
         }
         let glyphSide = min(SidebarStyle.iconBox, barHeight)
         glyph.isHidden = !hasIcon
-        glyph.frame = NSRect(x: lead, y: (b.height - glyphSide) / 2, width: glyphSide, height: glyphSide)
-        // The label's frame sits its text inset left of the column, as a workspace title's does.
-        let nx = (hasIcon ? glyph.frame.maxX + Metrics.space3 : lead) - Metrics.space1
+        // A pinned group's pin leads the bar, before its icon and name.
         let pinSide = Metrics.smallIconSize
         let pinRoom = pinned ? pinSide + Metrics.space2 : 0
+        pin.isHidden = !pinned
+        pin.frame = NSRect(x: lead, y: (b.height - pinSide) / 2, width: pinSide, height: pinSide)
+        let iconLead = lead + pinRoom
+        glyph.frame = NSRect(x: iconLead, y: (b.height - glyphSide) / 2, width: glyphSide, height: glyphSide)
+        // The label's frame sits its text inset left of the column, as a workspace title's does.
+        let nx = (hasIcon ? glyph.frame.maxX + Metrics.space3 : iconLead) - Metrics.space1
         var countWidth = count.stringValue.isEmpty || renaming ? 0 : Self.drawnWidth(count)
         // A sidebar too narrow for the count drops it rather than drawing it over the trailing controls.
-        if nx + pinRoom + countWidth + Metrics.space2 > trailing { countWidth = 0 }
+        if nx + countWidth + Metrics.space2 > trailing { countWidth = 0 }
         let countRoom = countWidth > 0 ? countWidth + Metrics.space2 : 0
-        let nameWidth = min(titleIntrinsicWidth, max(0, trailing - pinRoom - countRoom - nx))
+        let nameWidth = min(titleIntrinsicWidth, max(0, trailing - countRoom - nx))
         let nh = ceil(name.intrinsicContentSize.height)
         name.frame = NSRect(x: nx, y: (b.height - nh) / 2, width: nameWidth, height: nh)
-        pin.isHidden = !pinned
-        pin.frame = NSRect(x: name.frame.maxX + Metrics.space2, y: (b.height - pinSide) / 2, width: pinSide, height: pinSide)
         count.isHidden = countWidth == 0
-        count.frame = NSRect(x: (pinned ? pin.frame.maxX : name.frame.maxX) + Metrics.space2, y: (b.height - nh) / 2, width: countWidth, height: nh)
+        count.frame = NSRect(x: name.frame.maxX + Metrics.space2, y: (b.height - nh) / 2, width: countWidth, height: nh)
         pill.isHidden = renaming
         // The cx-rcby chip: one full-width rounded bar, a little inset top and bottom.
         pill.frame = NSRect(x: 0, y: (b.height - barHeight) / 2, width: b.width, height: barHeight)
