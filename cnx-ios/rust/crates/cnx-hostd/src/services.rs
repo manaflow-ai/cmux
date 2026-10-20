@@ -1176,6 +1176,35 @@ mod tests {
     }
 
     #[test]
+    fn workspace_folders_share_projects_never_home_or_above() {
+        // Full verify D9: the phone's chat edits files in its workspace folder,
+        // which the Mac shares with phones (agentcwd); home and its ancestors never.
+        let home = Path::new("/Users/me");
+        let folders = vec![
+            PathBuf::from("/Users/me/code/app"),
+            PathBuf::from("/Users/me"),
+            PathBuf::from("/Users"),
+            PathBuf::from("/"),
+            PathBuf::from("/tmp/scratch"),
+            PathBuf::from("/Users/me/code/app"),
+        ];
+        assert_eq!(
+            shareable_workspace_folders(folders, home),
+            vec![PathBuf::from("/Users/me/code/app"), PathBuf::from("/tmp/scratch")]
+        );
+    }
+
+    #[test]
+    fn a_file_in_a_workspace_folder_is_inside_the_shared_roots() {
+        let project = tempfile::tempdir().unwrap();
+        std::fs::write(project.path().join("README.md"), "r").unwrap();
+        let home = tempfile::tempdir().unwrap();
+        let roots = shared_file_roots(&[], vec![project.path().to_path_buf(), home.path().to_path_buf()], home.path());
+        assert!(confine(&roots, &project.path().join("README.md")).is_ok());
+        assert_eq!(roots.len(), 1, "home is never a root: {roots:?}");
+    }
+
+    #[test]
     fn confine_keeps_reads_inside_roots() {
         let root = tempfile::tempdir().unwrap();
         let outside = tempfile::tempdir().unwrap();
