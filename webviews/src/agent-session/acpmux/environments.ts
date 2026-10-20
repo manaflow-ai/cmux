@@ -19,7 +19,8 @@ export function peerKindsFromStatus(status: unknown): Record<string, "ssh" | "cl
     const name = (peer as { name?: unknown } | null)?.name;
     if (typeof name !== "string" || !name) continue;
     const { transport, url } = peer as { transport?: unknown; url?: unknown };
-    const ssh = typeof transport === "string" ? transport === "ssh" : typeof url === "string" && url.startsWith("ssh://");
+    const ssh =
+      typeof transport === "string" ? transport === "ssh" : typeof url === "string" && url.startsWith("ssh://");
     kinds[name] = ssh ? "ssh" : "cloud";
   }
   return kinds;
