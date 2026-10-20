@@ -384,14 +384,18 @@ while True:
             }, sort_keys=True)
         # "sandbox-probe OUTSIDE PORT": what this process may do, as JSON:
         # write a file at OUTSIDE, connect to 127.0.0.1:PORT, write in its cwd.
-        # "keychain-probe": whether this process may query the keychain
-        # (`security dump-keychain` lists item metadata when it may). The
-        # System keychain, by path: the user's keychain search list depends
-        # on HOME, and a test's HOME is a scratch folder.
+        # "keychain-probe": whether this process can retrieve a synthetic
+        # generic-password item from the test's temporary keychain.
         if said.strip() == "keychain-probe":
             import subprocess
             rc = subprocess.run(
-                ["/usr/bin/security", "dump-keychain", "/Library/Keychains/System.keychain"],
+                [
+                    "/usr/bin/security",
+                    "find-generic-password",
+                    "-a", "synthetic-account",
+                    "-s", "synthetic-service",
+                    "-w", os.environ["FAKE_KEYCHAIN_PATH"],
+                ],
                 capture_output=True,
             ).returncode
             text = json.dumps({"keychain": "allowed" if rc == 0 else "denied"})

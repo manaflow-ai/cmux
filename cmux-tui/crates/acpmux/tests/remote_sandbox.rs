@@ -41,7 +41,8 @@ fn hub_with(d: &Path, vm_host: bool) -> Arc<Hub> {
             "kind": "claude-stdio",
             "env": {
                 "ANTHROPIC_AUTH_TOKEN": "synthetic-profile-token",
-                "REMOTE_PROFILE_VALUE": "profile-authorized"
+                "REMOTE_PROFILE_VALUE": "profile-authorized",
+                "FAKE_KEYCHAIN_PATH": d.join("work/test.keychain-db")
             }
         }},
         "defaultHarness": "fakeclaude",
@@ -229,6 +230,27 @@ fn dirs_home() -> PathBuf {
 #[tokio::test]
 async fn a_remote_chain_cannot_query_the_keychain() {
     let d = dir("keychain");
+    let keychain = d.join("work/test.keychain-db");
+    let created = std::process::Command::new("/usr/bin/security")
+        .args(["create-keychain", "-p", "synthetic-password"])
+        .arg(&keychain)
+        .status()
+        .unwrap();
+    assert!(created.success());
+    let added = std::process::Command::new("/usr/bin/security")
+        .args([
+            "add-generic-password",
+            "-a",
+            "synthetic-account",
+            "-s",
+            "synthetic-service",
+            "-w",
+            "synthetic-value",
+        ])
+        .arg(&keychain)
+        .status()
+        .unwrap();
+    assert!(added.success());
     let hub = hub(&d);
     // The control: a local session's agent may.
     let mut local = Client::new(&hub, Origin::Local);

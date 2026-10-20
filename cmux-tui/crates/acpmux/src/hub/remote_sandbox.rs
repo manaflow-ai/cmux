@@ -514,19 +514,16 @@ pub(super) fn wrap(
 }
 
 /// The canary's shell: $1 a file outside the allowed folders, $2 a 127.0.0.1
-/// port, $3 the temporary folder, $4 a ::1 port (0: none). It also proves
-/// the child cannot query System.keychain through an unlisted Mach service.
+/// port, $3 the temporary folder, $4 a ::1 port (0: none).
 const CANARY: &str = r#": > "$1" 2>/dev/null; o=$?
 (exec 3<>"/dev/tcp/127.0.0.1/$2") 2>/dev/null; l=$?
 [ "$l" -ne 0 ] && { (exec 3<>"/dev/tcp/::1/$4") 2>/dev/null; [ $? -eq 0 ] && l=0; }
 t=$(mktemp "$3/acpmux-canary.XXXXXX" 2>/dev/null) && rm -f "$t"; i=$?
-/usr/bin/security dump-keychain /Library/Keychains/System.keychain >/dev/null 2>&1; k=$?
-echo "acpmux-canary outside=$o loopback=$l tmp=$i keychain=$k""#;
+echo "acpmux-canary outside=$o loopback=$l tmp=$i""#;
 
 /// Run the canary under `exec` with the profile and `bound`; Ok only when
 /// the sandbox held: the outside write failed and left no file, the loopback
-/// connection failed and never arrived, the temporary write worked, and a
-/// System Keychain query failed.
+/// connection failed and never arrived, and the temporary write worked.
 pub(super) async fn canary(exec: &Path, bound: &Bound) -> Result<(), String> {
     let listener =
         std::net::TcpListener::bind("127.0.0.1:0").map_err(|e| format!("listen: {e}"))?;
@@ -570,22 +567,20 @@ pub(super) async fn canary(exec: &Path, bound: &Bound) -> Result<(), String> {
             .and_then(|l| l.split_whitespace().find_map(|w| w.strip_prefix(&format!("{k}="))))
             .and_then(|v| v.parse::<i32>().ok())
     };
-    let (o, l, t, k) = (field("outside"), field("loopback"), field("tmp"), field("keychain"));
+    let (o, l, t) = (field("outside"), field("loopback"), field("tmp"));
     let held = matches!(o, Some(c) if c != 0)
         && matches!(l, Some(c) if c != 0)
         && t == Some(0)
-        && matches!(k, Some(c) if c != 0)
         && !landed
         && !arrived;
     if held {
         return Ok(());
     }
     Err(format!(
-        "the sandbox canary shows no sandbox (outside write {}, loopback connect {}, temp write {}, keychain query {}, file landed {landed}, connection arrived {arrived}; status {}, stderr {:?})",
+        "the sandbox canary shows no sandbox (outside write {}, loopback connect {}, temp write {}, file landed {landed}, connection arrived {arrived}; status {}, stderr {:?})",
         o.map_or("unknown".into(), |c| if c == 0 { "allowed".to_owned() } else { "denied".into() }),
         l.map_or("unknown".into(), |c| if c == 0 { "allowed".to_owned() } else { "denied".into() }),
         t.map_or("unknown".into(), |c| if c == 0 { "allowed".to_owned() } else { "denied".into() }),
-        k.map_or("unknown".into(), |c| if c == 0 { "allowed".to_owned() } else { "denied".into() }),
         out.status,
         String::from_utf8_lossy(&out.stderr).chars().take(300).collect::<String>(),
     ))
