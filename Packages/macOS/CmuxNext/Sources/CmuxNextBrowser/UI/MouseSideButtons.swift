@@ -1,19 +1,18 @@
 import AppKit
-import CmuxNextActions
-import CmuxNextBrowser
+import CmuxNextDesign
 
 /// Mouse buttons 4 and 5 are Back and Forward (plans/cmux-next/history.md 4.2), as in Chrome,
 /// Safari, Claude and Codex. Over a browser tab (its page or its toolbar) they walk that tab's
 /// history, through the same `BrowserChromeView` command as `browserBack`; anywhere else they run
-/// Go Back and Go Forward (`focusHistoryBack`: the shown page's own history, then the location
-/// trail, 4.2b). A view that forwards every button to something else (a remote desktop in control
-/// mode) keeps them. The press is consumed and the release navigates, as in Chrome.
+/// the app's Go Back and Go Forward (`history`: the shown page's own history, then the location
+/// trail, 4.2b). A view that forwards every button to something else (`MouseButtonForwarding`, a
+/// remote desktop in control mode) keeps them. The press is consumed and the release navigates,
+/// as in Chrome; the release follows the route its press chose.
 ///
 /// A Chromium page draws in its own child window, so a press on it arrives in that window; the
 /// browser tab is found in the cmux window that holds it (`window.parent`).
-@MainActor
-final class MouseSideButtons {
-    nonisolated enum Button: Equatable, Sendable {
+public final class MouseSideButtons {
+    public nonisolated enum Button: Equatable, Hashable, Sendable {
         case back
         case forward
 
@@ -64,16 +63,23 @@ final class MouseSideButtons {
 
     private var monitor: Any?
     private var presses = Presses()
+    private var history: (Button) -> Void = { _ in }
 
-    func start(services: AppServices) {
+    public init() {}
+
+    /// Starts watching the buttons; `history` runs the app's Go Back or Go Forward.
+    public func start(history: @escaping (Button) -> Void) {
         guard monitor == nil else { return }
-        monitor = NSEvent.addLocalMonitorForEvents(matching: [.otherMouseDown, .otherMouseUp]) { [weak self, weak services] event in
-            guard Thread.isMainThread, let self, let services else { return event } // main-proof: returns the event off the main thread
-            return MainActor.assumeIsolated { self.handle(event, services: services) } // main-proof: guarded by Thread.isMainThread above
+        self.history = history
+        // AppKit calls a local monitor on the main thread (the module's isolation), like
+        // `CEFLinkClickTracker`.
+        monitor = NSEvent.addLocalMonitorForEvents(matching: [.otherMouseDown, .otherMouseUp]) { [weak self] event in
+            guard let self else { return event }
+            return self.handle(event)
         }
     }
 
-    private func handle(_ event: NSEvent, services: AppServices) -> NSEvent? {
+    private func handle(_ event: NSEvent) -> NSEvent? {
         guard let button = Button(buttonNumber: event.buttonNumber) else { return event }
         if event.type == .otherMouseUp {
             guard let held = presses.release(button) else { return event }
@@ -83,7 +89,7 @@ final class MouseSideButtons {
             case .page(let button):
                 held.browser?.perform(button == .back ? .goBack : .goForward)
             case .history(let button):
-                _ = services.registry.perform(button == .back ? "focusHistoryBack" : "focusHistoryForward")
+                history(button)
             }
             return nil
         }
@@ -114,17 +120,13 @@ final class MouseSideButtons {
                         browser = chrome
                         return
                     }
-                    if current.responds(to: Self.forwardsSelector) {
-                        forwardsButtons = current.value(forKey: "cmuxForwardsMouseButtons") as? Bool ?? false
+                    if let forwarding = current as? MouseButtonForwarding {
+                        forwardsButtons = forwarding.forwardsMouseButtons
                         return
                     }
                     view = current.superview
                 }
             }
         }
-
-        /// `-cmuxForwardsMouseButtons`: a view that may send every mouse button on (the remote desktop
-        /// view in control mode); its value says whether it does now.
-        static let forwardsSelector = NSSelectorFromString("cmuxForwardsMouseButtons")
     }
 }

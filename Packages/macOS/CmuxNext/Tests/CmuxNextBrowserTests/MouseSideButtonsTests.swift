@@ -1,5 +1,6 @@
 import AppKit
-@testable import CmuxNextApp
+@testable import CmuxNextBrowser
+import CmuxNextDesign
 import Testing
 
 /// Mouse buttons 4 and 5 are Back and Forward (plans/cmux-next/history.md 4.2): a browser tab's
@@ -56,9 +57,9 @@ import Testing
         #expect(presses.release(.back) == nil)
     }
 
-    /// Answers `-cmuxForwardsMouseButtons` like `RemoteInputCaptureView`.
-    private final class ForwardingView: NSView {
+    /// Forwards like `RemoteInputCaptureView` in control mode.
+    private final class ForwardingView: NSView, MouseButtonForwarding {
         var forwards = false
-        @objc var cmuxForwardsMouseButtons: Bool { forwards }
+        var forwardsMouseButtons: Bool { forwards }
     }
 }

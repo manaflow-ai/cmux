@@ -133,6 +133,7 @@ fn run_reading(
         }
     };
     let native = payload()?;
+    let start_source = native.get("source").and_then(Value::as_str).unwrap_or("").to_owned();
     // Read before the journal event redacts it; it travels beside the event, never inside it.
     let live = cmux_tui_core::agent_hook_live_fields(&args.source, &args.native_event, &native);
     let mut ingress = cmux_tui_core::agent_hook_journal_ingress(
@@ -155,8 +156,12 @@ fn run_reading(
     // Messages for this terminal's agent ride on the hook's own output. A
     // failed handoff means the daemon is not answering, so the helper fails
     // without output and the installed command prints the empty object.
-    if let Some(inbox) = inbox {
-        inbox::deliver(inbox, &socket, terminal.as_deref());
+    match inbox {
+        Some(inbox::Delivery::SessionBanner) => {
+            inbox::session_banner(terminal.as_deref(), &start_source);
+        }
+        Some(inbox) => inbox::deliver(inbox, &socket, terminal.as_deref()),
+        None => {}
     }
     Ok(())
 }
@@ -184,6 +189,10 @@ fn inherited_route_is_untrusted(
 /// Agent messages handed over as the hook's output.
 #[path = "cmux-tui-hook/inbox.rs"]
 mod inbox;
+
+/// cmux's line under Claude Code's startup banner: how the session compacts.
+#[path = "cmux-tui-hook/session_banner.rs"]
+mod session_banner;
 
 /// The session socket and terminal that receive this event: the terminal's
 /// own `CMUX_TUI_*` values; for an agent that clears its hooks' environment
@@ -1032,6 +1041,18 @@ mod tests {
         assert_eq!(tmux_route::select("$1\t\t@1", clients, cmux_environ), None);
         assert_eq!(tmux_route::select("", clients, cmux_environ), None);
         assert_eq!(tmux_route::select("$1\t\t@1", "garbage\n1\t0\t$1\t\t@1\n", cmux_environ), None);
+    }
+
+    /// claude `SessionStart` carries cmux's startup line as `systemMessage`
+    /// (shown to the person, never added to the model's context); with no
+    /// line it is the empty object the installed command expects.
+    #[test]
+    fn claude_session_start_writes_the_startup_line_as_a_system_message() {
+        let delivery = inbox::Delivery::for_event("claude", "SessionStart")
+            .expect("claude SessionStart writes cmux's startup line");
+        assert_eq!(delivery.output(None), json!({}));
+        assert_eq!(delivery.output(Some("line")), json!({"systemMessage": "line"}));
+        assert_eq!(inbox::Delivery::for_event("codex", "SessionStart"), None);
     }
 
     #[test]

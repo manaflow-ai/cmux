@@ -1,11 +1,12 @@
 import AppKit
+import CmuxNextDesign
 
 /// The pane's input surface, over the video. It takes keyboard focus on
 /// click; while it is first responder in control mode, keys, pointer,
 /// buttons and scroll go to the host. Coordinates are flipped like stream
 /// pixels. The local cursor stays the system arrow (control mode draws the
 /// native cursor locally, RD6).
-final class RemoteInputCaptureView: NSView {
+final class RemoteInputCaptureView: NSView, MouseButtonForwarding {
     let controller = RemoteInputController()
     /// The current image placement, from the video view.
     var geometry: () -> RemoteViewGeometry? = { nil }
@@ -65,9 +66,9 @@ final class RemoteInputCaptureView: NSView {
         updateActive()
     }
 
-    /// Read by the app's mouse Back and Forward (`MouseSideButtons`): in control mode buttons 4
-    /// and 5 go to the host like every other button, so cmux does not navigate on them.
-    @objc var cmuxForwardsMouseButtons: Bool { controlMode }
+    /// Read by mouse Back and Forward (`MouseSideButtons`): in control mode buttons 4 and 5 go
+    /// to the host like every other button, so cmux does not navigate on them.
+    var forwardsMouseButtons: Bool { controlMode }
 
     private func updateActive() {
         controller.isActive = controlMode && isFirstResponder && window?.isKeyWindow != false

@@ -12,6 +12,16 @@ Read the matching skill before changing an area, then only the references needed
   Start with `python3 scripts/verify-local.py`; docs and portable tooling need no app build.
   Run repository commands only in a [trusted checkout](docs/contributor-verification.md#trust-boundary),
   including `verify-local.py --help`, `--list` and `--repo`. Push does not run checks for you.
+- **Web lints before every commit and push.** If the change touches `webviews/` or `web/`, run
+  that area's lints from its folder first (`bun install --frozen-lockfile` once per checkout) and
+  fix every error.
+  Never push with a lint failure; a base lint red skips the CI tests after it. These are the
+  checks CI runs on every `feat-cmux-next` push:
+  - `webviews/`: `bun run check` (Oxlint, Oxfmt, type check, layer and protocol checks).
+    `bun run check:fix` repairs formatting.
+  - `web/`: `bun run typecheck`, `bun run lint:complexity` and
+    `bun tools/generate-managed-iroh-relay-catalog.ts --check`. Also run
+    `bunx eslint <changed files>` and add no new ESLint errors (the full `bun run lint` has old errors).
 - Use [CONTRIBUTING.md](CONTRIBUTING.md#getting-started) for setup. Tagged reloads default to
   `CMUX_DEV_BACKEND_MODE=local`; cmux-next needs no shared backend. Follow [tagged builds](skills/cmux-dev-workflow/references/tagged-builds.md)
   for commands and cache reuse; team fleet tasks start at
@@ -29,6 +39,18 @@ Read the matching skill before changing an area, then only the references needed
 - The app package needs Swift tools 6.2 and deploys to macOS 14; the classic Swift 6.0 rule
   does not apply here. Check Release compiles and macOS 14 limits with
   [toolchain compatibility](skills/cmux-architecture/references/swift-6-0-compatibility.md).
+
+## Web lint before push
+
+Run `scripts/web-lint.sh` before you push web or webviews changes; the pre-push
+hook enforces it. It runs, on what you changed against `origin/feat-cmux-next`,
+the `bun run check` that CI runs for `webviews/` and `cmux-tui/frontends/web/`
+(Oxfmt, Oxlint with the type check, browser-lane and style checks) and ESLint on
+changed `web/` files. `scripts/web-lint.sh --fix` autofixes what the tools can;
+commit the result. The hook comes with `scripts/install-git-hooks.sh` (run by
+`scripts/setup.sh`; one run covers every worktree of the clone). Skip it only with
+`CMUX_WEB_LINT_SKIP_REASON="<failing check> is red on base <sha>"`; the
+`web lint (fast)` job of cmux-next-web.yml still checks every feat-cmux-next push.
 
 ## Swift namespace convention
 

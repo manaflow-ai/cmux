@@ -1,6 +1,46 @@
 --- a/Sources/MessagesLabHome/Vendor/catalyst/Layout.swift
 +++ b/Sources/MessagesLabHome/Vendor/catalyst/Layout.swift
-@@ -94,10 +94,15 @@
+@@ -12,14 +12,37 @@
+ /// `Fixture.withRenderScale(_:_:)` and the process fallback outside one. Work sent to another queue takes the scale
+ /// with it (a task local does not follow DispatchQueue blocks): RowBitmaps, Pager, TiledBody, MorphBubble.prepare.
+ enum RenderScaleScope {
++    /// The scope's scale for work inside a Swift task or off the main thread.
+     @TaskLocal static var scoped: CGFloat? = nil
++    /// cmux: the scope's scale on the main thread outside any task (a layer's draw, a window
++    /// move, a layout pass). A task local bound there lives in the thread's fallback storage, and an
++    /// isolated deinit run inline under it (every main-actor class of a main-actor-default target
++    /// has one) makes the macOS 15.4 to 15.x runtime free() a marker its task allocator made: cmux
++    /// trapped under Chromium's allocator when Cmd-1 left Home (CMUXTERM-MACOS-44XN, macOS 15.8.1).
++    // Read and written only on the main thread (`with` and `current` check it).
++    nonisolated(unsafe) static var mainThreadScoped: CGFloat? = nil
++
++    /// The scale of the scope that runs now, nil outside any scope.
++    static var current: CGFloat? { scoped ?? (Thread.isMainThread ? mainThreadScoped : nil) }
++
++    /// Runs `body` in a scope of scale `s`, binding no task local where no task runs.
++    static func with<T>(_ s: CGFloat, _ body: () throws -> T) rethrows -> T {
++        if Thread.isMainThread, !withUnsafeCurrentTask(body: { $0 != nil }) {
++            let outer = mainThreadScoped
++            mainThreadScoped = s
++            defer { mainThreadScoped = outer }
++            return try body()
++        }
++        // concurrency-allow: bound inside a task or off the main thread, never in fallback storage on main
++        return try $scoped.withValue(s, operation: body)
++    }
+ }
+ 
+ extension Fixture {
+     /// Runs `body` with `Fixture.renderScale` = `s` on this thread (a scale of 0 or less: the current value).
+     static func withRenderScale<T>(_ s: CGFloat, _ body: () throws -> T) rethrows -> T {
+-        guard s > 0, RenderScaleScope.scoped != s else { return try body() }
+-        return try RenderScaleScope.$scoped.withValue(s, operation: body)
++        guard s > 0, RenderScaleScope.current != s else { return try body() }
++        return try RenderScaleScope.with(s, body)
+     }
+ }
+ 
+@@ -94,10 +117,15 @@
                  }
              }
              if r.mention != nil { traits.insert(.traitBold) }
@@ -17,7 +57,7 @@
              if r.link != nil {
                  a.addAttributes([.foregroundColor: linkColor, .underlineStyle: NSUnderlineStyle.single.rawValue], range: range)
              }
-@@ -1024,7 +1029,8 @@
+@@ -1024,7 +1052,8 @@
                                          gap: 1, height: 14))
                  }
                  if case .failed = m.status {
@@ -27,7 +67,7 @@
                                          gap: 1, height: 14))
                  }
                  if !threadMode, let n = replyCount[m.id], n >= 2, m.replyTo == nil {
-@@ -1043,17 +1049,23 @@
+@@ -1043,17 +1072,23 @@
              }
              prev = m; prevIndex = idx
          }
@@ -56,7 +96,7 @@
          rows = rows.map { var r = $0; r.width = width; return r } // no index writes
          return rows
      }
-@@ -1145,7 +1157,7 @@
+@@ -1145,7 +1180,7 @@
  enum Format {
      private static let timeFormatter: DateFormatter = {
          let f = DateFormatter()
@@ -65,7 +105,7 @@
          f.timeZone = Instant.zone
          f.dateFormat = "h:mm\u{202F}a"
          return f
-@@ -1164,7 +1176,7 @@
+@@ -1164,7 +1199,7 @@
      private static let calendar: Calendar = { var c = Calendar(identifier: .gregorian); c.timeZone = Instant.zone; return c }()
      private static func formatter(_ f: String) -> DateFormatter {
          let d = DateFormatter()
@@ -74,7 +114,7 @@
          d.timeZone = Instant.zone
          d.dateFormat = f
          return d
-@@ -1214,7 +1226,8 @@
+@@ -1214,7 +1249,8 @@
  enum MessagesLabLocalization {
      private final class Token {}
      private static let lock = NSLock()
@@ -84,7 +124,7 @@
      static var bundle: Bundle {
          get { lock.lock(); defer { lock.unlock() }; return current }
          set { lock.lock(); current = newValue; lock.unlock() }
-@@ -1255,7 +1268,8 @@
+@@ -1255,7 +1291,8 @@
          default: return MessagesLabLocalization.string("file.kind.document", "Document")
          }
      }

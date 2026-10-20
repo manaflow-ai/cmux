@@ -473,6 +473,21 @@ def make_browser(name: str, bundle: str, helper: Helper, server: pages.BeaconSer
     return ChromiumBrowser(name, bundle, helper, server)
 
 
+def can_launch_apps() -> bool:
+    """Whether LaunchServices starts an app for this process (Calculator, quit at once)."""
+    calculator = "/System/Applications/Calculator.app"
+    if subprocess.run(["open", "-g", "-j", "-n", "-a", calculator], capture_output=True, timeout=30).returncode != 0:
+        return False
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline:
+        pid = procs.main_pid(calculator)
+        if pid:
+            os.kill(pid, signal.SIGKILL)
+            return True
+        time.sleep(0.2)  # bench: waiting for the probe app
+    return False
+
+
 # ---------------------------------------------------------------- run
 
 
@@ -680,7 +695,9 @@ class Run:
                 "cores": int(sysctl("hw.ncpu") or 0), "ram_gb": int(sysctl("hw.memsize") or 0) // 2**30,
                 "macos": platform.mac_ver()[0], "build": subprocess.run(["sw_vers", "-buildVersion"],
                                                                        capture_output=True, text=True).stdout.strip(),
-                "load_start": round(procs.load_average(), 2), "displays": self.helper.displays()}
+                "load_start": round(procs.load_average(), 2), "displays": self.helper.displays(),
+                "session": subprocess.run(["launchctl", "managername"], capture_output=True,
+                                          text=True).stdout.strip()}
 
     def main(self):
         a = self.args
@@ -700,6 +717,13 @@ class Run:
         with open(meta_path, "w") as handle:
             json.dump(meta, handle, indent=1)
         log(f"machine {json.dumps(meta['machine'])}")
+        if not can_launch_apps():
+            # LaunchServices refuses to start apps for a process outside a logged-in
+            # console user's session (RBSRequestErrorDomain Code=5 "Launch failed"):
+            # no row can be measured on this host.
+            print(f"PERF-BENCH-NO-GUI launchd domain {meta['machine']['session']!r}: `open` cannot start an app "
+                  "here (needs a host with a logged-in console user)", flush=True)
+            sys.exit(3)
         if not meta["machine"]["displays"].get("count"):
             log("WARNING: no active display: paint, switch and video rows may not be meaningful")
         caffeinate = subprocess.Popen(["caffeinate", "-dimsu"])
@@ -759,10 +783,49 @@ def ratio(cmux_value, other) -> str:
     return f"{r:.1f}x less" if r >= 1 else f"{1 / r:.1f}x MORE"
 
 
-def report(out: str, md_path: str | None, json_path: str | None):
-    samples = [json.loads(line) for line in open(os.path.join(out, "samples.jsonl")) if line.strip()]
+TAB_SWITCH_KINDS = {"chromium": "Browser (Chromium)", "webkit": "Browser (WebKit)", "markdown": "Markdown",
+                    "chat": "Chat", "terminal": "Terminal", "file": "Code file"}
+TAB_SWITCH_BROWSER = "cmux-debug"  # the matrix needs a tagged Debug build (debug.key, debug.tab_switch)
+
+
+def tab_switch_rows(path: str | None) -> tuple[dict, list[str]]:
+    """Rows and BENCH.md lines from tab-switch-matrix.py's report: end-to-end ms (OS input event to
+    the Core Animation commit that shows the tab) per kind, tab count and input, in a real window."""
+    if not path or not os.path.exists(path):
+        return {}, []
+    data = json.load(open(path))
+    rows, lines = {}, []
+    lines += ["## Tab switch in a real window (cmux NEXT, tagged Debug build)", "",
+              "tab-switch-matrix.py: one pane holding N tabs of a kind, warm; end-to-end = OS input event to "
+              "the Core Animation commit that shows the tab (p50 / p90 ms); late = switches past their first frame.", "",
+              "| Kind | Tabs | Ctrl-Tab | Cmd-Shift-] | Click | late | per hidden tab |", "|---|---|---|---|---|---|---|"]
+    for scenario in data.get("scenarios", []):
+        kind, count = scenario["kind"], scenario["count"]
+        cells, late = [], []
+        for input_kind in ("ctrl_tab", "cmd_shift_bracket", "click"):
+            line = ((scenario.get(input_kind) or {}).get("table") or {}).get(kind) or {}
+            e2e = line.get("e2e") or line.get("commit") or {}
+            if e2e.get("p50") is None:
+                cells.append("–")
+                continue
+            cells.append(f"{e2e['p50']:.1f} / {e2e['p90']:.1f}")
+            late.append(f"{line.get('late_switches')}/{line.get('n')}")
+            rows.setdefault(f"tab-switch-{kind}-{count}-{input_kind}", {})[TAB_SWITCH_BROWSER] = {
+                "median": e2e["p50"], "p90": e2e["p90"], "n": line.get("n")}
+        per_tab = scenario.get("per_tab") or {}
+        lines.append(f"| {TAB_SWITCH_KINDS.get(kind, kind)} | {count} | " + " | ".join(cells) +
+                     f" | {', '.join(late) or '–'} | {per_tab.get('footprint_mb', '–')} MB |")
+    lines.append("")
+    return rows, lines
+
+
+def report(out: str, md_path: str | None, json_path: str | None, tabswitch: str | None = None):
+    path = os.path.join(out, "samples.jsonl")
+    samples = [json.loads(line) for line in open(path) if line.strip()] if os.path.exists(path) else []
     meta = json.load(open(os.path.join(out, "meta.json")))
     rows = aggregate(samples)
+    switch_rows, switch_lines = tab_switch_rows(tabswitch)
+    rows.update(switch_rows)
     errors = [s for s in samples if s["row"] == "session-error" or (s.get("value") is None and s.get("note"))]
     result = {"date": time.strftime("%Y-%m-%d"), "machine": meta["machine"], "cmux_ref": meta.get("cmux_ref"),
               "browsers": meta["browsers"], "rows": rows, "published": PUBLISHED,
@@ -781,7 +844,8 @@ def report(out: str, md_path: str | None, json_path: str | None):
              "results.json, min-max there too). Lower is better.", ""]
     versions = ", ".join(f"{meta['browsers'][b]['name']} {meta['browsers'][b]['version']}" for b in present)
     lines += [f"Versions: {versions}.", ""]
-    head = ["Metric"] + [LABELS[b] for b in present] + ["best other", "cmux vs best other", "Ardia (published, M5 Pro)"]
+    head = ["Metric"] + [LABELS[b] for b in present] + ["best other", "cmux vs best other", "Ardia (published, M5 Pro)",
+                                                   "Helium (published)"]
     lines += ["| " + " | ".join(head) + " |", "|" + "---|" * len(head)]
     for row, label, unit, main in ROWS:
         per = rows.get(row, {})
@@ -793,10 +857,11 @@ def report(out: str, md_path: str | None, json_path: str | None):
         lines.append("| " + " | ".join([label + ("" if main else " *")] + cells + [
             f"{fmt(best[0], unit)} ({LABELS[best[1]]})" if best else "–",
             ratio(cmux_best, best[0] if best else None),
-            fmt(PUBLISHED["ardia"].get(row), unit)]) + " |")
+            fmt(PUBLISHED["ardia"].get(row), unit), fmt(PUBLISHED["helium"].get(row), unit)]) + " |")
     lines += ["", "\\* not in Ardia's tweet. \"cmux vs best other\" uses the best cmux variant of the row. "
               "Power is CPU energy (ri_energy_nj) over every process of the browser; GPU and display are not in it. "
               "The 10x goal: every cmux cell at a tenth of the best other.", ""]
+    lines += switch_lines
     if errors:
         lines += ["## Rows that could not be measured", ""]
         seen = set()
@@ -826,10 +891,10 @@ def gate(results_path: str, baseline_path: str, tolerance: float) -> int:
     baseline = json.load(open(baseline_path))["rows"]
     failed = 0
     for row, per in baseline.items():
-        if row not in ROW_INFO:
+        if row not in ROW_INFO and not row.startswith("tab-switch-"):
             continue
-        unit = ROW_INFO[row][1]
-        for browser in CMUX:
+        unit = ROW_INFO[row][1] if row in ROW_INFO else "ms"
+        for browser in (*CMUX, TAB_SWITCH_BROWSER):
             base = per.get(browser, {}).get("median")
             now = results.get(row, {}).get(browser, {}).get("median")
             if base is None or now is None:
@@ -857,7 +922,7 @@ def main():
     run.add_argument("--settle", type=float, default=30)
     run.add_argument("--template-settle", type=float, default=45)
     run.add_argument("--max-load", type=float, default=4)
-    run.add_argument("--quiet-wait", type=float, default=300)
+    run.add_argument("--quiet-wait", type=float, default=120)
     run.add_argument("--cmux-ref", default="")
     run.add_argument("--work", default="/private/tmp/xbench")
     run.add_argument("--cache", default=os.path.expanduser("~/Library/Caches/cmux-perf-bench"))
@@ -865,6 +930,7 @@ def main():
     rep.add_argument("--out", required=True)
     rep.add_argument("--md")
     rep.add_argument("--json")
+    rep.add_argument("--tabswitch", help="tab-switch-matrix.py's --json report")
     gat = sub.add_parser("gate")
     gat.add_argument("--results", required=True)
     gat.add_argument("--baseline", required=True)
@@ -875,7 +941,7 @@ def main():
         random.seed(0)
         Run(args).main()
     elif args.command == "report":
-        report(args.out, args.md, args.json)
+        report(args.out, args.md, args.json, args.tabswitch)
     else:
         sys.exit(gate(args.results, args.baseline, args.tolerance))
 
