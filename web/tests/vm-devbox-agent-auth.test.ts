@@ -80,7 +80,7 @@ function machine(): Machine {
       real,
       [
         "#!/bin/sh",
-        ...["ANTHROPIC_BASE_URL", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_CUSTOM_HEADERS", "CLAUDE_CONFIG_DIR", "OPENAI_BASE_URL", "OPENAI_API_KEY", "CODEX_HOME", "OPENCODE_CONFIG", "XDG_DATA_HOME"]
+        ...["ANTHROPIC_BASE_URL", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_CUSTOM_HEADERS", "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_FOUNDRY", "CLAUDE_CONFIG_DIR", "OPENAI_BASE_URL", "OPENAI_API_KEY", "CODEX_HOME", "OPENCODE_CONFIG", "OPENCODE_CONFIG_DIR", "XDG_DATA_HOME", "XDG_CONFIG_HOME"]
           .map((name) => `printf "${name}=%s\\n" "\${${name}-<unset>}"`),
         'printf "args=%s\\n" "$*"',
         "",
@@ -626,12 +626,31 @@ describe("cr use", () => {
     expect(opencode.OPENCODE_CONFIG).toBe(path.join(m.home, ".config/cmux/opencode-team.json"));
     expect(opencode.OPENAI_API_KEY).toBe(PLACEHOLDER);
     expect(opencode.XDG_DATA_HOME).toBe(path.join(m.home, ".local/share/cmux-team"));
+    expect(opencode.XDG_CONFIG_HOME).toBe(path.join(m.home, ".config/cmux-team"));
 
-    expect((await launch(m, "claude", { ANTHROPIC_API_KEY: "personal-claude", FAKE_ACCESS: ALL })).ANTHROPIC_API_KEY).toBe(PLACEHOLDER);
+    const forcedClaude = await launch(m, "claude", {
+      ANTHROPIC_API_KEY: "personal-claude",
+      ANTHROPIC_AUTH_TOKEN: "personal-token",
+      CLAUDE_CODE_USE_BEDROCK: "1",
+      CLAUDE_CODE_USE_VERTEX: "1",
+      CLAUDE_CODE_USE_FOUNDRY: "1",
+      FAKE_ACCESS: ALL,
+    });
+    expect(forcedClaude.ANTHROPIC_API_KEY).toBe(PLACEHOLDER);
+    expect(forcedClaude.ANTHROPIC_AUTH_TOKEN).toBe("<unset>");
+    expect(forcedClaude.CLAUDE_CODE_USE_BEDROCK).toBe("<unset>");
+    expect(forcedClaude.CLAUDE_CODE_USE_VERTEX).toBe("<unset>");
+    expect(forcedClaude.CLAUDE_CODE_USE_FOUNDRY).toBe("<unset>");
     expect((await launch(m, "codex", { OPENAI_API_KEY: "personal-codex", FAKE_ACCESS: ALL })).OPENAI_API_KEY).toBe(PLACEHOLDER);
-    const forcedOpenCode = await launch(m, "opencode", { OPENAI_API_KEY: "personal-opencode", ANTHROPIC_API_KEY: "personal-anthropic", FAKE_ACCESS: ALL });
+    const forcedOpenCode = await launch(m, "opencode", {
+      OPENAI_API_KEY: "personal-opencode",
+      ANTHROPIC_API_KEY: "personal-anthropic",
+      OPENCODE_CONFIG_DIR: "/personal/opencode-config",
+      FAKE_ACCESS: ALL,
+    });
     expect(forcedOpenCode.OPENAI_API_KEY).toBe(PLACEHOLDER);
     expect(forcedOpenCode.ANTHROPIC_API_KEY).toBe("<unset>");
+    expect(forcedOpenCode.OPENCODE_CONFIG_DIR).toBe("<unset>");
 
     const status = await cr(m, ["--json"], { FAKE_ACCESS: ALL });
     expect(status.stdout).toBe(
@@ -639,6 +658,21 @@ describe("cr use", () => {
       + '{"agent":"codex","mode":"team","reason":"shared-machine","chosen":false},'
       + '{"agent":"opencode","mode":"team","reason":"shared-machine","chosen":false}]}\n',
     );
+
+    const blocked = machine();
+    writeFileSync(blocked.kind, "team\n");
+    mkdirSync(path.join(blocked.home, ".config"), { recursive: true });
+    writeFileSync(path.join(blocked.home, ".config/cmux"), "not a directory");
+    for (const agent of ["claude", "codex"] as const) {
+      const refused = await runChild(blocked.launchers[agent], ["--resume", "x"], { env: bootEnv(blocked) });
+      expect(refused.status).not.toBe(0);
+      expect(refused.stdout).not.toContain("args=");
+    }
+    mkdirSync(path.join(blocked.home, ".local/share"), { recursive: true });
+    writeFileSync(path.join(blocked.home, ".local/share/cmux-team"), "not a directory");
+    const openCodeRefused = await runChild(blocked.launchers.opencode, ["--resume", "x"], { env: bootEnv(blocked) });
+    expect(openCodeRefused.status).not.toBe(0);
+    expect(openCodeRefused.stdout).not.toContain("args=");
   });
 
   test("an agent argument limits the change to that agent", async () => {

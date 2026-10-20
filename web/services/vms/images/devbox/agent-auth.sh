@@ -217,7 +217,8 @@ cmux_claude_apply_auth_mode() {
   cmux_agent_auth_resolve claude
   if [ "$cmux_agent_auth_mode" = team ]; then
     if [ "$cmux_agent_auth_reason" = shared-machine ]; then
-      unset CLAUDE_CODE_OAUTH_TOKEN ANTHROPIC_AUTH_TOKEN ANTHROPIC_CUSTOM_HEADERS
+      unset CLAUDE_CODE_OAUTH_TOKEN ANTHROPIC_AUTH_TOKEN ANTHROPIC_CUSTOM_HEADERS \
+        CLAUDE_CODE_USE_BEDROCK CLAUDE_CODE_USE_VERTEX CLAUDE_CODE_USE_FOUNDRY
       CLAUDE_CONFIG_DIR="${HOME:-/root}/.config/cmux/claude-team"
       mkdir -p "$CLAUDE_CONFIG_DIR" 2>/dev/null || return 1
       chmod 0700 "$CLAUDE_CONFIG_DIR" 2>/dev/null || return 1
@@ -282,11 +283,12 @@ cmux_opencode_apply_auth_mode() {
   cmux_agent_auth_resolve opencode
   if [ "$cmux_agent_auth_mode" = team ]; then
     if [ "$cmux_agent_auth_reason" = shared-machine ]; then
-      unset ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN ANTHROPIC_BASE_URL ANTHROPIC_CUSTOM_HEADERS OPENAI_BASE_URL OPENCODE_CONFIG
+      unset ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN ANTHROPIC_BASE_URL ANTHROPIC_CUSTOM_HEADERS OPENAI_BASE_URL OPENCODE_CONFIG OPENCODE_CONFIG_DIR
       XDG_DATA_HOME="${HOME:-/root}/.local/share/cmux-team"
-      mkdir -p "$XDG_DATA_HOME" 2>/dev/null || return 1
-      chmod 0700 "$XDG_DATA_HOME" 2>/dev/null || return 1
-      export XDG_DATA_HOME
+      XDG_CONFIG_HOME="${HOME:-/root}/.config/cmux-team"
+      mkdir -p "$XDG_DATA_HOME" "$XDG_CONFIG_HOME" 2>/dev/null || return 1
+      chmod 0700 "$XDG_DATA_HOME" "$XDG_CONFIG_HOME" 2>/dev/null || return 1
+      export XDG_DATA_HOME XDG_CONFIG_HOME
       cmux_ao_key=$cmux_aa_placeholder
     else
       cmux_ao_key=${OPENAI_API_KEY-}

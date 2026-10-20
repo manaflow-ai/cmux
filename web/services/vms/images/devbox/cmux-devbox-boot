@@ -401,6 +401,12 @@ sync_vm_kind_if_due() {
   /usr/local/bin/cmux-vm-kind-sync >/dev/null 2>&1 &
 }
 
+mark_vm_kind_shared() {
+  [ -x /usr/local/bin/cmux-vm-kind-sync ] || return 0
+  CMUX_VM_MODEL_ENV_FILE=/run/cmux/no-model-plane /usr/local/bin/cmux-vm-kind-sync >/dev/null 2>&1
+  vm_kind_sync_at=0
+}
+
 # Start the daemon (command identical to cmuxTuiDaemonCommand()).
 # Under systemd the unit sets CMUX_TUI_HOST_SCOPES=systemd: the daemon moves
 # each terminal host it starts into its own transient scope
@@ -456,6 +462,11 @@ while true; do
     else
       sync_vm_kind_if_due
       if [ -n "$id" ] && [ "$id" != "$(cat "$BOUND_INSTANCE_FILE" 2>/dev/null)" ]; then
+        # A snapshot clone may carry its source's `owner` marker and a future
+        # sync deadline. Fail closed before its daemon or first terminal can
+        # start; the ordinary sync below may promote it back to owner.
+        mark_vm_kind_shared
+        sync_vm_kind_if_due
         # Announce first: the fabric drops the Mac's SYNs until it sees a frame.
         ( announce_network & )
         # Starts the template shell's bounded wait for the bound file.

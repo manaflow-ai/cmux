@@ -4507,6 +4507,8 @@ export function execVm(input: {
   readonly userId: string;
   readonly billingTeamId?: string | null;
   readonly teamIds?: readonly string[];
+  /** Internal test/rollout seam; routes use CMUX_VM_SHARED_ACCESS_MODE. */
+  readonly sharedAccessMode?: ExistingVmAccessInput["sharedAccessMode"];
   readonly providerVmId: string;
   /** Current billing-scope machine allowance; null means unlimited. */
   readonly maxActiveVms?: number | null;
