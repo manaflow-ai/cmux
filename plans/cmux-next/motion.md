@@ -65,6 +65,10 @@ would do it, spring curves", "proper physics". Design:
   layer, its tab strip whole in every frame, and covers the other panes,
   which stay opaque and still. A released divider flung onto a snap within
   `motion.divider.releaseProjection` of its velocity lands there.
+  A split (Cmd-D, Cmd-Shift-D) moves on its own `split` spring (0.28 s, damping 0.95; Lawrence
+  2026-10-19: "resize all of them while adding a new one"), and the even sizing of its chain
+  shows in the key's frame with the split (`LayoutModel.showSplitSizing`), not after the
+  daemon's reply: one target, one motion (split-spring-animation/DESIGN.md).
 - New tab (only with `ui.animations.newTab` on; off, every entry point shows
   the tab in its final slot at once, and a closed tab's room closes at once
   too; the store's tab takes its provisional stand-in's cell in place, so a
@@ -297,7 +301,7 @@ rest).
 | Browser progress line | CATransaction 0.2 s | `move` (timed equivalent) | 200 ms | 192 ms | - |
 | strip column scroll (reveal, wheel, fling) | display-link spring 0.42/0.96 | `scroll` | 458 / 592 ms | 208 / 267 ms | 366-377 ms (reveal of a full-width column; rest is longer for long travel) |
 | Screen switch | display-link spring 0.38/0.92 | `screen` | 367 / 475 ms | 208 / 267 ms | 244-249 ms |
-| Splits (Cmd-D, Cmd-Shift-D) | one frame | `move`: the new pane grows from the far edge of the pane it split, which shrinks with it, and the divider slides in from that edge (cx-f6i7) | 0 | 192 / 250 ms | - |
+| Splits (Cmd-D, Cmd-Shift-D) | one frame | `split` (0.28 / 0.95, 2026-10-19; was `move`): the new pane grows from the far edge of the pane it split while its whole even chain makes room on the same spring, and the divider slides in from that edge (cx-f6i7, split-spring-animation) | 0 | 195 ms (95%) / 375 ms (700 pt) | - |
 | Pane close, move | one frame | one frame (unchanged) | 0 | 0 | - |
 | Pane ratio, equalize, width presets, pane zoom | display-link spring 0.34/0.88 | `move` | 292 / 483 ms | 192 / 250 ms | 258 ms (column width preset) |
 | Drop-zone overlay | display-link spring 0.20/0.90 | `track` | 192 / 250 ms | 117 / 167 ms | - |

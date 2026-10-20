@@ -83,7 +83,16 @@ public final class TabStripView: NSView {
     var closingAnchors: [TabID: TabID?] = [:]
     /// Tabs in visual order, excluding dying and torn-out tabs.
     var displayed: [TabItem] = []
-    var result = TabLayoutResult(slots: [], contentWidth: 0, standardWidth: 0, availableWidth: 0)
+    var result = TabLayoutResult(slots: [], contentWidth: 0, standardWidth: 0, availableWidth: 0) {
+        didSet { slotIndexCache = nil }
+    }
+    /// `result` indexed by tab (`slotIndex`), built on first use after each layout.
+    var slotIndexCache: TabSlotIndex?
+    /// The strip moves whose Core Animation transaction has not completed (`applyFrames`, `moveEnded`).
+    var movesInFlight: Set<Int> = []
+    /// Passes over every cell, by kind (`occlusion`, `separators`, `frames`): what a change cost, for
+    /// the switch work budget (a tab switch at rest runs none, at any tab count).
+    var rowPasses = TabStripRowPasses()
     /// The strip's scroll offset (its target; a reveal's spring is a Core Animation move).
     var scrollOffset: CGFloat = 0
     /// The last strip move's generation (`TabStripMove`).
@@ -119,10 +128,14 @@ public final class TabStripView: NSView {
     // MARK: Pointer state
 
     var hoveredID: TabID?
+    /// The hovered tab changed (nil: the pointer left every tab); the App wakes a hidden page ahead of the click.
+    public var onHoverTab: ((TabID?) -> Void)?
     var closeHoveredID: TabID?
     var pressedCloseID: TabID?
     /// A press on a tab's speaker (`TabCell.audioButtonRect`): its release there mutes or unmutes the tab.
     var pressedAudioID: TabID?
+    /// The tab whose speaker the pointer is on: its fill and the strip's tooltip.
+    var audioHoveredID: TabID?
     var middlePressID: TabID?
     var pressedNewTab = false
     /// Press-and-hold on + opens the new tab menu (`TabNewTabHold`).
@@ -202,6 +215,7 @@ public final class TabStripView: NSView {
         setAccessibilityElement(true)
         setAccessibilityRole(.tabGroup)
         setAccessibilityLabel(Strings.axStrip)
+        setAccessibilityIdentifier("cmux.tabs.strip")
     }
 
     @available(*, unavailable)
@@ -407,7 +421,7 @@ public final class TabStripView: NSView {
         tabsClip.frame = CGRect(x: padding + windowControlsInset, y: 0, width: viewport, height: bounds.height)
         if viewport != lastViewportWidth {
             // Tabs resize with the window instantly; a close in flight keeps its spring (cx-y2uf5); a narrower strip (a split) keeps the selected tab in view.
-            relayout(animated: !dying.isEmpty && !inLiveResize && !reduceMotion, keepsSelectedInView: viewport < lastViewportWidth)
+            relayout(animated: !dying.isEmpty && !Motion.isLiveResizing(window) && !reduceMotion, keepsSelectedInView: viewport < lastViewportWidth)
             lastViewportWidth = viewport
         } else {
             applyFrames()

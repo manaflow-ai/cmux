@@ -79,6 +79,10 @@ class ClientTransport(str, Enum):
 class CloseReason(str, Enum):
     SESSION_END = 'session_end'
 
+class ColumnMoveDirection(str, Enum):
+    LEFT = 'left'
+    RIGHT = 'right'
+
 class ConversationThreadStatus(str, Enum):
     OPEN = 'open'
     RESOLVED = 'resolved'
@@ -3595,6 +3599,13 @@ class MoveBrowserProfileRequest:
 
 
 @dataclass(frozen=True)
+class MoveColumnRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/move-column/request'
+    pane: Id
+    direction: ColumnMoveDirection
+
+
+@dataclass(frozen=True)
 class MovePersonalGroupRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/move-personal-group/request'
     group: str
@@ -5838,6 +5849,7 @@ __all__ = [
     'BrowserProviderHosting',
     'ClientTransport',
     'CloseReason',
+    'ColumnMoveDirection',
     'ConversationThreadStatus',
     'CursorStyle',
     'DetachReason',
@@ -6225,6 +6237,7 @@ __all__ = [
     'MintTerminalRendererByTerminalRequest',
     'MoveBookmarkRequest',
     'MoveBrowserProfileRequest',
+    'MoveColumnRequest',
     'MovePersonalGroupRequest',
     'MoveProfileRequest',
     'MoveScreenRequest',

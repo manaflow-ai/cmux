@@ -8,9 +8,15 @@
 
 use std::path::Path;
 
-#[cfg(test)]
 use cmux_tui_core::release::is_release;
 pub(crate) use cmux_tui_core::release::{DISTRIBUTION_VERSION, InstallChannel};
+
+/// Whether this binary was stamped as an npm/PyPI release (not a `0.0.0-…`
+/// placeholder): crash forwarding and the update check run only then.
+pub(crate) const RELEASE_STAMPED: bool = match option_env!("CMUX_TUI_DISTRIBUTION_VERSION") {
+    Some(version) => is_release(version),
+    None => false,
+};
 
 /// The release `cmux --version` names. An unpublished commit artifact (the R2
 /// tree builds the cmux-next app bundles, stamped `0.0.0-r2.sha-<commit>`)

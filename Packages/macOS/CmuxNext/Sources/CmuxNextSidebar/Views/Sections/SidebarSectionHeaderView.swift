@@ -9,7 +9,7 @@ final class SidebarSectionHeaderView: NSView {
     var onContextMenu: ((NSEvent, NSView) -> Void)?
 
     private let name = ChromeLabel(labelWithString: "")
-    let chevron = NSImageView()
+    let chevron = DecorativeImageView() // AXExpanded says what it draws
     private var collapsed = false
     /// Set by the hover owner (`PointerHover`, cx-3wu5).
     var isHovered = false { didSet { if isHovered != oldValue { updateChevron(); needsDisplay = true } } }
