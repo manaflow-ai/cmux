@@ -21,27 +21,19 @@ extension HomeNativeTranscriptView {
         firstRun.setShortcuts(terminal: terminal, agent: agent, switching: switching)
     }
 
-    /// The header avatar from the Chief's profile: its picture, else its text, else the Chief
-    /// pet's character (`HomeChiefFace`), which follows the setting live (`followChiefPet`).
+    /// The Chief's avatar as the host resolved it (its picture, else its text: the profile's, or
+    /// 🫡 for a Chief with none, `HomeChiefAvatar.headerText`), on the header and the first-run hero.
     public func setChiefAvatar(picture: NSImage?, text: String?) {
-        profileAvatar = (picture, text)
-        applyChiefAvatar()
+        avatarPicture = picture
+        avatarText = text
+        firstRun.hero.setAvatar(picture: picture, text: text)
     }
 
-    private func applyChiefAvatar() {
-        guard let profile = profileAvatar else { return }
-        avatarPicture = profile.picture ?? (profile.text == nil ? HomeChiefFace().picture : nil)
-        avatarText = profile.text
-        onChiefAvatar?(avatarPicture, profile.text)
-    }
-
-    /// The Chief pet's character and whether it shows (`DesignSettings`, from `home.chiefPetMascot`
-    /// and `home.chiefPetEnabled`): the first-run hero's picture, its pet row and the default face.
+    /// Whether the Chief pet shows (`DesignSettings.homeChiefPetEnabled`, from `home.chiefPetEnabled`):
+    /// the first-run panel's pet row reads Show or Hide Chief Pet.
     func followChiefPet() {
         withObservationTracking {
-            firstRun.hero.image = HomeChiefFace().picture
             firstRun.setPetShown(DesignSettings.shared.homeChiefPetEnabled)
-            applyChiefAvatar()
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in self?.followChiefPet() }
         }

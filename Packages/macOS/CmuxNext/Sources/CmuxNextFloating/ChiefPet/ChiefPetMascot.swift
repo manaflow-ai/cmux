@@ -21,12 +21,4 @@ public enum ChiefPetMascot: String, CaseIterable, Sendable {
     }
 
     public var image: NSImage? { Bundle.module.image(forResource: resource) }
-
-    /// The bundled PNG's file, for the Home list's Chief tile (`HomeChiefAvatar.picture`).
-    public var imageURL: URL? { Bundle.module.url(forResource: resource, withExtension: "png") }
-
-    /// The character `home.chiefPetMascot` names; an id that is not one is Orb.
-    public init(setting id: String) {
-        self = ChiefPetMascot(rawValue: id) ?? .initial
-    }
 }

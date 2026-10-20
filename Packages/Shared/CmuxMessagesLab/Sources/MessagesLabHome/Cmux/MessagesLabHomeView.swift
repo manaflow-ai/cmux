@@ -147,6 +147,24 @@ public final class MessagesLabHomeView: NSView {
         set { controller.onAppLink = newValue }
     }
 
+    /// cmux: the pointer moved over the transcript, in screen coordinates (nil: it left). The
+    /// host's hover cards for link chips follow it (``linkChip(atScreenPoint:)``).
+    public var onPointerMoved: ((CGPoint?) -> Void)? {
+        get { controller.onPointerMoved }
+        set { controller.onPointerMoved = newValue }
+    }
+
+    /// cmux: the link chip under `screenPoint` with its pill's frame on screen, or nil (no chip
+    /// there, or the transcript is not in a window). The same hit test as a click.
+    public func linkChip(atScreenPoint screenPoint: CGPoint) -> HomeLinkChipHit? {
+        let host = controller.host
+        guard let window = host.window else { return nil }
+        let p = host.convert(window.convertPoint(fromScreen: screenPoint), from: nil)
+        guard var hit = controller.linkChip(at: p) else { return nil }
+        hit.rect = window.convertToScreen(host.convert(hit.rect, to: nil))
+        return hit
+    }
+
     /// cmux: a click on any other link in the transcript (`otherTarget`: Shift-Command held).
     /// Defaults to the system; the host routes it (cmux: its link setting).
     public var onOpenLink: (_ url: URL, _ otherTarget: Bool) -> Void {

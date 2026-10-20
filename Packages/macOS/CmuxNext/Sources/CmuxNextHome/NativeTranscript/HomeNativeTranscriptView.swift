@@ -82,12 +82,6 @@ public final class HomeNativeTranscriptView: NSView {
     /// first-run panel waits, so a Chief conversation with history never
     /// flashes it before its messages arrive (stability rule).
     public var holdsFirstRun = false { didSet { if holdsFirstRun != oldValue { updateFirstRun() } } }
-    /// The Chief profile's picture and text (`setChiefAvatar`); with neither, the header shows
-    /// `HomeChiefFace`. Nil until the host sets one: the header keeps its own avatar.
-    var profileAvatar: (picture: NSImage?, text: String?)?
-    /// Told the header's picture and text each time they are set, the pet character's live changes
-    /// too (the Chief settings popover shows the same face).
-    public var onChiefAvatar: (@MainActor (NSImage?, String?) -> Void)?
     /// Automation (DEBUG socket): the transcript sits this far from this view's origin, with no size change
     /// (a pane on a fraction of a point; MessagesLab b6760b6's typing snap). Zero in the product.
     public var debugTranscriptOffset = CGPoint.zero { didSet { needsLayout = true } }
@@ -147,10 +141,25 @@ public final class HomeNativeTranscriptView: NSView {
         }
     }
 
+    /// The hover cards of link chips (``enableLinkPreviews(coordinator:previewer:)``), nil until the host enables them.
+    private(set) var linkPreviews: HomeLinkChipHoverSource?
+
+    /// Link chips get hover cards from the app's one `coordinator`, filled by `previewer`
+    /// (plans/cmux-next/home-link-chips-DESIGN.md). Call once; the source registers while the
+    /// transcript is in a window.
+    public func enableLinkPreviews(coordinator: HoverCardCoordinator, previewer: any HomeLinkPreviewing) {
+        guard linkPreviews == nil else { return }
+        let source = HomeLinkChipHoverSource(transcript: transcript, coordinator: coordinator, previewer: previewer)
+        linkPreviews = source
+        transcript.onPointerMoved = { [weak coordinator] point in coordinator?.pointerMoved(to: point) }
+        if window != nil { coordinator.register(source) }
+    }
+
     /// Stops forwarding (the conversation closed). Once.
     public func stop() {
         guard !stopped else { return }
         stopped = true
+        if let linkPreviews { linkPreviews.coordinator.unregister(linkPreviews) }
         intake?.cancel()
         transcript.stop()
         binding.stop()
@@ -337,6 +346,9 @@ public final class HomeNativeTranscriptView: NSView {
         observers = []
         cursorHold = window.flatMap(HomeCursorRectHold.hold(for:))
         cursorHold?.add(self)
+        if let linkPreviews {
+            if window == nil || stopped { linkPreviews.coordinator.unregister(linkPreviews) } else { linkPreviews.coordinator.register(linkPreviews) }
+        }
         guard let window else { return }
         let nc = NotificationCenter.default
         for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification,

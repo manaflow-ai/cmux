@@ -1,17 +1,16 @@
 import AppKit
 import CmuxNextDesign
-import CmuxNextFloating
 @testable import CmuxNextHome
 import Foundation
 import Testing
 
 /// The empty Chief conversation's front page (Leo 2026-10-19: the Chief setup screen should say
-/// what is there now, without the placeholder cat): the Chief pet's character and what the Chief
-/// does over the rows, a Show / Hide Chief Pet row, and the character as the Chief's default face.
+/// what is there now): the Chief's face and what the Chief does over the rows, and a Show / Hide
+/// Chief Pet row.
 @MainActor @Suite(.serialized) struct HomeChiefFrontPageTests {
     @Test func theHeroSaysWhatTheChiefDoesAboveTheRows() {
         let panel = HomeFirstRunView(frame: NSRect(x: 0, y: 0, width: 600, height: 700))
-        panel.hero.image = ChiefPetMascot.orb.image
+        panel.hero.setAvatar(picture: nil, text: HomeChiefAvatar.defaultText)
         panel.layoutSubtreeIfNeeded()
         #expect(!panel.hero.isHidden)
         #expect(panel.hero.frame.height > HomeFirstRunHero.pictureSide)
@@ -49,22 +48,15 @@ import Testing
         #expect(panel.pet.title == HomeStrings.firstRunShowPet)
     }
 
-    @Test func theDefaultFaceIsThePetCharacterNotTheCat() {
-        let settings = DesignSettings()
-        let face = HomeChiefFace(settings: settings)
-        settings.homeChiefPetMascot = "orb"
-        #expect(face.picture != nil)
-        guard case .picture(let url)? = face.tile else {
-            Issue.record("the tile's default is a picture")
-            return
-        }
-        #expect(url.lastPathComponent == "ChiefMascotOrb.png")
-        settings.homeChiefPetMascot = "fox"
-        guard case .picture(let fox)? = face.tile else {
-            Issue.record("the tile's default is a picture")
-            return
-        }
-        #expect(fox.lastPathComponent == "ChiefMascotFox.png")
-        #expect(ChiefPetMascot(setting: "cat") == .orb)
+    /// The hero shows the header's face: the profile's picture, else its text, else 🫡.
+    @Test func theHeroShowsTheChiefsFace() {
+        let hero = HomeFirstRunHero(frame: NSRect(x: 0, y: 0, width: 400, height: 200))
+        hero.setAvatar(picture: nil, text: HomeChiefAvatar.headerText(nil, hasPicture: false))
+        #expect(hero.glyph.stringValue == "🫡")
+        #expect(!hero.glyph.isHidden)
+        #expect(hero.picture.isHidden)
+        hero.setAvatar(picture: NSImage(size: NSSize(width: 8, height: 8)), text: nil)
+        #expect(hero.glyph.isHidden)
+        #expect(!hero.picture.isHidden)
     }
 }

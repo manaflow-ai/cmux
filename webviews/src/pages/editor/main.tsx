@@ -169,6 +169,8 @@ export function mountEditorPage(root: HTMLElement, client: PageClient | null = c
     const state = store.getState();
     document.documentElement.dataset.cmuxEditorPhase = state.phase;
     document.documentElement.dataset.cmuxEditorStatus = state.status;
+    // The document is shown: a focus request kept while Monaco loaded it applies now (P2).
+    if (state.phase === "ready") focus.retry();
     if (state.look === applied) return;
     applied = state.look;
     const settings = resolveEditorSettings(state.look.settings);

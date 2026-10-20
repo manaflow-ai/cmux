@@ -154,10 +154,15 @@ extension PaneController {
     /// close (`closeCommand`), it only detaches their terminals, so the daemon
     /// reaps them after its grace period and Reopen Closed Tab can show them
     /// again meanwhile. One tab, or an older daemon, takes one command per tab.
+    /// The tabs leave the visible state now through one close intent on the
+    /// store (`DaemonStore.intendClose`), the same log as the creates: they stay
+    /// out until the daemon's records drop them, and come back only when the
+    /// daemon refused the close (tab-spam-race).
     func close(_ ids: [StripTabID]) {
         guard !ids.isEmpty else { return }
         var commands: [(label: String, run: DaemonCommandBody)] = []
         var surfaces: [SurfaceID] = []
+        var keys: [String] = []
         for id in ids {
             if id.rawValue.hasPrefix(LocalBrowserTab.prefix) {
                 state?.localBrowserTabs[paneKey].removeAll { $0.id == id.rawValue }
@@ -167,25 +172,40 @@ extension PaneController {
             if BenchSpans.measure("closeLocalTab", { services.closeLocalTab(id.rawValue) }) { continue }
             if daemon.cancelCreation(tab: id.rawValue) { services.keyRouter.creationInputCoordinator.drop(tab: id.rawValue, in: view.window); services.keyRouter.newTabInputCoordinator.drop(tab: id.rawValue, in: view.window); continue }
             guard let tab = tab(id) else { continue }
-            pendingClosed.insert(tab.id)
             surfaces.append(tab.surface)
+            keys.append(tab.id)
             commands.append(daemon.closeCommand(for: tab))
             // Its terminal's only view closes: that session may end it.
             if tab.kind == .remoteTerminal { services.remoteTerminals.viewClosed(tab) }
         }
+        // The runs are built from the records before the intent takes the tabs out of them.
+        let runs = commands.isEmpty ? [] : daemon.closeRuns(surfaces: surfaces, commands: commands.map { ($0.label, $0.run) })
+        let store = daemon.store
+        let transaction = store.intendClose(surfaces)
         BenchSpans.measure("pane.apply") { apply(snapshot()) }
-        guard !commands.isEmpty else { return }
-        let keys = Set(ids.map(\.rawValue))
-        let runs = daemon.closeRuns(surfaces: surfaces, commands: commands.map { ($0.label, $0.run) })
+        guard !runs.isEmpty else { return }
         let userClose = CloseUndoToasts.isUserClose // a refused user close shows RefusedCloseNotice
         services.registry.track(Task { [services] in
             let (failed, unknown, codes) = await daemon.runReportingOutcomes(runs)
             if failed, userClose { RefusedCloseNotice(services: services).show(codes: codes, in: view.window) }
-            // A close that missed its deadline under daemon load usually still
-            // lands: keep the tabs hidden until a snapshot ordered after the
-            // closes says which ones remain, instead of flashing them back.
-            if unknown { await daemon.store.refresh() }
-            pendingClosed.subtract(keys)
+            if let transaction {
+                if failed {
+                    // The daemon kept some: the records show what it has.
+                    store.rejectIntent(transaction)
+                } else if unknown {
+                    // A close that missed its deadline under daemon load usually still
+                    // lands: the tabs stay out until a snapshot ordered after the closes
+                    // says which ones remain, instead of flashing them back.
+                    store.noteSettledAtNextSnapshot(transaction)
+                    await store.refresh()
+                } else if let sequence = await daemon.connection?.eventSequence() {
+                    // Read-your-writes: the tabs stay out until the store applied the
+                    // `tab-closed` events the daemon sent before its reply.
+                    store.noteSettled(transaction, at: sequence)
+                } else {
+                    store.noteSettledAtNextSnapshot(transaction)
+                }
+            }
             for key in keys { services.cache.release(key) }
             if failed || unknown { resyncStrip() }
             return failed ? "close failed (see the app log)" : nil

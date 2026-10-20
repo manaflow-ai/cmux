@@ -43,7 +43,7 @@ HOVER_CARD = re.compile(r"(?:WorkspaceHoverCard|TabHoverCard|HoverCards/|HoverCa
 UPDATE_CARD = re.compile(r"(?:SidebarUpdateCard|SidebarUpdateNotes|UpdateReadyCard|UpdateSurfaceIsland)")
 # The Chief's settings popover, the Home view that opens it, and the empty Chief conversation's
 # front page (its hero, rows and the Chief's default face) that the same tour shows first.
-CHIEF_SETTINGS = re.compile(r"(?:HomeChiefSettings|HomeHostView|HomeEngineStrings|HomeFirstRun|HomeChiefFace|ChiefPetMascot)")
+CHIEF_SETTINGS = re.compile(r"(?:HomeChiefSettings|HomeHostView|HomeEngineStrings|HomeFirstRun)")
 # Themes, glass and background art: the glass tour shows them over art and opaque.
 GLASS = re.compile(r"(?:theme|glass|backdrop|WindowBackground|SurfaceBackground|TerminalHostView|cmux-themes|composerStates\.css)", re.IGNORECASE)
 # Home's conversation list column: its header, rows and width (the home tour's widths, light and dark).

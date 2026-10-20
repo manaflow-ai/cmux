@@ -15,8 +15,11 @@ import Foundation
 /// Anything else (HTML, tables, images) stays as written. Offsets are UTF-16,
 /// like MessagesLab's runs.
 enum HomeMarkdown {
-    static func render(_ source: String) -> (text: String, runs: [TextRun]) {
+    /// `chips`: links to cmux objects, files and GitHub objects show as chips (HomeLinkChip):
+    /// the transcript passes true; a plain-text use (the sidebar preview) keeps the default.
+    static func render(_ source: String, chips: Bool = false) -> (text: String, runs: [TextRun]) {
         var out = Output()
+        out.chips = chips
         var inFence = false
         var first = true
         for raw in source.split(separator: "\n", omittingEmptySubsequences: false) {
@@ -78,9 +81,21 @@ enum HomeMarkdown {
         var text = ""
         var runs: [TextRun] = []
         private var length = 0
+        /// Whether chip links (HomeLinkChip) show as chips.
+        var chips = false
 
         mutating func append(_ s: String, _ styles: [String], link: String? = nil) {
             guard !s.isEmpty else { return }
+            if chips, let link, let kind = HomeLinkChip.kind(for: link) {
+                // A chip: its first piece starts with the icon's pad; its label wraps as one unit.
+                let starts = runs.last.map { $0.link != link || $0.start + $0.length != length } ?? true
+                let label = HomeLinkChip.label(s)
+                return appendRun(starts ? String(HomeLinkChip.pad) + label : label, styles + [HomeLinkChip.stylePrefix + kind.rawValue], link: link)
+            }
+            appendRun(s, styles, link: link)
+        }
+
+        private mutating func appendRun(_ s: String, _ styles: [String], link: String?) {
             let n = (s as NSString).length
             if !styles.isEmpty || link != nil {
                 if let last = runs.last, last.start + last.length == length, last.style == (styles.isEmpty ? nil : styles), last.link == link {
