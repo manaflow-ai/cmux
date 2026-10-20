@@ -68,6 +68,8 @@ public final class WindowMaterialView: NSView {
     private var artLoad: Task<Void, Never>?
     /// The solid sheet and Reduce Transparency must never expose art.
     private var hidesArt = false
+    /// The blur on the art now (``WindowBackdrop/artBlurRadius``).
+    private var artBlurRadius = 0
 
     /// Creates an opaque backdrop (no material view, no tint).
     ///
@@ -278,8 +280,9 @@ public final class WindowMaterialView: NSView {
                 addSubview(materialView, positioned: .below, relativeTo: glassTint.overlay)
             }
         }
-        // Over art the tuner thins the glass only down to the legible tint.
-        let alpha = max(backdrop.tintOpacity * (1 - backdrop.tuning.glassTransparency), backdrop.legibleTintOpacity)
+        // Frosted over art blurs the art itself (and a video over it), by the material's radius.
+        applyArtBlur(backdrop.artBlurRadius)
+        let alpha = backdrop.tintOpacity * (1 - backdrop.tuning.glassTransparency)
         let color = tunedTint(tint, tuning: backdrop.tuning).withAlphaComponent(alpha)
         let glass = materialView as? GlassPanelView
         // Liquid Glass takes the new tint once; an overlay blends from the old one on the render
@@ -360,6 +363,18 @@ public final class WindowMaterialView: NSView {
             layer.contentsRect = placement.contentsRect
             artView.frame = placement.frame
             CATransaction.commit()
+        }
+    }
+
+    /// Blurs the art and the video over it by `radius` points (``WindowBackdrop/artBlurRadius``);
+    /// 0 clears the blur. Filters are made for each view: they are mutable objects.
+    private func applyArtBlur(_ radius: Int) {
+        guard radius != artBlurRadius else { return }
+        artBlurRadius = radius
+        for view in [artView, videoView as NSView] {
+            if radius > 0 { view.layerUsesCoreImageFilters = true }
+            view.layer?.filters = radius > 0
+                ? [CIFilter(name: "CIGaussianBlur", parameters: [kCIInputRadiusKey: radius])].compactMap { $0 } : nil
         }
     }
 
