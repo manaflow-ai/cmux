@@ -19,6 +19,15 @@ ACP Claude turn read 318k cached tokens, compared with 42k for interactive Claud
   direct tool call, so a script has exactly the rights of the tools.
   Limits: 64 MiB heap, 2,000 calls, 30 s of computation without a call.
 - `cmux mcp serve --all-tools` keeps the old one-tool-per-operation list.
+- Per harness (Lawrence 2026-10-19, `acpmux agent_tools::lists_all_tools`): a
+  harness with its own tool search gets `--all-tools` and loads the tools a
+  turn needs; every other harness gets code mode. Claude Code (every profile,
+  with `ENABLE_TOOL_SEARCH=true`, which acpmux sets because Claude Code turns
+  tool search off by itself behind our routers) and Codex have it. Measured,
+  one-word turn with 641 cmux tools: Claude Code 34,384 prompt tokens with
+  tool search and 314,542 without; Codex 20,244, the same as with code mode.
+  OpenCode 1.19 has no tool search for MCP tools and gets code mode. pi-acp
+  passes no `mcpServers` to Pi, so Pi has no cmux MCP tools in either mode.
 - The bun runner (`cmux run`, `cmux-code-mode-mcp`) below stays for TypeScript
   scripts against the typed SDK; agent chats no longer need bun.
 - Not yet in code mode: the separate `cmux-cua`, `cmux-secrets`,

@@ -52,6 +52,65 @@ wire_errors! {
 }
 
 wire_op! {
+    /// Your message requests: open invites to your verified email from people you are not connected to, newest first (at most 20). trusted marks a sender with your company email domain.
+    HomeRequestsListOp {
+        name: "home.requests.list",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:ConversationDO",
+        risk: "read",
+        principals: [Session],
+        params: HomeRequestsListParams,
+        result: HomeRequestsListResult,
+        error: HomeRequestsListError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HomeRequestsListParams {}
+
+wire_enum! {
+    HomeRequestsListResultRequestsItemKind {
+        Dm = "dm",
+        Group = "group",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HomeRequestsListResultRequestsItem {
+    pub conversation: ConversationId,
+    pub inviter: String,
+    pub kind: HomeRequestsListResultRequestsItemKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    pub preview: String,
+    pub created_at: String,
+    pub expires_at: String,
+    pub trusted: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HomeRequestsListResult {
+    pub requests: Vec<HomeRequestsListResultRequestsItem>,
+}
+
+wire_errors! {
+    /// The error codes home.requests.list declares.
+    HomeRequestsListError {
+        Archived = "archived",
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        Forbidden = "forbidden",
+        IdempotencyConflict = "idempotency.conflict",
+        KindForbids = "kind_forbids",
+        NotParticipant = "not_participant",
+        OwnerUnreachable = "owner.unreachable",
+        UnknownConversation = "unknown_conversation",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
     /// Search Home messages in conversations you are a current human participant of (newest first, with a short Top section).
     HomeSearchOp {
         name: "home.search",
@@ -843,60 +902,4 @@ pub struct IntegrationListResult {
     pub connections: Vec<Connection>,
     pub providers: Vec<IntegrationListResultProvidersItem>,
     pub revision: String,
-}
-
-wire_errors! {
-    /// The error codes integration.list declares.
-    IntegrationListError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-    }
-}
-
-wire_op! {
-    /// Read the team's integration policy (allowed providers, GitHub repository scope).
-    IntegrationPolicyGetOp {
-        name: "integration.policy.get",
-        class: Read,
-        idempotency: Forbidden,
-        owner: "cloud:ConnectionDO",
-        risk: "read",
-        principals: [Session, Install],
-        params: IntegrationPolicyGetParams,
-        result: TeamIntegrationPolicy,
-        error: IntegrationPolicyGetError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct IntegrationPolicyGetParams {}
-
-wire_errors! {
-    /// The error codes integration.policy.get declares.
-    IntegrationPolicyGetError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-    }
-}
-
-wire_op! {
-    /// Change the team's integration policy (team admins; refused while an SSO or MDM policy locks it).
-    IntegrationPolicySetOp {
-        name: "integration.policy.set",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:ConnectionDO",
-        risk: "mutate-shared",
-        principals: [Session],
-        params: IntegrationPolicySetParams,
-        result: TeamIntegrationPolicy,
-        error: IntegrationPolicySetError,
-    }
-}
-
-wire_enum! {
-    IntegrationPolicySetParamsGithubScope {
-        LinkingUserRepos = "linking_user_repos",
-        Installation = "installation",
-    }
 }

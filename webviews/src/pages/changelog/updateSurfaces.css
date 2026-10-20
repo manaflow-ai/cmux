@@ -38,6 +38,14 @@
   background: transparent;
   color: var(--page-text-3);
   cursor: default;
+  /* Only on hover or keyboard focus (u2441), an opacity fade as every hover button; clickable
+     while it fades in. */
+  opacity: 0;
+  transition: opacity 0.12s ease-out;
+}
+.wn-card:is(:hover, :focus-within) .wn-card-close { opacity: 1; }
+@media (prefers-reduced-motion: reduce) {
+  .wn-card-close { transition: none; }
 }
 .wn-card-close svg { width: 8px; height: 8px; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; }
 .wn-card-close:hover { background: var(--page-hover); color: var(--page-text); }
@@ -49,10 +57,24 @@
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
-.wn-card-line { color: var(--page-text-2); font-size: var(--text-detail); line-height: var(--text-detail--line-height); }
+/* The top changes, one line each with a quiet dot (gallery #01). */
+.wn-card-changes { list-style: none; margin: 6px 0 0; padding: 0; font-size: var(--text-detail); line-height: var(--text-detail--line-height); }
+.wn-card-changes li { position: relative; padding: 1px 0 1px 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wn-card-changes li::before {
+  content: "";
+  position: absolute;
+  left: 3px;
+  top: calc(var(--text-detail--line-height) / 2 + 1px - 2px);
+  width: 4px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--page-text-3);
+}
+.wn-card-more { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--page-text-3); font-size: var(--text-detail); line-height: var(--text-detail--line-height); }
 /* The button keeps one line (nxdog93: "See What's New" wrapped onto two lines in a 160 pt
    sidebar, cx-7rone). */
-.wn-card-actions { display: flex; align-items: center; margin-top: 10px; }
+.wn-card-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 8px; }
+.wn-card-actions .wn-card-primary { margin-left: auto; flex: none; }
 /* Self-contained: the sidebar's surface document loads this file, not the page's styles.css. */
 .wn-card-primary {
   height: 24px;
