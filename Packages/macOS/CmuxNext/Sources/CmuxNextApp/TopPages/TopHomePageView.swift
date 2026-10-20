@@ -2,6 +2,7 @@ import AppKit
 import CmuxHomeCore
 import CmuxNextActions
 import CmuxNextCompat
+import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextHome
 import CmuxNextHomeEngine
@@ -72,6 +73,11 @@ final class TopHomePageView: NSView {
         }
     }
 
+    /// Redraws the list after a pin change (`home.togglePin`).
+    func listPinsChanged() {
+        list.update(sidebar.model())
+    }
+
     private func wireList(_ services: AppServices) {
         let sidebar = sidebar
         // Opening a conversation from the list reads it, so a Mark as Unread ends there.
@@ -86,10 +92,12 @@ final class TopHomePageView: NSView {
         }
         // The list redraws in the same turn, so a dropped tile lands from where it was drawn.
         // The New Message row is no conversation: it never pins or takes a mark.
+        // Pin/Unpin on a row and a tile dragged out of the grid run the one pin action (palette, CLI, MCP).
         list.onSetPinned = { [weak self] on, id in
             guard id != HomeSidebarView.draftRowID else { return }
-            sidebar.setPinned(on, id)
-            self?.list.update(sidebar.model())
+            let arguments: [String: ActionValue] = ["conversation": .string(id.rawValue), "pinned": .bool(on)]
+            _ = services.registry.perform("home.togglePin", invocation: ActionInvocation(arguments: arguments, origin: .user))
+            self?.listPinsChanged()
         }
         list.onPlacePinned = { [weak self] id, index in
             guard id != HomeSidebarView.draftRowID else { return }
@@ -107,7 +115,7 @@ final class TopHomePageView: NSView {
             Task { _ = try? await store.perform(.setReadCursor(conversation: id, seq: row.summary.lastSeq)) }
         }
         list.onMarkUnread = { id in if id != HomeSidebarView.draftRowID { sidebar.setMarkedUnread(true, id) } }
-        // Archive Chief on a Chief's row; Hide or Show Alerts on a DM or group's row, and for a group
+        // Usage… and Archive Chief on a Chief's row; Hide or Show Alerts on a DM or group's row, and for a group
         // Group Info, Rename, Add People and Leave (the same actions as the palette and the CLI).
         list.menuItems = { id in
             guard let row = home.homeStore.rows.first(where: { $0.id == id }) else { return [] }
@@ -118,8 +126,11 @@ final class TopHomePageView: NSView {
                 }]
             }
             if row.kind == .chief {
-                guard let chief = row.summary.participants.lazy.compactMap({ home.directory.chief(for: $0.id) }).first else { return [] }
-                return item("home.archiveChief", nil, ["chief": .string(chief.id)])
+                // Chief Usage (chief.openUsage) reads this Mac's Chiefs: left out in a build without one.
+                let usage = registry.unavailableReason(for: ChiefUsagePageTab.actionID) == nil
+                    ? item(ChiefUsagePageTab.actionID, ChiefUsagePageTab.menuTitle) : []
+                guard let chief = row.summary.participants.lazy.compactMap({ home.directory.chief(for: $0.id) }).first else { return usage }
+                return usage + item("home.archiveChief", nil, ["chief": .string(chief.id)])
             }
             let conversation: [String: ActionValue] = ["conversation": .string(id.rawValue)]
             let actions = home.groupActions
@@ -160,15 +171,18 @@ final class TopHomePageView: NSView {
     /// asked to show once it is listed.
     private func observe(_ home: HomeService) {
         let store = home.homeStore
-        home.refreshChiefAvatar()
         // task-owner: lives as long as this view; event-driven (Observation)
         let sidebar = sidebar
         rowsObservation = Task { [weak self] in
             // The Chiefs listed when their engines (the rows' badges) were last read.
             var badgedChiefs: Set<String>?
             var listed: Set<ConversationID> = []
-            for await (all, archived, _, _, _, _, _, _, _) in ObservationStream({
-                (store.rows, home.directory.archivedChiefs, sidebar.query, sidebar.pins, sidebar.unreadMarks, home.directory.chiefAvatar,
+            // The owner's rows when the Chiefs' pictures were last read: a chief-changed event
+            // (a picture set by a tool or the CLI) reads the rows again, and the pictures with them.
+            var picturedRows: [HomeInboxRequest.Response?]?
+            var picturedChiefs: Set<String>?
+            for await (all, archived, _, _, _, _, owned, _, _) in ObservationStream({
+                (store.rows, home.directory.archivedChiefs, sidebar.query, sidebar.pins, sidebar.unreadMarks, home.directory.chiefAvatars,
                  sidebar.ownerRows, home.directory.chiefHarnesses, home.chiefRoster)
             }) {
                 guard let self else { return }
@@ -176,6 +190,11 @@ final class TopHomePageView: NSView {
                 if chiefs != badgedChiefs {
                     badgedChiefs = chiefs
                     home.refreshChiefHarnesses()
+                }
+                if owned != picturedRows || chiefs != picturedChiefs {
+                    picturedRows = owned
+                    picturedChiefs = chiefs
+                    home.refreshChiefAvatars()
                 }
                 rows = Self.visible(all, archivedChiefs: archived, me: store.me?.id)
                 // A conversation came or went (a lease arrived, a request was accepted): requests may have changed.
@@ -326,7 +345,7 @@ final class TopHomePageView: NSView {
 
     // MARK: New Message
 
-    /// New Message (the compose button, Cmd-N on Home, the palette, the
+    /// New Message (the compose button, the palette, the
     /// File menu, `cmux action run home.newMessage`): a selected "New
     /// Message" row at the top of the list and the New Message page in the
     /// transcript column, with the caret in To:. A kept draft comes back as
@@ -441,7 +460,8 @@ final class TopHomePageView: NSView {
                 _ = registry.perform("home.leaveConversation",
                                      invocation: ActionInvocation(arguments: ["conversation": .string(id.rawValue)], origin: .user))
             },
-            inviteByEmail: { [weak self] in self?.presentInvite(prefill: "") }))
+            inviteByEmail: { [weak self] in self?.presentInvite(prefill: "") },
+            setChiefReplies: { await actions.setChiefReplies($0, id) }))
         let sheet = HomeGroupInfoSheet(model: model, colors: performWithTheme { HomeGroupInfoColors.resolve() })
         // task-owner: lives while the sheet shows; event-driven (Observation): members, name and mute as the owner says
         let watch = Task { [weak sheet] in

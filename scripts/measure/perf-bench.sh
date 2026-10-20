@@ -38,10 +38,12 @@ for arg in "$@"; do
   esac
 done
 cd "$(git rev-parse --show-toplevel)"
-# Steps run with a per-step HOME; the account's user-level tools (bun for the Debug build's
-# web bundles) live under its real home.
+# Steps run with a per-step HOME; the account's user-level tools (bun and node for the
+# Debug build's web bundles) live under its real home.
 account_home="$(dscl . -read "/Users/$(id -un)" NFSHomeDirectory 2>/dev/null | awk '{print $2}')"
-[ -n "$account_home" ] && [ -d "$account_home/.bun/bin" ] && export PATH="$account_home/.bun/bin:$PATH"
+for tool_dir in "$account_home/.bun/bin" "$account_home/.local/node/bin"; do
+  [ -n "$account_home" ] && [ -d "$tool_dir" ] && export PATH="$tool_dir:$PATH"
+done
 sha="$(git rev-parse HEAD)"
 out="artifacts/perf-bench"
 work=".build/perf-bench"
@@ -49,6 +51,21 @@ rm -rf "$out" "$work" /private/tmp/xbench
 mkdir -p "$out" "$work"
 chip="$(sysctl -n machdep.cpu.brand_string)"
 echo "PERF-BENCH-MACHINE host=$(scutil --get ComputerName 2>/dev/null || hostname) sha=$sha model=$(sysctl -n hw.model) chip=\"$chip\" cores=$(sysctl -n hw.ncpu) ram_gb=$(( $(sysctl -n hw.memsize) / 1073741824 )) macos=$(sw_vers -productVersion) load=\"$(uptime | sed 's/.*load averages*: //')\""
+
+if [ "$cmux" = build ] || [ "$tabswitch" != off ]; then
+  # A fleet step checks out no submodules (only their empty gitlink directories): the app build needs
+  # Ghostty's headers, the ghostty-next tree and GhosttyKit.xcframework (as scripts/measure/tab-switch.sh).
+  for sub in ghostty ghostty-next; do
+    [ -e "$sub/.git" ] || git submodule update --init --depth 1 "$sub" >/dev/null
+  done
+  if [ ! -f GhosttyKit.xcframework/Info.plist ]; then
+    rm -rf GhosttyKit.xcframework
+    if [ -z "${GHOSTTYKIT_ARCHIVE_CACHE_DIR:-}" ] && [ -n "${CI_SHARED_CACHE_DIR:-}" ]; then
+      export GHOSTTYKIT_ARCHIVE_CACHE_DIR="$CI_SHARED_CACHE_DIR/ghosttykit-archives"
+    fi
+    ./scripts/download-prebuilt-ghosttykit.sh
+  fi
+fi
 
 apps=()
 case "$cmux" in

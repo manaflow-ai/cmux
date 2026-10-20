@@ -47,23 +47,59 @@ enum DebugOmnibarClickBench {
         let point = InputJournal.topLeftPoint(NSPoint(x: field.midX, y: field.midY), in: window, relativeTo: window)
         frames.start()
         BenchSpans.begin()
-        bar.benchProbe = { BenchSpans.mark($0) }
+        // `debug.timings` `omnibar_clicks`: as a palette open, input_ms is the mouse-down's age when
+        // the field took focus and key_to_frame_ms runs to the commit of that frame's transaction.
+        let engine = bar.allowsChromiumSchemes ? "chromium" : "webkit"
+        var timed = false
+        bar.benchProbe = { name in
+            BenchSpans.mark(name)
+            guard !timed, name == "field.becameFirstResponder",
+                  let down = NSApp.currentEvent, down.type == .leftMouseDown else { return }
+            timed = true
+            let pressed = down.timestamp
+            let input = (ProcessInfo.processInfo.systemUptime - pressed) * 1_000
+            CATransaction.setCompletionBlock {
+                let frame = (ProcessInfo.processInfo.systemUptime - pressed) * 1_000
+                // The times are taken here; only the record hops to the main actor.
+                Task { @MainActor in DebugTimings.omnibarClicked(engine: engine, input: input, keyToFrame: frame) }
+            }
+        }
         defer { bar.benchProbe = nil }
         let start = ContinuousClock.now
         let posted = DebugMouse.send(["action": .string("click"), "x": .number(point.x), "y": .number(point.y),
                                       "window": .string(controller.state.id)], services: services)
-        let attached = await frames.settled(until: { bar.isEditing }, start: start, window: 0, deadline: 2_000)
-        let selected = attached == nil ? nil
-            : await frames.settled(until: { bar.isEditing && bar.debugAllSelected }, start: start, window: 0, deadline: 2_000)
-        let focused = attached == nil ? nil
-            : await frames.settled(until: { bar.debugShowsEditing }, start: start, window: 0, deadline: 2_000)
+        // One check per display tick for all three, so each time is the tick that first showed it
+        // (awaited one after another, each could only resolve on a later tick than the one before).
+        var attached: Double?, selected: Double?, focused: Double?
+        var ticks: [Double] = []
+        _ = await frames.settled(until: {
+            let now = BenchSpans.ms(.now - start)
+            ticks.append(now)
+            if attached == nil, bar.isEditing { attached = now }
+            if selected == nil, bar.isEditing, bar.debugAllSelected { selected = now }
+            if focused == nil, bar.debugShowsEditing { focused = now }
+            return attached != nil && selected != nil && focused != nil
+        }, start: start, window: 0, deadline: 2_000)
         let spans = BenchSpans.end()
         let stats = frames.stop()
+        // The press as the app ran it: dispatch (`app.sendEvent.down` start) to its end, which
+        // includes AppKit's text tracking through the release posted with it.
+        let press = spans.first { $0.name == "app.sendEvent.down" }
+        let pressEnd = press.map { $0.start + $0.milliseconds }
+        /// Display ticks after the press ended, up to and including the one at `shown` (1: the next frame).
+        func framesAfterPress(_ shown: Double?) -> JSONValue {
+            guard let shown, let pressEnd else { return .null }
+            return .number(Double(ticks.filter { $0 > pressEnd && $0 <= shown }.count))
+        }
+        func fromDispatch(_ shown: Double?) -> JSONValue {
+            guard let shown, let press else { return .null }
+            return .number(shown - press.start)
+        }
         var refresh = 1_000.0 / 60
         if case .object(let fields) = stats, let value = fields["refresh_ms"]?.doubleValue, value > 0 { refresh = value }
         let snapshot = bar.debugSnapshot
         return .object([
-            "engine": .string(bar.allowsChromiumSchemes ? "chromium" : "webkit"),
+            "engine": .string(engine),
             "posted": posted,
             "app_active": .bool(NSApp.isActive),
             "key_window_before": .string(keyBefore),
@@ -71,6 +107,14 @@ enum DebugOmnibarClickBench {
             "attached_ms": attached.map { .number($0) } ?? .null,
             "focused_ms": focused.map { .number($0) } ?? .null,
             "selected_ms": selected.map { .number($0) } ?? .null,
+            "press_ms": press.map { .number($0.milliseconds) } ?? .null,
+            "dispatch_ms": press.map { .number($0.start) } ?? .null,
+            "attached_frames_after_press": framesAfterPress(attached),
+            "selected_frames_after_press": framesAfterPress(selected),
+            "focused_frames_after_press": framesAfterPress(focused),
+            "dispatch_to_attached_ms": fromDispatch(attached),
+            "dispatch_to_selected_ms": fromDispatch(selected),
+            "dispatch_to_focused_ms": fromDispatch(focused),
             "frames_to_focused": focused.map { .number(($0 / refresh).rounded(.up)) } ?? .null,
             "main_thread_spans_ms": .number(spans.filter { $0.name.hasPrefix("app.sendEvent") }.reduce(0) { $0 + $1.milliseconds }),
             "spans": .array(spans.map { .object(["name": .string($0.name), "at": .number($0.start), "ms": .number($0.milliseconds)]) }),

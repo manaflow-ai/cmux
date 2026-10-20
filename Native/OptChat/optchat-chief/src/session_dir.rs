@@ -131,8 +131,10 @@ pub fn mcp_json_for(setup: &SessionSetup, paths: &Paths, subagent: bool) -> Valu
     // Claude Code starts a stdio server without the turn's env and expands
     // `${VAR}` from its own, so the file names the variable, never the
     // value. A subagent's server gets none.
+    // A subagent's server learns which subagent it serves (escalate_auth)
+    // from its acpmux session name, named here, never copied.
     let env = if subagent {
-        json!({})
+        json!({"ACPMUX_SESSION_NAME": "${ACPMUX_SESSION_NAME:-}"})
     } else {
         let key = crate::chief_profile::TURN_KEY_ENV;
         let mut env = serde_json::Map::new();
@@ -402,8 +404,8 @@ const LAST_KNOWN: &str = "cmux-tools-last.json";
 /// Deny rules for every cmux MCP tool of `env`'s CLI not in
 /// `CHIEF_CMUX_TOOLS`. When the list cannot be read, or has no app action
 /// tools, the last known list (`LAST_KNOWN`) is kept with it and host.log
-/// says why; with no last known list, a failed read denies only the
-/// code-mode tools (the turn keeps every other tool behind ToolSearch).
+/// says why; with no last known list, a failed read denies the whole cmux
+/// server. An unavailable catalog never widens a Chief's tool grant.
 /// When the app's action tools were not in the list, `session` gets the
 /// pending marker.
 pub fn cmux_tool_denials(session: &Path, env: &BTreeMap<String, String>) -> Vec<String> {
@@ -419,13 +421,16 @@ pub fn cmux_tool_denials(session: &Path, env: &BTreeMap<String, String>) -> Vec<
         Err(why) => {
             if last.is_empty() {
                 crate::log::log(format!(
-                    "reading the cmux MCP tool list failed and no list is known; Chief turns keep every cmux tool but cmux_exec and cmux_docs: {why}"
+                    "reading the cmux MCP tool list failed and no list is known; Chief turns deny the cmux MCP server: {why}"
                 ));
             } else {
                 crate::log::log(format!(
                     "reading the cmux MCP tool list failed; Chief turns keep the last known list ({} tools): {why}",
                     last.len()
                 ));
+            }
+            if last.is_empty() {
+                return vec!["mcp__cmux".to_owned()];
             }
             return deny_rules(last);
         }
