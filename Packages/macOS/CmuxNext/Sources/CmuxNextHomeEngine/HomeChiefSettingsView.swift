@@ -190,7 +190,14 @@ public final class HomeChiefSettingsView: NSView {
     ///   - place: The line under the name ("Runs in the cloud"); nil keeps the engine's own line.
     ///   - switchTo: The other host's label ("cmux20", "Cloud"); nil hides the switch.
     public func setHost(place: String?, switchTo: String?) {
-        _ = (place, switchTo)
+        hostPlace = place
+        if let place { self.place.stringValue = place }
+        hostSwitch.title = switchTo.map { String(format: HomeEngineStrings.switchHostFormat, $0) } ?? ""
+        hostSwitch.setAccessibilityLabel(hostSwitch.title)
+        let hidden = switchTo == nil
+        guard hostSwitch.isHidden != hidden else { return }
+        hostSwitch.isHidden = hidden
+        onResize()
     }
 
     @objc func switchHost() {

@@ -83,7 +83,9 @@ public nonisolated struct HomeCloudChiefs: Sendable, Equatable {
     /// Chief on the Hosted Chief's card and back; nil unless both exist and
     /// `conversation` is one of them.
     public func otherHost(of conversation: String) -> HomeChiefChoice? {
-        _ = conversation
+        guard canSwitch else { return nil }
+        if conversation == hosted?.mainConversation { return .placed }
+        if conversation == placed?.mainConversation { return .hosted }
         return nil
     }
 
@@ -116,10 +118,6 @@ extension HomeCloudChiefs {
     /// The name of the placed Chief once the Hosted Chief is the default.
     public static var placedName: String {
         String(localized: "home.chief.placedName", defaultValue: "Chief (Mac mini)", table: "HostedChief", bundle: .module)
-    }
-
-    public static var switchHelp: String {
-        String(localized: "home.chief.switch.help", defaultValue: "Choose which Chief answers here", table: "HostedChief", bundle: .module)
     }
 
     public static var brainFailed: String {

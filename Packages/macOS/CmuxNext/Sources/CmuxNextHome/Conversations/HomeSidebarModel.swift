@@ -95,9 +95,13 @@ public struct HomeSidebarModel: Hashable, Sendable {
                  chiefHarnesses: [String: String], chiefRoster: HomeChiefRoster, now: Date, calendar: Calendar, locale: Locale) {
         let needle = query.trimmingCharacters(in: .whitespacesAndNewlines)
         // The main Chief's other hosts are the same Chief: one entry, its card switches hosts.
-        let match = { (row: InboxRow) in needle.isEmpty || row.matches(needle, me: me) }
-        let pinnedRows = pinnedRows.filter(match)
+        let match = { (row: InboxRow) in !chiefRoster.merged.contains(row.id) && (needle.isEmpty || row.matches(needle, me: me)) }
+        var pinnedRows = pinnedRows.filter(match)
         let rest = rest.filter(match)
+        // The main Chief leads the pinned grid.
+        if let main = chiefRoster.main, let at = pinnedRows.firstIndex(where: { $0.id == main }) {
+            pinnedRows.insert(pinnedRows.remove(at: at), at: 0)
+        }
         let item = { (row: InboxRow, pinned: Bool) in
             var item = HomeSidebarItem(row: row, pinned: pinned, markedUnread: unreadMarks.contains(row.id), me: me, now: now,
                                        calendar: calendar, locale: locale)
@@ -105,6 +109,14 @@ public struct HomeSidebarModel: Hashable, Sendable {
                 item.chiefAvatar = chiefAvatar
                 let chief = row.summary.participants.first(where: \.isChief)?.id.rawValue
                 item.backendBadge = ChiefBackend.badge(for: chief.flatMap { chiefHarnesses[$0] })
+                item.isMainChief = row.id == chiefRoster.main
+                item.place = chiefRoster.places[row.id]
+                item.listBadge = chiefRoster.tag(for: row.id, engine: item.backendBadge)
+                if let tag = item.listBadge {
+                    // VoiceOver reads the tag right after the name, as the list draws it.
+                    let rest = item.accessibilityLabel.dropFirst(item.title.count).drop { $0 == "," || $0 == " " }
+                    item.accessibilityLabel = ([item.title, tag] + (rest.isEmpty ? [] : [String(rest)])).joined(separator: ", ")
+                }
             }
             item.isMuted = row.summary.muted
             return item

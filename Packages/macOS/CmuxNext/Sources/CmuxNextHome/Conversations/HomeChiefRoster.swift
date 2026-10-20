@@ -46,14 +46,26 @@ public struct HomeChiefRoster: Hashable, Sendable {
     /// - Returns: The roster.
     public static func make(rows: [InboxRow], local: ConversationID?, hosted: ConversationID?, placed: ConversationID?,
                             server: String?, showsPlaced: Bool, cloud: Set<ConversationID> = []) -> HomeChiefRoster {
-        _ = (rows, local, hosted, placed, server, showsPlaced, cloud)
-        return HomeChiefRoster()
+        let chiefRows = rows.filter { $0.kind == .chief }.map(\.id)
+        let listed = Set(chiefRows)
+        let local = local.flatMap { listed.contains($0) ? $0 : nil }
+        let main = (showsPlaced ? placed ?? hosted : hosted ?? placed) ?? local
+        var places: [ConversationID: HomeChiefPlace] = [:]
+        for id in chiefRows { places[id] = cloud.contains(id) ? .cloud : .thisMac }
+        if let local { places[local] = .thisMac }
+        if let hosted { places[hosted] = .cloud }
+        if let placed { places[placed] = server.map(HomeChiefPlace.server) ?? .server(HomeConversationStrings.placeServer) }
+        var merged = Set([hosted, placed].compactMap { $0 })
+        if hosted != nil, let local { merged.insert(local) }
+        if let main { merged.remove(main) }
+        return HomeChiefRoster(main: main, merged: merged, places: places)
     }
 
     /// The list's tag after a Chief's name: "Main" for the main Chief, else
     /// where it runs; a non-default engine follows ("Main · UniiChat").
     public func tag(for id: ConversationID, engine: String?) -> String? {
-        _ = (id, engine)
-        return nil
+        let first = id == main ? HomeConversationStrings.mainChief : places[id]?.label
+        let parts = [first, engine].compactMap { $0 }.filter { !$0.isEmpty }
+        return parts.isEmpty ? nil : parts.joined(separator: " \u{00B7} ")
     }
 }
