@@ -209,7 +209,7 @@ public nonisolated enum SettingsSchema {
                 keywords: ["quit", "exit", "sessions", "terminals", "cmux-tui", "daemon", "background"]
             ),
             SettingDescriptor(
-                ConfirmQuitSetting.configPath, section: .general, group: quitting,
+                ConfirmQuitMode.configPath, section: .general, group: quitting,
                 title: SettingsText.keyed("settings.app.confirmQuit", "Confirm Before Quitting"),
                 help: SettingsText.keyed("settings.app.confirmQuit.help", "Asks before Cmd-Q, the Quit menu or the Dock quits cmux."),
                 kind: .choice([
@@ -218,7 +218,7 @@ public nonisolated enum SettingsSchema {
                                   SettingsText.keyed("settings.choice.confirmQuitDirtyOnly", "When Programs Are Running")),
                     SettingChoice(ConfirmQuitMode.never.rawValue, SettingsText.keyed("settings.choice.never", "Never")),
                 ]),
-                default: .string(ConfirmQuitSetting.fallback.rawValue),
+                default: .string(ConfirmQuitMode.fallback.rawValue),
                 keywords: ["quit", "exit", "confirm", "warn", "ask", "cmd-q", "accidental"]
             ),
             SettingDescriptor(

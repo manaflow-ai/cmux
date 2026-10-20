@@ -177,7 +177,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     /// `app.quitBehavior`; "ask" when unset or invalid.
     public var quitBehavior: QuitBehavior = QuitBehaviorSetting.fallback
     /// `app.confirmQuit`; "never" when unset or invalid.
-    public var confirmQuit: ConfirmQuitMode = ConfirmQuitSetting.fallback
+    public var confirmQuit: ConfirmQuitMode = ConfirmQuitMode.fallback
     /// `newTerminal.opensWorkspace`; off when unset or invalid.
     public var newTerminalOpensWorkspace: Bool = NewTerminalWorkspaceSetting.fallback
     /// `tabs.cmdWClosesPinnedTabs`; off when unset or invalid.
@@ -346,7 +346,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         let (quitBehavior, quitDiagnostic) = QuitBehaviorSetting.parse(root)
         snapshot.quitBehavior = quitBehavior
         if let quitDiagnostic { snapshot.diagnostics.append(quitDiagnostic) }
-        let (confirmQuit, confirmQuitDiagnostic) = ConfirmQuitSetting.parse(root)
+        let (confirmQuit, confirmQuitDiagnostic) = ConfirmQuitMode.parse(root)
         snapshot.confirmQuit = confirmQuit
         if let confirmQuitDiagnostic { snapshot.diagnostics.append(confirmQuitDiagnostic) }
         snapshot.diagnostics += Self.closeWarningDiagnostics(root)

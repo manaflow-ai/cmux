@@ -82,7 +82,7 @@ final class QuitCoordinator {
         SheetDismissal.endAll()
         let origin = origins.consume(appleEventReason: Self.quitReason())
         let behavior = services.settings?.snapshot.quitBehavior ?? QuitBehaviorSetting.fallback
-        let confirm = services.settings?.snapshot.confirmQuit ?? ConfirmQuitSetting.fallback
+        let confirm = services.settings?.snapshot.confirmQuit ?? ConfirmQuitMode.fallback
         logger.notice("quit origin=\(String(describing: origin), privacy: .public) behavior=\(behavior.rawValue, privacy: .public) confirm=\(confirm.rawValue, privacy: .public)")
         // [services]: the quit task pins the app's services until it ends (cx-6so P1b).
         Task { @MainActor [services] in
@@ -164,7 +164,7 @@ final class QuitCoordinator {
             },
             stopConfirming: {
                 guard let settings = services.settings, settings.snapshot.confirmQuit != .never,
-                      let descriptor = SettingsSchema.descriptor(for: ConfirmQuitSetting.configPath) else { return }
+                      let descriptor = SettingsSchema.descriptor(for: ConfirmQuitMode.configPath) else { return }
                 do { try await settings.setSetting(descriptor, to: .string(ConfirmQuitMode.never.rawValue), by: .user) } catch {
                     Logger(subsystem: "com.cmuxterm.app.next", category: "app.quit")
                         .error("confirm-quit setting write failed: \(String(describing: error), privacy: .public)")

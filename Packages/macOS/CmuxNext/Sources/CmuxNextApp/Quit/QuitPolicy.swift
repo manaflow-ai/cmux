@@ -34,7 +34,7 @@ enum QuitPolicy {
     /// incognito windows' running programs, which end with the windows and
     /// cannot come back. Either is asked at most once (#17501): never after
     /// the unsaved-changes question (`alreadyAsked`).
-    static func decide(_ origin: QuitOrigin, behavior: QuitBehavior, confirm: ConfirmQuitMode = ConfirmQuitSetting.fallback,
+    static func decide(_ origin: QuitOrigin, behavior: QuitBehavior, confirm: ConfirmQuitMode = ConfirmQuitMode.fallback,
                        facts: QuitFacts, alreadyAsked: Bool = false) -> QuitDecision {
         let remembered: QuitSessionsChoice? = switch behavior {
         case .ask: nil

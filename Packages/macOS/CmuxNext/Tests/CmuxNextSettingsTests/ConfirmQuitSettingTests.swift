@@ -34,7 +34,7 @@ struct ConfirmQuitSettingTests {
     }
 
     @Test func theSettingsWindowShowsIt() {
-        let descriptor = SettingsSchema.descriptor(for: ConfirmQuitSetting.configPath)
+        let descriptor = SettingsSchema.descriptor(for: ConfirmQuitMode.configPath)
         #expect(descriptor != nil)
         #expect(descriptor.map { $0.accepts(.string("dirty-only")) } == true)
         #expect(descriptor.map { $0.accepts(.string("sometimes")) } == false)
