@@ -15,7 +15,7 @@ final class SidebarTabRowView: SidebarRowView {
     private let icon = NSImageView()
     let title = SidebarRowView.label(font: SidebarStyle.subtitleFont)
     /// The unread dot: a workspace row's dot (`UnreadBadgeView`, same shape and size) in the quiet, muted look.
-    private let unreadDot = UnreadBadgeView()
+    let unreadDot = UnreadBadgeView()
     /// The session's status: the shared indicator (`SidebarTab.activity`).
     let activity: StatusIndicatorView = { let view = StatusIndicatorView(); view.tracksWindowOcclusion = true; return view }()
     /// The status side, nil while workspace rows draw no status icon (`SidebarRowBadgeStyle.status`).

@@ -18,6 +18,8 @@ import Testing
     private static let connecting = WorkspaceID("ws-mark-connecting")
     private static let runningTab = TabID("tab-running")
     private static let quietTab = TabID("tab-quiet")
+    private static let unreadRunningTab = TabID("tab-unread-running")
+    private static let unreadDoneTab = TabID("tab-unread-done")
 
     @Test func theStatusIconOnTheRightIsTheDefaultAndDebugSettingsListsTheSide() {
         #expect(SidebarRowBadgeStyle.tunable.defaultValue == .status)
@@ -35,6 +37,35 @@ import Testing
                     "the mark \(row.activity.frame) sits after the title \(row.title.frame)")
             #expect(row.activity.frame.minX > row.layoutBounds.midX)
             #expect(row.rowBadge.states.isEmpty, "no corner badge")
+            Self.expectNothingLeftOfTheTitle(row, title: row.title.frame.minX,
+                                             marks: [row.activity, row.agentMark, row.badge, row.rowBadge])
+        }
+    }
+
+    /// Lawrence 2026-10-19: "There should only ever be a single unread indicator for the right
+    /// side". A session row's unread dot folds into its one status mark, as a workspace row's
+    /// unread does: an unread session whose agent works shows the running mark alone, and an
+    /// unread session at rest shows the done mark alone.
+    @Test func byDefaultAnUnreadSessionShowsOneMarkOnTheRight() throws {
+        try Self.withSide(nil) {
+            let sidebar = Self.sidebar()
+            for (id, state) in [(Self.unreadRunningTab, StatusIndicatorState.working), (Self.unreadDoneTab, .success)] {
+                let row = try Self.tabRow(sidebar, id)
+                #expect(row.activity.state == state, "\(id)")
+                #expect(row.activity.frame.width > 0 && row.activity.frame.minX > row.layoutBounds.midX, "\(id)")
+                #expect(row.unreadDot.isHidden, "\(id): the unread dot folds into the one mark")
+                Self.expectNothingLeftOfTheTitle(row, title: row.title.frame.minX, marks: [row.activity, row.unreadDot])
+            }
+        }
+    }
+
+    /// Without the status icon (another row badge), a session keeps its unread dot and draws no
+    /// status mark.
+    @Test func withAnotherRowBadgeAnUnreadSessionKeepsItsDot() throws {
+        try Self.withSide(nil, style: .corner) {
+            let row = try Self.tabRow(Self.sidebar(), Self.unreadRunningTab)
+            #expect(!row.unreadDot.isHidden)
+            #expect(row.activity.state == .idle)
         }
     }
 
@@ -118,17 +149,29 @@ import Testing
 
     // MARK: Fixtures
 
+    /// Nothing but the icon draws left of a row's title: each of `marks` is hidden, empty or
+    /// starts at or after `title`.
+    private static func expectNothingLeftOfTheTitle(_ row: NSView, title: CGFloat, marks: [NSView],
+                                                    sourceLocation: SourceLocation = #_sourceLocation) {
+        for mark in marks where !mark.isHidden && mark.frame.width > 0 {
+            #expect(mark.frame.minX >= title - 0.5, "\(type(of: mark)) at \(mark.frame) is left of the title at \(title)",
+                    sourceLocation: sourceLocation)
+        }
+    }
+
     /// Runs `body` with the Status icon row badge on `side` (nil: the defaults). The store is
     /// active without a file, so nothing is written; the tunables watch is refreshed right away,
     /// as the app does one main-actor hop later.
-    private static func withSide(_ side: SidebarStatusIconSide?, _ body: () throws -> Void) throws {
+    private static func withSide(_ side: SidebarStatusIconSide?, style rowBadge: SidebarRowBadgeStyle? = nil,
+                                 _ body: () throws -> Void) throws {
         TunableStore.shared.activate(file: nil)
         TunableStore.shared.register(SidebarTunables.all)
         let style = SidebarRowBadgeStyle.tunable.key, sideKey = SidebarStatusIconSide.tunable.key
-        TunableStore.shared.set(style, nil)
+        TunableStore.shared.set(style, rowBadge?.tunableValue)
         TunableStore.shared.set(sideKey, side?.tunableValue)
         SidebarTunablesWatch.shared.changed()
         defer {
+            TunableStore.shared.set(style, nil)
             TunableStore.shared.set(sideKey, nil)
             SidebarTunablesWatch.shared.changed()
         }
@@ -140,7 +183,9 @@ import Testing
     private static func sidebar() -> SidebarView {
         let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
         let tabs = [SidebarTab(id: runningTab, title: "fix the build", kind: .agentChat, activity: .working),
-                    SidebarTab(id: quietTab, title: "zsh", kind: .terminal)]
+                    SidebarTab(id: quietTab, title: "zsh", kind: .terminal),
+                    SidebarTab(id: unreadRunningTab, title: "review the PR", kind: .agentChat, isUnread: true, activity: .working),
+                    SidebarTab(id: unreadDoneTab, title: "notes", kind: .terminal, isUnread: true)]
         let rows = [
             SidebarWorkspace(id: failing, title: "api", kind: .terminal, unread: .count(2), activity: .error),
             SidebarWorkspace(id: done, title: "web", kind: .terminal, unread: .count(1)),
