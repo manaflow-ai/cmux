@@ -101,9 +101,24 @@ struct PaletteOpenLatencyTests {
             }
             return samples.sorted()[samples.count / 2]
         }
+        /// The model stage alone (the page's rows, no panel): what the open costs before AppKit.
+        func modelCost(_ store: Store) async -> Double {
+            let palette = Self.palette(store)
+            var samples: [Double] = []
+            for _ in 0..<7 {
+                let started = ContinuousClock.now
+                palette.model.reset(to: palette.commandsPage())
+                samples.append(Self.milliseconds(started.duration(to: .now)))
+                await palette.model.settle()
+            }
+            return samples.sorted()[samples.count / 2]
+        }
         let small = await openCost(Store(workspaces: 10, tabsPerWorkspace: 1))
         let large = await openCost(Store(workspaces: 600, tabsPerWorkspace: 10))
-        print("palette open (median ms): 10 workspaces/10 tabs \(small), 600 workspaces/6000 tabs \(large)")
+        let smallModel = await modelCost(Store(workspaces: 10, tabsPerWorkspace: 1))
+        let largeModel = await modelCost(Store(workspaces: 600, tabsPerWorkspace: 10))
+        print("palette open (median ms, debug build): 10 workspaces/10 tabs \(small) (model \(smallModel)), "
+              + "600 workspaces/6000 tabs \(large) (model \(largeModel))")
         // Same work before the frame: within 2 ms of each other (a scheduling blip, not the data).
         #expect(large - small < 2, "the open's cost grows with the workspaces and tabs: \(small) ms -> \(large) ms")
     }
