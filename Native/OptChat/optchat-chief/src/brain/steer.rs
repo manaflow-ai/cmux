@@ -173,8 +173,10 @@ impl Brain {
                 None
             };
             // The strictest reason wins: another participant over a device.
-            if why == Some(crate::approval::Why::Participant) || self.turn_why.is_none() {
-                self.turn_why = why.or(self.turn_why);
+            if let Some(why) = why
+                && (why == crate::approval::Why::Participant || self.turn_why.is_none())
+            {
+                self.turn_why = Some(why);
             }
             self.turn_ask = self.turn_why.is_some();
             self.interrupt.set_gate(self.turn_ask);
