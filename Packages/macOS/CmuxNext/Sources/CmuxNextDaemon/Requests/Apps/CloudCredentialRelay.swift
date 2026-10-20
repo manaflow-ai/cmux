@@ -79,15 +79,18 @@ public nonisolated struct CloudCredentialRelay: Sendable {
     let session: @Sendable () async -> Session
     /// The ops the app server may have sent (``bundledServedOps()`` in the app).
     let allowedOps: @Sendable () async -> Set<String>
+    let ensureNative: (@Sendable (String) async throws -> Void)?
 
     public init(post: @escaping Post, token: @escaping @Sendable () async throws -> String,
                 invalidate: @escaping @Sendable () async -> Void, session: @escaping @Sendable () async -> Session,
-                allowedOps: @escaping @Sendable () async -> Set<String>) {
+                allowedOps: @escaping @Sendable () async -> Set<String>,
+                ensureNative: (@Sendable (String) async throws -> Void)? = nil) {
         self.post = post
         self.token = token
         self.invalidate = invalidate
         self.session = session
         self.allowedOps = allowedOps
+        self.ensureNative = ensureNative
     }
 
     /// Answers one provider call of the `credential` family.
@@ -97,9 +100,22 @@ public nonisolated struct CloudCredentialRelay: Sendable {
         }
         switch call.op {
         case Self.sessionOp:
-            let state = await session()
+            var state = await session()
+            if call.params["ensure_native"]?.boolValue == true {
+                guard state.signedIn else { return Self.notSignedIn }
+                guard let expected = call.params["expected_scope"]?.stringValue, state.scope == expected,
+                      let ensureNative else { return Self.sessionChanged }
+                do { try await ensureNative(expected) }
+                catch { return Self.failure("owner.unreachable", "the selected Cloud link could not start", retryable: true) }
+                state = await session()
+                guard state.scope == expected else { return Self.sessionChanged }
+            }
             var body: [String: JSONValue] = ["signed_in": .bool(state.signedIn), "team": state.team.map(JSONValue.string) ?? .null]
             if let scope = state.scope { body["scope"] = .string(scope) }
+            if let native = state.nativeLink {
+                guard state.scope == native.scope else { return Self.sessionChanged }
+                body["native_link"] = native.value
+            }
             return Answer(ok: true, body: .object(body))
         case Self.relayOp:
             return await relay(call.params)

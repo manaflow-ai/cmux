@@ -27,6 +27,13 @@ struct CloudCredentialProviderScopeTests {
         #expect(world.postCount == 0)
     }
 
+    @Test func aDaemonThatDropsNativeBindingsCannotServeCredentials() async {
+        let world = CloudCredentialProviderWorld(), provider = world.provider()
+        world.nativeCapability = false
+        #expect(await register(provider, world) == false)
+        #expect(!provider.isReady && world.invalidations == 0 && world.postCount == 0)
+    }
+
     @Test func aScopeChangeNotifiesEvenWithNoRequestInFlight() async {
         let world = CloudCredentialProviderWorld(), provider = world.provider()
         #expect(await register(provider, world))

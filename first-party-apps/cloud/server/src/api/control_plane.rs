@@ -84,6 +84,11 @@ pub trait ControlPlane {
         None
     }
 
+    /// Starts only this checked scope's local Native transport, not a VM or serving role.
+    fn ensure_native_link(&mut self) -> Result<(), RelayError> {
+        Err(RelayError::Unavailable("the parent cannot start a Native link".into()))
+    }
+
     /// Every transport refreshes session authority before any operation or replay.
     /// Older transports without a scope fail closed.
     fn request_scope(&mut self, _: bool) -> Result<Option<String>, RelayError> {

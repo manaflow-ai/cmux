@@ -16,6 +16,8 @@ const GLOBAL: &str = "/tmp/legacy-global.sock";
 
 struct Parent {
     native: Option<Value>,
+    can_start: bool,
+    ensures: Vec<Value>,
     wire: common::FakeControlPlane,
     answers: VecDeque<Vec<u8>>,
 }
@@ -57,6 +59,12 @@ impl Write for Output {
             let mut parent = self.parent.lock().unwrap();
             let mut reply = match request["type"].as_str() {
                 Some("relay.session") => {
+                    if request["ensure_native"] == true {
+                        parent.ensures.push(request.clone());
+                        if parent.can_start && request["expected_scope"] == "a".repeat(64) {
+                            parent.native = Some(native(json!(NATIVE)));
+                        }
+                    }
                     let mut reply = json!({"type": "relay.session", "signed_in": true,
                         "team": "team_aaaaaaaaaaaaaaaaaaaa", "scope": "a".repeat(64)});
                     if let Some(native) = &parent.native {
@@ -103,6 +111,8 @@ fn native(socket: Value) -> Value {
 fn server(route: Value) -> (Server<Relay>, Arc<Mutex<Parent>>, FakeSpawner) {
     let parent = Arc::new(Mutex::new(Parent {
         native: Some(route),
+        can_start: false,
+        ensures: vec![],
         wire: common::FakeControlPlane::with(&["vm-get"]),
         answers: VecDeque::new(),
     }));
@@ -146,6 +156,20 @@ fn cloud_scope_native_unavailable_never_falls_back_to_a_live_global_hub() {
     let (mut server, _, spawner) = server(native(Value::Null));
     assert!(server.handle(&connect("not-ready")).is_err());
     assert_eq!(spawner.spawns(), 0);
+}
+
+#[test]
+fn cloud_scope_native_connect_starts_through_the_scoped_parent_for_every_entrypoint() {
+    for origin in [Origin::User, Origin::Cli, Origin::Mcp, Origin::Script] {
+        let (mut server, parent, spawner) = server(native(Value::Null));
+        parent.lock().unwrap().can_start = true;
+        server.handle(&connect("start-native").origin(origin)).unwrap();
+        assert_eq!(spawner.spawns(), 1);
+        assert!(spawner.log().commands[0].args.windows(2).any(|a| a == ["--socket", NATIVE]));
+        let parent = parent.lock().unwrap();
+        assert_eq!(parent.ensures.len(), 1, "one bounded startup request, not a retry loop");
+        assert_eq!(parent.ensures[0]["expected_scope"], "a".repeat(64));
+    }
 }
 
 fn host_details(hub: Value) -> Value {

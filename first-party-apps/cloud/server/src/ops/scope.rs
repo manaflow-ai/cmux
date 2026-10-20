@@ -10,6 +10,20 @@ pub(super) fn changed() -> CloudError {
 }
 
 impl<C: ControlPlane> Server<C> {
+    /// All connect entrypoints use the parent, then recheck their original scope after startup.
+    pub(crate) fn ensure_native_link(&mut self) -> Result<(), CloudError> {
+        let scope = self.session_scope.clone().ok_or_else(changed)?;
+        if let Err(error) = self.control_plane.ensure_native_link() {
+            self.forget_scope();
+            return Err(
+                Ctx::new(&mut self.control_plane, &mut self.projection, None).relay_error(error)
+            );
+        }
+        let mut request = Request::new("", serde_json::Value::Null);
+        request.expected_scope = Some(scope);
+        self.check_scope(&request)
+    }
+
     /// The host owns this channel. A notice only removes authority; the next op still asks its owner.
     pub(crate) fn parent_scope_changed(&mut self) {
         self.forget_scope();
@@ -30,7 +44,14 @@ impl<C: ControlPlane> Server<C> {
             native
         };
         if current != self.session_scope || native != self.attach.native_link {
-            self.forget_scope();
+            // Initial startup had no transport to retire. Keep the in-flight connect's checked VM info.
+            let first_ready = matches!(
+                (&self.attach.native_link, &native),
+                (Some(crate::api::NativeLink::Unavailable), Some(crate::api::NativeLink::Ready(_)))
+            );
+            if current != self.session_scope || !first_ready {
+                self.forget_scope();
+            }
             self.session_scope = current.clone();
             self.attach.native_link = native;
         }

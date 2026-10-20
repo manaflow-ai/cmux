@@ -33,6 +33,7 @@ final class CloudCredentialProvider {
 
     /// Calls in flight (tests).
     var inFlight: Int { running.count }
+    var isReady: Bool { ready && !sessionEnded }
 
     /// Registers the family when `userOriginAllowed`; returns whether it is
     /// registered. A refusal is logged and not retried on this connection.
@@ -45,7 +46,8 @@ final class CloudCredentialProvider {
             return false
         }
         do {
-            _ = try await send(AppsProviderRegisterRequest(families: [CloudCredentialRelay.family]))
+            let registration = try await send(AppsProviderRegisterRequest(families: [CloudCredentialRelay.family]))
+            guard registration["native_link_binding"]?.doubleValue == 1 else { return false }
             // Probe the invalidation path before serving credentials. Older daemons fail closed.
             _ = try await invalidate(AppsProviderScopeChangedRequest())
             guard generation == bound, !sessionEnded else { return false }
@@ -58,15 +60,19 @@ final class CloudCredentialProvider {
     }
 
     /// A local account/team/policy change ends pending replies and idle daemon resources.
-    func scopeChanged(send: Invalidate) async {
-        guard ready, !sessionEnded else { return }
+    @discardableResult
+    func scopeChanged(send: Invalidate) async -> Bool {
+        guard ready, !sessionEnded else { return false }
         stop()
         let bound = generation
         do {
             _ = try await send(AppsProviderScopeChangedRequest())
-            if generation == bound, !sessionEnded { ready = true }
+            guard generation == bound, !sessionEnded else { return false }
+            ready = true
+            return true
         } catch {
             Self.logger.error("credential provider: scope invalidation refused: \(String(describing: error), privacy: .public)")
+            return false
         }
     }
 

@@ -9,6 +9,7 @@ final class CloudCredentialProviderWorld {
     let invalidationStarted = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
     var holdPosts = false
     var refuseInvalidation = false
+    var nativeCapability = true
     private(set) var registrations = 0
     private(set) var invalidations = 0
     private(set) var postCount = 0
@@ -17,7 +18,9 @@ final class CloudCredentialProviderWorld {
 
     func register(_ request: AppsProviderRegisterRequest) -> JSONValue {
         registrations += 1
-        return .object(["families": .array(request.families.map(JSONValue.string))])
+        var result: [String: JSONValue] = ["families": .array(request.families.map(JSONValue.string))]
+        if nativeCapability { result["native_link_binding"] = .number(1) }
+        return .object(result)
     }
     func invalidate(_: AppsProviderScopeChangedRequest) throws -> JSONValue {
         invalidations += 1

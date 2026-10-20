@@ -207,7 +207,12 @@ impl Supervisor {
         for family in &families {
             inner.providers.insert(family.clone(), client);
         }
-        Ok(json!({ "families": families }))
+        let native = families.iter().any(|family| family == "credential");
+        let mut result = json!({ "families": families });
+        if native {
+            result["native_link_binding"] = json!(1);
+        }
+        Ok(result)
     }
 
     /// Queues an admitted call for its provider; the error is the ABI body

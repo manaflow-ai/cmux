@@ -303,6 +303,39 @@ mod scope_tests {
     use super::*;
 
     #[test]
+    fn cloud_scope_native_provider_binding_survives_the_relay_without_credentials() {
+        for socket in [Value::Null, json!("/tmp/owned-native.sock")] {
+            let scope = "a".repeat(64);
+            let native = json!({"version": 1, "scope": scope, "socket": socket});
+            let reply = relay_reply(
+                &json!("native"),
+                true,
+                Ending::Answer {
+                    ok: true,
+                    body: json!({"signed_in": true, "team": "team_a", "scope": scope,
+                    "native_link": native, "token": "never-export-this-test-value"}),
+                },
+            );
+            assert_eq!(reply["native_link"], native);
+            assert!(reply.get("token").is_none());
+        }
+    }
+
+    #[test]
+    fn cloud_scope_native_provider_start_is_scoped_without_extra_execution_params() {
+        let scope = "a".repeat(64);
+        let (_, params) = provider_call(&json!({"type": "relay.session", "id": "ensure",
+            "ensure_native": true, "expected_scope": scope, "command": "must-not-forward"}))
+        .unwrap();
+        assert_eq!(params, json!({"ensure_native": true, "expected_scope": scope}));
+        assert!(
+            provider_call(&json!({"type": "relay.session", "id": "bad", "ensure_native": true,
+            "expected_scope": "not-a-scope"}))
+            .is_err()
+        );
+    }
+
+    #[test]
     fn cloud_scope_provider_roundtrip_keeps_request_and_session_context() {
         let scope = "a".repeat(64);
         let (_, params) = provider_call(&json!({"type": "relay.op", "id": "r1",

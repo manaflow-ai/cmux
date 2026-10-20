@@ -28,8 +28,8 @@ final class CloudService {
     @ObservationIgnored let hands: HandsService
     @ObservationIgnored let machines: MachineRegistry
     @ObservationIgnored private let binary: URL?
-    /// This Mac's `cmux link` across the session (cx-rtipa S3).
-    @ObservationIgnored private let link: CloudLinkLifecycle
+    /// The selected team's app-owned Native link; the legacy configuration uses only its tunnel hub.
+    @ObservationIgnored var nativeLink: NativeCloudLinkOwner?
     @ObservationIgnored var machineScope: String?
     @ObservationIgnored private var lastRefresh: ContinuousClock.Instant?
     @ObservationIgnored private var observers: [Task<Void, Never>] = []
@@ -37,7 +37,7 @@ final class CloudService {
     @ObservationIgnored private var linkEvents: UInt64?
     /// The `credential` provider family on the local daemon (cx-wb5.63):
     /// app servers' Cloud API calls, sent with the install token.
-    @ObservationIgnored let credentialProvider: CloudCredentialProvider?
+    @ObservationIgnored var credentialProvider: CloudCredentialProvider?
     @ObservationIgnored private(set) var isSigningOut = false
     @ObservationIgnored private var credentialEvents: UInt64?
     @ObservationIgnored let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.cloud")
@@ -98,14 +98,10 @@ final class CloudService {
         let scope = CloudTeamScope(identity: identity, transport: transport,
             selection: { try await selection.current() }, session: { try await auth.tokens().access })
         teamScope = scope
-        let launcher = configuration.linkSource == .appServer ? CloudLinkLauncher.forApp(build: LaunchIdentity.current().build) : nil
-        link = CloudLinkLifecycle(launcher: launcher, installID: { [identity] in await identity.installID() },
-                                  connection: { [machines] in machines.local.connection })
-        credentialProvider = CloudCredentialOwner(auth: auth, identity: identity, scope: scope, transport: transport).provider
         binary = try? DaemonLauncher.resolveBinary(bundle: .main, environment: ProcessInfo.processInfo.environment)
         move.cli = binary
         move.ledger = .standard
-        if let binary {
+        if configuration.linkSource == .legacy, let binary {
             hub = CloudTunnelHub(api: api, paths: paths, binary: binary, deviceName: Self.deviceName)
         }
         movedChats.defaults = { [weak self] in self?.move.ledger }
@@ -113,8 +109,15 @@ final class CloudService {
         bringBackRetries.defaults = { [weak self] in self?.move.ledger }
         moveAsks.defaults = { [weak self] in self?.move.ledger }
         CloudMovedChats.app = movedChats
-        link.isAvailable = { [weak self] in self.map { $0.mayCallCloud && !$0.policyDisabled && $0.auth.isSignedIn } ?? false }
-        link.isSignedIn = { [weak self] in self?.auth.isSignedIn ?? false }
+        if configuration.linkSource == .appServer {
+            let factory = NativeCloudLinkFactory(identity: identity, paths: paths, bundle: Bundle.main.bundleURL,
+                home: FileManager.default.homeDirectoryForCurrentUser, session: { try await auth.tokens().access }, name: Self.deviceName)
+            nativeLink = NativeCloudLinkOwner(make: { try await factory.make($0) }, invalidate: { [weak self] in
+                guard let self else { throw CancellationError() }
+                try await self.invalidateNativeLink()
+            })
+        }
+        credentialProvider = CloudCredentialOwner(auth: auth, identity: identity, scope: scope, transport: transport, native: nativeLink).provider
     }
 
     var isSignedIn: Bool { auth.isSignedIn }
@@ -154,23 +157,22 @@ final class CloudService {
             await auth.awaitRestored()
             for await signedIn in ObservationStream({ self.auth.isSignedIn }) {
                 if signedIn {
+                    await self.nativeLink?.resume()
                     await self.beginCredentialSession()
                     guard self.auth.isSignedIn, !self.isSigningOut, !Task.isCancelled else { continue }
                     // Sign-out revoked the WireGuard peer and parked the hub.
                     await self.hub?.resume()
-                    await self.link.sessionBegan(user: self.auth.user?.id)
                     // The install first: the app server path's first list goes
                     // through the credential relay, which sends the install token.
                     await self.installSignedIn()
                     self.hands.start()
-                    await self.ensureLink()
                     await self.refresh()
                 } else {
                     self.dropAllMachines()
                     await self.endCredentialSession()
                     // The session ended (signed out here or elsewhere, or
                     // expired): no link keeps running for it.
-                    await self.link.endLink(final: true)
+                    await self.nativeLink?.end()
                     await self.installIdentity.unbind()
                     self.hands.stop()
                 }
@@ -199,13 +201,14 @@ final class CloudService {
             // task-owner: one teardown hop; hub.stop() is idempotent
             if let hub { Task { await hub.stop() } }
             // So does this Mac's link (the session stays).
-            link.policyTurnedOff()
+            if let nativeLink { observers.append(Task { await nativeLink.retire() }) }
         } else {
             dropAllMachines()
             // task-owner: one list fetch after the policy lifted
             Task { [weak self] in
                 guard let self, auth.isSignedIn else { return }
                 await hub?.resume()
+                await nativeLink?.resume()
                 await installSignedIn()
                 await refresh()
             }
@@ -220,6 +223,8 @@ final class CloudService {
         if let credentialEvents { machines.local.store.sideEvents.unsubscribe(credentialEvents) }
         credentialEvents = nil
         credentialProvider?.suspend()
+        // task-owner: teardown at quit; the owner joins its child without deleting the reusable enrollment.
+        if let nativeLink { Task { await nativeLink.suspend() } }
         for session in machines.cloud { session.disconnect() }
         // task-owner: teardown hop at quit; hub.stop() is idempotent
         if let hub { Task { await hub.stop() } }
@@ -254,6 +259,7 @@ final class CloudService {
             for await _ in changes {
                 guard let self else { return }
                 self.dropAllMachines()
+                if let nativeLink = self.nativeLink { await nativeLink.retire(); continue }
                 guard let connection = local.connection else { provider.stop(); continue }
                 await provider.scopeChanged { try await connection.request($0) }
             }
@@ -313,9 +319,7 @@ final class CloudService {
         switch configuration.linkSource {
         case .appServer:
             guard let scope else { return nil }
-            let resolver = CloudConnectOpResolver(run: CloudAppLinks.runner(local: machines.local, scope: scope) { [weak self] in
-                await self?.ensureLink()
-            })
+            let resolver = CloudConnectOpResolver(run: CloudAppLinks.runner(local: machines.local, scope: scope))
             let local = machines.local
             session = CloudMachineSession(machine: machine, appLink: CloudLinkSession(key: CloudLinkKey(machine: machine.id), resolver: resolver),
                                           localIdentity: { [weak local] in local?.identity })
@@ -367,28 +371,23 @@ final class CloudService {
         guard !isSigningOut else { return }
         isSigningOut = true
         defer { isSigningOut = false }
-        // No ensure starts from here until the session's final endLink (the
-        // signed-out branch above, after auth.signOut).
-        link.beginEnding()
         dropAllMachines()
         await endCredentialSession()
-        await link.endLink(final: false)
+        await nativeLink?.end()
         if let hub { await hub.revoke() }
         // Revoke the install while the Stack session still exists.
         if let stackUser = auth.user?.id {
             let auth = auth
             await installIdentity.signOut(stackUser: stackUser, session: { try await auth.tokens().access })
         }
-        // An ensure that slipped in during the revoke: stop that link too.
-        await link.stopLink()
         await auth.signOut()
     }
 
-    /// Starts this Mac's `cmux link` (``CloudLinkLifecycle/ensureLink()``).
-    func ensureLink() async { await link.ensureLink() }
+    /// Ensures the selected team's owned child before a scoped connect.
+    func ensureLink() async { _ = await ensureLinkReport() }
 
-    /// ``CloudLinkLifecycle/ensureLinkReport()``, for the DEBUG socket method.
-    func ensureLinkReport() async -> JSONValue { await link.ensureLinkReport() }
+    /// Reports owned Native startup for the DEBUG socket method.
+    func ensureLinkReport() async -> JSONValue { await ensureNativeLinkReport() }
 
 
 }

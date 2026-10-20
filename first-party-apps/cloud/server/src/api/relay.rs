@@ -540,4 +540,25 @@ impl<R: BufRead, W: Write> ControlPlane for HostRelay<R, W> {
     fn native_link(&self) -> Option<super::NativeLink> {
         self.native_link.clone()
     }
+
+    fn ensure_native_link(&mut self) -> Result<(), RelayError> {
+        let scope = self
+            .expected_scope
+            .clone()
+            .ok_or_else(|| RelayError::Unavailable("no checked Cloud scope".into()))?;
+        self.native_link = None;
+        let answer = self.exchange(
+            json!({"type": "relay.session", "ensure_native": true, "expected_scope": scope}),
+        )?;
+        if answer["signed_in"] != true || answer["scope"].as_str() != Some(scope.as_str()) {
+            return Err(RelayError::Unavailable(
+                "the Cloud scope changed during Native startup".into(),
+            ));
+        }
+        self.native_link = super::NativeLink::decode(answer.get("native_link"), Some(&scope))?;
+        if !matches!(self.native_link, Some(super::NativeLink::Ready(_))) {
+            return Err(RelayError::Unavailable("the selected Cloud link is not running".into()));
+        }
+        Ok(())
+    }
 }

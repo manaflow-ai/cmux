@@ -243,6 +243,9 @@ impl<C: ControlPlane> Server<C> {
 
     /// The details a connect uses now, or the typed reason it cannot run.
     pub(crate) fn link_paths(&mut self) -> Result<LinkPaths, CloudError> {
+        if self.attach().native_link == Some(crate::api::NativeLink::Unavailable) {
+            self.ensure_native_link()?;
+        }
         let unavailable = |message: &str, retryable: bool| CloudError {
             retryable,
             ..CloudError::new(LINK_UNAVAILABLE, message)
