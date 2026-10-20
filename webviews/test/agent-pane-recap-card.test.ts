@@ -242,6 +242,8 @@ await requireBrowserLane("agent-pane-recap-card.test.ts", async () => {
     await card(page).waitFor();
     await page.waitForTimeout(300);
     expect(await view()).toMatchObject({ overflows: true, below: 0 });
+    // The transcript reserves room below its last row even when the recap takes space.
+    expect((await view()).spare).toBeGreaterThanOrEqual(16);
     await page.close();
   });
 
