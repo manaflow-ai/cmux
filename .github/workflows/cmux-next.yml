@@ -2520,10 +2520,19 @@ jobs:
       # and the defaults snapshot: check-fresh recomputes the source stamp
       # (schemas/settings-export) from the CmuxNextSettings sources, so a
       # settings edit without a re-export fails here and is regenerated below.
+      # The snapshot is bot-only (#21946): a pull request checks its settings
+      # exports against its sources only.
       - name: Check the settings exports and the defaults snapshot
         id: settings
         continue-on-error: true
-        run: python3 scripts/ci/defaults_guard.py check-fresh
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          if [[ "$EVENT" == pull_request ]]; then
+            python3 scripts/ci/defaults_guard.py check-stamp
+          else
+            python3 scripts/ci/defaults_guard.py check-fresh
+          fi
 
       # Only the generated paths are collected into the artifact.
       - name: Regenerate stale files

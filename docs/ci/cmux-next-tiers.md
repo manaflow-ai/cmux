@@ -132,6 +132,12 @@ entry: regenerate the stamp after the merge, never hand-merge it. `cmux-next gen
 settings change and commits the exports and the snapshot, so a lane does not
 have to run the export itself.
 
+The defaults snapshot (`schemas/defaults/cmux-next.json`) is bot-only (#21946):
+no pull request commits it, the PR autofix leaves it out, and a pull request's
+checks run `check-stamp` instead of `check-fresh`. The base autofix rewrites it
+after each merge. The defaults guard judges a pull request by the defaults its
+exports and sources produce, never by a committed snapshot.
+
 ## Measurements
 
 Before (#17470, a UI-only PR, run 37402420094):
