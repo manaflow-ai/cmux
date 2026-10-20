@@ -431,6 +431,24 @@ Any harness can be added with one profile file (`~/.config/cmux/harnesses/<id>.t
 with `acpmux harness doctor <id>` (also `cmux harness …`). Schema, secrets, terminal harnesses,
 folder profiles and the ACP adapter guide: [docs/add-your-harness.md](../../../docs/add-your-harness.md).
 
+Your own model endpoint is a harness too (a Chief can use it as its backend):
+
+```sh
+cmux harness add acme --example anthropic-endpoint --base-url https://llm.example.com --model acme-large
+cmux harness add local --example openai-endpoint --base-url http://127.0.0.1:11434/v1 --model qwen3
+cmux harness secret set acme ANTHROPIC_AUTH_TOKEN   # or CMUX_BYO_API_KEY; hidden prompt
+cmux harness doctor acme                            # one real hello turn; names the fix
+```
+
+`anthropic-endpoint` runs acpmux's own Claude Code adapter with `ANTHROPIC_BASE_URL`,
+`ANTHROPIC_MODEL` (also the small/fast model) and `ANTHROPIC_AUTH_TOKEN` from the Keychain; no other
+inherited `ANTHROPIC_*` or Claude provider switch reaches it. `openai-endpoint` runs `opencode acp`
+with an inline `OPENCODE_CONFIG_CONTENT` (provider `byo`, `@ai-sdk/openai-compatible`, model
+`byo/<model>`) and its key in `CMUX_BYO_API_KEY` from the Keychain. The daemon methods are
+`_acpmux/harness/add {example, id, displayName, baseUrl, model, keychainItem}`,
+`_acpmux/harness/secret/set {id, key, value}` (the value is never echoed) and
+`_acpmux/harness/doctor {id, prompt: true}`; all three take the unix socket only.
+
 ## Picking a harness and a model: `-m HARNESS[/MODEL]`, `-p PRESET`
 
 One flag names what runs. Its head is a **family** (`claude`, `codex`, `opencode`, `pi`, `omp`,

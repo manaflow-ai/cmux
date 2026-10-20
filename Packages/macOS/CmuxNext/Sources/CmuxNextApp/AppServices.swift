@@ -200,6 +200,8 @@ final class AppServices {
     let popups: BrowserPopupWindows
     /// The link-hint session (`f`, `F`) on a focused Chromium page.
     let linkHints = LinkHintController()
+    /// Toggle React Grab on a page; the library is fetched once per run (`ReactGrabScriptLoader`).
+    let reactGrab = ReactGrab(scripts: ReactGrabScriptLoader())
     /// Click by Hint over the whole window (`hints.show`, Cmd-J).
     let windowHints = WindowHintController()
     /// Browser profiles: records, the new-tab cascade, each tab's store.
