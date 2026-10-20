@@ -1,9 +1,10 @@
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
+import { CREATE_SEND_GRACE_MS } from "../../src/limits/ledger.ts";
 import { makeHarness } from "../support/harness.ts";
 
 type Harness = Awaited<ReturnType<typeof makeHarness>>;
 let h: Harness | undefined;
-afterEach(async () => { await h?.dispose(); h = undefined; });
+afterEach(async () => { vi.restoreAllMocks(); await h?.dispose(); h = undefined; });
 const KEY = "cancel-original-create";
 const setup = async (maxVms = 1) => {
   h = await makeHarness({ maxVms });
@@ -168,4 +169,34 @@ it("retains an uncertain fork and its original snapshot without another provider
   expect(await (await t.cancel()).json()).toMatchObject({ state: "cancelling" });
   expect(t.upstream.vms.size).toBe(1);
   expect(t.upstream.snapshots.size).toBe(1);
+});
+
+const later = () => { const at = Date.now() + CREATE_SEND_GRACE_MS + 1000; vi.spyOn(Date, "now").mockReturnValue(at); };
+
+it("settles a cancelled uncertain create once its send's grace window passes with nothing at its slug", async () => {
+  const t = await setup(); t.upstream.fail("create", 503);
+  expect((await t.create()).status).toBe(503);
+  expect(await (await t.cancel()).json()).toMatchObject({ state: "cancelling" });
+  later();
+  expect(await (await t.cancel()).json()).toMatchObject({ state: "cancelled" });
+  // The quota slot is free again and the cancelled key never resends.
+  expect((await t.create("replacement")).status).toBe(201);
+  expect((await t.create()).status).not.toBe(201);
+  expect(t.upstream.callsTo("POST", /^\/v5\/vms$/)).toHaveLength(2);
+});
+
+it("resends an uncertain create under its own key once the grace window passes and its slug is still empty", async () => {
+  const t = await setup(); t.upstream.fail("create", 503);
+  expect((await t.create()).status).toBe(503);
+  expect((await t.create()).status).toBe(503);
+  later();
+  expect((await t.create()).status).toBe(201);
+  expect(t.upstream.callsTo("POST", /^\/v5\/vms$/)).toHaveLength(2);
+  expect(t.upstream.vms.size).toBe(1);
+});
+
+it("does not count a provider 409 as proof that nothing was created", async () => {
+  const t = await setup(); t.upstream.fail("create", 409);
+  expect((await t.create()).status).toBe(409);
+  expect(await (await t.cancel()).json()).toMatchObject({ state: "cancelling" });
 });

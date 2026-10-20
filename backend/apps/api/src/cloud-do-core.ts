@@ -13,7 +13,7 @@ import { AccessAudit, who } from "./cloud-connect.ts"
 import { registerVmInstall, revokeVmInstall, VmStatusQueue } from "./cloud-vm.ts"
 import { VmInstallRevokes } from "./cloud-vm-revoke.ts"
 import { CoderouterEdge } from "./cloud-coderouter-edge.ts"
-import { publicSnapshot, type SnapshotRow } from "./domains/cloud-snapshot.ts"
+import { emptyFenceSettles, publicSnapshot, type SnapshotRow } from "./domains/cloud-snapshot.ts"
 import { BACKSTOP_IDLE_SECONDS, silentSince } from "./cloud-idle.ts"
 import { planView, teamPlan, type CloudConfig } from "./domains/cloud-plan.ts"
 import { decodeParams } from "./domains/common.ts"
@@ -353,7 +353,7 @@ export abstract class CloudCore extends OwnerDO<CloudState> {
       } catch { routingError = new DriverError("cloud.provider.unavailable", "the VM tenant route is still being confirmed", false) }
       // Tenant provisioning can await identity I/O. A delete committed meanwhile changes this to lookup-only work.
       if (row.op === "create" && !row.cancel && this.ledger(row.key)?.cancel) continue
-      let result: { key: string; ok: boolean; provider_id?: string; bind_token_sha256?: string; error?: { code: string; message: string }; final?: boolean; snapshot_outcome?: "deleted"; resources?: { cpu: number; memory_mb: number; disk_mb: number } }
+      let result: { key: string; ok: boolean; provider_id?: string; bind_token_sha256?: string; error?: { code: string; message: string }; final?: boolean; snapshot_outcome?: "deleted" | "absent"; resources?: { cpu: number; memory_mb: number; disk_mb: number } }
       // P1-1: a create runs only for a team with a plan (the allowlist may have changed since the intent). Deletes always run: they only stop cost.
       if (planDenied && !captureRecovery) result = { key: row.key, ok: false, error: { code: "cloud.plan.required", message: "this team has no Cloud plan" }, final: true }
       // Review P3-a: the bind file's origin and env tag are checked before ensure, so a misconfiguration never leaves a running VM.
@@ -387,7 +387,7 @@ export abstract class CloudCore extends OwnerDO<CloudState> {
           }
           else if (row.op === "pause" || row.op === "start") result = (await driver.power(row.provider_name, tag, row.op), { key: row.key, ok: true })
           else if (row.op === "snapshot" && row.snapshot_name) result = { key: row.key, ok: true, provider_id: (await driver.snapshot(row.provider_name, tag, row.snapshot_name)).id }
-          else if (row.op === "snapshot_delete" && row.snapshot_name) result = (await driver.removeSnapshot(row.snapshot_name, tag, row.capture_protocol === 1 || row.snapshot_status === "ready"), { key: row.key, ok: true })
+          else if (row.op === "snapshot_delete" && row.snapshot_name) result = (await driver.removeSnapshot(row.snapshot_name, tag, emptyFenceSettles(row)), { key: row.key, ok: true })
           else if (row.op === "resize" && row.size) result = (await driver.resize(row.provider_name, tag, { cpu: row.size.cpu, memory: row.size.memory_mb, storage: row.size.disk_mb }), { key: row.key, ok: true })
           else result = (await driver.remove(row.provider_name, tag), { key: row.key, ok: true })
         } catch (e) {
@@ -395,7 +395,7 @@ export abstract class CloudCore extends OwnerDO<CloudState> {
           // Only the step, status and provider code: never the key or a provider message body.
           console.warn(JSON.stringify({ msg: "cloud provider call failed", stream: engine.stream, op: row.op, machine: row.machine, attempt: row.attempts + 1, code: err.code, error: err.message }))
           const res = row.op === "resize" && err.final ? await driver.resourcesOf(row.provider_name, tag).catch(() => null) : null
-          result = { key: row.key, ok: false, error: { code: err.code, message: err.message }, final: err.final, ...(err instanceof VmApiSnapshotOutcome && err.outcome === "deleted" ? { snapshot_outcome: "deleted" as const } : {}), ...(res ? { resources: { cpu: res.cpu, memory_mb: res.memory, disk_mb: res.storage } } : {}) }
+          result = { key: row.key, ok: false, error: { code: err.code, message: err.message }, final: err.final, ...(err instanceof VmApiSnapshotOutcome && err.outcome !== "pending" ? { snapshot_outcome: err.outcome } : {}), ...(res ? { resources: { cpu: res.cpu, memory_mb: res.memory, disk_mb: res.storage } } : {}) }
         }
       }
       if (this.env.ENVIRONMENT === "test" && this.dropResults > 0) {

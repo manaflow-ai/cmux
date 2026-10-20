@@ -48,7 +48,7 @@ export type RateDecision = typeof RateDecision.Type;
 const Creation = {
   vmId: Schema.String, reservationId: Schema.String, context: Schema.String, createdBy: Schema.String,
   snapshotId: Schema.optional(Schema.String), intent: Schema.optional(RetainedVmCreation),
-  dispatch: Schema.optional(Schema.Struct({ state: Schema.Literal("ready", "sent", "rejected"), token: Schema.String })),
+  dispatch: Schema.optional(Schema.Struct({ state: Schema.Literal("ready", "sent", "rejected"), token: Schema.String, at: Schema.optional(Schema.Number) })),
   cancelRequested: Schema.optional(Schema.Boolean),
 };
 export const ForkCaptureProgress = Schema.Struct({
@@ -145,6 +145,14 @@ export const IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000;
 export const IDEMPOTENCY_LEASE_MS = 10 * 60 * 1000;
 /** An ordinary reservation expires after this long; an uncertain allocation retains its slot. */
 export const RESERVATION_TTL_MS = 5 * 60 * 1000;
+/**
+ * After this long, a send whose outcome was never learned and whose exact slug still answers 404 made nothing:
+ * twice the 120 s create timeout plus provider propagation. Only then may it be resent or its cancellation settle.
+ */
+export const CREATE_SEND_GRACE_MS = 10 * 60 * 1000;
+type Dispatch = { readonly state: "ready" | "sent" | "rejected"; readonly at?: number | undefined };
+const sendSettled = (dispatch: Dispatch, nowMs: number | undefined) =>
+  dispatch.state !== "sent" || (nowMs !== undefined && dispatch.at !== undefined && nowMs - dispatch.at >= CREATE_SEND_GRACE_MS);
 
 export class TenantLedger {
   constructor(private readonly storage: LedgerStorage) {}
@@ -178,14 +186,17 @@ export class TenantLedger {
     });
   }
 
-  /** Exactly one potentially allocating provider send. Unknown outcomes never reopen this gate. */
-  async beginCreateSend(key: string, vmId: string, token: string): Promise<boolean> {
+  /**
+   * One potentially allocating provider send at a time. An unknown outcome reopens this gate only after
+   * CREATE_SEND_GRACE_MS, and the caller sends only after its exact-slug lookup found nothing.
+   */
+  async beginCreateSend(key: string, vmId: string, token: string, nowMs?: number): Promise<boolean> {
     return this.storage.transaction(async (storage) => {
       const record = readRecord(await storage.get(`idem:${key}`));
       if (record === undefined) return false;
       const p = record.progress;
-      if (p.phase !== "creating" || p.vmId !== vmId || p.cancelRequested === true || p.dispatch === undefined || p.dispatch.state === "sent") return false;
-      await putRecord(storage, `idem:${key}`, { ...record, progress: { ...p, dispatch: { state: "sent", token } } });
+      if (p.phase !== "creating" || p.vmId !== vmId || p.cancelRequested === true || p.dispatch === undefined || !sendSettled(p.dispatch, nowMs)) return false;
+      await putRecord(storage, `idem:${key}`, { ...record, progress: { ...p, dispatch: { state: "sent", token, ...(nowMs === undefined ? {} : { at: nowMs }) } } });
       return true;
     });
   }
@@ -197,7 +208,8 @@ export class TenantLedger {
       if (record === undefined) return false;
       const p = record.progress;
       if (p.phase !== "creating" || p.vmId !== vmId || p.dispatch?.state !== "sent" || p.dispatch.token !== token) return false;
-      if (p.cancelRequested === true) await storage.delete(`reserve:${p.reservationId}`);
+      // Nothing was made, so its slot is free; a retry with this key is readmitted under quota (readmitCreation).
+      await storage.delete(`reserve:${p.reservationId}`);
       await putRecord(storage, `idem:${key}`, { ...record, progress: { ...p, phase: p.cancelRequested === true ? "cancelled" : "creating", dispatch: { state: "rejected", token } } });
       return true;
     });
@@ -225,6 +237,29 @@ export class TenantLedger {
       if (terminal) await storage.delete(`reserve:${p.reservationId}`);
       await putRecord(storage, `idem:${key}`, { ...record, progress: { ...p, cancelRequested: true, phase: terminal ? "cancelled" : "creating" } });
       return "accepted";
+    });
+  }
+
+  /** A cancelled intent whose exact slug answered 404: settles once no send can still be allocating. */
+  async settleAbsentCancellation(key: string, vmId: string, nowMs: number): Promise<boolean> {
+    return this.storage.transaction(async (storage) => {
+      const record = readRecord(await storage.get(`idem:${key}`));
+      if (record === undefined) return false;
+      const p = record.progress;
+      if (p.phase === "cancelled" && p.vmId === vmId) return true;
+      if (p.phase !== "creating" || p.vmId !== vmId || p.cancelRequested !== true || p.dispatch === undefined || !sendSettled(p.dispatch, nowMs)) return false;
+      await storage.delete(`reserve:${p.reservationId}`);
+      await putRecord(storage, `idem:${key}`, { ...record, progress: { ...p, phase: "cancelled" } });
+      return true;
+    });
+  }
+
+  /** A rejected send released its slot: a retry of the same intent takes one again under the same quota rule. */
+  async readmitCreation(key: string, vmId: string, limit: number, liveCount: number, nowMs: number): Promise<"readmitted" | "over_quota" | "none"> {
+    return this.storage.transaction(async (storage) => {
+      const p = readRecord(await storage.get(`idem:${key}`))?.progress;
+      if (p?.phase !== "creating" || p.vmId !== vmId || p.cancelRequested === true || p.dispatch?.state !== "rejected") return "none";
+      return (await this.admit(storage, "vm", limit, liveCount, nowMs, p.reservationId, true)) ? "readmitted" : "over_quota";
     });
   }
 
@@ -271,18 +306,21 @@ export class TenantLedger {
    * `limit`. Release the reservation once the resource is recorded or failed.
    */
   async reserve(kind: string, limit: number, liveCount: number, nowMs: number, reservationId: string): Promise<ReserveDecision> {
-    return this.storage.transaction(async (storage) => {
-      const live = await storage.list({ prefix: "reserve:" });
-      let inFlight = 0;
-      for (const [key, value] of live) {
-        const reservation = checked(isReservation, value);
-        if (reservation === undefined || (reservation.retained !== true && reservation.expiresMs <= nowMs)) await storage.delete(key);
-        else if (reservation.kind === kind) inFlight += 1;
-      }
-      if (liveCount + inFlight >= limit) return { ok: false };
-      await storage.put(`reserve:${reservationId}`, { kind, expiresMs: nowMs + RESERVATION_TTL_MS });
-      return { ok: true, reservationId };
-    });
+    return this.storage.transaction(async (storage) =>
+      (await this.admit(storage, kind, limit, liveCount, nowMs, reservationId, false)) ? { ok: true, reservationId } : { ok: false });
+  }
+
+  private async admit(storage: LedgerStorage, kind: string, limit: number, liveCount: number, nowMs: number, reservationId: string, retained: boolean): Promise<boolean> {
+    const live = await storage.list({ prefix: "reserve:" });
+    let inFlight = 0;
+    for (const [key, value] of live) {
+      const reservation = checked(isReservation, value);
+      if (reservation === undefined || (reservation.retained !== true && reservation.expiresMs <= nowMs)) await storage.delete(key);
+      else if (reservation.kind === kind && key !== `reserve:${reservationId}`) inFlight += 1;
+    }
+    if (liveCount + inFlight >= limit) return false;
+    await storage.put(`reserve:${reservationId}`, { kind, expiresMs: nowMs + RESERVATION_TTL_MS, ...(retained ? { retained: true } : {}) });
+    return true;
   }
 
   async release(reservationId: string): Promise<void> {
