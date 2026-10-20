@@ -76,7 +76,8 @@ extension HomeChiefPetSetting {
     /// Message the Chief (`home.messageChiefPet`; the palette, and a shortcut a person can bind): the
     /// pet with its reply box open. Off, it turns `home.chiefPetEnabled` on as the person first, then
     /// `summon` runs once the write has landed; on, `summon` runs at once. Person-only, like the
-    /// toggle: an agent can neither turn the pet on nor put a box that takes the keys over every app.
+    /// toggle: an agent cannot put a box that takes the keys over every app (it turns the pet on
+    /// with `cmux settings set`, which opens no box).
     public static let messageAction: ActionID = "home.messageChiefPet"
 
     @MainActor public func bindMessage(into registry: ActionRegistry, settings: @escaping @MainActor () -> SettingsController?,

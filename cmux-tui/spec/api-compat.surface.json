@@ -10244,6 +10244,15 @@
         "required": true
       }
     },
+    "request:park-tabs": {
+      "/surfaces": {
+        "ty": "array",
+        "required": true
+      },
+      "/surfaces/*": {
+        "ty": "json"
+      }
+    },
     "request:paste-image": {
       "/data": {
         "ty": "string",
@@ -17999,6 +18008,12 @@
         "ty": "uint64",
         "required": true,
         "nullable": true
+      }
+    },
+    "response:park-tabs": {
+      "/data": {
+        "ty": "json",
+        "required": true
       }
     },
     "response:paste-image": {
