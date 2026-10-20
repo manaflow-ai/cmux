@@ -109,3 +109,13 @@ open "$HOME/Library/Developer/Xcode/DerivedData/cmux-lawmux/Build/Products/Debug
 ```
 
 本家から取り込んだ workflow は、同じ Actions が自動で無効にします。
+
+### タグとバージョン
+
+- 本家の `vX.Y.Z` タグは fork には写しません。同期スクリプトは `main` だけを取り込みます。
+  本家のタグは本家のコミット（lawmux の変更なし）を指すので、lawmux のタグとしては意味がないためです。
+- バージョン番号（`CFBundleShortVersionString`）は本家の `MARKETING_VERSION` をそのまま使います。
+- 目印が欲しいときは、本家と衝突しない名前で `main` にタグを打ちます（例: `lawmux-v0.65.2`）。
+  配布物はないので、タグに CI は要りません。
+- About 画面の「ソースコード」リンクは、ビルドに埋め込まれたコミット（`Info.plist` の `CMUXCommit`）を
+  指します。タグがなくても、そのビルドの正確なソースに飛びます。

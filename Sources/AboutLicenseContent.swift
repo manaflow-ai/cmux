@@ -71,15 +71,17 @@ struct AboutLicenseContent {
         bundleIdentifier: String?,
         commit: String?
     ) -> URL {
-        if bundleIdentifier == "com.lawrenceturnerw.lawmux", let version = normalized(version) {
-            return repositoryURL
-                .appendingPathComponent("tree", isDirectory: true)
-                .appendingPathComponent("v\(version)")
-        }
+        // lawmux: the build commit is the exact corresponding source; lawmux does
+        // not mirror upstream's vX.Y.Z tags, so the tag URL is only a fallback.
         if let commit = normalized(commit) {
             return repositoryURL
                 .appendingPathComponent("tree", isDirectory: true)
                 .appendingPathComponent(commit)
+        }
+        if bundleIdentifier == "com.lawrenceturnerw.lawmux", let version = normalized(version) {
+            return repositoryURL
+                .appendingPathComponent("tree", isDirectory: true)
+                .appendingPathComponent("v\(version)")
         }
         return repositoryURL
     }
