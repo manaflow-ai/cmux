@@ -79,6 +79,13 @@ enum SidebarStyle {
     static func groupHeaderFont(barHeight: CGFloat) -> NSFont {
         NSFont.systemFont(ofSize: min(15, max(11, (barHeight * 0.54).rounded())), weight: .medium)
     }
+    /// The opt-in member count after a group's name (Lawrence 2026-10-20): a detail, not a title,
+    /// so smaller than `name`, at the regular weight, in ``groupHeaderCountInkAlpha`` of the ink.
+    static func groupHeaderCountFont(name: NSFont) -> NSFont {
+        NSFont.systemFont(ofSize: max(TypeScale.caption, name.pointSize - 2), weight: TypeScale.regular)
+    }
+    /// How much of the header's ink the member count takes: lighter than the name.
+    static let groupHeaderCountInkAlpha: CGFloat = 0.7
     /// The members' bar: 3 pt at the 32 pt row, scaled; at the members' leading edge.
     static var groupBarWidth: CGFloat { max(2, (Metrics.sidebarRowHeight * 0.1).rounded()) }
     static var groupBarX: CGFloat { (Metrics.sidebarRowHeight * 0.12).rounded() }

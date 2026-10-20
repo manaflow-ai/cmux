@@ -382,10 +382,6 @@ fn stream_session(
 mod tests {
     use super::*;
 
-    fn ip(s: &str) -> IpAddr {
-        s.parse().expect("ip")
-    }
-
     #[test]
     fn a_real_loopback_connection_passes_the_default_check() {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
