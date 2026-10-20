@@ -1,4 +1,5 @@
 import CmuxHomeCore
+import CmuxHomeRender
 import Foundation
 
 /// CmuxHomeCore values as MessagesLab model values (catalyst Model.swift).
@@ -113,8 +114,53 @@ enum HomeMapping {
     /// Markdown per bubble); every other part is one part. Text with
     /// mentions stays one bubble (the mention offsets index the whole text),
     /// and so does an agent's text with a fenced block (a split would cut it).
+    ///
+    /// A closed ```` ```mermaid ```` fence whose source the installed diagram renderer draws
+    /// (`HomeDiagramRowProvider`) is a diagram bubble of its own, between the text before and
+    /// after it; without a renderer, or for a source it refuses, the fence stays in the text.
     static func parts(_ p: MessagePart, media: Media = { _ in nil }, progress: [String: Double] = [:], markdown: Bool = false,
                       links: Links = { _ in nil }) -> [Part] {
+        if case .text(let text, let mentions) = p, mentions.isEmpty, let diagrams = HomeDiagramRowProvider.installed,
+           let split = diagramParts(text, diagrams: diagrams, { textParts(.text($0), media: media, progress: progress, markdown: markdown, links: links) }) {
+            return split
+        }
+        return textParts(p, media: media, progress: progress, markdown: markdown, links: links)
+    }
+
+    /// `text` cut at its Mermaid fences: the text pieces by `textParts`, each fence the renderer
+    /// draws as a diagram bubble, a refused fence kept in the text around it. nil when no fence
+    /// becomes a diagram (the text then maps as it always did).
+    static func diagramParts(_ text: String, diagrams: HomeDiagramRowProvider, _ textParts: (String) -> [Part]) -> [Part]? {
+        let segments = HomeMermaidSplitter().segments(in: text)
+        guard segments.contains(where: { if case .mermaid = $0 { return true } else { return false } }) else { return nil }
+        var out: [Part] = []
+        var pending = ""
+        var drew = false
+        func flush() {
+            let piece = pending.trimmingCharacters(in: .newlines)
+            pending = ""
+            if !piece.trimmingCharacters(in: .whitespaces).isEmpty { out += textParts(piece) }
+        }
+        for segment in segments {
+            switch segment {
+            case .text(let piece):
+                pending += piece
+            case .mermaid(let source, let fenced):
+                if let diagram = diagrams.part(source) {
+                    flush()
+                    out.append(diagram)
+                    drew = true
+                } else {
+                    pending += fenced
+                }
+            }
+        }
+        flush()
+        return drew ? out : nil
+    }
+
+    /// One HomeStore part as MessagesLab parts, without diagrams (`parts`).
+    private static func textParts(_ p: MessagePart, media: Media, progress: [String: Double], markdown: Bool, links: Links) -> [Part] {
         guard case .text(let text, let mentions) = p, mentions.isEmpty,
               !(markdown && (text.contains("```") || text.contains("~~~"))) else {
             return [part(p, media: media, progress: progress, markdown: markdown, links: links)]
@@ -122,7 +168,7 @@ enum HomeMapping {
         return TextParts.parts(for: text).map { shown in
             switch shown {
             case let .text(t, _) where markdown:
-                let (rendered, runs) = HomeMarkdown.render(t)
+                let (rendered, runs) = HomeMarkdown.render(t, chips: true)
                 return .text(rendered, runs: runs)
             case let .link(url, title, site, image, theme):
                 // A preview fetched before (this Mac's sends, taps) fills the card, as `.linkMetadata` did;
@@ -169,7 +215,7 @@ enum HomeMapping {
                      links: Links = { _ in nil }) -> Part {
         switch p {
         case .text(let text, let mentions) where markdown && mentions.isEmpty:
-            let (shown, runs) = HomeMarkdown.render(text)
+            let (shown, runs) = HomeMarkdown.render(text, chips: true)
             return .text(shown, runs: runs)
         case .text(let text, let mentions):
             return .text(text, runs: mentions.map {
@@ -241,7 +287,8 @@ enum HomeMapping {
 
     static func participants(_ summary: ConversationSummary?, me: ParticipantID) -> [Participant] {
         var out = (summary?.participants ?? []).map {
-            Participant(id: $0.id.rawValue, displayName: $0.displayName, isMe: $0.id == me, avatar: .monogram($0.initials))
+            // The name a person reads (never an internal id): a group transcript shows it over their bubbles.
+            Participant(id: $0.id.rawValue, displayName: $0.visibleName, isMe: $0.id == me, avatar: .monogram($0.initials))
         }
         if !out.contains(where: \.isMe) { out.append(Participant(id: me.rawValue, displayName: "", isMe: true, avatar: nil)) }
         return out

@@ -11,6 +11,12 @@ const AGENT_CLI_APP_PROVIDER_CAPABILITY: &str = "agent-cli-app-provider-v1";
 /// on `set-personal-workspace` and the personal workspace rows.
 pub const PERSONAL_REMOTE_LOCALHOST_CAPABILITY: &str = "personal-remote-localhost-v1";
 
+/// A pinned column may be a screen's only column (the Home dock with nothing
+/// beside it): `move-tab-to-column` with a pinned `dock` makes it from a
+/// screen's only tab without a `respawn`, and closing the last column beside
+/// it leaves the pinned column alone instead of being refused.
+pub const PINNED_DOCK_ALONE_CAPABILITY: &str = "pinned-dock-alone-v1";
+
 /// `identify`'s capabilities: the static set plus `cloud-conversations-v1`
 /// and `cloud-lease-app-only-v1` when the binary installed a cloud transport, `history-search-v1` when it
 /// installed the search index,
@@ -75,6 +81,7 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
     #[cfg(unix)]
     if mux.serves_agent_update() {
         capabilities.push(agent_transfer::agent_update::AGENT_UPDATE_CAPABILITY);
+        capabilities.push(agent_transfer::agent_update::AGENT_UPDATE_OWNER_CAPABILITY);
     }
     #[cfg(unix)]
     if mux.serves_agent_transfer() {
@@ -163,6 +170,7 @@ pub(super) fn advertised_capabilities(
         DOCK_COLUMN_ROLE_CAPABILITY,
         PERMANENT_DOCK_CAPABILITY,
         PINNED_DOCK_CAPABILITY,
+        PINNED_DOCK_ALONE_CAPABILITY,
         ROWS_CAPABILITY,
         PANE_BROWSER_KIND_CAPABILITY,
         LAYOUT_UNDO_CAPABILITY,
@@ -206,6 +214,8 @@ pub(super) fn advertised_capabilities(
         WORKSPACE_PIN_CAPABILITY,
         NOTIFICATION_MARK_UNREAD_CAPABILITY,
         TAB_MARK_UNREAD_CAPABILITY,
+        WORKSPACE_DESCRIPTION_CAPABILITY,
+        WORKSPACE_STATUS_CAPABILITY,
         TAB_METADATA_CAPABILITY,
         FRONTEND_BROWSER_TABS_CAPABILITY,
         FRONTEND_BROWSER_HISTORY_CAPABILITY,
@@ -254,6 +264,7 @@ pub(super) fn advertised_capabilities(
         chief_registry_resource::CHIEF_PROFILE_WS_CAPABILITY,
         chief_registry_resource::CHIEF_EVENTS_CAPABILITY,
         chief_registry_resource::CHIEF_PROFILE_ADOPT_CAPABILITY,
+        chief_registry_resource::CHIEF_PROFILE_HISTORY_CAPABILITY,
         SCREEN_METADATA_CAPABILITY,
         SCREEN_GROUPS_CAPABILITY,
         NOTIFICATION_SOURCE_CAPABILITY,
@@ -287,6 +298,7 @@ pub(super) fn advertised_capabilities(
         crate::state::palette_usage_store::CAPABILITY,
         crate::state::stash_store::CAPABILITY,
         crate::state::browser_devices::CAPABILITY,
+        crate::state::workspace_checklist::CAPABILITY,
         crate::state::browser_devices::FIT_CAPABILITY,
         crate::state::browser_devices::FIT_WIDTH_CAPABILITY,
         crate::browser_profile_ops::CAPABILITY,

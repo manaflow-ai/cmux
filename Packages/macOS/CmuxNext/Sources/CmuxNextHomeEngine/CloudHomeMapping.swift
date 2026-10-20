@@ -62,7 +62,8 @@ nonisolated enum CloudHomeMapping {
                            agentClass: isAgent ? (participant.agentClass == "mux" ? .chief : .agent) : nil,
                            ownerUser: participant.ownerUser.map(identity.toHome),
                            membership: isAddress ? .invited : .active,
-                           invitedContact: isAddress ? participant.displayName : nil)
+                           invitedContact: isAddress ? participant.displayName : nil,
+                           role: participant.role.flatMap(Participant.Role.init(rawValue:)))
     }
 
     static func part(_ part: MessagePart, identity: CloudIdentity) -> MessagePart {
@@ -98,7 +99,18 @@ nonisolated enum CloudHomeMapping {
             createdAt: HomeCoreMapping.date(summary.createdAt) ?? .distantPast,
             updatedAt: HomeCoreMapping.date(summary.updatedAt) ?? .distantPast,
             lastMessage: summary.lastMessage.map { message($0, identity: identity) },
-            readCursors: Dictionary(summary.readCursors.map { (identity.toHome($0.key), $0.value) }, uniquingKeysWith: max))
+            readCursors: Dictionary(summary.readCursors.map { (identity.toHome($0.key), $0.value) }, uniquingKeysWith: max),
+            declaredKind: kind(summary.kind), memberCount: summary.memberCount)
+    }
+
+    /// The owner's conversation kind (`group`, `dm`, `chief`); nil for one it does not name.
+    static func kind(_ wire: String?) -> CmuxHomeCore.ConversationSummary.Kind? {
+        switch wire {
+        case "group": .group
+        case "dm": .direct
+        case "chief": .chief
+        default: nil
+        }
     }
 
     /// A conversation known only from its inbox entry (not loaded yet): no
@@ -125,6 +137,7 @@ nonisolated enum CloudHomeMapping {
         summary.pinRank = entry.pinned ? (entry.pinPosition ?? 0) : nil
         summary.muted = entry.muted
         summary.mentionCount = Int(clamping: entry.mentions)
+        if let kind = kind(entry.kind) { summary.declaredKind = kind }
         if entry.lastSeq > summary.lastSeq {
             summary.lastSeq = entry.lastSeq
             if let at = HomeCoreMapping.date(entry.lastAt) { summary.updatedAt = max(summary.updatedAt, at) }

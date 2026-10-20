@@ -613,6 +613,12 @@ impl OptChat {
         st.store.logged_id(key)
     }
 
+    /// The key message `id` was logged with (`<conversation>#<seq>`), if any.
+    pub fn logged_key(&self, id: u64) -> Option<String> {
+        let st = self.shared.lock();
+        st.store.logged_key(id)
+    }
+
     /// The agent's `zoom(id, n)` tool (section 7.1).
     pub fn zoom(&self, id: u64, n: u64) -> Result<String, ZoomError> {
         let st = self.shared.lock();

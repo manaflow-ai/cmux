@@ -162,7 +162,14 @@ public nonisolated enum RefusalStrings {
     public static var screenHasOnePane: String { text("handlers.refusal.screenHasOnePane", "the screen has one pane") }
     public static func noDividerToMove(_ direction: String) -> String { format("handlers.refusal.noDividerToMove", "no divider to move %@ (or it is at its limit)", direction) }
     public static var screenHasNoSplits: String { text("handlers.refusal.screenHasNoSplits", "the screen has no splits") }
-    public static var canvasUnported: String { text("handlers.refusal.canvasUnported", "needs canvas layout, which cmux-next does not have yet") }
+    /// A canvas action on a screen that shows its split or column layout.
+    public static var canvasNotShown: String { text("handlers.refusal.canvasNotShown", "this screen is not a canvas; use Toggle Canvas Layout first") }
+    /// A canvas arrangement with nothing to move, or an overview of an empty canvas.
+    public static var canvasNothingToArrange: String {
+        text("handlers.refusal.canvasNothingToArrange", "nothing to arrange: the canvas needs two panes that this would move")
+    }
+    /// A canvas zoom that is already at its limit (or at actual size).
+    public static var canvasZoomLimit: String { text("handlers.refusal.canvasZoomLimit", "the canvas is already at that zoom") }
     public static var simulatorUnported: String { text("handlers.refusal.simulatorUnported", "needs simulator panes, which cmux-next does not have yet") }
     public static var filesPaneUnported: String { text("handlers.refusal.filesPaneUnported", "needs the Files panel as a pane (not in cmux-next yet)") }
     public static var findPaneUnported: String { text("handlers.refusal.findPaneUnported", "needs the Find panel as a pane (not in cmux-next yet)") }
@@ -193,8 +200,8 @@ public nonisolated enum RefusalStrings {
     }
     public static var wakeNotHibernated: String { text("handlers.refusal.wakeNotHibernated", "This tab is not hibernated.") }
     public static var terminalCannotReload: String { text("handlers.refusal.terminalCannotReload", "terminal tabs cannot reload; use Reconnect Pane") }
-    public static var fullWidthTabUnported: String { text("handlers.refusal.fullWidthTabUnported", "needs full-width tab support in the cmux-next tab strip") }
     public static var audioMuteNeedsPage: String { text("handlers.refusal.audioMuteNeedsPage", "only a loaded browser tab can be muted") }
+    public static var workspaceHasNoAudio: String { text("handlers.refusal.workspaceHasNoAudio", "No tab in this workspace plays sound") }
     public static func noColumnShown(_ id: String) -> String { text("handlers.refusal.columnNotShown", "That column isn't shown.") }
     public static var addSecondColumnFirst: String { text("handlers.refusal.addSecondColumnFirst", "Add a second column first") }
     public static var columnAlreadyHasWidth: String { text("handlers.refusal.columnAlreadyHasWidth", "the column already has that width") }

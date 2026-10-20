@@ -62,6 +62,7 @@ extension AppActions {
         })
         // The Home page's New Message, Invite, New Chief, Archive Chief and Open Conversation.
         bindHomeConversations(services)
+        bindHomeGroups(services)
         // Debug > Save Last 10 Seconds (DEV and NIGHTLY): MessagesLab's flight recorder dump.
         registry.bind("home.saveFlightRecording") {
             if HomeFlightRecording.saveLastSeconds() == nil { services.registry.refuse(RefusalStrings.homeFlightRecorderOff) }
@@ -168,6 +169,13 @@ extension AppActions {
     }
 
     private static func moveWorkspace(_ services: AppServices, _ invocation: ActionInvocation, by offset: Int) {
+        // A person's Move Up/Down on one of several selected rows moves them as one block, as Cmd-Opt-Up/Down does.
+        if invocation.origin == .user, let workspace = scope(services, invocation).workspace,
+           let sidebar = services.windows.registry.value.owner(of: workspace.id).flatMap(services.windows.controller(for:))?.sidebar.model,
+           case let id = SidebarWorkspaceID(workspace.id), sidebar.actionTargets(for: id).count > 1 {
+            sidebar.moveActionTargets(of: id, offset < 0 ? .up : .down)
+            return
+        }
         if services.machines.local.store.personal.isLoaded { return movePersonalWorkspace(services, invocation, by: offset) }
         let store = services.activeDaemon.store
         guard let workspace = scope(services, invocation).workspace, let key = workspace.key,
