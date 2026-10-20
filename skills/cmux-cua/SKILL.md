@@ -36,7 +36,9 @@ or permissions are not a reason to begin setup automatically.
 - cmux attaches it to every agent session it starts on this Mac: the acpmux
   daemon that runs the app's agent pane, the TUI, `cmux acp`, the Chief and
   their subagents, pooled sessions and forks adds an MCP server named
-  `cmux-cua` (`<app>/Contents/Resources/bin/cmux-cua mcp`, with
+  `cmux-cua` (`<app>/Contents/Resources/bin/cmux-cua mcp` in a DEV build, the
+  signed helper's `Contents/Library/cmux Computer Use.app/Contents/MacOS/cmux-cua
+  mcp` in NIGHTLY, NEXT and release, which ship no bin copy; with
   `CMUX_CUA_MCP_FORCE_PROXY=1` and the cursor branding env). Claude Code gets
   it through `--mcp-config` and this skill as `cmux:cmux-cua` from a
   session-only plugin; ACP harnesses (Codex, OpenCode, Pi, Gemini) get it in
@@ -272,7 +274,8 @@ Settings → cmux Computer Use.
   onboarding. The attachment sets `CMUX_CUA_MCP_FORCE_PROXY=1`, so the
   proxy never runs computer use in the agent's own process.
   The acpmux daemon finds `cmux-cua` next to its own executable, or in
-  `CMUX_AGENT_TOOLS_BIN_DIR` when that is set on the daemon. Both profiles then
+  `CMUX_AGENT_TOOLS_BIN_DIR` when that is set on the daemon, else in the
+  nested helper app (shipped builds carry no bin copy). Both profiles then
   use the tag-scoped helper only; missing ownership fails closed instead of
   running a user-supplied executable.
 - If the cmux-owned daemon is unavailable, do **not** invoke `cmux-cua`

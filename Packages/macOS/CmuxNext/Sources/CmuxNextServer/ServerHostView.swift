@@ -24,6 +24,11 @@ public final class ServerHostView: NSView {
     public var onDismiss: (() -> Void)? {
         didSet { dismissBox.action = onDismiss }
     }
+    /// Called with the approver's size whenever its layout changes size (the floating card
+    /// resizes from its top edge).
+    public var onContentSize: ((CGSize) -> Void)? {
+        didSet { dismissBox.resized = onContentSize }
+    }
 
     private let appearanceState = ServerAppearance()
     private let dismissBox = DismissBox()
