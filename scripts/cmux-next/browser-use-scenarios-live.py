@@ -246,10 +246,21 @@ SCENARIOS = {"login": scenario_login, "search": scenario_search, "tabs": scenari
              "scroll": scenario_scroll, "frames": scenario_frames, "upload": scenario_upload}
 
 
+LAST_RECORD = [0.0]
+
+
 def record(run, seconds):
+    """Starts a recording of the window; one runs at a time, so wait for the last to end."""
+    left = LAST_RECORD[0] + seconds + 0.5 - time.time()
+    if left > 0:
+        time.sleep(left)  # the previous recording is still running (it stops by itself)
     folder = os.path.join(opts.out, run.engine, f"{run.name}-rec")
     reply = rpc("debug.window_record", {"dir": folder, "seconds": seconds})
-    return folder if not reply.get("error") else None
+    LAST_RECORD[0] = time.time()
+    if reply.get("error"):
+        print(f"  (no recording: {reply['error']})", flush=True)
+        return None
+    return folder
 
 
 def to_gif(folder, out):
@@ -259,9 +270,31 @@ def to_gif(folder, out):
     if not ffmpeg:
         return None
     gif = os.path.join(opts.out, out)
-    subprocess.run([ffmpeg, "-y", "-loglevel", "error", "-framerate", "30", "-pattern_type", "glob", "-i", os.path.join(folder, "frame-*.jpg"),
-                    "-vf", "fps=15,scale=900:-1:flags=lanczos", gif], capture_output=True)
-    return out if os.path.exists(gif) else None
+    # An H.264 MP4 (sharp, small) when the encoder exists, else a GIF with its own palette.
+    if gif.endswith(".mp4"):
+        args = ["-c:v", "h264_videotoolbox", "-b:v", "6M", "-pix_fmt", "yuv420p", "-vf", "scale=1400:-2"]
+    else:
+        args = ["-vf", "fps=15,scale=900:-1:flags=lanczos,split[a][b];[a]palettegen[p];[b][p]paletteuse"]
+    # frames.json has each frame's host time: a concat list keeps the real pace.
+    source = ["-framerate", "60", "-pattern_type", "glob", "-i", os.path.join(folder, "frame-*.jpg")]
+    try:
+        with open(os.path.join(folder, "frames.json")) as f:
+            times = json.load(f)["times"]
+        lines = []
+        for index, at in enumerate(times):
+            lines.append(f"file 'frame-{index:05d}.jpg'")
+            nxt = times[index + 1] if index + 1 < len(times) else at + 1 / 60
+            lines.append(f"duration {max(nxt - at, 1 / 240):.4f}")
+        with open(os.path.join(folder, "concat.txt"), "w") as f:
+            f.write("\n".join(lines) + "\n")
+        source = ["-f", "concat", "-safe", "0", "-i", os.path.join(folder, "concat.txt"), "-fps_mode", "vfr"]
+    except (OSError, ValueError, KeyError):
+        pass
+    subprocess.run([ffmpeg, "-y", "-loglevel", "error"] + source + args + [gif], capture_output=True)
+    if os.path.exists(gif):
+        subprocess.run(["/bin/rm", "-rf", folder])  # the GIF replaces the frames
+        return out
+    return None
 
 
 def gallery():
@@ -273,14 +306,16 @@ def gallery():
 img{{width:100%;border-radius:6px;cursor:zoom-in}}figcaption{{margin-top:6px;color:#bbb}}.ok{{color:#4ade80}}.fail{{color:#f87171}}ul{{margin:6px 0}}</style>
 <h1>cmux-next browser use: the agent cursor</h1>
 <p>Generated {time.strftime('%Y-%m-%d %H:%M')} by scripts/cmux-next/browser-use-scenarios-live.py. Checks: {total - failed}/{total} pass.
-WebKit tabs are driven as agent “{AGENTS['webkit']}”, Chromium tabs as “{AGENTS['chromium']}”. “mid” frames are taken during the glide.</p>"""]
+WebKit tabs are driven as agent “{AGENTS['webkit']}”, Chromium tabs as “{AGENTS['chromium']}”. “mid” frames are taken during the glide. Recordings are WebKit only: the window recorder leaves out Chromium page pixels.</p>"""]
     for r in RESULTS:
         parts.append(f"<h2>{html.escape(r['engine'])} · {html.escape(r['scenario'])}</h2><ul>")
         for c in r["checks"]:
             parts.append(f"<li class={'ok' if c['ok'] else 'fail'}>{'✓' if c['ok'] else '✗'} {html.escape(c['what'][:300])}</li>")
         parts.append("</ul><div class=grid>")
         if r.get("gif"):
-            parts.append(f"<figure><img src='{html.escape(r['gif'])}'><figcaption>recording</figcaption></figure>")
+            media = (f"<video src='{html.escape(r['gif'])}' autoplay loop muted playsinline controls style='width:100%;border-radius:6px'></video>"
+                     if r["gif"].endswith(".mp4") else f"<img src='{html.escape(r['gif'])}'>")
+            parts.append(f"<figure>{media}<figcaption>recording (first 12 s)</figcaption></figure>")
         for s in r["shots"]:
             parts.append(f"<figure><a href='{html.escape(s['file'])}'><img loading=lazy src='{html.escape(s['file'])}'></a>"
                          f"<figcaption>{html.escape(s['step'])}{' (mid-glide)' if s['mid'] else ''}</figcaption></figure>")
@@ -306,15 +341,19 @@ def main():
         for name in [s for s in opts.scenarios.split(",") if s]:
             print(f"{engine} {name}", flush=True)
             run = Run(engine, tab, name)
-            folder = record(run, 12) if opts.record else None
+            # The recorder takes the window server's image, which leaves out
+            # Chromium page pixels without the Screen Recording grant: WebKit only.
+            folder = record(run, 12) if opts.record and engine == "webkit" else None
             try:
                 SCENARIOS[name](run, base)
             except Exception as error:  # report and go on with the next scenario
                 run.check(False, f"{name} raised {error!r}")
             entry = run.result()
             if folder:
-                time.sleep(1)
-                entry["gif"] = to_gif(folder, f"{engine}/{name}.gif")
+                left = LAST_RECORD[0] + 12.5 - time.time()
+                if left > 0:
+                    time.sleep(left)  # let the recording finish writing
+                entry["gif"] = to_gif(folder, f"{engine}/{name}.mp4") or to_gif(folder, f"{engine}/{name}.gif")
             RESULTS.append(entry)
     failed = gallery()
     print(f"gallery: {os.path.join(opts.out, 'index.html')} ({failed} failed checks)")
