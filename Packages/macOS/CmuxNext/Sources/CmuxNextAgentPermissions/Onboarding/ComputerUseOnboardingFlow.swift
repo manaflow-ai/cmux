@@ -33,7 +33,6 @@ public nonisolated struct ComputerUseOnboardingFlow: Sendable, Equatable {
 
     /// The step to show now.
     public var step: ComputerUseOnboardingStep {
-        if notImplemented { return .intro }
         guard helperAvailable else { return .unavailable }
         guard introSeen else { return .intro }
         guard accessibility else { return .accessibility }
@@ -69,6 +68,3 @@ public nonisolated struct ComputerUseOnboardingFlow: Sendable, Equatable {
         return nil
     }
 }
-
-/// Red commit: the behavior lands in the next commit.
-private nonisolated var notImplemented: Bool { true }

@@ -36,11 +36,6 @@ public nonisolated struct PermissionReasonCheck: Sendable, Equatable {
     public let sharedWords: Set<String>
 
     public init(kind: PermissionKind, reason: String, prompt: String?) {
-        if notImplemented {
-            verdict = .matches
-            sharedWords = []
-            return
-        }
         let trimmed = reason.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed.count >= Self.minimumReasonLength else {
             verdict = .noReason
@@ -89,6 +84,3 @@ private nonisolated let stopWords: Set<String> = [
     "all", "any", "some", "just", "also", "into", "out", "up", "if", "can't", "not", "no", "get", "make", "let", "lets",
     "cmux", "access", "permission", "permissions", "allow", "grant", "macos", "mac", "system", "settings", "able", "order",
 ]
-
-/// Red commit: the behavior lands in the next commit.
-private nonisolated var notImplemented: Bool { true }

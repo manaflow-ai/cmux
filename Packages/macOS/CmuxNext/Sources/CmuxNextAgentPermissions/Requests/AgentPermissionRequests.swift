@@ -63,7 +63,6 @@ public final class AgentPermissionRequests {
     /// - Returns: the outcome; `alreadyGranted` without a card when the grant is on.
     public func request(_ request: PermissionRequest, timeout: Duration) async -> PermissionOutcome {
         let verdict = request.reasonCheck.verdict
-        if notImplemented { return PermissionOutcome(kind: request.kind, result: .unavailable, requestID: nil, reasonCheck: verdict) }
         if await probe.status(request.kind, target: request.target) == .granted {
             return PermissionOutcome(kind: request.kind, result: .alreadyGranted, requestID: nil, reasonCheck: verdict)
         }
@@ -181,6 +180,3 @@ public final class AgentPermissionRequests {
         }
     }
 }
-
-/// Red commit: the behavior lands in the next commit.
-private nonisolated var notImplemented: Bool { true }
