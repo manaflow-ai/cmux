@@ -38,7 +38,9 @@ pub fn default_home() -> PathBuf {
 pub(crate) fn private_state_dir(dir: &Path) -> Result<()> {
     use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt};
 
+    validate_private_state_ancestors(dir)?;
     std::fs::DirBuilder::new().recursive(true).mode(0o700).create(dir)?;
+    validate_private_state_ancestors(dir)?;
     let opened = std::fs::OpenOptions::new()
         .read(true)
         .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW)
@@ -52,11 +54,68 @@ pub(crate) fn private_state_dir(dir: &Path) -> Result<()> {
         "{} is not a state directory owned by this user",
         dir.display()
     );
+    anyhow::ensure!(
+        metadata.mode() & 0o022 == 0,
+        "{} is writable by another user; inspect it before removing group/other write permission",
+        dir.display()
+    );
     refuse_extended_acl(&opened, dir)?;
     if metadata.mode() & 0o077 != 0 {
         opened
             .set_permissions(std::fs::Permissions::from_mode(0o700))
             .with_context(|| format!("make {} owner-only", dir.display()))?;
+    }
+    let reopened = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW)
+        .open(dir)
+        .with_context(|| format!("reopen private state directory {}", dir.display()))?;
+    let again = reopened.metadata()?;
+    anyhow::ensure!(
+        metadata.dev() == again.dev() && metadata.ino() == again.ino(),
+        "{} changed while its private permissions were checked",
+        dir.display()
+    );
+    Ok(())
+}
+
+/// Every namespace owner above an acpmux state directory must be this user
+/// or root, and no other account may replace a child. A root/current-user
+/// sticky temporary directory is safe because another account cannot rename
+/// this user's entry there.
+#[cfg(unix)]
+fn validate_private_state_ancestors(dir: &Path) -> Result<()> {
+    use std::os::unix::fs::MetadataExt;
+
+    let uid = unsafe { libc::getuid() };
+    let check = |path: &Path, metadata: &std::fs::Metadata| -> Result<()> {
+        anyhow::ensure!(
+            metadata.uid() == uid || metadata.uid() == 0,
+            "{} is a state path ancestor owned by another user",
+            path.display()
+        );
+        if metadata.file_type().is_dir() && metadata.mode() & 0o022 != 0 {
+            anyhow::ensure!(
+                metadata.mode() & 0o1000 != 0,
+                "{} is a non-sticky writable ancestor of the state directory",
+                path.display()
+            );
+        }
+        Ok(())
+    };
+
+    let mut existing = dir.parent().unwrap_or_else(|| Path::new("/"));
+    while std::fs::symlink_metadata(existing).is_err() {
+        let Some(parent) = existing.parent() else { break };
+        existing = parent;
+    }
+    for path in existing.ancestors() {
+        check(path, &std::fs::symlink_metadata(path)?)?;
+    }
+    let canonical = std::fs::canonicalize(existing)
+        .with_context(|| format!("resolve state path ancestor {}", existing.display()))?;
+    for path in canonical.ancestors() {
+        check(path, &std::fs::symlink_metadata(path)?)?;
     }
     Ok(())
 }
@@ -86,6 +145,11 @@ fn validate_private_state_file(file: &std::fs::File, path: &Path) -> Result<()> 
     anyhow::ensure!(
         metadata.is_file() && metadata.uid() == uid,
         "{} is not a state file owned by this user",
+        path.display()
+    );
+    anyhow::ensure!(
+        metadata.mode() & 0o022 == 0,
+        "{} is writable by another user; inspect it before removing group/other write permission",
         path.display()
     );
     refuse_extended_acl(&file, path)?;

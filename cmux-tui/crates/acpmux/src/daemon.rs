@@ -56,7 +56,15 @@ fn install_panic_log() {
     fields.insert("process".into(), "acpmux".into());
     fields.insert("pid".into(), std::process::id().into());
     fields.insert("version".into(), env!("CARGO_PKG_VERSION").into());
-    cmux_panic_log::install(panic_log_path(), fields, is_test_panic_thread);
+    let path = panic_log_path();
+    cmux_panic_log::install_with_opener(
+        move || {
+            crate::config::private_state_append(&path)
+                .map_err(|error| std::io::Error::other(error.to_string()))
+        },
+        fields,
+        is_test_panic_thread,
+    );
     #[cfg(debug_assertions)]
     if std::env::var(TEST_PANIC_ENV).as_deref() == Ok("thread") {
         let _ = std::thread::Builder::new()

@@ -50,6 +50,9 @@ const INHERIT_ONLY: u8 = 0x08;
 /// generic all.
 const CHANGE_RIGHTS: u32 =
     0x2 | 0x4 | 0x10 | 0x1_0000 | 0x4_0000 | 0x8_0000 | 0x4000_0000 | 0x1000_0000;
+/// `FILE_DELETE_CHILD` matters on directories in addition to the file
+/// mutation rights above.
+const DIRECTORY_CHANGE_RIGHTS: u32 = CHANGE_RIGHTS | 0x40;
 const READ_CONTROL_ACCESS: u32 = 0x0002_0000;
 const WRITE_DAC_ACCESS: u32 = 0x0004_0000;
 const WRITE_SECURITY_ACCESS: u32 = READ_CONTROL_ACCESS | WRITE_DAC_ACCESS;
@@ -144,6 +147,7 @@ pub(crate) fn open_append(path: &Path) -> io::Result<File> {
         ));
     }
     ensure_opened_owner(&file)?;
+    ensure_no_other_changer(&file, false)?;
     if !only_owner_reads_opened(&file)? {
         restrict_opened(&file, false)?;
     }
@@ -169,6 +173,7 @@ pub(crate) fn open_read(path: &Path) -> io::Result<File> {
         ));
     }
     ensure_opened_owner(&file)?;
+    ensure_no_other_changer(&file, false)?;
     if !only_owner_reads_opened(&file)? {
         restrict_opened(&file, false)?;
     }
@@ -194,6 +199,7 @@ pub(crate) fn open_rw(path: &Path) -> io::Result<File> {
         ));
     }
     ensure_opened_owner(&file)?;
+    ensure_no_other_changer(&file, false)?;
     if !only_owner_reads_opened(&file)? {
         restrict_opened(&file, false)?;
     }
@@ -280,6 +286,7 @@ fn private_dir_after_open(
     dir: &Path,
     after_open: impl FnOnce() -> io::Result<()>,
 ) -> io::Result<()> {
+    ensure_safe_parent(dir)?;
     create_dir_all(dir)?;
     use std::os::windows::fs::MetadataExt;
     let opened = open_directory(dir)?;
@@ -292,6 +299,7 @@ fn private_dir_after_open(
         ));
     }
     ensure_opened_owner(&opened)?;
+    ensure_no_other_changer(&opened, true)?;
     after_open()?;
     // Normalize even an owner-only but read-only legacy DACL: state
     // directories must let this user create, replace and delete children.
@@ -299,7 +307,42 @@ fn private_dir_after_open(
     if !only_owner_reads_opened(&opened)? {
         return Err(io::Error::new(io::ErrorKind::PermissionDenied, "directory is not owner-only"));
     }
+    let reopened = open_directory(dir)?;
+    if !same_opened_object(&opened, &reopened)? {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "state directory path changed while its permissions were checked",
+        ));
+    }
     Ok(())
+}
+
+fn ensure_safe_parent(path: &Path) -> io::Result<()> {
+    let mut parent = path.parent();
+    while let Some(candidate) = parent {
+        match open_for_security(candidate, false) {
+            Ok(opened) => {
+                ensure_opened_owner(&opened)?;
+                return ensure_no_other_changer(&opened, true);
+            }
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                parent = candidate.parent();
+            }
+            Err(error) => return Err(error),
+        }
+    }
+    Ok(())
+}
+
+fn same_opened_object(left: &File, right: &File) -> io::Result<bool> {
+    use std::os::windows::fs::MetadataExt;
+
+    let left = left.metadata()?;
+    let right = right.metadata()?;
+    Ok(left.volume_serial_number().is_some()
+        && left.volume_serial_number() == right.volume_serial_number()
+        && left.file_index().is_some()
+        && left.file_index() == right.file_index())
 }
 
 /// `daemon.rs` `narrow_to_owner`: an existing file or folder that is not
@@ -384,6 +427,17 @@ fn ensure_opened_owner(opened: &File) -> io::Result<()> {
         return Err(io::Error::new(
             io::ErrorKind::PermissionDenied,
             "state object is not owned by this user",
+        ));
+    }
+    Ok(())
+}
+
+fn ensure_no_other_changer(opened: &File, directory: bool) -> io::Result<()> {
+    let rights = if directory { DIRECTORY_CHANGE_RIGHTS } else { CHANGE_RIGHTS };
+    if let Some(sid) = wider_opened(opened, rights)? {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            format!("state object is writable by another identity ({sid})"),
         ));
     }
     Ok(())

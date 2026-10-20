@@ -29,6 +29,7 @@
 
 use std::collections::BTreeMap;
 use std::ffi::OsString;
+use std::io::Read;
 use std::path::PathBuf;
 use std::sync::RwLock;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -914,7 +915,9 @@ fn cache_path() -> PathBuf {
 }
 
 fn load_cache() -> Option<Cache> {
-    let bytes = std::fs::read(cache_path()).ok()?;
+    let mut file = crate::config::private_state_file(&cache_path()).ok()?;
+    let mut bytes = Vec::new();
+    file.read_to_end(&mut bytes).ok()?;
     let cache: Cache = serde_json::from_slice(&bytes).ok()?;
     (cache.version == CACHE_VERSION).then_some(cache)
 }

@@ -13,6 +13,7 @@
 //! This one rule serves `get` and the trust gate (`session_level`) alike.
 
 use std::collections::BTreeMap;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use serde_json::{Value, json};
@@ -145,11 +146,23 @@ pub enum Failure {
 /// acpmux's record; a missing file is empty, an unreadable one is an error, so a
 /// damaged record is never overwritten with a fresh one.
 fn read_record(path: &Path) -> Result<BTreeMap<String, String>, Failure> {
-    match std::fs::read_to_string(path) {
-        Ok(text) => serde_json::from_str(&text).map_err(|e| {
+    let mut file = match crate::config::private_state_file(path) {
+        Ok(file) => file,
+        Err(_)
+            if std::fs::symlink_metadata(path)
+                .is_err_and(|e| e.kind() == std::io::ErrorKind::NotFound) =>
+        {
+            return Ok(BTreeMap::new());
+        }
+        Err(error) => {
+            return Err(Failure::Record(format!("trust record {}: {error:#}", path.display())));
+        }
+    };
+    let mut text = String::new();
+    match file.read_to_string(&mut text) {
+        Ok(_) => serde_json::from_str(&text).map_err(|e| {
             Failure::Record(format!("trust record {} is damaged: {e}", path.display()))
         }),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(BTreeMap::new()),
         Err(e) => Err(Failure::Record(format!("trust record {}: {e}", path.display()))),
     }
 }
