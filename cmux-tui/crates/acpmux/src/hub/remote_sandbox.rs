@@ -545,6 +545,14 @@ impl Hub {
         {
             plan.args[i + 1] = "default".into();
         }
+        // A dedicated agent VM (`vmHost`, off macOS): the VM is the sandbox.
+        // Bypass mode stays off (above); the session's permission policy
+        // answers Claude's prompts.
+        let vm_host = self.config.read().await.vm_host;
+        if vm_host_unsandboxed(vm_host, cfg!(target_os = "macos")) {
+            self.append(session, "mux", "remote_sandbox", json!({"vmHost": true}));
+            return Ok((plan, std::borrow::Cow::Borrowed(profile)));
+        }
         let (program, args) =
             self.sandboxed_claude_plan(session, profile, plan.program, plan.args).await?;
         let mut profile = profile.clone();
@@ -611,8 +619,7 @@ impl Hub {
 /// only on a `vmHost` machine that is not a Mac (a dedicated agent VM, where
 /// the VM boundary is the sandbox). A Mac always sandboxes.
 pub(crate) fn vm_host_unsandboxed(vm_host: bool, macos: bool) -> bool {
-    let _ = (vm_host, macos);
-    false
+    vm_host && !macos
 }
 
 #[cfg(test)]
