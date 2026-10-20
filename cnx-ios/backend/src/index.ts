@@ -176,7 +176,9 @@ export const retireAllTeamHubs = async (env: Env): Promise<{ teams: number; clos
         )
       )
     )
-  if (closed || failed) console.log(JSON.stringify({ msg: "team hub sweep", teams: names.length, closed, failed }))
+  // One line a minute: the migration's progress (`retired` = hubs confirmed on the new class and empty).
+  const retired = names.filter((n) => retireMemo.get(n)?.done).length
+  console.log(JSON.stringify({ msg: "team hub sweep", teams: names.length, retired, closed, failed }))
   return { teams: names.length, closed, failed }
 }
 /**
