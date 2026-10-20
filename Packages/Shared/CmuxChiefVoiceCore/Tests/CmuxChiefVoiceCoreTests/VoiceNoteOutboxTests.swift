@@ -38,4 +38,18 @@ struct VoiceNoteOutboxTests {
         #expect(await first.pending() == [note])
         #expect(await second.pending().isEmpty)
     }
+
+    @Test func accountScopedOutboxDiscardsAmbiguousLegacyNotes() async throws {
+        let root = temporaryDirectory()
+        try FileManager().createDirectory(at: root, withIntermediateDirectories: true)
+        let record = root.appendingPathComponent("legacy.json")
+        let audio = root.appendingPathComponent("legacy.m4a")
+        try Data("metadata".utf8).write(to: record)
+        try Data("audio".utf8).write(to: audio)
+
+        _ = VoiceNoteOutbox(rootDirectory: root, accountID: "account-a")
+
+        #expect(!FileManager().fileExists(atPath: record.path))
+        #expect(!FileManager().fileExists(atPath: audio.path))
+    }
 }
