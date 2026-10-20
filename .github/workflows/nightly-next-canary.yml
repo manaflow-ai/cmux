@@ -15,8 +15,8 @@ name: nightly-next canary
 # (nightly-next-rollback.yml, bad_build = the build that failed), which then
 # starts the fix-forward; `off` skips the canary. Unset or `auto` reports until
 # NIGHTLY_NEXT_CANARY_ENFORCE_AFTER (default in the script, one week of report
-# mode) and enforces after it, unless the canary failed a build in that week. A schedule runs only from the default branch, so
-# this file lives on main. A pull request that changes the canary runs it on
+# mode) and enforces after it, unless the canary failed a build in that week.
+# A schedule runs only from the default branch, so this file lives on main. A pull request that changes the canary runs it on
 # the newest feed build with the pull request's own harness and pulls nothing.
 on:
   schedule:
@@ -242,7 +242,8 @@ jobs:
           path: canary-verdict
           key: ${{ env.CANARY_CACHE_PREFIX }}${{ env.BUILD }}
 
-  # A failed canary: report it, and in enforce mode pull the build. A pull request's run only tests the harness and does neither.
+  # A failed canary: report it, and in enforce mode pull the build. A pull
+  # request's run only tests the harness and does neither.
   failed:
     needs: [pick, canary]
     if: always() && github.event_name != 'pull_request' && needs.canary.outputs.verdict == 'fail'
