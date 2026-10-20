@@ -1,3 +1,4 @@
+import { HostNetworkPolicy } from "./host-network-policy.ts"
 import { Schema } from "effect"
 import { def, mutationErrors, type CloudOpDef } from "./op-def.ts"
 import { HostId, TeamId, WgPublicKey } from "./schemas.ts"
@@ -33,4 +34,4 @@ export const HostNetworkBind = def({
   mcp: { expose: "never", group: "team" }
 })
 
-export const hostNetworkOps = [HostNetworkTarget, HostNetworkBind] as const satisfies readonly CloudOpDef[]
+export const hostNetworkOps = [HostNetworkTarget, HostNetworkBind, HostNetworkPolicy] as const satisfies readonly CloudOpDef[]

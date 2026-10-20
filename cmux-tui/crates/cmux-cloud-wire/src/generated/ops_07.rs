@@ -4,6 +4,45 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_op! {
+    /// List the caller-owned private Cloud networks.
+    NetworkListOp {
+        name: "network.list",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:UserDO",
+        risk: "read",
+        principals: [Session],
+        params: NetworkListParams,
+        result: NetworkListResult,
+        error: NetworkListError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct NetworkListParams {}
+
+wire_enum! {
+    NetworkListResultNetworksItemScope {
+        User = "user",
+        Team = "team",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct NetworkListResultNetworksItem {
+    pub id: String,
+    pub cidr: Option<String>,
+    #[serde(rename = "cidrV6")]
+    pub cidr_v6: Option<String>,
+    pub scope: NetworkListResultNetworksItemScope,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct NetworkListResult {
+    pub networks: Vec<NetworkListResultNetworksItem>,
+}
+
 wire_errors! {
     /// The error codes network.list declares.
     NetworkListError {
@@ -863,42 +902,4 @@ wire_op! {
 pub struct TeamAiLimitGetParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cursor: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamAiLimitGetResult {
-    pub team: String,
-    pub default_usd: WireNumber,
-    pub is_default: bool,
-    pub resets_at: i64,
-    pub me: TeamAiLimitMember,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub members: Option<Vec<TeamAiLimitMember>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub team_usage: Option<TeamAiUsageLine>,
-    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
-    pub next_cursor: Option<Option<String>>,
-}
-
-wire_errors! {
-    /// The error codes team.ai_limit.get declares.
-    TeamAiLimitGetError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-    }
-}
-
-wire_op! {
-    /// Set one member's personal monthly AI spending limit (USD per UTC month, any amount; 0 = no AI); null clears it and the member uses the team default again. Team admins and billing members, in a person's session. Recorded in the billing audit.
-    TeamAiLimitMemberSetOp {
-        name: "team.ai_limit.member.set",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:TeamDO",
-        risk: "money",
-        principals: [Session],
-        params: TeamAiLimitMemberSetParams,
-        result: TeamAiLimitMemberSetResult,
-        error: TeamAiLimitMemberSetError,
-    }
 }

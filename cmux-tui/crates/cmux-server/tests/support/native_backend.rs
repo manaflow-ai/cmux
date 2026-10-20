@@ -9,8 +9,12 @@ pub(super) fn post(
     bearer: Option<&str>,
 ) -> Result<Value> {
     assert_eq!(origin, API);
-    assert_eq!(pairing::status(&api.path).unwrap()["state"], "network_pending");
-    assert!(EnrolledIdentity::load(&api.path).is_err());
+    let inspecting = api.state.lock().unwrap().inspect_policy;
+    assert_eq!(
+        pairing::status(&api.path).unwrap()["state"],
+        if inspecting { "paired" } else { "network_pending" }
+    );
+    assert_eq!(EnrolledIdentity::load(&api.path).is_ok(), inspecting);
     assert!(!private_record(&api.path).to_string().contains(CODE));
     let mut state = api.state.lock().unwrap();
     state.backend_calls.push((path.into(), body.clone()));
@@ -109,6 +113,38 @@ pub(super) fn post(
                 "accountCredential":"fixture-must-not-persist"});
             if let Some(pointer) = state.backend_fault.filter(|s| s.starts_with('/')) {
                 *answer.pointer_mut(pointer).unwrap() = json!("another-identity");
+            }
+            Ok(answer)
+        }
+        "/v1/read" => {
+            assert!(state.inspect_policy);
+            assert_eq!(bearer, Some("fixture-daemon-access"));
+            assert_eq!(body["op"], "host.network.policy");
+            assert_eq!(body["params"]["host"], host);
+            let proof = &body["params"]["proof"];
+            let point = point(&state.begin["public_jwk"]);
+            let message = format!(
+                "cmux-mesh-v1\noverlay-server-policy\n{DEVICE}\n\n{point}\n\n{}\n{}",
+                state.now,
+                proof["nonce"].as_str().unwrap()
+            );
+            let signature = URL_SAFE_NO_PAD
+                .encode(STANDARD.decode(proof["signature"].as_str().unwrap()).unwrap());
+            assert!(verify(&state.begin["public_jwk"], message.as_bytes(), &signature));
+            assert!(
+                state.backend_calls[..state.backend_calls.len() - 1]
+                    .iter()
+                    .filter(|(p, _)| p == "/v1/ops" || p == "/v1/read")
+                    .all(|(_, prior)| prior["params"]["proof"]["nonce"] != proof["nonce"])
+            );
+            let mut answer = json!({"op":"host.network.policy","stream":format!("team:{team}"),"revision":"1","value":{"schema_version":1,"host":host,"team":team,"user":user,"install":install,
+                "origin":NATIVE,"tenant":"native_team","mesh":MESH,"device":DEVICE,"wg_public_key":state.begin["wg_public_key"],"install_public_key":point,
+                "authority_version":"a".repeat(64),"checked_at":state.now,"expires_at":state.now+30_000,"acl_version":1,"policy_digest":"b".repeat(64),"peers":[],"accountCredential":"private-fixture-token"}});
+            if let Some(pointer) = state.backend_fault.filter(|s| s.starts_with('/')) {
+                *answer.pointer_mut(pointer).unwrap() = json!("another-identity");
+            }
+            if state.drop_policy_identity {
+                std::fs::remove_file(&api.path).unwrap();
             }
             Ok(answer)
         }

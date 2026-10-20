@@ -151,6 +151,7 @@ pub fn dispatch(ctx: &Context<'_>, args: &Args) -> Result<Output> {
     match verb.as_slice() {
         ["pair"] => pairing::begin(ctx, args),
         ["pair", "status"] => pairing::status(ctx),
+        ["pair", "policy"] => pairing::policy(ctx),
         ["install"] => lifecycle::install(ctx, args),
         ["uninstall"] => lifecycle::uninstall(ctx, args),
         ["status"] => lifecycle::status(ctx, args),

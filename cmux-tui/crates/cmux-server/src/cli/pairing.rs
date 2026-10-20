@@ -84,3 +84,16 @@ pub(super) fn begin(ctx: &Context<'_>, args: &Args) -> Result<Output> {
     )?;
     Ok(output(value))
 }
+
+/// Inspect only; reading policy does not install a service or start a role.
+pub(super) fn policy(ctx: &Context<'_>) -> Result<Output> {
+    let path = path(ctx, false)?;
+    let network = Network::with_client_version(&ctx.running_cmux)?;
+    let value = pairing::network_policy(&path, &network)?;
+    let human = format!(
+        "{}\n",
+        serde_json::to_string_pretty(&value)
+            .map_err(|_| Error::internal("server.pair.invalid_network_policy"))?
+    );
+    Ok(Output::new(value, human))
+}

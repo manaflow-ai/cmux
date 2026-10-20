@@ -38,12 +38,12 @@ impl std::fmt::Debug for Grant {
     }
 }
 const INVALID: &str = "pairing.invalid_network_enrollment";
-fn opaque(value: &str, prefix: &str) -> bool {
+pub(crate) fn opaque(value: &str, prefix: &str) -> bool {
     value.strip_prefix(prefix).is_some_and(|tail| {
         tail.len() == 26 && tail.bytes().all(|b| b"0123456789abcdefghjkmnpqrstvwxyz".contains(&b))
     })
 }
-fn origin(value: &str) -> bool {
+pub(crate) fn origin(value: &str) -> bool {
     // Coarse wire shape; the I/O adapter additionally requires URL-parser canonicalization.
     let Some(authority) = value.strip_prefix("https://") else { return false };
     !authority.is_empty()
@@ -51,7 +51,7 @@ fn origin(value: &str) -> bool {
             .bytes()
             .any(|b| b.is_ascii_whitespace() || b < 0x20 || b == 0x7f || b"/@?#\\".contains(&b))
 }
-fn tenant(value: &str) -> bool {
+pub(crate) fn tenant(value: &str) -> bool {
     !value.is_empty()
         && value.len() <= 128
         && value.as_bytes()[0].is_ascii_alphanumeric()
@@ -196,7 +196,7 @@ impl Grant {
 
 /// Public identity metadata only. This does not attest current policy freshness,
 /// peer enforcement, relay admission, role activation or execution authority.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Registration {
     pub origin: String,
@@ -236,6 +236,15 @@ impl Registration {
             && tenant(&self.tenant)
             && self.wg_public_key == wg
             && public_point(jwk).as_deref() == Some(self.install_public_key.as_str())
+    }
+    /// Match the projection to the original approved Native service and keys.
+    pub fn matches_policy_identity(&self, value: &Value) -> bool {
+        value["origin"] == self.origin
+            && value["tenant"] == self.tenant
+            && value["mesh"] == self.mesh
+            && value["device"] == self.device
+            && value["wg_public_key"] == self.wg_public_key
+            && value["install_public_key"] == self.install_public_key
     }
     pub fn public_status(&self) -> Value {
         json!({"state":"registered","tenant":self.tenant,"mesh":self.mesh,"device":self.device})

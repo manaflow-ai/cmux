@@ -335,3 +335,32 @@ fn server_pairing_real_socket_waits_for_its_deadline_and_refuses_oversized_frame
         .is_err()
     );
 }
+
+#[test]
+fn host_network_policy_http_uses_the_larger_bounded_frame_only_for_that_read() {
+    let body = serde_json::json!({"padding":"x".repeat(MAX_FRAME_BYTES + 1)}).to_string();
+    let (api, worker) = http(200, body.clone(), String::new());
+    assert!(
+        loopback_http()
+            .backend_post(
+                &api,
+                "/v1/read",
+                &serde_json::json!({"op":"host.network.policy"}),
+                Some("fixture-daemon-access")
+            )
+            .is_ok()
+    );
+    worker.join().unwrap();
+    let (api, worker) = http(200, body, String::new());
+    assert!(
+        loopback_http()
+            .backend_post(
+                &api,
+                "/v1/read",
+                &serde_json::json!({"op":"team.directory"}),
+                Some("fixture-daemon-access")
+            )
+            .is_err()
+    );
+    worker.join().unwrap();
+}

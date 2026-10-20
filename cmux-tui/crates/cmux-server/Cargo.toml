@@ -16,6 +16,7 @@ path = "src/main.rs"
 
 [dependencies]
 base64.workspace = true
+cmux-cloud-wire = { path = "../cmux-cloud-wire" }
 cmux-server-core = { path = "../cmux-server-core" }
 futures-util.workspace = true
 flate2.workspace = true

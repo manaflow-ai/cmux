@@ -50,6 +50,8 @@ struct State {
     backend_fault: Option<&'static str>,
     lose_backend_reply: bool,
     confirmed_at: Option<u64>,
+    inspect_policy: bool,
+    drop_policy_identity: bool,
 }
 struct Api {
     path: PathBuf,
@@ -557,4 +559,78 @@ fn server_pairing_native_cli_reports_pending_registration_without_mutating_it() 
         }
         assert_eq!(std::fs::read(&path).unwrap(), before);
     }
+}
+
+#[test]
+fn host_network_policy_reads_current_backend_identity_without_changing_pairing_or_starting_roles() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("pairing/identity.json");
+    let api = Api::new(&path);
+    let value = run(&api, &mut Vec::new()).unwrap();
+    assert_eq!(value["state"], "paired");
+    let before = std::fs::read(&path).unwrap();
+    api.state.lock().unwrap().inspect_policy = true;
+    let native_calls = api.state.lock().unwrap().calls.len();
+    let policy = pairing::network_policy(&path, &api).unwrap();
+    assert_eq!(policy["host"], "host_00000000000000000001");
+    assert_eq!(policy["peers"], json!([]));
+    assert!(policy.get("accountCredential").is_none());
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+    let state = api.state.lock().unwrap();
+    assert_eq!(
+        state.calls.len(),
+        native_calls,
+        "the backend proof must not become a direct Native account request"
+    );
+    assert_eq!(state.backend_calls.last().unwrap().0, "/v1/read");
+    for value in ["private-fixture-token", "fixture-daemon-access", CODE, "protected_keys"] {
+        assert!(!policy.to_string().contains(value));
+    }
+}
+
+#[test]
+fn host_network_policy_refuses_a_response_for_another_original_identity_or_network() {
+    for pointer in [
+        "/op",
+        "/stream",
+        "/revision",
+        "/value/host",
+        "/value/team",
+        "/value/user",
+        "/value/install",
+        "/value/origin",
+        "/value/tenant",
+        "/value/mesh",
+        "/value/device",
+        "/value/wg_public_key",
+        "/value/install_public_key",
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("pairing/identity.json");
+        let api = Api::new(&path);
+        run(&api, &mut Vec::new()).unwrap();
+        let before = std::fs::read(&path).unwrap();
+        {
+            let mut state = api.state.lock().unwrap();
+            state.inspect_policy = true;
+            state.backend_fault = Some(pointer);
+        }
+        assert!(pairing::network_policy(&path, &api).is_err(), "accepted {pointer}");
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+    }
+}
+
+#[test]
+fn host_network_policy_discards_a_reply_after_the_local_identity_is_removed() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("pairing/identity.json");
+    let api = Api::new(&path);
+    run(&api, &mut Vec::new()).unwrap();
+    {
+        let mut state = api.state.lock().unwrap();
+        state.inspect_policy = true;
+        state.drop_policy_identity = true;
+    }
+    assert!(pairing::network_policy(&path, &api).is_err());
+    assert!(!path.exists());
 }

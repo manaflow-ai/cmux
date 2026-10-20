@@ -129,6 +129,12 @@ a limit itself.
 5. Deletes are idempotent: a provider 404 on delete is success, and the tombstone answers
    `{deleted: true}` for 30 days.
 
+### Current host peer identity
+
+`host.network.policy {host, proof}` is an install-only read for a confirmed client or paired daemon's own host. The backend sends the one-use install-key proof to its configured Native origin, then joins the directed peer keys to current backend hosts, resource-holding members, install keys and the original confirmed grants. Unknown, revoked or ambiguous identities provide no peer access. Duplicate Native identities refuse the response. The response carries schema version 1, the original team/host/install/user and Native origin/tenant/mesh/device, public keys, directed protocol/port rules, opaque authority versions, and `checked_at`/`expires_at` (at most 30 seconds apart). It contains no token, raw grant version or account credential.
+
+`cmux server pair policy --json` reads this projection through the paired daemon's original API and install signer. It retains the approved Native origin and keys, refuses an overtaken local identity or overlong response, and starts no service or role. This is an identity snapshot, not a serving grant: the receiving listener still needs live policy delivery, revocation fences and an authenticated service credential. Cloud link tokens remain scoped to Cloud machines; pairing does not make them general server credentials.
+
 ### 1.7 `cloud.machine.connect_info` for `cmux link` (contract for lane 12, 2026-10-04)
 
 Purpose: `cmux link` turns a Cloud host id into a peer it can dial (`link.dial {host, service}`,

@@ -43,4 +43,4 @@ mod generated;
 pub use envelope::{HttpError, OpError, OpRequest, OpResponse, Origin, ReadResponse};
 pub use generated::*;
 pub use op::{Op, OpVisitor, WireClass, WireError, WireIdempotency, WirePrincipal};
-pub use value::{BoolLit, WireNumber};
+pub use value::{BoolLit, IntLit, WireNumber};

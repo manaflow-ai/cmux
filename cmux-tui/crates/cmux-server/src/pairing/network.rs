@@ -37,6 +37,14 @@ impl Network {
     }
 
     fn json(&self, request: reqwest::blocking::RequestBuilder) -> Result<Value> {
+        self.json_with_limit(request, MAX_FRAME_BYTES)
+    }
+
+    fn json_with_limit(
+        &self,
+        request: reqwest::blocking::RequestBuilder,
+        limit: usize,
+    ) -> Result<Value> {
         let response = request.send().map_err(|_| unavailable())?;
         if !response.status().is_success() {
             return Err(if response.status().is_client_error() {
@@ -46,11 +54,8 @@ impl Network {
             });
         }
         let mut bytes = Vec::new();
-        response
-            .take(MAX_FRAME_BYTES as u64 + 1)
-            .read_to_end(&mut bytes)
-            .map_err(|_| unavailable())?;
-        if bytes.len() > MAX_FRAME_BYTES {
+        response.take(limit as u64 + 1).read_to_end(&mut bytes).map_err(|_| unavailable())?;
+        if bytes.len() > limit {
             return Err(invalid());
         }
         serde_json::from_slice(&bytes).map_err(|_| invalid())
@@ -80,7 +85,12 @@ impl super::Transport for Network {
         if let Some(token) = bearer {
             request = request.bearer_auth(token);
         }
-        self.json(request)
+        let limit = if path == "/v1/read" && body["op"] == "host.network.policy" {
+            cmux_server_core::network_policy::MAX_POLICY_BYTES
+        } else {
+            MAX_FRAME_BYTES
+        };
+        self.json_with_limit(request, limit)
     }
     fn native_post(&self, origin: &str, path: &str, body: &Value) -> Result<Option<Value>> {
         let response = self

@@ -4,6 +4,107 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_enum! {
+    SsoConnectionJitDefaultRole {
+        Member = "member",
+        Admin = "admin",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SsoConnectionJit {
+    pub enabled: bool,
+    pub default_role: SsoConnectionJitDefaultRole,
+}
+
+pub type SsoConnectionId = String;
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(untagged)]
+pub enum Step {
+    Sleep(StepSleep),
+    Note(StepNote),
+    Op(StepOp),
+    /// A member this build does not know (a newer backend), kept verbatim.
+    Unknown(Value),
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct StepSleep {
+    pub r#type: LitSleep,
+    pub seconds: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct StepNote {
+    pub r#type: LitNote,
+    pub text: String,
+}
+
+wire_enum! {
+    StepOpOp {
+        AutomationList = "automation.list",
+        AutomationGet = "automation.get",
+        AutomationRunsList = "automation.runs.list",
+        AutomationRun = "automation.run",
+        UsageSummary = "usage.summary",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct StepOp {
+    pub r#type: LitOp,
+    pub op: StepOpOp,
+    pub params: Value,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(untagged)]
+pub enum TargetPolicy {
+    CloudVm(TargetPolicyCloudVm),
+    Host(TargetPolicyHost),
+    /// A member this build does not know (a newer backend), kept verbatim.
+    Unknown(Value),
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TargetPolicyCloudVm {
+    pub kind: LitCloudVm,
+}
+
+wire_enum! {
+    TargetPolicyHostFallback {
+        CloudVm = "cloud_vm",
+        Wait = "wait",
+        Fail = "fail",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TargetPolicyHost {
+    pub kind: LitHost,
+    pub host: HostId,
+    pub fallback: TargetPolicyHostFallback,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamAiLimitMember {
+    pub user: UserId,
+    pub display_name: String,
+    pub role: String,
+    pub limit_usd: WireNumber,
+    pub source: TeamAiLimitMemberSource,
+    pub spent_usd: WireNumber,
+}
+
+wire_enum! {
+    TeamAiLimitMemberSource {
+        Personal = "personal",
+        Team = "team",
+        Default = "default",
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct TeamAiUsageLine {
     pub billed: bool,
