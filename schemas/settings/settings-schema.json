@@ -948,7 +948,9 @@
           {
             "key" : "settings.group.agentInput",
             "rows" : [
-              "browser.showAgentCursor"
+              "browser.showAgentCursor",
+              "browser.agentMouse.motion",
+              "browser.agentMouse.maxMoveMs"
             ],
             "title" : {
               "key" : "settings.group.agentInput",
@@ -26161,6 +26163,130 @@
       "title" : {
         "key" : "settings.browser.showAgentCursor",
         "text" : "Show Agent Cursor"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "human",
+        "instant"
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.agentMouseHuman",
+            "text" : "Human"
+          },
+          "value" : "human"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.agentMouseInstant",
+            "text" : "Instant"
+          },
+          "value" : "instant"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "human",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentInput",
+        "text" : "Agent Input"
+      },
+      "help" : {
+        "key" : "settings.browser.agentMouseMotion.help",
+        "text" : "How an agent moves the pointer in browser tabs. Human moves along a curved path and rests before each click, as a person does, so pages see hover and timing like a person's. Instant jumps to the target and clicks at once."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.agentMouse.motion",
+      "keywords" : [
+        "agent",
+        "mouse",
+        "pointer",
+        "cursor",
+        "human",
+        "motion",
+        "automation"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "browser",
+        "agentMouse",
+        "motion"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "browser",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.browser.agentMouseMotion",
+        "text" : "Agent Pointer Motion"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        60,
+        1000,
+        530
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 350,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentInput",
+        "text" : "Agent Input"
+      },
+      "help" : {
+        "key" : "settings.browser.agentMouseMaxMove.help",
+        "text" : "The longest time one agent pointer move takes with human motion. Short moves take less."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.agentMouse.maxMoveMs",
+      "keywords" : [
+        "agent",
+        "mouse",
+        "pointer",
+        "speed",
+        "duration"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "browser",
+        "agentMouse",
+        "maxMoveMs"
+      ],
+      "range" : {
+        "max" : 1000,
+        "min" : 60,
+        "placeholder" : 60,
+        "step" : 10,
+        "unit" : "milliseconds"
+      },
+      "refuses" : [
+        -880,
+        1940,
+        "1"
+      ],
+      "section" : "browser",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.browser.agentMouseMaxMove",
+        "text" : "Longest Agent Pointer Move"
       },
       "validation" : "portable"
     },
