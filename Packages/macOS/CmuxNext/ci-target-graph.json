@@ -269,6 +269,7 @@
         "CmuxNextDaemonRecovery",
         "CmuxNextDaemonService",
         "CmuxNextDiff",
+        "CmuxNextFeed",
         "CmuxNextFileGrid",
         "CmuxNextFloating",
         "CmuxNextFocus",
