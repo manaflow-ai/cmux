@@ -8,9 +8,11 @@ the fix:
               the local actionlint finds a problem the HEAD version of the file does not have
   test-reg    a new (untracked) tests/test_*.py with no tests/test-execution.toml entry (CI's registry check
               fails the pull request that adds an unregistered test)
-  god-file    a CmuxNext Swift or cmux-tui Rust file that scripts/cmux-next/check-no-godfiles.sh,
-              run on that file against HEAD with CI's 20% warning slack, flags as grown past its
-              budget (line and function counts and the Swift top-level type count, as CI measures)
+  god-file    a CmuxNext Swift or cmux-tui Rust file that grew in lines against HEAD and that
+              scripts/cmux-next/check-no-godfiles.sh, run on that file with CI's 20% warning slack,
+              flags (its line, function and top-level type limits). Not covered: Swift god types
+              (named Module/Type, which span files) and a Rust edit that adds functions without
+              adding lines; CI still checks both.
 
 Output: exactly one JSON object on stdout, which both hook runners read. With findings it carries
 them as PostToolUse `additionalContext`, so the agent sees them; otherwise it is `{}`. A readable
