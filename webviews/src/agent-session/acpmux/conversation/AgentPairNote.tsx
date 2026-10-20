@@ -91,6 +91,7 @@ export function AgentPairNote({ pair, onResume }: { pair: AcpmuxAgentPair; onRes
         <span className="cv-tool__icon">
           <PauseCircle />
         </span>
+        {/* tooltip-allow: the pause's raw error shows nowhere else; the note's text only summarizes it. */}
         <span className="cv-tool__text cv-agent-pair__text" title={pair.error}>
           {reasonText(t, language, pair, peer)}
         </span>

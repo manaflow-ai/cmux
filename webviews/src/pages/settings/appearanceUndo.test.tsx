@@ -89,17 +89,17 @@ describe("Appearance's floating Undo, Redo and Reset", () => {
 
   test("picking a background is undoable and redoable, and the buttons name the step", async () => {
     page = await renderPage({ path: "/settings/appearance" });
-    const tile = page.container.querySelector<HTMLButtonElement>('.backdrop-tile[aria-label="Shuffle Daily"]')!;
+    const tile = page.container.querySelector<HTMLButtonElement>('.backdrop-tile[aria-label="Shuffle Paintings"]')!;
     await click(tile);
     expect(ops(page.provider, "cmux.settings.set")).toEqual([{ key: "appearance.background", value: "daily" }]);
     expect(undoButton().disabled).toBe(false);
-    expect(undoButton().getAttribute("aria-label")).toBe("Undo: Background → Shuffle Daily");
+    expect(undoButton().getAttribute("aria-label")).toBe("Undo: Background → Shuffle Paintings");
 
     await click(undoButton());
     expect(ops(page.provider, "cmux.settings.reset")).toEqual([{ key: "appearance.background" }]);
     expect(page.store.getSnapshot().rows.get("appearance.background")?.customized).toBe(false);
     expect(redoButton().disabled).toBe(false);
-    expect(redoButton().getAttribute("aria-label")).toBe("Redo: Background → Shuffle Daily");
+    expect(redoButton().getAttribute("aria-label")).toBe("Redo: Background → Shuffle Paintings");
 
     await click(redoButton());
     expect(page.store.getSnapshot().rows.get("appearance.background")?.value).toBe("daily");
