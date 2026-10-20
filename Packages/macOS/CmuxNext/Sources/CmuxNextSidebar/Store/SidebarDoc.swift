@@ -325,7 +325,9 @@ nonisolated extension SidebarDocBody {
         guard case let .group(name, color, icon, _) = self else { return self }
         return .group(name: name, color: color, icon: icon, collapsed: collapsed)
     }
+}
 
+nonisolated extension SidebarDocRecords {
     /// The group item of personal group `id`: `itm_g_<id>` (migrated or
     /// synced from the personal store), else `id` itself (a group the
     /// document made); nil when neither is a group.
