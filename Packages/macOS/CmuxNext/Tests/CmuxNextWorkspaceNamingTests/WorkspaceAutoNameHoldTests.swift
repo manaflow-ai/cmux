@@ -12,12 +12,13 @@ import Testing
 struct WorkspaceAutoNameHoldTests {
     private static let host = "install:hold-test"
 
-    /// A default-named workspace whose one pane shows chat `session` (and a terminal beside it).
-    private static func workspace(_ store: DaemonStore, name: String = "workspace-7", session: String) throws -> WorkspaceModel {
+    /// A default-named workspace whose one pane shows chat `session`, with a terminal and a page beside it.
+    private static func workspace(_ store: DaemonStore, name: String = "workspace-7", session: String?) throws -> WorkspaceModel {
         var chat = TabSnapshot(surface: 1, kind: .conversation, title: "about:blank", url: "about:blank")
         chat.conversation = ConversationTabRef(agentSession: AgentSessionRef(host: host, session: session, harness: "claude"))
         let terminal = TabSnapshot(surface: 2, kind: .pty, title: "zsh", cwd: "/tmp/api")
-        let screen = ScreenSnapshot(id: 1, layout: .leaf(1), panes: [PaneSnapshot(id: 1, tabs: [chat, terminal])])
+        let page = TabSnapshot(surface: 3, kind: .browser, title: "Pull request", url: "https://github.com/manaflow-ai/cmux/pull/1")
+        let screen = ScreenSnapshot(id: 1, layout: .leaf(1), panes: [PaneSnapshot(id: 1, tabs: [chat, terminal, page])])
         store.apply(snapshot: DaemonTree(workspaces: [WorkspaceSnapshot(id: 1, key: nil, name: name, screens: [screen])]))
         return try #require(store.workspaces.first)
     }
@@ -42,6 +43,9 @@ struct WorkspaceAutoNameHoldTests {
 
         Self.title(turns, session, "Hide sub-session agents")
         #expect(reader.label(workspace, front: chat, work: nil) == "Hide sub-session agents")
+        // The tab list maps each page's face too (`SidebarMapping.row`); that does not take the chat's hold.
+        let page = try #require(workspace.screens.first?.panes.first?.tabs.last)
+        #expect(reader.label(workspace, front: page, work: nil) == "Pull request")
 
         Self.title(turns, session, nil)
         #expect(reader.label(workspace, front: chat, work: nil) == "Hide sub-session agents")
@@ -64,8 +68,12 @@ struct WorkspaceAutoNameHoldTests {
         // The terminal names the row itself; the chat's name is not carried over to it.
         #expect(reader.label(workspace, front: tabs[1], work: nil) == "api")
 
-        let renamed = try Self.workspace(store, name: "Release", session: session)
+        // A new chat in the same tab (or its New Tab page) starts unnamed, not with the old chat's name.
         Self.title(turns, session, nil)
+        let fresh = try Self.workspace(store, session: nil)
+        #expect(reader.label(fresh, front: tabs[0], work: nil) == nil)
+
+        let renamed = try Self.workspace(store, name: "Release", session: session)
         #expect(reader.label(renamed, front: tabs[0], work: nil) == nil)
     }
 }

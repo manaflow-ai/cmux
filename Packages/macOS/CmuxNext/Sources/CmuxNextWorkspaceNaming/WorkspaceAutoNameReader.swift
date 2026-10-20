@@ -33,12 +33,12 @@ public struct WorkspaceAutoNameReader {
     ///   - incognitoTitle: an incognito tab's title (`.some`), nil for other tabs.
     ///   - terminal: a terminal tab as `NewWorkspaceName` reads it.
     ///   - turns: the chat titles (`AgentTurnStateStore.shared`).
-    ///   - hold: the names rows keep while their front tab's is unknown
-    ///     (`WorkspaceAutoNameHold.shared`: the app builds a reader per row it maps).
+    ///   - hold: the names rows keep while their front tab's is unknown; the
+    ///     app's one (`AppServices.autoNameHold`), since it builds a reader per row it maps.
     public init(enabled: @escaping @MainActor () -> Bool, isNewTabPage: @escaping @MainActor (TabModel) -> Bool,
                 livePage: @escaping @MainActor (TabModel) -> LivePage?, incognitoTitle: @escaping @MainActor (TabModel) -> String??,
                 terminal: @escaping @MainActor (TabModel) -> NewWorkspaceName.Tab, turns: AgentTurnStateStore = .shared,
-                hold: WorkspaceAutoNameHold = .shared) {
+                hold: WorkspaceAutoNameHold) {
         self.enabled = enabled
         self.isNewTabPage = isNewTabPage
         self.livePage = livePage
@@ -64,8 +64,17 @@ public struct WorkspaceAutoNameReader {
     public func label(_ workspace: WorkspaceModel, front tab: TabModel, work: TabModel?) -> String? {
         let rule = self.rule
         let label = rule.label(name: workspace.name, title: workspace.title, front: front(tab), anchor: work.flatMap { front($0) })
-        guard rule.enabled, !WorkspaceAutoName.isUserNamed(name: workspace.name, title: workspace.title) else { return label }
-        return hold.settle(workspace: workspace.id, namer: tab.id + "|" + (work?.id ?? ""), label: label)
+        guard rule.enabled, !WorkspaceAutoName.isUserNamed(name: workspace.name, title: workspace.title) else {
+            hold.forget(workspace: workspace.id)
+            return label
+        }
+        return hold.settle(workspace: workspace.id, namer: Self.namer(tab, work: work), label: label)
+    }
+
+    /// What names a row: the tab (with the chat it shows, so a new chat in the same tab starts
+    /// unnamed) and the work tab a browser front tab yields to.
+    private static func namer(_ tab: TabModel, work: TabModel?) -> String {
+        [tab, work].map { tab in tab.map { $0.id + "@" + ($0.agentSession?.session ?? "") } ?? "" }.joined(separator: "|")
     }
 
     /// What `tab` gives a workspace it fronts: an agent chat its chat's

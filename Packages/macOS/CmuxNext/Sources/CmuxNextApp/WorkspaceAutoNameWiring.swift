@@ -18,7 +18,8 @@ struct WorkspaceAutoNameWiring {
                 guard let services, services.cache.browserTabs.isIncognitoTab(tab.id) else { return nil }
                 return .some(services.cache.incognitoDisplay(tab).title)
             },
-            terminal: { [weak services] tab in services.map { TabMoves.nameInput(tab, services: $0) } ?? .init(kind: .terminal, userName: nil, title: nil, pageTitle: nil, url: nil, cwd: nil) })
+            terminal: { [weak services] tab in services.map { TabMoves.nameInput(tab, services: $0) } ?? .init(kind: .terminal, userName: nil, title: nil, pageTitle: nil, url: nil, cwd: nil) },
+            hold: services.autoNameHold)
     }
 
     /// Variant B's one-time rename (`WorkspaceAutoNamer`) on every daemon that
