@@ -56,7 +56,7 @@ export async function wake(b: ChiefBrainDO, w: { agent: string; owner: string; c
     const text = formatMessage(view.head, m)
     if (!text) continue
     const fresh = b.sql
-      .exec(`INSERT INTO cb_inbox (message, conversation, seq, kind, thread_root, text) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (message) DO NOTHING RETURNING n`, m.id, w.conversation, m.seq, view.head.kind ?? "group", m.thread_root ?? null, text)
+      .exec(`INSERT INTO cb_inbox (message, conversation, seq, kind, thread_root, text, effect_authorized) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT (message) DO NOTHING RETURNING n`, m.id, w.conversation, m.seq, view.head.kind ?? "group", m.thread_root ?? null, text, m.author === w.owner ? 1 : 0)
       .toArray()
     queued += fresh.length
   }
@@ -99,7 +99,7 @@ export async function steerQueued(b: ChiefBrainDO, conversation: string): Promis
   const t = b.sql.exec<{ m: string; k: string; r: string | null }>(`SELECT trigger_message AS m, trigger_kind AS k, trigger_thread_root AS r FROM cb_turn WHERE id = ?`, turn).toArray()[0]
   const root = t?.r ?? null
   // Only the turn's own thread joins it (its reply goes there; a subagent report names that thread); other threads wait for their own turn.
-  const rows = b.sql.exec<{ n: number; message: string; seq: number; text: string }>(`SELECT n, message, seq, text FROM cb_inbox WHERE state = 'queued' AND conversation = ? AND (thread_root IS ? OR thread_root IS ?) ORDER BY n`, conversation, root, t ? turnThread(t.k, t.m, root) : root).toArray()
+  const rows = b.sql.exec<{ n: number; message: string; seq: number; text: string; effect_authorized: number }>(`SELECT n, message, seq, text, effect_authorized FROM cb_inbox WHERE state = 'queued' AND conversation = ? AND (thread_root IS ? OR thread_root IS ?) ORDER BY n`, conversation, root, t ? turnThread(t.k, t.m, root) : root).toArray()
   if (rows.length === 0) return
   const op = `${turn}:steer:${rows[0]!.n}`
   const text = rows.map((r) => r.text).join("\n\n")
@@ -110,6 +110,7 @@ export async function steerQueued(b: ChiefBrainDO, conversation: string): Promis
       b.memory.append("user", r.text)
       b.sql.exec(`UPDATE cb_inbox SET state = 'running', turn = ? WHERE n = ?`, turn, r.n)
     }
+    if (rows.some((r) => r.effect_authorized !== 1)) b.sql.exec(`UPDATE cb_turn SET effect_authorized = 0 WHERE id = ?`, turn)
     b.sql.exec(`UPDATE cb_turn SET last_seq = MAX(last_seq, ?) WHERE id = ?`, Math.max(...rows.map((r) => r.seq)), turn)
     writeConfig(b.sql, { [`steer:${turn}`]: JSON.stringify([...b.steerOps(turn), { op, text }]) })
   })
@@ -174,7 +175,7 @@ export async function drain(b: ChiefBrainDO): Promise<void> {
     const cfg = b.config()
     const a = cfg.agent && cfg.owner ? await b.admitted(cfg.agent, cfg.owner, true).catch((): Admission => ({ ok: false, reason: "owner.unreachable" })) : ({ ok: false, reason: "unbound" } as Admission)
     const rows = b.sql
-      .exec<{ n: number; message: string; seq: number; kind: string; thread_root: string | null; text: string; woke: number }>(`SELECT n, message, seq, kind, thread_root, text, woke FROM cb_inbox WHERE state = 'queued' AND conversation = ? ORDER BY n`, woken.conversation)
+      .exec<{ n: number; message: string; seq: number; kind: string; thread_root: string | null; text: string; woke: number; effect_authorized: number }>(`SELECT n, message, seq, kind, thread_root, text, woke, effect_authorized FROM cb_inbox WHERE state = 'queued' AND conversation = ? ORDER BY n`, woken.conversation)
       .toArray()
     if (!a.ok && a.reason === "owner.unreachable") return void (await b.schedule("drain", "drain", Date.now() + RETRY_MS))
     if (!a.ok) {
@@ -198,7 +199,7 @@ export async function drain(b: ChiefBrainDO): Promise<void> {
     markPending(b.sql, "settled")
     // Messages that came during the wait ride along (the same conversation's queue, read again).
     const all = b.sql
-      .exec<{ n: number; message: string; seq: number; kind: string; thread_root: string | null; text: string; woke: number }>(`SELECT n, message, seq, kind, thread_root, text, woke FROM cb_inbox WHERE state = 'queued' AND conversation = ? ORDER BY n`, woken.conversation)
+      .exec<{ n: number; message: string; seq: number; kind: string; thread_root: string | null; text: string; woke: number; effect_authorized: number }>(`SELECT n, message, seq, kind, thread_root, text, woke, effect_authorized FROM cb_inbox WHERE state = 'queued' AND conversation = ? ORDER BY n`, woken.conversation)
       .toArray()
     if (!fresh) console.warn(JSON.stringify({ msg: "chief_brain.settle_timeout", first: b.memory.first(), len: b.memory.len(), failures: b.compactor.failures().length }))
     if (all.length > 0) b.openTurn(woken.conversation, all, fresh)
@@ -210,7 +211,7 @@ export async function drain(b: ChiefBrainDO): Promise<void> {
  * plus the unsummarized messages) and its cache marks (cache-prefix.ts) with the turn row in one transaction (a restart
  * resubmits the same bytes).
  */
-export function openTurn(b: ChiefBrainDO, conversation: string, rows: ReadonlyArray<{ n: number; message: string; seq: number; kind: string; thread_root: string | null; text: string; woke: number }>, fresh = false): void {
+export function openTurn(b: ChiefBrainDO, conversation: string, rows: ReadonlyArray<{ n: number; message: string; seq: number; kind: string; thread_root: string | null; text: string; woke: number; effect_authorized: number }>, fresh = false): void {
   const id = `run_${rows[0]!.n}`
   let input = "[]"
   const trigger = [...rows].reverse().find((r) => r.woke === 1) ?? rows[rows.length - 1]!
@@ -226,8 +227,8 @@ export function openTurn(b: ChiefBrainDO, conversation: string, rows: ReadonlyAr
     // Where this turn's first request reads (an earlier turn's entry) and writes (the view's last whole block).
     writeConfig(b.sql, { [`marks:${id}`]: marksHeader(turnPlan(b.sql, b.config().model, blocks, ttlMs(b.doEnv.CHIEF_BRAIN_CACHE_TTL))) })
     b.sql.exec(
-      `INSERT INTO cb_turn (id, conversation, trigger_message, trigger_kind, trigger_thread_root, last_seq, status, model, started, input) VALUES (?, ?, ?, ?, ?, ?, 'running', ?, ?, ?)`,
-      id, conversation, trigger.message, trigger.kind, trigger.thread_root, Math.max(...rows.map((r) => r.seq)), b.config().model, Date.now(), input
+      `INSERT INTO cb_turn (id, conversation, trigger_message, trigger_kind, trigger_thread_root, last_seq, effect_authorized, status, model, started, input) VALUES (?, ?, ?, ?, ?, ?, ?, 'running', ?, ?, ?)`,
+      id, conversation, trigger.message, trigger.kind, trigger.thread_root, Math.max(...rows.map((r) => r.seq)), rows.every((r) => r.effect_authorized === 1) ? 1 : 0, b.config().model, Date.now(), input
     )
   })
   b.compactor.pump()

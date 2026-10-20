@@ -1,5 +1,5 @@
 //! Per-Chief settings, `$MUX_HOME/optchat/settings.json`
-//! (`{"remote": {"autoApprove": true}, "cache": {"ttl": "1h"}}`), shown later in the Chief settings
+//! (`{"remote": {"autoApprove": false}, "cache": {"ttl": "1h"}}`), shown later in the Chief settings
 //! sidebar. The host reads the file once at start and owns the value after
 //! that: a change goes through the host (`Brain::set_setting`), which
 //! refuses to turn `remote.autoApprove` on during a remote-origin turn, and
@@ -16,9 +16,8 @@ use crate::prompt::CacheTtl;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ChiefSettings {
     /// A remote-origin turn (the owner's own paired device) runs with the
-    /// configured policy instead of `ask`. Default true (Lawrence,
-    /// 2026-10-06: "i dont want stuff to require my approval"); false turns
-    /// approvals and the spawn floor back on.
+    /// configured policy instead of `ask`. Default false; true is an explicit
+    /// opt-in that applies only to that owner's paired devices.
     pub remote_auto_approve: bool,
     /// How long a turn's prompt cache entries live (`5m` or `1h`); None: the
     /// engine's default (1 hour on the Claude Code path, 5 minutes on the
@@ -66,7 +65,7 @@ impl ReplyThreads {
 impl Default for ChiefSettings {
     fn default() -> ChiefSettings {
         ChiefSettings {
-            remote_auto_approve: true,
+            remote_auto_approve: false,
             cache_ttl: None,
             reply_threads: ReplyThreads::Auto,
         }

@@ -165,6 +165,9 @@ pub fn codex_turn_config(user: Option<&str>) -> Result<String, String> {
     let isolation: toml::Table = r#"
 suppress_unstable_features_warning = true
 
+[history]
+persistence = "none"
+
 [features]
 apps = false
 plugins = false

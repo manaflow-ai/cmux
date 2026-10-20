@@ -257,14 +257,14 @@ pub fn chief_note(d: &Decision) -> Option<String> {
 
 /// The message that continues a session (its chat shows it, so each
 /// auto-resume is visible there).
-pub fn continue_prompt(reason: &str, attempt: u32, after_network: bool) -> String {
+pub fn continue_prompt(_reason: &str, attempt: u32, after_network: bool) -> String {
     let why = if after_network {
         "The network is back."
     } else {
         "This is an automatic retry."
     };
     format!(
-        "[auto-resume {attempt}] Your last turn stopped on an error: {reason}. {why} Continue the task from where you stopped. Do not redo finished steps, and do not start duplicate work."
+        "[auto-resume {attempt}] Your last turn stopped on a retryable error. {why} Continue the task from where you stopped. Do not redo finished steps, and do not start duplicate work."
     )
 }
 

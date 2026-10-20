@@ -13,6 +13,7 @@ import { memberUpsert } from "../src/domains/team-members.ts"
  */
 const testEnv = env as unknown as { STACK_PROJECT_ID: string; STACK_TEST_PRIVATE_JWK: string; USER_DO: DurableObjectNamespace; TEAM_DO: DurableObjectNamespace; CONVERSATION_DO: DurableObjectNamespace; MUX_DO: DurableObjectNamespace }
 const worker = (exports as unknown as { default: Fetcher }).default
+const inDO = runInDurableObject as unknown as <T>(stub: unknown, fn: (instance: any, state: DurableObjectState) => Promise<T>) => Promise<T>
 const sessionToken = async (sub: string) =>
   new SignJWT({ email: `${sub}@example.com`, email_verified: true, name: sub })
     .setProtectedHeader({ alg: "ES256", kid: "stack-test" })
@@ -170,7 +171,7 @@ describe("Chief brain on Durable Objects", { timeout: 120_000 }, () => {
     const teammate = await sessionToken("brain-owner-effects-teammate")
     const teammateUser = (await op(teammate, "user.ensure", {})).value.id as string
     // Team membership establishes reach, then the owner makes a shared group with their Chief.
-    await runInDurableObject(testEnv.TEAM_DO.get(testEnv.TEAM_DO.idFromName(team)), async (instance: any) => {
+    await inDO(testEnv.TEAM_DO.get(testEnv.TEAM_DO.idFromName(team)), async (instance) => {
       instance.boundEngine.rows.apply([memberUpsert({ user: teammateUser, role: "member", display_name: "Teammate" })])
     })
     const created = await op(token, "conversation.create", {
