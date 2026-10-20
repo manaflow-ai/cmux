@@ -15,6 +15,7 @@ struct TerminalLinkResolverSecurityTests {
         "https://exa mple.com/",
         "https://example.com/\u{202E}txt",
         "https://example.com/%E2%80%AEtxt",
+        "example.com/%E2%80%AEtxt",
     ])
     func rejectsSchemesAndWebAddressesOutsideTheTerminalAllowlist(_ text: String) {
         #expect(TerminalLinkResolver.resolve(text, cwd: nil) == nil)
@@ -42,6 +43,7 @@ struct TerminalLinkResolverSecurityTests {
         }
         #expect(local.path == file.path)
         #expect(TerminalLinkResolver.resolve(file.path, cwd: nil) == .file(file, isDirectory: false))
+        #expect(TerminalLinkResolver.resolve(file.absoluteString, cwd: nil, allowsLocalFiles: false) == nil)
 
         var foreign = URLComponents()
         foreign.scheme = "file"
