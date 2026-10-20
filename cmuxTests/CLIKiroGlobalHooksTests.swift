@@ -3,8 +3,9 @@ import Darwin
 
 /// `cmux hooks setup kiro --global` writes the Kiro CLI V3 global hooks file
 /// (`$KIRO_HOME/hooks/cmux.json`, default `~/.kiro/hooks/cmux.json`). Kiro V3
-/// runs it for every agent, so it carries only the lifecycle events, never
-/// writes to the model context and never blocks. https://kiro.dev/docs/hooks/
+/// runs it for every agent, so it carries only lifecycle and agent-message
+/// events, never blocks, and writes to the model context only to deliver a
+/// waiting message. https://kiro.dev/docs/hooks/
 extension CLINotifyProcessIntegrationRegressionTests {
     private struct KiroGlobalHookSandbox {
         let root: URL
@@ -69,7 +70,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
     }
 
-    func testKiroGlobalHookInstallWritesV3LifecycleHooksOnly() throws {
+    func testKiroGlobalHookInstallWritesV3LifecycleAndMessageHooks() throws {
         let sandbox = try makeKiroGlobalHookSandbox()
         let result = try runKiroHooksCLI(
             ["hooks", "kiro", "install", "--global", "--yes"],
@@ -79,7 +80,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertTrue(result.stdout.contains("V3"), "Expected the V3-only note, saw: \(result.stdout)")
 
         let entries = try kiroGlobalHookEntries(at: sandbox.defaultHooksFile)
-        XCTAssertEqual(entries.map { $0["trigger"] as? String }, ["SessionStart", "UserPromptSubmit", "Stop"])
+        XCTAssertEqual(
+            entries.map { $0["trigger"] as? String },
+            ["SessionStart", "UserPromptSubmit", "Stop", "SessionEnd", "UserPromptSubmit", "Stop"]
+        )
         for entry in entries {
             let command = kiroGlobalHookCommand(entry)
             // V3 timeouts are seconds, unlike the agent config's timeout_ms.
@@ -111,7 +115,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(result.status, 0, result.stderr)
 
         let hooksFile = kiroHome.appendingPathComponent("hooks/cmux.json", isDirectory: false)
-        XCTAssertEqual(try kiroGlobalHookEntries(at: hooksFile).count, 3)
+        XCTAssertEqual(try kiroGlobalHookEntries(at: hooksFile).count, 6)
         XCTAssertFalse(FileManager.default.fileExists(atPath: sandbox.defaultHooksFile.path))
         XCTAssertFalse(
             FileManager.default.fileExists(atPath: kiroHome.appendingPathComponent("agents/cmux.json").path),
@@ -135,7 +139,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(second.status, 0, second.stderr)
         XCTAssertTrue(second.stdout.contains("already up to date"), second.stdout)
         XCTAssertEqual(try Data(contentsOf: sandbox.defaultHooksFile), firstBytes)
-        XCTAssertEqual(try kiroGlobalHookEntries(at: sandbox.defaultHooksFile).count, 3)
+        XCTAssertEqual(try kiroGlobalHookEntries(at: sandbox.defaultHooksFile).count, 6)
     }
 
     func testKiroGlobalHookUninstallRemovesOnlyCmuxEntriesAndFiles() throws {
@@ -153,7 +157,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         try JSONSerialization.data(withJSONObject: ["version": "v1", "hooks": entries])
             .write(to: sandbox.defaultHooksFile)
         XCTAssertEqual(try runKiroHooksCLI(["hooks", "kiro", "install", "--global", "--yes"], environment: env).status, 0)
-        XCTAssertEqual(try kiroGlobalHookEntries(at: sandbox.defaultHooksFile).count, 4)
+        XCTAssertEqual(try kiroGlobalHookEntries(at: sandbox.defaultHooksFile).count, 7)
 
         let partial = try runKiroHooksCLI(["hooks", "uninstall", "kiro", "--global"], environment: env)
         XCTAssertEqual(partial.status, 0, partial.stderr)
@@ -260,6 +264,55 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(inside.stdout, "", "Hook stdout would be added to the V3 model context")
         XCTAssertEqual(inside.stderr, "")
         XCTAssertEqual(logLines(), ["hooks enqueue kiro session-start"])
+    }
+
+    func testKiroGlobalMessageHookPassesOnlyAWaitingMessage() throws {
+        let sandbox = try makeKiroGlobalHookSandbox()
+        XCTAssertEqual(
+            try runKiroHooksCLI(["hooks", "kiro", "install", "--global", "--yes"], environment: sandbox.environment()).status,
+            0
+        )
+        let entries = try kiroGlobalHookEntries(at: sandbox.defaultHooksFile)
+        let drain = kiroGlobalHookCommand(
+            try XCTUnwrap(entries.first { $0["name"] as? String == "cmux-inbox-drain" })
+        )
+        let bin = sandbox.root.appendingPathComponent("fake-cmux-bin", isDirectory: true)
+        let log = sandbox.root.appendingPathComponent("fake-cmux.log", isDirectory: false)
+
+        func runHook(cmuxOutput: String, _ environment: [String: String]) throws -> ProcessRunResult {
+            try writeExecutable(
+                "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$CMUX_FAKE_LOG\"\nprintf '%s' '\(cmuxOutput)'\n",
+                to: bin.appendingPathComponent("cmux", isDirectory: false)
+            )
+            return runProcess(
+                executablePath: "/bin/sh",
+                arguments: ["-c", drain],
+                environment: ["CMUX_FAKE_LOG": log.path, "PATH": "\(bin.path):/usr/bin:/bin"]
+                    .merging(environment) { _, new in new },
+                standardInput: #"{"hook_event_name":"UserPromptSubmit","session_id":"kiro-v3"}"#,
+                timeout: 5
+            )
+        }
+
+        let message = try runHook(cmuxOutput: "[cmux agent message] from a", ["CMUX_SURFACE_ID": "surface"])
+        XCTAssertEqual(message.status, 0)
+        XCTAssertEqual(message.stdout, "[cmux agent message] from a\n")
+
+        // An older cmux answers `{}`; Kiro would add it to the model context.
+        let olderCmux = try runHook(cmuxOutput: "{}", ["CMUX_SURFACE_ID": "surface"])
+        XCTAssertEqual(olderCmux.status, 0)
+        XCTAssertEqual(olderCmux.stdout, "")
+
+        let outside = try runHook(cmuxOutput: "leak", [:])
+        XCTAssertEqual(outside.status, 0)
+        XCTAssertEqual(outside.stdout, "")
+
+        let disabled = try runHook(cmuxOutput: "leak", ["CMUX_SURFACE_ID": "surface", "CMUX_KIRO_HOOKS_DISABLED": "1"])
+        XCTAssertEqual(disabled.status, 0)
+        XCTAssertEqual(disabled.stdout, "")
+
+        let lines = ((try? String(contentsOf: log, encoding: .utf8)) ?? "").split(separator: "\n").map(String.init)
+        XCTAssertEqual(lines, ["hooks kiro inbox-drain", "hooks kiro inbox-drain"])
     }
 
     func testKiroDefaultInstallUnchangedAndWarnsWhenBothInstalled() throws {

@@ -21670,7 +21670,7 @@ struct CMUXCLI {
               See docs/agent-hooks.md for the full integration matrix.
 
             Kiro --global:
-              Writes session start, prompt submit and stop hooks to $KIRO_HOME/hooks
+              Writes session lifecycle and agent message hooks to $KIRO_HOME/hooks
               (default ~/.kiro/hooks) so Kiro CLI V3 runs them for every agent.
               V3 only: Kiro CLI 2.x and earlier ignore this file and keep using the default
               install with `kiro-cli chat --agent cmux`. Feed approvals stay on
@@ -46018,8 +46018,8 @@ export default {
                 throw CLIError(message: "Unknown hooks target: \(first)")
             }
             telemetry.breadcrumb("hooks.\(def.name).dispatch")
-            if def.name == "codex",
-               try runAgentInboxHookIfMatched(agent: "codex", commandArgs: rest, client: client) {
+            if def.name == "codex" || def.name == "kiro",
+               try runAgentInboxHookIfMatched(agent: def.name, commandArgs: rest, client: client) {
                 return
             }
             do {

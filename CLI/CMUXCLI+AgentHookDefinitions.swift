@@ -826,15 +826,25 @@ extension CMUXCLI {
         let name: String
         let trigger: String
         let cmuxSubcommand: String
+        /// Agent-message delivery, whose stdout Kiro must see. Every other
+        /// entry discards its output.
+        var deliversMessages = false
     }
 
-    /// Lifecycle events cmux installs for every Kiro CLI V3 agent. The Feed
-    /// permission bridge (pre/post tool use) stays in the `cmux` agent config:
-    /// a global PreToolUse hook would gate tools for every agent.
+    /// Lifecycle and agent-message events cmux installs for every Kiro CLI V3
+    /// agent. The Feed permission bridge (pre/post tool use) stays in the
+    /// `cmux` agent config: a global PreToolUse hook would gate tools for
+    /// every agent.
     static let kiroGlobalHookEvents: [KiroGlobalHookEvent] = [
         .init(name: "cmux-session-start", trigger: "SessionStart", cmuxSubcommand: "session-start"),
         .init(name: "cmux-prompt-submit", trigger: "UserPromptSubmit", cmuxSubcommand: "prompt-submit"),
         .init(name: "cmux-stop", trigger: "Stop", cmuxSubcommand: "stop"),
+        .init(name: "cmux-session-end", trigger: "SessionEnd", cmuxSubcommand: "session-end"),
+        .init(
+            name: "cmux-inbox-drain", trigger: "UserPromptSubmit", cmuxSubcommand: "inbox-drain",
+            deliversMessages: true
+        ),
+        .init(name: "cmux-inbox-stop", trigger: "Stop", cmuxSubcommand: "inbox-stop", deliversMessages: true),
     ]
 
     static let kiroGlobalHooksFileName = "cmux.json"
@@ -857,9 +867,22 @@ extension CMUXCLI {
 
     /// Kiro CLI V3 adds a successful SessionStart/UserPromptSubmit hook's
     /// stdout to the model context, reads a Stop hook's stdout as a possible
-    /// "keep working" decision, and blocks a prompt on exit 2. The global
-    /// hook runs for every agent, so it discards all output and exits 0.
+    /// "keep working" decision, and forwards any other exit code's output to
+    /// the agent. The global hook runs for every agent, so lifecycle entries
+    /// discard all output and every entry exits 0. Message entries print only
+    /// when a message is waiting for this surface.
     static func kiroGlobalHookCommandString(for def: AgentHookDef, event: KiroGlobalHookEvent) -> String {
+        if event.deliversMessages {
+            return [
+                ": \(kiroGlobalHookIdentityMarker)",
+                "cmux_cli=\"${CMUX_BUNDLED_CLI_PATH:-}\"",
+                "if [ -z \"$cmux_cli\" ] || [ ! -x \"$cmux_cli\" ]; then cmux_cli=\"$(command -v cmux 2>/dev/null || true)\"; fi",
+                // An older cmux without Kiro message hooks answers `{}`, which
+                // Kiro would add to the model context.
+                "if [ -n \"$CMUX_SURFACE_ID\" ] && [ \"$\(def.disableEnvVar)\" != \"1\" ] && [ -n \"$cmux_cli\" ]; then out=\"$(\"$cmux_cli\" hooks \(def.name) \(event.cmuxSubcommand) 2>/dev/null)\"; [ -n \"$out\" ] && [ \"$out\" != \"{}\" ] && printf '%s\\n' \"$out\"; else cat >/dev/null; fi",
+                "exit 0",
+            ].joined(separator: "; ")
+        }
         let dispatch = queuedAgentHookShellCommand(
             agent: def.name,
             subcommand: event.cmuxSubcommand,
