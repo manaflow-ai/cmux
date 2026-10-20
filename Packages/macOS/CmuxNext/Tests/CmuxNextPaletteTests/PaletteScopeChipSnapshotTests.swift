@@ -39,20 +39,43 @@ struct PaletteScopeChipSnapshotTests {
                      back: PaletteScopeChipInk.ink(isTop: false, increaseContrast: false))
         let increased = (top: PaletteScopeChipInk.ink(isTop: true, increaseContrast: true),
                          back: PaletteScopeChipInk.ink(isTop: false, increaseContrast: true))
-        let sheet = NSView(frame: NSRect(x: 0, y: 0, width: 720, height: 120))
+        let sheet = NSImage(size: NSSize(width: 720, height: 120))
+        var windows: [NSWindow] = []
+        defer { windows.forEach { $0.close() } }
         let cells: [((top: PaletteScopeChipInk, back: PaletteScopeChipInk), NSAppearance.Name, CGFloat, CGFloat)] = [
             (Self.before, .aqua, 0, 80), (after, .aqua, 360, 80),
             (Self.before, .darkAqua, 0, 40), (after, .darkAqua, 360, 40),
             (increased, .aqua, 0, 0), (increased, .darkAqua, 360, 0),
         ]
+        // Each row lives in its own offscreen window with its appearance, so labels, icons and layers
+        // resolve their theme colors the way they do in the app.
+        var images: [(NSImage, NSPoint)] = []
         for (ink, appearance, x, y) in cells {
             let row = Self.row(top: ink.top, back: ink.back, appearance: appearance)
-            row.frame.origin = NSPoint(x: x, y: y)
-            sheet.addSubview(row)
+            let window = NSWindow(contentRect: row.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            window.appearance = NSAppearance(named: appearance)
+            window.contentView = row
+            windows.append(window)
+            row.layoutSubtreeIfNeeded()
+            for chip in row.subviews {
+                chip.viewDidChangeEffectiveAppearance()
+                chip.subviews.forEach { $0.viewDidChangeEffectiveAppearance() }
+                chip.needsLayout = true
+            }
+            row.layoutSubtreeIfNeeded()
+            row.displayIfNeeded()
+            let rep = try #require(row.bitmapImageRepForCachingDisplay(in: row.bounds))
+            row.cacheDisplay(in: row.bounds, to: rep)
+            let image = NSImage(size: row.bounds.size)
+            image.addRepresentation(rep)
+            images.append((image, NSPoint(x: x, y: y)))
         }
-        let rep = try #require(sheet.bitmapImageRepForCachingDisplay(in: sheet.bounds))
-        sheet.cacheDisplay(in: sheet.bounds, to: rep)
-        let png = try #require(rep.representation(using: .png, properties: [:]))
+        sheet.lockFocus()
+        for (image, origin) in images { image.draw(at: origin, from: .zero, operation: .copy, fraction: 1) }
+        sheet.unlockFocus()
+        let tiff = try #require(sheet.tiffRepresentation)
+        let png = try #require(NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]))
         #expect(png.count > 1000)
         // Always written into the package's .build (ignored by git), so a fleet step returns it with
         // `cmux-ci run --artifact Packages/macOS/CmuxNext/.build/chip-snapshot.png`.
