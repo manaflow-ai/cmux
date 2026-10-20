@@ -66,7 +66,7 @@ pub fn tools_granted(subagent: bool, grant: &crate::chief_profile::Grant) -> Val
     // The Chief's own words in its conversation: never a grant to withhold.
     if !subagent {
         list.push(json!({"name": "react", "description": REACT_DESCRIPTION,
-         "inputSchema": {"type": "object", "properties": {"id": int, "reaction": {"type": "string", "enum": crate::brain::REACTIONS}}, "required": ["id", "reaction"], "additionalProperties": false}}));
+         "inputSchema": {"type": "object", "properties": {"id": int, "reaction": {"type": "string", "description": crate::prompt::REACT_REACTION_DESCRIPTION}}, "required": ["id", "reaction"], "additionalProperties": false}}));
         list.push(json!({"name": "reply", "description": REPLY_DESCRIPTION,
          "inputSchema": {"type": "object", "properties": {"id": int, "text": text}, "required": ["id", "text"], "additionalProperties": false}}));
     }

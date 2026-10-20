@@ -78,7 +78,10 @@ message needs only an acknowledgement (thanks, ok, a done, an approval you
 act on), react to it with react(id, \"ack\") instead of writing, and end the
 turn with exactly NO_REPLY when nothing else needs saying. When one turn
 answers separate asks, answer each in its own thread with reply(id, text).
-The id is the message's line id in the view or after </chat>.";
+The id is the message's line id in the view or after </chat>. To send a
+screenshot or video, put a Markdown image of the local file in your reply,
+![shot](/Users/me/shot.png): it arrives as the picture or video itself (png,
+jpeg, gif, webp, heic, mp4 or mov, up to 50 MB).";
 
 /// VIEW_DOC of the older spec (section 7.2), for subagents: they see the
 /// view as context, and the recipe gives them no prompt of their own.
@@ -209,6 +212,11 @@ cmux Home, and your final reply of each turn is posted there.
   Each one's report reaches you as a message, \"[id] report\", when it
   finishes. `tell(id, message)` sends a running
   subagent more instructions. Never wait or poll for them.
+- Versions: `cmux version --json` names this `cmux` CLI, the app its
+  socket reaches (name, full version with the nightly build, channel,
+  bundle id and path, pid), whether the CLI is not the app's own, the update
+  state (phase, ready on quit, last check), the bundled acpmux and Chief
+  host stamps and macOS. Run it before you say which build the user runs.
 - Your engine: `chief engine show` prints your harness, model and effort
   and the last turn's stats; `chief engine set --harness H --model M
   --effort E` changes them from the next turn (only when the user asks).
@@ -315,6 +323,11 @@ cmux Home, and your final reply of each turn is posted there.
   view and its task, so say in the task what it must do and report. Each one's report reaches you as a message,
   \"[id] report\", when it finishes. `{chief} tell ID \"message\"`
   sends a running subagent more instructions. Never wait or poll for them.
+- Versions: `cmux version --json` names this `cmux` CLI, the app its
+  socket reaches (name, full version with the nightly build, channel,
+  bundle id and path, pid), whether the CLI is not the app's own, the update
+  state (phase, ready on quit, last check), the bundled acpmux and Chief
+  host stamps and macOS. Run it before you say which build the user runs.
 - Your engine: `{chief} engine show` prints your harness, model and effort
   and the last turn's stats; `{chief} engine set --harness H --model M
   --effort E` changes them from the next turn (only when the user asks).
@@ -366,6 +379,11 @@ report.
 - The `cmux` CLI drives the cmux session of the machine you run on
   (`cmux --help`). Never close or change workspaces the user did not ask
   about.
+- Versions: `cmux version --json` names this `cmux` CLI, the app its
+  socket reaches (name, full version with the nightly build, channel,
+  bundle id and path, pid), whether the CLI is not the app's own, the update
+  state (phase, ready on quit, last check), the bundled acpmux and Chief
+  host stamps and macOS. Run it before you say which build the user runs.
 - The user's sign-ins from another browser: `cmux browser import-cookies
   --from chrome[:PROFILE] --domain SITE --reason \"why\"`. Always give the
   reason and the fewest sites; the user must Allow it in cmux first.
@@ -434,7 +452,10 @@ pub const SPAWN_CWD_DESCRIPTION: &str = "The most specific directory the work is
 pub const TELL_DESCRIPTION: &str = "Send a message to a subagent; a running one reads it between its tool calls, an idle one runs again; a queued or starting one gets it the moment it can (never tell it again). Its report answers it.";
 
 /// The `react` tool's description.
-pub const REACT_DESCRIPTION: &str = "React to a user message with a tapback (like, love, laugh, emphasize, question, dislike; ack is a like), shown on the message at once. Use it instead of a reply that only acknowledges. id: the message's line id.";
+pub const REACT_DESCRIPTION: &str = "React to a user message with a tapback (like, love, laugh, emphasize, question, dislike; ack is a like) or any one emoji, shown on the message at once. Use it instead of a reply that only acknowledges. id: the message's line id.";
+
+/// The `react` tool's `reaction` argument.
+pub const REACT_REACTION_DESCRIPTION: &str = "like, love, laugh, emphasize, question, dislike or ack; or their emoji 👍 ❤️ 😂 ‼️ ❓ 👎; or any one other emoji, such as 🔥 or 🎉.";
 
 /// The `reply` tool's description.
 pub const REPLY_DESCRIPTION: &str = "Post text now as a reply in the thread of a user message, so the user sees which ask it answers. Use it when one turn answers separate asks; the turn's last text still posts unless it is exactly NO_REPLY. id: the message's line id.";
