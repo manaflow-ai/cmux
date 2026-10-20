@@ -20,7 +20,9 @@ final class TabCell {
             stateChanged(animated: false)
         }
     }
-    var isMultiSelected = false
+    /// One of several selected tabs (Cmd- or Shift-click) that is not the active one: a lighter
+    /// fill than the active tab's (`Palette.secondarySelectionFill`, Chrome's selected tabs).
+    var isMultiSelected = false { didSet { if oldValue != isMultiSelected { stateChanged(animated: false) } } }
     var isHovered = false { didSet { if oldValue != isHovered { stateChanged() } } }
     var isCloseHovered = false { didSet { if oldValue != isCloseHovered { updateColors(animated: true, showing: isCloseHovered) } } }
     var isClosePressed = false { didSet { if oldValue != isClosePressed { updateColors(animated: false) } } }
@@ -266,7 +268,7 @@ final class TabCell {
     /// `showing` is whether the fill that changed shows: the tab's by
     /// default, the close button's for its own hover.
     func updateColors(animated: Bool, showing: Bool? = nil) {
-        let token = animated ? ChromeHover.fade(showing: showing ?? (isLifted || fillsSelection || isHovered)) : nil
+        let token = animated ? ChromeHover.fade(showing: showing ?? (isLifted || fillsSelection || isMultiSelected || isHovered)) : nil
         // An instant change also ends a fill still easing in.
         if (token.map(Motion.duration) ?? 0) == 0 {
             for layer in [backgroundLayer, closeBackgroundLayer].compactMap({ $0 }) { layer.removeAnimation(forKey: "backgroundColor") }
@@ -277,7 +279,8 @@ final class TabCell {
     private func applyColors() {
         themeScope.perform {
             backgroundLayer.shadowColor = Palette.shadow.cgColor
-            let fill: NSColor? = fillsSelection ? Palette.selectionFill : (isHovered ? Palette.hoverFill : nil)
+            let multi = isMultiSelected && !isSelected
+            let fill: NSColor? = fillsSelection ? Palette.selectionFill : multi ? Palette.secondarySelectionFill : (isHovered ? Palette.hoverFill : nil)
             backgroundLayer.backgroundColor = fill?.cgColor
             if isLifted {
                 // A lifted tab reads as solid so it does not show tabs sliding under it.

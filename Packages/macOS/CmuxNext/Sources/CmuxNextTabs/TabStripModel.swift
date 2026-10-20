@@ -16,11 +16,15 @@ public enum TabStripStyle: Hashable, Sendable {
 public final class TabStripModel {
     /// Identifies this strip in cross-strip drags.
     public let stripID: UUID
-    public var tabs: [TabItem]
+    public var tabs: [TabItem] { didSet { followTabs() } }
     /// Groups of this strip. Members reference them through `TabItem.groupID`.
     public var groups: [TabGroupItem]
-    public var selectedID: TabID?
+    /// The active tab. One outside `multiSelection` ends that selection.
+    public var selectedID: TabID? { didSet { if selectedID != oldValue { followActive() } } }
+    /// Cmd- and Shift-click's selection (`TabMultiSelection`); empty while only `selectedID` is selected.
     public var multiSelection = TabMultiSelection()
+    /// Cmd- and Shift-click select several tabs. Off for a strip whose App takes no multi-tab
+    /// actions (the screen bar).
     public var allowsMultiSelection: Bool
     public var style: TabStripStyle
     public var showsNewTabButton: Bool

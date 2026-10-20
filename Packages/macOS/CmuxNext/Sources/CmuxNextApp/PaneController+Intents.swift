@@ -13,40 +13,29 @@ import CmuxNextFocus
 extension PaneController {
     func handle(_ intent: TabStripIntent) {
         switch intent {
-        case .select(let id):
-            select(id)
-        case .close(let id, _):
-            CloseUndoToasts.close(in: self, [id])
-        case .closeOthers(let keep):
-            CloseUndoToasts.close(in: self, stripModel.closedByCloseOthers(keeping: keep))
-        case .closeToRight(let id):
-            // Pinned tabs after `id` stay, as in Chrome.
-            CloseUndoToasts.close(in: self, stripModel.closedByCloseToRight(of: id))
-        case .reorder(let id, _, let to):
-            StripOrder.reorder(id, to: to, in: self)
-        case .reorderTabs: break
+        case .select(let id): select(id)
+        case .close(let id, _): CloseUndoToasts.close(in: self, [id])
+        case .closeOthers(let keep): CloseUndoToasts.close(in: self, stripModel.closedByCloseOthers(keeping: keep))
+        // Pinned tabs after `id` stay, as in Chrome.
+        case .closeToRight(let id): CloseUndoToasts.close(in: self, stripModel.closedByCloseToRight(of: id))
+        case .reorder(let id, _, let to): StripOrder.reorder(id, to: to, in: self)
+        case .reorderTabs(let order): StripOrder.reorder(toward: order, in: self)
         case .newTab(_, let opensWorkspace, let sameKind):
             StripNewTab.request(pane: paneKey, opensWorkspace: opensWorkspace, sameKind: sameKind) {
                 _ = services.registry.perform($0, invocation: $1)
             }
-        case .pin(let id), .unpin(let id):
-            setPinned(id, pinned: { if case .pin = intent { true } else { false } }())
-        case .rename(let id):
-            rename(id)
-        case .renameCommitted(let id, let name):
-            commitRename(id, name: name)
-        case .duplicate(let id):
-            newTerminalTab(cwd: tab(id)?.cwd)
+        case .pin(let id), .unpin(let id): setPinned(id, pinned: { if case .pin = intent { true } else { false } }())
+        case .rename(let id): rename(id)
+        case .renameCommitted(let id, let name): commitRename(id, name: name)
+        case .duplicate(let id): newTerminalTab(cwd: tab(id)?.cwd)
         case .moveToNewSplit(let id, let direction):
             guard let tab = tab(id) else { return }
             TabMoves.toNewSplit(tab, pane: pane, edge: direction == .right ? .right : .bottom, services: services)
         case .moveToNewColumn(let id):
             guard let tab = tab(id) else { return }
             TabMoves.toNewColumn(tab, anchor: pane, services: services)
-        case .dragBegan(let start):
-            services.dragSession.begin(start, from: self)
-        case .groupDragBegan(let start):
-            services.dragSession.beginGroup(start, from: self)
+        case .dragBegan(let start): services.dragSession.begin(start, from: self)
+        case .groupDragBegan(let start): services.dragSession.beginGroup(start, from: self)
         case .toggleGroupCollapsed, .moveGroup, .addToGroup, .removeFromGroup, .group, .createGroup:
             handleGroup(intent)
         }
@@ -249,18 +238,19 @@ extension PaneController {
     /// A tab's menu, the same wherever it is opened (its strip, its row in
     /// the sidebar): a browser tab drops what does not apply to a page.
     /// New <Kind> Tab reads as the kind `sameKind` names ("New Browser Tab").
-    static func tabMenu(_ id: String, tab: TabModel?, workspaceKind: String?, sameKind: NewTabKind, registry: ActionRegistry) -> NSMenu {
-        let menu = tabMenuEntries(id, tab: tab, workspaceKind: workspaceKind, registry: registry)
+    /// `selectionPins`: the menu is on one of several selected tabs, its rows act on all of them, and Pin pins them (true) or unpins.
+    static func tabMenu(_ id: String, tab: TabModel?, workspaceKind: String?, sameKind: NewTabKind, registry: ActionRegistry, selectionPins: Bool? = nil) -> NSMenu {
+        let menu = tabMenuEntries(id, tab: tab, workspaceKind: workspaceKind, registry: registry, arguments: selectionPins == nil ? [:] : ActionInvocation.tabSelectionArguments)
         // It sits in a submenu (More > New).
         func all(_ menu: NSMenu) -> [NSMenuItem] { menu.items + menu.items.compactMap(\.submenu).flatMap(all) }
         if let item = all(menu).first(where: { ActionRegistry.menuRun(of: $0)?.id == "newTab.ofKind" }),
            let title = registry.title(for: sameKind.newActionID) {
             item.title = title
         }
-        return menu
+        return selectionPins.map { menu.namingTabSelection(pins: $0) } ?? menu
     }
 
-    private static func tabMenuEntries(_ id: String, tab: TabModel?, workspaceKind: String?, registry: ActionRegistry) -> NSMenu {
+    private static func tabMenuEntries(_ id: String, tab: TabModel?, workspaceKind: String?, registry: ActionRegistry, arguments: [String: ActionValue]) -> NSMenu {
         let target = ActionTargetRef(kind: .tab, id: id)
         // Home keeps its tabs: no promote entries.
         let kept = Set(TabPromotion.menuRemovals(kind: workspaceKind))
@@ -268,22 +258,22 @@ extension PaneController {
             // Hibernation discards a page; a terminal has none (Restart only once its shell ended).
             // Reload and Mute are a page's rows (Chrome's Reload, Mute Site).
             let entries = ContextMenuCatalog.shared.entries(for: .tab, removing: kept.union(["hibernateTab", "wakeTab", "toggleTabAudioMute", "reloadTab"]).union(TabRestart.hiddenMenuItems(tab)).union(CloudMove.hiddenMenuItems(tab)))
-            return registry.makeContextMenu(for: .tab, target: target, entries: entries)
+            return registry.makeContextMenu(for: .tab, target: target, entries: entries, arguments: arguments)
         }
         // A browser tab offers the engine it is not on.
         let other: ActionID = tab.browserEngine == BrowserEngineTag.cef.rawValue ? "browser.openInChromium" : "browser.openInWebKit"
         // Terminal themes and keep-running do not apply to a page.
         let entries = ContextMenuCatalog.shared.entries(for: .tab, removing: kept.union([other, "terminal.setTheme", "terminal.clearTheme", "terminal.keep", TabRestart.action, CloudMove.action, CloudBringBack.action]))
-        return registry.makeContextMenu(for: .tab, target: target, entries: entries, implied: .browserFocused)
+        return registry.makeContextMenu(for: .tab, target: target, entries: entries, implied: .browserFocused, arguments: arguments)
     }
 
     func contextMenu(for target: TabContextTarget) -> NSMenu? {
         let registry = services.registry
         switch target {
-        case .tab(let id, _):
-            select(id)
-            return Self.tabMenu(id.rawValue, tab: tab(id), workspaceKind: workspace?.workspace.kind,
-                                sameKind: NewTabKind.of(id.rawValue, tab: tab(id), services: services), registry: registry).themeRows(in: view.themeScope.fullStrength)
+        case .tab(let id, let selection):
+            select(id) // one of the selected tabs keeps the selection (TabMultiSelection)
+            return Self.tabMenu(id.rawValue, tab: tab(id), workspaceKind: workspace?.workspace.kind, sameKind: NewTabKind.of(id.rawValue, tab: tab(id), services: services),
+                                registry: registry, selectionPins: selection.count > 1 ? stripModel.pinsAll(selection) : nil).themeRows(in: view.themeScope.fullStrength)
         case .group(let group), .savedGroup(let group):
             let saved = daemon.store.savedTabGroups.contains { $0.openGroup?.rawValue == group.rawValue }
             return registry.makeContextMenu(for: .tabGroup, target: ActionTargetRef(kind: .tabGroup, id: group.rawValue),
