@@ -39,7 +39,13 @@ pub(super) fn run(flags: &super::Flags) -> anyhow::Result<()> {
     drop(daemon);
     parent.set_nonblocking(true)?;
     control.set_nonblocking(true)?;
-    super::tokio_runtime()?.block_on(run_child(parent, control, session))
+    let runtime = super::tokio_runtime()?;
+    let result = runtime.block_on(run_child(parent, control, session));
+    // This runtime belongs to the dedicated child. Its authority is fenced
+    // and service futures are drained before return; an abandoned blocking
+    // public-policy read must not keep the child from exiting and being reaped.
+    runtime.shutdown_timeout(Duration::from_secs(1));
+    result
 }
 
 async fn closed(stream: &mut UnixStream) -> anyhow::Result<()> {
