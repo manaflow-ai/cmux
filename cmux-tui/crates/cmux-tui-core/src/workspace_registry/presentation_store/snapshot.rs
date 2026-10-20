@@ -86,6 +86,9 @@ impl WorkspaceRegistry {
         let saved_screen_groups =
             super::super::screen_store::read_saved_screen_groups(&self.connection.get())?;
         let kept_tabs = crate::state::kept_tab_store::read_kept_tabs(&self.connection.get())?;
+        let resume_commands = super::super::terminal_resume_command_store::read_resume_commands(
+            &self.connection.get(),
+        )?;
         let conversation_tabs = read_conversation_tabs(&self.connection.get())?;
         let remote_terminals = read_remote_terminals(&self.connection.get())?;
         let home_workspace =
@@ -108,6 +111,7 @@ impl WorkspaceRegistry {
             screens,
             saved_screen_groups,
             kept_tabs,
+            resume_commands,
         })
     }
 }

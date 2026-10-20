@@ -146,7 +146,8 @@ nonisolated enum TerminalActionCatalog: ActionCatalogGroup {
                 id: "resumeCommandEdit",
                 title: String(localized: "action.resumeCommandEdit", defaultValue: "Edit Resume Command…", bundle: .module),
                 keywords: ["resume", "fork"], category: .terminal, symbol: "play.square", surfaces: [.contextMenu],
-                requires: [.terminalFocused], arguments: [CatalogArgument.commandString], targets: [.pane],
+                // Without a command it opens a prompt holding the current one.
+                requires: [.terminalFocused], arguments: [CatalogArgument.commandString.optional], targets: [.pane],
                 cliName: "terminal edit-resume-command"
             ),
             ActionDescriptor(

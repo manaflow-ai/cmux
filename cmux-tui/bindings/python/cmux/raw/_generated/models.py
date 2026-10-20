@@ -1571,6 +1571,14 @@ class SetTerminalKeepResult:
 
 
 @dataclass(frozen=True)
+class SetTerminalResumeCommandResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/SetTerminalResumeCommandResult'
+    terminal_id: str
+    resume_command: Union[str, None]
+    terminal_resource_id: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class ShownProgramStatus:
     __cmux_schema_path__: ClassVar[str] = 'types/ShownProgramStatus'
     progress: Union[int, None]
@@ -4488,6 +4496,14 @@ class SetTerminalKeepRequest:
 
 
 @dataclass(frozen=True)
+class SetTerminalResumeCommandRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/set-terminal-resume-command/request'
+    command: Union[str, None]
+    surface: Union[Id, None, MissingType] = field(default=MISSING)
+    terminal_id: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class SetViewportPaneWidthRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/set-viewport-pane-width/request'
     pane: Id
@@ -5972,6 +5988,7 @@ __all__ = [
     'SetSizePolicyResult',
     'SetTerminalIdlePolicyResult',
     'SetTerminalKeepResult',
+    'SetTerminalResumeCommandResult',
     'ShownProgramStatus',
     'ShutdownDaemonResult',
     'SidebarPluginResult',
@@ -6308,6 +6325,7 @@ __all__ = [
     'SetTerminalCommandHistoryRequest',
     'SetTerminalIdlePolicyRequest',
     'SetTerminalKeepRequest',
+    'SetTerminalResumeCommandRequest',
     'SetViewportPaneWidthRequest',
     'SetWindowTitleRequest',
     'SetWorkspaceMetadataRequest',

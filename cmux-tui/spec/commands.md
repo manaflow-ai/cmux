@@ -4644,6 +4644,43 @@ like a placed one (`set-client-sizing`, `resize-attached-view`,
 `release-attached-view-size`): its attached views are not treated as views of
 a closed tab.
 
+### set-terminal-resume-command
+
+| Field | Value |
+| --- | --- |
+| name | `set-terminal-resume-command` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `terminal-resume-command-v1` |
+
+Sets or clears the resume command of one hosted terminal: the command its new
+shell runs when the terminal restarts under the same terminal id, after a host
+loss (the L2 respawn) or through `restart-tab`. The daemon types the command
+on the new prompt followed by a return, so it runs; without a resume command a
+respawn still offers an agent resume command or the terminal's earlier command
+line, typed without a return. The command is stored durably with the terminal
+and survives owner restarts; every tab of the terminal shows it as
+`resume_command` (string or null) in the tree. The respawn log line records
+`prefilled:"resume"`.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `surface` | `Id` or null | exactly one of `surface`/`terminal_id` | A PTY surface backed by a hosted terminal |
+| `terminal_id` | string or null | exactly one of `surface`/`terminal_id` | Host id (32 lowercase hex) or public `term_` id |
+| `command` | string or null | required | One line without control characters, at most 4096 bytes, trimmed; null or an empty string clears |
+
+Errors: `terminal_not_found` for an unknown or closed terminal,
+`terminal_not_hosted` for a surface without a terminal host, and `bad request`
+when both or neither target is given or the command holds a control character
+or is too long.
+
+Result:
+
+```text
+object{terminal_id:string, terminal_resource_id:string|null, resume_command:string|null}
+```
+
 ### focus-pane
 
 | Field | Value |

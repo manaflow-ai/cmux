@@ -245,6 +245,9 @@ pub(super) fn handle_command_with_cancellation(
         Command::SetTerminalKeep { surface, terminal_id, keep } => {
             cmd_terminals::set_terminal_keep(mux, surface, terminal_id, keep)
         }
+        Command::SetTerminalResumeCommand { surface, terminal_id, command } => {
+            cmd_terminals::set_terminal_resume_command(mux, surface, terminal_id, command)
+        }
         Command::NewTab { pane, cwd, env, cols, rows, keep, terminal_id, shell_args } => {
             cmd_tabs::new_tab(
                 mux,

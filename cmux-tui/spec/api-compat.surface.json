@@ -11286,6 +11286,21 @@
         "nullable": true
       }
     },
+    "request:set-terminal-resume-command": {
+      "/command": {
+        "ty": "string",
+        "required": true,
+        "nullable": true
+      },
+      "/surface": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/terminal_id": {
+        "ty": "string",
+        "nullable": true
+      }
+    },
     "request:set-viewport-pane-width": {
       "/pane": {
         "ty": "uint64",
@@ -19675,6 +19690,21 @@
       "/data/keep": {
         "ty": "boolean",
         "required": true
+      },
+      "/data/terminal_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/terminal_resource_id": {
+        "ty": "string",
+        "nullable": true
+      }
+    },
+    "response:set-terminal-resume-command": {
+      "/data/resume_command": {
+        "ty": "string",
+        "required": true,
+        "nullable": true
       },
       "/data/terminal_id": {
         "ty": "string",

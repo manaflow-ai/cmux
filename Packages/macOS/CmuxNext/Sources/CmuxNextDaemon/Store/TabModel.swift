@@ -36,6 +36,9 @@ public final class TabModel: Identifiable {
     public internal(set) var pinned: Bool
     /// The page a pinned browser tab was pinned on (Back to Pinned Page).
     public internal(set) var pinnedURL: String?
+    /// The command the terminal's new shell runs when it respawns or
+    /// restarts (`terminal-resume-command-v1`); nil when none is set.
+    public internal(set) var resumeCommand: String?
     /// The daemon's cwd, else the folder the shell last reported to this
     /// app's surface (`noteTerminalDirectory`): the pinned daemon clears its
     /// own on a `kitty-shell-cwd://` report.
@@ -163,6 +166,7 @@ public final class TabModel: Identifiable {
         remote = s.remote
         conversation = s.conversation
         app = s.app
+        resumeCommand = s.resumeCommand
         #if DEBUG
         // A traced new terminal's tab reached the store (its `tab-added`, or a resync's snapshot).
         if NewTerminalTrace.shared.isArmed, let terminal = s.terminalID {
@@ -206,6 +210,7 @@ public final class TabModel: Identifiable {
         if remote != s.remote { remote = s.remote }
         if conversation != s.conversation { conversation = s.conversation }
         if app != s.app { app = s.app }
+        if resumeCommand != s.resumeCommand { resumeCommand = s.resumeCommand }
     }
 
     /// Lays the daemon's tab record and terminal progress over the record.

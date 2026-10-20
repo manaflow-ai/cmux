@@ -192,6 +192,10 @@ impl Mux {
             if let Err(error) = registry.prune_terminal_keep() {
                 self.report_internal_diagnostic(format!("terminal keep prune failed: {error}"));
             }
+            if let Err(error) = registry.prune_terminal_resume_commands() {
+                let message = format!("terminal resume command prune failed: {error}");
+                self.report_internal_diagnostic(message);
+            }
             registry.kept_terminals()?
         };
         unplaced.retain(|terminal_id| !kept.contains(terminal_id));

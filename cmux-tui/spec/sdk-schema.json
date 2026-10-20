@@ -4523,6 +4523,37 @@
    },
    "additional_properties": false
   },
+  "SetTerminalResumeCommandResult": {
+   "kind": "object",
+   "fields": {
+    "terminal_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "terminal_resource_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "default": null
+    },
+    "resume_command": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": true
+    }
+   },
+   "additional_properties": false
+  },
   "CellPixelResize": {
    "kind": "object",
    "fields": {
@@ -10873,6 +10904,68 @@
    "constraints": [
     "The keep flag is stored durably with the terminal and survives owner restarts.",
     "A terminal that is not kept is ended, as close-terminal does, once it has had no tab placement for the owner's reap grace period (default 30 seconds); a placement restored within the period cancels it."
+   ]
+  },
+  "set-terminal-resume-command": {
+   "authority": "control",
+   "since": 12,
+   "capability": "terminal-resume-command-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "surface": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "terminal_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "constraints": [
+       {
+        "pattern": "^(term_)?[0-9a-f]{32}$",
+        "format": "terminal host id (UUIDv4 hex without dashes) or public term_ resource id"
+       }
+      ]
+     },
+     "command": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": true,
+      "constraints": [
+       {
+        "max_utf8_bytes": 4096,
+        "format": "one line without control characters; null or an empty string clears"
+       }
+      ]
+     }
+    },
+    "additional_properties": false,
+    "constraints": [
+     "Exactly one of surface or terminal_id is present."
+    ]
+   },
+   "result": {
+    "kind": "ref",
+    "name": "SetTerminalResumeCommandResult"
+   },
+   "stream": null,
+   "constraints": [
+    "The resume command is stored durably with the terminal and survives owner restarts.",
+    "A respawn of the terminal after a host loss and a restart-tab run the command in the new shell.",
+    "Every tab of the terminal shows the command as resume_command."
    ]
   },
   "new-tab": {

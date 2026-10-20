@@ -190,6 +190,9 @@ pub(super) fn pane_json(
                     .map(|status| status.wire()),
                 // Why a dead terminal ended (R41, terminal-state-v1).
                 "end": end,
+                // `terminal-resume-command-v1`: run in the terminal's new shell on a restart.
+                "resume_command": content_terminal
+                    .and_then(|id| notifications.presentation.resume_commands.get(id)),
             });
             raw_tab::merge_surface_fields(&mut tab, surface, frontend_browser, conversation);
             // `app-screens-v1`: the app (and route) an app tab shows.

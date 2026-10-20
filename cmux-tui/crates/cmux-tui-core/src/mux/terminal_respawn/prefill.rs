@@ -1,5 +1,10 @@
-//! The command a respawned terminal offers on its new prompt (cx-6so.49
-//! L2), typed without a newline so the user decides whether to run it:
+//! The command a respawned terminal runs or offers on its new prompt
+//! (cx-6so.49 L2):
+//! - the resume command a person set on the terminal
+//!   (`terminal-resume-command-v1`), typed with a return so it runs: the
+//!   person asked for exactly this command on a restart;
+//!
+//! else one typed without a newline, so the user decides whether to run it:
 //! - the agent session it last ran, when its harness is known:
 //!   `claude --resume <id>` or `codex resume <id>`;
 //! - else, for a command terminal, its argv, shell-quoted: the full argv
@@ -68,12 +73,17 @@ impl Prefill {
 }
 
 impl Mux {
-    /// The pre-fill of respawned terminal `terminal_id`, if any.
+    /// The pre-fill of respawned terminal `terminal_id` (public id
+    /// `public_id`), if any.
     pub(in crate::mux) fn respawn_prefill(
         &self,
         terminal_id: &str,
+        public_id: &str,
         record: Option<&StoredRelaunch>,
     ) -> Option<Prefill> {
+        if let Some(command) = self.terminal_resume_command(public_id) {
+            return Some(Prefill { kind: Prefilled::Resume, text: format!("{command}\r") });
+        }
         let record = record?;
         if let Some(text) = record
             .agent
