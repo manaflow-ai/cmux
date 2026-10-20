@@ -177,3 +177,28 @@ async fn a_harness_title_wins_and_nothing_is_generated() {
     assert_eq!(client.title(&session).await, json!("Picnic planning"));
     assert!(!asked.exists(), "the title command ran for a titled session");
 }
+
+/// A chat the person named (at its start, or by a rename before its first reply) keeps that
+/// name: no title request goes to a model for it (user 2026-10-20).
+#[tokio::test]
+async fn a_chat_the_person_named_asks_no_model_for_a_title() {
+    let asked = asked_path("named");
+    let hub = hub(&asked);
+    let mut client = Client::open(&hub);
+    client.watch().await;
+    let created = client
+        .call(
+            "session/new",
+            json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": {"harness": "fake", "name": "picnic-plan"}}}),
+        )
+        .await;
+    let named = created["sessionId"].as_str().unwrap().to_owned();
+    client.prompt(&named, "Plan a three-dish picnic menu").await;
+    assert!(client.titled(Duration::from_secs(3)).await.is_none(), "titled a named chat");
+
+    let renamed = client.new_session().await;
+    client.call("_acpmux/rename", json!({"sessionId": renamed, "newName": "menu-ideas"})).await;
+    client.prompt(&renamed, "Plan a three-dish picnic menu").await;
+    assert!(client.titled(Duration::from_secs(3)).await.is_none(), "titled a renamed chat");
+    assert!(!asked.exists(), "the title command ran: {:?}", std::fs::read_to_string(&asked));
+}

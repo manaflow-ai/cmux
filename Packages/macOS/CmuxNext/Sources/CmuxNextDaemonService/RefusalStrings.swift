@@ -64,6 +64,12 @@ public nonisolated enum RefusalStrings {
     public static var homeAttachNoHome: String {
         text("handlers.refusal.homeAttachNoHome", "Open a Home conversation to attach files.")
     }
+    public static var homeReplyNoSelection: String {
+        text("handlers.refusal.homeReplyNoSelection", "Select text in one message of a Home conversation to reply to it.")
+    }
+    public static var homeQuoteNoHome: String {
+        text("handlers.refusal.homeQuoteNoHome", "Open a Home conversation to quote in chat.")
+    }
     public static var homeFlightRecorderOff: String {
         text("handlers.refusal.homeFlightRecorderOff", "The flight recorder is off, or no Home conversation is open. Turn it on in Debug Settings > Home.")
     }
@@ -173,6 +179,15 @@ public nonisolated enum RefusalStrings {
     public static var simulatorUnported: String { text("handlers.refusal.simulatorUnported", "needs simulator panes, which cmux-next does not have yet") }
     public static var filesPaneUnported: String { text("handlers.refusal.filesPaneUnported", "needs the Files panel as a pane (not in cmux-next yet)") }
     public static var findPaneUnported: String { text("handlers.refusal.findPaneUnported", "needs the Find panel as a pane (not in cmux-next yet)") }
+    public static var controlListenerNotRunning: String {
+        text("handlers.refusal.controlListenerNotRunning", "The CLI listener is not running in this app.")
+    }
+    public static func controlListenerRestartFailed(_ reason: String) -> String {
+        format("handlers.refusal.controlListenerRestartFailed", "The CLI listener could not restart: %@", reason)
+    }
+    public static var noWorkspacePullRequestLinks: String {
+        text("handlers.refusal.noWorkspacePullRequestLinks", "This workspace has no pull request links.")
+    }
     public static var noRecentlyClosedTab: String { text("handlers.refusal.noRecentlyClosedTab", "no recently closed tab") }
     public static var noRecentlyClosedWorkspace: String { text("handlers.refusal.noRecentlyClosedWorkspace", "no recently closed workspace") }
     static var noRecentlyClosedItem: String { text("handlers.refusal.noRecentlyClosedItem", "nothing was closed recently") }
@@ -187,9 +202,6 @@ public nonisolated enum RefusalStrings {
     public static var sessionLocalHasNoName: String { text("handlers.refusal.sessionLocalHasNoName", "session-local tabs have no name") }
     public static var pinnedTabKept: String { text("handlers.refusal.pinnedTabKept", "Pinned tabs stay open. Right-click the tab and choose Close Tab to close it.") }
     public static var sessionLocalCannotPin: String { text("handlers.refusal.sessionLocalCannotPin", "session-local tabs cannot be pinned") }
-    public static var markUnreadUnsupported: String {
-        text("handlers.refusal.markUnreadNotAvailable", "Marking as unread is not available yet. Only marking as read is.")
-    }
     public static var hibernateVisibleTab: String { text("handlers.refusal.hibernateVisibleTab", "Only a hidden tab can hibernate.") }
     public static var hibernateUnsupported: String {
         text("handlers.refusal.hibernateUnsupported", "This page cannot keep its history when it hibernates.")

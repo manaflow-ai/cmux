@@ -135,6 +135,21 @@
     )
     0 0 / 12px 12px;
 }
+.cv-user__image-placeholder {
+  display: block;
+  flex: 0 0 72px;
+  width: 72px;
+  height: 72px;
+  border-radius: 10px;
+  outline: 1px solid color-mix(in srgb, var(--agent-text) 24%, transparent);
+  outline-offset: -1px;
+  background: repeating-conic-gradient(
+      color-mix(in srgb, var(--agent-text) 10%, transparent) 0 25%,
+      transparent 0 50%
+    )
+    0 0 / 12px 12px;
+  opacity: 0.55;
+}
 
 /* A Chief subagent's first message: the Chief's view as one collapsed line above the task. */
 .cv-user__context {
@@ -1089,36 +1104,61 @@ pre.cv-math-source {
 .cv-worked__label {
   flex: none;
 }
-/* A band of the text color sweeps across "Thinking"; with Reduce Motion on it stays muted. */
-@keyframes cv-thinking-sweep {
-  from {
-    background-position: 100% 0;
-  }
-  to {
-    background-position: 0 0;
-  }
+/* A running turn's line (WorkingFor.tsx): the call in flight gives way first, its time stays. */
+.cv-worked__doing {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cv-worked__time {
+  flex: none;
+  margin-inline-start: 6px;
+}
+/* The working mark (WorkingMark.tsx): the pane's one running motion, three accent dots that pulse
+   in turn on a slow 2s cycle, centred on the 20px line. */
+.cv-working-mark {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 20px;
+  margin-inline-end: 6px;
+}
+.cv-working-mark > span {
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: var(--agent-accent, currentColor);
 }
 @media (prefers-reduced-motion: no-preference) {
-  .cv-thinking {
-    color: transparent;
-    background: linear-gradient(
-        90deg,
-        var(--cv-text-muted) 40%,
-        var(--cv-text) 50%,
-        var(--cv-text-muted) 60%
-      )
-      0 0 / 300% 100%;
-    -webkit-background-clip: text;
-    background-clip: text;
-    animation: cv-thinking-sweep 2s linear infinite;
+  .cv-working-mark > span {
+    animation: cv-working-dot 2s ease-in-out infinite;
+  }
+  .cv-working-mark > span:nth-child(2) {
+    animation-delay: 0.25s;
+  }
+  .cv-working-mark > span:nth-child(3) {
+    animation-delay: 0.5s;
   }
 }
-/* Static status indicators (cx-sya4n): no sweep; the word stays muted. */
-:root[data-status-indicators="static"] .cv-thinking {
+@keyframes cv-working-dot {
+  0%,
+  60%,
+  100% {
+    opacity: 0.35;
+  }
+  30% {
+    opacity: 1;
+  }
+}
+/* "Thinking" stays still in the muted color; the working dots carry the motion. */
+.cv-thinking {
   color: var(--cv-text-muted);
-  background: none;
-  -webkit-background-clip: border-box;
-  background-clip: border-box;
+}
+/* Static status indicators (cx-sya4n), or Reduce Motion above: the dots hold at full strength. */
+:root[data-status-indicators="static"] .cv-working-mark > span {
   animation: none;
 }
 
@@ -1520,6 +1560,17 @@ pre.cv-math-source {
   font-family: var(--cv-font);
   font-size: 13px;
 }
+/* Debug Settings `agentPane.debug.turnActionsPlacement`: keep the default desktop placement on
+   the right, while allowing a left action rail for people who scan the footer from the transcript
+   edge. The action group leads the row when left, followed by the quiet time label. */
+:root[data-turn-actions-placement="left"] .cv-turn-actions {
+  justify-content: flex-start;
+  padding-right: 0;
+  padding-left: 2px;
+}
+:root[data-turn-actions-placement="left"] .cv-turn-actions .cv-turn-action-group {
+  order: -1;
+}
 .cv-turn-action-group {
   display: inline-flex;
   align-items: center;
@@ -1802,6 +1853,13 @@ pre.cv-math-source {
   object-fit: contain;
   margin: 6px 0;
   border-radius: 8px;
+}
+/* Loaded reply images replace a compact placeholder asynchronously.  Fade only
+ * opacity so the image cannot introduce a second layout shift during decode. */
+@media (prefers-reduced-motion: no-preference) {
+  .cv-img--enter {
+    animation: cv-enter-fade var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out) both;
+  }
 }
 /* A reply image that opens the image viewer (ImageViewer.tsx). */
 .cv-img-open {
@@ -2201,8 +2259,9 @@ pre.cv-math-source {
   border-radius: 0;
 }
 
-/* Find in Chat (conversation/ChatFindBar.tsx, chatFind.ts): a compact bar pinned to the
-   transcript's top right, over the rows, like the minimap; the matches are custom highlights. */
+/* Find in Chat (conversation/ChatFindBar.tsx, chatFind.ts): the shared find pill (ui/findPill.css)
+   pinned to the transcript's top right, over the rows, where every pane's find pill sits
+   (FindPillMetrics.inset); the matches are custom highlights. */
 .acpmux-find {
   position: sticky;
   top: 0;
@@ -2211,80 +2270,8 @@ pre.cv-math-source {
 }
 .acpmux-find__bar {
   position: absolute;
-  top: 8px;
-  right: 16px;
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  height: 28px;
-  padding: 0 3px 0 9px;
-  border: var(--cmux-hairline, 0.5px) solid var(--agent-border);
-  border-radius: 8px;
-  background: var(--acpmux-base, var(--agent-page-bg));
-  /* Its border is its one rim (it takes the accent on focus), so the shadow brings no hairline. */
-  box-shadow: var(--ui-popup-drop, var(--elevation-2));
-  font-family: var(--cv-font);
-  font-size: var(--text-body);
-}
-.acpmux-find__bar:focus-within {
-  border-color: var(--agent-accent);
-}
-.acpmux-find__field {
-  width: min(180px, 40vw);
-  height: 100%;
-  padding: 0;
-  border: 0;
-  outline: none;
-  background: none;
-  color: var(--agent-text);
-  font: inherit;
-  -webkit-appearance: none;
-  appearance: none;
-}
-.acpmux-find__field::placeholder {
-  color: var(--agent-muted);
-}
-.acpmux-find__field::-webkit-search-cancel-button {
-  -webkit-appearance: none;
-  appearance: none;
-}
-.acpmux-find__count {
-  min-width: 0;
-  padding-right: 4px;
-  color: var(--agent-muted);
-  font-size: var(--text-detail);
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-.acpmux-find__step {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 22px;
-  height: 22px;
-  padding: 0;
-  border: 0;
-  border-radius: 6px;
-  background: none;
-  color: var(--agent-soft, var(--agent-muted));
-  cursor: default;
-}
-.acpmux-find__step:hover:not(:disabled) {
-  background: var(--agent-control-hover, color-mix(in srgb, var(--agent-text) 6%, transparent));
-}
-.acpmux-find__up {
-  transform: rotate(180deg);
-}
-/* No match for the query: the count reads as an answer, not as quiet detail. */
-.acpmux-find__count[data-empty] {
-  color: var(--agent-text);
-}
-.acpmux-find__step:disabled {
-  opacity: 0.4;
-}
-.acpmux-find__step:focus-visible {
-  outline: 2px solid var(--agent-accent);
-  outline-offset: -2px;
+  top: var(--find-pill-inset, 10px);
+  right: var(--find-pill-inset, 10px);
 }
 /* Find matches: the theme's highlight (the yellow is only for an unthemed preview). */
 ::highlight(acpmux-find) {

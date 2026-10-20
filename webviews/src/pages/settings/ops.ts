@@ -211,12 +211,27 @@ export type AccountsRow = {
   paste: { title: string; body: string; placeholder: string; buttons: AccountsButton[] } | null;
 };
 
+/**
+ * cmux's own account row. Button ids are run as actions: `cmux.signIn`, `cmux.cancelSignIn`,
+ * `cmux.continueInBrowser`, `cmux.switchAccount`, `cmux.signOut`.
+ */
+export type AccountsCmux = {
+  title: string;
+  detail: string | null;
+  status: string;
+  statusKind: "success" | "attention" | "neutral" | "quiet";
+  busy: boolean;
+  buttons: AccountsButton[];
+  note: string | null;
+  error: string | null;
+};
+
 /** The Accounts part as the host draws it (texts already localized by the app). */
 export type AccountsState = {
   refresh: string;
   refreshing: boolean;
-  /** The Sign In to cmux button's title when cmux is signed out. */
-  signIn: string | null;
+  /** cmux's own account: who is signed in, sign in, switch and sign out. */
+  cmux: AccountsCmux;
   removeTitle: string;
   groups: Array<{ id: string; title: string; rows: AccountsRow[] }>;
 };
@@ -312,6 +327,8 @@ export type HarnessRow = {
   auth?: "signedIn" | "signedOut" | "unknown";
   /** How to update it; `elevated`: needs sudo, so the page shows `command` and never runs it. */
   update?: { command: string; elevated: boolean } | null;
+  /** The update owner runs this channel (npm or native); without it Update is not offered. */
+  ownerUpdate?: boolean;
   /** acpmux runs its update on its own when a check finds it outdated (off by default). */
   autoUpdate?: boolean;
   /** What auto-update last did for it. */
@@ -324,13 +341,32 @@ export type HarnessesState = {
   /** `unavailable`: no acpmux in this app; `unreachable`: its daemon did not answer. */
   problem: "unavailable" | "unreachable" | null;
   harnesses: HarnessRow[];
+  /** Receipts and terminal observations from the captured update owner. */
+  jobs?: Array<{
+    machine: string;
+    session: string;
+    cli: string;
+    profiles: string[];
+    terminal?: string;
+    intent_key?: string;
+    can_resume?: boolean;
+    /** Nothing runs for it (or the owner cannot tell): Dismiss stops it blocking another update. */
+    can_dismiss?: boolean;
+    state: "created" | "pending" | "exited" | "unknown";
+    exit_code?: number;
+    signal?: number;
+    /** With `exited`: the owner saw the end but no process result; settled, never a success. */
+    outcome?: "unknown";
+  }>;
 };
 
 /** One Harnesses gesture: Sign in and Check open a terminal tab with `harness login`; Update
- * (one `id`) and Update all type the harness's own update command into a terminal tab. */
+ * (one `id`) and Update all start owner-bound native terminal jobs. */
 export type HarnessesRun = {
-  action: "refresh" | "signIn" | "check" | "registry" | "update" | "updateAll" | "autoUpdate";
+  action: "refresh" | "signIn" | "check" | "registry" | "update" | "updateAll" | "autoUpdate" | "resumeUpdate" | "dismissUpdate";
   id?: string;
+  /** With `resumeUpdate` and `dismissUpdate`: the retained intent key, not a new operation id. */
+  intent?: string;
   /** With `autoUpdate`: turn it on or off for `id`. */
   on?: boolean;
   /** With `refresh`: the daemon checks every harness again (after an update). */

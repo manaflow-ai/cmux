@@ -39,6 +39,14 @@ pub(crate) struct ReopenRequest {
     pub(crate) window: Option<String>,
     /// Member indexes to restore; None: every member.
     pub(crate) members: Option<Vec<usize>>,
+    /// A `tab_` id: reopen the member of the newest group that holds this
+    /// tab, under the same id (a `cmux://tab/` link,
+    /// plans/cmux-next/durable-links-DESIGN.md). Excludes `closed` and
+    /// `members`.
+    pub(crate) tab: Option<String>,
+    /// A `pane_` id: where a reopened tab goes when its own pane and
+    /// workspace are gone, instead of the session's focused pane.
+    pub(crate) fallback_pane: Option<String>,
 }
 
 impl ReopenRequest {
@@ -51,6 +59,12 @@ impl ReopenRequest {
         }
         if let Some(members) = &self.members {
             fingerprint["members"] = serde_json::json!(members);
+        }
+        if let Some(tab) = &self.tab {
+            fingerprint["tab"] = serde_json::json!(tab);
+        }
+        if let Some(pane) = &self.fallback_pane {
+            fingerprint["fallback_pane"] = serde_json::json!(pane);
         }
         fingerprint
     }
@@ -69,6 +83,9 @@ pub(super) struct Reopened {
     /// A closed pane's id to the pane split off its neighbor again; the
     /// group's kept tabs of that pane follow it there.
     panes: std::collections::HashMap<String, super::closed_pane_split::SplitPane>,
+    /// The request's `fallback_pane`, live: where a tab whose pane and
+    /// workspace are gone reopens.
+    fallback_pane: Option<PaneId>,
 }
 
 impl Reopened {
@@ -310,9 +327,31 @@ impl Mux {
         )? {
             return Ok(replay.into());
         }
-        let closed_id = match &request.closed {
-            Some(closed) => closed.clone(),
-            None => self
+        let by_tab = match &request.tab {
+            Some(tab) => {
+                if request.closed.is_some() || request.members.is_some() {
+                    anyhow::bail!("bad request: tab excludes closed and members");
+                }
+                let live = self.with_state(|state| {
+                    state.resource_indexes.tab_ids.values().any(|id| id.as_str() == tab)
+                });
+                let found = if live {
+                    None
+                } else {
+                    self.read_registry_state(|connection| {
+                        crate::state::closed_history_query::group_member_holding_tab(
+                            connection, tab,
+                        )
+                    })?
+                };
+                Some(found.ok_or_else(|| state_not_found("tab", tab))?)
+            }
+            None => None,
+        };
+        let closed_id = match (&by_tab, &request.closed) {
+            (Some((closed, _)), _) => closed.clone(),
+            (None, Some(closed)) => closed.clone(),
+            (None, None) => self
                 .read_registry_state(|connection| {
                     newest_for_window(connection, request.window.as_deref())
                 })?
@@ -322,8 +361,16 @@ impl Mux {
             .read_registry_state(|connection| closed_record(connection, &closed_id))?
             .ok_or_else(|| state_not_found("closed", &closed_id))?;
         let members = record["members"].as_array().cloned().unwrap_or_default();
-        let (restore, _) = choose(members, request.members.as_deref())?;
-        let mut reopened = Reopened::default();
+        let chosen = match &by_tab {
+            Some((_, member)) => Some(vec![*member]),
+            None => request.members.clone(),
+        };
+        let (restore, _) = choose(members, chosen.as_deref())?;
+        let fallback_pane = request
+            .fallback_pane
+            .as_deref()
+            .and_then(|pane| self.with_state(|state| pane_by_public_id(state, pane)));
+        let mut reopened = Reopened { fallback_pane, ..Reopened::default() };
         for member in &restore {
             self.reopen_member(&mutation.actor, &closed_id, member, &mut reopened)?;
         }
@@ -426,8 +473,15 @@ impl Mux {
                 .flatten()
                 .filter_map(Value::as_str)
                 .filter(|tab| {
+                    // A reopened tab keeps its id (durable-links-DESIGN.md), so the
+                    // membership row its close left behind names this same group: only
+                    // another group's row keeps it out.
                     !presentation.pinned_tabs.contains(*tab)
-                        && !presentation.tab_groups.members.contains_key(*tab)
+                        && presentation
+                            .tab_groups
+                            .members
+                            .get(*tab)
+                            .is_none_or(|group| group.as_str() == id)
                 })
                 .map(str::to_string)
                 .collect::<Vec<_>>();
@@ -589,40 +643,56 @@ impl Mux {
         tab: &Value,
         reattach: bool,
     ) -> anyhow::Result<SurfaceId> {
+        // The tab comes back under its own id, so every link to it keeps
+        // working (plans/cmux-next/durable-links-DESIGN.md). Each creation
+        // attempt below gets the id; the first that commits keeps it.
+        let retired = tab["tab_id"].as_str();
+        let same_id = |create: &mut dyn FnMut() -> anyhow::Result<SurfaceId>| {
+            tab_strip::reopen_identity::scoped(retired, create)
+        };
         let surface = match tab["kind"].as_str() {
             Some("browser") if tab.get("conversation").is_some_and(|value| !value.is_null()) => {
                 let record = ConversationTabRecord::from_wire(&tab["conversation"])
                     .context("the closed conversation tab has no valid record")?;
-                let target = ConversationTabTarget::Pane(Some(pane));
-                self.new_conversation_tab_as(actor, target, record, None, None, None)?.surface.id
+                same_id(&mut || {
+                    let target = ConversationTabTarget::Pane(Some(pane));
+                    Ok(self
+                        .new_conversation_tab_as(actor, target, record.clone(), None, None, None)?
+                        .surface
+                        .id)
+                })?
             }
             Some("browser") if tab.get("remote").is_some_and(|value| !value.is_null()) => {
                 let record = RemoteTerminalRecord::from_wire(&tab["remote"])
                     .context("the closed remote-terminal tab has no valid record")?;
-                self.new_remote_terminal_tab_as(actor, Some(pane), record, None)?.id
+                same_id(&mut || {
+                    Ok(self.new_remote_terminal_tab_as(actor, Some(pane), record.clone(), None)?.id)
+                })?
             }
             Some("browser") => {
                 let url = tab["url"].as_str().unwrap_or("about:blank").to_string();
                 match tab["engine"].as_str() {
                     Some(engine) => {
-                        let surface = self
-                            .new_frontend_browser_tab_as(
-                                actor,
-                                Some(pane),
-                                crate::workspace_registry::FrontendBrowserRecord {
-                                    engine: engine.to_string(),
-                                    url,
-                                    title: None,
-                                    favicon_url: None,
-                                    profile_id: tab["browser_profile_id"]
-                                        .as_str()
-                                        .map(str::to_string),
-                                    // The app that shows the reopened tab claims it.
-                                    owner: None,
-                                },
-                                None,
-                            )?
-                            .id;
+                        let surface = same_id(&mut || {
+                            Ok(self
+                                .new_frontend_browser_tab_as(
+                                    actor,
+                                    Some(pane),
+                                    crate::workspace_registry::FrontendBrowserRecord {
+                                        engine: engine.to_string(),
+                                        url: url.clone(),
+                                        title: None,
+                                        favicon_url: None,
+                                        profile_id: tab["browser_profile_id"]
+                                            .as_str()
+                                            .map(str::to_string),
+                                        // The app that shows the reopened tab claims it.
+                                        owner: None,
+                                    },
+                                    None,
+                                )?
+                                .id)
+                        })?;
                         // The page restores its back/forward entries and
                         // scroll from here, as at relaunch (cx-d0d.11).
                         if let Some(history) = tab["browser_history"].as_str()
@@ -635,7 +705,9 @@ impl Mux {
                         }
                         surface
                     }
-                    None => self.new_browser_tab_as(actor, url, Some(pane), None)?.id,
+                    None => same_id(&mut || {
+                        Ok(self.new_browser_tab_as(actor, url.clone(), Some(pane), None)?.id)
+                    })?,
                 }
             }
             _ => {
@@ -647,15 +719,25 @@ impl Mux {
                         resolution.terminal.lifecycle == TerminalLifecycle::Running
                     });
                 match running.and_then(|resolution| {
-                    self.project_terminal_into_pane(actor, &resolution.terminal.terminal_id, pane)
-                        .ok()
+                    same_id(&mut || {
+                        self.project_terminal_into_pane(
+                            actor,
+                            &resolution.terminal.terminal_id,
+                            pane,
+                        )
+                    })
+                    .ok()
                 }) {
                     Some(surface) => surface,
                     None => {
                         // ARCHIVE-1: the archived screen and the stopped
                         // program come back above the new shell.
                         let (spawn, _seed, size) = self.reopen_terminal_spawn(tab);
-                        self.new_tab_with_options_as(actor, Some(pane), spawn, size)?.id
+                        same_id(&mut || {
+                            Ok(self
+                                .new_tab_with_options_as(actor, Some(pane), spawn.clone(), size)?
+                                .id)
+                        })?
                     }
                 }
             }
@@ -703,6 +785,7 @@ impl Mux {
                 super::closed_pane_split::split_neighbor(state, record),
             )
         });
+        let fallback = reopened.fallback_pane;
         let pane = self.with_state(|state| {
             home.or(neighbor)
                 .or_else(|| {
@@ -713,6 +796,9 @@ impl Mux {
                         .find(|candidate| candidate.public_id.as_str() == workspace)?;
                     workspace.active_screen_ref().map(|screen| screen.active_pane)
                 })
+                // A link's caller names where new items open (Home: the pane
+                // right of Home), checked live: it may have closed since.
+                .or_else(|| fallback.filter(|pane| state.panes.contains_key(pane)))
                 .or_else(|| state.active_pane())
         });
         // Back in its own pane, the tab is created at its recorded index in
