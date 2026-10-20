@@ -22,7 +22,7 @@ A Chief home (`~/.cmux/chief/<name>`, cmux-tui `cli/chief/home.rs`) is self-cont
 
 | Part | Path | Kind | Moves |
 | --- | --- | --- | --- |
-| Memory: log, tree, host state (subagent ids, cursors) | `optchat/memory.sqlite3` | SQLite (WAL) | yes, as a consistent copy |
+| Memory: log, tree, host state (subagent ids, cursors, `control cap` and `control cloud PEER` settings as `host/*` rows) | `optchat/memory.sqlite3` | SQLite (WAL) | yes, as a consistent copy |
 | Memory text export (git, backup remote) | `optchat/chat/` | files + `.git` | yes |
 | Person profile, instructions, avatar, profile, engine, settings | `optchat/person.md`, `AGENTS.md`, `avatar.png`, `profile.json`, `engine.json`, `settings.json`, `chief-settings.json`, `backup-allow.txt` | files | yes |
 | Conversation owner (the Home chat, other Chiefs, attachments) | `tui/<session dir>/conversations.sqlite3`, `chiefs.sqlite3`, `attachments/`, `apps.json`, `identity` | SQLite + files | yes; the session dir is renamed (section 3) |
