@@ -316,12 +316,6 @@ struct ThreadPreview: Hashable {
     /// cmux: the quote is its source bubble (fill, text colour, rounding) drawn at this opacity, so it
     /// reads as context under the live bubbles (plans/cmux-next/reply-thread-gallery.html, variant A).
     static let quoteOpacity: CGFloat = 0.55
-    /// The quote's shape as a row: a part of the root's side, the quote's size, no tail (a quote is never the
-    /// last bubble of a run). `BubblePath.balloon` of this row is the quote's outline, the same rule as every bubble.
-    var shapeRow: PartRow {
-        PartRow(ref: root, part: part ?? .text("", runs: []), outgoing: outgoing, tail: false, reactions: [], failed: false,
-                size: box, text: nil, connectorRoot: nil)
-    }
     /// Body bottom of the row above to the preview's top (measured 31.5).
     static let gap: CGFloat = 31.5
     var isThumbnail: Bool {
@@ -342,7 +336,7 @@ struct ThreadPreview: Hashable {
             p.textLines = ThreadPreview.wrap(t, maxWidth: maxBox - ThreadPreview.textPadX)
             let one = p.textLines.count == 1 ? p.textLines.first.map { TextDraw.width($0, font: ThreadPreview.textFont) } : nil
             p.box = CGSize(width: one.map { min(maxBox, ($0 + ThreadPreview.textPadX).rounded(.toNearestOrEven)) } ?? maxBox,
-                           height: 24.25 + ThreadPreview.textLinePitch * CGFloat(max(0, p.textLines.count - 1)))
+                           height: ThreadPreview.textHeight(lines: p.textLines.count))
         } else {
             let (title, sub) = p.lines
             let w = max(TextDraw.width(title, font: ThreadPreview.titleFont), TextDraw.width(sub, font: ThreadPreview.subFont))
@@ -350,25 +344,41 @@ struct ThreadPreview: Hashable {
         }
         return p
     }
-    /// A text root (measured, macOS 27, 2026-10-05 interaction references): a small
-    /// outlined bubble with a tail, the text in 10 pt regular, 8 pt in from
-    /// the outline; 24.25 pt tall for one line (outline outside to outside 24 pt); the stub 5.5 pt under it (the tail is between).
-    /// A long root wraps (measured, macOS 27, outgoing-thread-reply-take4 still-preview.png, my root
-    /// "there was recent blog post about building macos apps on linux help me find it" at 628 pt): 2 lines,
-    /// the second baseline 11 pt under the first (22 px at 2x), the outline 34.5 pt tall (one line + 11), the
-    /// outline outside 225.0-608.5 pt (383.5 pt: a wrapped preview takes the full column, it does not shrink
-    /// to its widest line, which ends at 597 pt). Not measured (no reference): more than 2 lines, an incoming
-    /// long root, other window widths. Decisions: the same rule on both sides, at most 3 lines with "…" at the
-    /// end of the last, the column scales with the bubble column (`Metrics.maxTextWidth`).
+    /// cmux: a text root (2026-10-20, plans/cmux-next/reply-thread-gallery.html variant A): a smaller copy of the
+    /// root's own bubble, its fill and text colour at `quoteOpacity`, 12 pt text a bubble's 12 pt in from each end, 28 pt
+    /// tall for one line (half-circle ends, as a real one-line bubble), 46 pt for 2 (a 2-line bubble's corners), at most 2 lines
+    /// with "…" at the end of the last, and no tail (a quote is never the last bubble of a run). A wrapped root
+    /// takes the full quote column; the column scales with the bubble column (`Metrics.maxTextWidth`). It
+    /// replaces the outlined 10 pt copy of macOS Messages' preview, which did not look like the quoted bubble.
     var isText: Bool { if case .text = part { return true }; return false }
-    static let textFont = UIFont.systemFont(ofSize: 10)
+    static let textFont = UIFont.systemFont(ofSize: 12)
     /// The text's lines as drawn (text roots only; one line when it fits).
     var textLines: [String] = []
-    /// Outline to text plus text to outline of a one-line preview (8.5 + 8 on my side, 8 + 8.5 on Instinct's).
-    static let textPadX: CGFloat = 16.5
-    /// Baseline to baseline of a wrapped root (measured 11 pt).
-    static let textLinePitch: CGFloat = 11
-    static let maxTextLines = 3
+    /// cmux: bubble edge to text plus text to bubble edge: a bubble's padding (`Fixture.bubblePadX`) on each side.
+    static let textPadX: CGFloat = 2 * Fixture.bubblePadX
+    /// cmux: a one-line quote's height (under 30 pt, so its ends are half circles as a 1-line bubble's).
+    static let textOneLineHeight: CGFloat = 28
+    /// Baseline to baseline of a wrapped root.
+    static let textLinePitch: CGFloat = 15
+    static let maxTextLines = 2
+    /// cmux: the quote's height for `lines` lines: 28 pt for one; a wrapped quote is at least 46 pt, a 2-line bubble's
+    /// height, so it keeps the bubbles' 15 pt continuous corner (a shorter body takes UIKit's pill corner).
+    static func textHeight(lines: Int) -> CGFloat {
+        lines <= 1 ? textOneLineHeight : max(46, textOneLineHeight + textLinePitch * CGFloat(lines - 1))
+    }
+    /// cmux: the first baseline under the quote's top: the lines centred in the quote.
+    func textFirstBaseline() -> CGFloat {
+        let f = ThreadPreview.textFont
+        let lineH = f.ascender - f.descender
+        let block = lineH + ThreadPreview.textLinePitch * CGFloat(max(0, textLines.count - 1))
+        return ((box.height - block) / 2 + f.ascender).rounded(.toNearestOrEven)
+    }
+    /// cmux: the quote's shape as a row: a part of the root's side, the quote's size, no tail (a quote is never the
+    /// last bubble of a run). `BubblePath.balloon` of this row is the quote's outline, the same rule as every bubble.
+    var shapeRow: PartRow {
+        PartRow(ref: root, part: part ?? .text("", runs: []), outgoing: outgoing, tail: false, reactions: [], failed: false,
+                size: box, text: nil, connectorRoot: nil)
+    }
     /// The widest text preview (outline outside): 383 pt at the 628 pt window (outside 225.0-608.5 pt
     /// measured; our outline's right edge is the bubbles' 608), with the bubble column at other widths.
     static func maxTextBoxWidth(width: CGFloat) -> CGFloat { Metrics(width: width).maxTextWidth + 24.6 }
