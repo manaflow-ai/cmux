@@ -2798,10 +2798,9 @@ jobs:
         working-directory: Packages/macOS/CmuxNext
         run: ../../../scripts/cmux-next/check-action-surfaces.sh "$PWD"
 
-      - name: Check the CI target graph
-        id: graph
-        continue-on-error: true
-        run: python3 scripts/cmux-next/ci-target-graph.py --check
+      # The CI target graph is bot-only (scripts/cmux-next/generated_outputs.py,
+      # #21946): it is stale on every event between a merge that adds a target
+      # and the base autofix's commit, so no event checks it here.
 
       # The settings exports (schemas/settings/settings-schema.json, docs/mdm)
       # and the defaults snapshot: check-fresh recomputes the source stamp
@@ -2815,14 +2814,11 @@ jobs:
       # Only the generated paths are collected into the artifact.
       - name: Regenerate stale files
         id: regenerate
-        if: steps.actions.outcome == 'failure' || steps.graph.outcome == 'failure' || steps.settings.outcome == 'failure'
+        if: steps.actions.outcome == 'failure' || steps.settings.outcome == 'failure'
         run: |
           set -euo pipefail
           if [[ "${{ steps.actions.outcome }}" == failure ]]; then
             scripts/cmux-next/regenerate-action-contracts.sh
-          fi
-          if [[ "${{ steps.graph.outcome }}" == failure ]]; then
-            python3 scripts/cmux-next/ci-target-graph.py
           fi
           # The Swift settings export only when the source stamp is stale (a
           # stale snapshot alone needs only the snapshot below). It writes the
@@ -2839,7 +2835,7 @@ jobs:
           # commit, whose context the head may not have.
           out="$RUNNER_TEMP/generated/files"
           mkdir -p "$out"
-          generated=('plans/cmux-next/*.json' 'plans/cmux-next/*.md' Packages/macOS/CmuxNext/ci-target-graph.json
+          generated=('plans/cmux-next/*.json' 'plans/cmux-next/*.md'
             schemas/settings/settings-schema.json 'schemas/settings-export/*' 'docs/mdm/*' schemas/defaults/cmux-next.json)
           git add -N -- "${generated[@]}"
           git diff --name-only -- "${generated[@]}" > "$RUNNER_TEMP/generated/paths.txt"
@@ -2863,13 +2859,12 @@ jobs:
           retention-days: 3
 
       - name: Fail on stale generated files
-        if: steps.actions.outcome == 'failure' || steps.graph.outcome == 'failure' || steps.settings.outcome == 'failure'
+        if: steps.actions.outcome == 'failure' || steps.settings.outcome == 'failure'
         run: |
           {
             echo "### Generated cmux-next files are stale"
             echo
             [[ "${{ steps.actions.outcome }}" != failure ]] || echo "- action catalog, surfaces or inventory: scripts/cmux-next/regenerate-action-contracts.sh"
-            [[ "${{ steps.graph.outcome }}" != failure ]] || echo "- CI target graph: scripts/cmux-next/ci-target-graph.py"
             [[ "${{ steps.settings.outcome }}" != failure ]] || echo "- settings exports, source stamp and defaults snapshot: scripts/cmux-next/regenerate-settings-exports.sh, then python3 scripts/ci/defaults_guard.py snapshot"
             echo
             echo "The cmux-next-generated-patch artifact holds the regenerated files at their repository paths."

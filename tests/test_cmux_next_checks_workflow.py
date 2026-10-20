@@ -456,7 +456,8 @@ class PathRoutingStructure(unittest.TestCase):
         jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
         runs = " ".join(step.get("run", "") for step in jobs["generated-files"]["steps"])
         self.assertIn("check-action-surfaces.sh", runs)
-        self.assertIn("ci-target-graph.py --check", runs)
+        # The CI target graph is bot-only (#21946): no event checks it.
+        self.assertNotIn("ci-target-graph.py --check", runs)
         self.assertNotIn("same-tree-cmux-tui", jobs["generated-files"]["needs"])
         swift_runs = " ".join(step.get("run", "") for step in jobs["swift-test"]["steps"])
         self.assertNotIn("check-action-surfaces.sh", swift_runs)
@@ -498,7 +499,7 @@ class PathRoutingStructure(unittest.TestCase):
         fail = next(step for step in jobs["generated-files"]["steps"]
                     if step.get("name") == "Fail on stale generated files")
         self.assertIn("scripts/cmux-next/regenerate-action-contracts.sh", fail["run"])
-        self.assertIn("scripts/cmux-next/ci-target-graph.py", fail["run"])
+        self.assertNotIn("scripts/cmux-next/ci-target-graph.py", fail["run"])
         self.assertIn("exit 1", fail["run"])
         self.assertNotIn("autofix", fail["run"])
 
