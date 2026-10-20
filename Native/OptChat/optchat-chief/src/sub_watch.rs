@@ -506,8 +506,7 @@ pub fn wait_on(command: &str) -> Option<WaitOn> {
     if let Some(id) = after(&["gh", "run", "watch"]) {
         return Some(WaitOn::GhRun(id));
     }
-    let sleeps = words.iter().any(|w| *w == "sleep")
-        || words.iter().any(|w| matches!(*w, "until" | "while"));
+    let sleeps = words.contains(&"sleep") || words.iter().any(|w| matches!(*w, "until" | "while"));
     if !sleeps {
         return None;
     }
