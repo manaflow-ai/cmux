@@ -235,3 +235,11 @@ Choices made while building, where they differ from the sections above:
 - **Stage B:** heads-shard sockets for live large-chat rows; `team:` audience grants with team
   hierarchy and `default_visibility`; R2 log segments; TeamDO member sharding; org AuditDO;
   shared external chats; SCIM.
+
+## 7. Message requests on this model (decided 2026-10-19, with a111)
+
+A request belongs to the invitee, not to the invited address: the invitee's inbox object
+(`UserDO`) holds the request list and Accept, Decline and Block, and each request points to the
+chat's `ConversationDO`. The chat stays the one authority on membership: Accept runs
+`invite.accept_verified` (or `invite.accept` for a link) on the chat, which checks bans, the role
+and the grant, so there is one group model and no copy of the member list in a request.
