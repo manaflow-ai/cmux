@@ -105,6 +105,15 @@ import CmuxNextCompat
     func grant(_ folder: String) {
         if !addedRoots.contains(folder) { addedRoots.append(folder) }
     }
+
+    /// `folder` the person's gesture picked (`workspace.useFolder`): made a root, and the gesture it
+    /// spent goes on to the chat's start and first prompt (``startCredit``). The New Tab page asks
+    /// for the folder in the same turn as the Send, so the pick took the Send's only gesture and the
+    /// chat's first prompt was refused ("Not sent. Press Retry to send it.").
+    func grantPicked(_ folder: String) {
+        grant(folder)
+        if socket != nil { startCredit.give(connection: current, at: gestures.uptime) }
+    }
     /// Whether the daemon's asking table (acpmux `web_modes.rs`) lists `mode` for the session's
     /// family: true or false, nil when it cannot tell (which needs the confirmation, fail closed).
     /// The host's default asks the daemon over its unix socket (`_acpmux/web_modes`).
