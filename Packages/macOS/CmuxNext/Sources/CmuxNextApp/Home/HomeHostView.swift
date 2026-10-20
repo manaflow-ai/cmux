@@ -4,6 +4,7 @@ import CmuxHomeRender
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextActions
+import CmuxNextChiefPetWiring
 import CmuxNextDesign
 import CmuxNextHome
 import CmuxNextHomeEngine
@@ -25,7 +26,7 @@ final class HomeHostView: NSView {
     private let settings: HomeChiefSettingsPopover
     private var settingsView: HomeChiefSettingsView { settings.content }
     /// The Chief pet's rows in the popover's Appearance section.
-    private let petRows: HomeChiefPetRows
+    private let petRows: ChiefPetSettingsRows
     private var isChief = false
     private var engineWatch: Task<Void, Never>?
     private var agentsWatch: Task<Void, Never>?
@@ -54,7 +55,7 @@ final class HomeHostView: NSView {
                                               diagrams: service.diagrams)
         control = HomeChiefControl(services: services, conversation: id, muxHome: HomeBrainHost.muxHome(tag: services.environment.tag))
         settings = HomeChiefSettingsPopover(content: HomeChiefSettingsView(muxHome: control.brainHome, source: control.engineSource()))
-        petRows = HomeChiefPetRows(settings: { [weak services] in services?.settings })
+        petRows = ChiefPetSettingsRows(settings: { [weak services] in services?.settings })
         super.init(frame: .zero)
         transcript.linkScheme = services.linkScheme  // "Copy Link" names messages in this build's scheme
         transcript.setNamePillHelp(HomeEngineStrings.pillHelp)
@@ -66,8 +67,8 @@ final class HomeHostView: NSView {
                                            invocation: ActionInvocation(arguments: ["conversation": .string(conversation)], origin: .user))
         }
         loadAvatar()
-        petRows.install(in: settingsView)
-        Self.live.add(self)
+        petRows.install(in: self, addRow: { [settingsView] in settingsView.addAppearanceRow($0, control: $1) },
+                        open: { [weak self] in self?.openChiefSettings() ?? false })
         settingsView.onAvatar = { [weak self, weak service] in
             self?.loadAvatar()
             // Each Chief's tile reads its own brain home: this re-reads them, so only the
@@ -312,12 +313,9 @@ final class HomeHostView: NSView {
         settings.show(relativeTo: transcript.namePill, toggles: transcript.namePillToggles)
     }
 
-    /// Opens (never closes) the Chief's settings under the pill when this view shows the Chief in
-    /// a visible window, bringing that window forward (the Chief pet's Chief Pet Settings…).
-    /// False when it cannot open here. `noActivate` (tests, captures) raises the window without focus.
-    func openChiefSettings(noActivate: Bool) -> Bool {
-        guard isChief, let window, window.isVisible, !window.isMiniaturized, !isHiddenOrHasHiddenAncestor else { return false }
-        WindowActivation.show(window, noActivate ? .raise : .focus)
+    /// Opens (never closes) the Chief's settings under the pill (the Chief pet's Chief Pet Settings…).
+    private func openChiefSettings() -> Bool {
+        guard isChief else { return false }
         if settings.isShown { return true }
         settingsView.refresh()
         return settings.show(relativeTo: transcript.namePill, toggles: transcript.namePillToggles)

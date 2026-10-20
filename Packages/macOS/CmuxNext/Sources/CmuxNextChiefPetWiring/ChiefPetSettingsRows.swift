@@ -1,9 +1,8 @@
-import AppKit
+public import AppKit
 import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextFloating
-import CmuxNextHomeEngine
-import CmuxNextSettings
+public import CmuxNextSettings
 
 /// The Chief pet's rows in the Chief Settings popover's Appearance section (Leo 2026-10-19: "pet
 /// needs those settings to be obviously there"): Show Chief Pet (`home.chiefPetEnabled`) and the
@@ -11,7 +10,7 @@ import CmuxNextSettings
 /// and write the same `SettingsController` as Settings > Agents > Chief Pet, so a change in
 /// either shows in the other; a managed key's control is disabled, as on the Settings page.
 @MainActor
-final class HomeChiefPetRows: NSObject {
+public final class ChiefPetSettingsRows: NSObject {
     /// The menu's mascot pictures: the pixel character at a menu row's height.
     static let thumbnailSize = NSSize(width: 18, height: 18)
 
@@ -19,6 +18,10 @@ final class HomeChiefPetRows: NSObject {
     let mascot = ThemedPopUpButton(frame: .zero, pullsDown: false)
     private let settings: @MainActor @Sendable () -> SettingsController?
     private var watch: Task<Void, Never>?
+    private weak var host: NSView?
+    private var opener: (@MainActor () -> Bool)?
+    /// The rows installed now, so the pet's Chief Pet Settings… finds a Chief's Home on screen.
+    static let live = NSHashTable<ChiefPetSettingsRows>.weakObjects()
 
     /// What the rows show: the two settings and whether each is managed.
     nonisolated struct Shown: Equatable, Sendable {
@@ -28,7 +31,7 @@ final class HomeChiefPetRows: NSObject {
         var mascotManaged: Bool
     }
 
-    init(settings: @escaping @MainActor @Sendable () -> SettingsController?) {
+    public init(settings: @escaping @MainActor @Sendable () -> SettingsController?) {
         self.settings = settings
         super.init()
         toggle.controlSize = .small
@@ -46,14 +49,18 @@ final class HomeChiefPetRows: NSObject {
         }
     }
 
-    /// Adds Show Chief Pet and the pet's character to `view`'s Appearance section, then follows
-    /// the settings until `stop`.
-    func install(in view: HomeChiefSettingsView) {
+    /// Adds Show Chief Pet and the pet's character through `addRow` (the Chief Settings
+    /// popover's Appearance section) in `host`, then follows the settings until `stop`. `open`
+    /// opens (never closes) that popover; false when `host` cannot show it.
+    public func install(in host: NSView, addRow: (String, NSView) -> Void, open: @escaping @MainActor () -> Bool) {
+        self.host = host
+        self.opener = open
+        Self.live.add(self)
         let enabledTitle = SettingsSchema.descriptor(for: HomeChiefPetSetting.configPath)?.title ?? ""
         toggle.setAccessibilityLabel(enabledTitle)
         mascot.setAccessibilityLabel(ChiefPetMascot.pickerTitle)
-        view.addAppearanceRow(enabledTitle, control: toggle)
-        view.addAppearanceRow(ChiefPetMascot.pickerTitle, control: mascot)
+        addRow(enabledTitle, toggle)
+        addRow(ChiefPetMascot.pickerTitle, mascot)
         // task-owner: lives as long as the Home view (`stop`); event-driven (Observation)
         watch = Task { [weak self] in
             guard let settings = self?.settings else { return }
@@ -64,7 +71,7 @@ final class HomeChiefPetRows: NSObject {
         }
     }
 
-    func stop() {
+    public func stop() {
         watch?.cancel()
         watch = nil
     }
@@ -126,18 +133,21 @@ final class HomeChiefPetRows: NSObject {
             }
         }
     }
-}
 
-/// The Home views alive now, so the Chief pet's Chief Pet Settings… finds the Chief on screen.
-extension HomeHostView {
-    static let live = NSHashTable<HomeHostView>.weakObjects()
-
-    /// Opens the Chief Settings popover over a Chief's Home on screen, frontmost window first
-    /// (`NSApp.orderedWindows`: the pet is right-clicked while cmux is usually in the background,
-    /// where no window is key or main). False when no Home shows the Chief.
-    static func openChiefSettingsOnScreen(noActivate: Bool) -> Bool {
+    /// Chief Pet Settings…: opens the Chief Settings popover over a Home on screen, frontmost window
+    /// first (`NSApp.orderedWindows`: the pet is right-clicked while cmux is usually in the
+    /// background, where no window is key or main), bringing that window forward. `noActivate`
+    /// (tests, captures) raises the window without focus. False when no Home on screen shows it.
+    public static func openOnScreen(noActivate: Bool) -> Bool {
         let order = NSApp.orderedWindows
-        func rank(_ view: HomeHostView) -> Int { view.window.flatMap { window in order.firstIndex { $0 === window } } ?? order.count }
-        return live.allObjects.sorted { rank($0) < rank($1) }.contains { $0.openChiefSettings(noActivate: noActivate) }
+        func rank(_ rows: ChiefPetSettingsRows) -> Int { rows.host?.window.flatMap { w in order.firstIndex { $0 === w } } ?? order.count }
+        return live.allObjects.sorted { rank($0) < rank($1) }.contains { $0.openOnScreen(noActivate: noActivate) }
+    }
+
+    private func openOnScreen(noActivate: Bool) -> Bool {
+        guard let host, let window = host.window, window.isVisible, !window.isMiniaturized, !host.isHiddenOrHasHiddenAncestor,
+              let opener, opener() else { return false }
+        WindowActivation.show(window, noActivate ? .raise : .focus)
+        return true
     }
 }

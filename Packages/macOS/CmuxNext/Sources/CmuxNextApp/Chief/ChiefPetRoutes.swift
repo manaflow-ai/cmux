@@ -1,6 +1,7 @@
 import AppKit
 import CmuxHomeCore
 import CmuxNextActions
+import CmuxNextChiefPetWiring
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextFloating
@@ -15,7 +16,8 @@ struct ChiefPetRoutes {
 
     func makePet() -> ChiefPetController {
         ChiefPetController(makePanel: { ChiefPetPanel() }, actions: ChiefPetActions(
-            open: { open($0) }, send: { await send(to: $0, $1) }, openSettings: { openSettings() }, hide: { hide() }))
+            open: { open($0) }, send: { await send(to: $0, $1) }, openSettings: { openSettings() },
+            hide: { _ = services?.registry.perform(HomeChiefPetSetting.toggleAction, invocation: ActionInvocation(origin: .user)) }))
     }
 
     /// Chief Pet Settings…: the Chief Settings popover over a Chief's Home on screen (its
@@ -24,17 +26,9 @@ struct ChiefPetRoutes {
         guard let services else { return }
         let noActivate = services.environment.noActivate
         if !noActivate { NSApp.activate() }
-        if HomeHostView.openChiefSettingsOnScreen(noActivate: noActivate) { return }
+        if ChiefPetSettingsRows.openOnScreen(noActivate: noActivate) { return }
         try? services.settingsWindow.show(section: nil, setting: HomeChiefPetSetting.configPath.joined(separator: "."), focus: true)
         if let window = services.windows.active?.window { WindowActivation.show(window, noActivate ? .raise : .focus) }
-    }
-
-    /// Hide Chief Pet: `home.chiefPetEnabled` off, the write the settings' switch makes; the pet
-    /// follows the setting and leaves.
-    func hide() {
-        guard let settings = services?.settings else { return }
-        // task-owner: one settings write; ends with it
-        Task { try? await settings.setSetting(at: HomeChiefPetSetting.configPath, to: .bool(false), by: .user) }
     }
 
     /// The Chief opens Home (`home.show`, as the palette does); a notice opens its tab as its banner click does.
