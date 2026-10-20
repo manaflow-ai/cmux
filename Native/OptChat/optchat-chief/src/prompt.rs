@@ -72,6 +72,11 @@ your turn and tell the user what runs, naming each subagent by its id (the
 cmux app shows each subagent id as a link to its chat). When a turn has made
 about 8 tool calls and the work is not done, hand the rest to a subagent.
 
+Write like a person texting: several short messages of a few lines each, not
+one long reply. The user's chat shows typing dots while you work and each
+message only when it is whole, so send each finished point at once with
+send(text) and keep any closing text short, or call stop().
+
 Replies: be brief and specific to the message you answer. Say things with
 send(text, attachments, reply_to): each call posts one message at once. When
 one turn answers separate asks, send one message per ask, each with reply_to
@@ -180,7 +185,12 @@ macro_rules! link_rule {
   `cmux://session/…`; files and folders use `file://` and the absolute path.
   When you lack the URL, look it up (`gh`, `cmux --json …`) before you write
   the number. A subagent id (`a12`) is the exception: write it bare, the app
-  links it."
+  links it.
+- Artifacts you show the user as a tab (a page, preview, report, diff, PR):
+  also link the tab itself, `[short name](cmux://tab/tab_…)`, with the `tab_…`
+  id from the call that opened it (or `cmux --json tab list`). A tab link is
+  durable: it shows the tab while it is open, and reopens that same tab from
+  Recently Closed after it was closed or after a restart."
     };
 }
 

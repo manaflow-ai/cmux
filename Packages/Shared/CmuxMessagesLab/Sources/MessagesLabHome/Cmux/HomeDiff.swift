@@ -81,6 +81,10 @@ struct HomeDiff: Equatable {
                 // My send, already flying in the projection (status .sending).
                 let st = HomeMapping.status(item, me: me, summary: newSummary)
                 if let st, st != .sending { d.actions.append(.status(id(item), st)) }
+                // Reply to Selection: the flying bubble has the quote's text; the stored reply adds its style.
+                if item.parts.contains(where: { if case let .text(t, _) = $0 { return ReplyQuote.split(t) != nil } else { return false } }) {
+                    d.actions.append(.cmuxSetParts(id(item), msg(item).parts))
+                }
                 if !item.reactions.isEmpty { react(from: [], to: item.reactions, id: id(item), owners: owners(item, newSummary), me: me, into: &d) }
             } else if !handOff.contains(item.key) {
                 d.actions.append(.receive(msg(item)))

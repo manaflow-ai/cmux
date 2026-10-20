@@ -116,7 +116,14 @@ fn start_browser(opts: &Opts, display: &str, url: &str) -> Res<crate::browser::B
     drop(conn);
     let program = opts.str_or("browser-bin", "google-chrome");
     let profile = opts.str_or("browser-profile", "/tmp/cmux-rd-browser-profile");
-    let cmd = crate::browser::BrowserCommand::chrome(&program, display, url, w, h, &profile);
+    let mut cmd = crate::browser::BrowserCommand::chrome(&program, display, url, w, h, &profile);
+    // `--browser-cdp-port N`: CDP on 127.0.0.1:N for an agent on this machine (off by default).
+    if let Some(port) = opts.get("browser-cdp-port") {
+        let port: u16 =
+            port.parse().map_err(|_| format!("invalid value for --browser-cdp-port: {port}"))?;
+        cmd = cmd.with_cdp_port(port);
+        eprintln!("cmux-rd host: browser CDP on 127.0.0.1:{port} (loopback only)");
+    }
     let sup = crate::browser::BrowserSupervisor::start(cmd, crate::browser::Backoff::default())
         .map_err(|e| format!("--browser: cannot start {program}: {e}"))?;
     eprintln!("cmux-rd host: browser {program} ({w}x{h}, pid {}) showing {url}", sup.pid());
