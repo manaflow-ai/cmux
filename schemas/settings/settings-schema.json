@@ -388,6 +388,7 @@
               "sidebar.groupBy",
               "sidebar.showSpaces",
               "sidebar.showProfileControl",
+              "sidebar.showSearchButton",
               "sidebar.minimal",
               "sidebar.density",
               "sidebar.detailedStatusIcons",
@@ -19691,6 +19692,57 @@
       "title" : {
         "key" : "settings.sidebar.showProfileControl",
         "text" : "Show Profile Button"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.showSearchButton.help",
+        "text" : "A magnifying glass after the profile button searches workspaces, tabs, history, agent chats, settings and commands. Off, Search stays in the command palette."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.showSearchButton",
+      "keywords" : [
+        "sidebar",
+        "search",
+        "find",
+        "magnifying glass",
+        "everything",
+        "footer",
+        "hide",
+        "show"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "showSearchButton"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sidebar.showSearchButton",
+        "text" : "Show Search Button"
       },
       "validation" : "portable"
     },

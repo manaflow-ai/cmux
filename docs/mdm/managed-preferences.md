@@ -265,6 +265,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `sidebar.groupBy` | string | `"none"` | `none`, `folder` | Group Projects By |
 | `sidebar.showSpaces` | boolean | `true` |  | Show Spaces |
 | `sidebar.showProfileControl` | boolean | `true` |  | Show Profile Button |
+| `sidebar.showSearchButton` | boolean | `true` |  | Show Search Button. A magnifying glass after the profile button searches workspaces, tabs, history, agent chats, settings and commands. Off, Search stays in the command palette. |
 | `sidebar.minimal` | boolean | `false` |  | Minimal Mode. Workspace rows show only their icon, name and unread mark, and section titles become thin lines. |
 | `sidebar.density` | string | `"compact"` | `compact`, `comfortable`, `expanded` | Sidebar Density. Comfortable rows keep one line on taller rows with more space around them. Expanded rows show each workspace's status or folder under its name, how long ago it changed, and its pull request and computer. |
 | `sidebar.detailedStatusIcons` | boolean | `false` |  | Detailed Status Icons. Workspace rows show a separate icon for working, waiting for input, error and done. Off, a row shows a spinner while it works and a blue dot when it is ready for you. |
