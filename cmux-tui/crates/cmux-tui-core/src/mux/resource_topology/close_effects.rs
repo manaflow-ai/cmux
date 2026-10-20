@@ -497,6 +497,7 @@ impl Mux {
                 "topology close target changed workspaces before commit"
             );
         }
+        let scope = slots.workspace;
         let mut plan = self.resource_close_plan_locked(
             operation,
             slots,
@@ -506,7 +507,7 @@ impl Mux {
             true,
         )?;
         let mut projection =
-            self.resource_effect_projection_locked(&registry, &mut plan.state, json!({}))?;
+            self.resource_close_projection_locked(&registry, &state, &mut plan, scope)?;
         // Full projection derives terminal tombstones from detached tabs, but
         // an exited terminal receipt has zero tabs. Explicit close must still
         // retire that receipt.
@@ -543,6 +544,33 @@ impl Mux {
         drop(registry);
         drop(workspace_lifecycle);
         Ok(CommittedResourceClose { commit: close.resource, effects })
+    }
+
+    /// The projection of a close: a close that leaves its workspace open
+    /// changed only that workspace, so once the public fold is seeded only
+    /// that workspace is projected (CREATE-CLOSE-DESIGN.md, C1). A close that
+    /// removes a workspace, or a resource that crossed the scope, projects
+    /// the full tree.
+    fn resource_close_projection_locked(
+        &self,
+        registry: &WorkspaceRegistry,
+        before: &State,
+        plan: &mut ResourceClosePlan,
+        workspace: Option<WorkspaceId>,
+    ) -> anyhow::Result<ResourceEffectProjection> {
+        let scope = workspace
+            .filter(|_| plan.workspace_close.is_none() && registry.public_fold_seeded())
+            .and_then(|workspace| before.workspace_by_id(workspace))
+            .map(|workspace| workspace.public_id.clone());
+        match scope {
+            Some(scope) => self.resource_effect_projection_scoped_locked(
+                registry,
+                &mut plan.state,
+                &[scope],
+                json!({}),
+            ),
+            None => self.resource_effect_projection_locked(registry, &mut plan.state, json!({})),
+        }
     }
 
     pub(super) fn finish_resource_close(
