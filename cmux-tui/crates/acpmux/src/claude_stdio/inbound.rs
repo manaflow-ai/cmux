@@ -643,9 +643,11 @@ impl Translator {
                 if let Some(progress) = self.subagent_progress(sub, line).await {
                     out.push(upd(progress));
                 }
-                if let Some((ended, tool)) = self.subagent_task(sub, line).await {
-                    out.extend(self.end_announced_of(&tool).await);
-                    out.push(upd(ended));
+                if let Some((update, ended)) = self.subagent_task(sub, line).await {
+                    if let Some(tool) = ended {
+                        out.extend(self.end_announced_of(&tool).await);
+                    }
+                    out.push(upd(update));
                 }
             }
             _ => {}
@@ -767,8 +769,9 @@ impl Translator {
     /// Claude's task events for a subagent: `task_started` or `task_updated`
     /// moves it to the background, and `task_notification` ends a background
     /// one (its Agent tool call returned at launch). Returns the subagent's
-    /// `subagent_state_update` and its tool id when it ended.
-    async fn subagent_task(&self, sub: &str, line: &Value) -> Option<(Value, String)> {
+    /// `subagent_progress` marking it background when it moved there, and its
+    /// `subagent_state_update` with its tool id when it ended.
+    async fn subagent_task(&self, sub: &str, line: &Value) -> Option<(Value, Option<String>)> {
         let task = line.get("task_id").and_then(Value::as_str).unwrap_or("");
         let tool = match line.get("tool_use_id").and_then(Value::as_str) {
             Some(tool) => tool.to_owned(),
@@ -786,8 +789,18 @@ impl Translator {
             _ => None,
         };
         if backgrounded == Some(&Value::Bool(true)) {
-            self.background_subagents.lock().await.insert(tool);
-            return None;
+            let child = self.subagents.lock().await.get(&tool)?.clone();
+            if !self.background_subagents.lock().await.insert(tool) {
+                return None;
+            }
+            return Some((
+                json!({
+                    "sessionUpdate": "subagent_progress",
+                    "subagentSessionId": child,
+                    "background": true,
+                }),
+                None,
+            ));
         }
         if sub != "task_notification" || !self.background_subagents.lock().await.remove(&tool) {
             return None;
@@ -806,7 +819,7 @@ impl Translator {
                 "subagentSessionId": child,
                 "state": state,
             }),
-            tool,
+            Some(tool),
         ))
     }
 
@@ -821,14 +834,15 @@ impl Translator {
         if workflow {
             self.workflows.lock().await.insert(tool_use_id.to_owned(), None);
         }
-        if workflow || input.get("run_in_background") == Some(&Value::Bool(true)) {
+        let background = workflow || input.get("run_in_background") == Some(&Value::Bool(true));
+        if background {
             self.background_subagents.lock().await.insert(tool_use_id.to_owned());
         }
         let s = |k: &str| input.get(k).and_then(Value::as_str).filter(|v| !v.is_empty());
         let task = s("description").or(s("name")).or(s("subagent_type"));
         let task = task.unwrap_or(if workflow { "Workflow" } else { "Agent" });
         let kind = if workflow { Some(&json!("workflow")) } else { input.get("subagent_type") };
-        json!({
+        let mut update = json!({
             "sessionUpdate": "subagent_spawned",
             "subagentSessionId": child,
             "name": s("name").unwrap_or(task),
@@ -836,7 +850,12 @@ impl Translator {
             "prompt": input.get("prompt"),
             "capabilities": {},
             "_meta": {"claude": {"subagentType": kind, "toolUseId": tool_use_id}}
-        })
+        });
+        // It outlives a stopped turn: a client keeps it running past one.
+        if background {
+            update["background"] = json!(true);
+        }
+        update
     }
 }
 

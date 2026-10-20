@@ -90,7 +90,7 @@ import Testing
         NSLayoutConstraint.activate([body.widthAnchor.constraint(equalToConstant: 240), body.heightAnchor.constraint(equalToConstant: 90)])
         let anchor = CGRect(x: parent.frame.minX, y: parent.frame.maxY - 100, width: parent.frame.width, height: 40)
         let panel = HoverCardPanel()
-        panel.present(body: body, anchor: anchor, placement: .beside, parent: parent, themeAnchor: nil, sliding: false, applyTheme: {})
+        panel.present(body: body, anchor: anchor, placement: .besideRow, parent: parent, themeAnchor: nil, sliding: false, applyTheme: {})
         return (Played(panel), Self.surface(of: panel).minX - anchor.maxX, panel)
     }
 
