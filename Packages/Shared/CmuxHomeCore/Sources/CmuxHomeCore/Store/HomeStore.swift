@@ -45,6 +45,11 @@ public final class HomeStore {
     @ObservationIgnored var liveBook = HomeLiveBook()
     /// Conversations whose `run.live` request is out (one at a time).
     @ObservationIgnored var liveRequests: Set<ConversationID> = []
+    /// My own typing per conversation (`HomeStore+Typing.swift`): where an `on` went out, where
+    /// it is still fresh (no refresh needed yet), and the pending refresh and idle delays.
+    @ObservationIgnored var myTyping: Set<ConversationID> = []
+    @ObservationIgnored var myTypingFresh: Set<ConversationID> = []
+    @ObservationIgnored var myTypingTimers: [ConversationID: (refresh: Task<Void, Never>?, idle: Task<Void, Never>?)] = [:]
     /// Run row reads out after a snapshot (conversation, author, run).
     @ObservationIgnored var liveRowReads: Set<String> = []
 
