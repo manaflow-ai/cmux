@@ -606,8 +606,19 @@ final class HomeProjection: @preconcurrency ChatIntents {
             return nil
         }).first else { return }
         let media = self.media
+        // cmux: in the app the click opens it in cmux beside Home (the host's path-link opener);
+        // without a host it goes to the system as before.
+        let open = controller.onAppLink
+        let opener = HomeAttachmentOpen(folder: HomeMedia.directory)
         // task-owner: one fetch; ends when the file opens
-        Task { if let url = try? await media.original(ref) { NSWorkspace.shared.open(url) } }
+        Task {
+            guard let url = try? await media.original(ref) else { return }
+            if let open, let named = try? opener.namedCopy(of: url, name: ref.name, hash: ref.hash) {
+                open(named)
+            } else {
+                NSWorkspace.shared.open(url)
+            }
+        }
     }
 
     /// Test seams for the alias table.

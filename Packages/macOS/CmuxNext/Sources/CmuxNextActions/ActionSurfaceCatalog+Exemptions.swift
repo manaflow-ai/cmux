@@ -12,7 +12,7 @@ nonisolated extension ActionSurfaceCatalog {
     /// (#16174): screen, screen group, pane, column, tab move, extension,
     /// terminal and headless appearance verbs were added here.
     static let cliNamed: Set<ActionID> = [
-        "help.showCrashLogs", "newWindow", "newIncognitoWindow", "closeWindow", "tab.focus", "pane.focus", "screen.focus", "quit", "quitKeepSessions", "quitEndSessions",
+        "help.showCrashLogs", "palette.mobileConnect", "newWindow", "newIncognitoWindow", "closeWindow", "tab.focus", "pane.focus", "screen.focus", "quit", "quitKeepSessions", "quitEndSessions",
         "quitEndEverything", "keepMacAwake", "newBrowserWorkspace", "openFolder",
         "palette.openFolderInVSCodeInline", "reopenPreviousSession", "workspace.importClassic", "reopenClosedWorkspace", "moveWorkspaceUp",
         "moveWorkspaceDown", "palette.moveWorkspaceToTop", "moveWorkspaceToWindow", "moveWorkspaceToNewWindow",
@@ -20,7 +20,7 @@ nonisolated extension ActionSurfaceCatalog {
         "palette.clearWorkspaceDescription", "markWorkspaceDone", "palette.workspaceStatus",
         "palette.addWorkspaceChecklistItem", "palette.openWorkspaceTodoPane", "toggleChecklistItemComplete",
         "checklistEditItem", "checklistMarkInProgress", "checklistCompleteItem", "checklistRemoveItem", "checklistOpenAsPane",
-        "checklistAttachImages", "palette.closeOtherWorkspaces", "palette.closeWorkspacesBelow", "palette.closeWorkspacesAbove",
+        "checklistAttachImages", "palette.openVaultPane", "palette.closeOtherWorkspaces", "palette.closeWorkspacesBelow", "palette.closeWorkspacesAbove",
         "workspace.closeAll", "workspace.closeAllInAllWindows", "workspaceGroup.closeOthers", "workspaceGroup.duplicate",
         "window.closeOthers", "closeAllWindows",
         "palette.toggleWorkspacePin", "palette.markWorkspaceRead", "palette.markWorkspaceUnread",
@@ -118,6 +118,8 @@ nonisolated extension ActionSurfaceCatalog {
         "focusRing.singlePane.toggle", "appearance.paneBorderWidth.toggle", "appearance.paneBorderColor.reset",
         "appearance.titlebar.minimal", "appearance.titlebar.standard", "browser.hibernation.off",
         "browser.hibernation.moderate", "browser.hibernation.aggressive", "hibernateTab", "wakeTab",
+        "browser.keepNeighborTabsAwake.0", "browser.keepNeighborTabsAwake.1", "browser.keepNeighborTabsAwake.2",
+        "browser.keepNeighborTabsAwake.3",
         "tab.moveToNewSplit", "tab.moveToNewColumn", "tab.moveToNewDockColumn", "tab.moveToWorkspace", "tab.moveToNewWindow", "tabGroup.moveLeft",
         "tabGroup.moveRight", "splitLeft", "splitUp", "swapPaneLeft", "swapPaneRight", "swapPaneUp", "swapPaneDown",
         "renamePane", "column.moveLeft", "column.moveRight", "column.center", "column.widthOneThird",
@@ -154,7 +156,6 @@ nonisolated extension ActionSurfaceCatalog {
         .unimplemented: [
             "disconnectRemoteTab",
             "agentChat.toggleNotificationMute",
-            "palette.openVaultPane",
             "palette.openFindPane",
             "palette.openFilesPane",
         ],
@@ -194,7 +195,7 @@ nonisolated extension ActionSurfaceCatalog {
             "toggleTerminalCopyMode", "palette.terminalToggleTextBoxInput", "cycleTextBoxSubmitAction",
             "attachTextBoxFile", "sendCtrlFToTerminal", "pasteLastScreenshot", "find", "findInDirectory", "findNext",
             "findPrevious", "hideFind", "useSelectionForFind", "terminal.scrollToSelection", "terminalCopy", "terminalPaste",
-            "browserScreenshotSection", "saveFilePreview", "markdownSave", "markdownLink", "markdownBack", "markdownForward", "toggleFileEditorWordWrap", "diffViewerNextLine",
+            "browserScreenshotSection", "saveFilePreview", "markdownSave", "markdownLink", "markdownBack", "markdownForward", "markdownResetTableWidths", "toggleFileEditorWordWrap", "diffViewerNextLine",
             "diffViewerPreviousLine", "diffViewerHalfPageDown", "diffViewerHalfPageUp", "diffViewerNextHunk",
             "diffViewerPreviousHunk", "diffViewerGoToBottom", "diffViewerGoToTop", "diffViewerSearch",
             "diffViewerNextFile", "diffViewerPreviousFile", "fileEditorGotoLine", "fileEditorReplace", "fileEditorAction", "fileExplorerOpenSelection",

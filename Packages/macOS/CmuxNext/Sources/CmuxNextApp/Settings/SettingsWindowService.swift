@@ -221,6 +221,12 @@ final class SettingsWindowService: InternalPageProvider {
         path == WindowBackgroundSetting.opacityPath ? (services.windows.active?.themeScope ?? ThemeScope.app).shownWindowOpacity : nil
     }
 
+    /// The least value a number row's slider offers (`ThemeScope.windowOpacityFloor`): over a
+    /// background picture the window Opacity stops at the legibility floor; nil keeps the schema's.
+    func derivedMinimum(at path: [String]) -> Double? {
+        path == WindowBackgroundSetting.opacityPath ? (services.windows.active?.themeScope ?? ThemeScope.app).windowOpacityFloor : nil
+    }
+
     var browserProfiles: [SettingsBrowserProfileRow] {
         services.browserProfiles.ordered.map { record in
             SettingsBrowserProfileRow(id: record.id, name: record.name, color: record.color, icon: record.icon,

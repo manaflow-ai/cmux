@@ -25,4 +25,8 @@ public nonisolated struct ActionSuggestions: Sendable, Hashable {
     public static let sidebarItems = "sidebarItems"
     /// The names of this Mac's layout templates (New Workspace from Template's `template`).
     public static let layoutTemplates = "layoutTemplates"
+    /// Backgrounds a pane may take (`pane.setBackground`): the bundled art, by title.
+    public static let paneBackgrounds = "paneBackgrounds"
+    /// Marker tints a pane may take (`pane.setTint`): the pinned named colors.
+    public static let paneTints = "paneTints"
 }

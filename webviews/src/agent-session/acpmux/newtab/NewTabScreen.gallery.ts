@@ -225,6 +225,43 @@ export default agentPaneEntry({
         { ...variant, ready: newTab(), snapshot: reasoningChat() },
       ]),
     ),
+    // The mic never leaves the box (Leo 2026-10-19, as Claude Code's): the prompt shrinks instead.
+    // The box holds the prompt, the mic and Send; the model, effort and permission mode sit in the
+    // quiet row under it. `composer-mic` at the stage's width, `composer-mic-narrow` with the page
+    // squeezed to 300 px (a narrow split pane).
+    ...Object.fromEntries(
+      (
+        [
+          ["composer-mic", 0],
+          ["composer-mic-narrow", 300],
+        ] as const
+      ).map(([name, width]) => [
+        name,
+        {
+          note: width
+            ? "The New Tab composer squeezed to 300 px: the mic and Send stay in the box, the prompt shrinks; the quiet row under it keeps the mode, model and effort."
+            : "The New Tab composer: the box holds the prompt, the mic and Send; under it the quiet row with the permission mode on the left and the model and effort on the right.",
+          // Cards, the page an unset template shows (the first dot), draws Claude Code's split; the
+          // Default template (the second dot) keeps the chips in its box.
+          ready: newTab({ template: "cards" }),
+          snapshot: reasoningChat(),
+          play: async (ctx: PlayContext) => {
+            await ctx.waitFor(() => ctx.document.querySelector(".nt-field") !== null);
+            if (width) ctx.document.body.style.maxWidth = `${width}px`;
+            await ctx.waitFor(() => {
+              const box = ctx.document.querySelector(".nt-box")?.getBoundingClientRect();
+              const mic = ctx.document.querySelector(".nt-box .acpmux-mic")?.getBoundingClientRect();
+              const send = ctx.document.querySelector(".nt-box .acpmux-send")?.getBoundingClientRect();
+              if (!box || !mic || !send || mic.width < 12 || send.width < 12) return false;
+              if (width && box.width > width) return false;
+              return mic.right <= send.left + 0.5 && send.right <= box.right + 0.5 && mic.left >= box.left;
+            });
+            if (!ctx.document.querySelector(".nt-foot .acpmux-model"))
+              throw new Error("the model chip is not in the quiet row under the box");
+          },
+        },
+      ]),
+    ),
     "chats-unavailable": {
       note: "The chat index did not answer: All chats says it could not load and offers Try again.",
       ready: newTab(),
@@ -873,12 +910,12 @@ export default agentPaneEntry({
       },
     },
     "template-cards": {
-      note: "Cards template, the default (u2851, from a scrawl of Aside's New Tab page): one rounded field with the Search | Ask switch, the project and agent chips under it, three tall chat cards.",
+      note: "Cards template, the default and the first dot (u2851): Claude Code's split, the project strip heading the card, the box with the prompt, the Search | Ask switch, the mic and Send, the mode, model and effort in the quiet row under it, then three tall chat cards.",
       ready: newTab({ template: "cards" }),
       snapshot: noChat(manySessions(6)),
     },
     "template-cards-search": {
-      note: "Cards template in Search: the chip row steps aside and the suggestions show under the field.",
+      note: "Cards template in Search: the box keeps the mic and Send, and the suggestions open under the quiet row, never over its chips.",
       ready: newTab({ template: "cards" }),
       snapshot: noChat(manySessions(6)),
       play: async (ctx) => {

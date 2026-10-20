@@ -132,6 +132,9 @@ export type HostLists = {
   }>;
   /** Where an unset number row's slider sits when the app resolves it (the theme's window opacity). */
   derived?: Record<string, number>;
+  /** Where a number row's slider starts when the app narrows its range (over a background
+   * picture, the window Opacity's legibility floor: a lower value paints the same tint). */
+  derived_min?: Record<string, number>;
 };
 
 /**

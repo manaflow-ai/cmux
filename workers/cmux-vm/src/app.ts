@@ -12,6 +12,7 @@ import type { ApiKeyStore, AuditStore, OwnershipStore } from "./db/stores.ts";
 import { execHandlers } from "./handlers/exec.ts";
 import { filesHandlers } from "./handlers/files.ts";
 import { healthHandlers } from "./handlers/health.ts";
+import { creationHandlers } from "./handlers/creations.ts";
 import { vmsHandlers } from "./handlers/vms.ts";
 import type { TenantLimits } from "./limits/service.ts";
 import type { TenantPolicy } from "./policy.ts";
@@ -94,6 +95,7 @@ export const makeWebHandler = (services: Layer.Layer<Services>, options: WebHand
   const api = HttpApiBuilder.api(CmuxVmApi).pipe(
     Layer.provide(healthHandlers),
     Layer.provide(authenticated(vmsHandlers)),
+    Layer.provide(authenticated(creationHandlers)),
     Layer.provide(authenticated(execHandlers)),
     Layer.provide(authenticated(filesHandlers)),
     Layer.provide(authenticated(snapshotsHandlers)),

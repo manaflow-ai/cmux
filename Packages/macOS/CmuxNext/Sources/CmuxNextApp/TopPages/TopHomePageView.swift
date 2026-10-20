@@ -2,6 +2,7 @@ import AppKit
 import CmuxHomeCore
 import CmuxNextActions
 import CmuxNextCompat
+import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextHome
 import CmuxNextHomeEngine
@@ -160,14 +161,17 @@ final class TopHomePageView: NSView {
     /// asked to show once it is listed.
     private func observe(_ home: HomeService) {
         let store = home.homeStore
-        home.refreshChiefAvatars()
         // task-owner: lives as long as this view; event-driven (Observation)
         let sidebar = sidebar
         rowsObservation = Task { [weak self] in
             // The Chiefs listed when their engines (the rows' badges) were last read.
             var badgedChiefs: Set<String>?
             var listed: Set<ConversationID> = []
-            for await (all, archived, _, _, _, _, _, _, _) in ObservationStream({
+            // The owner's rows when the Chiefs' pictures were last read: a chief-changed event
+            // (a picture set by a tool or the CLI) reads the rows again, and the pictures with them.
+            var picturedRows: [HomeInboxRequest.Response?]?
+            var picturedChiefs: Set<String>?
+            for await (all, archived, _, _, _, _, owned, _, _) in ObservationStream({
                 (store.rows, home.directory.archivedChiefs, sidebar.query, sidebar.pins, sidebar.unreadMarks, home.directory.chiefAvatars,
                  sidebar.ownerRows, home.directory.chiefHarnesses, home.chiefRoster)
             }) {
@@ -176,6 +180,10 @@ final class TopHomePageView: NSView {
                 if chiefs != badgedChiefs {
                     badgedChiefs = chiefs
                     home.refreshChiefHarnesses()
+                }
+                if owned != picturedRows || chiefs != picturedChiefs {
+                    picturedRows = owned
+                    picturedChiefs = chiefs
                     home.refreshChiefAvatars()
                 }
                 rows = Self.visible(all, archivedChiefs: archived, me: store.me?.id)
@@ -442,7 +450,8 @@ final class TopHomePageView: NSView {
                 _ = registry.perform("home.leaveConversation",
                                      invocation: ActionInvocation(arguments: ["conversation": .string(id.rawValue)], origin: .user))
             },
-            inviteByEmail: { [weak self] in self?.presentInvite(prefill: "") }))
+            inviteByEmail: { [weak self] in self?.presentInvite(prefill: "") },
+            setChiefReplies: { await actions.setChiefReplies($0, id) }))
         let sheet = HomeGroupInfoSheet(model: model, colors: performWithTheme { HomeGroupInfoColors.resolve() })
         // task-owner: lives while the sheet shows; event-driven (Observation): members, name and mute as the owner says
         let watch = Task { [weak sheet] in
