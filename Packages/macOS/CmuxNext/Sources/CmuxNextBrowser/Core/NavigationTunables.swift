@@ -14,7 +14,6 @@ public nonisolated struct NavigationTunables {
         help: "Mouse buttons 4 and 5 go back and forward: in a browser page's history over a page, else Go Back and Go Forward.",
         default: true, code: "NavigationTunables.mouseSideButtons")
 
-<<<<<<< HEAD
     /// A two-finger horizontal swipe over a Chromium page goes back or forward
     /// (`CEFSwipeNavigation`), while the system's "Swipe between pages" is on.
     public static let swipeNavigation = Tunable<Bool>.toggle(
@@ -23,7 +22,4 @@ public nonisolated struct NavigationTunables {
         default: true, code: "NavigationTunables.swipeNavigation")
 
     public static var all: [TunableDescriptor] { [mouseSideButtons.descriptor, swipeNavigation.descriptor] }
-=======
-    public static var all: [TunableDescriptor] { [mouseSideButtons.descriptor] }
->>>>>>> origin/feat-cmux-next
 }
