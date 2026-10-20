@@ -24,6 +24,11 @@ import { SnapshotsGroupDefinition } from "./api/snapshots.ts";
 import { TerminalsGroupDefinition } from "./api/terminals.ts";
 import { ApiKeysGroupDefinition } from "./api/api-keys.ts";
 import { MeshDeviceGroupDefinition, MeshEnrollGroupDefinition, MeshGroupDefinition } from "./api/mesh.ts";
+import { InitialVmNetwork, InitialVmNetworkReceipt } from "./api/initial-network.ts";
+import { ReplaceVmHttpsProxyRequest, VmHttpsProxyReceipt } from "./api/https-proxies.ts";
+import { VmImage, VmImageList, VmImageSelection } from "./api/images.ts";
+import { CreatedByCaller } from "./api/common.ts";
+import { VmInstanceIdentity, VmInstanceIdentityQuery } from "./api/instance-identity.ts";
 
 /**
  * Bearer authentication: a Stack Auth session token (with `X-Cmux-Team-Id`
@@ -90,9 +95,21 @@ export class Vm extends Schema.Class<Vm>("Vm")({
   updatedAt: Schema.String,
 }) {}
 
+export class CreatedVm extends Vm.extend<CreatedVm>("CreatedVm")({
+  initialNetwork: Schema.optional(InitialVmNetworkReceipt),
+  bootImage: Schema.optional(VmImage),
+}) {}
+
 export class VmList extends Schema.Class<VmList>("VmList")({
   items: Schema.Array(Vm),
   nextCursor: Schema.NullOr(Schema.String).annotations({ description: "Pass as `cursor` to read the next page; null on the last page." }),
+}) {}
+
+/** An explicit receipt: a paused VM alone is not fenced against inbound wake. */
+export class RetiredVm extends Schema.Class<RetiredVm>("RetiredVm")({
+  id: VmId,
+  state: Schema.Literal("paused", "stopped"),
+  retired: Schema.Literal(true),
 }) {}
 
 const IdleTimeoutSeconds = Schema.Int.pipe(Schema.between(-1, 7 * 24 * 60 * 60)).annotations({
@@ -108,7 +125,7 @@ const AutoDeleteSeconds = Schema.Int.pipe(Schema.between(-1, 365 * 24 * 60 * 60)
 });
 
 export const BASE_IMAGE_DESCRIPTION =
-  "Without snapshotId the VM boots the cmux base image, Ubuntu 24.04 LTS, with 4 vCPUs, 8192 MiB memory and 32768 MiB disk unless resources says otherwise.";
+  "Without snapshotId or image the VM boots the cmux base image, Ubuntu 24.04 LTS, with 4 vCPUs, 8192 MiB memory and 32768 MiB disk unless resources says otherwise.";
 
 export const RequestedResources = Schema.Struct({
   vcpus: Schema.optional(Schema.Int.pipe(Schema.between(2, 32))),
@@ -120,17 +137,35 @@ export const RequestedResources = Schema.Struct({
     "Size of the new VM. Omitted axes keep the base image's size. The VM boots from the largest base size that fits within the request on every axis, then grows to the exact request. Growing is a second step after the create and is not atomic: if it fails, the new VM is deleted and the create answers 409. Sizes can only grow, so a VM booted from a snapshot cannot be made smaller than the snapshot.",
 });
 
+/** Requested values are resource floors, so a retry never shrinks a VM. */
+export class ResizeVmRequest extends Schema.Class<ResizeVmRequest>("ResizeVmRequest")({
+  resources: RequestedResources.pipe(Schema.filter((value) => Object.values(value).some((axis) => axis !== undefined), {
+    message: () => "Specify at least one resource axis",
+    jsonSchema: { minProperties: 1 },
+  })).annotations({ identifier: "ResizeVmResources", description: "Nonempty minimum resource floors. Omitted axes stay unchanged and larger axes are retained.", parseOptions: { onExcessProperty: "error" } }),
+}, {
+  parseOptions: { onExcessProperty: "error" },
+  description: "Grow an existing VM to at least the requested resources. Omitted axes stay unchanged; already larger axes are kept. Disk growth requires a running VM.",
+  message: () => ({ message: "Invalid VM resize request", override: true }),
+}) {}
+
 export class CreateVmRequest extends Schema.Class<CreateVmRequest>("CreateVmRequest")(
   {
+    image: Schema.optionalWith(VmImageSelection, { exact: true }),
+    // An undefined union branch would echo invalid proxy credentials in decode errors.
+    initialNetwork: Schema.optionalWith(InitialVmNetwork, { exact: true }),
     displayName: Schema.optional(DisplayName),
-    snapshotId: Schema.optional(SnapshotId.annotations({ description: "Boot from one of the tenant's snapshots; omit for the base image." })),
+    snapshotId: Schema.optional(SnapshotId.annotations({ description: "Boot from one of the tenant's snapshots; mutually exclusive with image. Omit both for the base image." })),
     resources: Schema.optional(RequestedResources),
     idleTimeoutSeconds: Schema.optional(IdleTimeoutSeconds),
     maxRunSeconds: Schema.optional(MaxRunSeconds),
     autoDeleteSeconds: Schema.optional(AutoDeleteSeconds),
     labels: Schema.optional(Labels),
   },
-  { description: BASE_IMAGE_DESCRIPTION },
+  {
+    description: BASE_IMAGE_DESCRIPTION,
+    message: () => ({ message: "Invalid VM creation request", override: true }),
+  },
 ) {}
 
 export class ForkVmRequest extends Schema.Class<ForkVmRequest>("ForkVmRequest")({
@@ -145,6 +180,7 @@ export class ForkVmRequest extends Schema.Class<ForkVmRequest>("ForkVmRequest")(
 const LabelSelector = Schema.String.pipe(Schema.pattern(/^[a-z0-9]([a-z0-9._/-]{0,61}[a-z0-9])?=[A-Za-z0-9._:/@-]{0,63}$/));
 
 export const ListVmsParams = Schema.Struct({
+  createdBy: Schema.optional(CreatedByCaller),
   limit: Schema.optional(Schema.NumberFromString.pipe(Schema.int(), Schema.between(1, 100))),
   cursor: Schema.optional(Schema.String.pipe(Schema.maxLength(512))),
   state: Schema.optional(VmState.annotations({
@@ -210,6 +246,15 @@ export class FileList extends Schema.Class<FileList>("FileList")({
   entries: Schema.Array(FileEntry),
 }) {}
 
+export class FileStat extends Schema.Class<FileStat>("FileStat")({
+  kind: FileEntryKind,
+  size: Schema.Int.pipe(Schema.between(0, Number.MAX_SAFE_INTEGER)),
+  mode: Schema.Int.pipe(Schema.between(0, 0o7777)).annotations({ description: "POSIX permission bits, including setuid/setgid/sticky, as an integer (420 is 0644). File-type bits are excluded." }),
+  mtime: Schema.NullOr(Schema.Int.pipe(Schema.between(-62167219200, 253402300799))).annotations({ description: "Last modification time, epoch seconds. Null when unavailable on the saved disk; never inferred from the VM's timestamps." }),
+  owner: Schema.String.pipe(Schema.maxLength(256)),
+  group: Schema.String.pipe(Schema.maxLength(256)),
+}) {}
+
 export const FilePathParams = Schema.Struct({ path: GuestPath });
 
 export const WriteFileParams = Schema.Struct({
@@ -271,10 +316,33 @@ const vmAction = <const Name extends string>(endpointName: Name, path: `/v1/vms/
 
 export class VmsGroup extends HttpApiGroup.make("vms")
   .add(
+    HttpApiEndpoint.get("getVmInstanceIdentity", "/v1/vms/:vmId/identity")
+      .setPath(VmPath).setUrlParams(VmInstanceIdentityQuery).setHeaders(TeamHeaders).addSuccess(VmInstanceIdentity)
+      .addError(NotFound).addError(QuotaExceeded).addError(ServiceUnavailable)
+      .annotateContext(describe("Read a VM allocation's instance fingerprint", "vm:read", "Identifies the canonical allocation without exposing its private instance ID. sha256-v1 is lowercase SHA-256 of UTF-8 cmux-vm-instance-v1, a newline, then the exact guest instance ID. Stable across power changes; a new allocation has a different fingerprint. By default this reads only the ownership record. checkPresence=true also reads provider state without waking the guest and returns present or missing; only a caller that owns the allocation can receive missing, while an inaccessible allocation remains 404. Neither result grants access. Binding still requires a guest signature, single-use nonce and current epoch.")),
+  )
+  .add(
+    HttpApiEndpoint.post("retireVm", "/v1/vms/:vmId/retire")
+      .setPath(VmPath).setHeaders(TeamHeaders).addSuccess(RetiredVm)
+      .addError(NotFound).addError(QuotaExceeded).addError(ServiceUnavailable)
+      .annotateContext(describe("Retire a VM permanently", "vm:write", "Confirms a zero lifetime run budget and a paused or stopped VM. Later starts, inbound wakes, exec and file writes are refused. File reads and deletion remain available, subject to existing deletion deadlines. Syncs an already running guest first, best effort and bounded; never starts a paused guest. There is no unretire operation. Retrying is safe; 503 can mean the fence applied but its final state is unconfirmed. No active VM plan is required to retire an existing VM.")),
+  )
+  .add(
+    HttpApiEndpoint.post("resizeVm", "/v1/vms/:vmId/resize")
+      .setPath(VmPath).setHeaders(CreateHeaders).setPayload(ResizeVmRequest).addSuccess(Vm)
+      .addError(BadRequest).addError(Forbidden).addError(NotFound).addError(Conflict).addError(PaymentRequired).addError(QuotaExceeded)
+      .annotateContext(describe("Grow a VM", "vm:write", "Requires the tenant's VM plan. Requested axes are minimums: larger values are retained, never shrunk. Disk growth requires a running VM. The API confirms resource floors before success, including after a failed provider response. A retry with the same Idempotency-Key replays the current VM; changed resource intent is 409. A partial failure can leave grown resources; no VM is deleted.")),
+  )
+  .add(
+    HttpApiEndpoint.get("listVmImages", "/v1/vm-images").setHeaders(TeamHeaders).addSuccess(VmImageList)
+      .addError(QuotaExceeded).addError(ServiceUnavailable)
+      .annotateContext(describe("List approved VM images", "vm:read", "Returns only image descriptors approved for the authenticated service. Provider snapshot references are not exposed. An ordinary tenant credential sees an empty catalog.")),
+  )
+  .add(
     HttpApiEndpoint.post("createVm", "/v1/vms")
       .setPayload(CreateVmRequest)
       .setHeaders(CreateHeaders)
-      .addSuccess(Vm, { status: 201 })
+      .addSuccess(CreatedVm, { status: 201 })
       .addError(BadRequest)
       .addError(Forbidden)
       .addError(NotFound)
@@ -285,7 +353,7 @@ export class VmsGroup extends HttpApiGroup.make("vms")
         describe(
           "Create a VM",
           "vm:write",
-          "Refused with 402 when the tenant's plan does not include VMs and 429 at the tenant's VM quota. Dev/test tenants may not ask for an idle timeout over 300 seconds and default to 300; other tenants default to -1 (never pause for idleness). A retry with the same Idempotency-Key returns the first VM instead of creating another; the same key with a different body is 409. Keys with a resource allowlist cannot create.",
+          "Refused with 402 when the tenant's plan does not include VMs and 429 at the tenant's VM quota. Dev/test tenants may not ask for an idle timeout over 300 seconds and default to 300; other tenants default to -1 (never pause for idleness). A retry with the same Idempotency-Key returns the first VM instead of creating another; the same key with a different body is 409. Keys with a resource allowlist cannot create. initialNetwork additionally requires vm:network; proxy destinations must be enabled by the deployment. When initialNetwork is requested, its receipt confirms the accepted policy. A missing receipt means the API does not support that request; do not assume the policy was applied.",
         ),
       ),
   )
@@ -297,6 +365,16 @@ export class VmsGroup extends HttpApiGroup.make("vms")
       .addError(BadRequest)
       .addError(QuotaExceeded)
       .annotateContext(describe("List the tenant's VMs, newest first", "vm:read", "A key with a resource allowlist sees only those VMs.")),
+  )
+  .add(
+    HttpApiEndpoint.put("replaceVmHttpsProxy", "/v1/vms/:vmId/https-proxies/:hostname")
+      .setPath(Schema.Struct({ vmId: Schema.String, hostname: Schema.String }))
+      .setPayload(ReplaceVmHttpsProxyRequest)
+      .setHeaders(CreateHeaders)
+      .addSuccess(VmHttpsProxyReceipt)
+      .addError(BadRequest).addError(Forbidden).addError(NotFound).addError(Conflict).addError(QuotaExceeded).addError(ServiceUnavailable)
+      .annotateContext(describe("Replace an HTTPS proxy", "vm:network",
+        "Replaces only an existing HTTP proxy whose source is exactly this VM, never a shared-network or public rule. The destination must be approved by the deployment. Missing rules are 404; multiple matches are 409. Credentials are write-only. With an Idempotency-Key, identical retries replay the receipt; changed policy or credentials are 409. This does not install guest hosts entries or create new proxy rules.")),
   )
   .add(
     HttpApiEndpoint.get("getVm", "/v1/vms/:vmId")
@@ -379,6 +457,12 @@ export class ExecGroup extends HttpApiGroup.make("exec")
   .middleware(Authentication) {}
 
 export class FilesGroup extends HttpApiGroup.make("files")
+  .add(
+    HttpApiEndpoint.get("statFile", "/v1/vms/:vmId/files/stat")
+      .setPath(VmPath).setUrlParams(FilePathParams).setHeaders(TeamHeaders).addSuccess(FileStat)
+      .addError(BadRequest).addError(NotFound).addError(QuotaExceeded).addError(ServiceUnavailable)
+      .annotateContext(describe("Read file metadata from a VM", "vm:files", "Reads metadata directly from saved disk on paused, stopped or retired VMs without starting or executing the guest. Symlinks are reported as symlinks even if their target is a file or directory. A missing path is 404 File not found. Malformed provider metadata answers 503 instead of inventing size, permissions or timestamps. The API adds no read audit row.")),
+  )
   .add(
     HttpApiEndpoint.get("readFile", "/v1/vms/:vmId/files/content")
       .setPath(VmPath)

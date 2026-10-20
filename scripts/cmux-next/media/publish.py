@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
-"""Post cmux-next tour media on its pull request: one sticky comment per PR.
+"""Post cmux-next tour media on its pull request, in the `tour` part of its status comment.
 
     publish.py --media DIR --pr N --sha SHA [--run-url URL] [--note TEXT] [--dry-run]
 
 DIR holds tour.py's output (<tour>/manifest.json, shots/, frames/). For each
 tour this turns the frames into an mp4 and a GIF, uploads them and the
 screenshots to the `pr-media` branch at <pr>/<sha8>/next-<tour>/ (the layout
-scripts/ci/prune_pr_media.py bounds), and writes the comment marked
-COMMENT_MARKER: the GIF, a step table, failed steps' screenshots inline and
-the rest folded. With no tour output, `--note` says why in the same comment.
+scripts/ci/prune_pr_media.py bounds), and writes the `tour` section of the
+PR's status comment (scripts/ci/pr_status.py): the GIF, a step table, failed
+steps' screenshots inline and the rest folded. With no tour output, `--note`
+says why in one line. The comment this used to keep on its own (COMMENT_MARKER)
+is deleted on the first write.
 
 Uploads go through scripts/pr-media.py's contents-API writer. Nothing is
 posted when the pull request's head has moved past SHA: the newer push's run
@@ -32,7 +34,6 @@ from typing import Any, Callable
 ROOT = Path(__file__).resolve().parents[3]
 COMMENT_MARKER = "<!-- cmux-next:tour-media -->"
 TOURS_DIR = "scripts/cmux-next/media/tours"
-BOT = "github-actions[bot]"
 # Frames are taken about every 0.5 s; played at 4 per second the video runs at 2x.
 VIDEO_FPS = 4
 GIF_FPS = 4
@@ -229,12 +230,16 @@ def scope_table(media: Path) -> str:
 def render(sha: str, sections: list[str], run_url: str | None, note: str | None,
            scope: str = "") -> str:
     run = f" ([run]({run_url}))" if run_url else ""
-    lines = [COMMENT_MARKER, f"**cmux-next tour** of `{sha}`{run}", ""]
+    if not sections:
+        # No media: one line, not a block.
+        why = f" {note}" if note else ""
+        return f"Tour of `{sha[:10]}`{run}: no media.{why}\n"
+    lines = [f"**Tour** of `{sha[:10]}`{run}", ""]
     if note:
         lines += [note, ""]
     if scope:
         lines += [scope, ""]
-    lines += sections or ["The tour produced no media."]
+    lines += sections
     lines += ["", f"<sub>Tours are data in `{TOURS_DIR}`: add a step or a tour file to show your feature.</sub>"]
     return "\n".join(lines) + "\n"
 
@@ -247,14 +252,9 @@ def gh(args: list[str], stdin: str | None = None) -> str:
 
 
 def upsert_comment(repo: str, pr: int, body: str) -> None:
-    ids = gh(["api", f"repos/{repo}/issues/{pr}/comments", "--paginate", "--jq",
-              f'.[] | select(.user.login == "{BOT}" and (.body | contains("{COMMENT_MARKER}"))) | .id'])
-    existing = ids.split()
-    payload = json.dumps({"body": body})
-    if existing:
-        gh(["api", "-X", "PATCH", f"repos/{repo}/issues/comments/{existing[0]}", "--input", "-"], payload)
-    else:
-        gh(["api", "-X", "POST", f"repos/{repo}/issues/{pr}/comments", "--input", "-"], payload)
+    sys.path.insert(0, str(ROOT / "scripts/ci"))
+    import pr_status
+    pr_status.upsert(repo, pr, "tour", body, legacy=COMMENT_MARKER)
 
 
 def main(argv: list[str] | None = None) -> int:

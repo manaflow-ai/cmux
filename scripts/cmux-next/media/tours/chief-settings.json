@@ -1,0 +1,12 @@
+{
+  "title": "Chief settings",
+  "steps": [
+    {"title": "Launch", "wait": 2},
+    {"title": "Home with the Chief", "cmux": ["action", "run", "home.show"], "wait": 4,
+     "optional": "the Chief's daemon may not start on this runner"},
+    {"title": "Chief settings under the name pill", "cmux": ["action", "run", "home.toggleChiefSettings"], "wait": 3,
+     "optional": "the settings open only over a Chief conversation"},
+    {"title": "Closed again", "cmux": ["action", "run", "home.toggleChiefSettings"], "wait": 1,
+     "optional": "the settings open only over a Chief conversation"}
+  ]
+}

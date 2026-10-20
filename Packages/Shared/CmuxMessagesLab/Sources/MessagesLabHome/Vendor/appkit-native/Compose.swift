@@ -111,6 +111,12 @@ final class FieldTextView: NSTextView {
     }
     var caretSuspended = false { didSet { updateCaret(reset: false) } }
 
+    /// cmux: the caret's colour after a palette change (it was set once, when the field was made).
+    func recolorCaret() {
+        caretLayer.backgroundColor = Fixture.caret.cgColor
+        if !Self.ownCaret, insertionPointColor != .clear { insertionPointColor = Fixture.caret }
+    }
+
     func installCaret() {
         guard Self.ownCaret else { return }
         insertionPointColor = .clear
@@ -444,18 +450,38 @@ final class FieldTextView: NSTextView {
 
     // cmux: files and pictures dropped on the field go to the host's intake
     // (Home's type rule, as paste); text drags keep NSTextView's own handling.
+    // cmux: the intake's answer depends only on the drag's pasteboard, so it is read once per drag
+    // (its sequence number), not on every drag-over event: the drag server waits for each answer,
+    // and each read is a round trip to the pasteboard server (DragWhileStreamingTests).
+    private var dragAnswer: (sequence: Int, accepts: Bool)?
+    private func takesDrag(_ sender: any NSDraggingInfo) -> Bool {
+        if let a = dragAnswer, a.sequence == sender.draggingSequenceNumber { return a.accepts }
+        let accepts = acceptsPastePasteboard(sender.draggingPasteboard)
+        dragAnswer = (sender.draggingSequenceNumber, accepts)
+        return accepts
+    }
     override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
-        acceptsPastePasteboard(sender.draggingPasteboard) ? .copy : super.draggingEntered(sender)
+        dragAnswer = nil
+        return takesDrag(sender) ? .copy : super.draggingEntered(sender)
     }
     override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
-        acceptsPastePasteboard(sender.draggingPasteboard) ? .copy : super.draggingUpdated(sender)
+        takesDrag(sender) ? .copy : super.draggingUpdated(sender)
+    }
+    override func draggingExited(_ sender: (any NSDraggingInfo)?) {
+        dragAnswer = nil
+        super.draggingExited(sender)
+    }
+    override func draggingEnded(_ sender: any NSDraggingInfo) {
+        dragAnswer = nil
+        super.draggingEnded(sender)
     }
     override func prepareForDragOperation(_ sender: any NSDraggingInfo) -> Bool {
-        acceptsPastePasteboard(sender.draggingPasteboard) || super.prepareForDragOperation(sender)
+        takesDrag(sender) || super.prepareForDragOperation(sender)
     }
     override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
-        let pb = sender.draggingPasteboard
-        if acceptsPastePasteboard(pb) { return onDropPasteboard(pb) }
+        let takes = takesDrag(sender)
+        dragAnswer = nil
+        if takes { return onDropPasteboard(sender.draggingPasteboard) }
         return super.performDragOperation(sender)
     }
 }
@@ -866,6 +892,8 @@ final class ComposeView: UIView {
         if !nativeChrome { renderGlass(); buttons.setNeedsDisplay() }
         renderPlaceholder()
         renderChips()
+        // cmux: the caret follows the palette too (the bubble style, the theme, the accent).
+        textView.view.recolorCaret()
     }
 
     /// The "+" button (opens the file picker).

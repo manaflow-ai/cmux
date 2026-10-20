@@ -120,19 +120,22 @@ public nonisolated struct SettingsPageLayout: Sendable {
                           title: SettingsText.keyed("settings.pageGroup.terminalBehavior", "Behavior")),
             ],
             lead: [.terminalInfo], trail: [.ghosttyDiagnostics], actions: [.terminal], aliases: [.terminal]),
-        // The Monaco code editor (and the markdown viewer's text size): VS Code's settings by name.
+        // The Monaco code editor: VS Code's settings by name. The Markdown Viewer group (its text
+        // size too) lives in General beside Diff Viewer; a row has one home.
         CategorySpec(
             id: "editor", title: section(.editor), symbol: "chevron.left.forwardslash.chevron.right",
             groups: [
                 group("settings.group.editorDefaults"), group("settings.group.editorFont"), group("settings.group.editorText"),
                 group("settings.group.editorDisplay"), group("settings.group.editorCursor"), group("settings.group.editorEditing"),
-                group("settings.group.editorSaving"), group("settings.group.markdownViewer"),
+                group("settings.group.editorSaving"),
             ],
             actions: [.editor], aliases: [.editor]),
         CategorySpec(
             id: "agents", title: SettingsText.keyed("settings.category.agents", "Agents"), symbol: "sparkles",
             groups: [
                 GroupSpec(group: "settings.group.agentChat", keys: ["app.warnBeforeClosingAgentSession"]),
+                // How the Chief chat's bubbles look (the theme's colours, or iMessage's).
+                group("settings.group.chiefChat"),
                 group("settings.group.computerUse"),
                 // The free AI model while signed out (cx-ds09i).
                 group("settings.group.freeModel"),
@@ -140,6 +143,8 @@ public nonisolated struct SettingsPageLayout: Sendable {
                 group("settings.group.sessions"),
                 // Whether agent sessions may start sub-sessions, how many and how deep.
                 group("settings.group.subsessions"),
+                // The Chief pet floating over every app, and its character.
+                group("settings.group.chiefPet"),
             ],
             // Harnesses lists every harness; Your Agents (BRING-YOUR-OWN-HARNESS) adds, checks and
             // removes the ones you added.
@@ -157,7 +162,7 @@ public nonisolated struct SettingsPageLayout: Sendable {
             id: "browser", title: section(.browser), symbol: "globe",
             groups: [
                 group("settings.group.engine"), group("settings.group.addressBar"), group("settings.group.toolbar"),
-                group("settings.group.bookmarks"), group("settings.group.extensions"),
+                group("settings.group.bookmarks"), group("settings.group.agentInput"), group("settings.group.extensions"),
                 group("settings.group.links"), group("settings.group.openingLinks"), group("settings.group.passwords"),
                 group("settings.group.memory"), group("settings.group.remote"),
             ],

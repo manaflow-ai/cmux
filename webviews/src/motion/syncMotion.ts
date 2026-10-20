@@ -85,7 +85,7 @@ function movedIds(before: readonly SyncRow[], after: readonly SyncRow[]): Set<st
   // Patience LIS, O(n log n).
   const tails: number[] = [];
   const tailIndex: number[] = [];
-  const previous: number[] = new Array(seq.length).fill(-1);
+  const previous: number[] = Array.from({ length: seq.length }, () => -1);
   for (let index = 0; index < seq.length; index += 1) {
     let low = 0;
     let high = tails.length;
